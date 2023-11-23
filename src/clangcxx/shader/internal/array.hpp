@@ -6,10 +6,12 @@ namespace luisa::shader {
 
 template<typename Type, uint64 size, uint32 CacheFlags = 0 /*AUTO*/>
 struct [[builtin("array")]] Array {
-    [[builtin("BUFFER_READ")]] Type load(uint3 loc);
-    [[ignore]] Type operator[](uint2 loc) const { return load(uint3(loc, 0)); };
+    [[expr("ACCESS")]] Type load(uint32 loc);
+    [[ignore]] Type operator[](uint32 loc) const { return load(loc); };
 
     [[builtin("BUFFER_WRITE")]] void store(uint32 loc, Type value);
+
+    Type v[size];
 };
 
 }// namespace luisa::shader

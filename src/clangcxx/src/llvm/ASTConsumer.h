@@ -37,9 +37,13 @@ class RecordDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCall
 public:
     RecordDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
-    bool TryEmplaceAsPrimitiveType(const clang::BuiltinType *builtin, luisa::vector<const luisa::compute::Type *> &types);
-    bool TryEmplaceAsBuiltinType(const clang::QualType Ty, const clang::RecordDecl* recordDecl, luisa::vector<const luisa::compute::Type *> &types);
-    bool TryEmplaceAsStructureType(const clang::RecordDecl* recordDecl, luisa::vector<const luisa::compute::Type *> &types);
+
+    const luisa::compute::Type* RecordAsPrimitiveType(const clang::QualType Ty, const clang::RecordDecl *decl);
+    const luisa::compute::Type* RecordAsBuiltinType(const clang::QualType Ty, const clang::RecordDecl *decl);
+    const luisa::compute::Type* RecordAsStuctureType(const clang::QualType Ty, const clang::RecordDecl *decl);
+    const luisa::compute::Type* RecordType(const clang::QualType Ty, const clang::RecordDecl *decl);
+
+    bool TryEmplaceFieldType(const clang::QualType Ty, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types);
 
     CXXBlackboard* blackboard = nullptr;
 };

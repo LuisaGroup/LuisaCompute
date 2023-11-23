@@ -16,44 +16,57 @@ using namespace clang;
 using namespace clang::ast_matchers;
 using namespace luisa::compute;
 
-bool RecordDeclStmtHandler::TryEmplaceAsPrimitiveType(const clang::BuiltinType *builtin, luisa::vector<const luisa::compute::Type *> &types) {
-    // clang-format off
-    switch (builtin->getKind()) {
-        /*
-        case (BuiltinType::Kind::SChar): { types.emplace_back(Type::of<signed char>()); } return true; 
-        case (BuiltinType::Kind::Char_S): { types.emplace_back(Type::of<signed char>()); } return true; 
-        case (BuiltinType::Kind::Char8): { types.emplace_back(Type::of<signed char>()); } return true; 
+const luisa::compute::Type *RecordDeclStmtHandler::RecordAsPrimitiveType(const clang::QualType Ty, const clang::RecordDecl *decl) {
+    const luisa::compute::Type *_type = nullptr;
+    if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
+        // clang-format off
+        switch (builtin->getKind()) {
+            /*
+            case (BuiltinType::Kind::SChar): _type = Type::of<signed char>(); break;
+            case (BuiltinType::Kind::Char_S): _type = Type::of<signed char>(); break;
+            case (BuiltinType::Kind::Char8): _type = Type::of<signed char>(); break;
 
-        case (BuiltinType::Kind::UChar): { types.emplace_back(Type::of<unsigned char>()); } return true; 
-        case (BuiltinType::Kind::Char_U): { types.emplace_back(Type::of<unsigned char>()); } return true;
-        
-        case (BuiltinType::Kind::Char16): { types.emplace_back(Type::of<char16_t>()); } return true; 
-        */
-        case (BuiltinType::Kind::Bool): { types.emplace_back(Type::of<bool>()); } return true;
+            case (BuiltinType::Kind::UChar): _type = Type::of<unsigned char>(); break;
+            case (BuiltinType::Kind::Char_U): _type = Type::of<unsigned char>(); break;
 
-        case (BuiltinType::Kind::UShort): { types.emplace_back(Type::of<uint16_t>()); } return true;
-        case (BuiltinType::Kind::UInt): { types.emplace_back(Type::of<uint32_t>()); } return true;
-        case (BuiltinType::Kind::ULong): { types.emplace_back(Type::of<uint32_t>()); } return true;
-        case (BuiltinType::Kind::ULongLong): { types.emplace_back(Type::of<uint64_t>()); } return true;
+            case (BuiltinType::Kind::Char16): _type = Type::of<char16_t>(); break;
+            */
+            case (BuiltinType::Kind::Bool): _type = Type::of<bool>(); break;
 
-        case (BuiltinType::Kind::Short): { types.emplace_back(Type::of<int16_t>()); } return true;
-        case (BuiltinType::Kind::Int): { types.emplace_back(Type::of<int32_t>()); } return true;
-        case (BuiltinType::Kind::Long): { types.emplace_back(Type::of<int32_t>()); } return true;
-        case (BuiltinType::Kind::LongLong): { types.emplace_back(Type::of<int64_t>()); } return true;
+            case (BuiltinType::Kind::UShort): _type = Type::of<uint16_t>(); break;
+            case (BuiltinType::Kind::UInt): _type = Type::of<uint32_t>(); break;
+            case (BuiltinType::Kind::ULong): _type = Type::of<uint32_t>(); break;
+            case (BuiltinType::Kind::ULongLong): _type = Type::of<uint64_t>(); break;
 
-        case (BuiltinType::Kind::Float): { types.emplace_back(Type::of<float>()); } return true;
-        case (BuiltinType::Kind::Double): { types.emplace_back(Type::of<double>()); } return true;
+            case (BuiltinType::Kind::Short): _type = Type::of<int16_t>(); break;
+            case (BuiltinType::Kind::Int): _type = Type::of<int32_t>(); break;
+            case (BuiltinType::Kind::Long): _type = Type::of<int32_t>(); break;
+            case (BuiltinType::Kind::LongLong): _type = Type::of<int64_t>(); break;
 
-        default: return false;
+            case (BuiltinType::Kind::Float): _type = Type::of<float>(); break;
+            case (BuiltinType::Kind::Double): _type = Type::of<double>(); break;
+
+            default: 
+            {
+                luisa::log_error("unsupported field primitive type: [{}], kind [{}] in type [{}]",
+                    Ty.getAsString(), builtin->getKind(), decl->getNameAsString());
+            }
+            break;
+        }
+        // clang-format on
     }
-    // clang-format on
+    if (_type) {
+        blackboard->type_map[luisa::string(decl->getQualifiedNameAsString())] = _type;
+    }
+    return _type;
 }
 
-bool RecordDeclStmtHandler::TryEmplaceAsBuiltinType(const QualType Ty, const clang::RecordDecl *recordDecl, luisa::vector<const luisa::compute::Type *> &types) {
+const luisa::compute::Type *RecordDeclStmtHandler::RecordAsBuiltinType(const QualType Ty, const clang::RecordDecl *decl) {
+    const luisa::compute::Type *_type = nullptr;
     bool ext_builtin = false;
     llvm::StringRef builtin_type_name = {};
-    for (auto Anno = recordDecl->specific_attr_begin<clang::AnnotateAttr>();
-         Anno != recordDecl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+    for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
+         Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
         if (ext_builtin = isBuiltinType(*Anno)) {
             builtin_type_name = getBuiltinTypeName(*Anno);
         }
@@ -72,11 +85,11 @@ bool RecordDeclStmtHandler::TryEmplaceAsBuiltinType(const QualType Ty, const cla
                 switch (EType->getKind()) {
 #define CASE_VEC_TYPE(type)                                                                                    \
     switch (N) {                                                                                               \
-        case 2: { types.emplace_back(Type::of<type##2>()); } return true;                                            \
-        case 3: { types.emplace_back(Type::of<type##3>()); } return true;                                            \
-        case 4: { types.emplace_back(Type::of<type##4>()); } return true;                                            \
+        case 2: { _type = Type::of<type##2>(); } break;                                            \
+        case 3: { _type = Type::of<type##3>(); } break;                                            \
+        case 4: { _type = Type::of<type##4>(); } break;                                            \
         default: {                                                                                             \
-            luisa::log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N); \
+            luisa::log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
         } break;                                                                                               \
     }
                     case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool) } break;
@@ -100,17 +113,69 @@ bool RecordDeclStmtHandler::TryEmplaceAsBuiltinType(const QualType Ty, const cla
             luisa::log_error("unsupported builtin type: {} as a field", luisa::string(builtin_type_name));
         }
     }
-    return false;
+    if (_type) {
+        blackboard->type_map[luisa::string(decl->getQualifiedNameAsString())] = _type;
+    }
+    return _type;
 }
 
-bool RecordDeclStmtHandler::TryEmplaceAsStructureType(const clang::RecordDecl *recordDecl, luisa::vector<const luisa::compute::Type *> &types) {
-    auto field_qualified_type_name = luisa::string(recordDecl->getQualifiedNameAsString());
+const luisa::compute::Type *RecordDeclStmtHandler::RecordAsStuctureType(const clang::QualType Ty, const clang::RecordDecl *decl) {
+    const luisa::compute::Type *_type = nullptr;
+    auto field_qualified_type_name = luisa::string(decl->getQualifiedNameAsString());
     auto iter = blackboard->type_map.find(field_qualified_type_name);
     if (iter != blackboard->type_map.end()) {
-        types.emplace_back(iter->second);
-        return true;
+        _type = iter->second;
     }
-    return false;
+    if (_type) {
+        blackboard->type_map[luisa::string(decl->getQualifiedNameAsString())] = _type;
+    }
+    return _type;
+}
+
+bool RecordDeclStmtHandler::TryEmplaceFieldType(const clang::QualType Qt, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types) {
+    const luisa::compute::Type *_type = nullptr;
+    clang::QualType Ty = Qt;
+    // 1. PRIMITIVE
+    if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
+        _type = RecordAsPrimitiveType(Ty, decl);
+        if (!_type) {
+            luisa::log_error("unsupported field primitive type: [{}], kind [{}] in type [{}]",
+                             Ty.getAsString(), builtin->getKind(), decl->getNameAsString());
+        }
+    } else {
+        // 2.0 RESOLVE TO RECORD
+        clang::RecordDecl *recordDecl = Ty->getAsRecordDecl();
+        if (!recordDecl) {
+            if (const auto *TDT = Ty->getAs<clang::TypedefType>()) {
+                Ty = TDT->getDecl()->getUnderlyingType();
+                recordDecl = Ty->getAsRecordDecl();
+            } else if (const auto *TST = Ty->getAs<clang::TemplateSpecializationType>()) {
+                recordDecl = TST->getAsRecordDecl();
+            } else if (const auto *AT = Ty->getAsArrayTypeUnsafe()) {
+                luisa::log_error("array type is not supported: [{}] in type [{}]", Ty.getAsString(), decl->getNameAsString());
+            } else {
+                Ty.dump();
+            }
+        }
+        // 2.1 EMPLACE RECORD
+        if (recordDecl) {
+            // 2.1.1 AS BUILTIN
+            if (!_type) {
+                _type = RecordAsBuiltinType(Ty, recordDecl);
+            }
+            // 2.1.2 AS STRUCTURE
+            if (!_type) {
+                _type = RecordAsStuctureType(Ty, recordDecl);
+            }
+        } else {
+            decl->dump();
+            luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), decl->getNameAsString());
+        }
+    }
+    if (_type) {
+        types.emplace_back(_type);
+    }
+    return _type;
 }
 
 void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
@@ -124,39 +189,9 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             luisa::vector<const luisa::compute::Type *> types;
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
                 auto Ty = f->getType();
-                // 1. PRIMITIVE
-                if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
-                    if (!TryEmplaceAsPrimitiveType(builtin, types)) {
-                        luisa::log_error("unsupported field primitive type: [{}], kind [{}] in type [{}]",
-                                         Ty.getAsString(), builtin->getKind(), S->getNameAsString());
-                    }
-                    continue;
-                } else {
-                    // 2.0 RESOLVE TO RECORD
-                    clang::RecordDecl *recordDecl = Ty->getAsRecordDecl();
-                    if (!recordDecl) {
-                        if (const auto *TDT = Ty->getAs<clang::TypedefType>()) {
-                            Ty = TDT->getDecl()->getUnderlyingType();
-                            recordDecl = Ty->getAsRecordDecl();
-                        } else if (const auto *TST = Ty->getAs<clang::TemplateSpecializationType>()) {
-                            recordDecl = TST->getAsRecordDecl();
-                        } else if (const auto *AT = Ty->getAsArrayTypeUnsafe()) {
-                            luisa::log_error("array type is not supported: [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
-                        } else {
-                            Ty.dump();
-                        }
-                    }
-                    // 2.1 EMPLACE RECORD
-                    if (recordDecl) {
-                        // 2.1.1 AS BUILTIN
-                        if (TryEmplaceAsBuiltinType(Ty, recordDecl, types) ||
-                            TryEmplaceAsStructureType(recordDecl, types)) {
-                            continue;
-                        }
-                    } else {
-                        S->dump();
-                        luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
-                    }
+                if (!TryEmplaceFieldType(Ty, S, types)) {
+                    S->dump();
+                    luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
                 }
             }
             // align
@@ -199,8 +234,9 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
                     auto &type = blackboard->type_map["luisa::shader::NVIDIA"];
                     auto buffer = cur->buffer(Type::buffer(type));
                     cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
-                    auto local = cur->local(type);
-                    cur->call(CallOp::BUFFER_WRITE, {buffer, idx, local});
+                    auto local = cur->local(Type::array(type, 2));
+                    cur->access(Type::array(type, 2), local, idx);
+                    cur->call(CallOp::BUFFER_WRITE, {buffer, idx, cur->access(Type::array(type, 2), local, idx)});
                 }
             }
         }
