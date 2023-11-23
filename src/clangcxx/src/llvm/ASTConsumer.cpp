@@ -1,6 +1,7 @@
 #include "ASTConsumer.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/RecursiveASTVisitor.h"
 #include "AttributeHelpers.hpp"
 #include <iostream>
 #include <luisa/dsl/sugar.h>
@@ -15,6 +16,36 @@ namespace luisa::clangcxx {
 using namespace clang;
 using namespace clang::ast_matchers;
 using namespace luisa::compute;
+
+using CXXBinOp = clang::BinaryOperator::Opcode;
+using LCBinOp = luisa::compute::BinaryOp;
+
+inline luisa::compute::BinaryOp TranslateBinaryOp(clang::BinaryOperator::Opcode op) {
+    switch (op) {
+        case CXXBinOp::BO_Add: return LCBinOp::ADD;
+        case CXXBinOp::BO_Sub: return LCBinOp::SUB;
+        case CXXBinOp::BO_Mul: return LCBinOp::MUL;
+        case CXXBinOp::BO_Div: return LCBinOp::DIV;
+        case CXXBinOp::BO_Rem: return LCBinOp::MOD;
+        case CXXBinOp::BO_And: return LCBinOp::BIT_AND;
+        case CXXBinOp::BO_Or: return LCBinOp::BIT_OR;
+        case CXXBinOp::BO_Xor: return LCBinOp::BIT_XOR;
+        case CXXBinOp::BO_Shl: return LCBinOp::SHL;
+        case CXXBinOp::BO_Shr: return LCBinOp::SHR;
+        case CXXBinOp::BO_LAnd: return LCBinOp::AND;
+        case CXXBinOp::BO_LOr: return LCBinOp::OR;
+
+        case CXXBinOp::BO_LT: return LCBinOp::LESS;
+        case CXXBinOp::BO_GT: return LCBinOp::GREATER;
+        case CXXBinOp::BO_LE: return LCBinOp::LESS_EQUAL;
+        case CXXBinOp::BO_GE: return LCBinOp::GREATER_EQUAL;
+        case CXXBinOp::BO_EQ: return LCBinOp::EQUAL;
+        case CXXBinOp::BO_NE: return LCBinOp::NOT_EQUAL;
+        default:
+            luisa::log_error("unsupportted op {}!", op);
+            return LCBinOp::ADD;
+    }
+}
 
 inline static void Remove(luisa::string &str, const luisa::string &remove_str) {
     for (size_t i; (i = str.find(remove_str)) != luisa::string::npos;)
@@ -150,7 +181,7 @@ const luisa::compute::Type *RecordDeclStmtHandler::RecordAsBuiltinType(const Qua
                 if (Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *blackboard->astContext)) {
                     auto N = Result.Val.getInt().getExtValue();
                     auto Qualified = GetTypeName(Arguments[0].getAsType(), blackboard->astContext);
-                    auto lc_type = blackboard->type_map.find(luisa::string(Qualified));
+                    auto lc_type = blackboard->type_map.find(Qualified);
                     if (lc_type != blackboard->type_map.end()) {
                         _type = Type::array(lc_type->second, N);
                     } else {
@@ -241,9 +272,56 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     }
 }
 
+struct Stack {
+    luisa::unordered_map<luisa::string, const luisa::compute::RefExpr *> locals;
+    luisa::unordered_map<clang::Stmt *, const luisa::compute::Expression *> expr_map;
+};
+
+struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
+    bool TraverseStmt(clang::Stmt *x) {
+        RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
+        const luisa::compute::Expression *current = nullptr;
+        if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
+            current = cur->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
+        } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
+            const auto cxx_op = bin->getOpcode();
+            const auto lhs = stack->expr_map[bin->getLHS()];
+            const auto rhs = stack->expr_map[bin->getRHS()];
+            const auto lc_type = blackboard->type_map[GetTypeName(bin->getType(), blackboard->astContext)];
+            const auto op = TranslateBinaryOp(cxx_op);
+            current = cur->binary(lc_type, op, lhs, rhs);
+        } 
+        /*
+        else if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
+            const auto lhs = stack->expr_map[bin->getLHS()];
+            const auto rhs = stack->expr_map[bin->getRHS()];
+            const auto lc_type = blackboard->type_map[GetTypeName(bin->getType(), blackboard->astContext)];
+            auto local = cur->binary(lc_type, LCBinOp::ADD, lhs, rhs);
+            cur->assign(lhs, local);
+            luisa::log_error("BAD.");
+        }
+        */
+
+        stack->expr_map[x] = current;
+        if (x == root) {
+            translated = current;
+            LUISA_ASSERT(translated, "BAD");
+        }
+        return true;
+    }
+
+    Stack *stack = nullptr;
+    CXXBlackboard *blackboard = nullptr;
+    luisa::shared_ptr<compute::detail::FunctionBuilder> cur = nullptr;
+    clang::Stmt *root = nullptr;
+    const luisa::compute::Expression *translated = nullptr;
+};
+
 bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur) {
     if (!stmt)
         return true;
+
+    Stack stack;
 
     for (Stmt::child_iterator i = stmt->child_begin(), e = stmt->child_end(); i != e; ++i) {
         Stmt *currStmt = *i;
@@ -253,24 +331,31 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
         if (auto declStmt = llvm::dyn_cast<clang::DeclStmt>(stmt)) {
             const DeclGroupRef declGroup = declStmt->getDeclGroup();
             for (auto decl : declGroup) {
-                if (decl && isa<clang::VarDecl>(decl)) {
-                    auto *varDecl = (VarDecl *)decl;
-                    /*
-                    auto at = varDecl->getType();
-                    auto t = at->getContainedAutoType()->getCanonicalTypeInternal();
-                    {
-                        std::cout << at.getAsString() << std::endl;
-                        std::cout << t.getAsString() << std::endl;
-                        const clang::Expr *expr = varDecl->getInit();
+                if (!decl) continue;
+
+                if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
+                    auto Ty = varDecl->getType();
+                    auto lc_type = blackboard->type_map.find(GetTypeName(Ty, blackboard->astContext));
+                    if (lc_type != blackboard->type_map.end()) {
+                        /*
+                        auto idx = cur->literal(Type::of<uint>(), uint(0));
+                        auto buffer = cur->buffer(Type::buffer(lc_type->second));
+                        cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
+                        */
+                        auto local = cur->local(lc_type->second);
+                        stack.locals[luisa::string(varDecl->getName())] = local;
+
+                        ExprTranslator v;
+                        auto init = v.root = varDecl->getInit();
+                        v.stack = &stack;
+                        v.blackboard = blackboard;
+                        v.cur = cur;
+                        v.TraverseStmt(init);
+
+                        cur->assign(local, v.translated);
+
+                        // cur->call(CallOp::BUFFER_WRITE, {buffer, idx, local});
                     }
-                    */
-                    auto idx = cur->literal(Type::of<uint>(), uint(0));
-                    auto &type = blackboard->type_map["luisa::shader::NVIDIA"];
-                    auto buffer = cur->buffer(Type::buffer(type));
-                    cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
-                    auto local = cur->local(Type::array(type, 2));
-                    cur->access(Type::array(type, 2), local, idx);
-                    cur->call(CallOp::BUFFER_WRITE, {buffer, idx, cur->access(Type::array(type, 2), local, idx)});
                 }
             }
         }
@@ -282,7 +367,6 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
 void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     // The matched 'if' statement was bound to 'ifStmt'.
     if (const auto *S = Result.Nodes.getNodeAs<clang::FunctionDecl>("FunctionDecl")) {
-        // S->dump();
         bool ignore = false;
         auto params = S->parameters();
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
@@ -300,6 +384,8 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             }
         }
         if (!ignore) {
+            S->dump();
+
             luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
             Stmt *body = S->getBody();
             {
