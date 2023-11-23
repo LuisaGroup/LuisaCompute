@@ -28,14 +28,17 @@ namespace luisa::shader
     };
 }
 
-Buffer<int> buffer;
 // Buffer<NVIDIA> buffer;
 
 [[kernel_2d(16, 16)]]
-int main()
+int kernel(Buffer<int> buffer)
 {
     int n = 0 + 2 - 56;
     int m = n += 65;
+    int x = n -= 65;
+    int xx = n *= 65;
+    int yy = n /= 65;
+    int ww = n %= 65;
     // NVIDIA n = {};
     buffer.store(0, n);
 

@@ -290,6 +290,23 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     }
 }
 
+void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
+    auto &kernel_builder = blackboard->kernel_builder;
+    if (const auto *S = Result.Nodes.getNodeAs<clang::VarDecl>("VarDecl")) {
+        bool ignore = false;
+        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+            ignore |= isIgnore(*Anno);
+        }
+        const auto isGlobal = S->isStaticLocal() || S->isStaticDataMember() || S->isFileVarDecl();
+        const auto isConst = S->isConstexpr() || S->getType().isConstQualified();
+        const auto isNonConstGlobal = isGlobal && !isConst;
+        if (!ignore && isNonConstGlobal) {
+            S->dump();
+            luisa::log_error("global vars are banned!");
+        }
+    }
+}
+
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     bool TraverseStmt(clang::Stmt *x) {
         RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
@@ -387,9 +404,11 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     // The matched 'if' statement was bound to 'ifStmt'.
     if (const auto *S = Result.Nodes.getNodeAs<clang::FunctionDecl>("FunctionDecl")) {
         bool ignore = false;
+        bool is_kernel = false;
         auto params = S->parameters();
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
             ignore |= isIgnore(*Anno);
+            is_kernel |= isKernel(*Anno);
         }
         if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
             if (auto thisType = GetRecordDeclFromQualType(Method->getThisType()->getPointeeType())) {
@@ -403,12 +422,12 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             }
         }
         if (!ignore) {
-            S->dump();
+            // S->dump();
 
             luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
             Stmt *body = S->getBody();
             {
-                if (S->isMain()) {
+                if (is_kernel) {
                     builder = blackboard->kernel_builder;
                 } else {
                     builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
@@ -416,7 +435,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                 luisa::compute::detail::FunctionBuilder::push(builder.get());
                 builder->push_scope(builder->body());
                 {
-                    if (S->isMain()) {
+                    if (is_kernel) {
                         builder->set_block_size(uint3(256, 1, 1));
                     }
                     Stack stack;
@@ -447,6 +466,13 @@ ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device,
                            unless(isExpansionInSystemHeader()))
                            .bind("FunctionDecl"),
                        &HandlerForFuncionDecl);
+
+    HandlerForGlobalVar.blackboard = &blackboard;
+    Matcher.addMatcher(varDecl(
+                           isDefinition(),
+                           unless(isExpansionInSystemHeader()))
+                           .bind("VarDecl"),
+                       &HandlerForGlobalVar);
     // Matcher.addMatcher(stmt().bind("callExpr"), &HandlerForCallExpr);
 }
 
@@ -454,6 +480,10 @@ ASTConsumer::~ASTConsumer() {
     for (auto &&[name, type] : blackboard.type_map) {
         std::cout << name << " - ";
         std::cout << type->description() << std::endl;
+    }
+    for (auto &&[name, global] : blackboard.globals) {
+        std::cout << name << " - ";
+        std::cout << global->type()->description() << std::endl;
     }
 
     device->impl()->create_shader(
