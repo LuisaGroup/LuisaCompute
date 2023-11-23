@@ -7,6 +7,21 @@
 
 namespace luisa::compute {
 
+struct AccelTraceOptions {
+    CurveBasisSet curve_bases{CurveBasisSet::make_none()};
+    UInt visibility_mask{0xffu};
+};
+
+#define LUISA_ACCEL_TRACE_DEPRECATED                                                          \
+    [[deprecated(                                                                             \
+        "\n\n"                                                                                \
+        "Accel::trace_*(ray, vis_mask) and query_*(ray, vis_mask) are deprecated.\n"          \
+        "Please use Accel::trace_*/query_*(ray, const AccelTraceOptions &options) instead.\n" \
+        "\n"                                                                                  \
+        "Note: curve tracing is disabled by default for performance reasons. If you would\n"  \
+        "      like to enable it, please specify the required curve bases in the options.\n"  \
+        "\n")]]
+
 template<>
 struct LC_DSL_API Expr<Accel> {
 
@@ -17,10 +32,14 @@ public:
     explicit Expr(const RefExpr *expr) noexcept;
     explicit Expr(const Accel &accel) noexcept;
     [[nodiscard]] auto expression() const noexcept { return _expression; }
-    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
-    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
-    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
-    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<uint> instance_id) const noexcept;
@@ -63,10 +82,14 @@ public:
     LUISA_RESOURCE_PROXY_AVOID_CONSTRUCTION(AccelExprProxy)
 
 public:
-    [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
-    [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
-    [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
-    [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<TriangleHit> trace_closest(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+    [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<int> instance_id) const noexcept;
@@ -84,5 +107,7 @@ public:
 };
 
 }// namespace detail
+
+#undef LUISA_ACCEL_TRACE_DEPRECATED
 
 }// namespace luisa::compute

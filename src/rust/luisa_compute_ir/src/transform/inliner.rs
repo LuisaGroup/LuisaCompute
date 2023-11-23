@@ -36,6 +36,7 @@ pub fn inline_callable(caller: &Module, call: NodeRef, recursive: bool) {
     });
     if recursive {
         let inlined = Module {
+            curve_basis_set: caller.curve_basis_set,
             pools: caller.pools.clone(),
             kind: ModuleKind::Block,
             entry: inlined_block,

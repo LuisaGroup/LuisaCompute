@@ -12,6 +12,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::unordered_map<Type const *, uint64> structTypes;
     vstd::unordered_map<uint64, uint64> constTypes;
     vstd::unordered_map<uint64_t /* hash */, uint64> funcTypes;
+    vstd::vector<StructGenerator *> customStructVector;
     vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
     vstd::unordered_map<uint, uint> arguments;
     vstd::unordered_map<Type const *, vstd::string> internalStruct;

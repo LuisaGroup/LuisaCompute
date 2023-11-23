@@ -93,7 +93,7 @@ public:
 
     class Buffer*                newBuffer(NS::UInteger length, MTL::ResourceOptions options);
 
-    class Texture*               newTexture(const class TextureDescriptor* desc);
+    class Texture*               newTexture(const class TextureDescriptor* descriptor);
 
     MTL::PurgeableState          setPurgeableState(MTL::PurgeableState state);
 
@@ -275,9 +275,9 @@ _MTL_INLINE MTL::Buffer* MTL::Heap::newBuffer(NS::UInteger length, MTL::Resource
 }
 
 // method: newTextureWithDescriptor:
-_MTL_INLINE MTL::Texture* MTL::Heap::newTexture(const MTL::TextureDescriptor* desc)
+_MTL_INLINE MTL::Texture* MTL::Heap::newTexture(const MTL::TextureDescriptor* descriptor)
 {
-    return Object::sendMessage<MTL::Texture*>(this, _MTL_PRIVATE_SEL(newTextureWithDescriptor_), desc);
+    return Object::sendMessage<MTL::Texture*>(this, _MTL_PRIVATE_SEL(newTextureWithDescriptor_), descriptor);
 }
 
 // method: setPurgeableState:
@@ -327,4 +327,3 @@ _MTL_INLINE MTL::AccelerationStructure* MTL::Heap::newAccelerationStructure(cons
 {
     return Object::sendMessage<MTL::AccelerationStructure*>(this, _MTL_PRIVATE_SEL(newAccelerationStructureWithDescriptor_offset_), descriptor, offset);
 }
-

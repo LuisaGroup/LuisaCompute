@@ -23,6 +23,7 @@
 #include "cuda_device.h"
 #include "cuda_buffer.h"
 #include "cuda_mesh.h"
+#include "cuda_curve.h"
 #include "cuda_procedural_primitive.h"
 #include "cuda_accel.h"
 #include "cuda_stream.h"
@@ -456,6 +457,7 @@ template<bool allow_update_expected_metadata>
     // update the empty fields in metadata
     if constexpr (allow_update_expected_metadata) {
         if (expected_metadata.checksum == 0u) { expected_metadata.checksum = metadata->checksum; }
+        if (expected_metadata.curve_bases.none()) { expected_metadata.curve_bases = metadata->curve_bases; }
         if (expected_metadata.kind == CUDAShaderMetadata::Kind::UNKNOWN) { expected_metadata.kind = metadata->kind; }
         expected_metadata.enable_debug = metadata->enable_debug;
         expected_metadata.requires_trace_closest = metadata->requires_trace_closest;
@@ -620,19 +622,19 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
     auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
     auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
-    luisa::vector<const char *> nvrtc_options {
+    luisa::vector<const char *> nvrtc_options{
         sm_option.c_str(),
-            nvrtc_version_option.c_str(),
-            optix_version_option.c_str(),
-            "--std=c++17",
-            "-default-device",
-            "-restrict",
-            "-extra-device-vectorization",
-            "-dw",
-            "-w",
-            "-ewp",
+        nvrtc_version_option.c_str(),
+        optix_version_option.c_str(),
+        "--std=c++17",
+        "-default-device",
+        "-restrict",
+        "-extra-device-vectorization",
+        "-dw",
+        "-w",
+        "-ewp",
 #if !defined(NDEBUG) && LUISA_CUDA_KERNEL_DEBUG
-            "-DLUISA_DEBUG=1",
+        "-DLUISA_DEBUG=1",
 #endif
     };
 
@@ -652,7 +654,8 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     }
 
     // multithreaded compilation
-    if (_handle.driver_version() >= 12030) {
+    if (_compiler->nvrtc_version() >= 120100 &&
+        _handle.driver_version() >= 12030) {
         nvrtc_options.emplace_back("-split-compile=0");
     }
 
@@ -680,6 +683,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     // create metadata
     CUDAShaderMetadata metadata{
         .checksum = src_hash,
+        .curve_bases = kernel.required_curve_bases(),
         .kind = kernel.requires_raytracing() ?
                     CUDAShaderMetadata::Kind::RAY_TRACING :
                     CUDAShaderMetadata::Kind::COMPUTE,
@@ -850,6 +854,21 @@ void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
     with_handle([=] {
         auto mesh = reinterpret_cast<CUDAMesh *>(handle);
         delete_with_allocator(mesh);
+    });
+}
+
+ResourceCreationInfo CUDADevice::create_curve(const AccelOption &option) noexcept {
+    auto curve_handle = with_handle([&option] {
+        return new_with_allocator<CUDACurve>(option);
+    });
+    return {.handle = reinterpret_cast<uint64_t>(curve_handle),
+            .native_handle = const_cast<optix::TraversableHandle *>(curve_handle->pointer_to_handle())};
+}
+
+void CUDADevice::destroy_curve(uint64_t handle) noexcept {
+    with_handle([=] {
+        auto curve = reinterpret_cast<CUDACurve *>(handle);
+        delete_with_allocator(curve);
     });
 }
 
@@ -1058,6 +1077,7 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 reinterpret_cast<CUDABindlessArray *>(handle)->set_name(std::move(name));
                 break;
             case Resource::Tag::MESH: [[fallthrough]];
+            case Resource::Tag::CURVE: [[fallthrough]];
             case Resource::Tag::PROCEDURAL_PRIMITIVE:
                 reinterpret_cast<CUDAPrimitive *>(handle)->set_name(std::move(name));
                 break;

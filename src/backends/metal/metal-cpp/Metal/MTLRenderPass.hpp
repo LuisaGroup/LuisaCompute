@@ -784,4 +784,3 @@ _MTL_INLINE MTL::RenderPassSampleBufferAttachmentDescriptorArray* MTL::RenderPas
 {
     return Object::sendMessage<MTL::RenderPassSampleBufferAttachmentDescriptorArray*>(this, _MTL_PRIVATE_SEL(sampleBufferAttachments));
 }
-

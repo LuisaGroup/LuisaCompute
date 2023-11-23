@@ -78,8 +78,8 @@ int main(int argc, char *argv[]) {
         Float aspect = size.x.cast<float>() / size.y.cast<float>();
         // very bad jitter
         Float2 jitter = make_float2(make_uint2(tea(coord.x, frame_id),
-                                             tea(coord.y, frame_id))) /
-                      static_cast<float>(~0u);
+                                               tea(coord.y, frame_id))) /
+                        static_cast<float>(~0u);
         Float2 p = (make_float2(coord) + jitter) / make_float2(size) * 2.f - 1.f;
         static constexpr float fov = radians(45.8f);
         Float3 origin = pos;
@@ -88,50 +88,50 @@ int main(int argc, char *argv[]) {
 
         // traversal aceeleration structure with ray-query
         Float3 sphere_color;
-        Var<CommittedHit> hit = accel->query_all(ray)
-                       .on_triangle_candidate([&](TriangleCandidate &candidate) noexcept {
-                           Var<TriangleHit> h = candidate.hit();
-                           Float3 uvw = make_float3(1.f - h.bary.x - h.bary.y, h.bary);
-                           $if(length(uvw.xy()) < .8f &
-                               length(uvw.yz()) < .8f &
-                               length(uvw.zx()) < .8f) {
-                               candidate.commit();
-                           };
-                       })
-                       .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
-                           Var<ProceduralHit> h = candidate.hit();
-                           Var<Ray> ray = candidate.ray();
-                           Var<AABB> aabb = aabb_buffer->read(h.prim);
-                           //ray-sphere intersection
-                           Float3 origin = (aabb->min() + aabb->max()) * .5f;
-                           Float3 ray_origin = ray->origin();
-                           Float3 L = origin - ray_origin;
-                           Float3 dir = ray->direction();
-                           Float cos_theta = dot(dir, normalize(L));
-                           $if(cos_theta > 0.f) {
-                               Float d_oc = length(L);
-                               Float tc = d_oc * cos_theta;
-                               Float d = sqrt(d_oc * d_oc - tc * tc);
-                               $if(d <= radius) {
-                                   Float t1c = sqrt(radius * radius - d * d);
-                                   Float dist = tc - t1c;
-                                   // save normal as color
-                                   $if(dist <= ray->t_max()) {
-                                       Float3 normal = normalize(ray_origin + dir * dist - origin);
-                                       sphere_color = normal * 0.5f + 0.5f;
-                                   };
-                                   candidate.commit(dist);
-                               };
-                           };
-                       })
-                       .trace();
+        Var<CommittedHit> hit = accel->traverse(ray, {})
+                                    .on_surface_candidate([&](SurfaceCandidate &candidate) noexcept {
+                                        Var<TriangleHit> h = candidate.hit();
+                                        Float3 uvw = make_float3(1.f - h.bary.x - h.bary.y, h.bary);
+                                        $if (length(uvw.xy()) < .8f &
+                                             length(uvw.yz()) < .8f &
+                                             length(uvw.zx()) < .8f) {
+                                            candidate.commit();
+                                        };
+                                    })
+                                    .on_procedural_candidate([&](ProceduralCandidate &candidate) noexcept {
+                                        Var<ProceduralHit> h = candidate.hit();
+                                        Var<Ray> ray = candidate.ray();
+                                        Var<AABB> aabb = aabb_buffer->read(h.prim);
+                                        //ray-sphere intersection
+                                        Float3 origin = (aabb->min() + aabb->max()) * .5f;
+                                        Float3 ray_origin = ray->origin();
+                                        Float3 L = origin - ray_origin;
+                                        Float3 dir = ray->direction();
+                                        Float cos_theta = dot(dir, normalize(L));
+                                        $if (cos_theta > 0.f) {
+                                            Float d_oc = length(L);
+                                            Float tc = d_oc * cos_theta;
+                                            Float d = sqrt(d_oc * d_oc - tc * tc);
+                                            $if (d <= radius) {
+                                                Float t1c = sqrt(radius * radius - d * d);
+                                                Float dist = tc - t1c;
+                                                // save normal as color
+                                                $if (dist <= ray->t_max()) {
+                                                    Float3 normal = normalize(ray_origin + dir * dist - origin);
+                                                    sphere_color = normal * 0.5f + 0.5f;
+                                                };
+                                                candidate.commit(dist);
+                                            };
+                                        };
+                                    })
+                                    .trace();
 
         Float3 old = device_image1->read(coord).xyz();
         Float3 color = def(make_float3());
-        $if(hit->is_procedural()) {
+        $if (hit->is_procedural()) {
             color = sphere_color;
         }
-        $elif(hit->is_triangle()) {
+        $elif (hit->is_triangle()) {
             color = make_float3(1.f - hit.bary.x - hit.bary.y, hit.bary);
         };
         Float n = cast<float>(frame_id + 1u);
@@ -168,4 +168,3 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("test_procedural.png", width, height, 4, pixels.data(), 0);
 }
-

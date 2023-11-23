@@ -286,9 +286,7 @@ impl Backend for RustBackend {
         ));
         let hash = sha256_short(&gened.source);
         let kernel_name = format!("kernel_{}", hash);
-        let gened_src = gened
-            .source
-            .replace("##kernel_fn##", &kernel_name);
+        let gened_src = gened.source.replace("##kernel_fn##", &kernel_name);
         let mut shader = None;
         for tries in 0..2 {
             let lib_path = shader::compile(&hash, &gened_src, options, tries == 1).unwrap();
@@ -408,6 +406,7 @@ impl Backend for RustBackend {
                 option.hint,
                 option.allow_compaction,
                 option.allow_update,
+                accel::GeometryType::Mesh,
             ));
             let mesh = Box::into_raw(mesh);
             api::CreatedResourceInfo {
@@ -422,12 +421,34 @@ impl Backend for RustBackend {
                 option.hint,
                 option.allow_compaction,
                 option.allow_update,
+                accel::GeometryType::Procedural,
             ));
             let mesh = Box::into_raw(mesh);
             api::CreatedResourceInfo {
                 handle: mesh as u64,
                 native_handle: mesh as *mut std::ffi::c_void,
             }
+        }
+    }
+    fn create_curve(&self, option: api::AccelOption) -> api::CreatedResourceInfo {
+        unsafe {
+            let mesh = Box::new(GeometryImpl::new(
+                option.hint,
+                option.allow_compaction,
+                option.allow_update,
+                accel::GeometryType::Curve,
+            ));
+            let mesh = Box::into_raw(mesh);
+            api::CreatedResourceInfo {
+                handle: mesh as u64,
+                native_handle: mesh as *mut std::ffi::c_void,
+            }
+        }
+    }
+    fn destroy_curve(&self, curve: api::Curve) {
+        unsafe {
+            let mesh: *mut GeometryImpl = curve.0 as *mut GeometryImpl;
+            drop(Box::from_raw(mesh));
         }
     }
     fn destroy_mesh(&self, mesh: api::Mesh) {

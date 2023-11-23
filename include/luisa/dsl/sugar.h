@@ -91,7 +91,7 @@ namespace luisa::compute::dsl_detail {
 #define $outline                                                                    \
     ::luisa::compute::detail::outliner_with_comment(                                \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
-        [&]() noexcept
+        [&]() noexcept -> void
 
 #define $lambda(...)                                                              \
     (::luisa::compute::Lambda{                                                    \
@@ -106,49 +106,49 @@ namespace luisa::compute::dsl_detail {
     ::luisa::compute::detail::IfStmtBuilder::create_with_comment(                 \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
         __VA_ARGS__) %                                                            \
-        [&]() noexcept
+        [&]() noexcept -> void
 #define $else \
-    / [&]() noexcept
+    / [&]() noexcept -> void
 #define $elif(...) \
-    *([&] { return __VA_ARGS__; }) % [&]() noexcept
+    *([&] { return __VA_ARGS__; }) % [&]() noexcept -> void
 
 #define $loop                                                                       \
     ::luisa::compute::detail::LoopStmtBuilder::create_with_comment(                 \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
-        [&]() noexcept
+        [&]() noexcept -> void
+
 #define $while(...)                                                                 \
     ::luisa::compute::detail::LoopStmtBuilder::create_with_comment(                 \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) / \
-        [&]() noexcept {                                                            \
-            $if (!(__VA_ARGS__)) { $break; };                                       \
-        } %                                                                         \
-        [&]() noexcept
+        [&]() noexcept -> void {                                                    \
+        $if (!(__VA_ARGS__)) { $break; };                                           \
+    } % [&]() noexcept -> void
 
 #define $autodiff                                                                   \
     ::luisa::compute::detail::AutoDiffStmtBuilder::create_with_comment(             \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
-        [&]() noexcept
+        [&]() noexcept -> void
 
 #define $switch(...)                                                              \
     ::luisa::compute::detail::SwitchStmtBuilder::create_with_comment(             \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
         __VA_ARGS__) %                                                            \
-        [&]() noexcept
+        [&]() noexcept -> void
 #define $case(...)                                                                \
     ::luisa::compute::detail::SwitchCaseStmtBuilder::create_with_comment(         \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
         __VA_ARGS__) %                                                            \
-        [&]() noexcept
+        [&]() noexcept -> void
 #define $default                                                                    \
     ::luisa::compute::detail::SwitchDefaultStmtBuilder::create_with_comment(        \
         ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) % \
-        [&]() noexcept
+        [&]() noexcept -> void
 
 #define $for(x, ...)                                                                   \
     for (auto x : ::luisa::compute::dynamic_range_with_comment(                        \
              ::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__), \
              __VA_ARGS__))                                                             \
-    ::luisa::compute::detail::StmtBodyInvoke{} % [&]() noexcept
+    ::luisa::compute::detail::StmtBodyInvoke{} % [&]() noexcept -> void
 
 #define $comment(...) \
     ::luisa::compute::comment(__VA_ARGS__)

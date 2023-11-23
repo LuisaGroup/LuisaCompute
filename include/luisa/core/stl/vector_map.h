@@ -10,19 +10,19 @@
 namespace luisa {
 
 template<typename Key, typename Value,
-         typename Compare = equal_to<>>
+         typename Compare = std::less<>>
 using vector_map = eastl::vector_map<Key, Value, Compare>;
 
 template<typename Key, typename Value,
-         typename Compare = equal_to<>>
+         typename Compare = std::less<>>
 using vector_multimap = eastl::vector_multimap<Key, Value, Compare>;
 
 template<typename Key,
-         typename Compare = equal_to<>>
+         typename Compare = std::less<>>
 using vector_set = eastl::vector_set<Key, Compare>;
 
 template<typename Key,
-         typename Compare = equal_to<>>
+         typename Compare = std::less<>>
 using vector_multiset = eastl::vector_multiset<Key, Compare>;
 
 }// namespace luisa

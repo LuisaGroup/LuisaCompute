@@ -188,8 +188,10 @@ MetalCompiler::_load_disk_archive(luisa::string_view name, bool is_aot,
 
     // check metadata (or complete it)
     if (metadata.checksum == 0ull) { metadata.checksum = file_metadata->checksum; }
+    if (metadata.curve_bases.none()) { metadata.curve_bases = file_metadata->curve_bases; }
     if (all(metadata.block_size == 0u)) { metadata.block_size = file_metadata->block_size; }
     if (metadata.checksum != file_metadata->checksum ||
+        metadata.curve_bases != file_metadata->curve_bases ||
         any(metadata.block_size != file_metadata->block_size)) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to load Metal shader "
@@ -376,7 +378,6 @@ MetalShaderHandle MetalCompiler::compile(luisa::string_view src,
                                                 src.size(), NS::UTF8StringEncoding, false);
         auto options = MTL::CompileOptions::alloc()->init();
         options->setFastMathEnabled(option.enable_fast_math);
-        options->setLanguageVersion(MTL::LanguageVersion3_0);
         options->setLibraryType(MTL::LibraryTypeExecutable);
 
         // this requires iOS 16.4+, iPadOS 16.4+, macOS 13.3+, Mac Catalyst 16.4+, tvOS 16.4+

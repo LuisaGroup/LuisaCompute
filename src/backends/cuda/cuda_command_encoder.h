@@ -44,6 +44,7 @@ public:
     void visit(TextureToBufferCopyCommand *command) noexcept override;
     void visit(AccelBuildCommand *command) noexcept override;
     void visit(MeshBuildCommand *command) noexcept override;
+    void visit(CurveBuildCommand *command) noexcept override;
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
     void visit(CustomCommand *command) noexcept override;

@@ -22,3 +22,7 @@
 [submodule "src/ext/magic_enum"]
 	path = src/ext/magic_enum
 	url = git@github.com:Neargye/magic_enum
+[submodule "src/ext/imgui"]
+	path = src/ext/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking

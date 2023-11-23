@@ -87,4 +87,3 @@ _MTL_INLINE void MTL::CommandQueue::insertDebugCaptureBoundary()
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(insertDebugCaptureBoundary));
 }
-

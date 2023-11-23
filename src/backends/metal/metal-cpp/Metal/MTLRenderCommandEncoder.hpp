@@ -151,6 +151,14 @@ public:
 
     void         setVertexBuffers(const class Buffer* const buffers[], const NS::UInteger offsets[], NS::Range range);
 
+    void         setVertexBuffer(const class Buffer* buffer, NS::UInteger offset, NS::UInteger stride, NS::UInteger index);
+
+    void         setVertexBuffers(const class Buffer* const buffers[], const NS::UInteger* offsets, const NS::UInteger* strides, NS::Range range);
+
+    void         setVertexBufferOffset(NS::UInteger offset, NS::UInteger stride, NS::UInteger index);
+
+    void         setVertexBytes(const void* bytes, NS::UInteger length, NS::UInteger stride, NS::UInteger index);
+
     void         setVertexTexture(const class Texture* texture, NS::UInteger index);
 
     void         setVertexTextures(const class Texture* const textures[], NS::Range range);
@@ -422,6 +430,30 @@ _MTL_INLINE void MTL::RenderCommandEncoder::setVertexBufferOffset(NS::UInteger o
 _MTL_INLINE void MTL::RenderCommandEncoder::setVertexBuffers(const MTL::Buffer* const buffers[], const NS::UInteger offsets[], NS::Range range)
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setVertexBuffers_offsets_withRange_), buffers, offsets, range);
+}
+
+// method: setVertexBuffer:offset:attributeStride:atIndex:
+_MTL_INLINE void MTL::RenderCommandEncoder::setVertexBuffer(const MTL::Buffer* buffer, NS::UInteger offset, NS::UInteger stride, NS::UInteger index)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setVertexBuffer_offset_attributeStride_atIndex_), buffer, offset, stride, index);
+}
+
+// method: setVertexBuffers:offsets:attributeStrides:withRange:
+_MTL_INLINE void MTL::RenderCommandEncoder::setVertexBuffers(const MTL::Buffer* const buffers[], const NS::UInteger* offsets, const NS::UInteger* strides, NS::Range range)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setVertexBuffers_offsets_attributeStrides_withRange_), buffers, offsets, strides, range);
+}
+
+// method: setVertexBufferOffset:attributeStride:atIndex:
+_MTL_INLINE void MTL::RenderCommandEncoder::setVertexBufferOffset(NS::UInteger offset, NS::UInteger stride, NS::UInteger index)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setVertexBufferOffset_attributeStride_atIndex_), offset, stride, index);
+}
+
+// method: setVertexBytes:length:attributeStride:atIndex:
+_MTL_INLINE void MTL::RenderCommandEncoder::setVertexBytes(const void* bytes, NS::UInteger length, NS::UInteger stride, NS::UInteger index)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setVertexBytes_length_attributeStride_atIndex_), bytes, length, stride, index);
 }
 
 // method: setVertexTexture:atIndex:
@@ -1143,4 +1175,3 @@ _MTL_INLINE void MTL::RenderCommandEncoder::sampleCountersInBuffer(const MTL::Co
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(sampleCountersInBuffer_atSampleIndex_withBarrier_), sampleBuffer, sampleIndex, barrier);
 }
-

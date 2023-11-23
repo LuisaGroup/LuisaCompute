@@ -179,4 +179,3 @@ _MTL_INLINE MTL::ComputePassSampleBufferAttachmentDescriptorArray* MTL::ComputeP
 {
     return Object::sendMessage<MTL::ComputePassSampleBufferAttachmentDescriptorArray*>(this, _MTL_PRIVATE_SEL(sampleBufferAttachments));
 }
-

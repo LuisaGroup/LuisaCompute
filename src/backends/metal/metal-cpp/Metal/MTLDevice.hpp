@@ -179,14 +179,24 @@ public:
     NS::UInteger                     arrayLength() const;
     void                             setArrayLength(NS::UInteger arrayLength);
 
-    MTL::ArgumentAccess              access() const;
-    void                             setAccess(MTL::ArgumentAccess access);
+    MTL::BindingAccess               access() const;
+    void                             setAccess(MTL::BindingAccess access);
 
     MTL::TextureType                 textureType() const;
     void                             setTextureType(MTL::TextureType textureType);
 
     NS::UInteger                     constantBlockAlignment() const;
     void                             setConstantBlockAlignment(NS::UInteger constantBlockAlignment);
+};
+
+class Architecture : public NS::Copying<Architecture>
+{
+public:
+    static class Architecture* alloc();
+
+    class Architecture*        init();
+
+    NS::String*                name() const;
 };
 
 using DeviceNotificationName = NS::String*;
@@ -259,6 +269,8 @@ public:
     NS::String*                     name() const;
 
     uint64_t                        registryID() const;
+
+    class Architecture*             architecture() const;
 
     MTL::Size                       maxThreadsPerThreadgroup() const;
 
@@ -422,6 +434,10 @@ public:
 
     class IOFileHandle*             newIOHandle(const NS::URL* url, MTL::IOCompressionMethod compressionMethod, NS::Error** error);
 
+    class IOFileHandle*             newIOFileHandle(const NS::URL* url, NS::Error** error);
+
+    class IOFileHandle*             newIOFileHandle(const NS::URL* url, MTL::IOCompressionMethod compressionMethod, NS::Error** error);
+
     MTL::Size                       sparseTileSize(MTL::TextureType textureType, MTL::PixelFormat pixelFormat, NS::UInteger sampleCount);
 
     NS::UInteger                    sparseTileSizeInBytes() const;
@@ -538,12 +554,12 @@ _MTL_INLINE void MTL::ArgumentDescriptor::setArrayLength(NS::UInteger arrayLengt
 }
 
 // property: access
-_MTL_INLINE MTL::ArgumentAccess MTL::ArgumentDescriptor::access() const
+_MTL_INLINE MTL::BindingAccess MTL::ArgumentDescriptor::access() const
 {
-    return Object::sendMessage<MTL::ArgumentAccess>(this, _MTL_PRIVATE_SEL(access));
+    return Object::sendMessage<MTL::BindingAccess>(this, _MTL_PRIVATE_SEL(access));
 }
 
-_MTL_INLINE void MTL::ArgumentDescriptor::setAccess(MTL::ArgumentAccess access)
+_MTL_INLINE void MTL::ArgumentDescriptor::setAccess(MTL::BindingAccess access)
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setAccess_), access);
 }
@@ -568,6 +584,24 @@ _MTL_INLINE NS::UInteger MTL::ArgumentDescriptor::constantBlockAlignment() const
 _MTL_INLINE void MTL::ArgumentDescriptor::setConstantBlockAlignment(NS::UInteger constantBlockAlignment)
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setConstantBlockAlignment_), constantBlockAlignment);
+}
+
+// static method: alloc
+_MTL_INLINE MTL::Architecture* MTL::Architecture::alloc()
+{
+    return NS::Object::alloc<MTL::Architecture>(_MTL_PRIVATE_CLS(MTLArchitecture));
+}
+
+// method: init
+_MTL_INLINE MTL::Architecture* MTL::Architecture::init()
+{
+    return NS::Object::init<MTL::Architecture>();
+}
+
+// property: name
+_MTL_INLINE NS::String* MTL::Architecture::name() const
+{
+    return Object::sendMessage<NS::String*>(this, _MTL_PRIVATE_SEL(name));
 }
 
 _MTL_PRIVATE_DEF_WEAK_CONST(MTL::DeviceNotificationName, DeviceWasAddedNotification);
@@ -700,6 +734,12 @@ _MTL_INLINE NS::String* MTL::Device::name() const
 _MTL_INLINE uint64_t MTL::Device::registryID() const
 {
     return Object::sendMessage<uint64_t>(this, _MTL_PRIVATE_SEL(registryID));
+}
+
+// property: architecture
+_MTL_INLINE MTL::Architecture* MTL::Device::architecture() const
+{
+    return Object::sendMessage<MTL::Architecture*>(this, _MTL_PRIVATE_SEL(architecture));
 }
 
 // property: maxThreadsPerThreadgroup
@@ -1188,6 +1228,18 @@ _MTL_INLINE MTL::IOFileHandle* MTL::Device::newIOHandle(const NS::URL* url, MTL:
     return Object::sendMessage<MTL::IOFileHandle*>(this, _MTL_PRIVATE_SEL(newIOHandleWithURL_compressionMethod_error_), url, compressionMethod, error);
 }
 
+// method: newIOFileHandleWithURL:error:
+_MTL_INLINE MTL::IOFileHandle* MTL::Device::newIOFileHandle(const NS::URL* url, NS::Error** error)
+{
+    return Object::sendMessage<MTL::IOFileHandle*>(this, _MTL_PRIVATE_SEL(newIOFileHandleWithURL_error_), url, error);
+}
+
+// method: newIOFileHandleWithURL:compressionMethod:error:
+_MTL_INLINE MTL::IOFileHandle* MTL::Device::newIOFileHandle(const NS::URL* url, MTL::IOCompressionMethod compressionMethod, NS::Error** error)
+{
+    return Object::sendMessage<MTL::IOFileHandle*>(this, _MTL_PRIVATE_SEL(newIOFileHandleWithURL_compressionMethod_error_), url, compressionMethod, error);
+}
+
 // method: sparseTileSizeWithTextureType:pixelFormat:sampleCount:
 _MTL_INLINE MTL::Size MTL::Device::sparseTileSize(MTL::TextureType textureType, MTL::PixelFormat pixelFormat, NS::UInteger sampleCount)
 {
@@ -1372,4 +1424,3 @@ _MTL_INLINE NS::UInteger MTL::Device::maximumConcurrentCompilationTaskCount() co
 {
     return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(maximumConcurrentCompilationTaskCount));
 }
-

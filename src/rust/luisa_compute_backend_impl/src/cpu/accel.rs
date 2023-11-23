@@ -4,7 +4,7 @@ use super::resource::BufferImpl;
 use crate::panic_abort;
 use api::{
     AccelBuildModification, AccelBuildModificationFlags, AccelBuildRequest, AccelUsageHint,
-    MeshBuildCommand, ProceduralPrimitiveBuildCommand,
+    CurveBuildCommand, MeshBuildCommand, ProceduralPrimitiveBuildCommand,
 };
 use embree_sys as sys;
 use lazy_static::lazy_static;
@@ -24,8 +24,15 @@ fn init_device() {
         device.0 = unsafe { sys::rtcNewDevice(std::ptr::null()) }
     }
 }
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GeometryType {
+    Mesh,
+    Curve,
+    Procedural,
+}
 pub struct GeometryImpl {
     pub(crate) handle: sys::RTCScene,
+    pub(crate) ty: GeometryType,
     #[allow(dead_code)]
     usage: AccelUsageHint,
     built: bool,
@@ -44,6 +51,7 @@ impl GeometryImpl {
         hint: api::AccelUsageHint,
         _allow_compact: bool,
         _allow_update: bool,
+        ty: GeometryType,
     ) -> Self {
         init_device();
         let device = DEVICE.lock();
@@ -56,6 +64,7 @@ impl GeometryImpl {
         sys::rtcSetSceneFlags(handle, flags);
 
         Self {
+            ty,
             handle,
             usage: hint,
             built: false,
@@ -63,6 +72,7 @@ impl GeometryImpl {
         }
     }
     pub unsafe fn build_procedural(&mut self, cmd: &ProceduralPrimitiveBuildCommand) {
+        assert_eq!(self.ty, GeometryType::Procedural);
         let device = DEVICE.lock();
         let device = device.0;
         let _lk = self.lock.lock();
@@ -119,7 +129,71 @@ impl GeometryImpl {
         sys::rtcCommitScene(self.handle);
         check_error!(device);
     }
+    pub unsafe fn build_curve(&mut self, cmd: &CurveBuildCommand) {
+        assert_eq!(self.ty, GeometryType::Curve);
+        let device = DEVICE.lock();
+        let device = device.0;
+        let _lk = self.lock.lock();
+        let request = cmd.request;
+        let need_rebuild = request == AccelBuildRequest::ForceBuild || !self.built;
+
+        if need_rebuild {
+            let geometry_type = match cmd.basis {
+                api::CurveBasis::PiecewiseLinear => sys::RTC_GEOMETRY_TYPE_ROUND_LINEAR_CURVE,
+                api::CurveBasis::CubicBSpline => sys::RTC_GEOMETRY_TYPE_ROUND_BSPLINE_CURVE,
+                api::CurveBasis::CatmullRom => sys::RTC_GEOMETRY_TYPE_ROUND_CATMULL_ROM_CURVE,
+                api::CurveBasis::Bezier => sys::RTC_GEOMETRY_TYPE_ROUND_BEZIER_CURVE,
+            };
+            let geometry = sys::rtcNewGeometry(device, geometry_type);
+            let vbuffer = &*(cmd.cp_buffer.0 as *const BufferImpl);
+            let ibuffer = &*(cmd.seg_buffer.0 as *const BufferImpl);
+            assert!(cmd.cp_buffer_stride >= 16, "cp buffer stride must be >= 16");
+            sys::rtcSetSharedGeometryBuffer(
+                geometry,
+                sys::RTC_BUFFER_TYPE_VERTEX,
+                0,
+                sys::RTC_FORMAT_FLOAT4,
+                vbuffer.data as *const c_void,
+                cmd.cp_buffer_offset,
+                cmd.cp_buffer_stride,
+                cmd.cp_count,
+            );
+            check_error!(device);
+            sys::rtcSetSharedGeometryBuffer(
+                geometry,
+                sys::RTC_BUFFER_TYPE_INDEX,
+                0,
+                sys::RTC_FORMAT_UINT,
+                ibuffer.data as *const c_void,
+                cmd.seg_buffer_offset,
+                4,
+                cmd.seg_count,
+            );
+            check_error!(device);
+            sys::rtcCommitGeometry(geometry);
+            check_error!(device);
+            if self.built {
+                sys::rtcDetachGeometry(self.handle, 0);
+                check_error!(device);
+            } else {
+                self.built = true;
+            }
+            sys::rtcAttachGeometryByID(self.handle, geometry, 0);
+            check_error!(device);
+            sys::rtcReleaseGeometry(geometry);
+            check_error!(device);
+        } else {
+            let geometry = sys::rtcGetGeometry(self.handle, 0);
+            sys::rtcUpdateGeometryBuffer(geometry, sys::RTC_BUFFER_TYPE_VERTEX, 0);
+            check_error!(device);
+            sys::rtcCommitGeometry(geometry);
+            check_error!(device);
+        }
+        sys::rtcCommitScene(self.handle);
+        check_error!(device);
+    }
     pub unsafe fn build_mesh(&mut self, cmd: &MeshBuildCommand) {
+        assert_eq!(self.ty, GeometryType::Mesh);
         let device = DEVICE.lock();
         let device = device.0;
         let _lk = self.lock.lock();
@@ -190,6 +264,7 @@ struct Instance {
     opaque: bool,
     dirty: bool,
     geometry: sys::RTCGeometry,
+    geomerty_impl: *const GeometryImpl,
 }
 impl Instance {
     pub fn valid(&self) -> bool {
@@ -205,6 +280,7 @@ impl Default for Instance {
             opaque: true,
             dirty: false,
             geometry: std::ptr::null_mut(),
+            geomerty_impl: std::ptr::null(),
         }
     }
 }
@@ -220,6 +296,7 @@ struct RayQueryContext {
     rq: *mut defs::RayQuery,
     on_triangle_hit: defs::OnHitCallback,
     on_procedural_hit: defs::OnHitCallback,
+    accel: *const AccelImpl,
 }
 impl AccelImpl {
     pub unsafe fn new() -> Self {
@@ -282,6 +359,7 @@ impl AccelImpl {
                         opaque: true,
                         dirty: false,
                         geometry,
+                        geomerty_impl: mesh,
                     };
                 }
             }
@@ -393,10 +471,19 @@ impl AccelImpl {
 
         sys::rtcIntersect1(self.handle, &mut rayhit as *mut _, &mut args as *mut _);
         if rayhit.hit.geomID != u32::MAX && rayhit.hit.primID != u32::MAX {
+            let inst_id = rayhit.hit.instID[0];
+            let u = rayhit.hit.u;
+            let mut v = rayhit.hit.v;
+            let instance = &*self.instances[inst_id as usize].data_ptr();
+            let geometry = &*instance.geomerty_impl;
+            let is_curve = geometry.ty == GeometryType::Curve;
+            if is_curve {
+                v = -1.0;
+            }
             defs::TriangleHit {
-                inst: rayhit.hit.instID[0],
+                inst: inst_id,
                 prim: rayhit.hit.primID,
-                bary: [rayhit.hit.u, rayhit.hit.v],
+                bary: [u, v],
                 committed_ray_t: rayhit.ray.tfar,
             }
         } else {
@@ -508,6 +595,7 @@ impl AccelImpl {
             rq,
             on_procedural_hit,
             on_triangle_hit,
+            accel: self,
         };
 
         /* Helper functions to access ray packets of runtime size N */
@@ -552,7 +640,14 @@ impl AccelImpl {
             let geom_id = *hit.add(6);
             let inst_id = *hit.add(7);
             let hit_u = *(args.hit as *mut f32).add(3);
-            let hit_v = *(args.hit as *mut f32).add(4);
+            let mut hit_v = *(args.hit as *mut f32).add(4);
+            let accel = &*ctx.accel;
+            let instance = &*accel.instances[inst_id as usize].data_ptr();
+            let geometry = &*instance.geomerty_impl;
+            let is_curve = geometry.ty == GeometryType::Curve;
+            if is_curve {
+                hit_v = -1.0;
+            }
             let t_far = &mut *(args.ray as *mut f32).add(8);
             debug_assert!(prim_id != u32::MAX && geom_id != u32::MAX);
             let rq = &mut *ctx.rq;

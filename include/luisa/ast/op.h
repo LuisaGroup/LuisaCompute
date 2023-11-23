@@ -347,6 +347,7 @@ static constexpr size_t call_op_count = to_underlying(CallOp::SHADER_EXECUTION_R
            op == CallOp::MAKE_FLOAT3X3 ||
            op == CallOp::MAKE_FLOAT4X4;
 }
+
 /**
  * @brief Set of call operations.
  * 
@@ -382,7 +383,7 @@ private:
     Bitset _bits;
 
 public:
-    CallOpSet() noexcept = default;
+    CallOpSet() noexcept : _bits{0} {}
     ~CallOpSet() noexcept = default;
     /// Mark given CallOp
     void mark(CallOp op) noexcept { _bits.set(to_underlying(op)); }
