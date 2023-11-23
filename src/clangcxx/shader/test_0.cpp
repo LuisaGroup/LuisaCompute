@@ -35,7 +35,7 @@ Buffer<int> buffer;
 int main()
 {
     int n = 0 + 2 - 56;
-    n = n += 65;
+    int m = n += 65;
     // NVIDIA n = {};
     buffer.store(0, n);
 

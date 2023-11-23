@@ -22,11 +22,16 @@ struct CXXBlackboard
     luisa::unordered_map<luisa::string, const luisa::compute::Type*> type_map;
 };
 
+struct Stack {
+    luisa::unordered_map<luisa::string, const luisa::compute::RefExpr *> locals;
+    luisa::unordered_map<clang::Stmt *, const luisa::compute::Expression *> expr_map;
+};
+
 class FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback 
 {
 public:
     FunctionDeclStmtHandler() = default;
-    bool recursiveVisit(clang::Stmt* stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur);
+    bool recursiveVisit(clang::Stmt* stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack& stack);
     void run(const MatchFinder::MatchResult &Result) final;
     CXXBlackboard* blackboard = nullptr;
 };

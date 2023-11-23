@@ -42,7 +42,25 @@ inline luisa::compute::BinaryOp TranslateBinaryOp(clang::BinaryOperator::Opcode 
         case CXXBinOp::BO_EQ: return LCBinOp::EQUAL;
         case CXXBinOp::BO_NE: return LCBinOp::NOT_EQUAL;
         default:
-            luisa::log_error("unsupportted op {}!", op);
+            luisa::log_error("unsupportted binary op {}!", op);
+            return LCBinOp::ADD;
+    }
+}
+
+inline luisa::compute::BinaryOp TranslateBinaryAssignOp(clang::BinaryOperator::Opcode op) {
+    switch (op) {
+        case CXXBinOp::BO_AddAssign: return LCBinOp::ADD;
+        case CXXBinOp::BO_SubAssign: return LCBinOp::SUB;
+        case CXXBinOp::BO_MulAssign: return LCBinOp::MUL;
+        case CXXBinOp::BO_DivAssign: return LCBinOp::DIV;
+        case CXXBinOp::BO_RemAssign: return LCBinOp::MOD;
+        case CXXBinOp::BO_AndAssign: return LCBinOp::BIT_AND;
+        case CXXBinOp::BO_OrAssign: return LCBinOp::BIT_OR;
+        case CXXBinOp::BO_XorAssign: return LCBinOp::BIT_XOR;
+        case CXXBinOp::BO_ShlAssign: return LCBinOp::SHL;
+        case CXXBinOp::BO_ShrAssign: return LCBinOp::SHR;
+        default:
+            luisa::log_error("unsupportted binary-assign op {}!", op);
             return LCBinOp::ADD;
     }
 }
@@ -272,14 +290,10 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     }
 }
 
-struct Stack {
-    luisa::unordered_map<luisa::string, const luisa::compute::RefExpr *> locals;
-    luisa::unordered_map<clang::Stmt *, const luisa::compute::Expression *> expr_map;
-};
-
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     bool TraverseStmt(clang::Stmt *x) {
         RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
+
         const luisa::compute::Expression *current = nullptr;
         if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
             current = cur->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
@@ -288,28 +302,34 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             const auto lhs = stack->expr_map[bin->getLHS()];
             const auto rhs = stack->expr_map[bin->getRHS()];
             const auto lc_type = blackboard->type_map[GetTypeName(bin->getType(), blackboard->astContext)];
-            const auto op = TranslateBinaryOp(cxx_op);
-            current = cur->binary(lc_type, op, lhs, rhs);
-        } 
-        /*
-        else if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
-            const auto lhs = stack->expr_map[bin->getLHS()];
-            const auto rhs = stack->expr_map[bin->getRHS()];
-            const auto lc_type = blackboard->type_map[GetTypeName(bin->getType(), blackboard->astContext)];
-            auto local = cur->binary(lc_type, LCBinOp::ADD, lhs, rhs);
-            cur->assign(lhs, local);
-            luisa::log_error("BAD.");
+            if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
+                auto local = cur->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
+                cur->assign(lhs, local);
+                current = local;
+            } else {
+                current = cur->binary(lc_type, TranslateBinaryOp(cxx_op), lhs, rhs);
+            }
+        } else if (auto dref = llvm::dyn_cast<DeclRefExpr>(x)) {
+            auto str = luisa::string(dref->getNameInfo().getName().getAsString());
+            current = stack->locals[str];
+        } else if (auto implicit_cast = llvm::dyn_cast<ImplicitCastExpr>(x)) {
+            const auto lc_type = blackboard->type_map[GetTypeName(implicit_cast->getType(), blackboard->astContext)];
+            current = cur->cast(lc_type, CastOp::STATIC, stack->expr_map[last]);
         }
-        */
 
+        last = x;
         stack->expr_map[x] = current;
         if (x == root) {
             translated = current;
-            LUISA_ASSERT(translated, "BAD");
+            if (!translated) {
+                x->dump();
+                LUISA_ASSERT(translated, "BAD");
+            }
         }
         return true;
     }
 
+    clang::Stmt *last = nullptr;
     Stack *stack = nullptr;
     CXXBlackboard *blackboard = nullptr;
     luisa::shared_ptr<compute::detail::FunctionBuilder> cur = nullptr;
@@ -317,11 +337,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     const luisa::compute::Expression *translated = nullptr;
 };
 
-bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur) {
+bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack) {
     if (!stmt)
         return true;
-
-    Stack stack;
 
     for (Stmt::child_iterator i = stmt->child_begin(), e = stmt->child_end(); i != e; ++i) {
         Stmt *currStmt = *i;
@@ -343,7 +361,8 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
                         cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
                         */
                         auto local = cur->local(lc_type->second);
-                        stack.locals[luisa::string(varDecl->getName())] = local;
+                        auto str = luisa::string(varDecl->getName());
+                        stack.locals[str] = local;
 
                         ExprTranslator v;
                         auto init = v.root = varDecl->getInit();
@@ -359,7 +378,7 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
                 }
             }
         }
-        recursiveVisit(currStmt, cur);
+        recursiveVisit(currStmt, cur, stack);
     }
     return true;
 }
@@ -400,7 +419,8 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                     if (S->isMain()) {
                         builder->set_block_size(uint3(256, 1, 1));
                     }
-                    recursiveVisit(body, builder);
+                    Stack stack;
+                    recursiveVisit(body, builder, stack);
                 }
                 builder->pop_scope(builder->body());
                 luisa::compute::detail::FunctionBuilder::pop(builder.get());
