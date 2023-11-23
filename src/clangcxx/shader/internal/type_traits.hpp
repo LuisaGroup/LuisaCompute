@@ -2,7 +2,8 @@
 #include "attributes.hpp"
 
 namespace luisa::shader {
-
+using int16 = short;
+using uint16 = unsigned short;
 using int32 = int;
 using int64 = long long;
 using uint32 = unsigned int;
@@ -33,14 +34,51 @@ struct matrix;
 
 template<typename T>
 trait is_floatN { static constexpr bool value = false; };
+template<typename T>
+trait is_intN { static constexpr bool value = false; };
+template<typename T>
+trait is_uintN { static constexpr bool value = false; };
+template<typename T>
+trait is_boolN { static constexpr bool value = false; };
 template<> trait is_floatN<float> { static constexpr bool value = true; };
 template<> trait is_floatN<half> { static constexpr bool value = true; };
 template<> trait is_floatN<double> { static constexpr bool value = true; };
+template<> trait is_intN<int16> { static constexpr bool value = true; };
+template<> trait is_intN<int32> { static constexpr bool value = true; };
+template<> trait is_intN<int64> { static constexpr bool value = true; };
+template<> trait is_uintN<uint16> { static constexpr bool value = true; };
+template<> trait is_uintN<uint32> { static constexpr bool value = true; };
+template<> trait is_uintN<uint64> { static constexpr bool value = true; };
+template<> trait is_boolN<bool> { static constexpr bool value = true; };
+template<uint64 N> trait is_boolN<vec<bool, N>> { static constexpr bool value = true; };
+
+template<uint64 N> trait is_floatN<vec<half, N>> { static constexpr bool value = true; };
 template<uint64 N> trait is_floatN<vec<float, N>> { static constexpr bool value = true; };
 template<uint64 N> trait is_floatN<vec<double, N>> { static constexpr bool value = true; };
+template<uint64 N> trait is_intN<vec<int16, N>> { static constexpr bool value = true; };
+template<uint64 N> trait is_intN<vec<int32, N>> { static constexpr bool value = true; };
+template<uint64 N> trait is_intN<vec<int64, N>> { static constexpr bool value = true; };
+template<uint64 N> trait is_uintN<vec<uint16, N>> { static constexpr bool value = true; };
+template<uint64 N> trait is_uintN<vec<uint32, N>> { static constexpr bool value = true; };
+template<uint64 N> trait is_uintN<vec<uint64, N>> { static constexpr bool value = true; };
+
+template <typename T>
+trait is_arithmetic{ static constexpr bool value = is_floatN<T>::value || is_boolN<T>::value || is_intN<T>::value || is_uintN<T>::value; };
 
 template<typename T>
 concept floatN = is_floatN<typename remove_cvref<T>::type>::value;
+
+template<typename T>
+concept boolN = is_boolN<typename remove_cvref<T>::type>::value;
+
+template<typename T>
+concept intN = is_boolN<typename remove_cvref<T>::type>::value;
+
+template<typename T>
+concept uintN = is_boolN<typename remove_cvref<T>::type>::value;
+
+template<typename T>
+concept arithmetic = is_arithmetic<T>::value;
 
 template<typename T>
 trait vec_dim { static constexpr uint64 value = 1; };
@@ -148,4 +186,30 @@ private:
 using float2x2 = matrix<2>;
 using float3x3 = matrix<3>;
 using float4x4 = matrix<4>;
+template <typename T>
+trait is_basic_type{ static constexpr bool value = false; };
+template <typename T, uint64 N>
+trait is_basic_type<vec<T, N>>{ static constexpr bool value = true; };
+template <uint64 N>
+trait is_basic_type<matrix<N>>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<half>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<float>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<double>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<int32>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<uint32>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<int64>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<uint64>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<int16>{ static constexpr bool value = true; };
+template <>
+trait is_basic_type<uint16>{ static constexpr bool value = true; };
+template<typename T>
+concept basic_type = is_basic_type<typename remove_cvref<T>::type>::value;
 }
