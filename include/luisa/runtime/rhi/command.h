@@ -662,11 +662,12 @@ private:
 
 public:
     BindlessArrayUpdateCommand(uint64_t handle,
-                               luisa::vector<Modification> mods) noexcept
+                               luisa::vector<Modification> &&mods) noexcept
         : Command{Command::Tag::EBindlessArrayUpdateCommand},
           _handle{handle}, _modifications{std::move(mods)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto steal_modifications() noexcept { return std::move(_modifications); }
+    [[nodiscard]] auto set_modifications(luisa::vector<Modification> &&mods) noexcept { return _modifications = std::move(mods); }
     [[nodiscard]] luisa::span<const Modification> modifications() const noexcept { return _modifications; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
