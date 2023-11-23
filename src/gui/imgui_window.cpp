@@ -1,4 +1,5 @@
 #include <mutex>
+#include <random>
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -21,10 +22,12 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/queue.h>
 #include <luisa/runtime/device.h>
+#include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/swapchain.h>
+#include <luisa/dsl/sugar.h>
 #include <luisa/gui/imgui_window.h>
 
 namespace luisa::compute {
@@ -83,6 +86,8 @@ private:
     BindlessArray _texture_array;
     luisa::unordered_map<ImGuiID, Swapchain> _platform_swapchains;
     luisa::unordered_map<ImGuiID, Image<float>> _platform_framebuffers;
+    Shader2D<Image<float>, float3> _clear_shader;
+    Shader2D<Image<float>, float4, uint2> _simple_shader;
 
 private:
     template<typename F>
@@ -93,7 +98,6 @@ private:
 
 private:
     void _on_imgui_create_window(ImGuiViewport *vp) noexcept {
-        LUISA_INFO("Call _on_imgui_create_window.");
         auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
         LUISA_ASSERT(glfw_window != nullptr && glfw_window != _main_window,
                      "Invalid GLFW window.");
@@ -109,7 +113,6 @@ private:
         _platform_framebuffers[vp->ID] = std::move(fb);
     }
     void _on_imgui_destroy_window(ImGuiViewport *vp) noexcept {
-        LUISA_INFO("Call _on_imgui_destroy_window.");
         _stream.synchronize();
         if (auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
             glfw_window != _main_window) {
@@ -117,7 +120,6 @@ private:
         }
     }
     void _on_imgui_set_window_size(ImGuiViewport *vp, ImVec2) noexcept {
-        LUISA_INFO("Call _on_imgui_set_window_size.");
         _stream.synchronize();
         auto frame_width = 0, frame_height = 0;
         auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
@@ -240,6 +242,20 @@ public:
                 };
             }
         });
+
+        // create shaders
+        _clear_shader = _device.compile<2>([](ImageFloat fb, Float3 color) noexcept {
+            auto tid = dispatch_id().xy();
+            fb.write(tid, make_float4(color, 1.f));
+        });
+        _simple_shader = _device.compile<2>([](ImageFloat fb, Float4 color, UInt2 offset) noexcept {
+            auto tid = offset + dispatch_id().xy();
+            $if (all(tid < dispatch_size().xy())) {
+                auto old = fb.read(tid).xyz();
+                auto alpha = color.w;
+                fb.write(tid, make_float4(lerp(old, color.xyz(), alpha), 1.f));
+            };
+        });
     }
 
     ~Impl() noexcept {
@@ -278,10 +294,50 @@ private:
         _texture_array.emplace_on_update(0u, _font_texture, Sampler::linear_point_mirror());
         _stream << _font_texture.copy_from(pixels)
                 << _texture_array.update();
+        io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(0ull));
     }
 
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
-        // TODO: render to framebuffer
+        auto total = 0u;
+        auto vp = draw_data->OwnerViewport;
+        // clear framebuffer if needed
+        if (!(vp->Flags & ImGuiViewportFlags_NoRendererClear)) {
+            _stream << _clear_shader(fb, make_float3(0.f)).dispatch(fb.size());
+        }
+        // render imgui draw data to framebuffer
+        auto clip_offset = make_float2(draw_data->DisplayPos.x, draw_data->DisplayPos.y);
+        auto clip_scale = make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
+        auto clip_size = make_float2(draw_data->DisplaySize.x, draw_data->DisplaySize.y) * clip_scale;
+        if (all(clip_size > 0.f)) {
+            for (auto i = 0u; i < draw_data->CmdListsCount; i++) {
+                auto cmd_list = draw_data->CmdLists[i];
+                for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
+                    auto cmd = &cmd_list->CmdBuffer[j];
+                    // user callback
+                    if (auto callback = cmd->UserCallback) {
+                        // we ignore ImDrawCallback_ResetRenderState
+                        // since we don't have any state to reset
+                        if (callback != ImDrawCallback_ResetRenderState) {
+                            callback(cmd_list, cmd);
+                        }
+                        continue;
+                    }
+                    total++;
+                    // render command
+                    auto clip_min = max((make_float2(cmd->ClipRect.x, cmd->ClipRect.y) - clip_offset) * clip_scale, 0.f);
+                    auto clip_max = min((make_float2(cmd->ClipRect.z, cmd->ClipRect.w) - clip_offset) * clip_scale, clip_size);
+                    if (any(clip_max <= clip_min) || cmd->ElemCount == 0) { continue; }
+                    LUISA_INFO("clip_min = {}, clip_max = {}", clip_min, clip_max);
+                    static std::mt19937 random{std::random_device{}()};
+                    std::uniform_real_distribution<float> dist{0.f, 1.f};
+                    auto color = make_float4(dist(random), dist(random), dist(random), .2f);
+                    _stream << _simple_shader(fb, color, make_uint2(clip_min))
+                                   .dispatch(make_uint2(clip_max - clip_min));
+                }
+            }
+        }
+        LUISA_INFO("Total Draw Command: {}.", total);
+        // present framebuffer to swapchain
         _stream << sc.present(fb);
     }
 
