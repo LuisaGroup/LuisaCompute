@@ -110,8 +110,12 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_texture3d test_texture3d.cpp)
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
-    luisa_compute_add_executable(test_cuda_lcub test_cuda_lcub.cpp)
+if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)
+    find_package(CUDAToolkit QUIET)
+    if (CUDAToolkit_FOUND)
+        luisa_compute_add_executable(test_cuda_lcub test_cuda_lcub.cpp)
+        target_link_libraries(test_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver)
+    endif ()
 endif ()
 
 # GUI interaction with wxWidgets
