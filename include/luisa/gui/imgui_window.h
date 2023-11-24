@@ -33,6 +33,22 @@ public:
         [[nodiscard]] static Config make_default() noexcept { return {}; }
     };
 
+private:
+    class ContextGuard {
+
+    private:
+        ImGuiWindow *_self;
+
+    public:
+        explicit ContextGuard(ImGuiWindow *self) noexcept
+            : _self{self} { _self->push_context(); }
+        ~ContextGuard() noexcept { _self->pop_context(); }
+        ContextGuard(const ContextGuard &) noexcept = delete;
+        ContextGuard(ContextGuard &&) noexcept = delete;
+        ContextGuard &operator=(const ContextGuard &) noexcept = delete;
+        ContextGuard &operator=(ContextGuard &&) noexcept = delete;
+    };
+
 public:
     class Impl;
 
@@ -51,6 +67,8 @@ public:
 
 public:
     [[nodiscard]] ImGuiContext *context() const noexcept;
+    void push_context() noexcept;
+    void pop_context() noexcept;
     [[nodiscard]] GLFWwindow *handle() const noexcept;
     [[nodiscard]] Swapchain &swapchain() const noexcept;
     [[nodiscard]] Image<float> &framebuffer() const noexcept;
@@ -59,6 +77,12 @@ public:
     void prepare_frame() noexcept;// calls glfwPollEvents, ImGui::NewFrame, and other stuff; also makes the context current
     void render_frame() noexcept; // calls ImGui::Render, glfwSwapBuffers, and other stuff; also restores the current context as before prepare_frame
     [[nodiscard]] uint64_t register_texture(const Image<float> &image, const Sampler &sampler) noexcept;
+
+    template<typename F>
+    decltype(auto) with_context(F &&f) noexcept {
+        ContextGuard g{this};
+        return luisa::invoke(std::forward<F>(f));
+    }
 
     template<typename F>
     void wtih_frame(F &&f) noexcept {

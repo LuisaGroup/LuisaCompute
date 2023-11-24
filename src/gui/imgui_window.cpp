@@ -384,10 +384,12 @@ public:
         glfwSetWindowShouldClose(_main_window, b);
     }
     [[nodiscard]] auto register_texture(const Image<float> &image, Sampler sampler) noexcept {
-        auto tex_id = static_cast<uint64_t>(++_texture_array_offset);
-        _texture_array.emplace_on_update(tex_id, image, sampler);
-        _stream << _texture_array.update();
-        return tex_id;
+        return _with_context([&] {
+            auto tex_id = static_cast<uint64_t>(++_texture_array_offset);
+            _texture_array.emplace_on_update(tex_id, image, sampler);
+            _stream << _texture_array.update();
+            return tex_id;
+        });
     }
 
 private:
@@ -604,6 +606,34 @@ GLFWwindow *ImGuiWindow::handle() const noexcept { return _impl->handle(); }
 Swapchain &ImGuiWindow::swapchain() const noexcept { return _impl->swapchain(); }
 Image<float> &ImGuiWindow::framebuffer() const noexcept { return _impl->framebuffer(); }
 ImGuiContext *ImGuiWindow::context() const noexcept { return _impl->context(); }
+
+namespace detail {
+[[nodiscard]] static auto &imgui_context_stack() noexcept {
+    static thread_local luisa::vector<ImGuiContext *> stack;
+    return stack;
+}
+}
+
+void ImGuiWindow::push_context() noexcept {
+    auto &stack = detail::imgui_context_stack();
+    auto curr_ctx = ImGui::GetCurrentContext();
+    stack.emplace_back(curr_ctx);
+    auto ctx = _impl->context();
+    ImGui::SetCurrentContext(ctx);
+    detail::imgui_context_stack().emplace_back(ctx);
+}
+
+void ImGuiWindow::pop_context() noexcept {
+    if (auto &stack = detail::imgui_context_stack();
+        !stack.empty() && stack.back() == _impl->context()) {
+        stack.pop_back();
+        auto ctx = stack.empty() ? nullptr : stack.back();
+        ImGui::SetCurrentContext(ctx);
+    } else {
+        LUISA_WARNING_WITH_LOCATION("Invalid ImGui context stack.");
+    }
+}
+
 bool ImGuiWindow::should_close() const noexcept { return _impl->should_close(); }
 void ImGuiWindow::set_should_close(bool b) noexcept { _impl->set_should_close(b); }
 void ImGuiWindow::prepare_frame() noexcept { _impl->prepare_frame(); }

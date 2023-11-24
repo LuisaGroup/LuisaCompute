@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
     }
 
     auto device = context.create_device(argv[1]);
-    static constexpr auto width = 2048u;
+    static constexpr auto width = 1024u;
     static constexpr auto height = 1024u;
     static constexpr auto resolution = make_uint2(width, height);
 
@@ -34,12 +34,27 @@ int main(int argc, char *argv[]) {
 
     auto stream = device.create_stream(StreamTag::GRAPHICS);
 
+    auto demo_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    stream << draw(demo_image, 10.0f).dispatch(resolution);
+
     bool show_demo_window = true;
     bool show_another_window = false;
     float clear_color[4] = {0.45f, 0.55f, 0.60f, 1.00f};
 
     Clock clk;
     ImGuiWindow window{device, stream, "Display"};
+
+    // You can register an image to ImGuiWindow, and get an id for it to use in ImGui::Image
+    auto demo_image_id = window.register_texture(demo_image, Sampler::linear_point_mirror());
+
+    // We support multiple ImGui contexts, so if you would like to tweak ImGui settings for
+    // a specific window, you can use window.with_context to get a context guard.
+    window.with_context([&] {
+        ImGui::StyleColorsClassic();
+        auto &style = ImGui::GetStyle();
+        style.TabRounding = 0.f;
+    });
+
     while (!window.should_close()) {
 
         window.prepare_frame();
@@ -58,6 +73,8 @@ int main(int argc, char *argv[]) {
             static int counter = 0;
 
             ImGui::Begin("Hello, world!");// Create a window called "Hello, world!" and append into it.
+
+            ImGui::Image(reinterpret_cast<ImTextureID>(demo_image_id), ImVec2(256, 256));
 
             ImGui::Text("This is some useful text.");         // Display some text (you can use a format strings too)
             ImGui::Checkbox("Demo Window", &show_demo_window);// Edit bools storing our window open/close state
