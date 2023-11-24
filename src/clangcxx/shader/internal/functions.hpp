@@ -152,7 +152,7 @@ template <floatN T>
 [[callop("WARP_IS_FIRST_ACTIVE_LANE")]] bool warp_is_first_active_lane();
 [[callop("WARP_FIRST_ACTIVE_LANE")]] bool warp_first_active_lane();
 template <arithmetic T>
-[[callop("WARP_ACTIVE_ALL_EQUAL")]] typename vec<bool, vec_dim<T>::value> warp_active_all_equal();
+[[callop("WARP_ACTIVE_ALL_EQUAL")]] vec<bool, vec_dim<T>::value> warp_active_all_equal();
 template <typename T>
 requires(is_intN<T>::value && is_uintN<T>::value)
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T warp_active_bit_and(T v);

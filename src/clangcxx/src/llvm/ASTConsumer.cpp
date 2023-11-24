@@ -309,7 +309,7 @@ void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
 
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     bool TraverseStmt(clang::Stmt *x) {
-        RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
+        bool last_ret = RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
 
         const luisa::compute::Expression *current = nullptr;
         if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
@@ -323,6 +323,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 auto ca_expr = cur->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
                 cur->assign(lhs, ca_expr);
                 current = lhs;
+            } else if (cxx_op == CXXBinOp::BO_Assign)
+            {
+                cur->assign(lhs, rhs);
+                current = lhs;
             } else {
                 current = cur->binary(lc_type, TranslateBinaryOp(cxx_op), lhs, rhs);
             }
@@ -330,20 +334,36 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             auto str = luisa::string(dref->getNameInfo().getName().getAsString());
             current = stack->locals[str];
         } else if (auto implicit_cast = llvm::dyn_cast<ImplicitCastExpr>(x)) {
-            const auto lc_type = blackboard->type_map[GetTypeName(implicit_cast->getType(), blackboard->astContext)];
-            current = cur->cast(lc_type, CastOp::STATIC, stack->expr_map[last]);
+            if (stack->expr_map[last] != nullptr)
+            {
+                const auto lc_type = blackboard->type_map[GetTypeName(implicit_cast->getType(), blackboard->astContext)];
+                current = cur->cast(lc_type, CastOp::STATIC, stack->expr_map[last]);
+            }
+        } else if (auto m = llvm::dyn_cast<clang::MemberExpr>(x)) { // TODO
+            if (m->isBoundMemberFunction(*blackboard->astContext)) {
+                // current = cur->call
+            } else if (auto f = llvm::dyn_cast<FieldDecl>(m->getMemberDecl()))
+            {
+                auto lhs = stack->expr_map[m->getBase()];
+                const auto lc_type = blackboard->type_map[GetTypeName(m->getType(), blackboard->astContext)];
+                current = cur->member(lc_type, lhs, f->getFieldIndex());
+            }
+            else
+            {
+                luisa::log_error("unsupported member expr: {}", m->getMemberDecl()->getNameAsString());
+            }
+        } else if (auto mcall = llvm::dyn_cast<clang::CXXMemberCallExpr>(x)) { // TODO
+            // current = cur->call 
+        } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) { // TODO
+            auto cap = lambda->capture_begin();
         }
 
         last = x;
         stack->expr_map[x] = current;
         if (x == root) {
             translated = current;
-            if (!translated) {
-                x->dump();
-                LUISA_ASSERT(translated, "BAD");
-            }
         }
-        return true;
+        return last_ret;
     }
 
     clang::Stmt *last = nullptr;
@@ -372,11 +392,6 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
                     auto Ty = varDecl->getType();
                     auto lc_type = blackboard->type_map.find(GetTypeName(Ty, blackboard->astContext));
                     if (lc_type != blackboard->type_map.end()) {
-                        /*
-                        auto idx = cur->literal(Type::of<uint>(), uint(0));
-                        auto buffer = cur->buffer(Type::buffer(lc_type->second));
-                        cur->mark_variable_usage(buffer->variable().uid(), Usage::WRITE);
-                        */
                         auto local = cur->local(lc_type->second);
                         auto str = luisa::string(varDecl->getName());
                         stack.locals[str] = local;
@@ -386,11 +401,12 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
                         v.stack = &stack;
                         v.blackboard = blackboard;
                         v.cur = cur;
-                        v.TraverseStmt(init);
-
-                        cur->assign(local, v.translated);
-
-                        // cur->call(CallOp::BUFFER_WRITE, {buffer, idx, local});
+                        if (!v.TraverseStmt(init))
+                        {
+                            luisa::log_error("untranslated init expr: {}", init->getStmtClassName());
+                        }
+                        else if (v.translated)
+                            cur->assign(local, v.translated);
                     }
                 }
             }
@@ -422,7 +438,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             }
         }
         if (!ignore) {
-            // S->dump();
+             S->dump();
 
             luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
             Stmt *body = S->getBody();
