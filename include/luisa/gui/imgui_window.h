@@ -1,6 +1,8 @@
 #pragma once
 
+#include <luisa/runtime/device.h>
 #include <luisa/core/dll_export.h>
+#include <luisa/core/basic_types.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
 
