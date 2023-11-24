@@ -403,7 +403,7 @@ impl Backend for RustBackend {
     fn create_mesh(&self, option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {
             let mesh = Box::new(GeometryImpl::new(
-                option.hint,
+                option,
                 option.allow_compaction,
                 option.allow_update,
                 accel::GeometryType::Mesh,
@@ -418,7 +418,7 @@ impl Backend for RustBackend {
     fn create_procedural_primitive(&self, option: api::AccelOption) -> api::CreatedResourceInfo {
         unsafe {
             let mesh = Box::new(GeometryImpl::new(
-                option.hint,
+                option,
                 option.allow_compaction,
                 option.allow_update,
                 accel::GeometryType::Procedural,
@@ -433,7 +433,7 @@ impl Backend for RustBackend {
     fn create_curve(&self, option: api::AccelOption) -> api::CreatedResourceInfo {
         unsafe {
             let mesh = Box::new(GeometryImpl::new(
-                option.hint,
+                option,
                 option.allow_compaction,
                 option.allow_update,
                 accel::GeometryType::Curve,
@@ -463,9 +463,9 @@ impl Backend for RustBackend {
             drop(Box::from_raw(mesh));
         }
     }
-    fn create_accel(&self, _option: AccelOption) -> api::CreatedResourceInfo {
+    fn create_accel(&self, option: AccelOption) -> api::CreatedResourceInfo {
         unsafe {
-            let accel = Box::new(AccelImpl::new());
+            let accel = Box::new(AccelImpl::new(option));
             let accel = Box::into_raw(accel);
             api::CreatedResourceInfo {
                 handle: accel as u64,

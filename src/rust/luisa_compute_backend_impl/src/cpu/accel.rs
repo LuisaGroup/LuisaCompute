@@ -3,8 +3,8 @@ use std::{os::raw::c_void, ptr::null_mut};
 use super::resource::BufferImpl;
 use crate::panic_abort;
 use api::{
-    AccelBuildModification, AccelBuildModificationFlags, AccelBuildRequest, AccelUsageHint,
-    CurveBuildCommand, MeshBuildCommand, ProceduralPrimitiveBuildCommand,
+    AccelBuildModification, AccelBuildModificationFlags, AccelBuildRequest, AccelOption,
+    AccelUsageHint, CurveBuildCommand, MeshBuildCommand, ProceduralPrimitiveBuildCommand,
 };
 use embree_sys as sys;
 use lazy_static::lazy_static;
@@ -46,9 +46,24 @@ macro_rules! check_error {
         }
     }};
 }
+unsafe fn set_scene_flags_from_option(handle: sys::RTCScene, option: api::AccelOption) {
+    let mut flags = sys::RTC_SCENE_FLAG_NONE;
+    if option.allow_update {
+        flags |= sys::RTC_SCENE_FLAG_DYNAMIC;
+    }
+    if option.allow_compaction {
+        flags |= sys::RTC_SCENE_FLAG_COMPACT;
+    }
+    sys::rtcSetSceneFlags(handle, flags);
+    let quality = match option.hint {
+        AccelUsageHint::FastBuild => sys::RTC_BUILD_QUALITY_LOW,
+        AccelUsageHint::FastTrace => sys::RTC_BUILD_QUALITY_HIGH,
+    };
+    sys::rtcSetSceneBuildQuality(handle, quality);
+}
 impl GeometryImpl {
     pub unsafe fn new(
-        hint: api::AccelUsageHint,
+        option: api::AccelOption,
         _allow_compact: bool,
         _allow_update: bool,
         ty: GeometryType,
@@ -56,17 +71,12 @@ impl GeometryImpl {
         init_device();
         let device = DEVICE.lock();
         let handle = sys::rtcNewScene(device.0);
-        let flags = match hint {
-            AccelUsageHint::FastBuild => sys::RTC_BUILD_QUALITY_LOW,
-            AccelUsageHint::FastTrace => sys::RTC_BUILD_QUALITY_HIGH,
-        };
-
-        sys::rtcSetSceneFlags(handle, flags);
+        set_scene_flags_from_option(handle, option);
 
         Self {
             ty,
             handle,
-            usage: hint,
+            usage: option.hint,
             built: false,
             lock: Mutex::new(()),
         }
@@ -299,10 +309,12 @@ struct RayQueryContext {
     accel: *const AccelImpl,
 }
 impl AccelImpl {
-    pub unsafe fn new() -> Self {
+    pub unsafe fn new(option: AccelOption) -> Self {
         init_device();
         let device = DEVICE.lock();
         let handle = sys::rtcNewScene(device.0);
+        set_scene_flags_from_option(handle, option);
+
         Self {
             handle,
             instances: Vec::new(),
