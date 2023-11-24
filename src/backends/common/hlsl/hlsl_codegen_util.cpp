@@ -68,7 +68,7 @@ namespace detail {
 static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataPath, vstd::StringBuilder &builder, bool isRaster) {
     builder << CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
     size_t immutable_size = builder.size();
-    if (ops.uses_raytracing() || ops.uses_ray_query()) {
+    if (ops.uses_raytracing()) {
         builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
     }
     if (ops.test(CallOp::DETERMINANT)) {
