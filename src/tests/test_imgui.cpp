@@ -78,7 +78,6 @@ int main(int argc, char *argv[]) {
                 auto scroll = ImGui::GetIO().MouseWheel;
                 static auto scale = 1.;
                 scale = clamp(scale * pow(2, scroll / 10.), 0.1, 10.);
-                LUISA_INFO("Scroll: {}, Scale: {}", scroll, scale);
                 auto work_size = ImGui::GetContentRegionMax();
                 auto padding = ImGui::GetStyle().WindowPadding;
                 auto size = std::max(work_size.x - padding.x, work_size.y - padding.y);

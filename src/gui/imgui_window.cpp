@@ -689,16 +689,17 @@ void ImGuiWindow::pop_context() noexcept {
     }
 }
 
+uint64_t ImGuiWindow::register_texture(const Image<float> &image, const Sampler &sampler) noexcept {
+    return _impl->register_texture(image, sampler);
+}
+
+void ImGuiWindow::unregister_texture(uint64_t tex_id) noexcept {
+    _impl->unregister_texture(tex_id);
+}
+
 bool ImGuiWindow::should_close() const noexcept { return _impl->should_close(); }
 void ImGuiWindow::set_should_close(bool b) noexcept { _impl->set_should_close(b); }
 void ImGuiWindow::prepare_frame() noexcept { _impl->prepare_frame(); }
 void ImGuiWindow::render_frame() noexcept { _impl->render_frame(); }
-
-uint64_t ImGuiWindow::register_texture(const Image<float> &image, const Sampler &sampler) noexcept {
-    return _impl->register_texture(image, sampler);
-}
-void ImGuiWindow::unregister_texture(uint64_t tex_id) noexcept {
-    _impl->unregister_texture(tex_id);
-}
 
 }// namespace luisa::compute
