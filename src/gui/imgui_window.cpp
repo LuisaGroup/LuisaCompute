@@ -26,6 +26,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/queue.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/map.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
@@ -121,7 +122,8 @@ private:
     BindlessArray _texture_array;
     uint _texture_array_offset{0u};
     luisa::queue<uint64_t> _texture_free_slots;
-    luisa::unordered_set<uint64_t> _active_textures;
+    luisa::unordered_map<uint64_t, std::pair<uint64_t, uint32_t>> _active_textures;
+    luisa::map<std::pair<uint64_t, uint32_t>, uint64_t> _registered_images;
     luisa::unordered_map<GLFWwindow *, luisa::unique_ptr<Swapchain>> _platform_swapchains;
     luisa::unordered_map<GLFWwindow *, luisa::unique_ptr<Image<float>>> _platform_framebuffers;
 
@@ -396,6 +398,11 @@ public:
     }
     [[nodiscard]] auto register_texture(const Image<float> &image, Sampler sampler) noexcept {
         return _with_context([&] {
+            auto key = std::make_pair(image.handle(), sampler.code());
+            if (auto iter = _registered_images.find(key);
+                iter != _registered_images.end()) {
+                return iter->second;
+            }
             auto tex_id = [&] {
                 if (!_texture_free_slots.empty()) {
                     auto t = _texture_free_slots.front();
@@ -405,7 +412,8 @@ public:
                 return static_cast<uint64_t>(++_texture_array_offset);
             }();
             _texture_array.emplace_on_update(tex_id, image, sampler);
-            _active_textures.emplace(tex_id);
+            _active_textures.emplace(tex_id, key);
+            _registered_images.emplace(key, tex_id);
             // Note: update will be postponed to the next render_frame
             return tex_id;
         });
@@ -415,7 +423,9 @@ public:
             iter != _active_textures.end()) {
             _texture_array.remove_tex2d_on_update(tex_id);
             _texture_free_slots.emplace(tex_id);
-            _active_textures.erase(tex_id);
+            auto key = iter->second;
+            _active_textures.erase(iter);
+            _registered_images.erase(key);
         } else {
             LUISA_WARNING_WITH_LOCATION(
                 "Unregistering an inactive texture (id = {}). "

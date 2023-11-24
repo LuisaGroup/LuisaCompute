@@ -1,3 +1,5 @@
+#include "GLFW/glfw3.h"
+
 #include <imgui.h>
 #include <luisa/luisa-compute.h>
 
@@ -44,9 +46,6 @@ int main(int argc, char *argv[]) {
     Clock clk;
     ImGuiWindow window{device, stream, "Display"};
 
-    // You can register an image to ImGuiWindow, and get an id for it to use in ImGui::Image
-    auto demo_image_id = window.register_texture(demo_image, Sampler::linear_point_mirror());
-
     // We support multiple ImGui contexts, so if you would like to tweak ImGui settings for
     // a specific window, you can use window.with_context to get a context guard.
     window.with_context([&] {
@@ -72,9 +71,27 @@ int main(int argc, char *argv[]) {
             static float f = 0.0f;
             static int counter = 0;
 
-            ImGui::Begin("Hello, world!");// Create a window called "Hello, world!" and append into it.
+            ImGui::Begin("Picture", nullptr,
+                         ImGuiWindowFlags_NoScrollbar |
+                             ImGuiWindowFlags_NoScrollWithMouse);
+            {
+                auto scroll = ImGui::GetIO().MouseWheel;
+                static auto scale = 1.;
+                scale = clamp(scale * pow(2, scroll / 10.), 0.1, 10.);
+                LUISA_INFO("Scroll: {}, Scale: {}", scroll, scale);
+                auto work_size = ImGui::GetContentRegionMax();
+                auto padding = ImGui::GetStyle().WindowPadding;
+                auto size = std::max(work_size.x - padding.x, work_size.y - padding.y);
 
-            ImGui::Image(reinterpret_cast<ImTextureID>(demo_image_id), ImVec2(256, 256));
+                // You can register an image to ImGuiWindow, and get an id for it to use in ImGui::Image
+                // Note: it's safe to register the same image multiple times, the same id will be returned
+                auto demo_image_id = window.register_texture(demo_image, Sampler::linear_linear_zero());
+                ImGui::Image(reinterpret_cast<ImTextureID>(demo_image_id), ImVec2{size, size},
+                             {}, ImVec2(1.f / scale, 1.f / scale));
+            }
+            ImGui::End();
+
+            ImGui::Begin("Hello, world!");// Create a window called "Hello, world!" and append into it.
 
             ImGui::Text("This is some useful text.");         // Display some text (you can use a format strings too)
             ImGui::Checkbox("Demo Window", &show_demo_window);// Edit bools storing our window open/close state
