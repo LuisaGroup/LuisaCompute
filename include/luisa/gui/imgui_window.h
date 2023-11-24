@@ -69,14 +69,19 @@ public:
     [[nodiscard]] ImGuiContext *context() const noexcept;
     void push_context() noexcept;
     void pop_context() noexcept;
+
     [[nodiscard]] GLFWwindow *handle() const noexcept;
     [[nodiscard]] Swapchain &swapchain() const noexcept;
     [[nodiscard]] Image<float> &framebuffer() const noexcept;
+
     [[nodiscard]] bool should_close() const noexcept;
     void set_should_close(bool b = true) noexcept;
+
     void prepare_frame() noexcept;// calls glfwPollEvents, ImGui::NewFrame, and other stuff; also makes the context current
     void render_frame() noexcept; // calls ImGui::Render, glfwSwapBuffers, and other stuff; also restores the current context as before prepare_frame
+
     [[nodiscard]] uint64_t register_texture(const Image<float> &image, const Sampler &sampler) noexcept;
+    void unregister_texture(uint64_t tex_id) noexcept;
 
     template<typename F>
     decltype(auto) with_context(F &&f) noexcept {

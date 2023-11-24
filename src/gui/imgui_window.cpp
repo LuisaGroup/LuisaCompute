@@ -117,6 +117,8 @@ private:
     Image<float> _font_texture;
     BindlessArray _texture_array;
     uint _texture_array_offset{0u};
+    luisa::queue<uint64_t> _texture_free_slots;
+    luisa::unordered_set<uint64_t> _active_textures;
     luisa::unordered_map<ImGuiID, Swapchain> _platform_swapchains;
     luisa::unordered_map<ImGuiID, Image<float>> _platform_framebuffers;
 
@@ -386,11 +388,33 @@ public:
     }
     [[nodiscard]] auto register_texture(const Image<float> &image, Sampler sampler) noexcept {
         return _with_context([&] {
-            auto tex_id = static_cast<uint64_t>(++_texture_array_offset);
+            auto tex_id = [&] {
+                if (!_texture_free_slots.empty()) {
+                    auto t = _texture_free_slots.front();
+                    _texture_free_slots.pop();
+                    return t;
+                }
+                return static_cast<uint64_t>(++_texture_array_offset);
+            }();
             _texture_array.emplace_on_update(tex_id, image, sampler);
-            _stream << _texture_array.update();
+            _active_textures.emplace(tex_id);
+            // Note: update will be postponed to the next render_frame
             return tex_id;
         });
+    }
+    void unregister_texture(uint64_t tex_id) noexcept {
+        if (auto iter = _active_textures.find(tex_id);
+            iter != _active_textures.end()) {
+            _texture_array.remove_tex2d_on_update(tex_id);
+            _texture_free_slots.emplace(tex_id);
+            _active_textures.erase(tex_id);
+        } else {
+            LUISA_WARNING_WITH_LOCATION(
+                "Unregistering an inactive texture (id = {}). "
+                "This operation is ignored.",
+                tex_id);
+        }
+        // Note: update will be postponed to the next render_frame
     }
 
 private:
@@ -503,7 +527,17 @@ private:
                     // process the command
                     auto clip_idx = static_cast<uint>(_clip_rects.size());
                     _clip_rects.emplace_back(make_float4(clip_min, clip_max));
-                    auto tex_id = static_cast<uint>(reinterpret_cast<uint64_t>(cmd->TextureId));
+                    auto tex_id = [this, cmd] {
+                        auto t = reinterpret_cast<uint64_t>(cmd->TextureId);
+                        if (t != 0u && !_active_textures.contains(t)) {
+                            LUISA_WARNING_WITH_LOCATION(
+                                "Using an unregistered texture (id = {}). "
+                                "Replaced with a null texture.",
+                                t);
+                            return 0u;
+                        }
+                        return static_cast<uint>(t);
+                    }();
                     accum_clip_min = min(accum_clip_min, clip_min);
                     accum_clip_max = max(accum_clip_max, clip_max);
                     // triangles
@@ -538,6 +572,7 @@ private:
                 _build_accel();
                 auto clip_min_floor = make_uint2(floor(accum_clip_min));
                 auto clip_max_ceil = make_uint2(ceil(accum_clip_max));
+                if (_texture_array.dirty()) { _stream << _texture_array.update(); }
                 _stream << _render_shader(fb, clip_min_floor, _accel,
                                           _triangle_buffer, _vertex_buffer,
                                           _texture_array, _clip_buffer)
@@ -642,6 +677,9 @@ void ImGuiWindow::render_frame() noexcept { _impl->render_frame(); }
 
 uint64_t ImGuiWindow::register_texture(const Image<float> &image, const Sampler &sampler) noexcept {
     return _impl->register_texture(image, sampler);
+}
+void ImGuiWindow::unregister_texture(uint64_t tex_id) noexcept {
+    _impl->unregister_texture(tex_id);
 }
 
 }// namespace luisa::compute
