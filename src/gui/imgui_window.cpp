@@ -21,6 +21,7 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/queue.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/stream.h>
@@ -307,13 +308,13 @@ public:
             auto tid = offset + dispatch_id().xy();
             $if (all(tid < dispatch_size().xy())) {
                 auto offsets = ssaa ?
-                                   luisa::vector{
+                                   luisa::vector<float2>{
                                        make_float2(1.f / 3.f, 1.f / 3.f),
                                        make_float2(2.f / 3.f, 1.f / 3.f),
                                        make_float2(1.f / 3.f, 2.f / 3.f),
                                        make_float2(2.f / 3.f, 2.f / 3.f),
                                    } :
-                                   luisa::vector{make_float2(.5f)};
+                                   luisa::vector<float2>{make_float2(.5f)};
                 auto k = static_cast<float>(1. / static_cast<double>(offsets.size()));
                 auto sum = def(make_float3(0.f));
                 auto old = fb.read(tid).xyz();
