@@ -58,12 +58,12 @@ lc_add_app("test_feat", "test", "feat") -- core feature test
 if get_config("enable_gui") then
 	add_defines("ENABLE_DISPLAY")
 	-- all test suites for release
-	-- lc_add_app("test_all", "test", "all") -- all test
 	-- example app 
 	lc_add_app("gallery", "example", "gallery") -- demo
 	lc_add_app("tutorial", "example", "use") -- basic use tutorial
 end
-
+-- all test requires more stable dependencies
+-- lc_add_app("test_all", "test", "all") -- all test
 -- for extensions
 
 if get_config("dx_backend") then
