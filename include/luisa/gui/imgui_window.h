@@ -20,10 +20,12 @@ class LC_GUI_API ImGuiWindow {
 
 public:
     struct Config {
+
         uint2 size{800, 600};
         bool resizable{true};
         bool vsync{true};
         bool hdr{false};
+        bool ssaa{false};
         uint back_buffers{2};
 
         [[nodiscard]] static Config make_default() noexcept { return {}; }

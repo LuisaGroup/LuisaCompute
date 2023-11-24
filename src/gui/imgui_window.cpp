@@ -296,17 +296,19 @@ public:
             auto tid = dispatch_id().xy();
             fb.write(tid, make_float4(color, 1.f));
         });
-        _render_shader = _device.compile<2>([](ImageFloat fb, UInt2 offset, AccelVar accel,
-                                               BufferVar<Triangle> triangles, BufferVar<Vertex> vertices,
-                                               BindlessVar texture_array, BufferFloat4 clip_rects) noexcept {
+        _render_shader = _device.compile<2>([ssaa = config.ssaa](ImageFloat fb, UInt2 offset, AccelVar accel,
+                                                                 BufferVar<Triangle> triangles, BufferVar<Vertex> vertices,
+                                                                 BindlessVar texture_array, BufferFloat4 clip_rects) noexcept {
             auto tid = offset + dispatch_id().xy();
             $if (all(tid < dispatch_size().xy())) {
-                std::array offsets{
-                    make_float2(1.f / 3.f, 1.f / 3.f),
-                    make_float2(2.f / 3.f, 1.f / 3.f),
-                    make_float2(1.f / 3.f, 2.f / 3.f),
-                    make_float2(2.f / 3.f, 2.f / 3.f),
-                };
+                auto offsets = ssaa ?
+                                   luisa::vector{
+                                       make_float2(1.f / 3.f, 1.f / 3.f),
+                                       make_float2(2.f / 3.f, 1.f / 3.f),
+                                       make_float2(1.f / 3.f, 2.f / 3.f),
+                                       make_float2(2.f / 3.f, 2.f / 3.f),
+                                   } :
+                                   luisa::vector{make_float2(.5f)};
                 auto k = static_cast<float>(1. / static_cast<double>(offsets.size()));
                 auto sum = def(make_float3(0.f));
                 auto old = fb.read(tid).xyz();
