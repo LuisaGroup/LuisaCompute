@@ -79,6 +79,7 @@
 
 #ifdef LUISA_ENABLE_GUI
 #include <luisa/gui/framerate.h>
+#include <luisa/gui/imgui_window.h>
 #include <luisa/gui/input.h>
 #include <luisa/gui/window.h>
 #endif

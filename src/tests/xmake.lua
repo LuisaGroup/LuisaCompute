@@ -97,6 +97,9 @@ local function test_proj(name, gui_dep, callable)
 	if get_config("enable_gui") then
 		add_deps("lc-gui")
 	end
+	if gui_dep then
+		add_defines("LUISA_ENABLE_GUI")
+	end
 	if callable then
 		callable()
 	end
@@ -151,6 +154,12 @@ test_proj("test_atomic_queue", true)
 test_proj("test_shared_memory", true)
 test_proj("test_native_include", true)
 test_proj("test_sparse_texture", true)
+test_proj("test_imgui", true, function()
+	add_deps("imgui")
+	if is_plat("windows") then
+		add_defines("IMGUI_API=__declspec(dllimport)")
+	end
+end)
 test_proj("test_cuda_dx_interop")
 test_proj("test_dml")
 test_proj("test_manual_ast")

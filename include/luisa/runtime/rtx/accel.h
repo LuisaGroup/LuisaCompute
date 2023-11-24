@@ -85,6 +85,14 @@ public:
                              user_id);
     }
 
+    void emplace_back(uint64_t mesh_handle,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      bool opaque = true,
+                      uint user_id = 0) noexcept {
+        _emplace_back_handle(mesh_handle, transform, visibility_mask, opaque, user_id);
+    }
+
     void set(size_t index, const Mesh &mesh,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
