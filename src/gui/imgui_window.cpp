@@ -19,6 +19,10 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 
+#ifdef Bool // good job!
+#undef Bool
+#endif
+
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/queue.h>
 #include <luisa/core/stl/vector.h>
