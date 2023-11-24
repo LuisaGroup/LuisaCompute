@@ -23,6 +23,14 @@
 #undef Bool
 #endif
 
+#ifdef True // better!
+#undef True
+#endif
+
+#ifdef False // best!
+#undef False
+#endif
+
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/queue.h>
 #include <luisa/core/stl/vector.h>
