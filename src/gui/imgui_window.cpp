@@ -75,6 +75,7 @@ LUISA_STRUCT(luisa::compute::detail::GUIVertex, px, py, pz, clip_idx, uv, packed
 namespace luisa::compute {
 
 class ImGuiWindow::Impl {
+
 private:
     class CtxGuard {
 
@@ -612,7 +613,7 @@ namespace detail {
     static thread_local luisa::vector<ImGuiContext *> stack;
     return stack;
 }
-}
+}// namespace detail
 
 void ImGuiWindow::push_context() noexcept {
     auto &stack = detail::imgui_context_stack();
