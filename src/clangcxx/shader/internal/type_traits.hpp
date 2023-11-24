@@ -64,6 +64,22 @@ template<uint64 N> trait is_uintN<vec<uint64, N>> { static constexpr bool value 
 
 template <typename T>
 trait is_arithmetic{ static constexpr bool value = is_floatN<T>::value || is_boolN<T>::value || is_intN<T>::value || is_uintN<T>::value; };
+template <typename T>
+trait is_arithmetic_scalar { static constexpr bool value = false;};
+template <>
+trait is_arithmetic_scalar<float>{ static constexpr bool value = true;};
+template <>
+trait is_arithmetic_scalar<uint32>{ static constexpr bool value = true;};
+template <>
+trait is_arithmetic_scalar<int32>{ static constexpr bool value = true;};
+template <>
+trait is_arithmetic_scalar<uint16>{ static constexpr bool value = true;};
+template <>
+trait is_arithmetic_scalar<int16>{ static constexpr bool value = true;};
+template <>
+trait is_arithmetic_scalar<uint64>{ static constexpr bool value = true;};
+template <>
+trait is_arithmetic_scalar<int64>{ static constexpr bool value = true;};
 
 template<typename T>
 concept floatN = is_floatN<typename remove_cvref<T>::type>::value;
@@ -79,6 +95,8 @@ concept uintN = is_uintN<typename remove_cvref<T>::type>::value;
 
 template<typename T>
 concept arithmetic = is_arithmetic<T>::value;
+template<typename T>
+concept arithmetic_scalar = is_arithmetic_scalar<T>::value;
 
 template<typename T>
 trait vec_dim { static constexpr uint64 value = 1; };
@@ -222,5 +240,4 @@ template<typename T, uint64 N>
 trait element<vec<T, N>>{ using type = T;};
 template<uint64 N>
 trait element<matrix<N>>{ using type = float;};
-
 }

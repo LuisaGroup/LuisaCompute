@@ -5,6 +5,10 @@
 namespace luisa::shader {
 
 [[expr("dispatch_id")]] extern uint3 dispatch_id();
+[[expr("block_id")]] extern uint3 block_id();
+[[expr("thread_id")]] extern uint3 thread_id();
+[[expr("dispatch_size")]] extern uint3 dispatch_size();
+[[expr("kernel_id")]] extern uint32 kernel_id();
 template <boolN T> 
 [[callop("ALL")]] extern bool all(T x);
 template <boolN T> 
@@ -138,4 +142,47 @@ template <typename T>
 requires(is_matrix<T>::value)
 [[callop("INVERSE")]] extern T inverse(T v);
 [[callop("SYNCHRONIZE_BLOCK")]] void sync_block();
+// raster
+[[callop("RASTER_DISCARD")]] void discard();
+template <floatN T>
+[[callop("DDX")]] T ddx();
+template <floatN T>
+[[callop("DDY")]] T ddy();
+// warp
+[[callop("WARP_IS_FIRST_ACTIVE_LANE")]] bool warp_is_first_active_lane();
+[[callop("WARP_FIRST_ACTIVE_LANE")]] bool warp_first_active_lane();
+template <arithmetic T>
+[[callop("WARP_ACTIVE_ALL_EQUAL")]] typename vec<bool, vec_dim<T>::value> warp_active_all_equal();
+template <typename T>
+requires(is_intN<T>::value && is_uintN<T>::value)
+[[callop("WARP_ACTIVE_BIT_AND")]] extern T warp_active_bit_and(T v);
+template <typename T>
+requires(is_intN<T>::value && is_uintN<T>::value)
+[[callop("WARP_ACTIVE_BIT_OR")]] extern T warp_active_bit_or(T v);
+template <typename T>
+requires(is_intN<T>::value && is_uintN<T>::value)
+[[callop("WARP_ACTIVE_BIT_XOR")]] extern T warp_active_bit_xor(T v);
+[[callop("WARP_ACTIVE_COUNT_BITS")]] extern uint32 warp_active_count_bits(bool val);
+template <arithmetic T>
+[[callop("WARP_ACTIVE_MAX")]] extern T warp_active_max(T v);
+template <arithmetic T>
+[[callop("WARP_ACTIVE_MIN")]] extern T warp_active_min(T v);
+template <arithmetic T>
+[[callop("WARP_ACTIVE_PRODUCT")]] extern T warp_active_product(T v);
+template <arithmetic T>
+[[callop("WARP_ACTIVE_SUM")]] extern T warp_active_sum(T v);
+[[callop("WARP_ACTIVE_ALL")]] extern bool warp_active_all(bool val);
+[[callop("WARP_ACTIVE_ANY")]] extern bool warp_active_any(bool val);
+[[callop("WARP_ACTIVE_BIT_MASK")]] extern uint4 warp_active_bit_mask(bool val);
+[[callop("WARP_PREFIX_COUNT_BITS")]] extern uint32 warp_prefix_count_bits(bool val);
+template <arithmetic T>
+[[callop("WARP_PREFIX_PRODUCT")]] extern T warp_prefix_product(T v);
+template <arithmetic T>
+[[callop("WARP_PREFIX_SUM")]] extern T warp_prefix_sum(T v);
+template <basic_type T>
+[[callop("WARP_READ_LANE")]] extern T warp_read_lane(uint32 lane_index);
+template <basic_type T>
+[[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T warp_read_first_active_lane(uint32 lane_index);
+// cuda
+[[callop("SHADER_EXECUTION_REORDER")]] extern void shader_execution_reorder();
 }// namespace luisa::shader

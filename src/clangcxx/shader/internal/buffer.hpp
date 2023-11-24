@@ -2,17 +2,14 @@
 #include "attributes.hpp"
 #include "type_traits.hpp"
 
-
 namespace luisa::shader {
-
-template<typename Type, uint32 CacheFlags = 0 /*AUTO*/>
+template<typename Type>
 struct [[builtin("buffer")]] Buffer {
     [[callop("BUFFER_READ")]] Type load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, Type value);
 };
-
-template<uint32 CacheFlags>
-struct [[builtin("buffer")]] Buffer<int32, CacheFlags> {
+template<>
+struct [[builtin("buffer")]] Buffer<int32> {
     [[callop("BUFFER_READ")]] int32 load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, int32 value);
     [[callop("ATOMIC_EXCHANGE")]] int32 atomic_exchange(uint32 loc, int32 desired);
@@ -25,8 +22,8 @@ struct [[builtin("buffer")]] Buffer<int32, CacheFlags> {
     [[callop("ATOMIC_FETCH_sub")]] int32 atomic_fetch_min(uint32 loc, int32 val);
     [[callop("ATOMIC_FETCH_sub")]] int32 atomic_fetch_max(uint32 loc, int32 val);
 };
-template<uint32 CacheFlags>
-struct [[builtin("buffer")]] Buffer<uint32, CacheFlags> {
+template<>
+struct [[builtin("buffer")]] Buffer<uint32> {
     [[callop("BUFFER_READ")]] uint32 load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, uint32 value);
     [[callop("ATOMIC_EXCHANGE")]] uint32 atomic_exchange(uint32 loc, uint32 desired);
@@ -39,8 +36,8 @@ struct [[builtin("buffer")]] Buffer<uint32, CacheFlags> {
     [[callop("ATOMIC_FETCH_sub")]] uint32 atomic_fetch_min(uint32 loc, uint32 val);
     [[callop("ATOMIC_FETCH_sub")]] uint32 atomic_fetch_max(uint32 loc, uint32 val);
 };
-template<uint32 CacheFlags>
-struct [[builtin("buffer")]] Buffer<float, CacheFlags> {
+template<>
+struct [[builtin("buffer")]] Buffer<float> {
     [[callop("BUFFER_READ")]] float load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, float value);
     [[callop("ATOMIC_EXCHANGE")]] float atomic_exchange(uint32 loc, float desired);
@@ -50,4 +47,12 @@ struct [[builtin("buffer")]] Buffer<float, CacheFlags> {
     [[callop("ATOMIC_FETCH_sub")]] float atomic_fetch_min(uint32 loc, float val);
     [[callop("ATOMIC_FETCH_sub")]] float atomic_fetch_max(uint32 loc, float val);
 };
-}// namespace luisa::shader
+template<>
+struct [[builtin("buffer")]] Buffer<void> {
+    template <typename T>
+    [[callop("BYTE_BUFFER_READ")]] T byte_load(uint32 byte_index);
+    template <typename T>
+    [[callop("BYTE_BUFFER_WRITE")]] T byte_store(uint32 byte_index, T val);
+};
+using ByteBuffer = Buffer<void>;
+}
