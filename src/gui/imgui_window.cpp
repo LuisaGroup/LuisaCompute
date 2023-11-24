@@ -251,8 +251,8 @@ public:
             ImGui::StyleColorsDark();
             if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) [[likely]] {
                 auto &style = ImGui::GetStyle();
-                style.WindowRounding = 0.0f;
-                style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+                style.WindowRounding = 5.f;
+                style.Colors[ImGuiCol_WindowBg].w = .9f;
             }
 
             // register glfw window
