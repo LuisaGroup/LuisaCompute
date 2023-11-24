@@ -92,8 +92,7 @@ private:
 
         ~CtxGuard() noexcept {
             auto curr_ctx = ImGui::GetCurrentContext();
-            LUISA_ASSERT(curr_ctx == nullptr /* destroyed */ || curr_ctx == _curr_ctx,
-                         "ImGui context mismatch.");
+            LUISA_ASSERT(curr_ctx == _curr_ctx, "ImGui context mismatch.");
             ImGui::SetCurrentContext(_old_ctx);
         }
 
@@ -365,12 +364,14 @@ public:
         _stream.synchronize();
         _with_context([] {
             ImGui_ImplGlfw_Shutdown();
-            ImGui::DestroyContext();
         });
+        ImGui::DestroyContext(_context);
         LUISA_ASSERT(_platform_swapchains.empty() &&
                          _platform_framebuffers.empty(),
                      "Some ImGui windows are not destroyed.");
+        _stream.synchronize();
         _main_swapchain = {};
+        _main_framebuffer = {};
         glfwDestroyWindow(_main_window);
         if (_accel) {
             _accel = {};
