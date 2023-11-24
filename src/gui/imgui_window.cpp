@@ -164,6 +164,13 @@ private:
             _platform_swapchains.erase(vp->ID);
         }
     }
+    void _rebuild_swapchain(Swapchain &sc, Image<float> &fb, uint64_t window, uint2 size) noexcept {
+        sc = {};
+        fb = {};
+        sc = _device.create_swapchain(window, _stream, size, _config.hdr,
+                                      _config.vsync, _config.back_buffers);
+        fb = _device.create_image<float>(sc.backend_storage(), size);
+    }
     void _on_imgui_set_window_size(ImGuiViewport *vp, ImVec2) noexcept {
         _stream.synchronize();
         auto frame_width = 0, frame_height = 0;
@@ -171,15 +178,13 @@ private:
         LUISA_ASSERT(glfw_window != nullptr, "Invalid GLFW window.");
         glfwGetFramebufferSize(glfw_window, &frame_width, &frame_height);
         auto native_handle = detail::glfw_window_native_handle(glfw_window);
+        if (glfw_window == _main_window) { LUISA_INFO("Main window resize"); }
         auto &sc = glfw_window == _main_window ? _main_swapchain : _platform_swapchains.at(vp->ID);
         auto &fb = glfw_window == _main_window ? _main_framebuffer : _platform_framebuffers.at(vp->ID);
-        sc = {};
-        fb = {};
-        sc = _device.create_swapchain(native_handle, _stream,
-                                      make_uint2(frame_width, frame_height),
-                                      _config.hdr, _config.vsync,
-                                      _config.back_buffers);
-        fb = _device.create_image<float>(sc.backend_storage(), frame_width, frame_height);
+        if (auto size = make_uint2(frame_width, frame_height);
+            !all(fb.size() == size)) {
+            _rebuild_swapchain(sc, fb, native_handle, size);
+        }
     }
     void _on_imgui_render_window(ImGuiViewport *vp, void *) noexcept {
         auto &sc = _platform_swapchains.at(vp->ID);
@@ -454,9 +459,10 @@ private:
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
         auto vp = draw_data->OwnerViewport;
         // clear framebuffer if needed
-        // if (!(vp->Flags & ImGuiViewportFlags_NoRendererClear)) {
-        //     _stream << _clear_shader(fb, make_float3(0.f)).dispatch(fb.size());
-        // }
+        if (vp->PlatformHandle != _main_window &&
+            !(vp->Flags & ImGuiViewportFlags_NoRendererClear)) {
+            _stream << _clear_shader(fb, make_float3(0.f)).dispatch(fb.size());
+        }
         // render imgui draw data to framebuffer
         auto clip_offset = make_float2(draw_data->DisplayPos.x, draw_data->DisplayPos.y);
         auto clip_scale = make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
@@ -540,6 +546,13 @@ private:
     void _render() noexcept {
         auto &io = ImGui::GetIO();
         if (auto draw_data = ImGui::GetDrawData()) {
+            auto fw = 0, fh = 0;
+            glfwGetFramebufferSize(_main_window, &fw, &fh);
+            if (auto size = make_uint2(fw, fh);
+                !all(size == _main_framebuffer.size())) {
+                auto native_handle = detail::glfw_window_native_handle(_main_window);
+                _rebuild_swapchain(_main_swapchain, _main_framebuffer, native_handle, size);
+            }
             _draw(_main_swapchain, _main_framebuffer, draw_data);
         }
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {

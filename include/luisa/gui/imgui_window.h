@@ -23,7 +23,7 @@ public:
 
         uint2 size{800, 600};
         bool resizable{true};
-        bool vsync{true};
+        bool vsync{false};
         bool hdr{false};
         bool ssaa{false};
         uint back_buffers{2};
