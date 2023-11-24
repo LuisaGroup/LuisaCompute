@@ -44,15 +44,24 @@ namespace luisa::compute::detail {
 #endif
 }
 
-struct GUIVertex {
-    float3 position;
+struct alignas(16u) GUIVertex {
+    float px;
+    float py;
+    float pz;
+    uint clip_idx;
     float2 uv;
     uint packed_color;
+    uint tex_id;
 };
 
 }// namespace luisa::compute::detail
 
-LUISA_STRUCT(luisa::compute::detail::GUIVertex, position, uv, packed_color) {
+LUISA_STRUCT(luisa::compute::detail::GUIVertex, px, py, pz, clip_idx, uv, packed_color, tex_id) {
+
+    [[nodiscard]] auto p() const noexcept {
+        return make_float3(px, py, pz);
+    }
+
     [[nodiscard]] auto color() const noexcept {
         auto r = (packed_color & 0xffu) / 255.f;
         auto g = ((packed_color >> 8u) & 0xffu) / 255.f;
@@ -111,11 +120,19 @@ private:
 
     // for rendering
     Shader2D<Image<float>, float3> _clear_shader;
-    Shader2D<Image<float>, uint2, Accel, Buffer<Triangle>, Buffer<Vertex>, BindlessArray, uint> _render_shader;
+    Shader2D<Image<float> /* framebuffer */,
+             uint2 /* clip base */,
+             Accel /* accel */,
+             Buffer<Triangle> /* triangles */,
+             Buffer<Vertex> /* vertices */,
+             BindlessArray /* textures */,
+             Buffer<float4> /* clip rectangles */>
+        _render_shader;
     Accel _accel;
     uint64_t _mesh_handle{~0ull};
     Buffer<Vertex> _vertex_buffer;
     Buffer<Triangle> _triangle_buffer;
+    Buffer<float4> _clip_buffer;
 
 private:
     template<typename F>
@@ -281,7 +298,7 @@ public:
         });
         _render_shader = _device.compile<2>([](ImageFloat fb, UInt2 offset, AccelVar accel,
                                                BufferVar<Triangle> triangles, BufferVar<Vertex> vertices,
-                                               BindlessVar texture_array, UInt texture_id) noexcept {
+                                               BindlessVar texture_array, BufferFloat4 clip_rects) noexcept {
             auto tid = offset + dispatch_id().xy();
             $if (all(tid < dispatch_size().xy())) {
                 std::array offsets{
@@ -290,29 +307,43 @@ public:
                     make_float2(1.f / 3.f, 2.f / 3.f),
                     make_float2(2.f / 3.f, 2.f / 3.f),
                 };
-                auto sum = def(make_float4(0.f));
+                auto k = static_cast<float>(1. / static_cast<double>(offsets.size()));
+                auto sum = def(make_float3(0.f));
+                auto old = fb.read(tid).xyz();
                 for (auto offset : offsets) {
-                    auto o = make_float3(make_float2(tid) + offset, 1.f);
-                    auto d = make_float3(0.f, 0.f, -1.f);
+                    auto o = make_float3(make_float2(tid) + offset, -1.f);
+                    auto d = make_float3(0.f, 0.f, 1.f);
                     auto ray = make_ray(o, d);
-                    auto hit = accel.intersect(ray, {});
-                    $if (hit->is_triangle()) {
-                        // auto color = make_float4(1.f);
+                    auto beta = def(1.f);
+                    auto depth = def(0u);
+                    $while (beta > 1e-3f & depth < 64u) {
+                        depth += 1u;
+                        auto hit = accel.intersect(ray, {});
+                        $if (!hit->is_triangle()) { $break; };
                         auto triangle = triangles->read(hit.prim);
                         auto v0 = vertices->read(triangle.i0);
                         auto v1 = vertices->read(triangle.i1);
                         auto v2 = vertices->read(triangle.i2);
-                        auto uv = hit->triangle_interpolate(v0.uv, v1.uv, v2.uv);
-                        auto color = hit->triangle_interpolate(v0->color(), v1->color(), v2->color());
-                        color = make_float4(color.xyz(), 1.f);
-                        $if (texture_id != 0u) {
-                            color *= texture_array->tex2d(texture_id).sample(uv);
+                        auto p = hit->triangle_interpolate(v0->p(), v1->p(), v2->p());
+                        auto clip = clip_rects->read(v0.clip_idx);
+                        $if (all(p.xy() >= clip.xy() && p.xy() <= clip.zw())) {
+                            auto uv = hit->triangle_interpolate(v0.uv, v1.uv, v2.uv);
+                            auto c = hit->triangle_interpolate(v0->color(), v1->color(), v2->color());
+                            auto tex_id = v0.tex_id;
+                            $if (tex_id != 0u) {
+                                c *= texture_array->tex2d(v0.tex_id).sample(uv);
+                            };
+                            sum += k * c.xyz() * beta * c.w;
+                            beta *= 1.f - c.w;
                         };
-                        sum += color * .25f;
+                        // step through the layer
+                        auto pp = p + make_float3(0.f, 0.f, depth_peeling_step * .5);
+                        ray = make_ray(pp, d);
                     };
+                    // accumulate the background
+                    sum += k * beta * old;
                 }
-                auto old = fb.read(tid).xyz();
-                fb.write(tid, make_float4(lerp(old, sum.xyz(), sum.w), 1.f));
+                fb.write(tid, make_float4(sum, 1.f));
             };
         });
     }
@@ -367,45 +398,13 @@ private:
 private:
     luisa::vector<Vertex> _vertices;
     luisa::vector<Triangle> _triangles;
+    luisa::vector<float4> _clip_rects;
 
-    void _upload_vertices(const ImDrawList *list, float2 offset, float2 scale) noexcept {
-        LUISA_ASSERT(list->IdxBuffer.size() % 3u == 0u,
-                     "Invalid ImDrawList: index count is not a multiple of 3.");
-        auto vertex_count = static_cast<size_t>(list->VtxBuffer.size());
-        auto triangle_count = static_cast<size_t>(list->IdxBuffer.size() / 3u);
-        if (vertex_count == 0u || triangle_count == 0u) { return; }
-        if (!_vertex_buffer || _vertex_buffer.size() < vertex_count ||
-            !_triangle_buffer || _triangle_buffer.size() < triangle_count) {
-            _stream.synchronize();
-            if (!_vertex_buffer || _vertex_buffer.size() < vertex_count) {
-                auto rounded_vertex_count = std::max(next_pow2(vertex_count), 64_k);
-                _vertex_buffer = _device.create_buffer<Vertex>(rounded_vertex_count);
-            }
-            if (!_triangle_buffer || _triangle_buffer.size() < triangle_count) {
-                auto rounded_triangle_count = std::max(next_pow2(triangle_count), 64_k);
-                _triangle_buffer = _device.create_buffer<Triangle>(rounded_triangle_count);
-            }
-        }
-        _vertices.resize(next_pow2(vertex_count));
-        _triangles.resize(next_pow2(triangle_count));
-        for (auto i = 0u; i < vertex_count; i++) {
-            auto v = list->VtxBuffer[i];
-            _vertices[i] = Vertex{
-                .position = make_float3((make_float2(v.pos.x, v.pos.y) - offset) * scale, 0.f),
-                .uv = make_float2(v.uv.x, v.uv.y),
-                .packed_color = v.col};
-        }
-        for (auto i = 0u; i < triangle_count; i++) {
-            _triangles[i] = Triangle{
-                .i0 = list->IdxBuffer[i * 3u + 0u],
-                .i1 = list->IdxBuffer[i * 3u + 1u],
-                .i2 = list->IdxBuffer[i * 3u + 2u]};
-        }
-        _stream << _vertex_buffer.view(0u, vertex_count).copy_from(_vertices.data())
-                << _triangle_buffer.view(0u, triangle_count).copy_from(_triangles.data());
-    }
+    static constexpr auto depth_peeling_step = 1. / 64.;
 
-    auto _build_accel(const ImDrawCmd *cmd, size_t total_vertex_count) noexcept {
+    void _build_accel() noexcept {
+
+        // create resources if not created
         AccelOption o{
             .hint = AccelOption::UsageHint::FAST_BUILD,
             .allow_compaction = false,
@@ -415,27 +414,42 @@ private:
             _mesh_handle = _device.impl()->create_mesh(o).handle;
             _accel.emplace_back(_mesh_handle);
         }
-        auto vertex_buffer = _vertex_buffer.view(cmd->VtxOffset, total_vertex_count - cmd->VtxOffset);
-        LUISA_ASSERT(cmd->IdxOffset % 3u == 0u,
-                     "Invalid ImDrawCmd: index offset is not a multiple of 3.");
-        LUISA_ASSERT(cmd->ElemCount % 3u == 0u,
-                     "Invalid ImDrawCmd: element count is not a multiple of 3.");
-        auto triangle_buffer = _triangle_buffer.view(cmd->IdxOffset / 3u, cmd->ElemCount / 3u);
-        _stream << luisa::make_unique<MeshBuildCommand>(
+        if (!_vertex_buffer) { _vertex_buffer = _device.create_buffer<Vertex>(std::max(next_pow2(_vertices.size()), 64_k)); }
+        if (!_triangle_buffer) { _triangle_buffer = _device.create_buffer<Triangle>(std::max(next_pow2(_triangles.size()), 64_k)); }
+        if (!_clip_buffer) { _clip_buffer = _device.create_buffer<float4>(std::max(next_pow2(_clip_rects.size()), static_cast<size_t>(64u))); }
+
+        // resize buffers if insufficient
+        if (_vertex_buffer.size() < _vertices.size() ||
+            _triangle_buffer.size() < _triangles.size() ||
+            _clip_buffer.size() < _clip_rects.size()) {
+            _stream.synchronize();
+            if (_vertex_buffer.size() < _vertices.size()) {
+                _vertex_buffer = {};
+                _vertex_buffer = _device.create_buffer<Vertex>(std::max(next_pow2(_vertices.size()), 64_k));
+            }
+            if (_triangle_buffer.size() < _triangles.size()) {
+                _triangle_buffer = {};
+                _triangle_buffer = _device.create_buffer<Triangle>(std::max(next_pow2(_triangles.size()), 64_k));
+            }
+            if (_clip_buffer.size() < _clip_rects.size()) {
+                _clip_buffer = {};
+                _clip_buffer = _device.create_buffer<float4>(std::max(next_pow2(_clip_rects.size()), static_cast<size_t>(64u)));
+            }
+        }
+        // update the buffers and build the accel
+        _stream << _vertex_buffer.view(0u, _vertices.size()).copy_from(_vertices.data())
+                << _triangle_buffer.view(0u, _triangles.size()).copy_from(_triangles.data())
+                << _clip_buffer.view(0u, _clip_rects.size()).copy_from(_clip_rects.data())
+                << luisa::make_unique<MeshBuildCommand>(
                        _mesh_handle, AccelBuildRequest::FORCE_BUILD,
-                       vertex_buffer.handle(),
-                       vertex_buffer.offset_bytes(),
-                       vertex_buffer.size_bytes(),
-                       sizeof(Vertex),
-                       triangle_buffer.handle(),
-                       triangle_buffer.offset_bytes(),
-                       triangle_buffer.size_bytes())
+                       _vertex_buffer.handle(), 0u,
+                       _vertices.size() * sizeof(Vertex), sizeof(Vertex),
+                       _triangle_buffer.handle(), 0u,
+                       _triangles.size() * sizeof(Triangle))
                 << _accel.build(AccelBuildRequest::FORCE_BUILD);
-        return std::make_pair(triangle_buffer, vertex_buffer);
     }
 
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
-        auto total = 0u;
         auto vp = draw_data->OwnerViewport;
         // clear framebuffer if needed
         // if (!(vp->Flags & ImGuiViewportFlags_NoRendererClear)) {
@@ -445,10 +459,20 @@ private:
         auto clip_offset = make_float2(draw_data->DisplayPos.x, draw_data->DisplayPos.y);
         auto clip_scale = make_float2(draw_data->FramebufferScale.x, draw_data->FramebufferScale.y);
         auto clip_size = make_float2(draw_data->DisplaySize.x, draw_data->DisplaySize.y) * clip_scale;
+        auto transform = [clip_offset, clip_scale](ImVec2 p) noexcept {
+            return (make_float2(p.x, p.y) - clip_offset) * clip_scale;
+        };
         if (all(clip_size > 0.f)) {
+            _vertices.clear();
+            _triangles.clear();
+            _clip_rects.clear();
+            _vertices.reserve(64_k);
+            _triangles.reserve(64_k);
+            _clip_rects.reserve(64u);
+            auto accum_clip_min = make_float2(std::numeric_limits<float>::max());
+            auto accum_clip_max = make_float2(-std::numeric_limits<float>::max());
             for (auto i = 0u; i < draw_data->CmdListsCount; i++) {
                 auto cmd_list = draw_data->CmdLists[i];
-                _upload_vertices(cmd_list, clip_offset, clip_scale);
                 for (auto j = 0u; j < cmd_list->CmdBuffer.Size; j++) {
                     auto cmd = &cmd_list->CmdBuffer[j];
                     // user callback
@@ -460,25 +484,54 @@ private:
                         }
                         continue;
                     }
-                    total++;
                     // render command
                     auto clip_min = max((make_float2(cmd->ClipRect.x, cmd->ClipRect.y) - clip_offset) * clip_scale, 0.f);
                     auto clip_max = min((make_float2(cmd->ClipRect.z, cmd->ClipRect.w) - clip_offset) * clip_scale, clip_size);
                     if (any(clip_max <= clip_min) || cmd->ElemCount == 0) { continue; }
-                    auto [triangle_buffer, vertex_buffer] = _build_accel(cmd, cmd_list->VtxBuffer.size());
-                    LUISA_INFO("clip_min = {}, clip_max = {}", clip_min, clip_max);
-                    auto clip_min_floor = make_uint2(max(floor(clip_min), 0.f));
-                    auto clip_max_ceil = make_uint2(ceil(clip_max));
+                    // process the command
+                    auto clip_idx = static_cast<uint>(_clip_rects.size());
+                    _clip_rects.emplace_back(make_float4(clip_min, clip_max));
                     auto tex_id = static_cast<uint>(reinterpret_cast<uint64_t>(cmd->TextureId));
-                    _stream << _render_shader(fb, clip_min_floor, _accel,
-                                              triangle_buffer, vertex_buffer,
-                                              _texture_array, tex_id)
-                                   .dispatch(clip_max_ceil - clip_min_floor);
+                    accum_clip_min = min(accum_clip_min, clip_min);
+                    accum_clip_max = max(accum_clip_max, clip_max);
+                    // triangles
+                    for (auto t = 0u; t < cmd->ElemCount; t += 3u) {
+                        auto o = static_cast<uint>(_triangles.size());
+                        auto make_vertex = [&](ImDrawVert v) noexcept {
+                            auto p = transform(v.pos);
+                            // from back to front
+                            auto z = (draw_data->TotalIdxCount / 3u - 1u - o) * depth_peeling_step;
+                            return Vertex{.px = p.x,
+                                          .py = p.y,
+                                          .pz = static_cast<float>(z),
+                                          .clip_idx = clip_idx,
+                                          .uv = make_float2(v.uv.x, v.uv.y),
+                                          .packed_color = v.col,
+                                          .tex_id = tex_id};
+                        };
+                        auto i0 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 0u] + cmd->VtxOffset;
+                        auto i1 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 1u] + cmd->VtxOffset;
+                        auto i2 = cmd_list->IdxBuffer[cmd->IdxOffset + t + 2u] + cmd->VtxOffset;
+                        auto v0 = cmd_list->VtxBuffer[i0];
+                        auto v1 = cmd_list->VtxBuffer[i1];
+                        auto v2 = cmd_list->VtxBuffer[i2];
+                        _triangles.emplace_back(Triangle{o * 3u + 0u, o * 3u + 1u, o * 3u + 2u});
+                        _vertices.emplace_back(make_vertex(v0));
+                        _vertices.emplace_back(make_vertex(v1));
+                        _vertices.emplace_back(make_vertex(v2));
+                    }
                 }
             }
+            if (!_triangles.empty() && all(accum_clip_max > accum_clip_min)) {
+                _build_accel();
+                auto clip_min_floor = make_uint2(floor(accum_clip_min));
+                auto clip_max_ceil = make_uint2(ceil(accum_clip_max));
+                _stream << _render_shader(fb, clip_min_floor, _accel,
+                                          _triangle_buffer, _vertex_buffer,
+                                          _texture_array, _clip_buffer)
+                               .dispatch(clip_max_ceil - clip_min_floor);
+            }
         }
-        LUISA_INFO("Total Draw Command: {}.", total);
-        // present framebuffer to swapchain
         _stream << sc.present(fb);
     }
 
