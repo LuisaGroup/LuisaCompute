@@ -119,8 +119,8 @@ private:
     uint _texture_array_offset{0u};
     luisa::queue<uint64_t> _texture_free_slots;
     luisa::unordered_set<uint64_t> _active_textures;
-    luisa::unordered_map<ImGuiID, Swapchain> _platform_swapchains;
-    luisa::unordered_map<ImGuiID, Image<float>> _platform_framebuffers;
+    luisa::unordered_map<GLFWwindow *, luisa::unique_ptr<Swapchain>> _platform_swapchains;
+    luisa::unordered_map<GLFWwindow *, luisa::unique_ptr<Image<float>>> _platform_framebuffers;
 
     // for rendering
     Shader2D<Image<float>, float3> _clear_shader;
@@ -158,14 +158,15 @@ private:
                                            _config.hdr, _config.vsync,
                                            _config.back_buffers);
         auto fb = _device.create_image<float>(sc.backend_storage(), frame_width, frame_height);
-        _platform_swapchains[vp->ID] = std::move(sc);
-        _platform_framebuffers[vp->ID] = std::move(fb);
+        _platform_swapchains[glfw_window] = luisa::make_unique<Swapchain>(std::move(sc));
+        _platform_framebuffers[glfw_window] = luisa::make_unique<Image<float>>(std::move(fb));
     }
     void _on_imgui_destroy_window(ImGuiViewport *vp) noexcept {
         _stream.synchronize();
         if (auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
             glfw_window != _main_window) {
-            _platform_swapchains.erase(vp->ID);
+            _platform_swapchains.erase(glfw_window);
+            _platform_framebuffers.erase(glfw_window);
         }
     }
     void _rebuild_swapchain(Swapchain &sc, Image<float> &fb, uint64_t window, uint2 size) noexcept {
@@ -183,16 +184,17 @@ private:
         glfwGetFramebufferSize(glfw_window, &frame_width, &frame_height);
         auto native_handle = detail::glfw_window_native_handle(glfw_window);
         if (glfw_window == _main_window) { LUISA_INFO("Main window resize"); }
-        auto &sc = glfw_window == _main_window ? _main_swapchain : _platform_swapchains.at(vp->ID);
-        auto &fb = glfw_window == _main_window ? _main_framebuffer : _platform_framebuffers.at(vp->ID);
+        auto &sc = glfw_window == _main_window ? _main_swapchain : *_platform_swapchains.at(glfw_window);
+        auto &fb = glfw_window == _main_window ? _main_framebuffer : *_platform_framebuffers.at(glfw_window);
         if (auto size = make_uint2(frame_width, frame_height);
             !all(fb.size() == size)) {
             _rebuild_swapchain(sc, fb, native_handle, size);
         }
     }
     void _on_imgui_render_window(ImGuiViewport *vp, void *) noexcept {
-        auto &sc = _platform_swapchains.at(vp->ID);
-        auto &fb = _platform_framebuffers.at(vp->ID);
+        auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
+        auto &sc = *_platform_swapchains.at(glfw_window);
+        auto &fb = *_platform_framebuffers.at(glfw_window);
         _draw(sc, fb, vp->DrawData);
     }
 
@@ -365,7 +367,8 @@ public:
             ImGui_ImplGlfw_Shutdown();
             ImGui::DestroyContext();
         });
-        LUISA_ASSERT(_platform_swapchains.empty(),
+        LUISA_ASSERT(_platform_swapchains.empty() &&
+                         _platform_framebuffers.empty(),
                      "Some ImGui windows are not destroyed.");
         _main_swapchain = {};
         glfwDestroyWindow(_main_window);
