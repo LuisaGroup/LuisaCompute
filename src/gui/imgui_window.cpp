@@ -592,6 +592,7 @@ private:
             glfwGetFramebufferSize(_main_window, &fw, &fh);
             if (auto size = make_uint2(fw, fh);
                 !all(size == _main_framebuffer.size())) {
+                _stream.synchronize();
                 auto native_handle = detail::glfw_window_native_handle(_main_window);
                 _rebuild_swapchain(_main_swapchain, _main_framebuffer, native_handle, size);
             }
