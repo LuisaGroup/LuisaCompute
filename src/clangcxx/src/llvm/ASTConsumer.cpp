@@ -320,9 +320,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             const auto rhs = stack->expr_map[bin->getRHS()];
             const auto lc_type = blackboard->type_map[GetTypeName(bin->getType(), blackboard->astContext)];
             if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
-                auto local = cur->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
-                cur->assign(lhs, local);
-                current = local;
+                auto ca_expr = cur->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
+                cur->assign(lhs, ca_expr);
+                current = lhs;
             } else {
                 current = cur->binary(lc_type, TranslateBinaryOp(cxx_op), lhs, rhs);
             }
