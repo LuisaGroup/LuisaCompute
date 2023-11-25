@@ -19,23 +19,23 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 
-#ifdef Bool // good job!
+#ifdef Bool// good job!
 #undef Bool
 #endif
 
-#ifdef True // better!
+#ifdef True// better!
 #undef True
 #endif
 
-#ifdef False // best!
+#ifdef False// best!
 #undef False
 #endif
 
-#ifdef Always // ...
+#ifdef Always// ...
 #undef Always
 #endif
 
-#ifdef None // speechless
+#ifdef None// speechless
 #undef None
 #endif
 
@@ -333,14 +333,15 @@ public:
                                                                  BindlessVar texture_array, BufferFloat4 clip_rects) noexcept {
             auto tid = offset + dispatch_id().xy();
             $if (all(tid < dispatch_size().xy())) {
+                constexpr auto eps = 1e-4f;// slightly offset the center to improve watertightness
                 auto offsets = ssaa ?
                                    luisa::vector<float2>{
-                                       make_float2(1.f / 3.f, 1.f / 3.f),
-                                       make_float2(2.f / 3.f, 1.f / 3.f),
-                                       make_float2(1.f / 3.f, 2.f / 3.f),
-                                       make_float2(2.f / 3.f, 2.f / 3.f),
+                                       make_float2(1.f / 3.f + eps, 1.f / 3.f - eps),
+                                       make_float2(2.f / 3.f + eps, 1.f / 3.f + eps),
+                                       make_float2(2.f / 3.f - eps, 2.f / 3.f + eps),
+                                       make_float2(1.f / 3.f - eps, 2.f / 3.f - eps),
                                    } :
-                                   luisa::vector<float2>{make_float2(.5f)};
+                                   luisa::vector<float2>{make_float2(.5f + eps, .5f - eps)};
                 auto k = static_cast<float>(1. / static_cast<double>(offsets.size()));
                 auto sum = def(make_float3(0.f));
                 auto old = fb.read(tid).xyz();
