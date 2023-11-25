@@ -1,15 +1,19 @@
 #pragma once
 #include "attributes.hpp"
-#include "type_traits.hpp"
 
 namespace luisa::shader {
+struct RayQueryTracer {
+    void trace();
+};
 struct RayQueryProceduralProxy {
     template<typename Func>
-    void on_procedural_candidate(Func &&func);
+    RayQueryTracer on_procedural_candidate(Func &&func);
+    void trace();
 };
 struct RayQuerySurfaceProxy {
     template<typename Func>
-    void on_surface_candidate(Func &&func);
+    RayQueryTracer on_surface_candidate(Func &&func);
+    void trace();
 };
 struct [[builtin("ray_query")]] RayQuery {
     template<typename Func>
