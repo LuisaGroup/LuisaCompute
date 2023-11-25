@@ -58,19 +58,21 @@ lc_add_app("test_feat", "test", "feat") -- core feature test
 if get_config("enable_gui") then
 	add_defines("ENABLE_DISPLAY")
 	-- all test suites for release
-	lc_add_app("test_all", "test", "all") -- all test
 	-- example app 
 	lc_add_app("gallery", "example", "gallery") -- demo
 	lc_add_app("tutorial", "example", "use") -- basic use tutorial
 end
-
+-- all test requires more stable dependencies
+-- lc_add_app("test_all", "test", "all") -- all test
 -- for extensions
 
 if get_config("dx_backend") then
 	lc_add_app("test_ext_dx", "test", "ext/dx")
 end
 if get_config("cuda_backend") then 
-	lc_add_app("test_ext_cuda", "test", "ext/cuda")
+	if get_config("cuda_ext_lcub") then 
+		lc_add_app("test_ext_cuda", "test", "ext/cuda")
+	end 
 end 
 -- lc_add_app("test_io", "test", "io")
 ------------------------------------
@@ -94,6 +96,9 @@ local function test_proj(name, gui_dep, callable)
 	end
 	if get_config("enable_gui") then
 		add_deps("lc-gui")
+	end
+	if gui_dep then
+		add_defines("LUISA_ENABLE_GUI")
 	end
 	if callable then
 		callable()
@@ -149,6 +154,12 @@ test_proj("test_atomic_queue", true)
 test_proj("test_shared_memory", true)
 test_proj("test_native_include", true)
 test_proj("test_sparse_texture", true)
+test_proj("test_imgui", true, function()
+	add_deps("imgui")
+	if is_plat("windows") then
+		add_defines("IMGUI_API=__declspec(dllimport)")
+	end
+end)
 test_proj("test_cuda_dx_interop")
 test_proj("test_dml")
 test_proj("test_manual_ast")

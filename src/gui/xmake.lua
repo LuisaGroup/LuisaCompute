@@ -21,13 +21,24 @@ elseif is_plat("macosx") then
     add_frameworks("Foundation", "Cocoa", "IOKit", "OpenGL")
 end
 target_end()
--- _config_project({
--- 	project_name = "imgui",
--- 	project_kind = "shared"
--- })
--- add_includedirs("../ext/imgui/", {public = true})
 
--- add_files("../ext/imgui/imgui/*.cpp")
+
+target("imgui")
+set_basename("lc-ext-imgui")
+_config_project({
+    project_kind = "shared"
+})
+add_headerfiles("../ext/imgui/*.h", "../ext/imgui/backends/*.h")
+add_files("../ext/imgui/*.cpp", "../ext/imgui/backends/imgui_impl_glfw.cpp")
+add_includedirs("../ext/imgui", "../ext/imgui/backends", {
+    public = true
+})
+if is_plat("windows") then
+    add_defines("IMGUI_API=__declspec(dllexport)")
+end
+add_deps("glfw", "lc-dsl")
+target_end()
+
 target("lc-gui")
 _config_project({
     project_kind = "shared"
@@ -35,5 +46,8 @@ _config_project({
 add_headerfiles("../../include/luisa/gui/**.h")
 add_files("*.cpp")
 add_defines("LC_GUI_EXPORT_DLL", "GLFW_DLL")
-add_deps("glfw", "lc-runtime")
+add_deps("glfw", "lc-runtime", "imgui")
+if is_plat("windows") then
+    add_defines("IMGUI_API=__declspec(dllimport)")
+end
 target_end()

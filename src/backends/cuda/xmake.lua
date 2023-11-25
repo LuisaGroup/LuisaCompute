@@ -16,6 +16,7 @@ target("lc-backend-cuda")
 	if get_config("enable_ir") then
 		add_deps("lc-ir")
 	end
+
 	if get_config("cuda_ext_lcub") then 
 		add_deps("lc-backend-cuda-ext-lcub")
 	end 
@@ -23,6 +24,7 @@ target("lc-backend-cuda")
 	set_pcxxheader("pch.h")
 	add_headerfiles("*.h", "../common/default_binary_io.h")
 	add_files("*.cpp|cuda_texture_compression.cpp") -- TODO: support NVTT with XMake
+	add_files("extensions/cuda_denoiser.cpp", "extensions/cuda_dstorage.cpp")
 
 	on_load(function(target)
 		import("detect.sdks.find_cuda")
