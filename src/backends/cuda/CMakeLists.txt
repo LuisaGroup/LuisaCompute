@@ -78,9 +78,9 @@ if (CUDAToolkit_FOUND)
                             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                             "${NVRTC_RUNTIME_LIB}"
                             $<TARGET_FILE_DIR:luisa-compute-core>)
+                    install(FILES "${NVRTC_RUNTIME_LIB}"
+                            DESTINATION ${CMAKE_INSTALL_BINDIR})
                 endforeach ()
-                install(FILES "${NVRTC_RUNTIME_LIBS}"
-                        DESTINATION ${CMAKE_INSTALL_BINDIR})
             endif ()
         endif ()
     endif ()
