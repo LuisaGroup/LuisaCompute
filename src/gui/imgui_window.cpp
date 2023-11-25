@@ -31,6 +31,14 @@
 #undef False
 #endif
 
+#ifdef Always // ...
+#undef Always
+#endif
+
+#ifdef None // speechless
+#undef None
+#endif
+
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/queue.h>
 #include <luisa/core/stl/vector.h>
