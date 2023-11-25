@@ -31,6 +31,10 @@ LUISA_NVRTC_StringBuffer luisa_nvrtc_compile(
     const char *filename, const char *src,
     const char *const *options, size_t num_options) {
 
+#ifdef _WIN32 // work around nvrtc bug
+    static auto _ = [] { return _putenv_s("LC_ALL", "POSIX"); }();
+#endif
+
     nvrtcProgram prog;
     LUISA_CHECK_NVRTC(nvrtcCreateProgram(&prog, src, filename, 0, nullptr, nullptr));
     nvrtcResult err = nvrtcCompileProgram(prog, (int)num_options, options);

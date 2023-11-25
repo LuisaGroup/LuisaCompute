@@ -53,7 +53,7 @@ if (CUDAToolkit_FOUND)
     # nvrtc
     if (TARGET CUDA::nvrtc_static AND WIN32)
         # wrap the static nvrtc library in a shared library to avoid the dependency on the CUDA toolkit
-        add_library(luisa-compute-backend-cuda-nvrtc MODULE cuda_nvrtc.cpp)
+        add_library(luisa-compute-backend-cuda-nvrtc SHARED cuda_nvrtc.cpp)
         target_link_libraries(luisa-compute-backend-cuda-nvrtc PRIVATE CUDA::nvrtc_static)
         set_target_properties(luisa-compute-backend-cuda-nvrtc PROPERTIES
                 OUTPUT_NAME "lc-cuda-nvrtc"
