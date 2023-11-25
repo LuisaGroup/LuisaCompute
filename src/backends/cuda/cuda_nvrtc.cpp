@@ -5,7 +5,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
-#include <clocale>
 
 #include <nvrtc.h>
 
@@ -31,8 +30,6 @@ LUISA_CUDA_NVRTC_EXPORT
 LUISA_NVRTC_StringBuffer luisa_nvrtc_compile(
     const char *filename, const char *src,
     const char *const *options, size_t num_options) {
-
-    static auto _ = [] { return setlocale(LC_ALL, "POSIX"); }();
 
     nvrtcProgram prog;
     LUISA_CHECK_NVRTC(nvrtcCreateProgram(&prog, src, filename, 0, nullptr, nullptr));
