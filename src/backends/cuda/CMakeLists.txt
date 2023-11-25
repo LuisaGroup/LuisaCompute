@@ -51,15 +51,14 @@ if (CUDAToolkit_FOUND)
     install(FILES "${CUDA_DEVICE_RUNTIME_LIBRARY}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     # nvrtc
-    if (TARGET CUDA::nvrtc_static AND WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    if (TARGET CUDA::nvrtc_static AND WIN32)
         # wrap the static nvrtc library in a shared library to avoid the dependency on the CUDA toolkit
         add_library(luisa-compute-backend-cuda-nvrtc MODULE cuda_nvrtc.cpp)
         target_link_libraries(luisa-compute-backend-cuda-nvrtc PRIVATE CUDA::nvrtc_static)
         set_target_properties(luisa-compute-backend-cuda-nvrtc PROPERTIES
                 OUTPUT_NAME "lc-cuda-nvrtc"
                 WINDOWS_EXPORT_ALL_SYMBOLS OFF
-                INTERPROCEDURAL_OPTIMIZATION OFF
-                LANGUAGE C)
+                INTERPROCEDURAL_OPTIMIZATION OFF)
         install(TARGETS luisa-compute-backend-cuda-nvrtc
                 DESTINATION ${CMAKE_INSTALL_BINDIR})
         add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cuda-nvrtc)
