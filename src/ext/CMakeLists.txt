@@ -161,8 +161,8 @@ set(REPROC++ ON CACHE BOOL "" FORCE)
 set(REPROC_MULTITHREADED ON CACHE BOOL "" FORCE)
 add_subdirectory(reproc)
 if (UNIX AND NOT APPLE)
-    target_compile_definitions(reproc PUBLIC "-fPIC")
-    target_compile_definitions(reproc++ PUBLIC "-fPIC")
+    target_compile_options(reproc PUBLIC "-fPIC")
+    target_compile_options(reproc++ PUBLIC "-fPIC")
 endif ()
 target_include_directories(luisa-compute-ext INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc/include>
