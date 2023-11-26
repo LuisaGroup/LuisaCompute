@@ -76,7 +76,7 @@ luisa_compute_install_extension(stb HEADER_FILES
 add_library(magic_enum INTERFACE)
 target_include_directories(magic_enum INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>)
 target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
-luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include)
+luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include/magic_enum)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
 
@@ -144,7 +144,7 @@ endif ()
 add_library(half INTERFACE)
 target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/half/include>)
 target_link_libraries(luisa-compute-ext INTERFACE half)
-luisa_compute_install_extension(half INCLUDE half/include)
+luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
 
 # reproc
 set(REPROC_DEVELOP OFF CACHE BOOL "" FORCE)
@@ -163,10 +163,10 @@ add_subdirectory(reproc)
 target_include_directories(luisa-compute-ext INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc/include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc++/include>)
-install(DIRECTORY reproc/reproc/include
+install(DIRECTORY reproc/reproc/include/reproc
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
         FILES_MATCHING REGEX ".*\\.h$")
-install(DIRECTORY reproc/reproc++/include
+install(DIRECTORY reproc/reproc++/include/reproc++
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
         FILES_MATCHING REGEX ".*\\.hpp$")
 # Note: we do not link `reproc` and `reproc++` to `luisa-compute-ext` but
