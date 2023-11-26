@@ -1125,7 +1125,7 @@ fn cpu_features() -> Vec<String> {
     // this breaks msvc shipped with vs2019
     // if is_x86_feature_detected!("movbe") { features.push("movbe"); }
     // if is_x86_feature_detected!("ermsb") { features.push("ermsb"); }
-    features.into_iter().map(|s| s.to_string()).collect()
+    features.into_iter().map(|s| format!("+{}", s)).collect()
 }
 
 fn target_triple() -> String {
