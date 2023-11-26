@@ -23,7 +23,7 @@ int main(int argc, char *argv[]) {
         auto p = dispatch_id().xy();
         auto uv = make_float2(p) / make_float2(resolution) * 2.0f - 1.0f;
         auto color = def(make_float4());
-        Constant<float> scales{pi, luisa::exp(1.f), luisa::sqrt(2.f)};
+        Constant scales{pi, luisa::exp(1.f), luisa::sqrt(2.f)};
         for (auto i = 0u; i < 3u; i++) {
             color[i] = cos(time * scales[i] + uv.y * 11.f +
                            sin(-time * scales[2u - i] + uv.x * 7.f) * 4.f) *
@@ -75,9 +75,11 @@ int main(int argc, char *argv[]) {
                          ImGuiWindowFlags_NoScrollbar |
                              ImGuiWindowFlags_NoScrollWithMouse);
             {
-                auto scroll = ImGui::GetIO().MouseWheel;
                 static auto scale = 1.;
-                scale = clamp(scale * pow(2, scroll / 10.), 0.1, 10.);
+                if (ImGui::IsWindowHovered()) {
+                    auto scroll = ImGui::GetIO().MouseWheel;
+                    scale = clamp(scale * pow(2, scroll / 10.), 0.1, 10.);
+                }
                 auto work_size = ImGui::GetContentRegionMax();
                 auto padding = ImGui::GetStyle().WindowPadding;
                 auto size = std::max(work_size.x - padding.x, work_size.y - padding.y);

@@ -4,16 +4,30 @@
 
 namespace luisa::compute {
 
+namespace detail {
+
+[[nodiscard]] static auto allocate_resource_uid() noexcept {
+    static std::atomic_uint64_t uid{0u};
+    auto x = ++uid;
+    LUISA_ASSERT(x <= std::numeric_limits<uint32_t>::max(),
+                 "Resource UID overflow.");
+    return static_cast<uint32_t>(x);
+}
+
+}// namespace detail
+
 Resource::Resource(Resource &&rhs) noexcept
     : _device{std::move(rhs._device)},
       _info{rhs._info},
-      _tag{rhs._tag} { rhs._info.invalidate(); }
+      _tag{rhs._tag},
+      _uid{rhs._uid} { rhs._info.invalidate(); }
 
 Resource::Resource(DeviceInterface *device,
                    Resource::Tag tag,
                    const ResourceCreationInfo &info) noexcept
     : _device{device->shared_from_this()},
-      _info{info}, _tag{tag} {}
+      _info{info}, _tag{tag},
+      _uid{detail::allocate_resource_uid()} {}
 
 void Resource::set_name(luisa::string_view name) const noexcept {
     _device->set_name(_tag, _info.handle, name);
@@ -32,4 +46,3 @@ void Resource::_error_invalid() noexcept {
 }
 
 }// namespace luisa::compute
-

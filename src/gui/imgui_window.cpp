@@ -138,8 +138,8 @@ private:
     BindlessArray _texture_array;
     uint _texture_array_offset{0u};
     luisa::queue<uint64_t> _texture_free_slots;
-    luisa::unordered_map<uint64_t, std::pair<uint64_t, uint32_t>> _active_textures;
-    luisa::map<std::pair<uint64_t, uint32_t>, uint64_t> _registered_images;
+    luisa::unordered_map<uint64_t, std::pair<uint32_t, uint32_t>> _active_textures;
+    luisa::map<std::pair<uint32_t, uint32_t>, uint64_t> _registered_images;
     luisa::unordered_map<GLFWwindow *, luisa::unique_ptr<Swapchain>> _platform_swapchains;
     luisa::unordered_map<GLFWwindow *, luisa::unique_ptr<Image<float>>> _platform_framebuffers;
 
@@ -415,7 +415,7 @@ public:
     }
     [[nodiscard]] auto register_texture(const Image<float> &image, Sampler sampler) noexcept {
         return _with_context([&] {
-            auto key = std::make_pair(image.handle(), sampler.code());
+            auto key = std::make_pair(image.uid(), sampler.code());
             if (auto iter = _registered_images.find(key);
                 iter != _registered_images.end()) {
                 return iter->second;
