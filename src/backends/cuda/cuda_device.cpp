@@ -178,9 +178,6 @@ CUDADevice::CUDADevice(Context &&ctx,
         _cudadevrt_library = luisa::string{std::istreambuf_iterator<char>{devrt_file},
                                            std::istreambuf_iterator<char>{}};
     }
-
-    // event pool
-    _event_manager = luisa::make_unique<CUDAEventManager>(handle().uuid());
 }
 
 CUDADevice::~CUDADevice() noexcept {
@@ -188,6 +185,14 @@ CUDADevice::~CUDADevice() noexcept {
         LUISA_CHECK_CUDA(cuCtxSynchronize());
         LUISA_CHECK_CUDA(cuModuleUnload(_builtin_kernel_module));
     });
+}
+
+CUDAEventManager *CUDADevice::event_manager() const noexcept {
+    std::scoped_lock lock{_event_manager_mutex};
+    if (_event_manager == nullptr) [[unlikely]] {
+        _event_manager = luisa::make_unique<CUDAEventManager>(handle().uuid());
+    }
+    return _event_manager.get();
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const Type *element,
@@ -802,17 +807,17 @@ void CUDADevice::destroy_shader(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_event() noexcept {
-    auto event_handle = with_handle([this] {
-        return _event_manager->create();
+    auto event_handle = with_handle([m = this->event_manager()] {
+        return m->create();
     });
     return {.handle = reinterpret_cast<uint64_t>(event_handle),
             .native_handle = event_handle->handle()};
 }
 
 void CUDADevice::destroy_event(uint64_t handle) noexcept {
-    with_handle([this, handle] {
+    with_handle([m = this->event_manager(), handle] {
         auto event = reinterpret_cast<CUDAEvent *>(handle);
-        _event_manager->destroy(event);
+        m->destroy(event);
     });
 }
 
