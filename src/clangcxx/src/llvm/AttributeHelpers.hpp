@@ -4,11 +4,11 @@
 #include "clang/AST/Expr.h"
 
 namespace luisa::clangcxx {
-inline static bool isLuisaAttribute(clang::AnnotateAttr *Anno) {
+inline static bool isLuisaAttribute(const clang::AnnotateAttr *Anno) {
     return Anno->getAnnotation() == "luisa-shader";
 }
 
-inline static bool isIgnore(clang::AnnotateAttr *Anno) {
+inline static bool isIgnore(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
         return false;
     if (Anno->args_size() == 1) {
@@ -20,7 +20,7 @@ inline static bool isIgnore(clang::AnnotateAttr *Anno) {
     return false;
 }
 
-inline static bool isKernel(clang::AnnotateAttr *Anno) {
+inline static bool isKernel(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
         return false;
     auto arg = Anno->args_begin();
@@ -30,7 +30,7 @@ inline static bool isKernel(clang::AnnotateAttr *Anno) {
     return false;
 }
 
-inline static bool isBuiltinType(clang::AnnotateAttr *Anno) {
+inline static bool isBuiltinType(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
         return false;
     if (Anno->args_size() >= 1) {
@@ -42,8 +42,33 @@ inline static bool isBuiltinType(clang::AnnotateAttr *Anno) {
     return false;
 }
 
-inline static llvm::StringRef getBuiltinTypeName(clang::AnnotateAttr *Anno) {
+inline static llvm::StringRef getBuiltinTypeName(const clang::AnnotateAttr *Anno) {
+    if (!isBuiltinType(Anno))
+        return {};
+    if (Anno->args_size() >= 1) {
+        auto arg = Anno->args_begin();
+        arg++;
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+            return TypeLiterial->getString();
+        }
+    }
+    return {};
+}
+
+inline static bool isCallop(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
+        return false;
+    if (Anno->args_size() >= 1) {
+        auto arg = Anno->args_begin();
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+            return (TypeLiterial->getString() == "callop");
+        }
+    }
+    return false;
+}
+
+inline static llvm::StringRef getCallopName(const clang::AnnotateAttr *Anno) {
+    if (!isCallop(Anno))
         return {};
     if (Anno->args_size() >= 1) {
         auto arg = Anno->args_begin();

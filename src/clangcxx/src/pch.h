@@ -16,6 +16,9 @@
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/shader.h>
 
+#include <luisa/core/magic_enum.h>
+#include <luisa/ast/op.h>
+#include <luisa/vstl/common.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
 
