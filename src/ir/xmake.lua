@@ -17,7 +17,7 @@ on_load(function(target)
 			public = true
 		})
 		if is_plat("windows") then
-			target:add("links", "luisa_compute_ir", {
+			target:add("links", "luisa_compute_ir_static", {
 				public = true
 			})
 			-- missing libraries can be found using `cargo rustc -- --print=native-static-libs`
@@ -25,11 +25,11 @@ on_load(function(target)
 				public = true
 			})
 		elseif is_plat("linux") then
-			target:add("links", path.join(lib_path, "libluisa_compute_ir"), {
+			target:add("links", path.join(lib_path, "libluisa_compute_ir_static"), {
 				public = true
 			})
 		else
-			target:add("links", path.join(lib_path, "libluisa_compute_ir"), {
+			target:add("links", path.join(lib_path, "libluisa_compute_ir_static"), {
 				public = true
 			})
 		end
