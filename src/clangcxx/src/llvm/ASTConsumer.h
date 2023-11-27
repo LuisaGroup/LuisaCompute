@@ -17,10 +17,17 @@ using MatchFinder = clang::ast_matchers::MatchFinder;
 
 struct CXXBlackboard
 {
+    CXXBlackboard() = default;
+    ~CXXBlackboard();
+    
     clang::ASTContext* astContext = nullptr;
     luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
-    luisa::unordered_map<luisa::string, const luisa::compute::Type*> type_map;
     luisa::unordered_map<luisa::string, const luisa::compute::RefExpr*> globals;
+    bool RegisterType(const luisa::string& name, const luisa::compute::Type* type);
+    const luisa::compute::Type* FindType(const luisa::string& name);
+
+protected:
+    luisa::unordered_map<luisa::string, const luisa::compute::Type*> type_map;
 };
 
 struct Stack {
