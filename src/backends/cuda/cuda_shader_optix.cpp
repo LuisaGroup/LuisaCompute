@@ -409,6 +409,7 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
             } else if (command->is_multiple_dispatch()) {
                 for (auto s : command->dispatch_sizes()) {
+                    if (any(s == make_uint3(0u))) { continue; }
                     _do_launch(cuda_stream, device_argument_buffer, s);
                 }
             } else {
@@ -430,6 +431,7 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
                                     reinterpret_cast<IndirectParameters *>(indirect_dispatches_host.data()));
             } else if (command->is_multiple_dispatch()) {
                 for (auto s : command->dispatch_sizes()) {
+                    if (any(s == make_uint3(0u))) { continue; }
                     _do_launch(cuda_stream, device_argument_buffer, s);
                 }
             } else {
@@ -471,6 +473,7 @@ void CUDAShaderOptiX::_do_launch_indirect(CUstream stream, CUdeviceptr argument_
     for (auto i = 0u; i < n; i++) {
         auto dispatch = indirect_params_readback->dispatches[i + dispatch_offset].dispatch_size_and_kernel_id;
         auto dispatch_size = dispatch.xyz();
+        if (any(dispatch_size == make_uint3(0u))) { break; }
         auto d = reinterpret_cast<CUdeviceptr>(&indirect_buffer_device->dispatches[i + dispatch_offset]);
         LUISA_CHECK_CUDA(cuMemcpyAsync(p, d, sizeof(uint4), stream));
         LUISA_CHECK_OPTIX(optix::api().launch(

@@ -186,6 +186,7 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
         }
         for (auto dispatch_size : dispatch_sizes) {
+            if (any(dispatch_size == make_uint3(0u))) { continue; }
             auto launch_size_and_kernel_id = make_uint4(dispatch_size, 0u);
             std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
             // launch configuration
