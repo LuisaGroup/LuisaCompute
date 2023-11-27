@@ -26,23 +26,22 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     function(luisa_compute_rust_fix_rpath target_name)
         set(target luisa_compute_${target_name})
         if (APPLE)
-            add_custom_target(${target}-fix-rpath ALL DEPENDS cargo-build_${target}
+            add_custom_command(TARGET cargo-build_${target} POST_BUILD
                     COMMAND install_name_tool -id "@rpath/lib${target}.dylib"
                     "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.dylib"
                     COMMAND install_name_tool -add_rpath "@loader_path"
-                    "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.dylib")
-            add_dependencies(luisa-compute-rust-meta ${target}-fix-rpath)
+                    "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.dylib"
+                    BYPRODUCTS "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.dylib")
         elseif (UNIX)
             find_program(PATCHELF_EXE patchelf)
             if (PATCHELF_EXE)
-                add_custom_target(${target}-fix-rpath ALL DEPENDS cargo-build_${target}
-                        COMMENT "Fixing rpath for ${target}..."
+                add_custom_command(TARGET cargo-build_${target} POST_BUILD
                         COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN"
                         "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.so"
+                        BYPRODUCTS "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.so"
                         VERBATIM)
-                add_dependencies(luisa-compute-rust-meta ${target}-fix-rpath)
             else ()
-                message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
+                message(FATAL_ERROR "Cannot find `patchelf`. The Rust backend may not work correctly.")
             endif ()
         endif ()
     endfunction()
@@ -78,19 +77,20 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         if (LUISA_COMPUTE_ENABLE_CPU)
             list(APPEND LUISA_CARGO_FEATURES "cpu")
         endif ()
-        corrosion_set_features(luisa_compute_backend_impl ${LUISA_CARGO_FEATURES})
+        corrosion_set_features(luisa_compute_backend_impl
+                NO_DEFAULT_FEATURES
+                FEATURES ${LUISA_CARGO_FEATURES})
 
         if (LUISA_COMPUTE_EMBREE_ZIP_PATH STREQUAL "" OR NOT LUISA_COMPUTE_EMBREE_ZIP_PATH)
             # good luck finding the embree zip file
-        else()
-            if(NOT EXISTS ${LUISA_COMPUTE_EMBREE_ZIP_PATH})
+        else ()
+            if (NOT EXISTS ${LUISA_COMPUTE_EMBREE_ZIP_PATH})
                 message(FATAL_ERROR "LUISA_COMPUTE_EMBREE_ZIP_PATH is set to ${LUISA_COMPUTE_EMBREE_ZIP_PATH} but the file does not exist.")
-            endif()
+            endif ()
             corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_ZIP_FILE=${LUISA_COMPUTE_EMBREE_ZIP_PATH}")
-        endif()
+        endif ()
 
         if (LUISA_COMPUTE_ENABLE_CPU)
-            set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
             set(LUISA_RUST_OUTPUT_DIR
                     "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
             corrosion_set_env_vars(luisa_compute_backend_impl
@@ -108,15 +108,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                     corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
                 endif ()
             endif ()
-            add_custom_target(luisa-compute-rust-copy DEPENDS cargo-build_luisa_compute_backend_impl)
-            add_custom_command(TARGET luisa-compute-rust-copy
+            add_custom_command(TARGET cargo-build_luisa_compute_backend_impl POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy_directory
                     "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
                     "$<TARGET_FILE_DIR:luisa-compute-core>/")
             install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/backend_support/"
                     DESTINATION "${CMAKE_INSTALL_BINDIR}/"
                     FILES_MATCHING REGEX ".*\\.(dll|so|dylib)(\\.[0-9]+)?$")
-            add_dependencies(luisa_compute_backend_impl luisa-compute-rust-copy)
         endif ()
 
         luisa_compute_rust_fix_rpath(backend_impl)
