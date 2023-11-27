@@ -63,7 +63,7 @@ inline void lc_buffer_write(const KernelFnArgs *k_args, const BufferView &buffer
 template<class T>
 inline void lc_byte_buffer_write(const KernelFnArgs *k_args, const BufferView &buffer, size_t i, T value) noexcept {
 #ifdef LUISA_DEBUG
-   if (i >= lc_buffer_size<uint8_t>(k_args, buffer) || i + sizeof(T) > lc_buffer_size<uint8_t>(k_args, buffer)) {
+    if (i >= lc_buffer_size<uint8_t>(k_args, buffer) || i + sizeof(T) > lc_buffer_size<uint8_t>(k_args, buffer)) {
         lc_abort_and_print_sll(k_args->internal_data, "ByteBuffer write out of bounds: {} >= {}", i,
                                lc_buffer_size<T>(k_args, buffer));
     }
@@ -172,7 +172,7 @@ inline T lc_bindless_byte_buffer_read(const KernelFnArgs *k_args, const Bindless
 }
 template<class T>
 inline void lc_bindless_byte_buffer_write(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index,
-                                      size_t element, T value) noexcept {
+                                          size_t element, T value) noexcept {
     auto buf = lc_bindless_buffer(k_args, array, buf_index);
     lc_byte_buffer_write<T>(k_args, buf, element, value);
 }
@@ -340,7 +340,18 @@ inline void lc_ray_query_commit_procedural(RayQuery &rq, float t) {
 inline void lc_ray_query_terminate(RayQuery &rq) {
     rq.terminated = true;
 }
-
+inline RayQuery &cvt_rq(RayQuery *rq) {
+    return *rq;
+}
+inline const RayQuery &cvt_rq(const RayQuery *rq) {
+    return *rq;
+}
+inline RayQuery &cvt_rq(RayQuery &rq) {
+    return rq;
+}
+inline const RayQuery &cvt_rq(const RayQuery &rq) {
+    return rq;
+}
 template<class T, class P>
 struct Callbacks {
     T on_triangle_hit;

@@ -7,13 +7,15 @@ fn main() {
     println!("cargo:rerun-if-changed=cpp.toml");
     println!("cargo:rerun-if-changed=src/lib.rs");
     // println!("cargo:rerun-if-env-changed=LC_RS_DO_NOT_GENERATE_BINDINGS");
-    match env::var("LC_RS_DO_NOT_GENERATE_BINDINGS") {
+    match env::var("LC_RS_GENERATE_BINDINGS") {
         Ok(s) => {
-            if s == "1" {
+            if s != "1" {
                 return;
             }
-        },
-        Err(_) => {}
+        }
+        Err(_) => {
+            return;
+        }
     }
     cbindgen::Builder::new()
         .with_config(Config::from_file("cpp.toml").unwrap())

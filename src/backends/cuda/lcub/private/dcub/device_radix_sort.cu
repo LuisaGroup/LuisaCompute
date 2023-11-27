@@ -10,6 +10,10 @@ cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storag
     return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
 }
 
+cudaError_t DeviceRadixSort::SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit, int end_bit, cudaStream_t stream) {
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
 cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, int32_t*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
 {
     return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);

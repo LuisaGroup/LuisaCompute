@@ -107,7 +107,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
             UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
             OUTPUT_NAME lc-ext-imgui
             PUBLIC_HEADER "${LUISA_IMGUI_HEADERS}")
-    target_compile_definitions(luisa-compute-ext-imgui PRIVATE GLFW_INCLUDE_NONE)
+    target_compile_definitions(luisa-compute-ext-imgui PUBLIC GLFW_INCLUDE_NONE)
     if (WIN32)
         target_compile_definitions(luisa-compute-ext-imgui PRIVATE
                 "IMGUI_API=__declspec(dllexport)"

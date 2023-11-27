@@ -15,6 +15,9 @@ public:
     static void SortPairs(size_t &temp_storage_size, BufferView<int32_t> d_keys_in, BufferView<int32_t> d_keys_out, BufferView<int32_t> d_values_in, BufferView<int32_t> d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8) noexcept;
     static UCommand SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t> d_keys_in, BufferView<int32_t> d_keys_out, BufferView<int32_t> d_values_in, BufferView<int32_t> d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8) noexcept;
 
+    static void SortPairs(size_t &temp_storage_size, BufferView<uint64_t> d_keys_in, BufferView<uint64_t> d_keys_out, BufferView<uint32_t> d_values_in, BufferView<uint32_t> d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8) noexcept;
+    static UCommand SortPairs(BufferView<int> d_temp_storage, BufferView<uint64_t> d_keys_in, BufferView<uint64_t> d_keys_out, BufferView<uint32_t> d_values_in, BufferView<uint32_t> d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8) noexcept;
+
     static void SortPairs(size_t &temp_storage_size, BufferView<int32_t> d_keys_in, BufferView<int32_t> d_keys_out, BufferView<uint32_t> d_values_in, BufferView<uint32_t> d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8) noexcept;
     static UCommand SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t> d_keys_in, BufferView<int32_t> d_keys_out, BufferView<uint32_t> d_values_in, BufferView<uint32_t> d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8) noexcept;
 

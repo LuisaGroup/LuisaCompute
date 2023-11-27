@@ -167,6 +167,7 @@ private:
     luisa::shared_ptr<DeviceInterface> _device{nullptr};
     ResourceCreationInfo _info{};
     Tag _tag{};
+    uint32_t _uid{};
 
 private:
     [[noreturn]] static void _error_invalid() noexcept;
@@ -215,7 +216,9 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _info.handle; }
     [[nodiscard]] auto native_handle() const noexcept { return _info.native_handle; }
     [[nodiscard]] auto tag() const noexcept { return _tag; }
-    [[nodiscard]] explicit operator bool() const noexcept { return _info.valid(); }
+    [[nodiscard]] auto uid() const noexcept { return _uid; }
+    [[nodiscard]] auto valid() const noexcept { return _info.valid(); }
+    [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
     void set_name(luisa::string_view name) const noexcept;
 };
 
