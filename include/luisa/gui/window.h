@@ -37,7 +37,7 @@ public:
 
     [[nodiscard]] uint64_t native_handle() const noexcept;
     [[nodiscard]] bool should_close() const noexcept;
-    void set_should_close(bool should_close) noexcept;
+    void set_should_close(bool should_close = true) noexcept;
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto name() const noexcept { return string_view{_name}; }
 

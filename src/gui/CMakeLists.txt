@@ -1,9 +1,12 @@
 if (LUISA_COMPUTE_ENABLE_GUI)
     set(LUISA_COMPUTE_GUI_SOURCES
             framerate.cpp
+            imgui_window.cpp
             window.cpp)
     add_library(luisa-compute-gui SHARED ${LUISA_COMPUTE_GUI_SOURCES})
-    target_link_libraries(luisa-compute-gui PUBLIC luisa-compute-runtime)
+    target_link_libraries(luisa-compute-gui PUBLIC
+            luisa-compute-runtime
+            luisa-compute-dsl)
     target_compile_definitions(luisa-compute-gui
             PRIVATE LC_GUI_EXPORT_DLL
             PUBLIC LUISA_ENABLE_GUI=1)

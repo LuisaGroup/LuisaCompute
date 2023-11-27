@@ -1380,7 +1380,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayQueryWorldSpaceRay => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_world_space_ray({2}));",
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_world_space_ray(cvt_rq({2})));",
                     node_ty_s, var, args_v[0]
                 )
                 .unwrap();
@@ -1389,7 +1389,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayQueryProceduralCandidateHit => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_procedural_candidate_hit({2}));",
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_procedural_candidate_hit(cvt_rq({2})));",
                     node_ty_s, var, args_v[0]
                 )
                 .unwrap();
@@ -1398,7 +1398,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayQueryTriangleCandidateHit => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_triangle_candidate_hit({2}));",
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_triangle_candidate_hit(cvt_rq({2})));",
                     node_ty_s, var, args_v[0]
                 )
                 .unwrap();
@@ -1407,27 +1407,27 @@ impl<'a> FunctionEmitter<'a> {
             Func::RayQueryCommittedHit => {
                 writeln!(
                     self.body,
-                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_committed_hit({2}));",
+                    "const {0} {1} = lc_bit_cast<{0}>(lc_ray_query_committed_hit(cvt_rq({2})));",
                     node_ty_s, var, args_v[0]
                 )
                 .unwrap();
                 true
             }
             Func::RayQueryCommitTriangle => {
-                writeln!(self.body, "lc_ray_query_commit_triangle({0});", args_v[0]).unwrap();
+                writeln!(self.body, "lc_ray_query_commit_triangle(cvt_rq({0}));", args_v[0]).unwrap();
                 true
             }
             Func::RayQueryCommitProcedural => {
                 writeln!(
                     self.body,
-                    "lc_ray_query_commit_procedural({0}, {1});",
+                    "lc_ray_query_commit_procedural(cvt_rq({0}), {1});",
                     args_v[0], args_v[1]
                 )
                 .unwrap();
                 true
             }
             Func::RayQueryTerminate => {
-                writeln!(self.body, "lc_ray_query_terminate({0});", args_v[0]).unwrap();
+                writeln!(self.body, "lc_ray_query_terminate(cvt_rq({0}));", args_v[0]).unwrap();
                 true
             }
             _ => false,
@@ -1767,7 +1767,7 @@ impl<'a> FunctionEmitter<'a> {
                 self.write_ident();
                 writeln!(
                     &mut self.body,
-                    "lc_ray_query({}, [&](const TriangleHit& hit) {{",
+                    "lc_ray_query(cvt_rq({}), [&](const TriangleHit& hit) {{",
                     rq_v
                 )
                 .unwrap();

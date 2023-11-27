@@ -955,8 +955,6 @@ static void initialize() {
         LUISA_VERBOSE("Successfully initialized CUDA "
                       "backend with driver version {}.{}.",
                       driver_version_major, driver_version_minor);
-        // OptiX
-        static_cast<void>(optix::api());
     });
 }
 

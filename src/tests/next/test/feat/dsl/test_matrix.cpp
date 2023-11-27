@@ -1,8 +1,8 @@
 /**
- * @file test/feat/common/test_matrix.cpp
+ * @file test/feat/dsl/test_matrix.cpp
  * @author sailing-innocent
  * @date 2023/08/26
- * @brief the matrix-relevant operations
+ * @brief the dsl matrix-relevant operations
 */
 
 #include "common/config.h"
@@ -29,6 +29,7 @@ int test_matrix2x2(Device &device) {
     // col first order
     auto v = make_float2(1.f, 2.f);
     auto mv = m * v;
+    // m^T * v
     CHECK_MESSAGE(mv[0] == 7.f, "failed when (0)");
     CHECK_MESSAGE(mv[1] == 10.f, "failed when (1)");
     // calc inv
@@ -41,6 +42,23 @@ int test_matrix2x2(Device &device) {
     // determinant
     auto det_m = determinant(m);
     CHECK_MESSAGE(det_m == -2.f, "failed when determinant");
+
+    auto w = make_float2x2(
+        make_float2(1.0f, 2.0f),
+        make_float2(3.0f, 4.0f));
+
+    CHECK(w[0][0] == 1.0f);
+    CHECK(w[0][1] == 2.0f);
+    CHECK(w[1][0] == 3.0f);
+    CHECK(w[1][1] == 4.0f);
+
+    auto mw = m * w;
+    // m^T * w
+    CHECK(mw[0][0] == 7.0f);
+    CHECK(mw[0][1] == 10.0f);
+    CHECK(mw[1][0] == 15.0f);
+    CHECK(mw[1][1] == 22.0f);
+
     return 0;
 }
 }// namespace luisa::test

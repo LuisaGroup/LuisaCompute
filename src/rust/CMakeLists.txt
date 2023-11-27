@@ -6,9 +6,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             PROFILE ${LUISA_CARGO_PROFILE}
             NO_DEFAULT_FEATURES)
 
-    corrosion_set_env_vars(luisa_compute_ir "LC_RS_DO_NOT_GENERATE_BINDINGS=1")
-    corrosion_set_env_vars(luisa_compute_api_types "LC_RS_DO_NOT_GENERATE_BINDINGS=1")
-    
+    corrosion_set_env_vars(luisa_compute_ir "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
+    corrosion_set_env_vars(luisa_compute_api_types "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
 
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)

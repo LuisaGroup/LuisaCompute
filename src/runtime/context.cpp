@@ -8,6 +8,36 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/unordered_map.h>
 
+// Hack to make LLVM happy. The following code is not used but *must* be included in the shared library!!!!
+
+#ifdef LUISA_PLATFORM_UNIX
+namespace llvm_hack {
+union CWrapperFunctionResultDataUnion {
+    char *ValuePtr;
+    char Value[sizeof(ValuePtr)];
+};
+
+typedef struct {
+    CWrapperFunctionResultDataUnion Data;
+    size_t Size;
+} CWrapperFunctionResult;
+extern "C" {
+CWrapperFunctionResult llvm_orc_registerEHFrameSectionWrapper(const char *Data, size_t Size) {
+    CWrapperFunctionResult r;
+    r.Data.ValuePtr = nullptr;
+    r.Size = 0;
+    return r;
+}
+CWrapperFunctionResult llvm_orc_deregisterEHFrameSectionWrapper(const char *Data, size_t Size) {
+    CWrapperFunctionResult r;
+    r.Data.ValuePtr = nullptr;
+    r.Size = 0;
+    return r;
+}
+}
+}// namespace llvm_hack
+
+#endif
 namespace luisa::compute {
 
 struct BackendModule {

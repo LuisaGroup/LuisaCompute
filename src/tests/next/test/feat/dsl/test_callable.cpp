@@ -47,24 +47,28 @@ int test_callable(Device &device) {
     Callable add = [](Var<float> a, Var<float> b) noexcept {
         return a + b;
     };
+    Callable self_add = [](Var<float> &a) noexcept {
+        a += 1.0f;
+    };
 
     Kernel1D kernel_def = [&](BufferVar<float> source, BufferVar<float> result, Var<float> x) noexcept {
         set_block_size(256u);
         UInt index = dispatch_id().x;
+        self_add(x);
         store(result, index, add(load(source, index), x));
     };
-    Shader1D<Buffer<float>, Buffer<float>, float> kernel = device.compile(kernel_def);
+    Shader1D<Buffer<float>, Buffer<float>, float> shader = device.compile(kernel_def);
     Stream stream = device.create_stream();
     Buffer<float> result_buffer = device.create_buffer<float>(n);
 
     std::vector<float> data(n);
-    std::vector<float> results(n);
+    std::vector<float> results(n, 0.0f);
     std::iota(data.begin(), data.end(), 1.0f);
 
     Clock clock;
     stream << buffer.copy_from(data.data());
     CommandList command_list = CommandList::create();
-    command_list << kernel(buffer, result_buffer, 3.0f).dispatch(n);
+    command_list << shader(buffer, result_buffer, 3.0f).dispatch(n);
 
     stream << command_list.commit()
            << result_buffer.copy_to(results.data());
@@ -83,7 +87,7 @@ int test_callable(Device &device) {
 
     for (unsigned int i = 0u; i < n; i++) {
         // LUISA_INFO("Result: {} || {}", i, results[i] - data[i]);
-        CHECK(results[i] - data[i] == doctest::Approx(3.0f).epsilon(0.001f));
+        CHECK(results[i] - data[i] == doctest::Approx(4.0f).epsilon(0.001f));
     }
     return 0;
 }

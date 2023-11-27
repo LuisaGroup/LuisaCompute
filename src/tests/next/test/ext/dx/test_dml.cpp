@@ -1,3 +1,4 @@
+#ifdef LUISA_TEST_DX_BACKEND
 /**
  * @file src/tests/next/tset/ext/dx/test_dml.cpp
  * @author sailing-innocent, on maxwell's previous work
@@ -121,3 +122,4 @@ TEST_SUITE("ext_dx") {
         REQUIRE(luisa::test::test_dml(device) == 0);
     }
 }
+#endif
