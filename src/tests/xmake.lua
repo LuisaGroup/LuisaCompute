@@ -163,10 +163,11 @@ end)
 test_proj("test_cuda_dx_interop")
 test_proj("test_dml")
 test_proj("test_manual_ast")
-
-test_proj("test_func_builder")
-target("test_func_builder")
-	add_deps("lc-clangcxx")
+if  get_config("enable_clangcxx") then
+	test_proj("test_func_builder", false, function()
+		add_deps("lc-clangcxx")
+	end)
+end
 
 if get_config("cuda_ext_lcub") then 
 	test_proj("test_cuda_lcub", false, function ()
