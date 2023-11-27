@@ -167,7 +167,7 @@ private:
     luisa::shared_ptr<DeviceInterface> _device{nullptr};
     ResourceCreationInfo _info{};
     Tag _tag{};
-    uint32_t _uid{};
+    uint64_t _uid{};
 
 private:
     [[noreturn]] static void _error_invalid() noexcept;
