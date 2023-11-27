@@ -29,6 +29,35 @@ void CUDAShader::set_name(luisa::string &&name) noexcept {
 
 void CUDAShader::launch(CUDACommandEncoder &encoder,
                         ShaderDispatchCommand *command) const noexcept {
+
+    // check if this is an empty launch
+    auto report_empty_launch = [&]() noexcept {
+        LUISA_WARNING_WITH_LOCATION(
+            "Empty launch detected. "
+            "This might be caused by a shader dispatch command with all dispatch sizes set to zero. "
+            "The command will be ignored.");
+    };
+    if (command->is_indirect()) {
+        auto indirect = command->indirect_dispatch();
+        if (indirect.max_dispatch_size == 0u) {
+            report_empty_launch();
+            return;
+        }
+    } else if (command->is_multiple_dispatch()) {
+        auto dispatch_sizes = command->dispatch_sizes();
+        if (std::all_of(dispatch_sizes.begin(), dispatch_sizes.end(),
+                        [](auto size) noexcept { return any(size == make_uint3(0u)); })) {
+            report_empty_launch();
+            return;
+        }
+    } else {
+        auto dispatch_size = command->dispatch_size();
+        if (any(dispatch_size == make_uint3(0u))) {
+            report_empty_launch();
+            return;
+        }
+    }
+
     auto name = [this] {
         std::scoped_lock lock{_name_mutex};
         return _name;
