@@ -1,24 +1,18 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
-
     # set profile based on build type
     set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,dev,release>")
-
-    set(LUISA_CARGO_CRATES luisa_compute_ir luisa_compute_api_types)
-    if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
-        list(APPEND LUISA_CARGO_CRATES luisa_compute_backend_impl)
-    endif ()
     corrosion_import_crate(
             MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
             PROFILE ${LUISA_CARGO_PROFILE}
-            CRATES ${LUISA_CARGO_CRATES}
             NO_DEFAULT_FEATURES)
 
-    corrosion_set_env_vars(luisa_compute_ir "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
-    corrosion_set_env_vars(luisa_compute_api_types "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
+    # interestly this is equivalent to doting nothing...
+    # corrosion_set_env_vars(luisa_compute_ir "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
+    # corrosion_set_env_vars(luisa_compute_api_types "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
 
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-    target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir luisa_compute_api_types)
+    target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir_static)
     target_compile_definitions(luisa-compute-rust-meta INTERFACE LUISA_ENABLE_RUST)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(luisa-compute-rust-meta INTERFACE -Wno-return-type-c-linkage)
@@ -43,10 +37,12 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                         VERBATIM)
                 add_dependencies(luisa-compute-rust-meta ${target}-fix-rpath)
             else ()
-                message(FATAL_ERROR "Cannot find `patchelf`. The Rust backend may not work correctly.")
+                message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
             endif ()
         endif ()
     endfunction()
+
+    luisa_compute_rust_fix_rpath(backend_impl)
 
     function(luisa_compute_install_rust target)
         # FIXME: corrosion does not correctly installs the rust library so we have to manually install it here
@@ -65,8 +61,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(lib|a)$")
     endfunction()
 
-    luisa_compute_install_rust(api_types)
-    luisa_compute_install_rust(ir)
+    # luisa_compute_install_rust(api_types)
+    luisa_compute_install_rust(ir_static)
     luisa_compute_install(rust-meta)
 
     # optionally enable the CPU and remote backends implemented in Rust
@@ -75,19 +71,17 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         if (LUISA_COMPUTE_ENABLE_REMOTE)
             corrosion_set_features(luisa_compute_backend_impl FEATURES remote)
         endif ()
-
         if (LUISA_COMPUTE_EMBREE_ZIP_PATH STREQUAL "" OR NOT LUISA_COMPUTE_EMBREE_ZIP_PATH)
-            # good luck finding the embree zip file
-        else ()
-            if (NOT EXISTS ${LUISA_COMPUTE_EMBREE_ZIP_PATH})
+        else()
+            if(NOT EXISTS ${LUISA_COMPUTE_EMBREE_ZIP_PATH})
                 message(FATAL_ERROR "LUISA_COMPUTE_EMBREE_ZIP_PATH is set to ${LUISA_COMPUTE_EMBREE_ZIP_PATH} but the file does not exist.")
-            endif ()
+            endif()
             corrosion_set_env_vars(luisa_compute_backend_impl "EMBREE_ZIP_FILE=${LUISA_COMPUTE_EMBREE_ZIP_PATH}")
-        endif ()
-
+        endif()
         if (LUISA_COMPUTE_ENABLE_CPU)
 
             corrosion_set_features(luisa_compute_backend_impl FEATURES cpu)
+            set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,debug,release>")
             set(LUISA_RUST_OUTPUT_DIR
                     "$<TARGET_FILE_DIR:luisa-compute-core>/../cargo/build/${Rust_CARGO_TARGET_CACHED}/${LUISA_CARGO_PROFILE}")
             corrosion_set_env_vars(luisa_compute_backend_impl
@@ -116,10 +110,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             add_dependencies(luisa_compute_backend_impl luisa-compute-rust-copy)
         endif ()
 
-        luisa_compute_rust_fix_rpath(backend_impl)
-        if (TARGET luisa_compute_backend_impl-fix-rpath AND TARGET luisa-compute-rust-copy)
-            add_dependencies(luisa_compute_backend_impl-fix-rpath luisa-compute-rust-copy)
-        endif ()
         luisa_compute_install_rust(backend_impl)
 
     else ()
