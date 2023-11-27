@@ -1,5 +1,6 @@
 #pragma once
 #include <utility>
+#include <luisa/vstl/common.h>
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/unordered_map.h>
 #include "luisa/runtime/device.h"
@@ -17,16 +18,28 @@ using MatchFinder = clang::ast_matchers::MatchFinder;
 
 struct CXXBlackboard
 {
-    CXXBlackboard() = default;
+    CXXBlackboard();
     ~CXXBlackboard();
-    
+
     clang::ASTContext* astContext = nullptr;
     luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
     luisa::unordered_map<luisa::string, const luisa::compute::RefExpr*> globals;
-    bool RegisterType(const luisa::string& name, const luisa::compute::Type* type);
-    const luisa::compute::Type* FindType(const luisa::string& name);
+    
+    const luisa::compute::Type* RecordAsPrimitiveType(const clang::QualType Type);
+    const luisa::compute::Type* RecordAsBuiltinType(const clang::QualType Ty);
+    const luisa::compute::Type* RecordAsStuctureType(const clang::QualType Ty);
+    const luisa::compute::Type* RecordType(const clang::QualType Ty);
 
+    const luisa::compute::Type* FindOrAddType(const clang::QualType Ty, const clang::ASTContext* astContext);
+
+    luisa::compute::CallOp FindCallOp(const luisa::string_view& name);
+    
 protected:
+    const luisa::compute::Type* findType(const clang::QualType Ty, const clang::ASTContext* astContext);
+    bool tryEmplaceFieldType(const clang::QualType Ty, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types);
+    bool registerType(clang::QualType Ty, const clang::ASTContext* astContext, const luisa::compute::Type* type);
+
+    vstd::HashMap<vstd::string, luisa::compute::CallOp> ops_map;
     luisa::unordered_map<luisa::string, const luisa::compute::Type*> type_map;
 };
 
@@ -41,12 +54,7 @@ public:
     RecordDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
 
-    const luisa::compute::Type* RecordAsPrimitiveType(const clang::QualType Ty, const clang::RecordDecl *decl);
-    const luisa::compute::Type* RecordAsBuiltinType(const clang::QualType Ty, const clang::RecordDecl *decl);
-    const luisa::compute::Type* RecordAsStuctureType(const clang::QualType Ty, const clang::RecordDecl *decl);
-    const luisa::compute::Type* RecordType(const clang::QualType Ty, const clang::RecordDecl *decl);
 
-    bool TryEmplaceFieldType(const clang::QualType Ty, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types);
 
     CXXBlackboard* blackboard = nullptr;
 };

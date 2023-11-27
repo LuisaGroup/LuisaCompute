@@ -32,7 +32,7 @@ namespace luisa::shader
 // Buffer<NVIDIA> buffer;
 
 [[kernel_2d(16, 16)]]
-int kernel(Buffer<NVIDIA> buffer)
+int kernel(Buffer<NVIDIA>& buffer)
 {
     // binary op
     int n = 0 + 2 - 56;
