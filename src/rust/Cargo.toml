@@ -11,3 +11,7 @@ resolver = "2"
 
 [profile.dev]
 incremental = true
+
+[profile.release]
+incremental = true
+lto = "off"
