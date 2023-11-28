@@ -50,7 +50,7 @@ if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 endif ()
 
 # LTO
-option(LUISA_COMPUTE_ENABLE_LTO "Enable link-time optimization" ON)
+option(LUISA_COMPUTE_ENABLE_LTO "Enable link-time optimization (for release builds only)" ON)
 if (LUISA_COMPUTE_ENABLE_LTO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT LUISA_LTO_SUPPORTED OUTPUT LUISA_LTO_CHECK_OUTPUT)
