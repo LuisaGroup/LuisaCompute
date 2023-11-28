@@ -59,6 +59,21 @@ if (LUISA_COMPUTE_ENABLE_LTO)
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON)
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON)
+        # newer versions of rustc generates LTO objects with opaque pointers
+        # but clang < 15.0 does not enable opaque pointers by default, so we
+        # have to enable it manually
+        if (CMAKE_C_COMPILER_ID MATCHES "Clang" AND
+                CMAKE_C_COMPILER_VERSION VERSION_LESS 15.0)
+            set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -opaque-pointers")
+            set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} -opaque-pointers")
+            set(CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL} -opaque-pointers")
+        endif ()
+        if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
+                CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15.0)
+            set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -opaque-pointers")
+            set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -opaque-pointers")
+            set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -opaque-pointers")
+        endif ()
     else ()
         message(STATUS "IPO/LTO not supported: ${LUISA_LTO_CHECK_OUTPUT}")
     endif ()
