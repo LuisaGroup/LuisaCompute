@@ -52,28 +52,26 @@ endif ()
 # LTO
 option(LUISA_COMPUTE_ENABLE_LTO "Enable link-time optimization (for release builds only)" ON)
 if (LUISA_COMPUTE_ENABLE_LTO)
+    if (CMAKE_C_COMPILER_ID MATCHES "Clang" AND
+            CMAKE_C_COMPILER_VERSION VERSION_LESS 15.0)
+        set(LUISA_COMPUTE_ENABLE_LTO OFF)
+    endif ()
+    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
+            CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15.0)
+        set(LUISA_COMPUTE_ENABLE_LTO OFF)
+    endif ()
+    if (NOT LUISA_COMPUTE_ENABLE_LTO)
+        message(STATUS "LTO disabled for clang ${CMAKE_CXX_COMPILER_VERSION} due to non-default opaque pointer support")
+    endif ()
+endif ()
+if (LUISA_COMPUTE_ENABLE_LTO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT LUISA_LTO_SUPPORTED OUTPUT LUISA_LTO_CHECK_OUTPUT)
     if (LUISA_LTO_SUPPORTED)
-        message(STATUS "IPO/LTO supported: ${LUISA_LTO_CHECK_OUTPUT}")
+        message(STATUS "IPO/LTO enabled for release builds")
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON)
         set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON)
-        # newer versions of rustc generates LTO objects with opaque pointers
-        # but clang < 15.0 does not enable opaque pointers by default, so we
-        # have to enable it manually
-        if (CMAKE_C_COMPILER_ID MATCHES "Clang" AND
-                CMAKE_C_COMPILER_VERSION VERSION_LESS 15.0)
-            set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -opaque-pointers")
-            set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} -opaque-pointers")
-            set(CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL} -opaque-pointers")
-        endif ()
-        if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
-                CMAKE_CXX_COMPILER_VERSION VERSION_LESS 15.0)
-            set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -opaque-pointers")
-            set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -opaque-pointers")
-            set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -opaque-pointers")
-        endif ()
     else ()
         message(STATUS "IPO/LTO not supported: ${LUISA_LTO_CHECK_OUTPUT}")
     endif ()
