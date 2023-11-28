@@ -62,7 +62,7 @@ target_link_libraries(luisa-compute-ext INTERFACE stb)
 set_target_properties(stb PROPERTIES OUTPUT_NAME lc-ext-stb)
 luisa_compute_install_extension(stb HEADER_FILES
         stb/stb/stb_image.h
-        stb/stb/stb_image_resize.h
+        stb/stb/stb_image_resize2.h
         stb/stb/stb_image_write.h
         HEADER_DESTINATION stb)
 

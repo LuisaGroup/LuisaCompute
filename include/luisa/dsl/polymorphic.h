@@ -61,7 +61,7 @@ public:
         requires is_integral_expr_v<Tag>
     void dispatch_range(Tag &&tag, uint lo, uint hi,
                         const luisa::function<void(const T *)> &f) const noexcept {
-        if (lo < hi) { detail::polymorphic_error_unordered_tag_range(lo, hi); }
+        if (lo > hi) { detail::polymorphic_error_unordered_tag_range(lo, hi); }
         if (hi > _impl.size()) [[unlikely]] {
             LUISA_WARNING_WITH_LOCATION(
                 "Out-of-bound polymorphic tag range [{}, {}). "
