@@ -208,6 +208,15 @@ on_load(function(target)
 			})
 		end
 	end
+	-- fma support
+	if is_arch("x64", "x86_64") then
+		target:add("cflags", "-mfma", {
+			tools = {"clang", "gcc"}
+		})
+		target:add("cxflags", "-mfma", {
+			tools = {"clang", "gcc"}
+		})
+	end
 	local c_standard = target:values("c_standard")
 	local cxx_standard = target:values("cxx_standard")
 	if type(c_standard) == "string" and type(cxx_standard) == "string" then
