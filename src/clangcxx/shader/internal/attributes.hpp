@@ -6,5 +6,8 @@
 #define kernel_1d(x) clang::annotate("luisa-shader", "kernel_1d", (x))
 #define kernel_2d(x, y) clang::annotate("luisa-shader", "kernel_2d", (x), (y))
 #define kernel_3d(x, y, z) clang::annotate("luisa-shader", "kernel_3d", (x), (y), (z))
+// TODO: external library, deserialize AST from lib_path, do we need this?
+// [[external("my_lib.bytes")]] int func(int a, int b);
+#define external(lib_path) clang::annotate("luisa-shader", "external", (lib_path))
 
 #define trait struct [[ignore]]
