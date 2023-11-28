@@ -902,4 +902,21 @@ luisa::vector<luisa::string_view> CallableLibrary::names() const noexcept {
     }
     return vec;
 }
+Function CallableLibrary::get_function(luisa::string_view name) const noexcept {
+    auto iter = _callables.find(name);
+    if (iter == _callables.end()) [[unlikely]] {
+        LUISA_ERROR("Callable {} not found", name);
+    }
+    auto &func = iter->second;
+    return Function{func.get()};
+}
+luisa::shared_ptr<const detail::FunctionBuilder> CallableLibrary::get_function_builder(luisa::string_view name) const noexcept {
+    auto iter = _callables.find(name);
+    if (iter == _callables.end()) [[unlikely]] {
+        LUISA_ERROR("Callable {} not found", name);
+    }
+    auto &func = iter->second;
+    return func;
+}
+
 }// namespace luisa::compute
