@@ -411,6 +411,7 @@ struct Expr<SOAView<T>> : public Expr<SOA<T>> {
     using Expr<SOA<T>>::Expr;
 };
 
+// TODO: This can result in template instantiation failure... C++ too hard!!!
 template<typename T, size_t N>
     requires(sizeof(T) >= sizeof(uint))// if T is smaller than uint, we do not split it
 struct Expr<SOA<T[N]>> : public Expr<SOA<std::array<T, N>>> {
