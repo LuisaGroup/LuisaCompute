@@ -39,12 +39,17 @@ struct TriArray {
     int v[3];
 };
 
+struct MDArray {
+    int v[2][3][4];
+};
+
 LUISA_STRUCT(TriArray, v){};
 
 LUISA_STRUCT(Test1, something, a) {};
 LUISA_STRUCT(Test2, a, b) {};
 LUISA_STRUCT(Test3, a, b, c) {};
 LUISA_STRUCT(Point3D, v) {};
+LUISA_STRUCT(MDArray, v) {};
 
 TEST_CASE("dsl") {
 

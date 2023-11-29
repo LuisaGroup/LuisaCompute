@@ -38,11 +38,11 @@ namespace fmt {
 
 template<typename T, size_t N>
 struct formatter<luisa::Vector<T, N>> {
-    constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+    constexpr auto parse(format_parse_context &ctx) const -> decltype(ctx.begin()) {
         return ctx.end();
     }
     template<typename FormatContext>
-    auto format(const luisa::Vector<T, N> &v, FormatContext &ctx) -> decltype(ctx.out()) {
+    auto format(const luisa::Vector<T, N> &v, FormatContext &ctx) const -> decltype(ctx.out()) {
         using namespace std::string_view_literals;
         using luisa::uint;
         using luisa::ushort;
@@ -84,11 +84,11 @@ struct formatter<luisa::Vector<T, N>> {
 
 template<size_t N>
 struct formatter<luisa::Matrix<N>> {
-    constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+    constexpr auto parse(format_parse_context &ctx) const -> decltype(ctx.begin()) {
         return ctx.end();
     }
     template<typename FormatContext>
-    auto format(const luisa::Matrix<N> &m, FormatContext &ctx) -> decltype(ctx.out()) {
+    auto format(const luisa::Matrix<N> &m, FormatContext &ctx) const -> decltype(ctx.out()) {
         if constexpr (N == 2u) {
             return fmt::format_to(
                 ctx.out(),
@@ -127,11 +127,11 @@ struct formatter<luisa::Matrix<N>> {
 
 template<typename T, size_t N>
 struct formatter<std::array<T, N>> {
-    constexpr auto parse(format_parse_context &ctx) -> decltype(ctx.begin()) {
+    constexpr auto parse(format_parse_context &ctx) const -> decltype(ctx.begin()) {
         return ctx.end();
     }
     template<typename FormatContext>
-    auto format(const std::array<T, N> &a, FormatContext &ctx) -> decltype(ctx.out()) {
+    auto format(const std::array<T, N> &a, FormatContext &ctx) const -> decltype(ctx.out()) {
         return fmt::format_to(ctx.out(), FMT_STRING("[{}]"), fmt::join(a, ", "));
     }
 };

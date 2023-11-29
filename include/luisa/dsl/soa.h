@@ -8,6 +8,23 @@
 
 namespace luisa::compute {
 
+namespace detail {
+
+template<typename T>
+struct c_array_to_std_array {
+    using type = T;
+};
+
+template<typename T, size_t N>
+struct c_array_to_std_array<T[N]> {
+    using type = std::array<T, N>;
+};
+
+template<typename T>
+using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
+
+}// namespace detail
+
 template<typename T>
 class SOAView;
 
@@ -389,14 +406,15 @@ public:
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
-template<typename T, size_t N>
-struct Expr<SOA<T[N]>> : public Expr<SOA<std::array<T, N>>> {
-    using Expr<SOA<std::array<T, N>>>::Expr;
-};
-
 template<typename T>
 struct Expr<SOAView<T>> : public Expr<SOA<T>> {
     using Expr<SOA<T>>::Expr;
+};
+
+template<typename T, size_t N>
+    requires(sizeof(T) >= sizeof(uint))// if T is smaller than uint, we do not split it
+struct Expr<SOA<T[N]>> : public Expr<SOA<std::array<T, N>>> {
+    using Expr<SOA<std::array<T, N>>>::Expr;
 };
 
 template<typename T>
@@ -547,8 +565,7 @@ public:
     SOAView(BufferView<uint> buffer,
             size_t soa_offset, size_t soa_size,
             size_t elem_offset, size_t elem_size) noexcept
-        : detail::SOAViewBase<T> { buffer, soa_offset, soa_size, elem_offset, elem_size }
-    {
+        : detail::SOAViewBase<T>{buffer, soa_offset, soa_size, elem_offset, elem_size} {
         auto buffer_end = this->buffer().offset() + soa_offset +
                           (elem_offset + elem_size) * element_stride;
         if (!(buffer_end <= std::numeric_limits<uint>::max())) [[unlikely]] {
