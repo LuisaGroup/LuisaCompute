@@ -167,20 +167,32 @@ private:
     }
 
 private:
+    void _rebuild_swapchain_if_changed(GLFWwindow *window, Swapchain &sc, Image<float> &fb) noexcept {
+        auto fw = 0, fh = 0;
+        glfwGetFramebufferSize(window, &fw, &fh);
+        auto size = make_uint2(fw, fh);
+        if (sc && fb && all(fb.size() == size)) { return; }
+        if (sc || fb) {
+            _stream.synchronize();
+            sc = {};
+            fb = {};
+        }
+        if (any(size != 0u)) {
+            auto native_handle = detail::glfw_window_native_handle(window);
+            sc = _device.create_swapchain(native_handle, _stream, size, _config.hdr,
+                                          _config.vsync, _config.back_buffers);
+            fb = _device.create_image<float>(sc.backend_storage(), size);
+        }
+    }
     void _on_imgui_create_window(ImGuiViewport *vp) noexcept {
         auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
         LUISA_ASSERT(glfw_window != nullptr && glfw_window != _main_window,
                      "Invalid GLFW window.");
-        auto frame_width = 0, frame_height = 0;
-        glfwGetFramebufferSize(glfw_window, &frame_width, &frame_height);
-        auto native_handle = detail::glfw_window_native_handle(glfw_window);
-        auto sc = _device.create_swapchain(native_handle, _stream,
-                                           make_uint2(frame_width, frame_height),
-                                           _config.hdr, _config.vsync,
-                                           _config.back_buffers);
-        auto fb = _device.create_image<float>(sc.backend_storage(), frame_width, frame_height);
-        _platform_swapchains[glfw_window] = luisa::make_unique<Swapchain>(std::move(sc));
-        _platform_framebuffers[glfw_window] = luisa::make_unique<Image<float>>(std::move(fb));
+        auto sc = luisa::make_unique<Swapchain>();
+        auto fb = luisa::make_unique<Image<float>>();
+        _rebuild_swapchain_if_changed(glfw_window, *sc, *fb);
+        _platform_swapchains[glfw_window] = std::move(sc);
+        _platform_framebuffers[glfw_window] = std::move(fb);
     }
     void _on_imgui_destroy_window(ImGuiViewport *vp) noexcept {
         _stream.synchronize();
@@ -190,27 +202,12 @@ private:
             _platform_framebuffers.erase(glfw_window);
         }
     }
-    void _rebuild_swapchain(Swapchain &sc, Image<float> &fb, uint64_t window, uint2 size) noexcept {
-        sc = {};
-        fb = {};
-        sc = _device.create_swapchain(window, _stream, size, _config.hdr,
-                                      _config.vsync, _config.back_buffers);
-        fb = _device.create_image<float>(sc.backend_storage(), size);
-    }
     void _on_imgui_set_window_size(ImGuiViewport *vp, ImVec2) noexcept {
-        _stream.synchronize();
-        auto frame_width = 0, frame_height = 0;
         auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
         LUISA_ASSERT(glfw_window != nullptr, "Invalid GLFW window.");
-        glfwGetFramebufferSize(glfw_window, &frame_width, &frame_height);
-        auto native_handle = detail::glfw_window_native_handle(glfw_window);
-        if (glfw_window == _main_window) { LUISA_INFO("Main window resize"); }
         auto &sc = glfw_window == _main_window ? _main_swapchain : *_platform_swapchains.at(glfw_window);
         auto &fb = glfw_window == _main_window ? _main_framebuffer : *_platform_framebuffers.at(glfw_window);
-        if (auto size = make_uint2(frame_width, frame_height);
-            !all(fb.size() == size)) {
-            _rebuild_swapchain(sc, fb, native_handle, size);
-        }
+        _rebuild_swapchain_if_changed(glfw_window, sc, fb);
     }
     void _on_imgui_render_window(ImGuiViewport *vp, void *) noexcept {
         auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
@@ -254,17 +251,9 @@ public:
         glfwSetWindowUserPointer(_main_window, this);
 
         // create main swapchain
-        auto frame_width = 0, frame_height = 0;
-        glfwGetFramebufferSize(_main_window, &frame_width, &frame_height);
-        auto native_handle = detail::glfw_window_native_handle(_main_window);
-        _main_swapchain = _device.create_swapchain(
-            native_handle, stream,
-            make_uint2(frame_width, frame_height),
-            config.hdr, config.vsync, config.back_buffers);
-        _main_framebuffer = _device.create_image<float>(
-            _main_swapchain.backend_storage(), frame_width, frame_height);
+        _rebuild_swapchain_if_changed(_main_window, _main_swapchain, _main_framebuffer);
 
-        // TODO: install callbacks
+        // TODO: install user GLFW callbacks?
 
         // imgui config
         _with_context([this] {
@@ -520,9 +509,16 @@ private:
     }
 
     void _draw(Swapchain &sc, Image<float> &fb, ImDrawData *draw_data) noexcept {
+
         auto vp = draw_data->OwnerViewport;
+        auto glfw_window = static_cast<GLFWwindow *>(vp->PlatformHandle);
+        _rebuild_swapchain_if_changed(glfw_window, sc, fb);
+
+        // skip minimized windows
+        if (!sc || !fb || all(fb.size() == 0u)) { return; }
+
         // clear framebuffer if needed
-        if (vp->PlatformHandle != _main_window &&
+        if (glfw_window != _main_window &&
             !(vp->Flags & ImGuiViewportFlags_NoRendererClear)) {
             _stream << _clear_shader(fb, make_float3(0.f)).dispatch(fb.size());
         }
@@ -620,14 +616,6 @@ private:
     void _render() noexcept {
         auto &io = ImGui::GetIO();
         if (auto draw_data = ImGui::GetDrawData()) {
-            auto fw = 0, fh = 0;
-            glfwGetFramebufferSize(_main_window, &fw, &fh);
-            if (auto size = make_uint2(fw, fh);
-                !all(size == _main_framebuffer.size())) {
-                _stream.synchronize();
-                auto native_handle = detail::glfw_window_native_handle(_main_window);
-                _rebuild_swapchain(_main_swapchain, _main_framebuffer, native_handle, size);
-            }
             _draw(_main_swapchain, _main_framebuffer, draw_data);
         }
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
@@ -669,15 +657,44 @@ public:
     }
 };
 
-ImGuiWindow::ImGuiWindow(Device &device, Stream &stream, luisa::string name, const Config &config) noexcept
-    : _impl{luisa::make_unique<Impl>(device, stream, std::move(name), config)} {}
+ImGuiWindow::ImGuiWindow(Device &device, Stream &stream,
+                         luisa::string name,
+                         const Config &config) noexcept
+    : ImGuiWindow{} { create(device, stream, std::move(name), config); }
 
 ImGuiWindow::~ImGuiWindow() noexcept = default;
 
-GLFWwindow *ImGuiWindow::handle() const noexcept { return _impl->handle(); }
-Swapchain &ImGuiWindow::swapchain() const noexcept { return _impl->swapchain(); }
-Image<float> &ImGuiWindow::framebuffer() const noexcept { return _impl->framebuffer(); }
-ImGuiContext *ImGuiWindow::context() const noexcept { return _impl->context(); }
+ImGuiWindow::ImGuiWindow(ImGuiWindow &&) noexcept = default;
+ImGuiWindow &ImGuiWindow::operator=(ImGuiWindow &&) noexcept = default;
+
+GLFWwindow *ImGuiWindow::handle() const noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    return _impl->handle();
+}
+
+Swapchain &ImGuiWindow::swapchain() const noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    return _impl->swapchain();
+}
+
+Image<float> &ImGuiWindow::framebuffer() const noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    return _impl->framebuffer();
+}
+
+void ImGuiWindow::create(Device &device, Stream &stream, luisa::string name, const Config &config) noexcept {
+    destroy();
+    _impl = luisa::make_unique<Impl>(device, stream, std::move(name), config);
+}
+
+void ImGuiWindow::destroy() noexcept {
+    _impl = nullptr;
+}
+
+ImGuiContext *ImGuiWindow::context() const noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    return _impl->context();
+}
 
 namespace detail {
 [[nodiscard]] static auto &imgui_context_stack() noexcept {
@@ -687,6 +704,7 @@ namespace detail {
 }// namespace detail
 
 void ImGuiWindow::push_context() noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
     auto &stack = detail::imgui_context_stack();
     auto curr_ctx = ImGui::GetCurrentContext();
     stack.emplace_back(curr_ctx);
@@ -696,6 +714,7 @@ void ImGuiWindow::push_context() noexcept {
 }
 
 void ImGuiWindow::pop_context() noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
     if (auto &stack = detail::imgui_context_stack();
         !stack.empty() && stack.back() == _impl->context()) {
         stack.pop_back();
@@ -707,16 +726,33 @@ void ImGuiWindow::pop_context() noexcept {
 }
 
 uint64_t ImGuiWindow::register_texture(const Image<float> &image, const Sampler &sampler) noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
     return _impl->register_texture(image, sampler);
 }
 
 void ImGuiWindow::unregister_texture(uint64_t tex_id) noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
     _impl->unregister_texture(tex_id);
 }
 
-bool ImGuiWindow::should_close() const noexcept { return _impl->should_close(); }
-void ImGuiWindow::set_should_close(bool b) noexcept { _impl->set_should_close(b); }
-void ImGuiWindow::prepare_frame() noexcept { _impl->prepare_frame(); }
-void ImGuiWindow::render_frame() noexcept { _impl->render_frame(); }
+bool ImGuiWindow::should_close() const noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    return _impl->should_close();
+}
+
+void ImGuiWindow::set_should_close(bool b) noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    _impl->set_should_close(b);
+}
+
+void ImGuiWindow::prepare_frame() noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    _impl->prepare_frame();
+}
+
+void ImGuiWindow::render_frame() noexcept {
+    LUISA_ASSERT(_impl, "ImGuiWindow not created.");
+    _impl->render_frame();
+}
 
 }// namespace luisa::compute

@@ -56,16 +56,22 @@ private:
     luisa::unique_ptr<Impl> _impl;
 
 public:
+    ImGuiWindow() noexcept = default;
     ImGuiWindow(Device &device, Stream &stream,
                 luisa::string name,
                 const Config &config = Config::make_default()) noexcept;
     ~ImGuiWindow() noexcept;
-    ImGuiWindow(ImGuiWindow &&) noexcept = default;
+    ImGuiWindow(ImGuiWindow &&) noexcept;
+    ImGuiWindow &operator=(ImGuiWindow &&) noexcept;
     ImGuiWindow(const ImGuiWindow &) noexcept = delete;
-    ImGuiWindow &operator=(ImGuiWindow &&) noexcept = default;
     ImGuiWindow &operator=(const ImGuiWindow &) noexcept = delete;
 
 public:
+    void create(Device &device, Stream &stream,
+                luisa::string name,
+                const Config &config = Config::make_default()) noexcept;
+    void destroy() noexcept;
+
     [[nodiscard]] ImGuiContext *context() const noexcept;
     void push_context() noexcept;
     void pop_context() noexcept;
@@ -73,6 +79,9 @@ public:
     [[nodiscard]] GLFWwindow *handle() const noexcept;
     [[nodiscard]] Swapchain &swapchain() const noexcept;
     [[nodiscard]] Image<float> &framebuffer() const noexcept;
+
+    [[nodiscard]] auto valid() const noexcept { return _impl != nullptr; }
+    [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
 
     [[nodiscard]] bool should_close() const noexcept;
     void set_should_close(bool b = true) noexcept;

@@ -59,8 +59,11 @@ int main(int argc, char *argv[]) {
         window.prepare_frame();
 
         // draw the background
-        stream << draw(window.framebuffer(), static_cast<float>(clk.toc() * 1e-3))
-                      .dispatch(window.framebuffer().size());
+        // ***** Note: the framebuffer might become invalid, e.g., when the window is minimized, so check before use it! *****
+        if (window.framebuffer()) {
+            stream << draw(window.framebuffer(), static_cast<float>(clk.toc() * 1e-3))
+                          .dispatch(window.framebuffer().size());
+        }
 
         // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
         if (show_demo_window)
