@@ -519,6 +519,11 @@ public:
             Visitor visitor{this, cs->Args().data()};
             DecodeCmd(shader->ArgBindings(), visitor);
             DecodeCmd(cmd->arguments(), visitor);
+            // 
+            if (shader->Properties().back().type == hlsl::ShaderVariableType::PrintBuffer) {
+                // auto alloc
+                // auto tempDefault = 
+            }
         };
         if (cmd->is_indirect()) {
             auto &&t = cmd->indirect_dispatch();

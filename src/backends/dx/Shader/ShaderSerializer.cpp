@@ -6,6 +6,7 @@
 namespace lc::dx {
 namespace shader_ser {
 struct Header {
+    uint64 headerVersion;
     vstd::MD5 md5;
     vstd::MD5 typeMD5;
     uint64 rootSigBytes;
@@ -16,6 +17,7 @@ struct Header {
     uint kernelArgCount;
 };
 struct RasterHeader {
+    uint64 headerVersion;
     vstd::MD5 md5;
     vstd::MD5 typeMD5;
     uint64 rootSigBytes;
@@ -27,6 +29,7 @@ struct RasterHeader {
 };
 }// namespace shader_ser
 static constexpr size_t kRootSigReserveSize = 16384;
+static constexpr uint64 kHeaderVersion = 1ull;
 vstd::vector<std::byte>
 ShaderSerializer::Serialize(
     vstd::span<hlsl::Property const> properties,
@@ -41,6 +44,7 @@ ShaderSerializer::Serialize(
     result.reserve(sizeof(Header) + binByte.size_bytes() + properties.size_bytes() + kernelArgs.size_bytes() + kRootSigReserveSize);
     result.push_back_uninitialized(sizeof(Header));
     Header header = {
+        .headerVersion = kHeaderVersion,
         .md5 = checkMD5,
         .typeMD5 = typeMD5,
         .rootSigBytes = (uint64)SerializeRootSig(properties, result, false),
@@ -74,6 +78,7 @@ vstd::vector<std::byte> ShaderSerializer::RasterSerialize(
     result.reserve(sizeof(RasterHeader) + vertBin.size_bytes() + pixelBin.size_bytes() + properties.size_bytes() + kernelArgs.size_bytes() + kRootSigReserveSize);
     result.push_back_uninitialized(sizeof(RasterHeader));
     RasterHeader header = {
+        .headerVersion = kHeaderVersion,
         .md5 = checkMD5,
         .typeMD5 = typeMD5,
         .rootSigBytes = (uint64)SerializeRootSig(properties, result, true),
@@ -122,7 +127,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
     Header header;
     binStream->read({reinterpret_cast<std::byte *>(&header),
                      sizeof(Header)});
-    if (checkMD5 && header.md5 != *checkMD5) return nullptr;
+    if (header.headerVersion != kHeaderVersion || (checkMD5 && header.md5 != *checkMD5)) return nullptr;
     size_t targetSize =
         header.rootSigBytes +
         header.codeBytes +
@@ -214,8 +219,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     binStream->read(
         {reinterpret_cast<std::byte *>(&header),
          sizeof(RasterHeader)});
-    if (ilMd5 && header.md5 != *ilMd5) return nullptr;
-
+    if (header.headerVersion != kHeaderVersion || (ilMd5 && header.md5 != *ilMd5)) return nullptr;
     size_t targetSize =
         header.rootSigBytes +
         header.vertCodeBytes +

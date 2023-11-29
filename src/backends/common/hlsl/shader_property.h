@@ -12,7 +12,8 @@ enum class ShaderVariableType : uint8_t {
     SamplerHeap,       // e.g. SamplerState samplers[16] : register(s0)
     StructuredBuffer,  // e.g. StructuredBuffer<MyStruct> : register(t0)
     RWStructuredBuffer,// e.g. RWStructuredBuffer<MyStruct> : register(u0)
-    ConstantValue      // e.g. uint value : register(b0)
+    ConstantValue,      // e.g. uint value : register(b0)
+    PrintBuffer
 };
 struct Property {
     ShaderVariableType type;
