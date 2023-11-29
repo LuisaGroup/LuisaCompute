@@ -114,6 +114,7 @@ ComputeShader *ComputeShader::CompileCompute(
                     {buffer->data(),
                      buffer->size()},
                     std::move(bindings),
+                    std::move(str.printers),
                     device);
                 cs->bindlessCount = bdlsBufferCount;
                 if (WriteCache) {
@@ -221,8 +222,9 @@ ComputeShader::ComputeShader(
     vstd::vector<SavedArgument> &&args,
     vstd::span<std::byte const> binData,
     vstd::vector<luisa::compute::Argument> &&bindings,
+    vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     Device *device)
-    : Shader(std::move(prop), std::move(args), device->device, false),
+    : Shader(std::move(prop), std::move(args), device->device, std::move(printers), false),
       argBindings(std::move(bindings)),
       device(device),
       blockSize(blockSize) {
@@ -239,9 +241,10 @@ ComputeShader::ComputeShader(
     vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     vstd::vector<luisa::compute::Argument> &&bindings,
+    vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     ComPtr<ID3D12RootSignature> &&rootSig,
     ComPtr<ID3D12PipelineState> &&pso)
-    : Shader(std::move(prop), std::move(args), std::move(rootSig)),
+    : Shader(std::move(prop), std::move(args), std::move(rootSig), std::move(printers)),
       argBindings(std::move(bindings)),
       device(device),
       blockSize(blockSize) {

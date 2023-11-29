@@ -23,6 +23,7 @@ struct CodegenResult {
     using Properties = vstd::vector<Property>;
     vstd::StringBuilder result;
     Properties properties;
+    vstd::vector<std::pair<vstd::string, Type const*>> printers;
     bool useTex2DBindless;
     bool useTex3DBindless;
     bool useBufferBindless;
