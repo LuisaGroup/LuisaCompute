@@ -7,9 +7,6 @@
 #include <luisa/backends/ext/native_resource_ext.hpp>
 namespace luisa::compute {
 class DxCudaInterop : public DeviceExtension {
-protected:
-    ~DxCudaInterop() noexcept = default;
-
 public:
     static constexpr luisa::string_view name = "DxCudaInterop";
     [[nodiscard]] virtual BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept = 0;
@@ -62,5 +59,6 @@ public:
             size,
             mip_levels};
     }
+    virtual ~DxCudaInterop() = default;
 };
 }// namespace luisa::compute

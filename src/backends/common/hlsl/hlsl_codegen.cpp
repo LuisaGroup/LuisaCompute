@@ -317,6 +317,9 @@ void StringStateVisitor::visit(const ScopeStmt *state) {
 void StringStateVisitor::visit(const AutoDiffStmt *stmt) {
     visit(stmt->body());
 }
+void StringStateVisitor::visit(const PrintStmt *stmt) {
+    LUISA_ERROR("HLSL print wip.");
+}
 void StringStateVisitor::visit(const CommentStmt *state) {
     // str << "/* " << state->comment() << " */\n";
 }

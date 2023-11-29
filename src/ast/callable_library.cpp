@@ -796,7 +796,6 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     for (auto &&i : builder._used_custom_callables) {
         ser_value(i->hash(), vec);
     }
-    auto before_size = vec.size();
     ser_value(builder._local_variables.size(), vec);
     for (auto &&i : builder._local_variables) {
         ser_value(i, vec);

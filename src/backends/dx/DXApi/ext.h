@@ -161,6 +161,7 @@ public:
     ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
+#ifdef LCDX_ENABLE_CUDA
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
     LCDevice &_device;
 
@@ -177,7 +178,7 @@ public:
     virtual DeviceInterface *device() override;
     void unmap(void *cuda_ptr, void *cuda_handle) noexcept override;
 };
-
+#endif
 class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase {
     luisa::DynamicModule dstorage_core_module;
     luisa::DynamicModule dstorage_module;

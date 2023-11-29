@@ -178,8 +178,8 @@ end)
 rule_end()
 rule("lc_basic_settings")
 on_config(function(target)
+	local _, cc = target:tool("cxx")
 	if is_plat("linux") then
-		local _, cc = target:tool("cxx")
 		-- Linux should use -stdlib=libc++
 		-- https://github.com/LuisaGroup/LuisaCompute/issues/58
 		if (cc == "clang" or cc == "clangxx") then
@@ -188,6 +188,24 @@ on_config(function(target)
 			})
 			target:add("syslinks", "c++")
 		end
+	end
+	if cc == "cl" then
+        target:add("cxflags", "-GL")
+    elseif cc == "clang" or cc == "clangxx" then
+        target:add("cxflags", "-flto=thin")
+    elseif cc == "gcc" or cc == "gxx" then
+        target:add("cxflags", "-flto")
+    end
+	local _, ld = target:tool("ld")
+    if ld == "link" then
+        target:add("ldflags", "-LTCG")
+        target:add("shflags", "-LTCG")
+    elseif ld == "clang" or ld == "clangxx" then
+        target:add("ldflags", "-flto=thin")
+        target:add("shflags", "-flto=thin")
+    elseif ld == "gcc" or ld == "gxx" then
+        target:add("ldflags", "-flto")
+        target:add("shflags", "-flto")
 	end
 end)
 on_load(function(target)
@@ -210,9 +228,6 @@ on_load(function(target)
 	end
 	-- fma support
 	if is_arch("x64", "x86_64") then
-		target:add("cflags", "-mfma", {
-			tools = {"clang", "gcc"}
-		})
 		target:add("cxflags", "-mfma", {
 			tools = {"clang", "gcc"}
 		})
@@ -271,7 +286,7 @@ on_load(function(target)
 		target:set("optimize", "aggressive", {
 			public = config_is_public
 		})
-		target:set("warnings", "none", {
+		target:set("warnings", "all", {
 			public = config_is_public
 		})
 		target:add("cxflags", "/GS-", "/Gd", {

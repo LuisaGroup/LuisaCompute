@@ -1543,7 +1543,6 @@ v2p o;
         result << retName
                << " r=vert(vt);\n"sv;
         for (auto i : vstd::range(retType->members().size())) {
-            auto member = retType->members()[i];
             auto num = vstd::to_string(i);
             result << "o.v"sv << num << "=r.v"sv << num;
             result << ";\n"sv;

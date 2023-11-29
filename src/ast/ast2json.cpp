@@ -767,7 +767,7 @@ private:
                 a.reserve(f.bound_arguments().size());
                 for (auto b : f.bound_arguments()) {
                     a.emplace_back(luisa::visit(
-                        [&a]<typename T>(T b) noexcept -> JSON {
+                        []<typename T>(T b) noexcept -> JSON {
                             if constexpr (std::is_same_v<T, Function::BufferBinding>) {
                                 return JSON::Object{
                                     {"tag", "BUFFER"},
