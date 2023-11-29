@@ -731,20 +731,24 @@ public:
         return SOAView<T>::compute_soa_size(n) * static_cast<uint>(N);
     }
 
+private:
+    template<size_t... i>
+    SOAView(BufferView<uint> buffer,
+            size_t soa_offset, size_t soa_size,
+            size_t elem_offset, size_t elem_size,
+            std::index_sequence<i...>) noexcept
+        : detail::SOAViewBase<std::array<T, N>>{buffer, soa_offset, soa_size, elem_offset, elem_size},
+          _elems{SOAView<T>{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * i,
+                            soa_size, elem_offset, elem_size}...} {}
+
 public:
     SOAView() noexcept = default;
     SOAView(BufferView<uint> buffer,
             size_t soa_offset, size_t soa_size,
             size_t elem_offset, size_t elem_size) noexcept
-        : detail::SOAViewBase<std::array<T, N>>{buffer, soa_offset, soa_size, elem_offset, elem_size},
-          _elems{} {
-        for (auto i = 0u; i < N; i++) {
-            _elems[i] = SOAView<T>{
-                buffer,
-                soa_offset + SOAView<T>::compute_soa_size(soa_size) * i,
-                soa_size, elem_offset, elem_size};
-        }
-    }
+        : SOAView{buffer, soa_offset, soa_size,
+                  elem_offset, elem_size,
+                  std::make_index_sequence<N>{}} {}
 
 public:
     [[nodiscard]] auto operator[](size_t i) const noexcept { return _elems[i]; }
