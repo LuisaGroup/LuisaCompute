@@ -16,7 +16,7 @@ struct AccelTraceOptions {
     [[deprecated(                                                                             \
         "\n\n"                                                                                \
         "Accel::trace_*(ray, vis_mask) and query_*(ray, vis_mask) are deprecated.\n"          \
-        "Please use Accel::trace_*/query_*(ray, const AccelTraceOptions &options) instead.\n" \
+        "Please use Accel::intersect_*/traverse_*(ray, const AccelTraceOptions &options) instead.\n" \
         "\n"                                                                                  \
         "Note: curve tracing is disabled by default for performance reasons. If you would\n"  \
         "      like to enable it, please specify the required curve bases in the options.\n"  \
