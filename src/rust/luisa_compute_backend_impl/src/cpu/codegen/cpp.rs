@@ -1414,7 +1414,12 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::RayQueryCommitTriangle => {
-                writeln!(self.body, "lc_ray_query_commit_triangle(cvt_rq({0}));", args_v[0]).unwrap();
+                writeln!(
+                    self.body,
+                    "lc_ray_query_commit_triangle(cvt_rq({0}));",
+                    args_v[0]
+                )
+                .unwrap();
                 true
             }
             Func::RayQueryCommitProcedural => {
@@ -1635,11 +1640,17 @@ impl<'a> FunctionEmitter<'a> {
                 self.inside_generic_loop = false;
                 {
                     self.write_ident();
-                    writeln!(&mut self.body, "do {{").unwrap();
-                    self.gen_block(*body);
+                    writeln!(&mut self.body, "for (;;) {{").unwrap();
+                    self.indent += 1;
+                    for node in body.iter() {
+                        self.gen_instr(node);
+                    }
                     let cond_v = self.gen_node(*cond);
                     self.write_ident();
-                    writeln!(&mut self.body, "}} while({});", cond_v).unwrap();
+                    writeln!(&mut self.body, "if (!({})) {{ break; }}", cond_v).unwrap();
+                    self.indent -= 1;
+                    self.write_ident();
+                    writeln!(&mut self.body, "}}").unwrap();
                 }
                 self.inside_generic_loop = old_inside_generic_loop;
             }
