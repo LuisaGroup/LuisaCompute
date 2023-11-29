@@ -286,7 +286,7 @@ on_load(function(target)
 		target:set("optimize", "aggressive", {
 			public = config_is_public
 		})
-		target:set("warnings", "all", {
+		target:set("warnings", "none", {
 			public = config_is_public
 		})
 		target:add("cxflags", "/GS-", "/Gd", {
