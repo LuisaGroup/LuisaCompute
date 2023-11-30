@@ -404,6 +404,20 @@ public:
     }
     [[nodiscard]] auto operator[](size_t i) const noexcept { return _elems[i]; }
     [[nodiscard]] auto operator->() const noexcept { return this; }
+
+    template<typename I>
+        requires is_dsl_v<I> && is_integral_expr_v<I>
+    [[nodiscard]] auto operator[](I &&index) const noexcept {
+        auto &&e = _elems[0];
+        auto buffer = e.buffer();
+        auto soa_offset = e.soa_offset();
+        auto soa_size = e.soa_size();
+        auto soa_stride = SOA<T>::compute_soa_size(soa_size);
+        auto elem_offset = e.element_offset();
+        return Expr<SOA<T>>{buffer,
+                            soa_offset + std::forward<I>(index) * soa_stride,
+                            soa_size, elem_offset};
+    }
 };
 
 template<typename T>
@@ -752,6 +766,21 @@ public:
 
 public:
     [[nodiscard]] auto operator[](size_t i) const noexcept { return _elems[i]; }
+
+    template<typename I>
+        requires is_dsl_v<I> && is_integral_expr_v<I>
+    [[nodiscard]] auto operator[](I &&i) const noexcept {
+        auto &&e = _elems[0];
+        auto soa_offset = static_cast<uint>(e.soa_offset());
+        auto soa_size = static_cast<uint>(e.soa_size());
+        auto soa_stride = static_cast<uint>(SOAView<T>::compute_soa_size(soa_size));
+        auto elem_offset = static_cast<uint>(e.element_offset());
+        return Expr<SOA<T>>{
+            Expr{e.buffer()},
+            Expr{soa_offset + soa_stride * std::forward<I>(i)},
+            Expr{soa_size},
+            Expr{elem_offset}};
+    }
 };
 
 template<typename T, size_t N>
