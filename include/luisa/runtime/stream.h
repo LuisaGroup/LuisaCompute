@@ -4,6 +4,7 @@
 
 #include <luisa/core/spin_mutex.h>
 #include <luisa/runtime/rhi/resource.h>
+#include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/stream_event.h>
 #include <luisa/runtime/command_list.h>
@@ -100,6 +101,9 @@ public:
         Delegate delegate{this};
         return std::move(delegate) << std::move(args);
     }
+
+    using LogCallback = DeviceInterface::StreamLogCallback;
+    void set_log_callback(const LogCallback &callback) noexcept;
 };
 
 [[nodiscard]] constexpr auto commit() noexcept { return Stream::Commit{}; }

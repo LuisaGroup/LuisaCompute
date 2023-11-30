@@ -242,7 +242,8 @@ public:
 };
 
 inline size_t format_shader_print(luisa::span<const luisa::unique_ptr<ShaderPrintFormatter>> formatters,
-                                  luisa::span<const std::byte> contents) noexcept {
+                                  luisa::span<const std::byte> contents,
+                                  const DeviceInterface::StreamLogCallback &log = {}) noexcept {
     if (contents.empty()) { return 0u; }
     luisa::string scratch;
     scratch.reserve(1_k - 1u);
@@ -266,7 +267,11 @@ inline size_t format_shader_print(luisa::span<const luisa::unique_ptr<ShaderPrin
             scratch.clear();
             luisa::span payload{raw, item->size};
             if ((*formatters[item->fmt])(scratch, payload)) {
-                LUISA_INFO("[DEVICE] {}", scratch);// TODO: use a standalone sink?
+                if (log) {
+                    log(scratch);
+                } else {
+                    LUISA_INFO("[DEVICE] {}", scratch);
+                }
             } else {
                 break;
             }

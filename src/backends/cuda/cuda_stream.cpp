@@ -118,6 +118,16 @@ void CUDAStream::set_name(luisa::string &&name) noexcept {
     nvtxNameCuStreamA(_stream, name.c_str());
 }
 
+void CUDAStream::set_log_callback(LogCallback callback) noexcept {
+    if (_log_callback) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Setting CUDAStream::log_callback more than once. "
+            "Please note this is not thread-safe. You may want to "
+            "synchonize the stream before setting the callback.");
+    }
+    _log_callback = std::move(callback);
+}
+
 void CUDAStream::dispatch(CommandList &&command_list) noexcept {
     CUDACommandEncoder encoder{this};
     auto commands = command_list.steal_commands();

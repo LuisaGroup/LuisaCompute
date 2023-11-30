@@ -152,6 +152,7 @@ public:
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
+    void set_stream_log_callback(uint64_t stream_handle, const StreamLogCallback &callback) noexcept override;
     void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override;
     SwapchainCreationInfo create_swapchain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) noexcept override;
     void destroy_swap_chain(uint64_t handle) noexcept override;

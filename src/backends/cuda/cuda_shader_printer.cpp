@@ -7,12 +7,14 @@ namespace luisa::compute::cuda {
 class CUDAShaderPrinter::Callback : public CUDACallbackContext {
 
 private:
+    using Log = DeviceInterface::StreamLogCallback;
     const CUDAShaderPrinter *_printer;
     const void *_data;
+    Log _log_callback;
 
 public:
-    Callback(const CUDAShaderPrinter *printer, const void *data) noexcept
-        : _printer{printer}, _data{data} {}
+    Callback(const CUDAShaderPrinter *printer, const void *data, Log callback) noexcept
+        : _printer{printer}, _data{data}, _log_callback{std::move(callback)} {}
 
 private:
     [[nodiscard]] static auto &_pool() noexcept {
@@ -22,13 +24,14 @@ private:
 
 public:
     [[nodiscard]] static auto create(const CUDAShaderPrinter *printer,
-                                     const void *data) noexcept {
-        return _pool().create(printer, data);
+                                     const void *data,
+                                     Log log_callback) noexcept {
+        return _pool().create(printer, data, std::move(log_callback));
     }
 
 public:
     void recycle() noexcept override {
-        _printer->_do_print(_data);
+        _printer->_do_print(_data, _log_callback);
         _pool().destroy(this);
     }
 };
@@ -68,19 +71,21 @@ CUDAShaderPrinter::Binding CUDAShaderPrinter::encode(CUDACommandEncoder &encoder
             }
             *reinterpret_cast<size_t *>(temp->address()) = 0ul;
             LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(&b.content, temp->address(), 0u));
-            encoder.add_callback(Callback::create(this, temp->address()));
+            encoder.add_callback(Callback::create(
+                this, temp->address(),
+                encoder.stream()->log_callback()));
         });
     return b;
 }
 
-void CUDAShaderPrinter::_do_print(const void *data) const noexcept {
+void CUDAShaderPrinter::_do_print(const void *data, const Log &log) const noexcept {
     struct Head {
         size_t size;
         const std::byte content[];
     };
     auto *head = reinterpret_cast<const Head *>(data);
     auto valid_size = std::min(head->size, print_buffer_content_capacity);
-    auto printed_size = format_shader_print(_formatters, luisa::span{head->content, valid_size});
+    auto printed_size = format_shader_print(_formatters, luisa::span{head->content, valid_size}, log);
     if (head->size > printed_size) {
         LUISA_WARNING("Device print overflow. {} byte(s) truncated.",
                       head->size - printed_size);
