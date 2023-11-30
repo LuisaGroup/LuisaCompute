@@ -12,7 +12,9 @@ struct MyStruct {
     float2 a;
     uint2 b;
 };
+
 LUISA_STRUCT(MyStruct, a, b) {};
+
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
@@ -41,6 +43,9 @@ int main(int argc, char *argv[]) {
     };
     Shader2D<> shader = device.compile(kernel);
     Stream stream = device.create_stream();
+    stream.set_log_callback([](auto message) noexcept {
+        LUISA_WARNING("[device] {}", message);
+    });
     stream << shader().dispatch(128u, 128u)
            << synchronize();
 }

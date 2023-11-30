@@ -31,7 +31,7 @@ public:
         vstd::MD5 const &typeMD5,
         uint bindlessCount,
         uint3 blockSize,
-        vstd::span<std::pair<vstd::string, Type const*> const> printers = {});
+        vstd::span<std::pair<vstd::string, Type const*> const> printers);
     static vstd::vector<std::byte> RasterSerialize(
         vstd::span<hlsl::Property const> properties,
         vstd::span<SavedArgument const> kernelArgs,
@@ -40,7 +40,7 @@ public:
         vstd::MD5 const &checkMD5,
         vstd::MD5 const &typeMD5,
         uint bindlessCount,
-        vstd::span<std::pair<vstd::string, Type const*> const> printers = {});
+        vstd::span<std::pair<vstd::string, Type const*> const> printers);
     static ComputeShader *DeSerialize(
         luisa::string_view fileName,
         luisa::string_view psoName,

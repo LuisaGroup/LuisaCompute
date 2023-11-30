@@ -31,13 +31,17 @@ private:
     luisa::vector<Primitive> _primitives;
 
 public:
-    ShaderPrintFormatter(luisa::string_view fmt, const Type *arg_pack) noexcept {
-        LUISA_ASSERT(arg_pack->members().size() >= 2u &&
-                         arg_pack->members()[0] == Type::of<uint>() &&
-                         arg_pack->members()[1] == Type::of<uint>(),
-                     "Invalid argument pack for shader printer.");
-        auto offset = static_cast<size_t>(8u);
-        auto args = arg_pack->members().subspan(2u);
+    ShaderPrintFormatter(luisa::string_view fmt, const Type *arg_pack, bool has_header = true) noexcept {
+        auto args = arg_pack->members();
+        size_t offset = 0;
+        if (has_header) {
+            LUISA_ASSERT(arg_pack->members().size() >= 2u &&
+                             arg_pack->members()[0] == Type::of<uint>() &&
+                             arg_pack->members()[1] == Type::of<uint>(),
+                         "Invalid argument pack for shader printer.");
+            args = args.subspan(2u);
+            offset += 8;
+        }
         luisa::string s;
         luisa::string f;
         auto commit_s = [this, &s] {
@@ -200,7 +204,7 @@ public:
                 [&](auto &&p) noexcept {
                     using T = std::decay_t<decltype(p)>;
                     if constexpr (std::is_same_v<T, Type::Tag>) {
-                        auto print_primitive = [&](auto v, auto &&p) noexcept {
+                        auto print_primitive = [&](auto v) noexcept {
                             using TT = std::decay_t<decltype(v)>;
                             std::memcpy(&v, data, sizeof(v));
                             if constexpr (std::is_same_v<TT, bool>) {
@@ -212,18 +216,18 @@ public:
                             }
                         };
                         switch (p) {
-                            case Type::Tag::BOOL: print_primitive(bool{}, data); break;
-                            case Type::Tag::INT8: print_primitive(int8_t{}, data); break;
-                            case Type::Tag::UINT8: print_primitive(uint8_t{}, data); break;
-                            case Type::Tag::INT16: print_primitive(int16_t{}, data); break;
-                            case Type::Tag::UINT16: print_primitive(uint16_t{}, data); break;
-                            case Type::Tag::INT32: print_primitive(int32_t{}, data); break;
-                            case Type::Tag::UINT32: print_primitive(uint32_t{}, data); break;
-                            case Type::Tag::INT64: print_primitive(int64_t{}, data); break;
-                            case Type::Tag::UINT64: print_primitive(uint64_t{}, data); break;
-                            case Type::Tag::FLOAT16: print_primitive(half{}, data); break;
-                            case Type::Tag::FLOAT32: print_primitive(float{}, data); break;
-                            case Type::Tag::FLOAT64: print_primitive(double{}, data); break;
+                            case Type::Tag::BOOL: print_primitive(bool{}); break;
+                            case Type::Tag::INT8: print_primitive(int8_t{}); break;
+                            case Type::Tag::UINT8: print_primitive(uint8_t{}); break;
+                            case Type::Tag::INT16: print_primitive(int16_t{}); break;
+                            case Type::Tag::UINT16: print_primitive(uint16_t{}); break;
+                            case Type::Tag::INT32: print_primitive(int32_t{}); break;
+                            case Type::Tag::UINT32: print_primitive(uint32_t{}); break;
+                            case Type::Tag::INT64: print_primitive(int64_t{}); break;
+                            case Type::Tag::UINT64: print_primitive(uint64_t{}); break;
+                            case Type::Tag::FLOAT16: print_primitive(half{}); break;
+                            case Type::Tag::FLOAT32: print_primitive(float{}); break;
+                            case Type::Tag::FLOAT64: print_primitive(double{}); break;
                             default: LUISA_ERROR_WITH_LOCATION("Unsupported type for shader printer.");
                         }
                     } else {
@@ -238,7 +242,8 @@ public:
 };
 
 inline size_t format_shader_print(luisa::span<const luisa::unique_ptr<ShaderPrintFormatter>> formatters,
-                                  luisa::span<const std::byte> contents) noexcept {
+                                  luisa::span<const std::byte> contents,
+                                  const DeviceInterface::StreamLogCallback &log = {}) noexcept {
     if (contents.empty()) { return 0u; }
     luisa::string scratch;
     scratch.reserve(1_k - 1u);
@@ -262,7 +267,11 @@ inline size_t format_shader_print(luisa::span<const luisa::unique_ptr<ShaderPrin
             scratch.clear();
             luisa::span payload{raw, item->size};
             if ((*formatters[item->fmt])(scratch, payload)) {
-                LUISA_INFO("[DEVICE] {}", scratch);// TODO: use a standalone sink?
+                if (log) {
+                    log(scratch);
+                } else {
+                    LUISA_INFO("[DEVICE] {}", scratch);
+                }
             } else {
                 break;
             }

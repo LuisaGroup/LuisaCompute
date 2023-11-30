@@ -2,7 +2,6 @@
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
 namespace lc::hlsl {
-
 void StringStateVisitor::visit(const UnaryExpr *expr) {
     literalBrace = true;
     auto fallBackLiteral = vstd::scope_exit([this]() { literalBrace = false; });
@@ -318,10 +317,48 @@ void StringStateVisitor::visit(const AutoDiffStmt *stmt) {
     visit(stmt->body());
 }
 void StringStateVisitor::visit(const PrintStmt *stmt) {
-    LUISA_ERROR("HLSL print wip.");
+    vstd::fixed_vector<Type const *, 16> types;
+    vstd::push_back_func(
+        types,
+        stmt->arguments().size(),
+        [&](size_t i) {
+            return stmt->arguments()[i]->type();
+        });
+    auto structType = Type::structure(types);
+    vstd::string counterName = "_p";
+    vstd::to_string(printCount, counterName);
+    str << "uint "sv << counterName << ";\nInterlockedAdd(_printCounter[0],"sv;
+    vstd::to_string(structType->size() + 4, str);
+    str << ',' << counterName << ");\n"sv
+        << "if("sv << counterName << "<1048576){\n"sv;
+    {
+        vstd::StringBuilder typeName;
+        util->GetTypeName(*structType, typeName, Usage::READ_WRITE);
+        vstd::string dataName = "_pv";
+        vstd::to_string(printCount, dataName);
+        str << typeName << ' ' << dataName << "=("sv << typeName << ")0;\n"sv;
+        for (auto i : vstd::range(types.size())) {
+            str << dataName << ".v"sv;
+            vstd::to_string(i, str);
+            str << '=';
+            stmt->arguments()[i]->accept(*this);
+            str << ";\n"sv;
+        }
+        str << "_printBuffer.Store("sv
+            << counterName << ',';
+        auto printerIdx = util->AddPrinter(stmt->format(), structType);
+        vstd::to_string(printerIdx, str);
+        str << ");\n"sv
+            << "_printBuffer.Store("sv
+            << counterName << "+4,"sv << dataName << ");\n"sv;
+        printCount++;
+    }
+    str << "}\n"sv;
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
-    // str << "/* " << state->comment() << " */\n";
+#ifndef NDEBUG
+    str << "/* " << state->comment() << " */\n";
+#endif
 }
 void StringStateVisitor::visit(const IfStmt *state) {
     str << "if(";

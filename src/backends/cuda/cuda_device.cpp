@@ -323,6 +323,10 @@ void CUDADevice::synchronize_stream(uint64_t stream_handle) noexcept {
     });
 }
 
+void CUDADevice::set_stream_log_callback(uint64_t stream_handle, const StreamLogCallback &callback) noexcept {
+    reinterpret_cast<CUDAStream *>(stream_handle)->set_log_callback(callback);
+}
+
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
     if (!list.empty()) {
         with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle),

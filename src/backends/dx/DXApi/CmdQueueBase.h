@@ -12,6 +12,7 @@ protected:
     ~CmdQueueBase() = default;
 
 public:
+    luisa::function<void(luisa::string_view)> logCallback;
     CmdQueueTag Tag() const { return tag; }
     Resource::Tag GetTag() const override {
         return Resource::Tag::CommandQueue;

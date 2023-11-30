@@ -34,11 +34,12 @@ namespace detail {
 void SerPrinterSize(std::pair<vstd::string, Type const *> const &printer, vstd::vector<std::byte> &vec) {
     std::pair<size_t, size_t> strAndTypeSize{printer.first.size(), printer.second->description().size()};
     auto lastSize = vec.size();
-    vec.push_back_uninitialized(strAndTypeSize.first + strAndTypeSize.second + sizeof(size_t) * 2);
+    vec.push_back_uninitialized(strAndTypeSize.first + strAndTypeSize.second + sizeof(strAndTypeSize));
     auto ptr = vec.data() + lastSize;
     memcpy(ptr, &strAndTypeSize, sizeof(strAndTypeSize));
     ptr += sizeof(strAndTypeSize);
     memcpy(ptr, printer.first.data(), strAndTypeSize.first);
+    ptr += strAndTypeSize.first;
     memcpy(ptr, printer.second->description().data(), strAndTypeSize.second);
 }
 std::pair<vstd::string, Type const *> DeserPrinterSize(BinaryStream *streamer) {
@@ -70,6 +71,9 @@ ShaderSerializer::Serialize(
     vstd::vector<std::byte> result;
     result.reserve(sizeof(Header) + binByte.size_bytes() + properties.size_bytes() + kernelArgs.size_bytes() + kRootSigReserveSize);
     result.push_back_uninitialized(sizeof(Header));
+    for (auto &i : printers) {
+        detail::SerPrinterSize(i, result);
+    }
     Header header = {
         .headerVersion = kHeaderVersion,
         .md5 = checkMD5,
@@ -83,10 +87,7 @@ ShaderSerializer::Serialize(
     for (auto i : vstd::range(3)) {
         header.blockSize[i] = blockSize[i];
     }
-    *reinterpret_cast<Header *>(result.data()) = std::move(header);
-    for (auto &i : printers) {
-        detail::SerPrinterSize(i, result);
-    }
+    *reinterpret_cast<Header *>(result.data()) = header;
     vstd::push_back_all(result, binByte);
     vstd::push_back_all(result,
                         reinterpret_cast<std::byte const *>(properties.data()),

@@ -30,7 +30,8 @@ private:
     luisa::vector<luisa::unique_ptr<Formatter>> _formatters;
 
 private:
-    void _do_print(const void *data) const noexcept;
+    using Log = DeviceInterface::StreamLogCallback;
+    void _do_print(const void *data, const Log &log) const noexcept;
 
 public:
     explicit CUDAShaderPrinter(luisa::vector<luisa::unique_ptr<Formatter>> &&formatters) noexcept;

@@ -19,6 +19,20 @@ struct A {
     std::array<std::array<int4, 1>, 1> e;
 };
 
+struct LightDistributionTreeNode {
+    unsigned int left;
+    unsigned int right;
+    float leftContribution;
+    float rightContribution;
+};
+
+struct LightDistributionCell {
+    std::array<std::array<LightDistributionTreeNode, 256>, 2> nodes;
+};
+
+LUISA_STRUCT(LightDistributionTreeNode, left, right, leftContribution, rightContribution) {};
+LUISA_STRUCT(LightDistributionCell, nodes) {};
+
 LUISA_STRUCT(A, a, b, c, d, e) {};
 
 [[nodiscard]] inline auto operator==(const D &lhs, const D &rhs) noexcept {

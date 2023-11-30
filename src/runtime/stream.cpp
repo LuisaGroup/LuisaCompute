@@ -105,6 +105,10 @@ Stream &Stream::operator<<(Stream::Synchronize &&) noexcept {
     return *this;
 }
 
+void Stream::set_log_callback(const LogCallback &callback) noexcept {
+    device()->set_stream_log_callback(handle(), callback);
+}
+
 Stream::~Stream() noexcept {
     if (*this) { device()->destroy_stream(handle()); }
 }
