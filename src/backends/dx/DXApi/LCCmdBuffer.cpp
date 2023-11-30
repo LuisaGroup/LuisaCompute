@@ -403,6 +403,7 @@ public:
 class LCCmdVisitor : public CommandVisitor {
 public:
     Device *device;
+    luisa::function<void(luisa::string_view)> *logger;
     CommandBufferBuilder *bd;
     ResourceStateTracker *stateTracker;
     BufferView argBuffer;
@@ -576,7 +577,7 @@ public:
             stateTracker->UpdateState(*bd);
             bd->CopyBuffer(count_buffer.buffer, readback_count_buffer.buffer, count_buffer.offset, readback_count_buffer.offset, sizeof(uint));
             bd->CopyBuffer(data_buffer.buffer, readback_buffer.buffer, data_buffer.offset, readback_buffer.offset, data_buffer.byteSize);
-            alloc->ExecuteAfterComplete([shader, readback_count_buffer, readback_buffer]() {
+            alloc->ExecuteAfterComplete([logger = this->logger, shader, readback_count_buffer, readback_buffer]() {
                 uint size{0};
                 static_cast<ReadbackBuffer const *>(readback_count_buffer.buffer)
                     ->CopyData(
@@ -600,7 +601,9 @@ public:
                     luisa::string result;
                     formatter(result, {ptr, type.second->size()});
                     ptr += type.second->size();
-                    LUISA_INFO("{}", result);
+                    if (logger) [[likely]] {
+                        (*logger)(result);
+                    }
                 }
                 // while(reinterpret_cast<size_t>(ptr) < reinterpret_cast<size_t>())
             });
@@ -958,6 +961,11 @@ void LCCmdBuffer::Execute(
         accelOffset.clear();
 
         LCCmdVisitor visitor;
+        if (logCallback) {
+            visitor.logger = &logCallback;
+        } else {
+            visitor.logger = nullptr;
+        }
         visitor.bindProps = &bindProps;
         visitor.updateAccel = &updateAccel;
         visitor.vbv = &vbv;

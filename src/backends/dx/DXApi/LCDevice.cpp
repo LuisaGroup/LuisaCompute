@@ -275,6 +275,11 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
             break;
     }
 }
+void LCDevice::set_stream_log_callback(uint64_t stream_handle,
+                                       const StreamLogCallback &callback) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    queue->logCallback = callback;
+}
 
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {
 
