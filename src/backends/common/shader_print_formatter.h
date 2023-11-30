@@ -200,7 +200,7 @@ public:
                 [&](auto &&p) noexcept {
                     using T = std::decay_t<decltype(p)>;
                     if constexpr (std::is_same_v<T, Type::Tag>) {
-                        auto print_primitive = [&](auto v, auto &&p) noexcept {
+                        auto print_primitive = [&](auto v) noexcept {
                             using TT = std::decay_t<decltype(v)>;
                             std::memcpy(&v, data, sizeof(v));
                             if constexpr (std::is_same_v<TT, bool>) {
@@ -212,18 +212,18 @@ public:
                             }
                         };
                         switch (p) {
-                            case Type::Tag::BOOL: print_primitive(bool{}, data); break;
-                            case Type::Tag::INT8: print_primitive(int8_t{}, data); break;
-                            case Type::Tag::UINT8: print_primitive(uint8_t{}, data); break;
-                            case Type::Tag::INT16: print_primitive(int16_t{}, data); break;
-                            case Type::Tag::UINT16: print_primitive(uint16_t{}, data); break;
-                            case Type::Tag::INT32: print_primitive(int32_t{}, data); break;
-                            case Type::Tag::UINT32: print_primitive(uint32_t{}, data); break;
-                            case Type::Tag::INT64: print_primitive(int64_t{}, data); break;
-                            case Type::Tag::UINT64: print_primitive(uint64_t{}, data); break;
-                            case Type::Tag::FLOAT16: print_primitive(half{}, data); break;
-                            case Type::Tag::FLOAT32: print_primitive(float{}, data); break;
-                            case Type::Tag::FLOAT64: print_primitive(double{}, data); break;
+                            case Type::Tag::BOOL: print_primitive(bool{}); break;
+                            case Type::Tag::INT8: print_primitive(int8_t{}); break;
+                            case Type::Tag::UINT8: print_primitive(uint8_t{}); break;
+                            case Type::Tag::INT16: print_primitive(int16_t{}); break;
+                            case Type::Tag::UINT16: print_primitive(uint16_t{}); break;
+                            case Type::Tag::INT32: print_primitive(int32_t{}); break;
+                            case Type::Tag::UINT32: print_primitive(uint32_t{}); break;
+                            case Type::Tag::INT64: print_primitive(int64_t{}); break;
+                            case Type::Tag::UINT64: print_primitive(uint64_t{}); break;
+                            case Type::Tag::FLOAT16: print_primitive(half{}); break;
+                            case Type::Tag::FLOAT32: print_primitive(float{}); break;
+                            case Type::Tag::FLOAT64: print_primitive(double{}); break;
                             default: LUISA_ERROR_WITH_LOCATION("Unsupported type for shader printer.");
                         }
                     } else {
