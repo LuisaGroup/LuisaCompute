@@ -31,13 +31,17 @@ private:
     luisa::vector<Primitive> _primitives;
 
 public:
-    ShaderPrintFormatter(luisa::string_view fmt, const Type *arg_pack) noexcept {
-        LUISA_ASSERT(arg_pack->members().size() >= 2u &&
-                         arg_pack->members()[0] == Type::of<uint>() &&
-                         arg_pack->members()[1] == Type::of<uint>(),
-                     "Invalid argument pack for shader printer.");
-        auto offset = static_cast<size_t>(8u);
-        auto args = arg_pack->members().subspan(2u);
+    ShaderPrintFormatter(luisa::string_view fmt, const Type *arg_pack, bool contained_header = true) noexcept {
+        auto args = arg_pack->members();
+        size_t offset = 0;
+        if (contained_header) {
+            LUISA_ASSERT(arg_pack->members().size() >= 2u &&
+                             arg_pack->members()[0] == Type::of<uint>() &&
+                             arg_pack->members()[1] == Type::of<uint>(),
+                         "Invalid argument pack for shader printer.");
+            args = args.subspan(2u);
+            offset += 8;
+        }
         luisa::string s;
         luisa::string f;
         auto commit_s = [this, &s] {

@@ -17,6 +17,7 @@
 #include <luisa/backends/ext/raster_cmd.h>
 #include <Resource/SparseTexture.h>
 #include <luisa/backends/ext/dx_custom_cmd.h>
+#include "../../common/shader_print_formatter.h"
 
 namespace lc::dx {
 using Argument = luisa::compute::Argument;
@@ -509,20 +510,39 @@ public:
         auto &&tempBuffer = *bufferVec;
         bufferVec++;
         auto cs = static_cast<ComputeShader const *>(shader);
+        BufferView readback_count_buffer;
+        BufferView readback_buffer;
+        BufferView count_buffer;
+        BufferView data_buffer;
+        CommandAllocator *alloc{nullptr};
         auto BeforeDispatch = [&]() {
             bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
             if (tempBuffer.second > 0) {
                 bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
             }
-            DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
+            DescriptorHeapView globalHeapView(device->globalHeap.get());
             vstd::push_back_func(*bindProps, shader->BindlessCount(), [&] { return globalHeapView; });
             Visitor visitor{this, cs->Args().data()};
             DecodeCmd(shader->ArgBindings(), visitor);
             DecodeCmd(cmd->arguments(), visitor);
-            // 
-            if (shader->Properties().back().type == hlsl::ShaderVariableType::PrintBuffer) {
-                // auto alloc
-                // auto tempDefault = 
+            auto printers = shader->Printers();
+            if (!printers.empty()) [[unlikely]] {
+                alloc = bd->GetCB()->GetAlloc();
+                static const uint zero = 0;
+                auto upload_buffer = alloc->GetTempUploadBuffer(sizeof(uint), 16);
+                count_buffer = alloc->GetTempDefaultBuffer(sizeof(uint), 16);
+                readback_count_buffer = alloc->GetTempReadbackBuffer(sizeof(uint), 16);
+                data_buffer = alloc->GetTempDefaultBuffer(1024ull * 1024ull, 16);
+                readback_buffer = alloc->GetTempReadbackBuffer(1024ull * 1024ull, 16);
+                static_cast<UploadBuffer const *>(upload_buffer.buffer)->CopyData(upload_buffer.offset, {reinterpret_cast<uint8_t const *>(&zero), sizeof(uint)});
+                stateTracker->RecordState(count_buffer.buffer, D3D12_RESOURCE_STATE_COPY_DEST);
+                stateTracker->UpdateState(*bd);
+                bd->CopyBuffer(upload_buffer.buffer, count_buffer.buffer, upload_buffer.offset, count_buffer.offset, sizeof(uint));
+                stateTracker->RecordState(count_buffer.buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                stateTracker->RecordState(data_buffer.buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                stateTracker->UpdateState(*bd);
+                bindProps->emplace_back(count_buffer);
+                bindProps->emplace_back(data_buffer);
             }
         };
         if (cmd->is_indirect()) {
@@ -550,23 +570,41 @@ public:
                 t,
                 *bindProps);
         }
-
-        /*switch (shader->GetTag()) {
-            case Shader::Tag::ComputeShader: {
-                auto cs = static_cast<ComputeShader const *>(shader);
-                bd->DispatchCompute(
-                    cs,
-                    cmd->dispatch_size(),
-                    bindProps);
-            } break;
-            case Shader::Tag::RayTracingShader: {
-                auto rts = static_cast<RTShader const *>(shader);
-                bd->DispatchRT(
-                    rts,
-                    cmd->dispatch_size(),
-                    bindProps);
-            } break;
-        }*/
+        if (data_buffer.buffer != nullptr) [[unlikely]] {
+            stateTracker->RecordState(count_buffer.buffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            stateTracker->RecordState(data_buffer.buffer, D3D12_RESOURCE_STATE_COPY_SOURCE);
+            stateTracker->UpdateState(*bd);
+            bd->CopyBuffer(count_buffer.buffer, readback_count_buffer.buffer, count_buffer.offset, readback_count_buffer.offset, sizeof(uint));
+            bd->CopyBuffer(data_buffer.buffer, readback_buffer.buffer, data_buffer.offset, readback_buffer.offset, data_buffer.byteSize);
+            alloc->ExecuteAfterComplete([shader, readback_count_buffer, readback_buffer]() {
+                uint size{0};
+                static_cast<ReadbackBuffer const *>(readback_count_buffer.buffer)
+                    ->CopyData(
+                        readback_count_buffer.offset,
+                        {reinterpret_cast<uint8_t *>(&size), sizeof(uint)});
+                if (size == 0) return;
+                vstd::vector<std::byte> data;
+                data.push_back_uninitialized(std::min<size_t>(readback_buffer.byteSize, size));
+                static_cast<ReadbackBuffer const *>(readback_buffer.buffer)
+                    ->CopyData(
+                        readback_buffer.offset,
+                        {reinterpret_cast<uint8_t *>(data.data()), data.size()});
+                auto printers = shader->Printers();
+                auto ptr = data.data();
+                auto end = ptr + data.size();
+                while (ptr < end) {
+                    uint flagTypeIdx = *reinterpret_cast<uint32_t *>(ptr);
+                    ptr += sizeof(uint);
+                    auto &type = printers[flagTypeIdx];
+                    ShaderPrintFormatter formatter{type.first, type.second, false};
+                    luisa::string result;
+                    formatter(result, {ptr, type.second->size()});
+                    ptr += type.second->size();
+                    LUISA_INFO("{}", result);
+                }
+                // while(reinterpret_cast<size_t>(ptr) < reinterpret_cast<size_t>())
+            });
+        }
     }
     void visit(const TextureUploadCommand *cmd) noexcept override {
 

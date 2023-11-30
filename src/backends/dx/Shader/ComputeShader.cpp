@@ -104,7 +104,8 @@ ComputeShader *ComputeShader::CompileCompute(
                         md5,
                         str.typeMD5,
                         bdlsBufferCount,
-                        blockSize);
+                        blockSize,
+                        str.printers);
                     WriteBinaryIO(cacheType, fileIo, fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
                 }
                 auto cs = new ComputeShader(
@@ -190,7 +191,8 @@ void ComputeShader::SaveCompute(
                 md5,
                 str.typeMD5,
                 bdlsBufferCount,
-                blockSize);
+                blockSize,
+                str.printers);
             static_cast<void>(fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()}));
         },
         [](auto &&err) {
