@@ -9,5 +9,9 @@ LC_RUNTIME_API void error_volume_invalid_mip_levels(size_t level, size_t mip) no
         level, mip);
 }
 
+LC_RUNTIME_API void volume_size_zero_error() noexcept {
+    LUISA_ERROR_WITH_LOCATION("Volume size must be non-zero.");
+}
+
 }// namespace luisa::compute::detail
 
