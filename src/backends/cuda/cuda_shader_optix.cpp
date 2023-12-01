@@ -141,7 +141,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::string p
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
     char log[2048];// For error reporting from OptiX creation functions
-    size_t log_size;
+    size_t log_size = sizeof(log) - 1u;
     if (auto result = optix::api().moduleCreate(
             optix_ctx, &module_compile_options,
             &pipeline_compile_options, ptx.data(), ptx.size(),
