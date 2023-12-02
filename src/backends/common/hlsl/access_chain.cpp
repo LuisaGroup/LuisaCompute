@@ -127,7 +127,7 @@ void AccessChain::gen_func_impl(CodegenUtility *util, TemplateFunction const &tm
                 },
                 [&](MemberNode const &m) {
                     chain_str << ".v"sv;
-                    vstd::to_string(arg_idx, chain_str);
+                    vstd::to_string(m.member_index, chain_str);
                 });
         }
     };
