@@ -140,8 +140,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::string p
     pipeline_compile_options.usesPrimitiveTypeFlags = primitive_flags;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
-    char log[2048];// For error reporting from OptiX creation functions
-    size_t log_size = sizeof(log) - 1u;
+    char log[2048] = {};               // For error reporting from OptiX creation functions
+    size_t log_size = sizeof(log) - 1u;// munis one to tell OptiX not to overwrite the trailing '\0'
     if (auto result = optix::api().moduleCreate(
             optix_ctx, &module_compile_options,
             &pipeline_compile_options, ptx.data(), ptx.size(),
@@ -151,7 +151,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::string p
             "OptiX shader compilation failed with error {}: {}. Retrying with patched PTX version.\n{}{}",
             optix::api().getErrorName(result),
             optix::api().getErrorString(result),
-            log,
+            static_cast<const char *>(log),
             log_size > sizeof(log) ? " ..."sv : ""sv);
         // retry with patched PTX version
         CUDAShader::_patch_ptx_version(ptx);
