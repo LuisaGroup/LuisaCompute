@@ -207,14 +207,14 @@ void AccessChain::call_this_func(luisa::span<Expression const *const> args, vstd
         args[0]->accept(visitor);
         builder << ',';
     }
-    for (auto i : vstd::range(1, _nodes.size())) {
+    for (auto i : vstd::range(0, _nodes.size())) {
         auto &node = _nodes[i];
         if (node.is_type_of<AccessNode>()) {
-            args[i]->accept(visitor);
+            args[i + 1]->accept(visitor);
             builder << ',';
         }
     }
-    for (auto i : vstd::range(_nodes.size(), args.size())) {
+    for (auto i : vstd::range(_nodes.size() + 1, args.size())) {
         args[i]->accept(visitor);
         builder << ',';
     }
