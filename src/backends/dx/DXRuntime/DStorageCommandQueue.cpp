@@ -164,12 +164,19 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                                 local_offset[0] + local_size[0], local_offset[1] + local_size[1], local_offset[2] + local_size[2]};
 
                         } else {
+                            // request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
+
+                            // if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
+                            //     request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
+                            //     request.UncompressedSize = t.size_bytes;
+                            // }
                             request.Options.DestinationType = DSTORAGE_REQUEST_DESTINATION_MEMORY;
-                            request.Destination.Memory.Buffer = t.data;
-                            request.Destination.Memory.Size = t.size_bytes;
+                            request.Destination.Memory.Buffer = reinterpret_cast<std::byte *>(t.data) + sub_offset;
+                            request.Destination.Memory.Size = sub_size;
                             if (cmd->compression() == DStorageReadCommand::Compression::GDeflate) {
                                 request.Options.CompressionFormat = DSTORAGE_COMPRESSION_FORMAT::DSTORAGE_COMPRESSION_FORMAT_GDEFLATE;
                                 request.UncompressedSize = t.size_bytes;
+                                LUISA_ASSERT(t.size_bytes <= staging_buffer_size, "Compressed buffer's size({} bytes) can-not be large than {} bytes", t.size_bytes, staging_buffer_size);
                             }
                         }
                     },
@@ -186,22 +193,22 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
                         request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_FILE;
                         request.Source.File.Source = file->file.Get();
                         request.Source.File.Offset = t.offset_bytes;
-                        if (luisa::holds_alternative<DStorageReadCommand::MemoryRequest>(cmd->request())) {
-                            request.Source.File.Size = t.size_bytes;
-                            set_request_dst(0, t.size_bytes);
+                        // if (luisa::holds_alternative<DStorageReadCommand::MemoryRequest>(cmd->request())) {
+                        //     request.Source.File.Size = t.size_bytes;
+                        //     set_request_dst(0, t.size_bytes);
+                        //     queue->EnqueueRequest(&request);
+                        // } else {
+                        auto lefted_size = static_cast<int64_t>(t.size_bytes);
+                        auto slice_size = std::min(t.size_bytes, staging_buffer_size);
+                        while (lefted_size > 0) {
+                            auto real_size = set_request_dst(sub_offset, slice_size);
+                            request.Source.File.Size = real_size;
                             queue->EnqueueRequest(&request);
-                        } else {
-                            auto lefted_size = static_cast<int64_t>(t.size_bytes);
-                            auto slice_size = std::min(t.size_bytes, staging_buffer_size);
-                            while (lefted_size > 0) {
-                                auto real_size = set_request_dst(sub_offset, slice_size);
-                                request.Source.File.Size = real_size;
-                                queue->EnqueueRequest(&request);
-                                request.Source.File.Offset += real_size;
-                                sub_offset += real_size;
-                                lefted_size -= real_size;
-                            }
+                            request.Source.File.Offset += real_size;
+                            sub_offset += real_size;
+                            lefted_size -= real_size;
                         }
+                        // }
                     } else {
                         request.Options.SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
                         auto ptr = reinterpret_cast<std::byte const *>(t.handle + t.offset_bytes);
