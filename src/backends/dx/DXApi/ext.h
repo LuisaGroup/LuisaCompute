@@ -186,8 +186,8 @@ class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase 
     ComPtr<IDStorageCompressionCodec> compression_codec;
     vstd::spin_mutex spin_mtx;
     std::mutex mtx;
-    std::atomic_size_t staging_size;
     LCDevice *mdevice;
+    std::atomic_bool staging{false};
     bool is_hdd = false;
     void init_factory();
     void init_factory_nolock();

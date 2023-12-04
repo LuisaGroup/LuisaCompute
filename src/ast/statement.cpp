@@ -102,6 +102,11 @@ uint64_t PrintStmt::_compute_hash() const noexcept {
     return h;
 }
 
+PrintStmt::PrintStmt(luisa::string fmt, luisa::vector<const Expression *> args) noexcept
+    : Statement{Tag::PRINT}, _format{std::move(fmt)}, _args{std::move(args)} {
+    for (auto arg : _args) { arg->mark(Usage::READ); }
+}
+
 void StmtVisitor::visit(const AutoDiffStmt *stmt) {
     // reports error by default since it should be
     // handled by the IR when reaching the backend

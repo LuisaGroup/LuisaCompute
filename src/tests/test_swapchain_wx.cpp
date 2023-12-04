@@ -124,10 +124,12 @@ public:
         overlay->Center();
 
         auto button = new wxButton{overlay, wxID_EXIT, wxT("Quit")};
-        Bind(wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler(Frame::close), frame);
+        using command_handler = void (wxEvtHandler::*)(wxCommandEvent &);
+        Bind(wxEVT_COMMAND_BUTTON_CLICKED, reinterpret_cast<command_handler>(&Frame::close), frame);
         button->Center();
 
-        Bind(wxEVT_IDLE, wxIdleEventHandler(Renderer::render), renderer);
+        using idle_handler = void (wxEvtHandler::*)(wxIdleEvent &);
+        Bind(wxEVT_IDLE, reinterpret_cast<idle_handler>(&Renderer::render), renderer);
 
         frame->Show();
 
@@ -141,4 +143,3 @@ public:
 };
 
 IMPLEMENT_APP_CONSOLE(App)
-

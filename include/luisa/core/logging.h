@@ -1,7 +1,15 @@
 #pragma once
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+
 #include <spdlog/spdlog.h>
-#include <spdlog/sinks/base_sink.h>
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 #include <luisa/core/stl/format.h>
 #include <luisa/core/platform.h>

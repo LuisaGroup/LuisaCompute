@@ -46,9 +46,8 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
     return size;
 }
 
-CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
-                                 const char *ptx, size_t ptx_size, const char *entry,
-                                 const CUDAShaderMetadata &metadata,
+CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::string ptx,
+                                 const char *entry, const CUDAShaderMetadata &metadata,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
     : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
                  metadata.argument_usages},
@@ -141,14 +140,28 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx,
     pipeline_compile_options.usesPrimitiveTypeFlags = primitive_flags;
     pipeline_compile_options.pipelineLaunchParamsVariableName = "params";
 
-    char log[2048];// For error reporting from OptiX creation functions
-    size_t log_size;
-    LUISA_CHECK_OPTIX_WITH_LOG(
-        log, log_size,
-        optix::api().moduleCreate(
+    char log[2048] = {};               // For error reporting from OptiX creation functions
+    size_t log_size = sizeof(log) - 1u;// munis one to tell OptiX not to overwrite the trailing '\0'
+    if (auto result = optix::api().moduleCreate(
             optix_ctx, &module_compile_options,
-            &pipeline_compile_options, ptx, ptx_size,
-            log, &log_size, &_module));
+            &pipeline_compile_options, ptx.data(), ptx.size(),
+            log, &log_size, &_module);
+        result != optix::RESULT_SUCCESS) {
+        LUISA_WARNING_WITH_LOCATION(
+            "OptiX shader compilation failed with error {}: {}. Retrying with patched PTX version.\n{}{}",
+            optix::api().getErrorName(result),
+            optix::api().getErrorString(result),
+            static_cast<const char *>(log),
+            log_size > sizeof(log) ? " ..."sv : ""sv);
+        // retry with patched PTX version
+        CUDAShader::_patch_ptx_version(ptx);
+        LUISA_CHECK_OPTIX_WITH_LOG(
+            log, log_size,
+            optix::api().moduleCreate(
+                optix_ctx, &module_compile_options,
+                &pipeline_compile_options, ptx.data(), ptx.size(),
+                log, &log_size, &_module));
+    }
 
     // create program groups
     luisa::fixed_vector<optix::ProgramGroup, 10u> program_groups;

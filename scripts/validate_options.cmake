@@ -32,7 +32,7 @@ endif ()
 if (NOT LUISA_COMPUTE_ENABLE_RUST)
     message(FATAL_ERROR "\nRust is required for future releases. \n\
     To install Rust, run `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` on unix environment\n\
-    or download and run the installer from https://static.rust-lang.org/rustup/dist/i686-pc-windows-gnu/rustup-init.exe on windows environment.\n\
+    or download and run the installer from https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe on windows environment.\n\
     please set LUISA_COMPUTE_DISABLE_RUST_OVERRIDE to ON to acknowledge this")
 endif ()
 

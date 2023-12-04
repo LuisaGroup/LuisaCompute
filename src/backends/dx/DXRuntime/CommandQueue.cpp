@@ -32,12 +32,6 @@ CommandQueue::CommandQueue(
         IID_PPV_ARGS(&cmdFence)));
 }
 CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
-    if (maxAllocCount != std::numeric_limits<size_t>::max()) {
-        std::unique_lock lck(mtx);
-        while (lastFrame - executedFrame > maxAllocCount) {
-            mainCv.wait(lck);
-        }
-    }
     auto newPtr = allocatorPool.pop();
     if (newPtr) {
         (*newPtr)->GetBuffer()->UpdateCommandBuffer(device);
@@ -59,11 +53,10 @@ void CommandQueue::ExecuteThread() {
         bool wakeupThread;
         auto Weakup = [&] {
             if (wakeupThread) {
-                {
-                    std::lock_guard lck(mtx);
-                    executedFrame = std::max(executedFrame, fence);
+                uint64 prev_value = executedFrame;
+                while (prev_value < fence && !executedFrame.compare_exchange_weak(prev_value, fence)) {
+                    std::this_thread::yield();
                 }
-                mainCv.notify_all();
             }
         };
         auto ExecuteAllocator = [&](AllocatorPtr &b) {
@@ -121,10 +114,8 @@ void CommandQueue::ForceSync(
     alloc->Execute(this, cmdFence.Get(), curFrame);
     alloc->Complete(this, cmdFence.Get(), curFrame);
     alloc->Reset(this);
-    {
-        std::lock_guard lck(mtx);
-        executedFrame = curFrame;
-    }
+    executedFrame = curFrame;
+
     cb.Reset();
 }
 CommandQueue::~CommandQueue() {
@@ -189,9 +180,8 @@ void CommandQueue::ExecuteAndPresent(AllocatorPtr &&alloc, IDXGISwapChain3 *swap
 }
 
 void CommandQueue::Complete(uint64 fence) {
-    std::unique_lock lck(mtx);
     while (executedFrame < fence) {
-        mainCv.wait(lck);
+        std::this_thread::yield();
     }
 }
 void CommandQueue::Complete() {

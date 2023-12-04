@@ -38,7 +38,7 @@
                 "{}: {}\n{}{}",                            \
                 optix::api().getErrorName(error),          \
                 optix::api().getErrorString(error),        \
-                log,                                       \
+                static_cast<const char *>(log),            \
                 log_size > sizeof(log) ? " ..."sv : ""sv); \
         }                                                  \
     } while (false)

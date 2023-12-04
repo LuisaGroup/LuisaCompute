@@ -66,6 +66,7 @@ static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = ([] {
     if (env == nullptr) return false;
     return std::string_view{env} == "1";
 })();
+
 namespace luisa::compute::cuda {
 
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
@@ -559,11 +560,11 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (expected_metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
             return new_with_allocator<CUDAShaderOptiX>(
-                handle().optix_context(), ptx.data(), ptx.size(),
+                handle().optix_context(), std::move(ptx),
                 "__raygen__main", expected_metadata, std::move(bound_arguments));
         }
         return new_with_allocator<CUDAShaderNative>(
-            this, ptx.data(), ptx.size(), "kernel_main",
+            this, std::move(ptx), "kernel_main",
             expected_metadata, std::move(bound_arguments));
     });
 #ifndef NDEBUG
@@ -783,12 +784,11 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
             return new_with_allocator<CUDAShaderOptiX>(
-                handle().optix_context(), ptx.data(), ptx.size(),
+                handle().optix_context(), std::move(ptx),
                 "__raygen__main", metadata);
         }
         return new_with_allocator<CUDAShaderNative>(
-            this, ptx.data(), ptx.size(),
-            "kernel_main", metadata);
+            this, std::move(ptx), "kernel_main", metadata);
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));

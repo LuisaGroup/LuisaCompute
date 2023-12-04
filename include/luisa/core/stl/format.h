@@ -2,7 +2,13 @@
 
 #include <type_traits>
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+
 #include <spdlog/fmt/fmt.h>
+
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/string.h>
 
@@ -156,3 +162,7 @@ template<typename T, size_t N>
 }
 
 }// namespace luisa
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
