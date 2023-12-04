@@ -945,6 +945,7 @@ void LCCmdBuffer::Execute(
     auto commands = cmdList.commands();
     auto funcs = std::move(cmdList).steal_callbacks();
     auto allocator = queue.CreateAllocator(maxAlloc);
+    auto allocType = allocator->Type();
     bool cmdListIsEmpty = true;
     {
         std::unique_lock lck{mtx};
@@ -975,7 +976,10 @@ void LCCmdBuffer::Execute(
             ID3D12DescriptorHeap *h[2] = {
                 device->globalHeap->GetHeap(),
                 device->samplerHeap->GetHeap()};
-            bd->GetCB()->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+            auto cb = bd->GetCB();
+            if (cb->GetAlloc()->Type() != D3D12_COMMAND_LIST_TYPE_COPY) {
+                cb->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+            }
         };
         auto cmdBuffer = allocator->GetBuffer();
         auto cmdBuilder = cmdBuffer->Build();
@@ -991,11 +995,11 @@ void LCCmdBuffer::Execute(
         ID3D12DescriptorHeap *h[2] = {
             device->globalHeap->GetHeap(),
             device->samplerHeap->GetHeap()};
+        if (!commands.empty() && allocType != D3D12_COMMAND_LIST_TYPE_COPY) {
+            cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+        }
         for (auto lst : cmdLists) {
             cmdListIsEmpty = cmdListIsEmpty && (lst == nullptr);
-            if (!cmdListIsEmpty) {
-                cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
-            }
             // Clear caches
             ppVisitor.argVecs->clear();
             ppVisitor.argBuffer->clear();

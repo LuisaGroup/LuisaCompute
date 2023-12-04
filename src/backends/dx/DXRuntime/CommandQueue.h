@@ -37,8 +37,7 @@ private:
     std::mutex mtx;
     std::thread thd;
     std::condition_variable waitCv;
-    std::condition_variable mainCv;
-    uint64 executedFrame = 0;
+    std::atomic_uint64_t executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
     bool enabled = true;
     DxPtr<ID3D12CommandQueue> queue;

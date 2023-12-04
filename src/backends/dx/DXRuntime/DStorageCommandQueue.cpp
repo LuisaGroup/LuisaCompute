@@ -10,17 +10,19 @@ void DStorageCommandQueue::ExecuteThread() {
     while (enabled) {
         uint64_t fence;
         bool wakeupThread;
+        auto max_fence = [&]() {
+            uint64 prev_value = executedFrame;
+            while (prev_value < fence && !executedFrame.compare_exchange_weak(prev_value, fence)) {
+                std::this_thread::yield();
+            }
+        };
         auto ExecuteAllocator = [&](WaitQueueHandle const &b) {
             if (b.handle) {
                 WaitForSingleObject(b.handle, INFINITE);
                 CloseHandle(b.handle);
             }
             if (wakeupThread) {
-                {
-                    std::lock_guard lck(mtx);
-                    executedFrame = std::max(executedFrame, fence);
-                }
-                mainCv.notify_all();
+                max_fence();
             }
         };
         auto ExecuteCallbacks = [&](auto &vec) {
@@ -28,11 +30,7 @@ void DStorageCommandQueue::ExecuteThread() {
                 i();
             }
             if (wakeupThread) {
-                {
-                    std::lock_guard lck(mtx);
-                    executedFrame = std::max(executedFrame, fence);
-                }
-                mainCv.notify_all();
+                max_fence();
             }
         };
         auto ExecuteEvent = [&](auto &evt) {
@@ -254,9 +252,8 @@ uint64 DStorageCommandQueue::Execute(luisa::compute::CommandList &&list) {
     return curFrame;
 }
 void DStorageCommandQueue::Complete(uint64 fence) {
-    std::unique_lock lck(mtx);
     while (executedFrame < fence) {
-        mainCv.wait(lck);
+        std::this_thread::yield();
     }
 }
 void DStorageCommandQueue::Complete() {

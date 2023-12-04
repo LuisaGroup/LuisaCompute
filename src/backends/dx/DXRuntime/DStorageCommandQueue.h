@@ -40,8 +40,7 @@ class DStorageCommandQueue : public CmdQueueBase{
     std::mutex exec_mtx;
     std::thread thd;
     std::condition_variable waitCv;
-    std::condition_variable mainCv;
-    uint64 executedFrame = 0;
+    std::atomic_uint64_t executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
     DSTORAGE_REQUEST_SOURCE_TYPE sourceType;
     bool enabled = true;
