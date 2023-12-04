@@ -14,16 +14,62 @@
 
 namespace luisa::compute::cuda {
 
+class StreamCallbackSemaphoreUpdate final {
+
+private:
+    volatile uint64_t *_semaphore{};
+    uint64_t _value{};
+
+private:
+    [[nodiscard]] static auto _pool() noexcept {
+        static Pool<StreamCallbackSemaphoreUpdate> pool;
+        return &pool;
+    }
+
+public:
+    [[nodiscard]] static auto create(volatile uint64_t *sem, uint64_t value) noexcept {
+        auto x = _pool()->create();
+        x->_semaphore = sem;
+        x->_value = value;
+        return x;
+    }
+    void recycle() noexcept {
+        *_semaphore = _value;
+        _pool()->destroy(this);
+    }
+};
+
 CUDAStream::CUDAStream(CUDADevice *device) noexcept
     : _device{device},
       _upload_pool{64_M, true}, _download_pool{32_M, false} {
-    auto callback_semaphore = static_cast<void *>(nullptr);
-    LUISA_CHECK_CUDA(cuMemHostAlloc(&callback_semaphore,
-                                    sizeof(uint64_t), CU_MEMHOSTALLOC_DEVICEMAP));
-    _callback_semaphore = static_cast<volatile uint64_t *>(callback_semaphore);
-    LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(&_callback_semaphore_device,
-                                               callback_semaphore, 0u));
+
+    // initialize the callback semaphore
+    {
+        // check if the device supports stream-ordered memory operations
+        auto stream_mem_op_support = 0;
+        LUISA_CHECK_CUDA(cuDeviceGetAttribute(&stream_mem_op_support,
+                                              CU_DEVICE_ATTRIBUTE_CAN_USE_64_BIT_STREAM_MEM_OPS,
+                                              device->handle().device()));
+        if (stream_mem_op_support) {
+            auto callback_semaphore = static_cast<void *>(nullptr);
+            LUISA_CHECK_CUDA(cuMemHostAlloc(&callback_semaphore,
+                                            sizeof(uint64_t), CU_MEMHOSTALLOC_DEVICEMAP));
+            _callback_semaphore = static_cast<volatile uint64_t *>(callback_semaphore);
+            LUISA_CHECK_CUDA(cuMemHostGetDevicePointer(&_callback_semaphore_device,
+                                                       callback_semaphore, 0u));
+        } else {
+            LUISA_WARNING_WITH_LOCATION("Stream memory operation is not supported. "
+                                        "LuisaCompute will use stream callbacks to "
+                                        "synchronize the stream. This may cause "
+                                        "performance degradation.");
+            _callback_semaphore = luisa::allocate_with_allocator<uint64_t>(1u);
+            _callback_semaphore_device = 0u;
+        }
+        *_callback_semaphore = 0u;
+    }
+    // create the stream
     LUISA_CHECK_CUDA(cuStreamCreate(&_stream, CU_STREAM_NON_BLOCKING));
+    // create the callback thread
     _callback_thread = std::thread{[this] {
         for (;;) {
             auto package = [this] {
@@ -69,7 +115,12 @@ CUDAStream::~CUDAStream() noexcept {
     // wait for the callback thread to stop
     _callback_thread.join();
     // destroy the events and the stream
-    LUISA_CHECK_CUDA(cuMemFreeHost(const_cast<uint64_t *>(_callback_semaphore)));
+    auto callback_sem = const_cast<uint64_t *>(_callback_semaphore);
+    if (_callback_semaphore_device != 0u) {
+        LUISA_CHECK_CUDA(cuMemFreeHost(callback_sem));
+    } else {
+        luisa::deallocate_with_allocator(callback_sem);
+    }
     LUISA_CHECK_CUDA(cuStreamDestroy(_stream));
 }
 
@@ -91,8 +142,19 @@ void CUDAStream::callback(CUDAStream::CallbackContainer &&callbacks) noexcept {
     if (!callbacks.empty()) {
         // signal that the stream has been dispatched
         auto ticket = 1u + _current_ticket.fetch_add(1u, std::memory_order_relaxed);
-        LUISA_CHECK_CUDA(cuStreamWriteValue64(_stream, _callback_semaphore_device,
-                                              ticket, CU_STREAM_WRITE_VALUE_DEFAULT));
+        if (_callback_semaphore_device) {
+            LUISA_CHECK_CUDA(cuStreamWriteValue64(_stream, _callback_semaphore_device,
+                                                  ticket, CU_STREAM_WRITE_VALUE_DEFAULT));
+        } else {
+            auto update = StreamCallbackSemaphoreUpdate::create(_callback_semaphore, ticket);
+            cuLaunchHostFunc(
+                _stream,
+                [](void *data) noexcept {
+                    auto update = static_cast<StreamCallbackSemaphoreUpdate *>(data);
+                    update->recycle();
+                },
+                update);
+        }
         // enqueue callbacks
         {
             CallbackPackage package{
