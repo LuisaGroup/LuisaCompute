@@ -12,8 +12,21 @@ inline T lc_cpu_custom_op(const KernelFnArgs *k_args, size_t i, T value) noexcep
 }
 
 template<class T>
+inline uint64_t lc_address_of(const T &value) noexcept {
+    return reinterpret_cast<uint64_t>(&value);
+}
+template<class T>
+inline uint64_t lc_address_of(const T *value) noexcept {
+    return reinterpret_cast<uint64_t>(value);
+}
+
+template<class T>
 inline size_t lc_buffer_size(const KernelFnArgs *k_args, const BufferView &buffer) noexcept {
     return buffer.size / sizeof(T);
+}
+
+inline uint64_t lc_buffer_address(const BufferView &buffer) noexcept {
+    return reinterpret_cast<uint64_t>(buffer.data);
 }
 
 template<class T>
@@ -186,6 +199,10 @@ inline T lc_bindless_buffer_read(const KernelFnArgs *k_args, const BindlessArray
 inline size_t lc_bindless_buffer_size(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index, size_t stride) noexcept {
     auto buf = lc_bindless_buffer(k_args, array, buf_index);
     return buf.size / stride;
+}
+inline uint64_t lc_bindless_buffer_address(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index) noexcept {
+    auto buf = lc_bindless_buffer(k_args, array, buf_index);
+    return reinterpret_cast<uint64_t>(buf.data);
 }
 
 template<class T>

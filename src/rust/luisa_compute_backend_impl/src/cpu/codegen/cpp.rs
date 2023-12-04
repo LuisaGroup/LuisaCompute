@@ -723,6 +723,16 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
+            Func::BufferAddress => {
+                let buffer_ty = self.type_gen.gen_c_type(args[0].type_());
+                writeln!(
+                    &mut self.body,
+                    "const {} {} = lc_buffer_address({});",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
             Func::BindlessByteBufferRead => {
                 writeln!(
                     &mut self.body,
@@ -756,6 +766,15 @@ impl<'a> FunctionEmitter<'a> {
                     &mut self.body,
                     "const {} {} = lc_bindless_buffer_size(k_args, {}, {}, {});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessBufferAddress => {
+                writeln!(
+                    &mut self.body,
+                    "const {} {} = lc_bindless_buffer_address(k_args, {}, {});",
+                    node_ty_s, var, args_v[0], args_v[1]
                 )
                 .unwrap();
                 true
@@ -1117,6 +1136,16 @@ impl<'a> FunctionEmitter<'a> {
             }
             Func::Load => {
                 writeln!(self.body, "const {} {} = *{};", node_ty_s, var, args_v[0]).unwrap();
+                true
+            }
+            Func::AddressOf => {
+                let ty = self.type_gen.gen_c_type(args[0].type_());
+                writeln!(
+                    self.body,
+                    "const {} {} = lc_address_of<{}>({});",
+                    node_ty_s, var, ty, args_v[0]
+                )
+                .unwrap();
                 true
             }
             Func::GradientMarker => {

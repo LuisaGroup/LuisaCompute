@@ -664,6 +664,7 @@ pub enum Func {
     IndirectDispatchSetKernel,
 
     Load,
+    AddressOf,
 
     Cast,
     Bitcast,
@@ -829,6 +830,8 @@ pub enum Func {
     BufferWrite,
     /// buffer -> uint: returns buffer size in *elements*
     BufferSize,
+    /// buffer -> u64: returns address of the buffer
+    BufferAddress,
     /// (buffer, index_bytes) -> value
     ByteBufferRead,
     /// (buffer, index_bytes, value) -> void
@@ -885,6 +888,8 @@ pub enum Func {
     BindlessBufferWrite,
     /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
     BindlessBufferSize,
+    /// (bindless_array, index: uint) -> u64: returns the address of the buffer
+    BindlessBufferAddress,
     // (bindless_array, index: uint) -> u64: returns the type of the buffer
     BindlessBufferType,
     // (bindless_array, index: uint, offset_bytes: uint) -> T
