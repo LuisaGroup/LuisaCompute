@@ -41,7 +41,8 @@ public:
 
 CUDAStream::CUDAStream(CUDADevice *device) noexcept
     : _device{device},
-      _upload_pool{64_M, true}, _download_pool{32_M, false} {
+      _upload_pool{64_M, true},
+      _download_pool{32_M, false} {
 
     // initialize the callback semaphore
     {
