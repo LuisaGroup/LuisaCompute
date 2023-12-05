@@ -747,6 +747,12 @@ public:
             return nullptr;
         }
     }
+    luisa::string query(luisa::string_view property) noexcept override {
+        const auto ptr = (device.query)(device.device, property.data());
+        luisa::string result(ptr);
+        (lib.free_string)(ptr);
+        return result;
+    }
 };
 
 luisa::compute::DeviceInterface *create(luisa::compute::Context &&ctx,
