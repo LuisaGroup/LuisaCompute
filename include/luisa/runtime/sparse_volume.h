@@ -148,6 +148,9 @@ struct is_sparse_volume_impl : std::false_type {};
 
 template<typename T>
 struct is_sparse_volume_impl<SparseVolume<T>> : std::true_type {};
+
+template<typename T>
+struct is_volume_impl<SparseVolume<T>> : std::true_type {};
 }// namespace detail
 template<typename T>
 using is_sparse_volume = detail::is_sparse_volume_impl<std::remove_cvref_t<T>>;
