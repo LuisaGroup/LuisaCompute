@@ -108,12 +108,12 @@ BindlessArray &BindlessArray::remove_tex3d_on_update(size_t index) noexcept {
 
 luisa::unique_ptr<Command> BindlessArray::update() noexcept {
     _check_is_valid();
-    if (!dirty()) {
+    std::lock_guard lock{_mtx};
+    if (_updates.empty()) {
         LUISA_WARNING_WITH_LOCATION(
             "No update to bindless array.");
         return nullptr;
     }
-    std::lock_guard lock{_mtx};
     luisa::vector<Modification> mods;
     mods.reserve(_updates.size());
     for (auto m : _updates) { mods.emplace_back(m); }
