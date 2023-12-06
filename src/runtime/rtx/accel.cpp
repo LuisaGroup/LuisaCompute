@@ -58,7 +58,7 @@ luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
                                                  update_instance_buffer_only);
 }
 
-void Accel::_emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+void Accel::emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
     auto index = static_cast<uint>(_instance_count);
@@ -84,7 +84,7 @@ void Accel::pop_back() noexcept {
     }
 }
 
-void Accel::_set_handle(size_t index, uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
     if (index >= _instance_count) [[unlikely]] {
@@ -101,7 +101,7 @@ void Accel::_set_handle(size_t index, uint64_t mesh, float4x4 const &transform, 
         _modifications[index] = modification;
     }
 }
-void Accel::_set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
+void Accel::set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
     if (index >= _instance_count) [[unlikely]] {

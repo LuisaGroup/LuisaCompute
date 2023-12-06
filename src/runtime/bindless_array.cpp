@@ -31,7 +31,7 @@ BindlessArray::BindlessArray(DeviceInterface *device, size_t size) noexcept
     : Resource{device, Tag::BINDLESS_ARRAY, device->create_bindless_array(size)},
       _size{size} {}
 
-void BindlessArray::_emplace_buffer_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept {
+void BindlessArray::emplace_buffer_handle_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
     if (index >= _size) [[unlikely]] {
@@ -43,7 +43,7 @@ void BindlessArray::_emplace_buffer_on_update(size_t index, uint64_t handle, siz
     iter->buffer = Modification::Buffer::emplace(handle, offset_bytes);
 }
 
-void BindlessArray::_emplace_tex2d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept {
+void BindlessArray::emplace_tex2d_handle_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
     if (index >= _size) [[unlikely]] {
@@ -55,7 +55,7 @@ void BindlessArray::_emplace_tex2d_on_update(size_t index, uint64_t handle, Samp
     iter->tex2d = Modification::Texture::emplace(handle, sampler);
 }
 
-void BindlessArray::_emplace_tex3d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept {
+void BindlessArray::emplace_tex3d_handle_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
     if (index >= _size) [[unlikely]] {
