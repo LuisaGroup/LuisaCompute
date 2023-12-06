@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/dll_export.h>
+#include <luisa/core/spin_mutex.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/runtime/rtx/mesh.h>
@@ -24,7 +25,9 @@ public:
 
 private:
     luisa::unordered_map<size_t, Modification> _modifications;
+    mutable luisa::spin_mutex _mtx;
     size_t _instance_count{};
+
 
 private:
     friend class Device;
@@ -45,7 +48,7 @@ private:
 public:
     Accel() noexcept = default;
     ~Accel() noexcept override;
-    Accel(Accel &&) noexcept = default;
+    Accel(Accel &&) noexcept;
     Accel(Accel const &) noexcept = delete;
     Accel &operator=(Accel &&rhs) noexcept {
         _move_from(std::move(rhs));
@@ -55,6 +58,7 @@ public:
     using Resource::operator bool;
     [[nodiscard]] auto size() const noexcept {
         _check_is_valid();
+        std::lock_guard lock{_mtx};
         return _instance_count;
     }
 

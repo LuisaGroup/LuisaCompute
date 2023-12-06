@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/spin_mutex.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/mipmap.h>
 #include <luisa/runtime/rhi/resource.h>
@@ -49,6 +50,7 @@ private:
     size_t _size{0u};
     // "emplace" and "remove" operations will be cached under _updates and commit in update() command
     luisa::unordered_set<Modification, ModSlotHash, ModSlotEqual> _updates;
+    mutable luisa::spin_mutex _mtx;
 
 private:
     friend class Device;
@@ -62,7 +64,7 @@ public:
     BindlessArray() noexcept = default;
     ~BindlessArray() noexcept override;
     using Resource::operator bool;
-    BindlessArray(BindlessArray &&) noexcept = default;
+    BindlessArray(BindlessArray &&) noexcept;
     BindlessArray(BindlessArray const &) noexcept = delete;
     BindlessArray &operator=(BindlessArray &&rhs) noexcept {
         _move_from(std::move(rhs));
@@ -72,11 +74,13 @@ public:
     // properties
     [[nodiscard]] auto size() const noexcept {
         _check_is_valid();
+        std::lock_guard lck{_mtx};
         return _size;
     }
     // whether there are any stashed updates
     [[nodiscard]] auto dirty() const noexcept {
         _check_is_valid();
+        std::lock_guard lck{_mtx};
         return !_updates.empty();
     }
     // on-update functions' operations will be committed by update()
