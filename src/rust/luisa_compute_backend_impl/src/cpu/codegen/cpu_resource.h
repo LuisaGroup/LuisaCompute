@@ -208,7 +208,7 @@ inline uint64_t lc_bindless_buffer_address(const KernelFnArgs *k_args, const Bin
 template<class T>
 inline T lc_atomic_compare_exchange(T *ptr, T expected, T desired) noexcept {
     auto old = expected;
-    __atomic_compare_exchange_n(ptr, &old, desired, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    __atomic_compare_exchange_n(ptr, &old, desired, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
     return old;
 }
 template<>
@@ -221,7 +221,7 @@ inline float lc_atomic_compare_exchange(float *ptr, float expected, float desire
 
 template<class T>
 inline T lc_atomic_exchange(T *ptr, T desired) noexcept {
-    return __atomic_exchange_n(ptr, desired, __ATOMIC_SEQ_CST);
+    return __atomic_exchange_n(ptr, desired, __ATOMIC_RELAXED);
 }
 template<>
 inline float lc_atomic_exchange(float *ptr, float desired) noexcept {
@@ -232,12 +232,12 @@ inline float lc_atomic_exchange(float *ptr, float desired) noexcept {
 
 template<class T>
 inline T lc_atomic_fetch_add(T *ptr, T value) noexcept {
-    return __atomic_fetch_add(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_add(ptr, value, __ATOMIC_RELAXED);
 }
 
 template<class T>
 inline T lc_atomic_fetch_sub(T *ptr, T value) noexcept {
-    return __atomic_fetch_sub(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_sub(ptr, value, __ATOMIC_RELAXED);
 }
 
 //#ifndef __cpp_lib_atomic_float
@@ -254,17 +254,17 @@ inline T lc_atomic_fetch_sub(T *ptr, T value) noexcept {
 
 template<class T>
 inline T lc_atomic_fetch_and(T *ptr, T value) noexcept {
-    return __atomic_fetch_and(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_and(ptr, value, __ATOMIC_RELAXED);
 }
 
 template<class T>
 inline T lc_atomic_fetch_or(T *ptr, T value) noexcept {
-    return __atomic_fetch_or(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_or(ptr, value, __ATOMIC_RELAXED);
 }
 
 template<class T>
 inline T lc_atomic_fetch_xor(T *ptr, T value) noexcept {
-    return __atomic_fetch_xor(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_xor(ptr, value, __ATOMIC_RELAXED);
 }
 
 template<class T>
