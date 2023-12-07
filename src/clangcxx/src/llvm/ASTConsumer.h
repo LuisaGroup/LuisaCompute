@@ -24,7 +24,7 @@ struct CXXBlackboard
     clang::ASTContext* astContext = nullptr;
     luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
     luisa::unordered_map<luisa::string, const luisa::compute::RefExpr*> globals;
-    luisa::unordered_map<luisa::string, luisa::shared_ptr<compute::detail::FunctionBuilder>> builders;
+    luisa::unordered_map<const clang::Decl*, luisa::shared_ptr<compute::detail::FunctionBuilder>> builders;
     
     const luisa::compute::Type* RecordAsPrimitiveType(const clang::QualType Type);
     const luisa::compute::Type* RecordAsBuiltinType(const clang::QualType Ty);

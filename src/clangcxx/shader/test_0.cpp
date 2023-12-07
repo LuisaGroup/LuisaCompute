@@ -20,7 +20,8 @@ struct NVIDIA {
     uint3 u3;
     F fuck;
     Array<int, 3> a3;
-    // ! not supportted !
+    float4 f4;
+    // ! not supportted as field!
     // int ds[5];
     // Buffer<int> b;
 };
@@ -46,13 +47,15 @@ struct Holder {
 
 auto TestHolder()
 {
-    int v;
+    int v = 5;
     Holder h(v);
-    h.call();
+    // h.call();
     return h;
 }
 
-[[kernel_2d(16, 16)]] int kernel(Buffer<NVIDIA> &buffer) {
+[[kernel_2d(16, 16)]] 
+int kernel(Buffer<NVIDIA> &buffer) 
+{
     // binary op
     int n = 0 + 2 - 56;
 
@@ -69,10 +72,7 @@ auto TestHolder()
     int ii = nvidia.ix = n;
 
     // template
-    int v;
-    Holder h(v);
-    h.call();
-    int xxx = nvidia.l = h.value;
+    Holder h = TestHolder();
     int xxxx = nvidia.l += h.value;
 
     // call
