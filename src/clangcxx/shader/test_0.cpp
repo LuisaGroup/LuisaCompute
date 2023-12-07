@@ -2,38 +2,57 @@
 
 using namespace luisa::shader;
 
-namespace luisa::shader
-{
-    struct F
-    {
-        int f;
-    };
-    struct NVIDIA
-    {
-        int i;
-        int ix;
-        long l;
-        long long ll;
-        uint64 u64;
-        float f;
-        short ss;
-        double d;
-        float3 f3;
-        int3 i3;
-        uint3 u3;
-        F fuck;
-        Array<int, 3> a3;
-        // ! not supportted ! 
-        // int ds[5];
-        // Buffer<int> b;
-    };
-}
+namespace luisa::shader {
+struct F {
+    int f;
+};
+struct NVIDIA {
+    int i;
+    int ix;
+    long l;
+    long long ll;
+    uint64 u64;
+    float f;
+    short ss;
+    double d;
+    float3 f3;
+    int3 i3;
+    uint3 u3;
+    F fuck;
+    Array<int, 3> a3;
+    // ! not supportted !
+    // int ds[5];
+    // Buffer<int> b;
+};
+}// namespace luisa::shader
 
 // Buffer<NVIDIA> buffer;
+template<typename T>
+struct Holder {
+    Holder(T v)
+        : value(v), value2(v) {}
+    void call() {
+        if constexpr (is_floatN<T>::value) {
+            value = 2.f;
+            value2 = 2.f;
+        } else if constexpr (is_intN<T>::value) {
+            value = 0;
+            value2 = 0;
+        }
+    }
+    T value;
+    T value2;
+};
 
-[[kernel_2d(16, 16)]]
-int kernel(Buffer<NVIDIA>& buffer)
+auto TestHolder()
 {
+    int v;
+    Holder h(v);
+    h.call();
+    return h;
+}
+
+[[kernel_2d(16, 16)]] int kernel(Buffer<NVIDIA> &buffer) {
     // binary op
     int n = 0 + 2 - 56;
 
@@ -48,6 +67,12 @@ int kernel(Buffer<NVIDIA>& buffer)
     NVIDIA nvidia = {};
     int i = nvidia.i = n;
     int ii = nvidia.ix = n;
+
+    // template
+    int v;
+    Holder h(v);
+    h.call();
+    int xxx = nvidia.l = h.value;
 
     // member call
     // n = buffer.load(0);
