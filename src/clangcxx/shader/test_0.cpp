@@ -21,6 +21,7 @@ struct NVIDIA {
     F fuck;
     Array<int, 3> a3;
     float4 f4;
+    float4x4 f44;
     // ! not supportted as field!
     // int ds[5];
     // Buffer<int> b;

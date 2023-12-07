@@ -278,6 +278,15 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
                     }
                 }
             }
+        }else if (builtin_type_name == "matrix") {
+            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
+                auto Arguments = TST->template_arguments();
+                clang::Expr::EvalResult Result;
+                if (Arguments[0].getAsExpr()->EvaluateAsConstantExpr(Result, *astContext)) {
+                    auto N = Result.Val.getInt().getExtValue();
+                    _type = Type::matrix(N);
+                }
+            }
         } else if (builtin_type_name == "buffer") {
             if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
                 auto Arguments = TST->template_arguments();
@@ -413,7 +422,22 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
         const luisa::compute::Expression *current = nullptr;
         if (x) {
-            if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
+            if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
+                const auto APK = ce->getResultAPValueKind();
+                const auto& APV = ce->getAPValueResult();
+                switch (APK)
+                {
+                    case clang::APValue::ValueKind::Int:
+                        current = cur->literal(Type::of<int>(), (int)ce->getResultAsAPSInt().getLimitedValue());
+                        break;
+                    case clang::APValue::ValueKind::Float:
+                        current = cur->literal(Type::of<float>(), (float)APV.getFloat().convertToFloat());
+                        break;
+                    default:
+                        luisa::log_error("unsupportted ConstantExpr APValueKind {}", APK);
+                        break;
+                }
+            } else if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
                 current = cur->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
                 current = cur->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
@@ -520,8 +544,19 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 }
+            } else if (auto _init = llvm::dyn_cast<clang::InitListExpr>(x)) { // TODO
+                luisa::log_warning("unsupportted init list expr!");
+
+            } else if (auto _if = llvm::dyn_cast<clang::IfStmt>(x)) {
+
+            } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {// EMPTY
+            } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {// EMPTY
             } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {// TODO
                 auto cap = lambda->capture_begin();
+                luisa::log_error("unsupportted lambda expr!");
+            } else {
+                x->dump();
+                luisa::log_error("unsupportted expr!");
             }
         }
 
@@ -621,7 +656,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                 for (auto f : thisType->fields())
                     ignore |= f->getType()->isTemplateTypeParmType();
             } else {
-                Method->getThisType()->dump();
+                // Method->getThisType()->dump();
                 luisa::log_error("unfound this type [{}] in method [{}]",
                                  Method->getThisType()->getPointeeType().getAsString(), S->getNameAsString());
             }
@@ -632,7 +667,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             ignore |= param->getType()->isTemplateTypeParmType();
         }
         if (!ignore) {
-            S->dump();
+            // S->dump();
             luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
             Stmt *body = S->getBody();
             {
