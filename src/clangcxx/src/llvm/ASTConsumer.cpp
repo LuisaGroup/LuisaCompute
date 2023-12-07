@@ -417,44 +417,39 @@ void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     const luisa::compute::Expression *caller = nullptr;
 
-    luisa::vector<const clang::IfStmt *> activeCXXBranches = {};
-    luisa::vector<luisa::compute::IfStmt *> activeLuisaBranches = {};
-
     bool TraverseStmt(clang::Stmt *x) {
-        if (x == nullptr)
-            return true;
-        // HANDLE SCOPE
-        if (!activeCXXBranches.empty()) {
-            auto cxxBranch = activeCXXBranches.back();
-            auto lcBranch = activeLuisaBranches.back();
-            if (x == cxxBranch->getThen()) { func_builder->push_scope(lcBranch->true_branch()); }
-            if (x == cxxBranch->getElse()) { func_builder->push_scope(lcBranch->false_branch()); }
-        }
-        SKR_DEFER({
-            if (!activeCXXBranches.empty()) {
-                auto cxxBranch = activeCXXBranches.back();
-                auto lcBranch = activeLuisaBranches.back();
-                if (x == cxxBranch->getThen()) { func_builder->pop_scope(lcBranch->true_branch()); }
-                if (x == cxxBranch->getElse()) { func_builder->pop_scope(lcBranch->false_branch()); }
-            }
-        });
+        if (x == nullptr) return true;
 
         // CONTROL WALK
         if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
             auto cxxCond = cxxBranch->getCond();
             TraverseStmt(cxxCond);
-            activeCXXBranches.emplace_back(cxxBranch);
             if (!stack->expr_map[cxxCond]) {
                 cxxCond->dump();
                 luisa::log_error("missing branch cond!");
             }
-            activeLuisaBranches.emplace_back(func_builder->if_(stack->expr_map[cxxCond]));
+            auto lc_if_ = func_builder->if_(stack->expr_map[cxxCond]);
+
+            func_builder->push_scope(lc_if_->true_branch());
             if (cxxBranch->getThen())
                 TraverseStmt(cxxBranch->getThen());
+            func_builder->pop_scope(lc_if_->true_branch());
+
+            func_builder->push_scope(lc_if_->false_branch());
             if (cxxBranch->getElse())
                 TraverseStmt(cxxBranch->getElse());
-            activeCXXBranches.pop_back();
-            activeLuisaBranches.pop_back();
+            func_builder->pop_scope(lc_if_->false_branch());
+
+        } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
+            auto fake_if_ = func_builder->if_(func_builder->literal(Type::of<int>(), (int)1));
+
+            func_builder->push_scope(fake_if_->true_branch());
+            // cxxCompound->dump();
+            for (auto sub : cxxCompound->body()) {
+                TraverseStmt(sub);
+            }
+            func_builder->pop_scope(fake_if_->true_branch());
+
         } else {
             RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
         }
@@ -462,10 +457,42 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         // TRANSLATE
         const luisa::compute::Expression *current = nullptr;
         if (x) {
-            if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
+            if (auto declStmt = llvm::dyn_cast<clang::DeclStmt>(x)) {
+                const DeclGroupRef declGroup = declStmt->getDeclGroup();
+                for (auto decl : declGroup) {
+                    if (!decl) continue;
+
+                    if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
+                        auto Ty = varDecl->getType();
+                        if (auto lc_type = blackboard->FindOrAddType(Ty, blackboard->astContext)) {
+                            auto local = func_builder->local(lc_type);
+                            auto str = luisa::string(varDecl->getName());
+                            stack->locals[str] = local;
+
+                            auto init = varDecl->getInit();
+                            if (auto lc_init = stack->expr_map[init])
+                            {
+                                func_builder->assign(local, lc_init);
+                                current = local;
+                            }
+                            else
+                            {
+                                current = local;
+                                // init->dump();
+                                // luisa::log_error("untranslated init expr: {}", init->getStmtClassName());
+                            }
+                        }
+                    } else {
+                        luisa::log_error("unsupported decl stmt: {}", declStmt->getStmtClassName());
+                    }
+                }
+            } else if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
                 auto cxx_ret = ret->getRetValue();
                 auto lc_ret = stack->expr_map[cxx_ret];
-                func_builder->return_(lc_ret);
+                if (func_builder->tag() != compute::Function::Tag::KERNEL)
+                {
+                    func_builder->return_(lc_ret);
+                }
             } else if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
                 const auto APK = ce->getResultAPValueKind();
                 const auto &APV = ce->getAPValueResult();
@@ -484,7 +511,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = func_builder->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
                 current = func_builder->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
-            } else if (auto construct = llvm::dyn_cast<CXXConstructExpr>(x)) {// TODO
+            } else if (auto construct = llvm::dyn_cast<CXXConstructExpr>(x)) {
                 auto local = func_builder->local(blackboard->FindOrAddType(construct->getType(), blackboard->astContext));
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
@@ -638,57 +665,14 @@ protected:
     clang::Stmt *root = nullptr;
 };
 
-bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack) {
-    if (!stmt)
+bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *currStmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack) {
+    if (!currStmt)
         return true;
 
-    for (Stmt::child_iterator i = stmt->child_begin(), e = stmt->child_end(); i != e; ++i) {
-        Stmt *currStmt = *i;
-        if (!currStmt)
-            continue;
+    ExprTranslator v(&stack, blackboard, cur, currStmt);
+    if (!v.TraverseStmt(currStmt))
+        luisa::log_error("untranslated member call expr: {}", currStmt->getStmtClassName());
 
-        if (auto declStmt = llvm::dyn_cast<clang::DeclStmt>(currStmt)) {
-            const DeclGroupRef declGroup = declStmt->getDeclGroup();
-            for (auto decl : declGroup) {
-                if (!decl) continue;
-
-                if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
-                    auto Ty = varDecl->getType();
-                    if (auto lc_type = blackboard->FindOrAddType(Ty, blackboard->astContext)) {
-                        auto local = cur->local(lc_type);
-                        auto str = luisa::string(varDecl->getName());
-                        stack.locals[str] = local;
-
-                        auto init = varDecl->getInit();
-                        ExprTranslator v(&stack, blackboard, cur, init);
-                        if (!v.TraverseStmt(init))
-                            luisa::log_error("untranslated init expr: {}", init->getStmtClassName());
-                        else if (v.translated)
-                            cur->assign(local, v.translated);
-                    }
-                } else {
-                    luisa::log_error("unsupported decl stmt: {}", declStmt->getStmtClassName());
-                }
-            }
-        } else if (auto *compound = dyn_cast<clang::CompoundStmt>(currStmt)) {
-            recursiveVisit(currStmt, cur, stack);
-        } else if (auto *ret = dyn_cast<clang::ReturnStmt>(currStmt)) {
-            auto init = ret->getRetValue();
-            ExprTranslator v(&stack, blackboard, cur, init);
-            if (!v.TraverseStmt(init))
-                luisa::log_error("untranslated return expr: {}", init->getStmtClassName());
-            else if (cur->tag() != luisa::compute::Function::Tag::KERNEL) {
-                if (v.translated)
-                    cur->return_(v.translated);
-                else
-                    luisa::log_error("untranslated return expr: {}", init->getStmtClassName());
-            }
-        } else {
-            ExprTranslator v(&stack, blackboard, cur, currStmt);
-            if (!v.TraverseStmt(currStmt))
-                luisa::log_error("untranslated member call expr: {}", currStmt->getStmtClassName());
-        }
-    }
     return true;
 }
 

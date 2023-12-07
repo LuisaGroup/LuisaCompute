@@ -46,6 +46,17 @@ struct Holder {
     T value2;
 };
 
+struct TestDtor {
+    TestDtor() 
+        : f(2.f)
+    {
+    }
+    ~TestDtor() {
+        f = 1.f;
+    }
+    float f;
+};
+
 auto TestBinary() {
     // binary op
     int n = 0 + 2 - 56;
@@ -95,11 +106,19 @@ auto TestBranch() {
     Holder h = TestHolder();
     int xxxx = nvidia.l += h.value;
 
+    // dtor
+    TestDtor dtor;
+    {
+        TestDtor dtor2;
+        float f = nvidia.f += dtor2.f;
+    }
+    float f = nvidia.f += dtor.f;
+
     // branches
-    float ff = nvidia.f = TestBranch();
+    float ff = nvidia.f += TestBranch();
 
     // built-in call
-    float fff = nvidia.f = sin(nvidia.f);
+    float fff = nvidia.f += sin(nvidia.f);
 
     // member call
     auto n = buffer.load(0);
