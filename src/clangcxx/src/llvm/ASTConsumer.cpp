@@ -505,6 +505,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
             } else if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
                 current = func_builder->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
+            } else if (auto bl = llvm::dyn_cast<CXXBoolLiteralExpr>(x)) {
+                current = func_builder->literal(Type::of<bool>(), (bool)bl->getValue());
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
                 current = func_builder->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
             } else if (auto construct = llvm::dyn_cast<CXXConstructExpr>(x)) {
