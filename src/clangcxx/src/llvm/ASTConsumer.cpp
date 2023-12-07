@@ -301,9 +301,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
 const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::QualType Ty) {
     if (const luisa::compute::Type *_type = findType(Ty, astContext)) {
         return _type;
-    } 
-    else
-    {
+    } else {
         auto S = GetRecordDeclFromQualType(Ty);
         bool ignore = false;
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
@@ -359,13 +357,10 @@ const luisa::compute::Type *CXXBlackboard::RecordType(const clang::QualType Qt) 
             if (!_type) {
                 _type = RecordAsStuctureType(Ty);
             }
-        } 
-        else if (Ty->isTemplateTypeParmType())
-        {
+        } else if (Ty->isTemplateTypeParmType()) {
             luisa::log_verbose("template type parameter type...");
             return nullptr;
-        }
-        else {
+        } else {
             recordDecl->dump();
             luisa::log_error("unsupported & unresolved type [{}]", Ty.getAsString());
         }
@@ -417,10 +412,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         bool last_ret = RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
 
         const luisa::compute::Expression *current = nullptr;
-        if (x)
-        {
+        if (x) {
             if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
                 current = cur->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
+            } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
+                current = cur->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
             } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
                 const auto cxx_op = bin->getOpcode();
                 const auto lhs = stack->expr_map[bin->getLHS()];
@@ -444,12 +440,15 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     const auto lc_type = blackboard->FindOrAddType(implicit_cast->getType(), blackboard->astContext);
                     current = cur->cast(lc_type, CastOp::STATIC, stack->expr_map[last]);
                 }
-            } else if (auto m = llvm::dyn_cast<clang::MemberExpr>(x)) {// TODO
+            } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
+                current = stack->locals["this"];
+            } else if (auto m = llvm::dyn_cast<clang::MemberExpr>(x)) {
                 if (m->isBoundMemberFunction(*blackboard->astContext)) {
                     auto lhs = stack->expr_map[last];
                     caller = lhs;
                 } else if (auto f = llvm::dyn_cast<FieldDecl>(m->getMemberDecl())) {
                     auto lhs = stack->expr_map[m->getBase()];
+                    assert(lhs && "missing this!");
                     const auto lc_type = blackboard->FindOrAddType(m->getType(), blackboard->astContext);
                     current = cur->member(lc_type, lhs, f->getFieldIndex());
                 } else {
@@ -460,7 +459,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 auto methodDecl = mcall->getMethodDecl();
                 llvm::StringRef callopName = {};
                 for (auto attr = methodDecl->specific_attr_begin<clang::AnnotateAttr>();
-                    attr != methodDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
+                     attr != methodDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
                     if (callopName.empty())
                         callopName = getCallopName(*attr);
                 }
@@ -482,9 +481,35 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         current = cur->call(lc_type, op, lc_args);
                     else
                         luisa::log_error("unfound return type: {}", mcall->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
-                }
-                else {
+                } else {
                     luisa::log_warning("not callop!!!!! {}", luisa::string(methodDecl->getName()));
+                }
+            } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
+                auto methodDecl = call->getCalleeDecl();
+                llvm::StringRef callopName = {};
+                for (auto attr = methodDecl->specific_attr_begin<clang::AnnotateAttr>();
+                     attr != methodDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
+                    if (callopName.empty())
+                        callopName = getCallopName(*attr);
+                }
+                if (!callopName.empty()) {
+                    auto op = blackboard->FindCallOp(callopName);
+                    luisa::vector<const luisa::compute::Expression *> lc_args;
+                    for (auto arg : call->arguments()) {
+                        if (auto lc_arg = stack->expr_map[arg])
+                            lc_args.emplace_back(lc_arg);
+                        else
+                            luisa::log_error("unfound arg: {}", arg->getStmtClassName());
+                    }
+
+                    if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
+                        cur->call(op, lc_args);
+                    else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
+                        current = cur->call(lc_type, op, lc_args);
+                    else
+                        luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
+                } else {
+                    luisa::log_warning("not callop!!!!! {}", luisa::string(methodDecl->getDeclKindName()));
                 }
             } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {// TODO
                 auto cap = lambda->capture_begin();
@@ -545,13 +570,12 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *stmt, luisa::shared_pt
                     luisa::log_error("unsupported decl stmt: {}", declStmt->getStmtClassName());
                 }
             }
-        } else if (auto *mCall = dyn_cast<clang::CXXMemberCallExpr>(currStmt)) {
-            auto body = mCall->getExprStmt();
-            ExprTranslator v(&stack, blackboard, cur, body);
-            if (!v.TraverseStmt(body))
-                luisa::log_error("untranslated member call expr: {}", body->getStmtClassName());
-        } else if (auto* compound = dyn_cast<clang::CompoundStmt>(currStmt)) {
+        } else if (auto *compound = dyn_cast<clang::CompoundStmt>(currStmt)) {
             recursiveVisit(currStmt, cur, stack);
+        } else {
+            ExprTranslator v(&stack, blackboard, cur, currStmt);
+            if (!v.TraverseStmt(currStmt))
+                luisa::log_error("untranslated member call expr: {}", currStmt->getStmtClassName());
         }
     }
     return true;
@@ -562,6 +586,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     if (const auto *S = Result.Nodes.getNodeAs<clang::FunctionDecl>("FunctionDecl")) {
         bool ignore = false;
         bool is_kernel = false;
+        bool is_method = false;
         auto params = S->parameters();
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
             ignore |= isIgnore(*Anno);
@@ -572,11 +597,14 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                 for (auto Anno = thisType->specific_attr_begin<clang::AnnotateAttr>(); Anno != thisType->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
                     ignore |= isBuiltinType(*Anno);
                 }
+                for (auto f : thisType->fields())
+                    ignore |= f->getType()->isTemplateTypeParmType();
             } else {
                 Method->getThisType()->dump();
                 luisa::log_error("unfound this type [{}] in method [{}]",
                                  Method->getThisType()->getPointeeType().getAsString(), S->getNameAsString());
             }
+            is_method = true;
         }
         for (auto param : params) {
             ignore |= param->getType()->isTemplateTypeParmType();
@@ -599,6 +627,16 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                     }
                     Stack stack;
                     // collect args
+                    if (is_method) {
+                        auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S);
+
+                        if (auto lc_type = blackboard->FindOrAddType(Method->getThisType()->getPointeeType(), blackboard->astContext)) {
+                            auto this_local = builder->reference(lc_type);
+                            stack.locals["this"] = this_local;
+                        } else {
+                            luisa::log_error("???");
+                        }
+                    }
                     for (auto param : params) {
                         auto Ty = param->getType();
                         if (auto lc_type = blackboard->FindOrAddType(Ty, blackboard->astContext)) {

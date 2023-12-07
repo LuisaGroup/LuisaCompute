@@ -73,6 +73,10 @@ auto TestHolder()
     Holder h(v);
     h.call();
     int xxx = nvidia.l = h.value;
+    int xxxx = nvidia.l += h.value;
+
+    // call
+    float fff = nvidia.f = sin(nvidia.f);
 
     // member call
     // n = buffer.load(0);
