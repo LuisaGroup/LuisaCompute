@@ -54,6 +54,23 @@ auto TestHolder()
     return h;
 }
 
+auto TestBranch()
+{
+    if (sin(5.f) > 0.f)
+        return 1.f;
+    else if (cos(2.f) > 2.f)
+        return 2.f;
+    else
+        return 3.f;
+
+    if constexpr (is_floatN<float4>::value)
+        return 4.f;
+    else if constexpr (is_floatN<int4>::value)
+        return 5.f;
+    else
+        return 6.f;
+}
+
 [[kernel_2d(16, 16)]] 
 int kernel(Buffer<NVIDIA> &buffer) 
 {
@@ -75,6 +92,8 @@ int kernel(Buffer<NVIDIA> &buffer)
     // template
     Holder h = TestHolder();
     int xxxx = nvidia.l += h.value;
+
+    float ff = nvidia.f = TestBranch();
 
     // call
     float fff = nvidia.f = sin(nvidia.f);

@@ -444,6 +444,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             auto cxxCond = cxxBranch->getCond();
             TraverseStmt(cxxCond);
             activeCXXBranches.emplace_back(cxxBranch);
+            if (!stack->expr_map[cxxCond]) {
+                cxxCond->dump();
+                luisa::log_error("missing branch cond!");
+            }
             activeLuisaBranches.emplace_back(func_builder->if_(stack->expr_map[cxxCond]));
             if (cxxBranch->getThen())
                 TraverseStmt(cxxBranch->getThen());
@@ -458,7 +462,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         // TRANSLATE
         const luisa::compute::Expression *current = nullptr;
         if (x) {
-            if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
+            if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
+                auto cxx_ret = ret->getRetValue();
+                auto lc_ret = stack->expr_map[cxx_ret];
+                func_builder->return_(lc_ret);
+            } else if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
                 const auto APK = ce->getResultAPValueKind();
                 const auto &APV = ce->getAPValueResult();
                 switch (APK) {
@@ -507,7 +515,25 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
             } else if (auto dref = llvm::dyn_cast<DeclRefExpr>(x)) {
                 auto str = luisa::string(dref->getNameInfo().getName().getAsString());
-                current = stack->locals[str];
+                if (stack->locals[str]) {
+                    current = stack->locals[str];
+                } else if (auto value = dref->getDecl(); value && llvm::isa<clang::VarDecl>(value))// Value Ref
+                {
+                    if (auto var = value->getPotentiallyDecomposedVarDecl()) {
+                        if (auto eval = var->getEvaluatedValue()) {
+                            if (eval->isInt())
+                                current = func_builder->literal(Type::of<int>(), (int)eval->getInt().getLimitedValue());
+                            else if (eval->isFloat())
+                                current = func_builder->literal(Type::of<float>(), (float)eval->getFloat().convertToFloat());
+                            else
+                                luisa::log_error("unsupportted eval type: {}", eval->getKind());
+                        } else
+                            luisa::log_error("unfound & unresolved ref: {}", str);
+                    }
+                } else if (auto value = dref->getDecl(); value && llvm::isa<clang::FunctionDecl>(value))// Func Ref
+                    ;
+                else
+                    luisa::log_error("unfound var ref: {}", str);
             } else if (auto implicit_cast = llvm::dyn_cast<ImplicitCastExpr>(x)) {
                 if (stack->expr_map[implicit_cast->getSubExpr()] != nullptr) {
                     const auto lc_type = blackboard->FindOrAddType(implicit_cast->getType(), blackboard->astContext);
