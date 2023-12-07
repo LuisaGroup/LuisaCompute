@@ -421,7 +421,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 auto local = cur->local(blackboard->FindOrAddType(construct->getType(), blackboard->astContext));
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
-                lc_args.emplace_back(local);// from -MemberExpr::isBoundMemberFunction
+                lc_args.emplace_back(local);
                 for (auto arg : construct->arguments()) {
                     if (auto lc_arg = stack->expr_map[arg])
                         lc_args.emplace_back(lc_arg);
@@ -481,42 +481,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 } else {
                     luisa::log_error("unsupported member expr: {}", m->getMemberDecl()->getNameAsString());
                 }
-            } else if (auto mcall = llvm::dyn_cast<clang::CXXMemberCallExpr>(x)) {// TODO
-                // std::cout << caller->type()->description() << std::endl;
-                auto methodDecl = mcall->getMethodDecl();
-                llvm::StringRef callopName = {};
-                for (auto attr = methodDecl->specific_attr_begin<clang::AnnotateAttr>();
-                     attr != methodDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
-                    if (callopName.empty())
-                        callopName = getCallopName(*attr);
-                }
-                // args
-                luisa::vector<const luisa::compute::Expression *> lc_args;
-                lc_args.emplace_back(caller);// from -MemberExpr::isBoundMemberFunction
-                for (auto arg : mcall->arguments()) {
-                    if (auto lc_arg = stack->expr_map[arg])
-                        lc_args.emplace_back(lc_arg);
-                    else
-                        luisa::log_error("unfound arg: {}", arg->getStmtClassName());
-                }
-                if (!callopName.empty()) {
-                    auto op = blackboard->FindCallOp(callopName);
-                    caller = nullptr;
-                    if (mcall->getCallReturnType(*blackboard->astContext)->isVoidType())
-                        cur->call(op, lc_args);
-                    else if (auto lc_type = blackboard->FindOrAddType(mcall->getCallReturnType(*blackboard->astContext), blackboard->astContext))
-                        current = cur->call(lc_type, op, lc_args);
-                    else
-                        luisa::log_error("unfound return type: {}", mcall->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
-                } else {
-                    auto callable = blackboard->builders[mcall->getCalleeDecl()];
-                    if (mcall->getCallReturnType(*blackboard->astContext)->isVoidType())
-                        cur->call(luisa::compute::Function(callable.get()), lc_args);
-                    else if (auto lc_type = blackboard->FindOrAddType(mcall->getCallReturnType(*blackboard->astContext), blackboard->astContext))
-                        current = cur->call(lc_type, luisa::compute::Function(callable.get()), lc_args);
-                    else
-                        luisa::log_error("unfound return type: {}", mcall->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
-                }
             } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
                 auto methodDecl = call->getCalleeDecl();
                 llvm::StringRef callopName = {};
@@ -527,6 +491,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
+                if (auto mcall = llvm::dyn_cast<clang::CXXMemberCallExpr>(x))
+                {
+                    lc_args.emplace_back(caller);// from -MemberExpr::isBoundMemberFunction
+                    caller = nullptr;
+                }
                 for (auto arg : call->arguments()) {
                     if (auto lc_arg = stack->expr_map[arg])
                         lc_args.emplace_back(lc_arg);
@@ -679,6 +648,18 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                     if (is_kernel) {
                         builder->set_block_size(uint3(256, 1, 1));
                     }
+
+                    // comment name
+                    if (true) {
+                        luisa::string name = luisa::string(S->getName());
+                        if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
+                            {
+                                name += "Ctor: ";
+                                name += Ctor->getQualifiedNameAsString();
+                            }
+                        }
+                        builder->comment_(name);
+                    }
                     Stack stack;
                     // this arg
                     if (is_method) {
@@ -716,7 +697,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                             stack.locals[luisa::string(param->getName())] = local;
                         }
                     }
-                    
+
                     // ctor initializers
                     if (is_method) {
                         if (auto lc_type = blackboard->FindOrAddType(methodThisType, blackboard->astContext)) {

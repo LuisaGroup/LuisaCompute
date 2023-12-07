@@ -49,7 +49,7 @@ auto TestHolder()
 {
     int v = 5;
     Holder h(v);
-    // h.call();
+    h.call();
     return h;
 }
 
