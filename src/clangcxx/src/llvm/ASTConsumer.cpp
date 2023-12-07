@@ -463,18 +463,18 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     if (callopName.empty())
                         callopName = getCallopName(*attr);
                 }
+                // args
+                luisa::vector<const luisa::compute::Expression *> lc_args;
+                lc_args.emplace_back(caller);// from -MemberExpr::isBoundMemberFunction
+                for (auto arg : mcall->arguments()) {
+                    if (auto lc_arg = stack->expr_map[arg])
+                        lc_args.emplace_back(lc_arg);
+                    else
+                        luisa::log_error("unfound arg: {}", arg->getStmtClassName());
+                }
                 if (!callopName.empty()) {
                     auto op = blackboard->FindCallOp(callopName);
-                    luisa::vector<const luisa::compute::Expression *> lc_args;
-                    lc_args.emplace_back(caller);// from -MemberExpr::isBoundMemberFunction
                     caller = nullptr;
-                    for (auto arg : mcall->arguments()) {
-                        if (auto lc_arg = stack->expr_map[arg])
-                            lc_args.emplace_back(lc_arg);
-                        else
-                            luisa::log_error("unfound arg: {}", arg->getStmtClassName());
-                    }
-
                     if (mcall->getCallReturnType(*blackboard->astContext)->isVoidType())
                         cur->call(op, lc_args);
                     else if (auto lc_type = blackboard->FindOrAddType(mcall->getCallReturnType(*blackboard->astContext), blackboard->astContext))
@@ -482,7 +482,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound return type: {}", mcall->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 } else {
-                    luisa::log_warning("not callop!!!!! {}", luisa::string(methodDecl->getName()));
+                    auto callable = blackboard->builders[luisa::string(mcall->getDirectCallee()->getNameAsString())];
+                    if (mcall->getCallReturnType(*blackboard->astContext)->isVoidType())
+                        cur->call(luisa::compute::Function(callable.get()), lc_args);
+                    else if (auto lc_type = blackboard->FindOrAddType(mcall->getCallReturnType(*blackboard->astContext), blackboard->astContext))
+                        current = cur->call(lc_type, luisa::compute::Function(callable.get()), lc_args);
+                    else
+                        luisa::log_error("unfound return type: {}", mcall->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 }
             } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
                 auto methodDecl = call->getCalleeDecl();
@@ -492,16 +498,17 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     if (callopName.empty())
                         callopName = getCallopName(*attr);
                 }
+                // args
+                luisa::vector<const luisa::compute::Expression *> lc_args;
+                for (auto arg : call->arguments()) {
+                    if (auto lc_arg = stack->expr_map[arg])
+                        lc_args.emplace_back(lc_arg);
+                    else
+                        luisa::log_error("unfound arg: {}", arg->getStmtClassName());
+                }
+                // call
                 if (!callopName.empty()) {
                     auto op = blackboard->FindCallOp(callopName);
-                    luisa::vector<const luisa::compute::Expression *> lc_args;
-                    for (auto arg : call->arguments()) {
-                        if (auto lc_arg = stack->expr_map[arg])
-                            lc_args.emplace_back(lc_arg);
-                        else
-                            luisa::log_error("unfound arg: {}", arg->getStmtClassName());
-                    }
-
                     if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
                         cur->call(op, lc_args);
                     else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
@@ -509,7 +516,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 } else {
-                    luisa::log_warning("not callop!!!!! {}", luisa::string(methodDecl->getDeclKindName()));
+                    auto callable = blackboard->builders[luisa::string(call->getDirectCallee()->getNameAsString())];
+                    if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
+                        cur->call(luisa::compute::Function(callable.get()), lc_args);
+                    else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
+                        current = cur->call(lc_type, luisa::compute::Function(callable.get()), lc_args);
+                    else
+                        luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 }
             } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {// TODO
                 auto cap = lambda->capture_begin();
@@ -619,6 +632,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                 } else {
                     builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
                 }
+                blackboard->builders[luisa::string(S->getNameAsString())] = builder;
                 luisa::compute::detail::FunctionBuilder::push(builder.get());
                 builder->push_scope(builder->body());
                 {
