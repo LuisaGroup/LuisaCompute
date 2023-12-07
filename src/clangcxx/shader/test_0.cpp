@@ -40,7 +40,7 @@ struct Holder {
         } else if constexpr (is_intN<T>::value) {
             value = 0;
             value2 = 0;
-        }
+        } 
     }
     T value;
     T value2;
