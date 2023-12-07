@@ -441,7 +441,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             func_builder->pop_scope(lc_if_->false_branch());
 
         } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
-            auto fake_if_ = func_builder->if_(func_builder->literal(Type::of<int>(), (int)1));
+            auto fake_if_ = func_builder->if_(func_builder->literal(Type::of<bool>(), true));
 
             func_builder->push_scope(fake_if_->true_branch());
             // cxxCompound->dump();
@@ -627,9 +627,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 }
-            } else if (auto _init = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
+            } else if (auto _init_expr = llvm::dyn_cast<clang::CXXDefaultInitExpr>(x)) {
+                ExprTranslator v(stack, blackboard, func_builder, _init_expr->getExpr());
+                 if (!v.TraverseStmt(_init_expr->getExpr()))
+                    luisa::log_error("untranslated member call expr: {}", _init_expr->getExpr()->getStmtClassName());
+                current = v.translated;
+            } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
                 luisa::log_warning("unsupportted init list expr!");
-
             } else if (auto _if = llvm::dyn_cast<clang::IfStmt>(x)) {    // FWD
             } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {        // EMPTY
             } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {// EMPTY

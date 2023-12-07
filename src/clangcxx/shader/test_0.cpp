@@ -47,14 +47,10 @@ struct Holder {
 };
 
 struct TestDtor {
-    TestDtor() 
-        : f(2.f)
-    {
-    }
     ~TestDtor() {
         f = 1.f;
     }
-    float f;
+    float f = 22.f;
 };
 
 auto TestBinary() {
