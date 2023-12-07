@@ -40,22 +40,34 @@ struct Holder {
         } else if constexpr (is_intN<T>::value) {
             value = 0;
             value2 = 0;
-        } 
+        }
     }
     T value;
     T value2;
 };
 
-auto TestHolder()
-{
+auto TestBinary() {
+    // binary op
+    int n = 0 + 2 - 56;
+
+    // binary assign ops
+    int m = n += 65;
+    int x = n -= 65;
+    int xx = n *= 65;
+    int yy = n /= 65;
+    int ww = n %= 65;
+
+    return m + x + xx + yy + ww;
+}
+
+auto TestHolder() {
     int v = 5;
     Holder h(v);
     h.call();
     return h;
 }
 
-auto TestBranch()
-{
+auto TestBranch() {
     if (sin(5.f) > 0.f)
         return 1.f;
     else if (cos(2.f) > 2.f)
@@ -71,36 +83,27 @@ auto TestBranch()
         return 6.f;
 }
 
-[[kernel_2d(16, 16)]] 
-int kernel(Buffer<NVIDIA> &buffer) 
-{
-    // binary op
-    int n = 0 + 2 - 56;
-
-    // binary assign ops
-    int m = n += 65;
-    int x = n -= 65;
-    int xx = n *= 65;
-    int yy = n /= 65;
-    int ww = n %= 65;
-
+[[kernel_2d(16, 16)]] int kernel(Buffer<NVIDIA> &buffer) {
     // member assign
     NVIDIA nvidia = {};
-    int i = nvidia.i = n;
-    int ii = nvidia.ix = n;
+    int ii = nvidia.ix = is_floatN<int4>::value;
+
+    // binary ops
+    int i = nvidia.i = TestBinary();
 
     // template
     Holder h = TestHolder();
     int xxxx = nvidia.l += h.value;
 
+    // branches
     float ff = nvidia.f = TestBranch();
 
-    // call
+    // built-in call
     float fff = nvidia.f = sin(nvidia.f);
 
     // member call
-    // n = buffer.load(0);
-    buffer.store(0, nvidia);
+    auto n = buffer.load(0);
+    buffer.store(n.i, nvidia);
 
     /*
     // lambda
