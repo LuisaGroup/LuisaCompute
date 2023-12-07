@@ -470,13 +470,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             stack->locals[str] = local;
 
                             auto init = varDecl->getInit();
-                            if (auto lc_init = stack->expr_map[init])
-                            {
+                            if (auto lc_init = stack->expr_map[init]) {
                                 func_builder->assign(local, lc_init);
                                 current = local;
-                            }
-                            else
-                            {
+                            } else {
                                 current = local;
                                 // init->dump();
                                 // luisa::log_error("untranslated init expr: {}", init->getStmtClassName());
@@ -489,8 +486,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
                 auto cxx_ret = ret->getRetValue();
                 auto lc_ret = stack->expr_map[cxx_ret];
-                if (func_builder->tag() != compute::Function::Tag::KERNEL)
-                {
+                if (func_builder->tag() != compute::Function::Tag::KERNEL) {
                     func_builder->return_(lc_ret);
                 }
             } else if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
