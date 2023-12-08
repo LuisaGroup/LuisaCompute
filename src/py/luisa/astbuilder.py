@@ -237,8 +237,9 @@ class ASTVisitor:
             for idx, x in enumerate(val.values):
                 sliceexpr = lcapi.builder().literal(to_lctype(int),idx)
                 lhs = lcapi.builder().access(lctype.element(), expr, sliceexpr)
-                rhs = lcapi.builder().literal(lctype.element(), x)
-                lcapi.builder().assign(lhs, rhs)
+                rhs_dtype, rhs_expr, _ = build.captured_expr(x)
+                assert implicit_convertible(rhs_dtype, dtype.dtype)
+                lcapi.builder().assign(lhs, rhs_expr)
             return dtype, expr, 'r'
         if lctype.is_structure():
             # create struct and assign each element
