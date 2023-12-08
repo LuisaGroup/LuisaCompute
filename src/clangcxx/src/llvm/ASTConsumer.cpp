@@ -709,7 +709,18 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             ignore |= param->getType()->isTemplateTypeParmType();
         }
         if (!ignore) {
+
             // S->dump();
+
+            if (auto Dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(S)) {
+                if (!Dtor->isDefaulted())
+                {
+                    S->dump();
+                    auto dtorName = Dtor->getQualifiedNameAsString();
+                    luisa::log_error("dtor {} is not allowed!", dtorName.c_str());
+                }
+            }
+            
             luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
             Stmt *body = S->getBody();
             {

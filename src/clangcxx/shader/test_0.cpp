@@ -46,12 +46,23 @@ struct Holder {
     T value2;
 };
 
+struct TestCtor {
+    TestCtor(int v)
+        : x(1), xx(v) {
+    }
+    int x;
+    int xx;
+    int xxx = 2;
+};
+
+/* dtors are not allowed
 struct TestDtor {
     ~TestDtor() {
         f = 1.f;
     }
     float f = 22.f;
 };
+*/
 
 auto TestBinary() {
     // binary op
@@ -102,13 +113,9 @@ auto TestBranch() {
     Holder h = TestHolder();
     int xxxx = nvidia.l += h.value;
 
-    // dtor
-    TestDtor dtor;
-    {
-        TestDtor dtor2;
-        float f = nvidia.f += dtor2.f;
-    }
-    float f = nvidia.f += dtor.f;
+    // ctor
+    TestCtor ctor(nvidia.ix);
+    nvidia.i += ctor.x;
 
     // branches
     float ff = nvidia.f += TestBranch();
