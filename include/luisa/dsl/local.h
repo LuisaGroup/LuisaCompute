@@ -81,6 +81,7 @@ public:
     void backward() const noexcept;
     void backward(const Local<T> grad) const noexcept;
     [[nodiscard]] Local<T> grad() const noexcept;
+    Local<T> detach() const noexcept;
 };
 
 }// namespace luisa::compute

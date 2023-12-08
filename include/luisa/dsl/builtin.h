@@ -2012,4 +2012,9 @@ Local<T> Local<T>::grad() const noexcept {
     return dsl::grad(*this);
 }
 
+template<typename T>
+Local<T> Local<T>::detach() const noexcept {
+    return dsl::detach(*this);
+}
+
 }// namespace luisa::compute
