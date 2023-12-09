@@ -2,7 +2,6 @@ use crate::ir::*;
 use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
 
-
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
 use log::warn;
@@ -1975,11 +1974,18 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 builder.continue_()
             }
             "RETURN" => {
-                let v = self._convert_expression(&j["expression"], false);
-                let ret_type = self._curr_ctx().ret_type.clone();
-                let (builder, ..) = self.unwrap_ctx();
-                let v = Self::_cast(builder, &ret_type, v);
-                builder.return_(v)
+                if j["expression"].is_null() {
+                    assert!(self._curr_ctx().ret_type.is_void());
+                    let (builder, ..) = self.unwrap_ctx();
+                    builder.return_(INVALID_REF)
+                } else {
+                    assert!(!self._curr_ctx().ret_type.is_void());
+                    let v = self._convert_expression(&j["expression"], false);
+                    let ret_type = self._curr_ctx().ret_type.clone();
+                    let (builder, ..) = self.unwrap_ctx();
+                    let v = Self::_cast(builder, &ret_type, v);
+                    builder.return_(v)
+                }
             }
             "SCOPE" => unreachable!("Scope should be handled by _convert_scope."),
             "IF" => {

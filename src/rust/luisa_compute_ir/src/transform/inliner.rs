@@ -8,9 +8,10 @@ pub fn inline_callable(caller: &Module, call: NodeRef, recursive: bool) {
         _ => unreachable!(),
     };
     let f = match f {
-        Func::Callable(f) => &f.0,
+        Func::Callable(f) => f.0.clone(),
         _ => unreachable!(),
     };
+
     {
         let nodes = f.module.collect_nodes();
         for (i, n) in nodes.iter().enumerate() {
@@ -19,8 +20,9 @@ pub fn inline_callable(caller: &Module, call: NodeRef, recursive: bool) {
                 _ => false,
             };
             if is_return {
-                assert!(
-                    i == nodes.len() - 1,
+                assert_eq!(
+                    i,
+                    nodes.len() - 1,
                     "cannot have early return in inlined function"
                 );
             }
@@ -55,50 +57,33 @@ pub fn inline_callable(caller: &Module, call: NodeRef, recursive: bool) {
         }
     }
     if call.type_().is_void() {
-        let prev = call.get().prev;
         let next = call.get().next;
-        prev.update(|prev| {
-            prev.next = inlined_block.first().get().next;
-        });
-        inlined_block.first().get().next.update(|next| {
-            next.prev = prev;
-        });
-        next.update(|next| {
-            next.prev = inlined_block.last().get().prev;
-        });
-        inlined_block.last().get().prev.update(|prev| {
-            prev.next = next;
-        });
-        call.update(|call| {
-            call.prev = INVALID_REF;
-            call.next = INVALID_REF;
-        });
+        let n = inlined_block.len();
+        for (i, node) in inlined_block.iter().enumerate() {
+            node.remove();
+            match node.get().instruction.as_ref() {
+                Instruction::Return(v) => {
+                    assert_eq!(i + 1, n);
+                    assert!(!v.valid());
+                }
+                _ => next.insert_before_self(node),
+            }
+        }
+        call.remove();
     } else {
-        let last_node_in_block = inlined_block.last().get().prev;
-        let prev = call.get().prev;
         let next = call;
-        prev.update(|prev| {
-            prev.next = inlined_block.first().get().next;
-        });
-        inlined_block.first().get().next.update(|next| {
-            next.prev = prev;
-        });
-        next.update(|next| {
-            next.prev = last_node_in_block;
-        });
-        last_node_in_block.update(|prev| {
-            prev.next = next;
-        });
-
+        for node in inlined_block.iter() {
+            node.remove();
+            next.insert_before_self(node);
+        }
         // replace call.inst with the return value
-        let return_node = last_node_in_block;
-
+        let return_node = next.get().prev;
         let return_v = match return_node.get().instruction.as_ref() {
             Instruction::Return(v) => *v,
             _ => unreachable!(),
         };
         let mut b = IrBuilder::new_without_bb(caller.pools.clone());
-        b.set_insert_point(last_node_in_block);
+        b.set_insert_point(return_node);
         let v = b.local(return_v);
         call.update(|call| {
             call.instruction = CArc::new(Instruction::Call(Func::Load, CBoxedSlice::new(vec![v])));

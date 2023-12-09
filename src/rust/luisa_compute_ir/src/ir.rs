@@ -569,6 +569,13 @@ impl Type {
             _ => false,
         }
     }
+
+    pub fn is_aggregate(&self) -> bool {
+        match self {
+            Type::Struct(_) | Type::Array(_) | Type::Vector(_) | Type::Matrix(_) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1028,6 +1035,37 @@ impl Const {
             _ => panic!("cannot convert to i32"),
         }
     }
+    pub fn get_bool(&self) -> bool {
+        match self {
+            Const::Bool(v) => *v,
+            Const::One(t) => {
+                assert!(
+                    t.is_primitive() && t.is_bool(),
+                    "cannot convert {:?} to bool",
+                    t
+                );
+                true
+            }
+            Const::Zero(t) => {
+                assert!(
+                    t.is_primitive() && t.is_bool(),
+                    "cannot convert {:?} to bool",
+                    t
+                );
+                false
+            }
+            Const::Generic(slice, t) => {
+                assert!(
+                    t.is_primitive() && t.is_bool(),
+                    "cannot convert {:?} to bool",
+                    t
+                );
+                assert_eq!(slice.len(), 1, "invalid slice length for bool");
+                slice[0] != 0
+            }
+            _ => panic!("cannot convert to bool"),
+        }
+    }
     pub fn type_(&self) -> CArc<Type> {
         match self {
             Const::Zero(ty) => ty.clone(),
@@ -1310,6 +1348,7 @@ pub struct BasicBlock {
     pub(crate) first: NodeRef,
     pub(crate) last: NodeRef,
 }
+
 impl BasicBlock {
     pub fn first(&self) -> NodeRef {
         self.first
@@ -1343,14 +1382,13 @@ impl Serialize for BasicBlock {
 
 pub struct BasicBlockIter<'a> {
     cur: NodeRef,
-    last: NodeRef,
     _block: &'a BasicBlock,
 }
 
 impl Iterator for BasicBlockIter<'_> {
     type Item = NodeRef;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.cur == self.last {
+        if self.cur.is_sentinel() {
             None
         } else {
             let ret = self.cur;
@@ -1364,7 +1402,6 @@ impl BasicBlock {
     pub fn iter(&self) -> BasicBlockIter {
         BasicBlockIter {
             cur: self.first.get().next,
-            last: self.last,
             _block: self,
         }
     }
@@ -1412,7 +1449,10 @@ impl BasicBlock {
     }
 
     pub fn is_empty(&self) -> bool {
-        !self.first.valid()
+        self.first.get().next.is_sentinel()
+    }
+    pub fn any_non_comment_node(&self) -> bool {
+        self.iter().any(|n| !n.is_comment())
     }
     pub fn len(&self) -> usize {
         let mut len = 0;
@@ -1430,7 +1470,7 @@ impl BasicBlock {
         }
     }
     /// split the block into two at @at
-    /// @at is not transfered into the other block
+    /// @at is not transferred into the other block
     pub fn split(&self, at: NodeRef, pools: &CArc<ModulePools>) -> Pooled<BasicBlock> {
         #[cfg(debug_assertions)]
         {
@@ -1472,6 +1512,12 @@ impl NodeRef {
             _ => panic!("not i32 node; found: {:?}", self.get().instruction),
         }
     }
+    pub fn get_bool(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Const(c) => c.get_bool(),
+            _ => panic!("not bool node; found: {:?}", self.get().instruction),
+        }
+    }
     pub fn is_unreachable(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Call(Func::Unreachable(_), _) => true,
@@ -1495,6 +1541,12 @@ impl NodeRef {
         assert_eq!(data.tag, type_id_u64::<T>());
         let data = data.data as *const T;
         unsafe { &*data }
+    }
+    pub fn is_comment(&self) -> bool {
+        match self.get().instruction.as_ref() {
+            Instruction::Comment(_) => true,
+            _ => false,
+        }
     }
     pub fn is_local(&self) -> bool {
         match self.get().instruction.as_ref() {
@@ -1532,7 +1584,7 @@ impl NodeRef {
             _ => false,
         }
     }
-    pub fn is_refernece_argument(&self) -> bool {
+    pub fn is_reference_argument(&self) -> bool {
         match self.get().instruction.as_ref() {
             Instruction::Argument { by_value } => !*by_value,
             _ => false,
@@ -1589,6 +1641,13 @@ impl NodeRef {
     pub fn is_linked(&self) -> bool {
         assert!(self.valid());
         self.get().prev.valid() || self.get().next.valid()
+    }
+    pub fn is_sentinel(&self) -> bool {
+        assert!(self.valid());
+        match self.get().instruction.as_ref() {
+            Instruction::Invalid => true,
+            _ => false,
+        }
     }
     pub fn remove(&self) {
         assert!(self.valid());
@@ -2271,8 +2330,11 @@ impl IrBuilder {
         self.insert_point = node;
     }
     pub fn append_block(&mut self, block: Pooled<BasicBlock>) {
-        self.bb.merge(block);
-        self.insert_point = self.bb.last.get().prev;
+        while !block.is_empty() {
+            let node = block.first.get().next;
+            node.remove();
+            self.append(node);
+        }
     }
     pub fn comment(&mut self, msg: CBoxedSlice<u8>) -> NodeRef {
         let new_node = new_node(

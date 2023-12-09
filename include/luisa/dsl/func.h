@@ -245,8 +245,7 @@ public                                                           \
     Kernel<N, Args...> {                                         \
         using Kernel<N, Args...>::Kernel;                        \
         Kernel##N##D(Kernel<N, Args...> k) noexcept              \
-            : Kernel<N, Args...> { std::move(k._builder) }       \
-        {}                                                       \
+            : Kernel<N, Args...>{std::move(k._builder)} {}       \
         Kernel##N##D &operator=(Kernel<N, Args...> k) noexcept { \
             this->_builder = std::move(k._builder);              \
             return *this;                                        \
@@ -347,7 +346,9 @@ class Callable<Ret(Args...)> {
 
 private:
     luisa::shared_ptr<const detail::FunctionBuilder> _builder;
-    explicit Callable(luisa::shared_ptr<const detail::FunctionBuilder> builder) noexcept : _builder{std::move(builder)} {}
+    explicit Callable(luisa::shared_ptr<const detail::FunctionBuilder> builder) noexcept
+        : _builder{std::move(builder)} {}
+
 public:
     /**
      * @brief Construct a Callable object.
