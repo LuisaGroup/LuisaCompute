@@ -114,6 +114,16 @@ pub(super) fn compile(
     let target_prefix = format!("{}/{}", build_dir.display(), target);
     let target_prefix = target_prefix.replace("\\", "/");
     let lib_path = PathBuf::from(format!("{}.bc", target_prefix));
+    let source_file = if dump_src {
+        let source_file = format!("{}.cc", target_prefix);
+        std::fs::write(&source_file, &source).map_err(|e| {
+            eprintln!("fs::write({}) failed", source_file);
+            e
+        })?;
+        source_file
+    } else {
+        "-".to_string()
+    };
     if lib_path.exists() {
         let mut requires_recompile = force_recompile;
         let cache_hash = std::fs::read_to_string(format!("{}.hash", target_prefix)).ok();
@@ -134,16 +144,7 @@ pub(super) fn compile(
             return Ok(lib_path);
         }
     }
-    let source_file = if dump_src {
-        let source_file = format!("{}.cc", target_prefix);
-        std::fs::write(&source_file, &source).map_err(|e| {
-            eprintln!("fs::write({}) failed", source_file);
-            e
-        })?;
-        source_file
-    } else {
-        "-".to_string()
-    };
+
     std::fs::write(format!("{}.hash", target_prefix), hash).map_err(|e| {
         eprintln!("fs::write({}) failed", build_dir.display());
         e
