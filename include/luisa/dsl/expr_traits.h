@@ -18,6 +18,9 @@ struct Expr;
 template<typename T>
 struct Var;
 
+template<typename T>
+struct Local;
+
 namespace detail {
 
 template<typename T>
@@ -76,6 +79,7 @@ template<typename... T>
 constexpr auto is_vector_expr_same_element_v = is_vector_expr_same_element<T...>::value;
 
 namespace detail {
+
 template<typename T>
 struct is_dsl_impl : std::false_type {};
 
@@ -88,6 +92,12 @@ struct is_dsl_impl<Ref<T>> : std::true_type {};
 template<typename T>
 struct is_dsl_impl<Var<T>> : std::true_type {};
 
+template<typename T>
+struct is_dsl_local_array_impl : std::false_type {};
+
+template<typename T>
+struct is_dsl_local_array_impl<Local<T>> : std::true_type {};
+
 }// namespace detail
 
 template<typename T>
@@ -96,11 +106,29 @@ using is_dsl = typename detail::is_dsl_impl<std::remove_cvref_t<T>>::type;
 template<typename T>
 constexpr auto is_dsl_v = is_dsl<T>::value;
 
+template<typename T>
+using is_dsl_local_array = typename detail::is_dsl_local_array_impl<std::remove_cvref_t<T>>::type;
+
+template<typename T>
+constexpr auto is_dsl_local_array_v = is_dsl_local_array<T>::value;
+
+template<typename T>
+using is_dsl_or_local_array = std::disjunction<is_dsl<T>, is_dsl_local_array<T>>;
+
+template<typename T>
+constexpr auto is_dsl_or_local_array_v = is_dsl_or_local_array<T>::value;
+
 template<typename... T>
 using any_dsl = std::disjunction<is_dsl<T>...>;
 
 template<typename... T>
 constexpr auto any_dsl_v = any_dsl<T...>::value;
+
+template<typename... T>
+using any_dsl_or_local_array = std::disjunction<is_dsl_or_local_array<T>...>;
+
+template<typename... T>
+constexpr auto any_dsl_or_local_array_v = any_dsl_or_local_array<T...>::value;
 
 template<typename... T>
 using is_same_expr = concepts::is_same<expr_value_t<T>...>;

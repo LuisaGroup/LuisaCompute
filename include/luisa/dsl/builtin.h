@@ -4,11 +4,13 @@
 #include <luisa/dsl/var.h>
 #include <luisa/dsl/operators.h>
 #include <luisa/dsl/expr_traits.h>
+#include <luisa/dsl/local.h>
 
 namespace luisa::compute {
 
 namespace detail {
 LC_DSL_API void validate_block_size(uint x, uint y, uint z) noexcept;
+LC_DSL_API void validate_local_array_backward_types(const Type *x, const Type *grad) noexcept;
 }// namespace detail
 
 inline namespace dsl {
@@ -1699,7 +1701,7 @@ template<typename T>
 
 /// Mark that a variable requires gradient
 template<typename... T>
-    requires any_dsl_v<T...>
+    requires any_dsl_or_local_array_v<T...>
 void requires_grad(T &&...args) noexcept {
     auto builder = detail::FunctionBuilder::current();
     auto do_requires_grad = [builder]<typename X>(X &&x) noexcept {
@@ -1710,11 +1712,20 @@ void requires_grad(T &&...args) noexcept {
 
 /// Mark that a variable does not require gradient
 template<typename T>
-    requires is_dsl_v<T>
+    requires is_dsl_or_local_array_v<T>
 auto detach(T &&x) noexcept {
-    using X = expr_value_t<T>;
-    return def<X>(detail::FunctionBuilder::current()->call(
-        Type::of<X>(), CallOp::DETACH, {LUISA_EXPR(x)}));
+    if constexpr (is_dsl_local_array_v<T>) {
+        using A = std::remove_cvref_t<T>;
+        A arr{x.size()};
+        auto builder = detail::FunctionBuilder::current();
+        auto result = builder->call(x.type(), CallOp::DETACH, {x.expression()});
+        builder->assign(arr.expression(), result);
+        return arr;
+    } else {
+        using X = expr_value_t<T>;
+        return def<X>(detail::FunctionBuilder::current()->call(
+            Type::of<X>(), CallOp::DETACH, {LUISA_EXPR(x)}));
+    }
 }
 
 /// Back-propagate gradient from the variable with the given gradient
@@ -1727,16 +1738,27 @@ void backward(T &&x, G &&grad) noexcept {
     b->call(CallOp::BACKWARD, {});
 }
 
-inline void discard() noexcept {
-    detail::FunctionBuilder::current()->call(
-        CallOp::RASTER_DISCARD, {});
-}
-
 /// Back-propagate gradient from the variable
 template<typename T>
     requires is_dsl_v<T>
 void backward(T &&x) noexcept {
     backward(std::forward<T>(x), dsl::one<T>());
+}
+
+template<typename T>
+void backward(const Local<T> &x, const Local<T> &grad) noexcept {
+    detail::validate_local_array_backward_types(x.type(), grad.type());
+    auto b = detail::FunctionBuilder::current();
+    b->call(CallOp::GRADIENT_MARKER, {x.expression(), grad.expression()});
+    b->call(CallOp::BACKWARD, {});
+}
+
+template<typename T>
+void backward(const Local<T> &x) noexcept {
+    auto b = detail::FunctionBuilder::current();
+    auto one = b->call(x.type(), CallOp::ONE, {});
+    b->call(CallOp::GRADIENT_MARKER, {x.expression(), one});
+    b->call(CallOp::BACKWARD, {});
 }
 
 /// Get the back-propagated gradient of the variable
@@ -1747,6 +1769,20 @@ template<typename T>
         detail::FunctionBuilder::current()->call(
             Type::of<expr_value_t<T>>(), CallOp::GRADIENT,
             {LUISA_EXPR(x)}));
+}
+
+template<typename T>
+[[nodiscard]] inline auto grad(const Local<T> &x) noexcept {
+    auto b = detail::FunctionBuilder::current();
+    auto result = b->call(x.type(), CallOp::GRADIENT, {x.expression()});
+    Local<T> grad{x.size()};
+    b->assign(grad.expression(), result);
+    return grad;
+}
+
+inline void discard() noexcept {
+    detail::FunctionBuilder::current()->call(
+        CallOp::RASTER_DISCARD, {});
 }
 
 // barriers
@@ -1955,5 +1991,30 @@ inline void reorder_shader_execution() noexcept {
 #undef LUISA_EXPR
 
 }// namespace dsl
+
+template<typename T>
+void Local<T>::requires_grad() const noexcept {
+    dsl::requires_grad(*this);
+}
+
+template<typename T>
+void Local<T>::backward() const noexcept {
+    dsl::backward(*this);
+}
+
+template<typename T>
+void Local<T>::backward(const Local<T> grad) const noexcept {
+    dsl::backward(*this, grad);
+}
+
+template<typename T>
+Local<T> Local<T>::grad() const noexcept {
+    return dsl::grad(*this);
+}
+
+template<typename T>
+Local<T> Local<T>::detach() const noexcept {
+    return dsl::detach(*this);
+}
 
 }// namespace luisa::compute

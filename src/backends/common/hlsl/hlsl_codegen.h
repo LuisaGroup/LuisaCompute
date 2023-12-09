@@ -275,7 +275,7 @@ struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
     void print_elem(T const &v, vstd::StringBuilder &varName) {
         for (uint64 i = 0; i < N; ++i) {
-            PrintValue<float>{}(v[i], varName);
+            PrintValue<EleType>{}(v[i], varName);
             varName += ',';
         }
         auto &&last = varName.end() - 1;
