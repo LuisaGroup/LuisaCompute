@@ -611,7 +611,9 @@ public:
             .compile_only = option_.compile_only,
             .time_trace = option_.time_trace,
             .max_registers = option_.max_registers,
-            .name = option_.name.data()};
+            .name = option_.name.data(),
+            .native_include = option_.native_include.data(),
+        };
         auto shader = device.create_shader(device.device, api::KernelModule{(uint64_t)kernel}, &option);
         ShaderCreationInfo info{};
         info.block_size[0] = shader.block_size[0];

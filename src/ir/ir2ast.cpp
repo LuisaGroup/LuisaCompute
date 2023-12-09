@@ -904,6 +904,36 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
         }
         case ir::Func::Tag::CpuCustomOp:
             LUISA_ERROR_WITH_LOCATION("CpuCustomOp is not implemented.");
+        case ir::Func::Tag::External: {
+            auto fb = detail::FunctionBuilder::current();
+            auto name = luisa::string{luisa::string_view{(const char *)func.external._0.ptr, func.external._0.len}};
+            auto arg_types = luisa::vector<const Type *>{};
+            auto arg_usage = luisa::vector<Usage>{};
+            auto converted_args = luisa::vector<const Expression *>{};
+            for (const auto &arg_ref : args) {
+                converted_args.push_back(_convert_node(arg_ref));
+                auto arg = ir::luisa_compute_ir_node_get(arg_ref);
+                arg_types.push_back(_convert_type(arg->type_.get()));
+                auto &inst = *arg->instruction.get();
+                switch (inst.tag) {
+                    case ir::Instruction::Tag::Argument:
+                        arg_usage.push_back(inst.argument.by_value ? Usage::READ : Usage::READ_WRITE);
+                        break;
+                    case ir::Instruction::Tag::Local:
+                        arg_usage.push_back(Usage::READ_WRITE);
+                        break;
+                    default:
+                        arg_usage.push_back(Usage::READ);
+                }
+            }
+
+            auto callable = luisa::make_shared<ExternalFunction>(
+                name,
+                type,
+                arg_types,
+                arg_usage);
+            return fb->call(type, callable, luisa::span{converted_args});
+        }
         case ir::Func::Tag::Unknown0: [[fallthrough]];
         case ir::Func::Tag::Unknown1: LUISA_NOT_IMPLEMENTED();
         case ir::Func::Tag::ShaderExecutionReorder: return builtin_func(2, CallOp::SHADER_EXECUTION_REORDER);

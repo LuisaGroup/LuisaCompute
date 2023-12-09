@@ -2030,7 +2030,7 @@ pub struct Generated {
 }
 
 impl CpuCodeGen {
-    pub(crate) fn run(module: &ir::KernelModule) -> Generated {
+    pub(crate) fn run(module: &ir::KernelModule, native_include:&str) -> Generated {
         let mut globals = GlobalEmitter {
             message: vec![],
             generated_callables: HashMap::new(),
@@ -2057,7 +2057,7 @@ struct Accel;"#;
         let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
         Generated {
             source: format!(
-                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                 defs,
                 CPU_LIBM_DEF,
                 CPU_KERNEL_DEFS,
@@ -2066,6 +2066,7 @@ struct Accel;"#;
                 CPU_RESOURCE,
                 CPU_TEXTURE,
                 type_gen.generated(),
+                native_include,
                 kernel_fn_decl,
                 codegen.fwd_defs,
                 codegen.globals.callable_def,
