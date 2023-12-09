@@ -1311,6 +1311,10 @@ impl<'a> FunctionEmitter<'a> {
                 self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_xor", 1);
                 true
             }
+            Func::External(_)=>{
+                panic!("Use CpuFn to pass closures to kernel directly instead of ExternalCallable on cpu backend!.");
+                true
+            }
             Func::CpuCustomOp(op) => {
                 let i = *self
                     .globals
