@@ -2,9 +2,13 @@
 #include "internal/attributes.hpp"
 #include "internal/type_traits.hpp"
 
-#include "internal/buffer.hpp"
-#include "internal/array.hpp"
 #include "internal/functions.hpp"
+#include "internal/array.hpp"
+#include "internal/buffer.hpp"
+#include "internal/texture.hpp"
+
+// #include "internal/accel.hpp"
+// #include "internal/ray_query.hpp"
 
 struct zzSHADER_PRIMITIVES
 {

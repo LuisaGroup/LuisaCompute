@@ -441,7 +441,7 @@ void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
 
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     const luisa::compute::Expression *caller = nullptr;
-    clang::ForStmt* currentCxxForStmt = nullptr;
+    clang::ForStmt *currentCxxForStmt = nullptr;
 
     bool TraverseStmt(clang::Stmt *x) {
         if (x == nullptr) return true;
@@ -475,7 +475,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     caseList = caseList->getNextSwitchCase();
                 }
                 std::reverse(cxxCases.begin(), cxxCases.end());
-                for (auto cxxCase : cxxCases) 
+                for (auto cxxCase : cxxCases)
                     TraverseStmt(cxxCase);
             }
             fb->pop_scope(lc_switch_->body());
@@ -621,9 +621,66 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                 }
-                auto callable = blackboard->builders[construct->getConstructor()];
-                fb->call(luisa::compute::Function(callable.get()), lc_args);
-                current = local;
+                if (auto callable = blackboard->builders[construct->getConstructor()]) {
+                    fb->call(luisa::compute::Function(callable.get()), lc_args);
+                    current = local;
+                } else {
+                    bool isBuiltin = false;
+                    llvm::StringRef builtinName = {};
+                    if (auto thisType = GetRecordDeclFromQualType(construct->getType())) {
+                        for (auto Anno = thisType->specific_attr_begin<clang::AnnotateAttr>(); Anno != thisType->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+                            if (isBuiltinType(*Anno)) {
+                                isBuiltin = true;
+                                builtinName = getBuiltinTypeName(*Anno);
+                                break;
+                            }
+                        }
+                    }
+                    if (isBuiltin) {
+                        if (builtinName == "vec") {
+                            auto Ty = construct->getType();
+                            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
+                                auto Arguments = TST->template_arguments();
+                                if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
+                                    clang::Expr::EvalResult Result;
+                                    if (Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *blackboard->astContext)) {
+                                        auto N = Result.Val.getInt().getExtValue();
+                                        // TST->dump();
+                                        // clang-format off
+                        switch (EType->getKind()) {
+#define CASE_VEC_TYPE(stype, type)                                                                                    \
+    switch (N) {                                                                                               \
+        case 2: { auto lc_type = Type::of<stype##2>(); current = fb->call(lc_type, CallOp::MAKE_##type##2, { lc_args.begin() + 1, lc_args.end() }); } break;                                            \
+        case 3: { auto lc_type = Type::of<stype##3>(); current = fb->call(lc_type, CallOp::MAKE_##type##3, { lc_args.begin() + 1, lc_args.end() }); } break;                                            \
+        case 4: { auto lc_type = Type::of<stype##4>(); current = fb->call(lc_type, CallOp::MAKE_##type##4, { lc_args.begin() + 1, lc_args.end() }); } break;                                            \
+        default: {                                                                                             \
+            luisa::log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
+        } break;                                                                                               \
+    }
+                            case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool, BOOL) } break;
+                            case (BuiltinType::Kind::Float): { CASE_VEC_TYPE(float, FLOAT) } break;
+                            case (BuiltinType::Kind::Long): { CASE_VEC_TYPE(slong, LONG) } break;
+                            case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int, INT) } break;
+                            case (BuiltinType::Kind::ULong): { CASE_VEC_TYPE(ulong, ULONG) } break;
+                            case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint, UINT) } break;
+                            case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double, DOUBLE) } break;
+                            default: {
+                                luisa::log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
+                            } break;
+#undef CASE_VEC_TYPE
+                        }
+                                        // clang-format on
+                                    }
+                                }
+                            } else {
+                                Ty->dump();
+                            }
+                        }
+                    } else {
+                        construct->dump();
+                        luisa::log_error("unfound constructor: {}", construct->getConstructor()->getNameAsString());
+                    }
+                }
             } else if (auto unary = llvm::dyn_cast<UnaryOperator>(x)) {
                 const auto cxx_op = unary->getOpcode();
                 const auto lhs = stack->expr_map[unary->getSubExpr()];
@@ -785,19 +842,25 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 if (!v.TraverseStmt(_init_expr->getExpr()))
                     luisa::log_error("untranslated member call expr: {}", _init_expr->getExpr()->getStmtClassName());
                 current = v.translated;
+            } else if (auto _exprWithCleanup = llvm::dyn_cast<clang::ExprWithCleanups>(x)) {// TODO
+                luisa::log_warning("unsupportted ExprWithCleanups!");
+                current = stack->expr_map[_exprWithCleanup->getSubExpr()];
+            } else if (auto _matTemp = llvm::dyn_cast<clang::MaterializeTemporaryExpr>(x)) {// TODO
+                luisa::log_warning("unsupportted MaterializeTemporaryExpr!");
+                current = stack->expr_map[_matTemp->getSubExpr()];
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
-                luisa::log_warning("unsupportted init list expr!");
-            } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {     // CONTROL FLOW
-            } else if (auto _control_flow = llvm::dyn_cast<clang::ContinueStmt>(x)) {  // CONTROL FLOW
-            } else if (auto _control_flow = llvm::dyn_cast<clang::BreakStmt>(x)) {  // CONTROL FLOW
-            } else if (auto _control_flow = llvm::dyn_cast<clang::WhileStmt>(x)) {  // CONTROL FLOW
-            } else if (auto _control_flow = llvm::dyn_cast<clang::SwitchStmt>(x)) { // CONTROL FLOW
-            } else if (auto _control_flow = llvm::dyn_cast<clang::CaseStmt>(x)) {   // CONTROL FLOW
-            } else if (auto _control_flow = llvm::dyn_cast<clang::DefaultStmt>(x)) {// CONTROL FLOW
-            } else if (auto _control_flow = llvm::dyn_cast<clang::ForStmt>(x)) {    // CONTROL FLOW
-            } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {                   // EMPTY
-            } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {           // EMPTY
-            } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {               // TODO
+                luisa::log_warning("unsupportted InitListExpr!");
+            } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {      // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::ContinueStmt>(x)) {// CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::BreakStmt>(x)) {   // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::WhileStmt>(x)) {   // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::SwitchStmt>(x)) {  // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::CaseStmt>(x)) {    // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::DefaultStmt>(x)) { // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::ForStmt>(x)) {     // CONTROL FLOW
+            } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {                    // EMPTY
+            } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {            // EMPTY
+            } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {                // TODO
                 auto cap = lambda->capture_begin();
                 luisa::log_error("unsupportted lambda expr!");
             } else {

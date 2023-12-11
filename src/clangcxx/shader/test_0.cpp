@@ -103,7 +103,6 @@ auto TestBranch() {
         return 2.f;
     else
         return 3.f;
-
     if constexpr (is_floatN<float4>::value)
         return 4.f;
     else if constexpr (is_floatN<int4>::value)
@@ -150,7 +149,9 @@ auto TestSwitch() {
     return 3.f;
 }
 
-[[kernel_2d(16, 16)]] int kernel(Buffer<NVIDIA> &buffer) {
+[[kernel_2d(16, 16)]] int kernel(
+    Buffer<NVIDIA> &buffer, Buffer<float4>& buffer2) 
+{
     // member assign
     NVIDIA nvidia = {};
     int i = nvidia.ix = is_floatN<int4>::value;
@@ -177,6 +178,10 @@ auto TestSwitch() {
 
     // built-in call
     float _f = nvidia.f += sin(nvidia.f);
+
+    // vec
+    float4 a(1.f, 1.f, 1.f, 1.f);
+    buffer2.store(0, a);
 
     // member call
     auto n = buffer.load(0);
