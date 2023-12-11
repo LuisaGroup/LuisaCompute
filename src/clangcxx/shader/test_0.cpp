@@ -135,6 +135,19 @@ auto TestWhileLoop() {
     return f;
 }
 
+auto TestSwitch() {
+    int i = 0;
+    switch (i) {
+    case 0:
+        return 0.f;
+    case 1:
+        return 1.f;
+    default:
+        return 2.f;
+    }
+    return 3.f;
+}
+
 [[kernel_2d(16, 16)]] int kernel(Buffer<NVIDIA> &buffer) {
     // member assign
     NVIDIA nvidia = {};
@@ -158,6 +171,7 @@ auto TestWhileLoop() {
     float f = nvidia.f += TestBranch();
     float ff = nvidia.f += TestWhileLoop();
     float fff = nvidia.f += TestForLoop();
+    float ffff = nvidia.f += TestSwitch();
 
     // built-in call
     float _f = nvidia.f += sin(nvidia.f);

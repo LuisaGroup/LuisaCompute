@@ -449,10 +449,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
             auto cxxCond = cxxBranch->getCond();
             TraverseStmt(cxxCond);
-            if (!stack->expr_map[cxxCond]) {
-                cxxCond->dump();
-                luisa::log_error("missing branch cond!");
-            }
+
             auto lc_if_ = fb->if_(stack->expr_map[cxxCond]);
             fb->push_scope(lc_if_->true_branch());
             if (cxxBranch->getThen())
@@ -464,6 +461,38 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 TraverseStmt(cxxBranch->getElse());
             fb->pop_scope(lc_if_->false_branch());
 
+        } else if (auto cxxSwitch = llvm::dyn_cast<clang::SwitchStmt>(x)) {
+            auto cxxCond = cxxSwitch->getCond();
+            TraverseStmt(cxxCond);
+
+            auto lc_switch_ = fb->switch_(stack->expr_map[cxxSwitch->getCond()]);
+            fb->push_scope(lc_switch_->body());
+            luisa::vector<clang::SwitchCase *> cxxCases;
+            if (auto caseList = cxxSwitch->getSwitchCaseList()) {
+                while (caseList) {
+                    cxxCases.emplace_back(caseList);
+                    caseList = caseList->getNextSwitchCase();
+                }
+                std::reverse(cxxCases.begin(), cxxCases.end());
+                for (auto cxxCase : cxxCases) 
+                    TraverseStmt(cxxCase);
+            }
+            fb->pop_scope(lc_switch_->body());
+        } else if (auto cxxCase = llvm::dyn_cast<clang::CaseStmt>(x)) {
+            auto cxxCond = cxxCase->getLHS();
+            TraverseStmt(cxxCond);
+
+            auto lc_case_ = fb->case_(stack->expr_map[cxxCond]);
+            fb->push_scope(lc_case_->body());
+            if (auto cxxBody = cxxCase->getSubStmt())
+                TraverseStmt(cxxBody);
+            fb->pop_scope(lc_case_->body());
+        } else if (auto cxxDefault = llvm::dyn_cast<clang::DefaultStmt>(x)) {
+            auto lc_default_ = fb->default_();
+            fb->push_scope(lc_default_->body());
+            if (auto cxxBody = cxxDefault->getSubStmt())
+                TraverseStmt(cxxBody);
+            fb->pop_scope(lc_default_->body());
         } else if (auto cxxBreak = llvm::dyn_cast<clang::BreakStmt>(x)) {
             fb->break_();
         } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
@@ -752,13 +781,16 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = v.translated;
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
                 luisa::log_warning("unsupportted init list expr!");
-            } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {   // FWD
-            } else if (auto _control_flow = llvm::dyn_cast<clang::BreakStmt>(x)) {// FWD
-            } else if (auto _control_flow = llvm::dyn_cast<clang::WhileStmt>(x)) {// FWD
-            } else if (auto _control_flow = llvm::dyn_cast<clang::ForStmt>(x)) {  // FWD
-            } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {                 // EMPTY
-            } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {         // EMPTY
-            } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {             // TODO
+            } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {     // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::BreakStmt>(x)) {  // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::WhileStmt>(x)) {  // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::SwitchStmt>(x)) { // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::CaseStmt>(x)) {   // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::DefaultStmt>(x)) {// CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::ForStmt>(x)) {    // CONTROL FLOW
+            } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {                   // EMPTY
+            } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {           // EMPTY
+            } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {               // TODO
                 auto cap = lambda->capture_begin();
                 luisa::log_error("unsupportted lambda expr!");
             } else {
