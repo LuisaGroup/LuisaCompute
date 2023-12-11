@@ -794,7 +794,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto _default_arg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
                 const auto lc_local = fb->local(blackboard->FindOrAddType(_default_arg->getType(), blackboard->astContext));
                 TraverseStmt(_default_arg->getExpr());
-                _default_arg->getExpr()->dump();
                 fb->assign(lc_local, stack->expr_map[_default_arg->getExpr()]);
                 current = lc_local;
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
