@@ -7,8 +7,8 @@
 #include "internal/buffer.hpp"
 #include "internal/texture.hpp"
 
-// #include "internal/accel.hpp"
-// #include "internal/ray_query.hpp"
+#include "internal/accel.hpp"
+#include "internal/ray_query.hpp"
 
 struct zzSHADER_PRIMITIVES
 {
