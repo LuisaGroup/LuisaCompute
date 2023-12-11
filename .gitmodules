@@ -28,4 +28,4 @@
 	branch = docking
 [submodule "src/ext/reproc"]
 	path = src/ext/reproc
-	url = https://github.com/LuisaCompute/reproc.git
+	url = https://github.com/LuisaGroup/reproc.git
