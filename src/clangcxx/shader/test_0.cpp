@@ -187,13 +187,16 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     buffer.store(n.i, nvidia);
 
     // query
+    const auto Origin = float3(0.f, 0.f, 0.f);
+    const auto Direction = float3(1.f, 0.f, 0.f);
+    accel.query_all(Ray(Origin, Direction));
     /*
-    accel.query_all({})
+    accel.query_all(Ray(Origin, Direction))
         .on_procedural_candidate(1)
         .on_surface_candidate(1)
         .trace();
     */
-
+    
     /*
     // lambda
     auto l = [=](int i){

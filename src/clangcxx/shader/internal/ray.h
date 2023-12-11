@@ -10,8 +10,8 @@ struct Ray {
     // Ray() = default;
     Ray(float3 origin,
         float3 dir,
-        float t_min = 0.0,
-        float t_max = 1e30) : origin(origin), dir(dir), t_min(t_min), t_max(t_min) {}
+        float t_min = 0.0f,
+        float t_max = 1e30f) : origin(origin), dir(dir), t_min(t_min), t_max(t_min) {}
 };
 
 /* TODO

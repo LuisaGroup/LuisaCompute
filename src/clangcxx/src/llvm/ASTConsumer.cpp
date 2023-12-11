@@ -799,17 +799,16 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = lc_local;
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
                 current = stack->locals["this"];
-            } else if (auto m = llvm::dyn_cast<clang::MemberExpr>(x)) {
-                if (m->isBoundMemberFunction(*blackboard->astContext)) {
-                    auto lhs = stack->expr_map[m->getBase()];
+            } else if (auto cxxMember = llvm::dyn_cast<clang::MemberExpr>(x)) {
+                if (cxxMember->isBoundMemberFunction(*blackboard->astContext)) {
+                    auto lhs = stack->expr_map[cxxMember->getBase()];
                     caller = lhs;
-                } else if (auto f = llvm::dyn_cast<FieldDecl>(m->getMemberDecl())) {
-                    auto lhs = stack->expr_map[m->getBase()];
-                    assert(lhs && "missing this!");
-                    const auto lc_type = blackboard->FindOrAddType(m->getType(), blackboard->astContext);
-                    current = fb->member(lc_type, lhs, f->getFieldIndex());
+                } else if (auto cxxField = llvm::dyn_cast<FieldDecl>(cxxMember->getMemberDecl())) {
+                    auto lhs = stack->expr_map[cxxMember->getBase()];
+                    const auto lcMemberType = blackboard->FindOrAddType(cxxField->getType(), blackboard->astContext);
+                    current = fb->member(lcMemberType, lhs, cxxField->getFieldIndex());
                 } else {
-                    luisa::log_error("unsupported member expr: {}", m->getMemberDecl()->getNameAsString());
+                    luisa::log_error("unsupported member expr: {}", cxxMember->getMemberDecl()->getNameAsString());
                 }
             } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
                 auto methodDecl = call->getCalleeDecl();
@@ -1035,8 +1034,10 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                                     auto init = ctor_init->getInit();
                                     ExprTranslator v(&stack, blackboard, builder, init);
                                     if (v.TraverseStmt(init)) {
-                                        const auto fid = ctor_init->getMember()->getFieldIndex();
-                                        auto mem = builder->member(lc_type, this_local, fid);
+                                        const auto cxxMember = ctor_init->getMember();
+                                        const auto lcMemberType = blackboard->FindOrAddType(cxxMember->getType(), blackboard->astContext);
+                                        const auto fid = cxxMember->getFieldIndex();
+                                        auto mem = builder->member(lcMemberType, this_local, fid);
                                         builder->assign(mem, v.translated);
                                     }
                                 }
