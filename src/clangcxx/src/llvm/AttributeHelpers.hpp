@@ -30,6 +30,33 @@ inline static bool isKernel(const clang::AnnotateAttr *Anno) {
     return false;
 }
 
+inline static bool getKernelSize(const clang::AnnotateAttr *Anno, uint32_t &x, uint32_t &y, uint32_t &z) {
+    if (!isKernel(Anno))
+        return false;
+    x = y = z = 1;
+    auto arg = Anno->args_begin();
+    const auto N = Anno->args_size();
+    if (N > 1) {
+        arg++;
+        if (auto IntLiteral = llvm::dyn_cast<clang::IntegerLiteral>((*arg)->IgnoreParenCasts())) {
+            x = IntLiteral->getValue().getLimitedValue();
+        }
+    }
+    if (N > 2) {
+        arg++;
+        if (auto IntLiteral = llvm::dyn_cast<clang::IntegerLiteral>((*arg)->IgnoreParenCasts())) {
+            y = IntLiteral->getValue().getLimitedValue();
+        }
+    }
+    if (N > 3) {
+        arg++;
+        if (auto IntLiteral = llvm::dyn_cast<clang::IntegerLiteral>((*arg)->IgnoreParenCasts())) {
+            z = IntLiteral->getValue().getLimitedValue();
+        }
+    }
+    return true;
+}
+
 inline static bool isBuiltinType(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
         return false;

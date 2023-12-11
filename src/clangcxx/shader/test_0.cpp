@@ -49,7 +49,7 @@ struct Holder {
 
 struct TestCtor {
     TestCtor(int v)
-        : x(-1/*unary -*/), xx(v) {
+        : x(-1 /*unary -*/), xx(v) {
     }
     int x;
     int xx;
@@ -79,8 +79,7 @@ auto TestBinary() {
     return m + x + xx + yy + ww;
 }
 
-auto TestUnary()
-{
+auto TestUnary() {
     int n = 0;
     int m = n++;
     int x = n--;
@@ -139,26 +138,25 @@ auto TestWhileLoop() {
 auto TestSwitch() {
     int i = 0;
     switch (i) {
-    case 0:
-        return 0.f;
-    case 1:
-        return 1.f;
-    default:
-        return 2.f;
+        case 0:
+            return 0.f;
+        case 1:
+            return 1.f;
+        default:
+            return 2.f;
     }
     return 3.f;
 }
 
-[[kernel_2d(16, 16)]] int kernel(
-    Buffer<NVIDIA> &buffer, Buffer<float4>& buffer2) 
-{
+[[kernel_2d(16, 16)]] 
+int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2) {
     // member assign
     NVIDIA nvidia = {};
     int i = nvidia.ix = is_floatN<int4>::value;
 
     // binary ops
     int ii = nvidia.i = TestBinary();
-    
+
     // unary ops
     int iii = nvidia.i = TestUnary();
 

@@ -904,12 +904,17 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     if (const auto *S = Result.Nodes.getNodeAs<clang::FunctionDecl>("FunctionDecl")) {
         bool ignore = false;
         bool is_kernel = false;
+        uint3 kernelSize;
         bool is_method = false;
         QualType methodThisType;
         auto params = S->parameters();
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
             ignore |= isIgnore(*Anno);
-            is_kernel |= isKernel(*Anno);
+            if (isKernel(*Anno))
+            {
+                is_kernel = true;
+                getKernelSize(*Anno, kernelSize.x, kernelSize.y, kernelSize.z);
+            }
         }
         if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
             if (auto thisType = GetRecordDeclFromQualType(Method->getThisType()->getPointeeType())) {
@@ -954,7 +959,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                 builder->push_scope(builder->body());
                 {
                     if (is_kernel) {
-                        builder->set_block_size(uint3(256, 1, 1));
+                        builder->set_block_size(kernelSize);
                     }
 
                     // comment name
