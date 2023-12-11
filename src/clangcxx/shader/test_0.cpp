@@ -78,6 +78,16 @@ auto TestBinary() {
     return m + x + xx + yy + ww;
 }
 
+auto TestUnary()
+{
+    int n = 0;
+    int m = n++;
+    int x = n--;
+    int xx = ++n;
+    int yy = --n;
+    return m + x + xx + yy;
+}
+
 auto TestHolder() {
     int v = 5;
     Holder h(v);
@@ -101,13 +111,32 @@ auto TestBranch() {
         return 6.f;
 }
 
+auto TestForLoop() {
+    float f = 1.f;
+    for (int i = 0; i < 10; i++) {
+        f += static_cast<float>(i);
+        f += (float)i;
+    }
+    /*
+    int i = 0;
+    while(true){
+        if(!(i < 10)) break;
+        ++i;
+    }
+    */
+    return f;
+}
+
 [[kernel_2d(16, 16)]] int kernel(Buffer<NVIDIA> &buffer) {
     // member assign
     NVIDIA nvidia = {};
-    int ii = nvidia.ix = is_floatN<int4>::value;
+    int i = nvidia.ix = is_floatN<int4>::value;
 
     // binary ops
-    int i = nvidia.i = TestBinary();
+    int ii = nvidia.i = TestBinary();
+    
+    // unary ops
+    int iii = nvidia.i = TestUnary();
 
     // template
     Holder h = TestHolder();
@@ -120,8 +149,11 @@ auto TestBranch() {
     // branches
     float ff = nvidia.f += TestBranch();
 
+    // loops
+    float fff = nvidia.f += TestForLoop();
+
     // built-in call
-    float fff = nvidia.f += sin(nvidia.f);
+    float ffff = nvidia.f += sin(nvidia.f);
 
     // member call
     auto n = buffer.load(0);

@@ -23,6 +23,7 @@ using namespace luisa::compute;
 
 using CXXBinOp = clang::BinaryOperator::Opcode;
 using LCBinOp = luisa::compute::BinaryOp;
+using LCUnaryOp = luisa::compute::UnaryOp;
 
 inline luisa::compute::BinaryOp TranslateBinaryOp(clang::BinaryOperator::Opcode op) {
     switch (op) {
@@ -66,6 +67,30 @@ inline luisa::compute::BinaryOp TranslateBinaryAssignOp(clang::BinaryOperator::O
         default:
             luisa::log_error("unsupportted binary-assign op {}!", op);
             return LCBinOp::ADD;
+    }
+}
+
+inline bool IsUnaryAssignOp(clang::UnaryOperatorKind op) {
+    switch (op) {
+        case clang::UnaryOperatorKind::UO_PreInc:
+        case clang::UnaryOperatorKind::UO_PostInc:
+        case clang::UnaryOperatorKind::UO_PreDec:
+        case clang::UnaryOperatorKind::UO_PostDec:
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline luisa::compute::UnaryOp TranslateUnaryOp(clang::UnaryOperatorKind op) {
+    switch (op) {
+        case clang::UnaryOperatorKind::UO_Plus: return LCUnaryOp::PLUS;
+        case clang::UnaryOperatorKind::UO_Minus: return LCUnaryOp::MINUS;
+        case clang::UnaryOperatorKind::UO_Not: return LCUnaryOp::BIT_NOT;
+        case clang::UnaryOperatorKind::UO_LNot: return LCUnaryOp::NOT;
+        default:
+            luisa::log_error("unsupportted unary op {}!", op);
+            return LCUnaryOp::PLUS;
     }
 }
 
@@ -428,27 +453,47 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 cxxCond->dump();
                 luisa::log_error("missing branch cond!");
             }
-            auto lc_if_ = func_builder->if_(stack->expr_map[cxxCond]);
-
-            func_builder->push_scope(lc_if_->true_branch());
+            auto lc_if_ = fb->if_(stack->expr_map[cxxCond]);
+            fb->push_scope(lc_if_->true_branch());
             if (cxxBranch->getThen())
                 TraverseStmt(cxxBranch->getThen());
-            func_builder->pop_scope(lc_if_->true_branch());
+            fb->pop_scope(lc_if_->true_branch());
 
-            func_builder->push_scope(lc_if_->false_branch());
+            fb->push_scope(lc_if_->false_branch());
             if (cxxBranch->getElse())
                 TraverseStmt(cxxBranch->getElse());
-            func_builder->pop_scope(lc_if_->false_branch());
+            fb->pop_scope(lc_if_->false_branch());
 
+        } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
+            auto lc_while_ = fb->loop_();
+            // i = 0
+            auto cxxInit = cxxFor->getInit();
+            TraverseStmt(cxxInit);
+            // while (cond)
+            fb->push_scope(lc_while_->body());
+            auto cxxCond = cxxFor->getCond();
+            TraverseStmt(cxxCond);
+            auto lc_cond_if_ = fb->if_(stack->expr_map[cxxCond]);
+            // break
+            fb->push_scope(lc_cond_if_->false_branch());
+            fb->break_();
+            fb->pop_scope(lc_cond_if_->false_branch());
+            // body
+            auto cxxBody = cxxFor->getBody();
+            TraverseStmt(cxxBody);
+            // i++
+            auto cxxInc = cxxFor->getInc();
+            TraverseStmt(cxxInc);
+            fb->pop_scope(lc_while_->body());
         } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
-            auto fake_if_ = func_builder->if_(func_builder->literal(Type::of<bool>(), true));
+            auto fake_if_ = fb->if_(fb->literal(Type::of<bool>(), true));
 
-            func_builder->push_scope(fake_if_->true_branch());
+            fb->push_scope(fake_if_->true_branch());
             // cxxCompound->dump();
             for (auto sub : cxxCompound->body()) {
                 TraverseStmt(sub);
             }
-            func_builder->pop_scope(fake_if_->true_branch());
+            fb->pop_scope(fake_if_->true_branch());
 
         } else {
             RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
@@ -465,13 +510,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                         auto Ty = varDecl->getType();
                         if (auto lc_type = blackboard->FindOrAddType(Ty, blackboard->astContext)) {
-                            auto local = func_builder->local(lc_type);
+                            auto local = fb->local(lc_type);
                             auto str = luisa::string(varDecl->getName());
                             stack->locals[str] = local;
 
                             auto init = varDecl->getInit();
                             if (auto lc_init = stack->expr_map[init]) {
-                                func_builder->assign(local, lc_init);
+                                fb->assign(local, lc_init);
                                 current = local;
                             } else {
                                 current = local;
@@ -486,31 +531,31 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
                 auto cxx_ret = ret->getRetValue();
                 auto lc_ret = stack->expr_map[cxx_ret];
-                if (func_builder->tag() != compute::Function::Tag::KERNEL) {
-                    func_builder->return_(lc_ret);
+                if (fb->tag() != compute::Function::Tag::KERNEL) {
+                    fb->return_(lc_ret);
                 }
             } else if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
                 const auto APK = ce->getResultAPValueKind();
                 const auto &APV = ce->getAPValueResult();
                 switch (APK) {
                     case clang::APValue::ValueKind::Int:
-                        current = func_builder->literal(Type::of<int>(), (int)ce->getResultAsAPSInt().getLimitedValue());
+                        current = fb->literal(Type::of<int>(), (int)ce->getResultAsAPSInt().getLimitedValue());
                         break;
                     case clang::APValue::ValueKind::Float:
-                        current = func_builder->literal(Type::of<float>(), (float)APV.getFloat().convertToFloat());
+                        current = fb->literal(Type::of<float>(), (float)APV.getFloat().convertToFloat());
                         break;
                     default:
                         luisa::log_error("unsupportted ConstantExpr APValueKind {}", APK);
                         break;
                 }
             } else if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
-                current = func_builder->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
+                current = fb->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
             } else if (auto bl = llvm::dyn_cast<CXXBoolLiteralExpr>(x)) {
-                current = func_builder->literal(Type::of<bool>(), (bool)bl->getValue());
+                current = fb->literal(Type::of<bool>(), (bool)bl->getValue());
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
-                current = func_builder->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
+                current = fb->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
             } else if (auto construct = llvm::dyn_cast<CXXConstructExpr>(x)) {
-                auto local = func_builder->local(blackboard->FindOrAddType(construct->getType(), blackboard->astContext));
+                auto local = fb->local(blackboard->FindOrAddType(construct->getType(), blackboard->astContext));
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
                 lc_args.emplace_back(local);
@@ -521,22 +566,63 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                 }
                 auto callable = blackboard->builders[construct->getConstructor()];
-                func_builder->call(luisa::compute::Function(callable.get()), lc_args);
+                fb->call(luisa::compute::Function(callable.get()), lc_args);
                 current = local;
+            } else if (auto unary = llvm::dyn_cast<UnaryOperator>(x)) {
+                const auto cxx_op = unary->getOpcode();
+                const auto lhs = stack->expr_map[unary->getSubExpr()];
+                const auto lc_type = blackboard->FindOrAddType(unary->getType(), blackboard->astContext);
+                if (!IsUnaryAssignOp(cxx_op))
+                    fb->unary(lc_type, TranslateUnaryOp(cxx_op), lhs);
+                else {
+                    auto one = fb->literal(Type::of<int>(), 1);
+                    auto typed_one = one;
+                    // auto typed_one = fb->cast(lc_type, CastOp::STATIC, one);
+                    switch (cxx_op) {
+                        case clang::UO_PreInc: {
+                            auto ca_expr = fb->binary(lc_type, LCBinOp::ADD, lhs, typed_one);
+                            fb->assign(lhs, ca_expr);
+                            current = lhs;
+                            break;
+                        }
+                        case clang::UO_PreDec: {
+                            auto ca_expr = fb->binary(lc_type, LCBinOp::SUB, lhs, typed_one);
+                            fb->assign(lhs, ca_expr);
+                            current = lhs;
+                            break;
+                        }
+                        case clang::UO_PostInc: {
+                            auto old = fb->local(lc_type);
+                            fb->assign(old, lhs);
+                            auto ca_expr = fb->binary(lc_type, LCBinOp::ADD, lhs, typed_one);
+                            fb->assign(lhs, ca_expr);
+                            current = old;
+                            break;
+                        }
+                        case clang::UO_PostDec: {
+                            auto old = fb->local(lc_type);
+                            fb->assign(old, lhs);
+                            auto ca_expr = fb->binary(lc_type, LCBinOp::SUB, lhs, typed_one);
+                            fb->assign(lhs, ca_expr);
+                            current = old;
+                            break;
+                        }
+                    }
+                }
             } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
                 const auto cxx_op = bin->getOpcode();
                 const auto lhs = stack->expr_map[bin->getLHS()];
                 const auto rhs = stack->expr_map[bin->getRHS()];
                 const auto lc_type = blackboard->FindOrAddType(bin->getType(), blackboard->astContext);
                 if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
-                    auto ca_expr = func_builder->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
-                    func_builder->assign(lhs, ca_expr);
+                    auto ca_expr = fb->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
+                    fb->assign(lhs, ca_expr);
                     current = lhs;
                 } else if (cxx_op == CXXBinOp::BO_Assign) {
-                    func_builder->assign(lhs, rhs);
+                    fb->assign(lhs, rhs);
                     current = lhs;
                 } else {
-                    current = func_builder->binary(lc_type, TranslateBinaryOp(cxx_op), lhs, rhs);
+                    current = fb->binary(lc_type, TranslateBinaryOp(cxx_op), lhs, rhs);
                 }
             } else if (auto dref = llvm::dyn_cast<DeclRefExpr>(x)) {
                 auto str = luisa::string(dref->getNameInfo().getName().getAsString());
@@ -547,9 +633,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     if (auto var = value->getPotentiallyDecomposedVarDecl()) {
                         if (auto eval = var->getEvaluatedValue()) {
                             if (eval->isInt())
-                                current = func_builder->literal(Type::of<int>(), (int)eval->getInt().getLimitedValue());
+                                current = fb->literal(Type::of<int>(), (int)eval->getInt().getLimitedValue());
                             else if (eval->isFloat())
-                                current = func_builder->literal(Type::of<float>(), (float)eval->getFloat().convertToFloat());
+                                current = fb->literal(Type::of<float>(), (float)eval->getFloat().convertToFloat());
                             else
                                 luisa::log_error("unsupportted eval type: {}", eval->getKind());
                         } else
@@ -566,7 +652,16 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         implicit_cast->getSubExpr()->dump();
                         luisa::log_error("!!!");
                     }
-                    current = func_builder->cast(lc_type, CastOp::STATIC, stack->expr_map[implicit_cast->getSubExpr()]);
+                    current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[implicit_cast->getSubExpr()]);
+                }
+            } else if (auto _c_cast = llvm::dyn_cast<CStyleCastExpr>(x)) {
+                if (stack->expr_map[_c_cast->getSubExpr()] != nullptr) {
+                    const auto lc_type = blackboard->FindOrAddType(_c_cast->getType(), blackboard->astContext);
+                    if (!stack->expr_map[_c_cast->getSubExpr()]) {
+                        _c_cast->getSubExpr()->dump();
+                        luisa::log_error("!!!");
+                    }
+                    current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[_c_cast->getSubExpr()]);
                 }
             } else if (auto _static_cast = llvm::dyn_cast<CXXStaticCastExpr>(x)) {
                 if (stack->expr_map[_static_cast->getSubExpr()] != nullptr) {
@@ -575,7 +670,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         _static_cast->getSubExpr()->dump();
                         luisa::log_error("!!!");
                     }
-                    current = func_builder->cast(lc_type, CastOp::STATIC, stack->expr_map[_static_cast->getSubExpr()]);
+                    current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[_static_cast->getSubExpr()]);
                 }
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
                 current = stack->locals["this"];
@@ -587,7 +682,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     auto lhs = stack->expr_map[m->getBase()];
                     assert(lhs && "missing this!");
                     const auto lc_type = blackboard->FindOrAddType(m->getType(), blackboard->astContext);
-                    current = func_builder->member(lc_type, lhs, f->getFieldIndex());
+                    current = fb->member(lc_type, lhs, f->getFieldIndex());
                 } else {
                     luisa::log_error("unsupported member expr: {}", m->getMemberDecl()->getNameAsString());
                 }
@@ -615,28 +710,29 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 if (!callopName.empty()) {
                     auto op = blackboard->FindCallOp(callopName);
                     if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
-                        func_builder->call(op, lc_args);
+                        fb->call(op, lc_args);
                     else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
-                        current = func_builder->call(lc_type, op, lc_args);
+                        current = fb->call(lc_type, op, lc_args);
                     else
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 } else {
                     auto callable = blackboard->builders[call->getCalleeDecl()];
                     if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
-                        func_builder->call(luisa::compute::Function(callable.get()), lc_args);
+                        fb->call(luisa::compute::Function(callable.get()), lc_args);
                     else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
-                        current = func_builder->call(lc_type, luisa::compute::Function(callable.get()), lc_args);
+                        current = fb->call(lc_type, luisa::compute::Function(callable.get()), lc_args);
                     else
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 }
             } else if (auto _init_expr = llvm::dyn_cast<clang::CXXDefaultInitExpr>(x)) {
-                ExprTranslator v(stack, blackboard, func_builder, _init_expr->getExpr());
-                 if (!v.TraverseStmt(_init_expr->getExpr()))
+                ExprTranslator v(stack, blackboard, fb, _init_expr->getExpr());
+                if (!v.TraverseStmt(_init_expr->getExpr()))
                     luisa::log_error("untranslated member call expr: {}", _init_expr->getExpr()->getStmtClassName());
                 current = v.translated;
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
                 luisa::log_warning("unsupportted init list expr!");
             } else if (auto _if = llvm::dyn_cast<clang::IfStmt>(x)) {    // FWD
+            } else if (auto _if = llvm::dyn_cast<clang::ForStmt>(x)) {   // FWD
             } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {        // EMPTY
             } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {// EMPTY
             } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {    // TODO
@@ -656,14 +752,14 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     }
 
     ExprTranslator(Stack *stack, CXXBlackboard *blackboard, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, clang::Stmt *root)
-        : stack(stack), blackboard(blackboard), func_builder(cur), root(root) {
+        : stack(stack), blackboard(blackboard), fb(cur), root(root) {
     }
     const luisa::compute::Expression *translated = nullptr;
 
 protected:
     Stack *stack = nullptr;
     CXXBlackboard *blackboard = nullptr;
-    luisa::shared_ptr<compute::detail::FunctionBuilder> func_builder = nullptr;
+    luisa::shared_ptr<compute::detail::FunctionBuilder> fb = nullptr;
     clang::Stmt *root = nullptr;
 };
 
@@ -713,14 +809,13 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             // S->dump();
 
             if (auto Dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(S)) {
-                if (!Dtor->isDefaulted())
-                {
+                if (!Dtor->isDefaulted()) {
                     S->dump();
                     auto dtorName = Dtor->getQualifiedNameAsString();
                     luisa::log_error("dtor {} is not allowed!", dtorName.c_str());
                 }
             }
-            
+
             luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
             Stmt *body = S->getBody();
             {
