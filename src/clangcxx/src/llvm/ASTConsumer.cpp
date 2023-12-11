@@ -23,6 +23,7 @@ using namespace luisa::compute;
 
 using CXXBinOp = clang::BinaryOperator::Opcode;
 using LCBinOp = luisa::compute::BinaryOp;
+using CXXUnaryOp = clang::UnaryOperator::Opcode;
 using LCUnaryOp = luisa::compute::UnaryOp;
 
 inline luisa::compute::BinaryOp TranslateBinaryOp(clang::BinaryOperator::Opcode op) {
@@ -70,24 +71,24 @@ inline luisa::compute::BinaryOp TranslateBinaryAssignOp(clang::BinaryOperator::O
     }
 }
 
-inline bool IsUnaryAssignOp(clang::UnaryOperatorKind op) {
+inline bool IsUnaryAssignOp(CXXUnaryOp op) {
     switch (op) {
-        case clang::UnaryOperatorKind::UO_PreInc:
-        case clang::UnaryOperatorKind::UO_PostInc:
-        case clang::UnaryOperatorKind::UO_PreDec:
-        case clang::UnaryOperatorKind::UO_PostDec:
+        case CXXUnaryOp::UO_PreInc:
+        case CXXUnaryOp::UO_PostInc:
+        case CXXUnaryOp::UO_PreDec:
+        case CXXUnaryOp::UO_PostDec:
             return true;
         default:
             return false;
     }
 }
 
-inline luisa::compute::UnaryOp TranslateUnaryOp(clang::UnaryOperatorKind op) {
+inline luisa::compute::UnaryOp TranslateUnaryOp(CXXUnaryOp op) {
     switch (op) {
-        case clang::UnaryOperatorKind::UO_Plus: return LCUnaryOp::PLUS;
-        case clang::UnaryOperatorKind::UO_Minus: return LCUnaryOp::MINUS;
-        case clang::UnaryOperatorKind::UO_Not: return LCUnaryOp::BIT_NOT;
-        case clang::UnaryOperatorKind::UO_LNot: return LCUnaryOp::NOT;
+        case CXXUnaryOp::UO_Plus: return LCUnaryOp::PLUS;
+        case CXXUnaryOp::UO_Minus: return LCUnaryOp::MINUS;
+        case CXXUnaryOp::UO_Not: return LCUnaryOp::BIT_NOT;
+        case CXXUnaryOp::UO_LNot: return LCUnaryOp::NOT;
         default:
             luisa::log_error("unsupportted unary op {}!", op);
             return LCUnaryOp::PLUS;
@@ -275,11 +276,11 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
     }
                             case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool) } break;
                             case (BuiltinType::Kind::Float): { CASE_VEC_TYPE(float) } break;
-                            case (BuiltinType::Kind::Long):
+                            case (BuiltinType::Kind::Long): { CASE_VEC_TYPE(slong) } break;
                             case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int) } break;
-                            case (BuiltinType::Kind::ULong):
+                            case (BuiltinType::Kind::ULong): { CASE_VEC_TYPE(ulong) } break;
                             case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint) } break;
-                            case (BuiltinType::Kind::Double):
+                            case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double) } break;
                             default: {
                                 luisa::log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
                             } break;
