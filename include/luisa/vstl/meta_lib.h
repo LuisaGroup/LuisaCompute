@@ -81,26 +81,26 @@ public:
     using SelfType = StackObject<T, false>;
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &create(Args &&...args) &noexcept {
+    inline SelfType &create(Args &&...args) & noexcept {
         new (storage) T(std::forward<Args>(args)...);
         return *this;
     }
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &&create(Args &&...args) &&noexcept {
+    inline SelfType &&create(Args &&...args) && noexcept {
         return std::move(create(std::forward<Args>(args)...));
     }
     inline void destroy() noexcept {
         if constexpr (!std::is_trivially_destructible_v<T>)
             vstd::destruct(std::launder(reinterpret_cast<T *>(storage)));
     }
-    T &operator*() &noexcept {
+    T &operator*() & noexcept {
         return *std::launder(reinterpret_cast<T *>(storage));
     }
-    T &&operator*() &&noexcept {
+    T &&operator*() && noexcept {
         return std::move(*std::launder(reinterpret_cast<T *>(storage)));
     }
-    T const &operator*() const &noexcept {
+    T const &operator*() const & noexcept {
         return *reinterpret_cast<T const *>(storage);
     }
     T *operator->() noexcept {
@@ -122,47 +122,40 @@ public:
         return reinterpret_cast<T const *>(storage);
     }
     StackObject() noexcept {}
-    StackObject(const SelfType &value) {
-        if constexpr (std::is_copy_constructible_v<T>) {
-            new (storage) T(*value);
-        } else {
-            assert(false);
-            VENGINE_EXIT;
-        }
+    StackObject(const SelfType &value)
+        requires(std::is_copy_constructible_v<T>)
+    {
+        new (storage) T(*value);
     }
-    StackObject(SelfType &&value) {
-        if constexpr (std::is_move_constructible_v<T>) {
-            new (storage) T(std::move(*value));
-        } else {
-            assert(false);
-            VENGINE_EXIT;
-        }
+    StackObject(SelfType &&value)
+        requires(std::is_move_constructible_v<T>)
+    {
+        new (storage) T(std::move(*value));
     }
     template<typename... Args>
+        requires(std::is_constructible_v<T, Args && ...>)
     StackObject(Args &&...args) {
         new (storage) T(std::forward<Args>(args)...);
     }
-    T &operator=(SelfType const &value) {
+    T &operator=(SelfType const &value)
+        requires(std::is_copy_assignable_v<T> || std::is_copy_constructible_v<T>)
+    {
         if constexpr (std::is_copy_assignable_v<T>) {
             operator*() = *value;
-        } else if constexpr (std::is_copy_constructible_v<T>) {
+        } else {
             destroy();
             create(*value);
-        } else {
-            assert(false);
-            VENGINE_EXIT;
         }
         return **this;
     }
-    T &operator=(SelfType &&value) {
+    T &operator=(SelfType &&value)
+        requires(std::is_move_assignable_v<T> || std::is_move_constructible_v<T>)
+    {
         if constexpr (std::is_move_assignable_v<T>) {
             operator*() = std::move(*value);
-        } else if constexpr (std::is_move_constructible_v<T>) {
+        } else {
             destroy();
             create(std::move(*value));
-        } else {
-            assert(false);
-            VENGINE_EXIT;
         }
         return **this;
     }
@@ -185,7 +178,7 @@ public:
     using SelfType = StackObject<T, true>;
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &create(Args &&...args) &noexcept {
+    inline SelfType &create(Args &&...args) & noexcept {
         if (mInitialized) return *this;
         mInitialized = true;
         stackObj.create(std::forward<Args>(args)...);
@@ -194,13 +187,13 @@ public:
 
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &&create(Args &&...args) &&noexcept {
+    inline SelfType &&create(Args &&...args) && noexcept {
         return std::move(create(std::forward<Args>(args)...));
     }
 
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
-    inline SelfType &force_create(Args &&...args) &noexcept {
+    inline SelfType &force_create(Args &&...args) & noexcept {
         if (mInitialized) { destroy(); }
         mInitialized = true;
         stackObj.create(std::forward<Args>(args)...);
@@ -208,7 +201,8 @@ public:
     }
 
     template<typename... Args>
-    inline SelfType &&force_create(Args &&...args) &&noexcept {
+        requires(std::is_constructible_v<T, Args && ...>)
+    inline SelfType &&force_create(Args &&...args) && noexcept {
         return std::move(force_create(std::forward<Args>(args)...));
     }
 
@@ -234,13 +228,13 @@ public:
     void reset() noexcept {
         destroy();
     }
-    T &value() &noexcept {
+    T &value() & noexcept {
         return *stackObj;
     }
-    T const &value() const &noexcept {
+    T const &value() const & noexcept {
         return *stackObj;
     }
-    T &&value() &&noexcept {
+    T &&value() && noexcept {
         return std::move(*stackObj);
     }
     template<class U>
@@ -257,13 +251,13 @@ public:
         else
             return std::forward<U>(default_value);
     }
-    T &operator*() &noexcept {
+    T &operator*() & noexcept {
         return *stackObj;
     }
-    T &&operator*() &&noexcept {
+    T &&operator*() && noexcept {
         return std::move(*stackObj);
     }
-    T const &operator*() const &noexcept {
+    T const &operator*() const & noexcept {
         return *stackObj;
     }
     T *operator->() noexcept {
@@ -288,45 +282,37 @@ public:
         mInitialized = false;
     }
     template<typename... Args>
+        requires(std::is_constructible_v<T, Args && ...>)
     StackObject(Args &&...args)
         : stackObj(std::forward<Args>(args)...),
           mInitialized(true) {
     }
-    StackObject(const SelfType &value) noexcept {
+    StackObject(const SelfType &value) noexcept
+        requires(std::is_copy_constructible_v<T>)
+    {
         mInitialized = value.mInitialized;
         if (mInitialized) {
-            if constexpr (std::is_copy_constructible_v<T>) {
-                stackObj.create(*value);
-            } else {
-                assert(false);
-                VENGINE_EXIT;
-            }
+            stackObj.create(*value);
         }
     }
-    StackObject(SelfType &&value) noexcept {
+    StackObject(SelfType &&value) noexcept
+        requires(std::is_move_constructible_v<T>)
+    {
         mInitialized = value.mInitialized;
         if (mInitialized) {
-            if constexpr (std::is_move_constructible_v<T>) {
-                stackObj.create(std::move(*value));
-            } else {
-                assert(false);
-                VENGINE_EXIT;
-            }
+            stackObj.create(std::move(*value));
         }
     }
     ~StackObject() noexcept {
         if (mInitialized)
             stackObj.destroy();
     }
-    T &operator=(SelfType const &value) {
+    T &operator=(SelfType const &value)
+        requires(std::is_copy_constructible_v<T>)
+    {
         if (!mInitialized) {
             if (value.mInitialized) {
-                if constexpr (std::is_copy_constructible_v<T>) {
-                    stackObj.create(*value);
-                } else {
-                    assert(false);
-                    VENGINE_EXIT;
-                }
+                stackObj.create(*value);
                 mInitialized = true;
             }
         } else {
@@ -339,15 +325,12 @@ public:
         }
         return *stackObj;
     }
-    T &operator=(SelfType &&value) {
+    T &operator=(SelfType &&value)
+        requires(std::is_move_constructible_v<T>)
+    {
         if (!mInitialized) {
             if (value.mInitialized) {
-                if constexpr (std::is_move_constructible_v<T>) {
-                    stackObj.create(std::move(*value));
-                } else {
-                    assert(false);
-                    VENGINE_EXIT;
-                }
+                stackObj.create(std::move(*value));
                 mInitialized = true;
             }
         } else {
@@ -362,8 +345,7 @@ public:
     }
     template<typename Arg>
         requires(std::is_assignable_v<StackObject<T, false>, Arg &&>)
-    T &
-    operator=(Arg &&value) {
+    T &operator=(Arg &&value) {
         if (mInitialized) {
             return stackObj = std::forward<Arg>(value);
         } else {
@@ -680,7 +662,8 @@ public:
     }
 
     template<size_t i>
-        requires(i < argSize) decltype(auto)
+        requires(i < argSize)
+    decltype(auto)
     get() & {
 #ifndef NDEBUG
         if (i != switcher) {
@@ -691,7 +674,8 @@ public:
         return *std::launder(reinterpret_cast<TypeOf<i> *>(&placeHolder));
     }
     template<size_t i>
-        requires(i < argSize) decltype(auto)
+        requires(i < argSize)
+    decltype(auto)
     get() && {
 #ifndef NDEBUG
         if (i != switcher) {
@@ -702,7 +686,8 @@ public:
         return std::move(*std::launder(reinterpret_cast<TypeOf<i> *>(&placeHolder)));
     }
     template<size_t i>
-        requires(i < argSize) decltype(auto)
+        requires(i < argSize)
+    decltype(auto)
     get() const & {
 #ifndef NDEBUG
         if (i != switcher) {
@@ -841,7 +826,8 @@ public:
             PackedFunctors<Funcs...>(std::forward<Funcs>(funcs)...));
     }
     template<typename Ret, typename... Funcs>
-        requires(sizeof...(Funcs) == argSize) decltype(auto)
+        requires(sizeof...(Funcs) == argSize)
+    decltype(auto)
     multi_visit_or(Ret &&r, Funcs &&...funcs) & {
         using RetType = std::remove_cvref_t<Ret>;
         if constexpr (std::is_base_of_v<Evaluable, RetType>) {
@@ -862,7 +848,8 @@ public:
         }
     }
     template<typename Ret, typename... Funcs>
-        requires(sizeof...(Funcs) == argSize) decltype(auto)
+        requires(sizeof...(Funcs) == argSize)
+    decltype(auto)
     multi_visit_or(Ret &&r, Funcs &&...funcs) && {
         using RetType = std::remove_cvref_t<Ret>;
         if constexpr (std::is_base_of_v<Evaluable, RetType>) {
@@ -883,7 +870,8 @@ public:
         }
     }
     template<typename Ret, typename... Funcs>
-        requires(sizeof...(Funcs) == argSize) decltype(auto)
+        requires(sizeof...(Funcs) == argSize)
+    decltype(auto)
     multi_visit_or(Ret &&r, Funcs &&...funcs) const & {
         using RetType = std::remove_cvref_t<Ret>;
         if constexpr (std::is_base_of_v<Evaluable, RetType>) {
@@ -967,6 +955,7 @@ public:
         }
     }
     variant(variant const &v)
+        requires(!detail::AnyMap<std::is_copy_constructible, true>::template Run<AA...>())
         : switcher(v.switcher) {
         auto copyFunc = [&]<typename T>(T const &value) {
             new (place_holder()) T(value);
@@ -974,6 +963,7 @@ public:
         v.visit(copyFunc);
     }
     variant(variant &&v)
+        requires(!detail::AnyMap<std::is_move_constructible, true>::template Run<AA...>())
         : switcher(v.switcher) {
         auto moveFunc = [&]<typename T>(T &value) {
             new (place_holder()) T(std::move(value));
@@ -1020,7 +1010,9 @@ public:
         }
         return *this;
     }
-    variant &operator=(variant const &a) {
+    variant &operator=(variant const &a)
+        requires(!detail::AnyMap<std::is_copy_assignable, true>::template Run<AA...>())
+    {
         if (switcher != a.switcher) {
             this->~variant();
             new (this) variant(a);
@@ -1037,7 +1029,9 @@ public:
         }
         return *this;
     }
-    variant &operator=(variant &&a) {
+    variant &operator=(variant &&a)
+        requires(!detail::AnyMap<std::is_move_assignable, true>::template Run<AA...>())
+    {
         if (switcher != a.switcher) {
             this->~variant();
             new (this) variant(std::move(a));
@@ -1160,4 +1154,3 @@ public:
     }
 };
 }// namespace vstd
-
