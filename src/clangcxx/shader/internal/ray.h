@@ -7,8 +7,8 @@ struct Ray {
     float3 dir;
     float t_min;
     float t_max;
-    Ray(
-        float3 origin,
+    // Ray() = default;
+    Ray(float3 origin,
         float3 dir,
         float t_min = 0.0,
         float t_max = 1e30) : origin(origin), dir(dir), t_min(t_min), t_max(t_min) {}

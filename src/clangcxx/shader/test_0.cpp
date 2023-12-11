@@ -149,7 +149,7 @@ auto TestSwitch() {
 }
 
 [[kernel_2d(16, 16)]] 
-int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2) {
+int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     // member assign
     NVIDIA nvidia = {};
     int i = nvidia.ix = is_floatN<int4>::value;
@@ -176,6 +176,7 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2) {
 
     // built-in call
     float _f = nvidia.f += sin(nvidia.f);
+    nvidia.u64 += accel.instance_user_id(0);
 
     // vec
     float4 a(1.f, 1.f, 1.f, 1.f);
@@ -184,6 +185,14 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2) {
     // member call
     auto n = buffer.load(0);
     buffer.store(n.i, nvidia);
+
+    // query
+    /*
+    accel.query_all({})
+        .on_procedural_candidate(1)
+        .on_surface_candidate(1)
+        .trace();
+    */
 
     /*
     // lambda

@@ -313,6 +313,12 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
                     _type = Type::matrix(N);
                 }
             }
+        } else if (builtin_type_name == "ray_query_all") {
+            _type = Type::custom("LC_RayQueryAll");
+        } else if (builtin_type_name == "ray_query_any") {
+            _type = Type::custom("LC_RayQueryAny");
+        } else if (builtin_type_name == "accel") {
+            _type = Type::of<luisa::compute::Accel>();
         } else if (builtin_type_name == "buffer") {
             if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
                 auto Arguments = TST->template_arguments();
@@ -785,6 +791,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[_static_cast->getSubExpr()]);
                 }
+            } else if (auto _default_arg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
+                const auto lc_local = fb->local(blackboard->FindOrAddType(_default_arg->getType(), blackboard->astContext));
+                TraverseStmt(_default_arg->getExpr());
+                _default_arg->getExpr()->dump();
+                fb->assign(lc_local, stack->expr_map[_default_arg->getExpr()]);
+                current = lc_local;
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
                 current = stack->locals["this"];
             } else if (auto m = llvm::dyn_cast<clang::MemberExpr>(x)) {
@@ -829,13 +841,18 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 } else {
-                    auto callable = blackboard->builders[call->getCalleeDecl()];
-                    if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
-                        fb->call(luisa::compute::Function(callable.get()), lc_args);
-                    else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
-                        current = fb->call(lc_type, luisa::compute::Function(callable.get()), lc_args);
-                    else
-                        luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
+                    auto calleeDecl = call->getCalleeDecl();
+                    if (auto callable = blackboard->builders[calleeDecl]) {
+                        if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
+                            fb->call(luisa::compute::Function(callable.get()), lc_args);
+                        else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
+                            current = fb->call(lc_type, luisa::compute::Function(callable.get()), lc_args);
+                        else
+                            luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
+                    } else {
+                        calleeDecl->dump();
+                        luisa::log_error("unfound function!");
+                    }
                 }
             } else if (auto _init_expr = llvm::dyn_cast<clang::CXXDefaultInitExpr>(x)) {
                 ExprTranslator v(stack, blackboard, fb, _init_expr->getExpr());
@@ -910,8 +927,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         auto params = S->parameters();
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
             ignore |= isIgnore(*Anno);
-            if (isKernel(*Anno))
-            {
+            if (isKernel(*Anno)) {
                 is_kernel = true;
                 getKernelSize(*Anno, kernelSize.x, kernelSize.y, kernelSize.z);
             }
@@ -935,7 +951,6 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             ignore |= param->getType()->isTemplateTypeParmType();
         }
         if (!ignore) {
-
             // S->dump();
 
             if (auto Dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(S)) {
