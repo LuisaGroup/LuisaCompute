@@ -572,9 +572,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 const auto cxx_op = unary->getOpcode();
                 const auto lhs = stack->expr_map[unary->getSubExpr()];
                 const auto lc_type = blackboard->FindOrAddType(unary->getType(), blackboard->astContext);
-                if (!IsUnaryAssignOp(cxx_op))
-                    fb->unary(lc_type, TranslateUnaryOp(cxx_op), lhs);
-                else {
+                if (!IsUnaryAssignOp(cxx_op)) {
+                    current = fb->unary(lc_type, TranslateUnaryOp(cxx_op), lhs);
+                } else {
                     auto one = fb->literal(Type::of<int>(), 1);
                     auto typed_one = one;
                     // auto typed_one = fb->cast(lc_type, CastOp::STATIC, one);

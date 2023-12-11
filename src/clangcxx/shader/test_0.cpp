@@ -22,8 +22,9 @@ struct NVIDIA {
     Array<int, 3> a3;
     float4 f4;
     float4x4 f44;
-    // ! not supportted as field!
+    // ! C-Style array is not supportted !
     // int ds[5];
+    // ! Buffer<> is not supportted as field !
     // Buffer<int> b;
 };
 }// namespace luisa::shader
@@ -48,11 +49,11 @@ struct Holder {
 
 struct TestCtor {
     TestCtor(int v)
-        : x(1), xx(v) {
+        : x(-1/*unary -*/), xx(v) {
     }
     int x;
     int xx;
-    int xxx = 2;
+    int xxx = +2; /*unary +*/
 };
 
 /* dtors are not allowed
