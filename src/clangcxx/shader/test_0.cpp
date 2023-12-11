@@ -115,6 +115,8 @@ auto TestBranch() {
 auto TestForLoop() {
     float f = 1.f;
     for (int i = 0; i < 10; i++) {
+        if (i == 5)
+            continue;
         f += static_cast<float>(i);
         f += (float)i;
     }

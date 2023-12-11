@@ -441,6 +441,7 @@ void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
 
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     const luisa::compute::Expression *caller = nullptr;
+    clang::ForStmt* currentCxxForStmt = nullptr;
 
     bool TraverseStmt(clang::Stmt *x) {
         if (x == nullptr) return true;
@@ -493,6 +494,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             if (auto cxxBody = cxxDefault->getSubStmt())
                 TraverseStmt(cxxBody);
             fb->pop_scope(lc_default_->body());
+        } else if (auto cxxContinue = llvm::dyn_cast<clang::ContinueStmt>(x)) {
+            if (currentCxxForStmt)
+                TraverseStmt(currentCxxForStmt->getInc());
+            fb->continue_();
         } else if (auto cxxBreak = llvm::dyn_cast<clang::BreakStmt>(x)) {
             fb->break_();
         } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
@@ -513,6 +518,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             }
             fb->pop_scope(lc_while_->body());
         } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
+            currentCxxForStmt = cxxFor;
             auto lc_while_ = fb->loop_();
             // i = 0
             auto cxxInit = cxxFor->getInit();
@@ -782,6 +788,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
                 luisa::log_warning("unsupportted init list expr!");
             } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {     // CONTROL FLOW
+            } else if (auto _control_flow = llvm::dyn_cast<clang::ContinueStmt>(x)) {  // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::BreakStmt>(x)) {  // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::WhileStmt>(x)) {  // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::SwitchStmt>(x)) { // CONTROL FLOW
