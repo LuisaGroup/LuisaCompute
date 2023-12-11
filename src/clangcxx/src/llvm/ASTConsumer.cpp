@@ -464,6 +464,25 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 TraverseStmt(cxxBranch->getElse());
             fb->pop_scope(lc_if_->false_branch());
 
+        } else if (auto cxxBreak = llvm::dyn_cast<clang::BreakStmt>(x)) {
+            fb->break_();
+        } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
+            auto lc_while_ = fb->loop_();
+            // while (cond)
+            fb->push_scope(lc_while_->body());
+            {
+                auto cxxCond = cxxWhile->getCond();
+                TraverseStmt(cxxCond);
+                auto lc_cond_if_ = fb->if_(stack->expr_map[cxxCond]);
+                // break
+                fb->push_scope(lc_cond_if_->false_branch());
+                fb->break_();
+                fb->pop_scope(lc_cond_if_->false_branch());
+                // body
+                auto cxxBody = cxxWhile->getBody();
+                TraverseStmt(cxxBody);
+            }
+            fb->pop_scope(lc_while_->body());
         } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
             auto lc_while_ = fb->loop_();
             // i = 0
@@ -471,19 +490,21 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             TraverseStmt(cxxInit);
             // while (cond)
             fb->push_scope(lc_while_->body());
-            auto cxxCond = cxxFor->getCond();
-            TraverseStmt(cxxCond);
-            auto lc_cond_if_ = fb->if_(stack->expr_map[cxxCond]);
-            // break
-            fb->push_scope(lc_cond_if_->false_branch());
-            fb->break_();
-            fb->pop_scope(lc_cond_if_->false_branch());
-            // body
-            auto cxxBody = cxxFor->getBody();
-            TraverseStmt(cxxBody);
-            // i++
-            auto cxxInc = cxxFor->getInc();
-            TraverseStmt(cxxInc);
+            {
+                auto cxxCond = cxxFor->getCond();
+                TraverseStmt(cxxCond);
+                auto lc_cond_if_ = fb->if_(stack->expr_map[cxxCond]);
+                // break
+                fb->push_scope(lc_cond_if_->false_branch());
+                fb->break_();
+                fb->pop_scope(lc_cond_if_->false_branch());
+                // body
+                auto cxxBody = cxxFor->getBody();
+                TraverseStmt(cxxBody);
+                // i++
+                auto cxxInc = cxxFor->getInc();
+                TraverseStmt(cxxInc);
+            }
             fb->pop_scope(lc_while_->body());
         } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
             auto fake_if_ = fb->if_(fb->literal(Type::of<bool>(), true));
@@ -731,11 +752,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = v.translated;
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
                 luisa::log_warning("unsupportted init list expr!");
-            } else if (auto _if = llvm::dyn_cast<clang::IfStmt>(x)) {    // FWD
-            } else if (auto _if = llvm::dyn_cast<clang::ForStmt>(x)) {   // FWD
-            } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {        // EMPTY
-            } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {// EMPTY
-            } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {    // TODO
+            } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {   // FWD
+            } else if (auto _control_flow = llvm::dyn_cast<clang::BreakStmt>(x)) {// FWD
+            } else if (auto _control_flow = llvm::dyn_cast<clang::WhileStmt>(x)) {// FWD
+            } else if (auto _control_flow = llvm::dyn_cast<clang::ForStmt>(x)) {  // FWD
+            } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {                 // EMPTY
+            } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {         // EMPTY
+            } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {             // TODO
                 auto cap = lambda->capture_begin();
                 luisa::log_error("unsupportted lambda expr!");
             } else {

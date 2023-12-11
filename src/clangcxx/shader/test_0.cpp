@@ -118,13 +118,20 @@ auto TestForLoop() {
         f += static_cast<float>(i);
         f += (float)i;
     }
-    /*
+    return f;
+}
+
+auto TestWhileLoop() {
+    float f = 1.f;
     int i = 0;
-    while(true){
-        if(!(i < 10)) break;
+    while (i < 10) {
+        f += static_cast<float>(i);
+        f += (float)i;
         ++i;
+
+        if (f > 10.f)
+            break;
     }
-    */
     return f;
 }
 
@@ -147,14 +154,13 @@ auto TestForLoop() {
     TestCtor ctor(nvidia.ix);
     nvidia.i += ctor.x;
 
-    // branches
-    float ff = nvidia.f += TestBranch();
-
-    // loops
+    // control_flows
+    float f = nvidia.f += TestBranch();
+    float ff = nvidia.f += TestWhileLoop();
     float fff = nvidia.f += TestForLoop();
 
     // built-in call
-    float ffff = nvidia.f += sin(nvidia.f);
+    float _f = nvidia.f += sin(nvidia.f);
 
     // member call
     auto n = buffer.load(0);
