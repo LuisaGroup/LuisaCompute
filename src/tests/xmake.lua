@@ -224,3 +224,4 @@ if get_config("dx_backend") and (enable_fsr2 or enable_xess) then
 		end)
 	end)
 end
+includes("amd")
