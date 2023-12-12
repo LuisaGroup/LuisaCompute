@@ -15,7 +15,9 @@
 #include <luisa/vstl/hash.h>
 #include <luisa/vstl/allocate_type.h>
 #include <luisa/vstl/compare.h>
-
+#if defined(_MSC_VER) && !defined(__clang__)
+#define VSTL_ONLY_MSVC
+#endif
 namespace luisa::detail {
 LUISA_EXPORT_API void *allocator_allocate(size_t size, size_t alignment) noexcept;
 LUISA_EXPORT_API void allocator_deallocate(void *p, size_t alignment) noexcept;
@@ -123,12 +125,16 @@ public:
     }
     StackObject() noexcept {}
     StackObject(const SelfType &value)
+#ifndef VSTL_ONLY_MSVC
         requires(std::is_copy_constructible_v<T>)
+#endif
     {
         new (storage) T(*value);
     }
     StackObject(SelfType &&value)
+#ifndef VSTL_ONLY_MSVC
         requires(std::is_move_constructible_v<T>)
+#endif
     {
         new (storage) T(std::move(*value));
     }
@@ -138,7 +144,9 @@ public:
         new (storage) T(std::forward<Args>(args)...);
     }
     T &operator=(SelfType const &value)
+#ifndef VSTL_ONLY_MSVC
         requires(std::is_copy_assignable_v<T> || std::is_copy_constructible_v<T>)
+#endif
     {
         if constexpr (std::is_copy_assignable_v<T>) {
             operator*() = *value;
@@ -149,7 +157,9 @@ public:
         return **this;
     }
     T &operator=(SelfType &&value)
+#ifndef VSTL_ONLY_MSVC
         requires(std::is_move_assignable_v<T> || std::is_move_constructible_v<T>)
+#endif
     {
         if constexpr (std::is_move_assignable_v<T>) {
             operator*() = std::move(*value);
@@ -288,7 +298,9 @@ public:
           mInitialized(true) {
     }
     StackObject(const SelfType &value) noexcept
+#ifndef VSTL_ONLY_MSVC
         requires(std::is_copy_constructible_v<T>)
+#endif
     {
         mInitialized = value.mInitialized;
         if (mInitialized) {
@@ -296,7 +308,9 @@ public:
         }
     }
     StackObject(SelfType &&value) noexcept
+#ifndef VSTL_ONLY_MSVC
         requires(std::is_move_constructible_v<T>)
+#endif
     {
         mInitialized = value.mInitialized;
         if (mInitialized) {
@@ -308,7 +322,9 @@ public:
             stackObj.destroy();
     }
     T &operator=(SelfType const &value)
+#ifndef VSTL_ONLY_MSVC
         requires(std::is_copy_constructible_v<T>)
+#endif
     {
         if (!mInitialized) {
             if (value.mInitialized) {
@@ -326,7 +342,9 @@ public:
         return *stackObj;
     }
     T &operator=(SelfType &&value)
+#ifndef VSTL_ONLY_MSVC
         requires(std::is_move_constructible_v<T>)
+#endif
     {
         if (!mInitialized) {
             if (value.mInitialized) {
@@ -955,7 +973,9 @@ public:
         }
     }
     variant(variant const &v)
+#ifndef VSTL_ONLY_MSVC
         requires(!detail::AnyMap<std::is_copy_constructible, true>::template Run<AA...>())
+#endif
         : switcher(v.switcher) {
         auto copyFunc = [&]<typename T>(T const &value) {
             new (place_holder()) T(value);
@@ -963,7 +983,9 @@ public:
         v.visit(copyFunc);
     }
     variant(variant &&v)
+#ifndef VSTL_ONLY_MSVC
         requires(!detail::AnyMap<std::is_move_constructible, true>::template Run<AA...>())
+#endif
         : switcher(v.switcher) {
         auto moveFunc = [&]<typename T>(T &value) {
             new (place_holder()) T(std::move(value));
@@ -1011,7 +1033,9 @@ public:
         return *this;
     }
     variant &operator=(variant const &a)
+#ifndef VSTL_ONLY_MSVC
         requires(!detail::AnyMap<std::is_copy_assignable, true>::template Run<AA...>())
+#endif
     {
         if (switcher != a.switcher) {
             this->~variant();
@@ -1030,7 +1054,9 @@ public:
         return *this;
     }
     variant &operator=(variant &&a)
+#ifndef VSTL_ONLY_MSVC
         requires(!detail::AnyMap<std::is_move_assignable, true>::template Run<AA...>())
+#endif
     {
         if (switcher != a.switcher) {
             this->~variant();
@@ -1154,3 +1180,4 @@ public:
     }
 };
 }// namespace vstd
+#undef VSTL_ONLY_MSVC
