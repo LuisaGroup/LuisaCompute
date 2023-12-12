@@ -2,7 +2,6 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/sparse_image.h>
 #include <luisa/runtime/sparse_command_list.h>
-#include <luisa/runtime/buffer.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/vstl/common.h>
@@ -18,9 +17,6 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
     Device device = context.create_device("dx");
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
-    Stream copy_stream = device.create_stream(StreamTag::COPY);
-    Image<float> image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    Buffer<uint> buffer = device.create_buffer<uint>(width * height);
 
     luisa::vector<uint8_t> pixels(width * height * 4);
     for (size_t x = 0; x < width; ++x)
@@ -45,11 +41,11 @@ int main(int argc, char *argv[]) {
             sparse_cmdlist << img.map_tile(uint2(x, y) * 128u / img.tile_size(), uint2(128) / img.tile_size(), 0, heap);
         }
     }
-    copy_stream << sparse_cmdlist.commit() << synchronize();
+    stream << sparse_cmdlist.commit() << synchronize();
 
     auto dstorage_ext = device.extension<DStorageExt>();
     auto file = dstorage_ext->open_file("pixels.bytes");
-    auto dstorage_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::FileSource, width * height / 2 * 4});
+    auto dstorage_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::FileSource});
     // this direct-storage command is totally failed at AMD Radeon RX 7900 XTX
     dstorage_stream << file.copy_to(img.view()) << synchronize();
     Window window{"test dstorage", uint2(width, height)};
@@ -60,6 +56,6 @@ int main(int argc, char *argv[]) {
         false, false, 2)};
     while (!window.should_close()) {
         window.poll_events();
-        stream << swap_chain.present(image);
+        stream << swap_chain.present(img.view());
     }
 }
