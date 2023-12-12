@@ -423,7 +423,9 @@ luisa_compute_shader_create(LCDevice device, LCKernelModule m, const LCShaderOpt
         .compile_only = option.compile_only,
         .max_registers = option.max_registers,
         .time_trace = option.time_trace,
-        .name = luisa::string{option.name}};
+        .name = luisa::string{option.name},
+        .native_include = luisa::string{option.native_include},
+    };
 
     auto info = d->create_shader(shader_option, ir);
     return LCCreatedShaderInfo{

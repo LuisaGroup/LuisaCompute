@@ -78,7 +78,7 @@ int main(int argc, char *argv[]) {
         });
     });
     // save shader to test_manual_ast.bytes
-    device.impl()->create_shader(
+    auto invalid_shader = device.impl()->create_shader(
         {
             .compile_only = true,
             .name = "test_manual_ast.bytes"

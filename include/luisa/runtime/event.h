@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/stream_tag.h>

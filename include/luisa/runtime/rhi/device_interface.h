@@ -113,6 +113,10 @@ public:
     virtual void synchronize_stream(uint64_t stream_handle) noexcept = 0;
     virtual void dispatch(uint64_t stream_handle, CommandList &&list) noexcept = 0;
 
+    using StreamLogCallback = luisa::function<void(luisa::string_view)>;
+    virtual void set_stream_log_callback(uint64_t stream_handle,
+                                  const StreamLogCallback &callback) noexcept;
+
     // swap chain
     [[nodiscard]] virtual SwapchainCreationInfo create_swapchain(
         uint64_t window_handle, uint64_t stream_handle,

@@ -94,9 +94,11 @@ private:
     CUfunction _bindless_array_update_function{nullptr};
     luisa::unique_ptr<CUDACompiler> _compiler;
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
-    luisa::unique_ptr<CUDAEventManager> _event_manager;
     const BinaryIO *_io{nullptr};
     luisa::string _cudadevrt_library;
+
+    mutable spin_mutex _event_manager_mutex;
+    mutable luisa::unique_ptr<CUDAEventManager> _event_manager;
 
 private:
     // extensions
@@ -137,7 +139,7 @@ public:
     [[nodiscard]] auto cudadevrt_library() const noexcept { return luisa::string_view{_cudadevrt_library}; }
     [[nodiscard]] auto compiler() const noexcept { return _compiler.get(); }
     [[nodiscard]] auto io() const noexcept { return _io; }
-    [[nodiscard]] auto event_manager() const noexcept { return _event_manager.get(); }
+    [[nodiscard]] CUDAEventManager *event_manager() const noexcept;
 
 public:
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
@@ -150,6 +152,7 @@ public:
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
+    void set_stream_log_callback(uint64_t stream_handle, const StreamLogCallback &callback) noexcept override;
     void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override;
     SwapchainCreationInfo create_swapchain(uint64_t window_handle, uint64_t stream_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_size) noexcept override;
     void destroy_swap_chain(uint64_t handle) noexcept override;

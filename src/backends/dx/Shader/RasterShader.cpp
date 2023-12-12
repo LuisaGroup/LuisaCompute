@@ -37,9 +37,10 @@ RasterShader::RasterShader(
     vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ComPtr<ID3D12RootSignature> &&rootSig,
+    vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     vstd::vector<std::byte> &&vertBinData,
     vstd::vector<std::byte> &&pixelBinData)
-    : Shader(std::move(prop), std::move(args), std::move(rootSig)), device(device), md5{md5},
+    : Shader(std::move(prop), std::move(args), std::move(rootSig), std::move(printers)), device(device), md5{md5},
       vertBinData{std::move(vertBinData)}, pixelBinData{std::move(pixelBinData)} {
     GetMeshFormatState(elements, meshFormat);
 }
@@ -122,9 +123,10 @@ RasterShader::RasterShader(
     vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     MeshFormat const &meshFormat,
+    vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     vstd::vector<std::byte> &&vertBinData,
     vstd::vector<std::byte> &&pixelBinData)
-    : Shader(std::move(prop), std::move(args), device->device.Get(), true),
+    : Shader(std::move(prop), std::move(args), device->device.Get(), std::move(printers), true),
       device(device), md5{md5},
       vertBinData{std::move(vertBinData)}, pixelBinData{std::move(pixelBinData)} {
     GetMeshFormatState(elements, meshFormat);
@@ -345,7 +347,10 @@ RasterShader *RasterShader::CompileRaster(
         auto pixelBin = GetVector(*compResult.pixel.get<0>());
 
         if (writeCache) {
-            auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount);
+            auto serData = ShaderSerializer::RasterSerialize(
+                str.properties,
+                kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount,
+                str.printers);
             WriteBinaryIO(cacheType, fileIo, fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()});
         }
 
@@ -355,6 +360,7 @@ RasterShader *RasterShader::CompileRaster(
             std::move(str.properties),
             std::move(kernelArgs),
             meshFormat,
+            std::move(str.printers),
             std::move(vertBin),
             std::move(pixelBin));
         s->bindlessCount = bdlsBufferCount;
@@ -416,7 +422,11 @@ void RasterShader::SaveRaster(
     if (str.useBufferBindless) bdlsBufferCount++;
     if (str.useTex2DBindless) bdlsBufferCount++;
     if (str.useTex3DBindless) bdlsBufferCount++;
-    auto serData = ShaderSerializer::RasterSerialize(str.properties, kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount);
+    auto serData = ShaderSerializer::RasterSerialize(
+        str.properties,
+        kernelArgs,
+        vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount,
+        str.printers);
     static_cast<void>(fileIo->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), serData.size_bytes()}));
 }
 RasterShader *RasterShader::LoadRaster(

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "luisa_compute_ir",
+    "luisa_compute_ir_staticlib",
     "luisa_compute_ir_v2",
     "luisa_compute_api_types",
     "luisa_compute_cpu_kernel_defs",
@@ -11,3 +12,7 @@ resolver = "2"
 
 [profile.dev]
 incremental = true
+
+# [profile.release]
+# incremental = true
+# lto = "off"

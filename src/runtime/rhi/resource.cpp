@@ -8,10 +8,7 @@ namespace detail {
 
 [[nodiscard]] static auto allocate_resource_uid() noexcept {
     static std::atomic_uint64_t uid{0u};
-    auto x = ++uid;
-    LUISA_ASSERT(x <= std::numeric_limits<uint32_t>::max(),
-                 "Resource UID overflow.");
-    return static_cast<uint32_t>(x);
+    return ++uid;
 }
 
 }// namespace detail

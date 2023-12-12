@@ -522,6 +522,7 @@ typedef struct LCShaderOption {
     bool time_trace;
     uint32_t max_registers;
     const char *name;
+    const char *native_include;
 } LCShaderOption;
 
 typedef void (*LCDispatchCallback)(uint8_t*);

@@ -66,6 +66,7 @@ static const bool LUISA_CUDA_ENABLE_OPTIX_VALIDATION = ([] {
     if (env == nullptr) return false;
     return std::string_view{env} == "1";
 })();
+
 namespace luisa::compute::cuda {
 
 [[nodiscard]] static auto cuda_array_format(PixelFormat format) noexcept {
@@ -178,9 +179,6 @@ CUDADevice::CUDADevice(Context &&ctx,
         _cudadevrt_library = luisa::string{std::istreambuf_iterator<char>{devrt_file},
                                            std::istreambuf_iterator<char>{}};
     }
-
-    // event pool
-    _event_manager = luisa::make_unique<CUDAEventManager>(handle().uuid());
 }
 
 CUDADevice::~CUDADevice() noexcept {
@@ -188,6 +186,14 @@ CUDADevice::~CUDADevice() noexcept {
         LUISA_CHECK_CUDA(cuCtxSynchronize());
         LUISA_CHECK_CUDA(cuModuleUnload(_builtin_kernel_module));
     });
+}
+
+CUDAEventManager *CUDADevice::event_manager() const noexcept {
+    std::scoped_lock lock{_event_manager_mutex};
+    if (_event_manager == nullptr) [[unlikely]] {
+        _event_manager = luisa::make_unique<CUDAEventManager>(handle().uuid());
+    }
+    return _event_manager.get();
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const Type *element,
@@ -316,6 +322,10 @@ void CUDADevice::synchronize_stream(uint64_t stream_handle) noexcept {
     with_handle([stream = reinterpret_cast<CUDAStream *>(stream_handle)] {
         stream->synchronize();
     });
+}
+
+void CUDADevice::set_stream_log_callback(uint64_t stream_handle, const StreamLogCallback &callback) noexcept {
+    reinterpret_cast<CUDAStream *>(stream_handle)->set_log_callback(callback);
 }
 
 void CUDADevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
@@ -550,11 +560,11 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (expected_metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
             return new_with_allocator<CUDAShaderOptiX>(
-                handle().optix_context(), ptx.data(), ptx.size(),
+                handle().optix_context(), std::move(ptx),
                 "__raygen__main", expected_metadata, std::move(bound_arguments));
         }
         return new_with_allocator<CUDAShaderNative>(
-            this, ptx.data(), ptx.size(), "kernel_main",
+            this, std::move(ptx), "kernel_main",
             expected_metadata, std::move(bound_arguments));
     });
 #ifndef NDEBUG
@@ -774,12 +784,11 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
     auto p = with_handle([&]() noexcept -> CUDAShader * {
         if (metadata.kind == CUDAShaderMetadata::Kind::RAY_TRACING) {
             return new_with_allocator<CUDAShaderOptiX>(
-                handle().optix_context(), ptx.data(), ptx.size(),
+                handle().optix_context(), std::move(ptx),
                 "__raygen__main", metadata);
         }
         return new_with_allocator<CUDAShaderNative>(
-            this, ptx.data(), ptx.size(),
-            "kernel_main", metadata);
+            this, std::move(ptx), "kernel_main", metadata);
     });
 #ifndef NDEBUG
     p->set_name(std::move(name));
@@ -802,17 +811,17 @@ void CUDADevice::destroy_shader(uint64_t handle) noexcept {
 }
 
 ResourceCreationInfo CUDADevice::create_event() noexcept {
-    auto event_handle = with_handle([this] {
-        return _event_manager->create();
+    auto event_handle = with_handle([m = this->event_manager()] {
+        return m->create();
     });
     return {.handle = reinterpret_cast<uint64_t>(event_handle),
             .native_handle = event_handle->handle()};
 }
 
 void CUDADevice::destroy_event(uint64_t handle) noexcept {
-    with_handle([this, handle] {
+    with_handle([m = this->event_manager(), handle] {
         auto event = reinterpret_cast<CUDAEvent *>(handle);
-        _event_manager->destroy(event);
+        m->destroy(event);
     });
 }
 

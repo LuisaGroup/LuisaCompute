@@ -6,12 +6,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             PROFILE ${LUISA_CARGO_PROFILE}
             NO_DEFAULT_FEATURES)
 
-    corrosion_set_env_vars(luisa_compute_ir "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
-    corrosion_set_env_vars(luisa_compute_api_types "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
+    # interestly this is equivalent to doting nothing...
+    # corrosion_set_env_vars(luisa_compute_ir "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
+    # corrosion_set_env_vars(luisa_compute_api_types "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
 
     add_library(luisa-compute-rust-meta INTERFACE)
     target_include_directories(luisa-compute-rust-meta INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-    target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir luisa_compute_api_types)
+    target_link_libraries(luisa-compute-rust-meta INTERFACE luisa_compute_ir_static)
     target_compile_definitions(luisa-compute-rust-meta INTERFACE LUISA_ENABLE_RUST)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(luisa-compute-rust-meta INTERFACE -Wno-return-type-c-linkage)
@@ -60,8 +61,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 FILES_MATCHING REGEX ".*luisa_compute_${target}.*\\.(lib|a)$")
     endfunction()
 
-    luisa_compute_install_rust(api_types)
-    luisa_compute_install_rust(ir)
+    # luisa_compute_install_rust(api_types)
+    luisa_compute_install_rust(ir_static)
     luisa_compute_install(rust-meta)
 
     # optionally enable the CPU and remote backends implemented in Rust

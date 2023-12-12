@@ -148,7 +148,6 @@ void DStorageExtImpl::init_factory_nolock() {
     }
     DStorageGetFactory = dstorage_module.function<std::remove_pointer_t<decltype(DStorageGetFactory)>>("DStorageGetFactory");
     DStorageGetFactory(IID_PPV_ARGS(factory.GetAddressOf()));
-    factory->SetStagingBufferSize(staging_buffer_size);
 }
 void DStorageExtImpl::init_factory() {
     {
@@ -167,10 +166,16 @@ DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDev
     : dstorage_core_module{DynamicModule::load(runtime_dir, "dstoragecore")},
       dstorage_module{DynamicModule::load(runtime_dir, "dstorage")},
       mdevice{device} {
-    staging_size = DSTORAGE_STAGING_BUFFER_SIZE_32MB;
 }
 ResourceCreationInfo DStorageExtImpl::create_stream_handle(const DStorageStreamOption &option) noexcept {
     set_config(option.supports_hdd);
+    if (option.staging_buffer_size != DSTORAGE_STAGING_BUFFER_SIZE_32MB) {
+        if (!staging.exchange(true)) {
+            factory->SetStagingBufferSize(option.staging_buffer_size);
+        } else {
+            LUISA_WARNING("Staging buffer already setted, staging set failed.");
+        }
+    }
     ResourceCreationInfo r;
     auto ptr = new DStorageCommandQueue{factory.Get(), &mdevice->nativeDevice, option.source};
     r.handle = reinterpret_cast<uint64_t>(ptr);

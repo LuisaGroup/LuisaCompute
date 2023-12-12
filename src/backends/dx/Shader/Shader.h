@@ -64,12 +64,14 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSig;
     vstd::vector<hlsl::Property> properties;
     vstd::vector<SavedArgument> kernelArguments;
+    vstd::vector<std::pair<vstd::string, Type const *>> printers;
     uint bindlessCount;
     void SavePSO(ID3D12PipelineState *pso, vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const;
 
 public:
     static vstd::string PSOName(Device const *device, vstd::string_view fileName);
     virtual ~Shader() noexcept = default;
+    vstd::span<const std::pair<vstd::string, Type const *>> Printers() const { return printers; }
     uint BindlessCount() const { return bindlessCount; }
     vstd::span<hlsl::Property const> Properties() const { return properties; }
     vstd::span<SavedArgument const> Args() const { return kernelArguments; }
@@ -77,11 +79,13 @@ public:
         vstd::vector<hlsl::Property> &&properties,
         vstd::vector<SavedArgument> &&args,
         ID3D12Device *device,
+        vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
         bool isRaster);
     Shader(
         vstd::vector<hlsl::Property> &&properties,
         vstd::vector<SavedArgument> &&args,
-        ComPtr<ID3D12RootSignature> &&rootSig);
+        ComPtr<ID3D12RootSignature> &&rootSig,
+        vstd::vector<std::pair<vstd::string, Type const *>> &&printers);
     ID3D12RootSignature *RootSig() const { return rootSig.Get(); }
 
     void SetComputeResource(

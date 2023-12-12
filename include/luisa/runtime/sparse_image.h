@@ -147,6 +147,9 @@ struct is_sparse_image_impl : std::false_type {};
 
 template<typename T>
 struct is_sparse_image_impl<SparseImage<T>> : std::true_type {};
+
+template<typename T>
+struct is_image_impl<SparseImage<T>> : std::true_type {};
 }// namespace detail
 template<typename T>
 using is_sparse_image = detail::is_sparse_image_impl<std::remove_cvref_t<T>>;

@@ -1,6 +1,6 @@
 #include <stb/stb_image.h>
 #include <stb/stb_image_write.h>
-#include <stb/stb_image_resize.h>
+#include <stb/stb_image_resize2.h>
 
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
@@ -62,13 +62,11 @@ int main(int argc, char *argv[]) {
     for (uint i = 1u; i < texture.mip_levels(); i++) {
         uint half_w = std::max(image_width / 2, 1);
         uint half_h = std::max(image_height / 2, 1);
-        stbir_resize_uint8_srgb_edgemode(
-            in_pixels,
-            image_width, image_height, 0,
-            out_pixels,
-            half_w, half_h, 0,
-            4, STBIR_ALPHA_CHANNEL_NONE, 0,
-            STBIR_EDGE_REFLECT);
+        stbir_resize(
+            in_pixels, image_width, image_height, 0,
+            out_pixels, half_w, half_h, 0,
+            STBIR_RGBA, STBIR_TYPE_UINT8_SRGB,
+            STBIR_EDGE_REFLECT, STBIR_FILTER_MITCHELL);
         image_width = half_w;
         image_height = half_h;
         // stbi_write_png(fmt::format("level-{}.png", i).c_str(), image_width, image_height, 4, out_pixels, 0);
@@ -84,4 +82,3 @@ int main(int argc, char *argv[]) {
 
     stbi_write_png("result.png", 1024u, 1024u, 4u, host_image.data(), 0u);
 }
-

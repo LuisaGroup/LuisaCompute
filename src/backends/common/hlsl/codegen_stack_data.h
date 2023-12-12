@@ -16,6 +16,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::HashMap<Type const *, vstd::unique_ptr<StructGenerator>> customStruct;
     vstd::unordered_map<uint, uint> arguments;
     vstd::unordered_map<Type const *, vstd::string> internalStruct;
+    vstd::vector<std::pair<vstd::string, Type const *>> printer;
     enum class FuncType : uint8_t {
         Kernel,
         Vert,

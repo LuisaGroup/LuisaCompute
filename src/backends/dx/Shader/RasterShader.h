@@ -58,6 +58,7 @@ private:
         vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         ComPtr<ID3D12RootSignature> &&rootSig,
+        vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
         vstd::vector<std::byte> &&vertBinData,
         vstd::vector<std::byte> &&pixelBinData);
     std::mutex psoMtx;
@@ -108,6 +109,7 @@ public:
         vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         MeshFormat const &meshFormat,
+        vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
         vstd::vector<std::byte> &&vertBinData,
         vstd::vector<std::byte> &&pixelBinData);
 

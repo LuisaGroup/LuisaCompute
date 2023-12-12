@@ -591,6 +591,7 @@ struct ShaderOption {
     bool time_trace;
     uint32_t max_registers;
     const char *name;
+    const char *native_include;
 };
 
 using DispatchCallback = void(*)(uint8_t*);

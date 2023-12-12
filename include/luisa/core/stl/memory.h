@@ -5,6 +5,17 @@
 #include <cassert>
 #include <memory>
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+
 #include <EASTL/bit.h>
 #include <EASTL/memory.h>
 #include <EASTL/shared_array.h>
@@ -12,6 +23,14 @@
 #include <EASTL/shared_ptr.h>
 #include <EASTL/span.h>
 #include <EASTL/bonus/compressed_pair.h>
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#elif defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/hash_fwd.h>

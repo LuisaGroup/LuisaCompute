@@ -8,17 +8,17 @@ ManagedBindless::ManagedBindless(DeviceInterface *device, size_t slots) noexcept
 
 void ManagedBindless::emplace_buffer(size_t index, uint64 handle, size_t offset) noexcept {
     collector.InRef(index, 0, handle);
-    array._emplace_buffer_on_update(index, handle, offset);
+    array.emplace_buffer_handle_on_update(index, handle, offset);
 }
 
 void ManagedBindless::emplace_tex2d(size_t index, uint64 handle, Sampler sampler) noexcept {
     collector.InRef(index, 1, handle);
-    array._emplace_tex2d_on_update(index, handle, sampler);
+    array.emplace_tex2d_handle_on_update(index, handle, sampler);
 }
 
 void ManagedBindless::emplace_tex3d(size_t index, uint64 handle, Sampler sampler) noexcept {
     collector.InRef(index, 2, handle);
-    array._emplace_tex3d_on_update(index, handle, sampler);
+    array.emplace_tex3d_handle_on_update(index, handle, sampler);
 }
 
 void ManagedBindless::remove_buffer(size_t index) noexcept {

@@ -27,15 +27,23 @@ SavedArgument::SavedArgument(Type const *type) {
 Shader::Shader(
     vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
-    ComPtr<ID3D12RootSignature> &&rootSig)
-    : rootSig(std::move(rootSig)), properties(std::move(prop)), kernelArguments(std::move(args)) {
+    ComPtr<ID3D12RootSignature> &&rootSig,
+    vstd::vector<std::pair<vstd::string, Type const *>> &&printers)
+    : rootSig(std::move(rootSig)),
+      properties(std::move(prop)),
+      kernelArguments(std::move(args)),
+      printers(std::move(printers)) {
 }
 
 Shader::Shader(
     vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ID3D12Device *device,
-    bool isRaster) : properties(std::move(prop)), kernelArguments(std::move(args)) {
+    vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
+    bool isRaster)
+    : properties(std::move(prop)),
+      kernelArguments(std::move(args)),
+      printers(std::move(printers)) {
     auto serializedRootSig = ShaderSerializer::SerializeRootSig(
         properties,
         isRaster);

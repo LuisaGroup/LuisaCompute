@@ -18,14 +18,14 @@ namespace luisa::test {
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 
-#define LUISA_TEST_CASE_WITH_DEVICE(name, condition)                          \
-    TEST_CASE(name) {                                                         \
-        Context context{luisa::test::argv()[0]};                              \
+#define LUISA_TEST_CASE_WITH_DEVICE(name, condition)                        \
+    TEST_CASE(name) {                                                       \
+        Context context{luisa::test::argv()[0]};                            \
         for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {  \
             luisa::string device_name = luisa::test::backends_to_test()[i]; \
-            SUBCASE(device_name.c_str()) {                                    \
-                Device device = context.create_device(device_name.c_str());   \
-                REQUIRE(condition);                                           \
-            }                                                                 \
-        }                                                                     \
+            SUBCASE(device_name.c_str()) {                                  \
+                Device device = context.create_device(device_name.c_str()); \
+                REQUIRE(condition);                                         \
+            }                                                               \
+        }                                                                   \
     }

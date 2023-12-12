@@ -38,6 +38,7 @@ enum class DStorageStreamSource : uint {
 
 struct DStorageStreamOption {
     DStorageStreamSource source{DStorageStreamSource::FileSource};
+    size_t staging_buffer_size = 64ull * 1024ull * 1024ull;
     bool supports_hdd{false};
 };
 

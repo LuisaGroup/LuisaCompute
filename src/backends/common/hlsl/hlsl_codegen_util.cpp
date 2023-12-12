@@ -1543,7 +1543,6 @@ v2p o;
         result << retName
                << " r=vert(vt);\n"sv;
         for (auto i : vstd::range(retType->members().size())) {
-            auto member = retType->members()[i];
             auto num = vstd::to_string(i);
             result << "o.v"sv << num << "=r.v"sv << num;
             result << ";\n"sv;
@@ -1847,6 +1846,11 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
         finalResult << "];\n"sv;
     }
 }
+uint CodegenUtility::AddPrinter(vstd::string_view name, Type const* structType){
+    auto z = opt->printer.size();
+    opt->printer.emplace_back(name, structType);
+    return z;
+}
 void CodegenUtility::CodegenProperties(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &varData,
@@ -1863,7 +1867,6 @@ void CodegenUtility::CodegenProperties(
         return (static_cast<uint>(kernel.variable_usage(v.uid())) & static_cast<uint>(Usage::WRITE)) != 0;
     };
     auto args = kernel.arguments();
-    size_t uavArgCount = 0;
     for (auto &&i : vstd::ptr_range(args.data() + offset, args.size() - offset)) {
         auto print = [&] {
             GetTypeName(*i.type(), varData, kernel.variable_usage(i.uid()));
@@ -1879,9 +1882,6 @@ void CodegenUtility::CodegenProperties(
             varData << "Inst"sv;
         };
         auto genArg = [&]<RegisterType regisT, bool rtBuffer = false, bool writable = false>(ShaderVariableType sT, char v) {
-            if constexpr (regisT == RegisterType::UAV) {
-                uavArgCount += 1;
-            }
             auto &&r = registerCount.get((uint8_t)regisT);
             Property prop = {
                 .type = sT,
@@ -1950,10 +1950,33 @@ void CodegenUtility::CodegenProperties(
             default: break;
         }
     }
-    if (uavArgCount > 64) [[unlikely]] {
-        LUISA_WARNING("Writable resources' count greater than 8 may cause crash.");
-    } else if (uavArgCount > 64) [[unlikely]] {
-        LUISA_ERROR("Writable resources' count must be less than 64.");
+    if (kernel.requires_printing()) {
+        auto &&r = registerCount.get((uint8_t)RegisterType::UAV);
+        {
+            Property prop = {
+                .type = ShaderVariableType::RWStructuredBuffer,
+                .space_index = 0,
+                .register_index = r,
+                .array_size = 1};
+            properties.emplace_back(prop);
+            varData << "RWStructuredBuffer<uint> _printCounter:register(u"sv;
+            vstd::to_string(r, varData);
+            varData << ");\n"sv;
+            r += 1;
+        }
+        {
+            Property prop = {
+                .type = ShaderVariableType::RWStructuredBuffer,
+                .space_index = 0,
+                .register_index = r,
+                .array_size = 1};
+            properties.emplace_back(prop);
+            varData << "RWByteAddressBuffer _printBuffer:register(u"sv;
+            vstd::to_string(r, varData);
+            varData << ");\n"sv;
+            r += 1;
+        }
+        bind_count += 4;
     }
 }
 vstd::MD5 CodegenUtility::GetTypeMD5(vstd::span<Type const *const> types) {
@@ -2040,6 +2063,7 @@ uint4 dsp_c;
     }
     return {
         std::move(finalResult),
+        std::move(opt->printer),
         std::move(properties),
         opt->useTex2DBindless,
         opt->useTex3DBindless,
@@ -2224,6 +2248,7 @@ uint iid:SV_INSTANCEID;
     }
     return {
         std::move(finalResult),
+        std::move(opt->printer),
         std::move(properties),
         opt->useTex2DBindless,
         opt->useTex3DBindless,

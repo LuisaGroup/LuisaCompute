@@ -161,9 +161,21 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         }
     };
 
+    auto warn_empty_launch = [&]() noexcept {
+        LUISA_WARNING_WITH_LOCATION(
+            "Empty launch detected. "
+            "This might be caused by a shader dispatch command with all dispatch sizes set to zero. "
+            "The command will be ignored.");
+    };
+
     if (command->is_indirect()) {
 
         auto indirect = command->indirect_dispatch();
+        if (indirect.max_dispatch_size == 0u) {
+            warn_empty_launch();
+            return;
+        }
+
         auto indirect_buffer = reinterpret_cast<MetalIndirectDispatchBuffer *>(indirect.handle);
         auto indirect_binding = indirect_buffer->binding(indirect.offset, indirect.max_dispatch_size);
 
@@ -230,6 +242,24 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
 
     } else {
 
+        auto single_dispatch_size = make_uint3(0u);
+        luisa::span<const uint3> dispatch_sizes;
+        if (command->is_multiple_dispatch()) {
+            dispatch_sizes = command->dispatch_sizes();
+            if (std::all_of(dispatch_sizes.begin(), dispatch_sizes.end(),
+                            [](auto size) noexcept { return any(size == make_uint3(0u)); })) {
+                warn_empty_launch();
+                return;
+            }
+        } else {
+            single_dispatch_size = command->dispatch_size();
+            dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
+            if (any(single_dispatch_size == make_uint3(0u))) {
+                warn_empty_launch();
+                return;
+            }
+        }
+
         auto compute_encoder = encoder.command_buffer()->computeCommandEncoder(MTL::DispatchTypeConcurrent);
         {
             std::scoped_lock lock{_name_mutex};
@@ -257,16 +287,8 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
         auto size = argument_offset;
         compute_encoder->setBytes(argument_buffer.data(), size, 0u);
 
-        auto single_dispatch_size = make_uint3(0u);
-        luisa::span<const uint3> dispatch_sizes;
-        if (command->is_multiple_dispatch()) {
-            dispatch_sizes = command->dispatch_sizes();
-        } else {
-            single_dispatch_size = command->dispatch_size();
-            dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
-        }
-
         for (auto dispatch_size : dispatch_sizes) {
+            if (any(dispatch_size == make_uint3(0u))) { continue; }
             compute_encoder->setBytes(&dispatch_size, sizeof(dispatch_size), 1u);
             auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
             auto blocks = (dispatch_size + block_size - 1u) / block_size;

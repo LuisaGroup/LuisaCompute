@@ -61,7 +61,7 @@ void MetalCurve::build(MetalCommandEncoder &encoder, CurveBuildCommand *command)
     }();
     auto cp_per_seg = segment_control_point_count(command->basis());
 
-    auto geometry_buffer_changed = [&](auto desc) noexcept {
+    auto geometry_buffer_changed = [&, basis = basis, end_cap = end_cap](auto desc) noexcept {
         return desc->curveBasis() != basis ||
                desc->segmentControlPointCount() != cp_per_seg ||
                desc->controlPointCount() != cp_count ||

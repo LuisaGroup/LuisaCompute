@@ -60,6 +60,9 @@ class Struct:
     def __repr__(self):
         idd = self.structType.idx_dict
         return '{' + ', '.join([name + ':' + repr(self.values[idd[name]]) for name in idd]) + '}'
+    
+    def __hash__(self):
+        return hash(repr(self))
 
 
 def struct(alignment=1, **kwargs):

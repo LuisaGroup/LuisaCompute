@@ -12,8 +12,21 @@ inline T lc_cpu_custom_op(const KernelFnArgs *k_args, size_t i, T value) noexcep
 }
 
 template<class T>
+inline uint64_t lc_address_of(const T &value) noexcept {
+    return reinterpret_cast<uint64_t>(&value);
+}
+template<class T>
+inline uint64_t lc_address_of(const T *value) noexcept {
+    return reinterpret_cast<uint64_t>(value);
+}
+
+template<class T>
 inline size_t lc_buffer_size(const KernelFnArgs *k_args, const BufferView &buffer) noexcept {
     return buffer.size / sizeof(T);
+}
+
+inline uint64_t lc_buffer_address(const BufferView &buffer) noexcept {
+    return reinterpret_cast<uint64_t>(buffer.data);
 }
 
 template<class T>
@@ -187,11 +200,15 @@ inline size_t lc_bindless_buffer_size(const KernelFnArgs *k_args, const Bindless
     auto buf = lc_bindless_buffer(k_args, array, buf_index);
     return buf.size / stride;
 }
+inline uint64_t lc_bindless_buffer_address(const KernelFnArgs *k_args, const BindlessArray &array, size_t buf_index) noexcept {
+    auto buf = lc_bindless_buffer(k_args, array, buf_index);
+    return reinterpret_cast<uint64_t>(buf.data);
+}
 
 template<class T>
 inline T lc_atomic_compare_exchange(T *ptr, T expected, T desired) noexcept {
     auto old = expected;
-    __atomic_compare_exchange_n(ptr, &old, desired, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    __atomic_compare_exchange_n(ptr, &old, desired, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
     return old;
 }
 template<>
@@ -204,7 +221,7 @@ inline float lc_atomic_compare_exchange(float *ptr, float expected, float desire
 
 template<class T>
 inline T lc_atomic_exchange(T *ptr, T desired) noexcept {
-    return __atomic_exchange_n(ptr, desired, __ATOMIC_SEQ_CST);
+    return __atomic_exchange_n(ptr, desired, __ATOMIC_RELAXED);
 }
 template<>
 inline float lc_atomic_exchange(float *ptr, float desired) noexcept {
@@ -215,12 +232,12 @@ inline float lc_atomic_exchange(float *ptr, float desired) noexcept {
 
 template<class T>
 inline T lc_atomic_fetch_add(T *ptr, T value) noexcept {
-    return __atomic_fetch_add(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_add(ptr, value, __ATOMIC_RELAXED);
 }
 
 template<class T>
 inline T lc_atomic_fetch_sub(T *ptr, T value) noexcept {
-    return __atomic_fetch_sub(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_sub(ptr, value, __ATOMIC_RELAXED);
 }
 
 //#ifndef __cpp_lib_atomic_float
@@ -237,17 +254,17 @@ inline T lc_atomic_fetch_sub(T *ptr, T value) noexcept {
 
 template<class T>
 inline T lc_atomic_fetch_and(T *ptr, T value) noexcept {
-    return __atomic_fetch_and(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_and(ptr, value, __ATOMIC_RELAXED);
 }
 
 template<class T>
 inline T lc_atomic_fetch_or(T *ptr, T value) noexcept {
-    return __atomic_fetch_or(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_or(ptr, value, __ATOMIC_RELAXED);
 }
 
 template<class T>
 inline T lc_atomic_fetch_xor(T *ptr, T value) noexcept {
-    return __atomic_fetch_xor(ptr, value, __ATOMIC_SEQ_CST);
+    return __atomic_fetch_xor(ptr, value, __ATOMIC_RELAXED);
 }
 
 template<class T>

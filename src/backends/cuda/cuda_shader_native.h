@@ -22,14 +22,11 @@ private:
     void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 
 public:
-    CUDAShaderNative(CUDADevice *device,
-                     const char *ptx, size_t ptx_size,
-                     const char *entry,
-                     const CUDAShaderMetadata &metadata,
+    CUDAShaderNative(CUDADevice *device, luisa::string ptx,
+                     const char *entry, const CUDAShaderMetadata &metadata,
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
     [[nodiscard]] void *handle() const noexcept override { return _function; }
 };
 
 }// namespace luisa::compute::cuda
-

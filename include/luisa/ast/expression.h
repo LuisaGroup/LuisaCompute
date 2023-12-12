@@ -460,7 +460,7 @@ public:
     LUISA_EXPRESSION_COMMON()
 };
 
-class TypeIDExpr final : public Expression {
+class LC_AST_API TypeIDExpr final : public Expression {
     friend class CallableLibrary;
 
 private:
@@ -480,7 +480,7 @@ public:
     LUISA_EXPRESSION_COMMON()
 };
 
-class StringIDExpr final : public Expression {
+class LC_AST_API StringIDExpr final : public Expression {
     friend class CallableLibrary;
 
 private:

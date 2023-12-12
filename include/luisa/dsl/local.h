@@ -57,6 +57,7 @@ public:
 
     [[nodiscard]] auto expression() const noexcept { return _expression; }
     [[nodiscard]] auto size() const noexcept { return _size; }
+    [[nodiscard]] auto type() const noexcept { return _expression->type(); }
 
     template<typename U>
         requires is_integral_expr_v<U>
@@ -74,6 +75,13 @@ public:
 
     template<typename I, typename U>
     void write(I &&i, U &&u) const noexcept { (*this)[std::forward<I>(i)] = std::forward<U>(u); }
+
+    // for autodiff; see definitions in dsl/builtin.h
+    void requires_grad() const noexcept;
+    void backward() const noexcept;
+    void backward(const Local<T> grad) const noexcept;
+    [[nodiscard]] Local<T> grad() const noexcept;
+    Local<T> detach() const noexcept;
 };
 
 }// namespace luisa::compute
