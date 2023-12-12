@@ -744,6 +744,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 const auto rhs = stack->expr_map[bin->getRHS()];
                 const auto lc_type = bb->FindOrAddType(bin->getType(), bb->astContext);
                 if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
+                    bb->CommentSourceLoc(fb, "COMPOUND ASSIGN", bin->getBeginLoc());
                     auto ca_expr = fb->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
                     fb->assign(lhs, ca_expr);
                     current = lhs;
