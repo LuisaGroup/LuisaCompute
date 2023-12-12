@@ -208,11 +208,66 @@ luisa::compute::CallOp CXXBlackboard::FindCallOp(const luisa::string_view &name)
     return CallOp::ASIN;
 }
 
-void CXXBlackboard::CommentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
+void CXXBlackboard::commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
     const auto &SM = astContext->getSourceManager();
     auto RawLocString = loc.printToString(SM);
     luisa::string fmt = prefix + ", at {}";
     fb->comment_(luisa::format(fmt, RawLocString.data()));
+}
+
+static constexpr auto kUseComment = true;
+CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt *x) {
+    if (kUseComment)
+    {
+        if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
+            return Commenter(
+                [=] {
+                    const DeclGroupRef declGroup = cxxDecl->getDeclGroup();
+                    for (auto decl : declGroup) {
+                        if (!decl) continue;
+                        if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
+                            luisa::string what =
+                                luisa::format("VarDecl: {} {}",
+                                            varDecl->getType().getAsString(),
+                                            varDecl->getNameAsString());
+                            commentSourceLoc(fb, what, varDecl->getBeginLoc());
+                        }
+                    }
+                });
+        } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
+            return Commenter(
+                [=] { commentSourceLoc(fb, "IF BEGIN", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "IF END", x->getBeginLoc()); });
+        } else if (auto cxxSwitch = llvm::dyn_cast<clang::SwitchStmt>(x)) {
+            return Commenter(
+                [=] { commentSourceLoc(fb, "SWITCH BEGIN", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "SWITCH END", x->getBeginLoc()); });
+        } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
+            return Commenter(
+                [=] { commentSourceLoc(fb, "WHILE BEGIN", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "WHILE END", x->getBeginLoc()); });
+        } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
+            return Commenter(
+                [=] { commentSourceLoc(fb, "SCOPE BEGIN", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "SCOPE END", x->getBeginLoc()); });
+        } else if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
+            return Commenter([=] { commentSourceLoc(fb, "RETURN", x->getBeginLoc()); });
+        } else if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
+            return Commenter([=] { commentSourceLoc(fb, "COMPOUND ASSIGN", ca->getBeginLoc()); });
+        } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
+            return Commenter([=] { if(bin->isAssignmentOp()) commentSourceLoc(fb, "ASSIGN", bin->getBeginLoc()); });
+        } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
+            auto cxxFunc = call->getCalleeDecl()->getAsFunction();
+            if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(cxxFunc)) {
+                if (Method->getParent()->isLambda())
+                    return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL LAMBDA: {}", Method->getParent()->getName().data()), x->getBeginLoc()); });
+                else
+                    return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL METHOD: {}::{}", Method->getParent()->getName().data(), Method->getName().data()), x->getBeginLoc()); });
+            } else
+                return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL FUNCTION: {}", cxxFunc->getName().data()), x->getBeginLoc()); });
+        }
+    }
+    return {{}, {}};
 }
 
 const luisa::compute::Type *CXXBlackboard::RecordAsPrimitiveType(const clang::QualType Ty) {
@@ -453,7 +508,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             FunctionBuilderBuilder bdbd(bb, newStack);
             bdbd.build(cxxCallee);
         } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
-            bb->CommentSourceLoc(fb, "IF BEGIN", cxxBranch->getBeginLoc());
+            bb->CommentStmt_(fb, cxxBranch);
 
             auto cxxCond = cxxBranch->getCond();
             TraverseStmt(cxxCond);
@@ -468,10 +523,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             if (cxxBranch->getElse())
                 TraverseStmt(cxxBranch->getElse());
             fb->pop_scope(lc_if_->false_branch());
-
-            bb->CommentSourceLoc(fb, "IF END", cxxBranch->getBeginLoc());
         } else if (auto cxxSwitch = llvm::dyn_cast<clang::SwitchStmt>(x)) {
-            bb->CommentSourceLoc(fb, "SWITCH BEGIN", cxxSwitch->getBeginLoc());
+            bb->CommentStmt_(fb, cxxSwitch);
 
             auto cxxCond = cxxSwitch->getCond();
             TraverseStmt(cxxCond);
@@ -489,8 +542,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     TraverseStmt(cxxCase);
             }
             fb->pop_scope(lc_switch_->body());
-
-            bb->CommentSourceLoc(fb, "SWITCH END", cxxSwitch->getEndLoc());
         } else if (auto cxxCase = llvm::dyn_cast<clang::CaseStmt>(x)) {
             auto cxxCond = cxxCase->getLHS();
             TraverseStmt(cxxCond);
@@ -513,7 +564,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         } else if (auto cxxBreak = llvm::dyn_cast<clang::BreakStmt>(x)) {
             fb->break_();
         } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
-            bb->CommentSourceLoc(fb, "WHILE BEGIN", cxxWhile->getBeginLoc());
+            bb->CommentStmt_(fb, cxxWhile);
 
             auto lc_while_ = fb->loop_();
             // while (cond)
@@ -531,8 +582,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 TraverseStmt(cxxBody);
             }
             fb->pop_scope(lc_while_->body());
-
-            bb->CommentSourceLoc(fb, "WHILE END", cxxWhile->getEndLoc());
         } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
             currentCxxForStmt = cxxFor;
             auto lc_while_ = fb->loop_();
@@ -558,10 +607,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             }
             fb->pop_scope(lc_while_->body());
         } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
-            bb->CommentSourceLoc(fb, "SCOPE BEGIN", cxxCompound->getBeginLoc());
+            bb->CommentStmt_(fb, cxxCompound);
+
             for (auto sub : cxxCompound->body())
                 TraverseStmt(sub);
-            bb->CommentSourceLoc(fb, "SCOPE END", cxxCompound->getEndLoc());
         } else {
             RecursiveASTVisitor<ExprTranslator>::TraverseStmt(x);
         }
@@ -569,20 +618,16 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         // TRANSLATE
         const luisa::compute::Expression *current = nullptr;
         if (x) {
-            if (auto declStmt = llvm::dyn_cast<clang::DeclStmt>(x)) {
-                const DeclGroupRef declGroup = declStmt->getDeclGroup();
+            if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
+                bb->CommentStmt_(fb, cxxDecl);
+
+                const DeclGroupRef declGroup = cxxDecl->getDeclGroup();
                 for (auto decl : declGroup) {
                     if (!decl) continue;
 
                     if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                         auto Ty = varDecl->getType();
                         if (auto lc_type = bb->FindOrAddType(Ty, bb->astContext)) {
-                            luisa::string what =
-                                luisa::format("VarDecl: {} {}",
-                                              varDecl->getType().getAsString(),
-                                              varDecl->getNameAsString());
-                            bb->CommentSourceLoc(fb, what, varDecl->getBeginLoc());
-
                             auto lc_var = fb->local(lc_type);
                             stack->locals[varDecl] = lc_var;
 
@@ -595,12 +640,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             }
                         }
                     } else {
-                        luisa::log_error("unsupported decl stmt: {}", declStmt->getStmtClassName());
+                        luisa::log_error("unsupported decl stmt: {}", cxxDecl->getStmtClassName());
                     }
                 }
-            } else if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
-                bb->CommentSourceLoc(fb, "RETURN", ret->getBeginLoc());
-                auto cxx_ret = ret->getRetValue();
+            } else if (auto cxxRet = llvm::dyn_cast<clang::ReturnStmt>(x)) {
+                bb->CommentStmt_(fb, cxxRet);
+
+                auto cxx_ret = cxxRet->getRetValue();
                 auto lc_ret = stack->expr_map[cxx_ret];
                 if (fb->tag() != compute::Function::Tag::KERNEL) {
                     fb->return_(lc_ret);
@@ -738,17 +784,17 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                 }
             } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
+                bb->CommentStmt_(fb, bin);
+
                 const auto cxx_op = bin->getOpcode();
                 const auto lhs = stack->expr_map[bin->getLHS()];
                 const auto rhs = stack->expr_map[bin->getRHS()];
                 const auto lc_type = bb->FindOrAddType(bin->getType(), bb->astContext);
                 if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
-                    bb->CommentSourceLoc(fb, "COMPOUND ASSIGN", bin->getBeginLoc());
                     auto ca_expr = fb->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
                     fb->assign(lhs, ca_expr);
                     current = lhs;
                 } else if (cxx_op == CXXBinOp::BO_Assign) {
-                    bb->CommentSourceLoc(fb, "ASSIGN", bin->getBeginLoc());
                     fb->assign(lhs, rhs);
                     current = lhs;
                 } else {
@@ -823,10 +869,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     luisa::log_error("unsupported member expr: {}", cxxMember->getMemberDecl()->getNameAsString());
                 }
             } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
-                auto methodDecl = call->getCalleeDecl();
+                bb->CommentStmt_(fb, call);
+
+                auto calleeDecl = call->getCalleeDecl();
                 llvm::StringRef callopName = {};
-                for (auto attr = methodDecl->specific_attr_begin<clang::AnnotateAttr>();
-                     attr != methodDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
+                for (auto attr = calleeDecl->specific_attr_begin<clang::AnnotateAttr>();
+                     attr != calleeDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
                     if (callopName.empty())
                         callopName = getCallopName(*attr);
                 }
