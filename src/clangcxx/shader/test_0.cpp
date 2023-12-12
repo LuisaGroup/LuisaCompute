@@ -151,6 +151,18 @@ auto TestSwitch() {
     return 3.f;
 }
 
+template <typename T>
+auto TestArgsPack_Sum(T v)
+{
+    return v;
+}
+
+template <typename T, typename... Args>
+auto TestArgsPack_Sum(T v, Args... args)
+{
+    return v + TestArgsPack_Sum(args...);
+}
+
 [[kernel_2d(16, 16)]] 
 int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     // member assign
@@ -193,6 +205,9 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
         return x;
     };
     nvidia.f += TestLambda(nvidia.f, nvidia.f);
+
+    // args pack
+    nvidia.f += TestArgsPack_Sum(1.f, 2.f, 3.f);
 
     // member call
     auto n = buffer.load(0);

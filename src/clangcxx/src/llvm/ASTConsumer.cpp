@@ -854,6 +854,15 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
                 } else {
                     auto calleeDecl = call->getCalleeDecl();
+                    if (!bb->lambda_builders.contains(calleeDecl) && !bb->func_builders.contains(calleeDecl)) {
+                        auto funcDecl = calleeDecl->getAsFunction();
+                        if (funcDecl && funcDecl->isFunctionTemplateSpecialization()) {
+                            Stack stack = {};
+                            FunctionBuilderBuilder fbfb(bb, stack);
+                            fbfb.build(calleeDecl->getAsFunction());
+                            calleeDecl = funcDecl;
+                        }
+                    }
                     if (auto func_callable = bb->func_builders[calleeDecl]) {
                         if (call->getCallReturnType(*bb->astContext)->isVoidType())
                             fb->call(luisa::compute::Function(func_callable.get()), lc_args);
