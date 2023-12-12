@@ -233,6 +233,10 @@ CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::
                         }
                     }
                 });
+        } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
+            return Commenter(
+                [=] { commentSourceLoc(fb, "BEGIN FOR", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "END FOR", x->getBeginLoc()); });
         } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
             return Commenter(
                 [=] { commentSourceLoc(fb, "BEGIN IF", x->getBeginLoc()); },
@@ -278,7 +282,7 @@ CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::
             });
         }
     }
-    return {{}, {}};
+    return {[](){}, [](){}};
 }
 
 const luisa::compute::Type *CXXBlackboard::RecordAsPrimitiveType(const clang::QualType Ty) {
@@ -596,6 +600,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             }
             fb->pop_scope(lc_while_->body());
         } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
+            auto _ = bb->CommentStmt_(fb, cxxFor);
+
             currentCxxForStmt = cxxFor;
             auto lc_while_ = fb->loop_();
             // i = 0
