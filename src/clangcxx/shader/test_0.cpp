@@ -76,7 +76,10 @@ auto TestBinary() {
     int yy = n /= 65;
     int ww = n %= 65;
 
-    return m + x + xx + yy + ww;
+    int v = 5;
+    int complex = v += 5; 
+
+    return m + x + xx + yy + ww + complex;
 }
 
 auto TestUnary() {

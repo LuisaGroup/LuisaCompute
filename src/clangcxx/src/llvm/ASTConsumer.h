@@ -35,7 +35,7 @@ struct CXXBlackboard
     const luisa::compute::Type* FindOrAddType(const clang::QualType Ty, const clang::ASTContext* astContext);
 
     luisa::compute::CallOp FindCallOp(const luisa::string_view& name);
-    
+    void CommentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string& prefix, const clang::SourceLocation& loc);
 protected:
     const luisa::compute::Type* findType(const clang::QualType Ty, const clang::ASTContext* astContext);
     bool tryEmplaceFieldType(const clang::QualType Ty, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types);
@@ -52,12 +52,12 @@ struct Stack {
 
 struct FunctionBuilderBuilder
 {
-    explicit FunctionBuilderBuilder(CXXBlackboard* blackboard, Stack& stack) 
-        : blackboard(blackboard), stack(stack) {}
+    explicit FunctionBuilderBuilder(CXXBlackboard* bb, Stack& stack) 
+        : bb(bb), stack(stack) {}
     void build(const clang::FunctionDecl* S);
 private:
     bool recursiveVisit(clang::Stmt* stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack& stack);
-    CXXBlackboard* blackboard = nullptr;
+    CXXBlackboard* bb = nullptr;
     Stack& stack;
 };
 
@@ -67,7 +67,7 @@ public:
     RecordDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
 
-    CXXBlackboard* blackboard = nullptr;
+    CXXBlackboard* bb = nullptr;
 };
 
 class GlobalVarHandler : public clang::ast_matchers::MatchFinder::MatchCallback 
@@ -75,7 +75,7 @@ class GlobalVarHandler : public clang::ast_matchers::MatchFinder::MatchCallback
 public:
     GlobalVarHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
-    CXXBlackboard* blackboard = nullptr;
+    CXXBlackboard* bb = nullptr;
 };
 
 class FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback 
@@ -83,7 +83,7 @@ class FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCa
 public:
     FunctionDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
-    CXXBlackboard* blackboard = nullptr;
+    CXXBlackboard* bb = nullptr;
 };
 
 class ASTConsumer : public clang::ASTConsumer
@@ -97,7 +97,7 @@ public:
     luisa::compute::Device* device = nullptr;
     compute::ShaderOption option;
 
-    CXXBlackboard blackboard;
+    CXXBlackboard bb;
 
     RecordDeclStmtHandler HandlerForTypeDecl;
     GlobalVarHandler HandlerForGlobalVar;
