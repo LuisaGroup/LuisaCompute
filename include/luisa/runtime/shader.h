@@ -230,6 +230,7 @@ class Shader final : public Resource {
 
 private:
     friend class Device;
+    friend class CallableLibrary;
     uint _block_size[3];
     size_t _uniform_size{};
 

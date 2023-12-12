@@ -2,7 +2,7 @@
 
 #include <luisa/ast/ast2json.h>
 #include <luisa/ast/atomic_ref_node.h>
-#include <luisa/ast/callable_library.h>
+#include <luisa/runtime/callable_library.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/expression.h>
 #include <luisa/ast/external_function.h>

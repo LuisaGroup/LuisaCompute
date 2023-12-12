@@ -1,6 +1,6 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/logging.h>
-#include <luisa/ast/callable_library.h>
+#include <luisa/runtime/callable_library.h>
 
 namespace luisa::compute {
 
@@ -756,19 +756,21 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
     builder._propagated_builtin_callables = deser_value<CallOpSet>(ptr, pack);
     builder._tag = deser_value<Function::Tag>(ptr, pack);
     builder._requires_atomic_float = deser_value<bool>(ptr, pack);
+    builder._requires_printing = deser_value<bool>(ptr, pack);
+    builder._block_size = deser_value<uint3>(ptr, pack);
     deser_ptr<Statement *>(&builder._body, ptr, pack);
     auto popped = callable_library_function_builder_deserialize_stack_pop();
     LUISA_ASSERT(popped == &builder, "Illegal function builder stack.");
+    builder.sort_bindings();
 }
 void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &builder, luisa::vector<std::byte> &vec) noexcept {
     using namespace detail;
     using namespace std::string_view_literals;
-    LUISA_ASSERT(builder.tag() == Function::Tag::CALLABLE, "Only callable can be serialized.");
     for (auto &&i : builder._bound_arguments) {
         LUISA_ASSERT(luisa::holds_alternative<luisa::monostate>(i),
-                     "Callable cannot contain bound-argument.");
+                     "Serialized function cannot contain bound-argument.");
     }
-    LUISA_ASSERT(builder._used_external_functions.empty(), "Callable cannot contain external-function.");
+    LUISA_ASSERT(builder._used_external_functions.empty(), "Serialized function cannot contain external-function.");
     ser_value(builder.required_curve_bases().to_u64(), vec);
     // return type
     if (builder._return_type)
@@ -815,6 +817,9 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     ser_value(builder._tag, vec);
     // requires_atomic_float
     ser_value(builder._requires_atomic_float, vec);
+    // requires printing
+    ser_value(builder._requires_printing, vec);
+    ser_value(builder._block_size, vec);
     // body
     ser_value(static_cast<Statement const &>(builder._body), vec);
 }

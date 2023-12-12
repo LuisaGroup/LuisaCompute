@@ -18,7 +18,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/dispatch_buffer.h>
-#include <luisa/ast/callable_library.h>
+#include <luisa/runtime/callable_library.h>
 namespace py = pybind11;
 using namespace luisa;
 using namespace luisa::compute;
