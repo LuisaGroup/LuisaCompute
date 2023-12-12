@@ -267,6 +267,15 @@ CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::
         } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
             auto cxxCtorDecl = cxxCtor->getConstructor();
             return Commenter([=] { commentSourceLoc(fb, luisa::format("CONSTRUCT: {}", cxxCtorDecl->getParent()->getName().data()), x->getBeginLoc()); });
+        } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
+            return Commenter([=] {
+                auto funcDecl = llvm::dyn_cast<FunctionDecl>(cxxDefaultArg->getParam()->getParentFunctionOrMethod());
+                commentSourceLoc(fb,
+                                 luisa::format("DEFAULT ARG: {}::{}",
+                                               funcDecl ? funcDecl->getQualifiedNameAsString() : "unknown-func",
+                                               cxxDefaultArg->getParam()->getName().data()),
+                                 x->getBeginLoc());
+            });
         }
     }
     return {{}, {}};
@@ -433,11 +442,13 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
         }
 
         luisa::vector<const luisa::compute::Type *> types;
-        for (auto f = S->field_begin(); f != S->field_end(); f++) {
-            auto Ty = f->getType();
-            if (!tryEmplaceFieldType(Ty, S, types)) {
-                S->dump();
-                luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
+        if (!S->isLambda()) { // ignore lambda generated capture fields
+            for (auto f = S->field_begin(); f != S->field_end(); f++) {
+                auto Ty = f->getType();
+                if (!tryEmplaceFieldType(Ty, S, types)) {
+                    S->dump();
+                    luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
+                }
             }
         }
         // align
@@ -676,6 +687,18 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
                 bb->CommentStmt_(fb, cxxCtor);
 
+                // TODO: REFACTOR THIS
+                auto calleeDecl = cxxCtor->getConstructor();
+                if (!bb->func_builders.contains(calleeDecl)) {
+                    auto funcDecl = calleeDecl->getAsFunction();
+                    auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
+                    const auto isTemplateInstant = funcDecl->isTemplateInstantiation();
+                    if (isTemplateInstant) {
+                        FunctionBuilderBuilder fbfb(bb, *stack);
+                        fbfb.build(calleeDecl->getAsFunction());
+                    }
+                }
+
                 auto local = fb->local(bb->FindOrAddType(cxxCtor->getType(), bb->astContext));
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
@@ -688,6 +711,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
                 if (auto callable = bb->func_builders[cxxCtor->getConstructor()]) {
                     fb->call(luisa::compute::Function(callable.get()), lc_args);
+                    current = local;
+                } else if (cxxCtor->getConstructor()->getParent()->isLambda()) {
+                    // ...IGNORE LAMBDA CTOR...
                     current = local;
                 } else {
                     bool isBuiltin = false;
@@ -737,9 +763,23 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                         // clang-format on
                                     }
                                 }
-                            } else {
-                                Ty->dump();
-                            }
+                            } else
+                                luisa::log_error("???");
+                        } else if (builtinName == "matrix") {
+                            auto Ty = cxxCtor->getType();
+                            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
+                                auto Arguments = TST->template_arguments();
+                                clang::Expr::EvalResult Result;
+                                if (Arguments[0].getAsExpr()->EvaluateAsConstantExpr(Result, *bb->astContext)) {
+                                    auto N = Result.Val.getInt().getExtValue();
+                                    auto lc_type = Type::matrix(N);
+                                    const CallOp MATRIX_LUT[3] = {CallOp::MAKE_FLOAT2X2, CallOp::MAKE_FLOAT3X3, CallOp::MAKE_FLOAT4X4};
+                                    current = fb->call(lc_type, MATRIX_LUT[N - 2], {lc_args.begin() + 1, lc_args.end()});
+                                };
+                            } else
+                                luisa::log_error("???");
+                        } else {
+                            luisa::log_error("unhandled builtin constructor: {}", cxxCtor->getConstructor()->getNameAsString());
                         }
                     } else {
                         cxxCtor->dump();
@@ -854,10 +894,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[_static_cast->getSubExpr()]);
                 }
-            } else if (auto _default_arg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
-                const auto _value = fb->local(bb->FindOrAddType(_default_arg->getType(), bb->astContext));
-                TraverseStmt(_default_arg->getExpr());
-                fb->assign(_value, stack->expr_map[_default_arg->getExpr()]);
+            } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
+                bb->CommentStmt_(fb, cxxDefaultArg);
+
+                const auto _value = fb->local(bb->FindOrAddType(cxxDefaultArg->getType(), bb->astContext));
+                TraverseStmt(cxxDefaultArg->getExpr());
+                fb->assign(_value, stack->expr_map[cxxDefaultArg->getExpr()]);
                 current = _value;
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
                 current = stack->locals[nullptr];
@@ -905,15 +947,20 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
                 } else {
                     auto calleeDecl = call->getCalleeDecl();
+
+                    // TODO: REFACTOR THIS
                     if (!bb->lambda_builders.contains(calleeDecl) && !bb->func_builders.contains(calleeDecl)) {
                         auto funcDecl = calleeDecl->getAsFunction();
-                        if (funcDecl && funcDecl->isFunctionTemplateSpecialization()) {
-                            Stack stack = {};
-                            FunctionBuilderBuilder fbfb(bb, stack);
+                        auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
+                        const auto isTemplateInstant = funcDecl->isTemplateInstantiation();
+                        const auto isLambda = methodDecl && methodDecl->getParent()->isLambda();
+                        if (isTemplateInstant || isLambda) {
+                            FunctionBuilderBuilder fbfb(bb, *stack);
                             fbfb.build(calleeDecl->getAsFunction());
                             calleeDecl = funcDecl;
                         }
                     }
+
                     if (auto func_callable = bb->func_builders[calleeDecl]) {
                         if (call->getCallReturnType(*bb->astContext)->isVoidType())
                             fb->call(luisa::compute::Function(func_callable.get()), lc_args);
@@ -1054,8 +1101,8 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                 }
 
                 // comment name
+                luisa::string name;
                 if (kUseComment) {
-                    luisa::string name;
                     if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S))
                         name = "[Ctor] ";
                     else if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S))
@@ -1176,7 +1223,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
             isLambda = Method->getParent()->isLambda();
         }
-        if (!isLambda) {
+        if (!isLambda && !S->isTemplateInstantiation()) {
             auto stack = Stack();
             FunctionBuilderBuilder bdbd(bb, stack);
             bdbd.build(S);

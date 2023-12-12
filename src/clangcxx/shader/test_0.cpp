@@ -19,9 +19,12 @@ struct NVIDIA {
     int3 i3;
     uint3 u3;
     F fuck;
-    Array<int, 3> a3;
     float4 f4;
+
     float4x4 f44;
+    // TODO: CTOR, COPY
+    // Array<int, 3> a3;
+
     // ! C-Style array is not supportted !
     // int ds[5];
     // ! Buffer<> is not supportted as field !
@@ -31,8 +34,8 @@ struct NVIDIA {
 
 // Buffer<NVIDIA> buffer;
 template<typename T>
-struct Holder {
-    Holder(T v)
+struct Template {
+    Template(T v)
         : value(v), value2(v) {}
     void call() {
         if constexpr (is_floatN<T>::value) {
@@ -45,6 +48,16 @@ struct Holder {
     }
     T value;
     T value2;
+};
+
+template<>
+struct Template<NVIDIA> {
+    Template(NVIDIA v)
+        : nv(v) {}
+    void call() {
+        nv.f += 1.f;
+    }
+    NVIDIA nv;
 };
 
 struct TestCtor {
@@ -91,11 +104,18 @@ auto TestUnary() {
     return m + x + xx + yy;
 }
 
-auto TestHolder() {
+auto TestTemplate() {
     int v = 5;
-    Holder h(v);
+    Template h(v);
     h.call();
     return h;
+}
+
+auto TestTemplateSpec() {
+    NVIDIA nvidia = {};
+    Template h(nvidia);
+    h.call();
+    return nvidia.f;
 }
 
 auto TestBranch() {
@@ -183,6 +203,18 @@ void TestArgsPack_Percentage(Args&... args)
     TestArgsPack_Div(Sum, args...);
 }
 
+template <typename F, typename... Args>
+auto TestInvoke(F func, Args&... args)
+{
+    return func(args...);
+}
+
+template <typename F, typename... Args>
+auto TestInvokeInvoke(F func, Args&... args)
+{
+    return TestInvoke(func, args...);
+}
+
 [[kernel_2d(16, 16)]] 
 int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     // member assign
@@ -196,8 +228,9 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     int iii = nvidia.i = TestUnary();
 
     // template
-    Holder h = TestHolder();
+    Template h = TestTemplate();
     int xxxx = nvidia.l += h.value;
+    nvidia.f += TestTemplateSpec();
 
     // ctor
     TestCtor ctor(nvidia.ix);
@@ -225,6 +258,12 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
         return x;
     };
     nvidia.f += TestLambda(nvidia.f, nvidia.f);
+
+    // invoke
+    auto TestLambda2 = [&]() { return _f + 1.f; };
+    nvidia.f += TestInvoke(TestLambda2);
+    nvidia.f += TestInvoke(TestLambda, nvidia.f, nvidia.f);
+    nvidia.f += TestInvokeInvoke(TestLambda2);
 
     // args pack
     nvidia.f += TestArgsPack_Sum(1.f, 2.f, 3.f);
