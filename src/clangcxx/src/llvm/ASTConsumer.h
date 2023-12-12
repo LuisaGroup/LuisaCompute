@@ -46,7 +46,7 @@ protected:
 };
 
 struct Stack {
-    luisa::unordered_map<luisa::string, const luisa::compute::RefExpr *> locals;
+    luisa::unordered_map<const clang::ValueDecl*, const luisa::compute::RefExpr *> locals;
     luisa::unordered_map<const clang::Stmt *, const luisa::compute::Expression *> expr_map;
 };
 

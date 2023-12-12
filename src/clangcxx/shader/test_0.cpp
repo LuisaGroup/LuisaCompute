@@ -163,6 +163,26 @@ auto TestArgsPack_Sum(T v, Args... args)
     return v + TestArgsPack_Sum(args...);
 }
 
+template <typename T>
+void TestArgsPack_Div(T Div, T &v)
+{
+    v /= Div;
+}
+
+template <typename T, typename... Args>
+void TestArgsPack_Div(T Div, T& v, Args&... args)
+{
+    TestArgsPack_Div(Div, v);
+    TestArgsPack_Div(Div, args...);
+}
+
+template <typename... Args>
+void TestArgsPack_Percentage(Args&... args)
+{
+    auto Sum = TestArgsPack_Sum(args...);
+    TestArgsPack_Div(Sum, args...);
+}
+
 [[kernel_2d(16, 16)]] 
 int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     // member assign
@@ -208,6 +228,8 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
 
     // args pack
     nvidia.f += TestArgsPack_Sum(1.f, 2.f, 3.f);
+    float p0 = 1.f, p1 = 2.f, p2 = 3.f;
+    TestArgsPack_Percentage(p0, p1, p2);
 
     // member call
     auto n = buffer.load(0);

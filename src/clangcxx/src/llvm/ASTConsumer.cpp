@@ -584,8 +584,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             bb->CommentSourceLoc(fb, what, varDecl->getBeginLoc());
 
                             auto lc_var = fb->local(lc_type);
-                            auto str = luisa::string(varDecl->getName());
-                            stack->locals[str] = lc_var;
+                            stack->locals[varDecl] = lc_var;
 
                             auto init = varDecl->getInit();
                             if (auto lc_init = stack->expr_map[init]) {
@@ -757,8 +756,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
             } else if (auto dref = llvm::dyn_cast<DeclRefExpr>(x)) {
                 auto str = luisa::string(dref->getNameInfo().getName().getAsString());
-                if (stack->locals[str]) {
-                    current = stack->locals[str];
+                if (stack->locals[dref->getDecl()]) {
+                    current = stack->locals[dref->getDecl()];
                 } else if (auto value = dref->getDecl(); value && llvm::isa<clang::VarDecl>(value))// Value Ref
                 {
                     if (auto var = value->getPotentiallyDecomposedVarDecl()) {
@@ -811,7 +810,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 fb->assign(_value, stack->expr_map[_default_arg->getExpr()]);
                 current = _value;
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
-                current = stack->locals["this"];
+                current = stack->locals[nullptr];
             } else if (auto cxxMember = llvm::dyn_cast<clang::MemberExpr>(x)) {
                 if (cxxMember->isBoundMemberFunction(*bb->astContext)) {
                     auto lhs = stack->expr_map[cxxMember->getBase()];
@@ -934,7 +933,7 @@ protected:
 };
 
 void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
-    bool ignore = false;
+    bool ignore = S->isTemplateDecl();
     bool is_kernel = false;
     uint3 kernelSize;
     bool is_method = false;
@@ -967,6 +966,9 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
     }
     for (auto param : params) {
         ignore |= param->getType()->isTemplateTypeParmType();
+        ignore |= (param->getType()->getTypeClass() == clang::Type::PackExpansion);
+        ignore |= param->isTemplateParameterPack();
+        ignore |= param->isTemplateParameter();
     }
     if (!ignore) {
         // S->dump();
@@ -1016,7 +1018,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                     auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S);
                     if (auto lc_type = bb->FindOrAddType(methodThisType, bb->astContext)) {
                         auto this_local = builder->reference(lc_type);
-                        stack.locals["this"] = this_local;
+                        stack.locals[nullptr] = this_local;
                     } else {
                         luisa::log_error("???");
                     }
@@ -1044,14 +1046,14 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                                 local = LC_ArgOrRef(Ty, builder, lc_type);
                                 break;
                         }
-                        stack.locals[luisa::string(param->getName())] = local;
+                        stack.locals[param] = local;
                     }
                 }
 
                 // ctor initializers
                 if (is_method) {
                     if (auto lc_type = bb->FindOrAddType(methodThisType, bb->astContext)) {
-                        auto this_local = stack.locals["this"];
+                        auto this_local = stack.locals[nullptr];
                         if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
                             for (auto ctor_init : Ctor->inits()) {
                                 auto init = ctor_init->getInit();
