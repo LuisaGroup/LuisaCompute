@@ -182,6 +182,14 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     float4 a(1.f, 1.f, 1.f, 1.f);
     buffer2.store(0, a);
 
+    // lambda
+    auto TestLambda = [&, _f](float v){
+        ff += 1.f;
+        auto x = _f + ff - v;
+        return x;
+    };
+    nvidia.f += TestLambda(nvidia.f);
+
     // member call
     auto n = buffer.load(0);
     buffer.store(n.i, nvidia);
@@ -195,15 +203,6 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
         .on_procedural_candidate(1)
         .on_surface_candidate(1)
         .trace();
-    */
-    
-    /*
-    // lambda
-    auto l = [=](int i){
-        int x = n + 1;
-        return x;
-    };
-    auto f = l(2);
     */
 
     return 0;

@@ -24,7 +24,8 @@ struct CXXBlackboard
     clang::ASTContext* astContext = nullptr;
     luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
     luisa::unordered_map<luisa::string, const luisa::compute::RefExpr*> globals;
-    luisa::unordered_map<const clang::Decl*, luisa::shared_ptr<compute::detail::FunctionBuilder>> builders;
+    luisa::unordered_map<const clang::Decl*, luisa::shared_ptr<compute::detail::FunctionBuilder>> func_builders;
+    luisa::unordered_map<const clang::Decl*, luisa::shared_ptr<compute::detail::FunctionBuilder>> lambda_builders;
     
     const luisa::compute::Type* RecordAsPrimitiveType(const clang::QualType Type);
     const luisa::compute::Type* RecordAsBuiltinType(const clang::QualType Ty);
@@ -49,13 +50,22 @@ struct Stack {
     luisa::unordered_map<const clang::Stmt *, const luisa::compute::Expression *> expr_map;
 };
 
+struct FunctionBuilderBuilder
+{
+    explicit FunctionBuilderBuilder(CXXBlackboard* blackboard, Stack& stack) 
+        : blackboard(blackboard), stack(stack) {}
+    void build(const clang::FunctionDecl* S);
+private:
+    bool recursiveVisit(clang::Stmt* stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack& stack);
+    CXXBlackboard* blackboard = nullptr;
+    Stack& stack;
+};
+
 class RecordDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback 
 {
 public:
     RecordDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
-
-
 
     CXXBlackboard* blackboard = nullptr;
 };
@@ -72,7 +82,6 @@ class FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCa
 {
 public:
     FunctionDeclStmtHandler() = default;
-    bool recursiveVisit(clang::Stmt* stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack& stack);
     void run(const MatchFinder::MatchResult &Result) final;
     CXXBlackboard* blackboard = nullptr;
 };

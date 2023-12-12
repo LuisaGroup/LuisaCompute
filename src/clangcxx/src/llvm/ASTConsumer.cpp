@@ -421,31 +421,6 @@ bool CXXBlackboard::tryEmplaceFieldType(const clang::QualType Qt, const clang::R
     return false;
 }
 
-void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
-    auto &kernel_builder = blackboard->kernel_builder;
-    if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
-        QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
-        blackboard->RecordAsStuctureType(Ty);
-    }
-}
-
-void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
-    auto &kernel_builder = blackboard->kernel_builder;
-    if (const auto *S = Result.Nodes.getNodeAs<clang::VarDecl>("VarDecl")) {
-        bool ignore = false;
-        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            ignore |= isIgnore(*Anno);
-        }
-        const auto isGlobal = S->isStaticLocal() || S->isStaticDataMember() || S->isFileVarDecl();
-        const auto isConst = S->isConstexpr() || S->getType().isConstQualified();
-        const auto isNonConstGlobal = isGlobal && !isConst;
-        if (!ignore && isNonConstGlobal) {
-            S->dump();
-            luisa::log_error("global vars are banned!");
-        }
-    }
-}
-
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     const luisa::compute::Expression *caller = nullptr;
     clang::ForStmt *currentCxxForStmt = nullptr;
@@ -454,7 +429,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         if (x == nullptr) return true;
 
         // CONTROL WALK
-        if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
+        if (auto cxxLambda = llvm::dyn_cast<LambdaExpr>(x)) {
+            auto cxxCallee = cxxLambda->getLambdaClass()->getLambdaCallOperator();
+            Stack newStack = *stack;
+            FunctionBuilderBuilder bdbd(blackboard, newStack);
+            bdbd.build(cxxCallee);
+        } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
             auto cxxCond = cxxBranch->getCond();
             TraverseStmt(cxxCond);
 
@@ -628,7 +608,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                 }
-                if (auto callable = blackboard->builders[construct->getConstructor()]) {
+                if (auto callable = blackboard->func_builders[construct->getConstructor()]) {
                     fb->call(luisa::compute::Function(callable.get()), lc_args);
                     current = local;
                 } else {
@@ -758,8 +738,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 current = fb->literal(Type::of<float>(), (float)eval->getFloat().convertToFloat());
                             else
                                 luisa::log_error("unsupportted eval type: {}", eval->getKind());
-                        } else
+                        } else {
+                            dref->dump();
                             luisa::log_error("unfound & unresolved ref: {}", str);
+                        }
                     }
                 } else if (auto value = dref->getDecl(); value && llvm::isa<clang::FunctionDecl>(value))// Func Ref
                     ;
@@ -841,13 +823,21 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                 } else {
                     auto calleeDecl = call->getCalleeDecl();
-                    if (auto callable = blackboard->builders[calleeDecl]) {
+                    if (auto func_callable = blackboard->func_builders[calleeDecl]) {
                         if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
-                            fb->call(luisa::compute::Function(callable.get()), lc_args);
+                            fb->call(luisa::compute::Function(func_callable.get()), lc_args);
                         else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
-                            current = fb->call(lc_type, luisa::compute::Function(callable.get()), lc_args);
+                            current = fb->call(lc_type, luisa::compute::Function(func_callable.get()), lc_args);
                         else
-                            luisa::log_error("unfound return type: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
+                            luisa::log_error("unfound return type in method/function: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
+                    } else if (auto lambda_callable = blackboard->lambda_builders[calleeDecl]) {
+                        luisa::span<const luisa::compute::Expression *> lambda_args = {lc_args.begin() + 1, lc_args.end()};
+                        if (call->getCallReturnType(*blackboard->astContext)->isVoidType())
+                            fb->call(luisa::compute::Function(lambda_callable.get()), lambda_args);
+                        else if (auto lc_type = blackboard->FindOrAddType(call->getCallReturnType(*blackboard->astContext), blackboard->astContext))
+                            current = fb->call(lc_type, luisa::compute::Function(lambda_callable.get()), lambda_args);
+                        else
+                            luisa::log_error("unfound return type in lambda: {}", call->getCallReturnType(*blackboard->astContext)->getCanonicalTypeInternal().getAsString());
                     } else {
                         calleeDecl->dump();
                         luisa::log_error("unfound function!");
@@ -874,11 +864,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto _control_flow = llvm::dyn_cast<clang::CaseStmt>(x)) {    // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::DefaultStmt>(x)) { // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::ForStmt>(x)) {     // CONTROL FLOW
+            } else if (auto cxxLambda = llvm::dyn_cast<LambdaExpr>(x)) {             // LAMBDA TRANSLATED
             } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {                    // EMPTY
             } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {            // EMPTY
-            } else if (auto lambda = llvm::dyn_cast<LambdaExpr>(x)) {                // TODO
-                auto cap = lambda->capture_begin();
-                luisa::log_error("unsupportted lambda expr!");
+
             } else {
                 x->dump();
                 luisa::log_error("unsupportted expr!");
@@ -904,7 +893,150 @@ protected:
     clang::Stmt *root = nullptr;
 };
 
-bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *currStmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack) {
+void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
+    bool ignore = false;
+    bool is_kernel = false;
+    uint3 kernelSize;
+    bool is_method = false;
+    bool is_lambda = false;
+    QualType methodThisType;
+    auto params = S->parameters();
+    for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+        ignore |= isIgnore(*Anno);
+        if (isKernel(*Anno)) {
+            is_kernel = true;
+            getKernelSize(*Anno, kernelSize.x, kernelSize.y, kernelSize.z);
+        }
+    }
+    if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
+        if (auto thisType = GetRecordDeclFromQualType(Method->getThisType()->getPointeeType())) {
+            for (auto Anno = thisType->specific_attr_begin<clang::AnnotateAttr>(); Anno != thisType->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+                ignore |= isBuiltinType(*Anno);
+            }
+            for (auto f : thisType->fields())
+                ignore |= f->getType()->isTemplateTypeParmType();
+            if (thisType->isLambda())// ignore global lambda declares, we deal them on stacks only
+                is_lambda = true;
+        } else {
+            // Method->getThisType()->dump();
+            luisa::log_error("unfound this type [{}] in method [{}]",
+                             Method->getThisType()->getPointeeType().getAsString(), S->getNameAsString());
+        }
+        is_method = !is_lambda;
+        methodThisType = Method->getThisType()->getPointeeType();
+    }
+    for (auto param : params) {
+        ignore |= param->getType()->isTemplateTypeParmType();
+    }
+    if (!ignore) {
+        // S->dump();
+
+        if (auto Dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(S)) {
+            if (!Dtor->isDefaulted()) {
+                S->dump();
+                auto dtorName = Dtor->getQualifiedNameAsString();
+                luisa::log_error("dtor {} is not allowed!", dtorName.c_str());
+            }
+        }
+
+        luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
+        Stmt *body = S->getBody();
+        {
+            if (is_kernel)
+                builder = blackboard->kernel_builder;
+            else
+                builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
+
+            if (is_lambda)
+                blackboard->lambda_builders[S] = builder;
+            else
+                blackboard->func_builders[S] = builder;
+
+            luisa::compute::detail::FunctionBuilder::push(builder.get());
+            builder->push_scope(builder->body());
+            {
+                if (is_kernel) {
+                    builder->set_block_size(kernelSize);
+                }
+
+                // comment name
+                if (true) {
+                    luisa::string name = luisa::string(S->getName());
+                    if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
+                        {
+                            name += "Ctor: ";
+                            name += Ctor->getQualifiedNameAsString();
+                        }
+                    }
+                    builder->comment_(name);
+                }
+                // Stack stack;
+                // this arg
+                if (is_method) {
+                    auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S);
+                    if (auto lc_type = blackboard->FindOrAddType(methodThisType, blackboard->astContext)) {
+                        auto this_local = builder->reference(lc_type);
+                        stack.locals["this"] = this_local;
+                    } else {
+                        luisa::log_error("???");
+                    }
+                }
+
+                // collect args
+                for (auto param : params) {
+                    auto Ty = param->getType();
+                    if (auto lc_type = blackboard->FindOrAddType(Ty, blackboard->astContext)) {
+                        const luisa::compute::RefExpr *local = nullptr;
+                        switch (lc_type->tag()) {
+                            case compute::Type::Tag::BUFFER:
+                                local = builder->buffer(lc_type);
+                                break;
+                            case compute::Type::Tag::TEXTURE:
+                                local = builder->texture(lc_type);
+                                break;
+                            case compute::Type::Tag::BINDLESS_ARRAY:
+                                local = builder->bindless_array();
+                                break;
+                            case compute::Type::Tag::ACCEL:
+                                local = builder->accel();
+                                break;
+                            default:
+                                local = builder->argument(lc_type);
+                                break;
+                        }
+                        stack.locals[luisa::string(param->getName())] = local;
+                    }
+                }
+
+                // ctor initializers
+                if (is_method) {
+                    if (auto lc_type = blackboard->FindOrAddType(methodThisType, blackboard->astContext)) {
+                        auto this_local = stack.locals["this"];
+                        if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
+                            for (auto ctor_init : Ctor->inits()) {
+                                auto init = ctor_init->getInit();
+                                ExprTranslator v(&stack, blackboard, builder, init);
+                                if (v.TraverseStmt(init)) {
+                                    const auto cxxMember = ctor_init->getMember();
+                                    const auto lcMemberType = blackboard->FindOrAddType(cxxMember->getType(), blackboard->astContext);
+                                    const auto fid = cxxMember->getFieldIndex();
+                                    auto mem = builder->member(lcMemberType, this_local, fid);
+                                    builder->assign(mem, v.translated);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                recursiveVisit(body, builder, stack);
+            }
+            builder->pop_scope(builder->body());
+            luisa::compute::detail::FunctionBuilder::pop(builder.get());
+        }
+    }
+}
+
+bool FunctionBuilderBuilder::recursiveVisit(clang::Stmt *currStmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack) {
     if (!currStmt)
         return true;
 
@@ -915,141 +1047,42 @@ bool FunctionDeclStmtHandler::recursiveVisit(clang::Stmt *currStmt, luisa::share
     return true;
 }
 
+void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
+    auto &kernel_builder = blackboard->kernel_builder;
+    if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
+        QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
+        blackboard->RecordAsStuctureType(Ty);
+    }
+}
+
+void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
+    auto &kernel_builder = blackboard->kernel_builder;
+    if (const auto *S = Result.Nodes.getNodeAs<clang::VarDecl>("VarDecl")) {
+        bool ignore = false;
+        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+            ignore |= isIgnore(*Anno);
+        }
+        const auto isGlobal = S->isStaticLocal() || S->isStaticDataMember() || S->isFileVarDecl();
+        const auto isConst = S->isConstexpr() || S->getType().isConstQualified();
+        const auto isNonConstGlobal = isGlobal && !isConst;
+        if (!ignore && isNonConstGlobal) {
+            S->dump();
+            luisa::log_error("global vars are banned!");
+        }
+    }
+}
+
 void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     // The matched 'if' statement was bound to 'ifStmt'.
     if (const auto *S = Result.Nodes.getNodeAs<clang::FunctionDecl>("FunctionDecl")) {
-        bool ignore = false;
-        bool is_kernel = false;
-        uint3 kernelSize;
-        bool is_method = false;
-        QualType methodThisType;
-        auto params = S->parameters();
-        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            ignore |= isIgnore(*Anno);
-            if (isKernel(*Anno)) {
-                is_kernel = true;
-                getKernelSize(*Anno, kernelSize.x, kernelSize.y, kernelSize.z);
-            }
-        }
+        bool isLambda = false;
         if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
-            if (auto thisType = GetRecordDeclFromQualType(Method->getThisType()->getPointeeType())) {
-                for (auto Anno = thisType->specific_attr_begin<clang::AnnotateAttr>(); Anno != thisType->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-                    ignore |= isBuiltinType(*Anno);
-                }
-                for (auto f : thisType->fields())
-                    ignore |= f->getType()->isTemplateTypeParmType();
-            } else {
-                // Method->getThisType()->dump();
-                luisa::log_error("unfound this type [{}] in method [{}]",
-                                 Method->getThisType()->getPointeeType().getAsString(), S->getNameAsString());
-            }
-            is_method = true;
-            methodThisType = Method->getThisType()->getPointeeType();
+            isLambda = Method->getParent()->isLambda();
         }
-        for (auto param : params) {
-            ignore |= param->getType()->isTemplateTypeParmType();
-        }
-        if (!ignore) {
-            // S->dump();
-
-            if (auto Dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(S)) {
-                if (!Dtor->isDefaulted()) {
-                    S->dump();
-                    auto dtorName = Dtor->getQualifiedNameAsString();
-                    luisa::log_error("dtor {} is not allowed!", dtorName.c_str());
-                }
-            }
-
-            luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
-            Stmt *body = S->getBody();
-            {
-                if (is_kernel) {
-                    builder = blackboard->kernel_builder;
-                } else {
-                    builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
-                }
-                blackboard->builders[S] = builder;
-                luisa::compute::detail::FunctionBuilder::push(builder.get());
-                builder->push_scope(builder->body());
-                {
-                    if (is_kernel) {
-                        builder->set_block_size(kernelSize);
-                    }
-
-                    // comment name
-                    if (true) {
-                        luisa::string name = luisa::string(S->getName());
-                        if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
-                            {
-                                name += "Ctor: ";
-                                name += Ctor->getQualifiedNameAsString();
-                            }
-                        }
-                        builder->comment_(name);
-                    }
-                    Stack stack;
-                    // this arg
-                    if (is_method) {
-                        auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S);
-                        if (auto lc_type = blackboard->FindOrAddType(methodThisType, blackboard->astContext)) {
-                            auto this_local = builder->reference(lc_type);
-                            stack.locals["this"] = this_local;
-                        } else {
-                            luisa::log_error("???");
-                        }
-                    }
-
-                    // collect args
-                    for (auto param : params) {
-                        auto Ty = param->getType();
-                        if (auto lc_type = blackboard->FindOrAddType(Ty, blackboard->astContext)) {
-                            const luisa::compute::RefExpr *local = nullptr;
-                            switch (lc_type->tag()) {
-                                case compute::Type::Tag::BUFFER:
-                                    local = builder->buffer(lc_type);
-                                    break;
-                                case compute::Type::Tag::TEXTURE:
-                                    local = builder->texture(lc_type);
-                                    break;
-                                case compute::Type::Tag::BINDLESS_ARRAY:
-                                    local = builder->bindless_array();
-                                    break;
-                                case compute::Type::Tag::ACCEL:
-                                    local = builder->accel();
-                                    break;
-                                default:
-                                    local = builder->argument(lc_type);
-                                    break;
-                            }
-                            stack.locals[luisa::string(param->getName())] = local;
-                        }
-                    }
-
-                    // ctor initializers
-                    if (is_method) {
-                        if (auto lc_type = blackboard->FindOrAddType(methodThisType, blackboard->astContext)) {
-                            auto this_local = stack.locals["this"];
-                            if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
-                                for (auto ctor_init : Ctor->inits()) {
-                                    auto init = ctor_init->getInit();
-                                    ExprTranslator v(&stack, blackboard, builder, init);
-                                    if (v.TraverseStmt(init)) {
-                                        const auto cxxMember = ctor_init->getMember();
-                                        const auto lcMemberType = blackboard->FindOrAddType(cxxMember->getType(), blackboard->astContext);
-                                        const auto fid = cxxMember->getFieldIndex();
-                                        auto mem = builder->member(lcMemberType, this_local, fid);
-                                        builder->assign(mem, v.translated);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    recursiveVisit(body, builder, stack);
-                }
-                builder->pop_scope(builder->body());
-                luisa::compute::detail::FunctionBuilder::pop(builder.get());
-            }
+        if (!isLambda) {
+            auto stack = Stack();
+            FunctionBuilderBuilder bdbd(blackboard, stack);
+            bdbd.build(S);
         }
     }
 }
