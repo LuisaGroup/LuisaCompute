@@ -114,16 +114,15 @@ public:
         requires is_sparse_image_v<SparseImage>
     [[nodiscard]] auto copy_to(
         SparseImage &&image,
-        uint2 start_tile, uint2 tile_count, uint mip_level,
+        uint2 start_coord, uint2 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
-        auto size = tile_count * image.tile_size();
-        auto offset = start_tile * image.tile_size();
+        LUISA_ASSERT(all(start_coord + size <= image.size()), "Out of range.");
         return luisa::make_unique<DStorageReadCommand>(
             _dstorage_source(),
             DStorageReadCommand::TextureRequest{
                 .handle = image.handle(),
                 .level = mip_level,
-                .offset = {offset.x, offset.y, 0u},
+                .offset = {start_coord.x, start_coord.y, 0u},
                 .size = {size.x, size.y, 1u}},
             compression);
     }
@@ -132,16 +131,15 @@ public:
         requires is_sparse_volume_v<SparseVolume>
     [[nodiscard]] auto copy_to(
         SparseVolume &&volume,
-        uint3 start_tile, uint3 tile_count, uint mip_level,
+        uint3 start_coord, uint3 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
-        auto size = tile_count * volume.tile_size();
-        auto offset = start_tile * volume.tile_size();
+        LUISA_ASSERT(all(start_coord + size <= volume.size()), "Out of range.");
         return luisa::make_unique<DStorageReadCommand>(
             _dstorage_source(),
             DStorageReadCommand::TextureRequest{
                 .handle = volume.handle(),
                 .level = mip_level,
-                .offset = {offset.x, offset.y, offset.z},
+                .offset = {start_coord.x, start_coord.y, start_coord.z},
                 .size = {size.x, size.y, size.z}},
             compression);
     }
@@ -234,18 +232,18 @@ public:
         requires is_sparse_image_v<SparseImage>
     [[nodiscard]] auto copy_to(
         SparseImage &&image,
-        uint2 start_tile, uint2 tile_count, uint mip_level,
+        uint2 start_coord, uint2 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
-        return view().copy_to(std::forward<SparseImage>(image), start_tile, tile_count, mip_level, compression);
+        return view().copy_to(std::forward<SparseImage>(image), start_coord, size, mip_level, compression);
     }
 
     template<typename SparseVolume>
         requires is_sparse_volume_v<SparseVolume>
     [[nodiscard]] auto copy_to(
         SparseVolume &&volume,
-        uint3 start_tile, uint3 tile_count, uint mip_level,
+        uint3 start_coord, uint3 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
-        return view().copy_to(std::forward<SparseVolume>(volume), start_tile, tile_count, mip_level, compression);
+        return view().copy_to(std::forward<SparseVolume>(volume), start_coord, size, mip_level, compression);
     }
 };
 
@@ -274,4 +272,3 @@ inline Stream DStorageExt::create_stream(const DStorageStreamOption &option) noe
 }
 
 }// namespace luisa::compute
-

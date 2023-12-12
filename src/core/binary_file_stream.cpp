@@ -79,6 +79,12 @@ void BinaryFileStream::close() noexcept {
     _pos = 0;
 }
 
+void BinaryFileStream::set_pos(size_t pos) noexcept {
+    LUISA_ASSERT(pos <= _length, "Set pos {} out of range {}.", pos, _length);
+    LUISA_FSEEK(_file, static_cast<int64_t>(pos), SEEK_SET);
+    _pos = pos;
+}
+
 #undef LUISA_FSEEK
 #undef LUISA_FTELL
 #undef LUISA_FREAD

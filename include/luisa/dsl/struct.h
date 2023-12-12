@@ -11,23 +11,6 @@
 template<typename T>
 struct luisa_compute_extension {};
 
-namespace luisa::compute::detail {
-
-template<typename T>
-struct c_array_to_std_array {
-    using type = T;
-};
-
-template<typename T, size_t N>
-struct c_array_to_std_array<T[N]> {
-    using type = std::array<T, N>;
-};
-
-template<typename T>
-using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
-
-};// namespace luisa::compute::detail
-
 #define LUISA_STRUCT_MAKE_MEMBER_TYPE(m)                    \
     using member_type_##m = detail::c_array_to_std_array_t< \
         std::remove_cvref_t<                                \

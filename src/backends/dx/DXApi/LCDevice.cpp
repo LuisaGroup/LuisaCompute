@@ -97,6 +97,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         [](DeviceExtension *ext) {
             delete static_cast<DxDirectMLExt *>(ext);
         });
+#ifdef LCDX_ENABLE_CUDA
     exts.try_emplace(
         DxCudaInterop::name,
         [](LCDevice *device) -> DeviceExtension * {
@@ -105,6 +106,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         [](DeviceExtension *ext) {
             delete static_cast<DxCudaInteropImpl *>(ext);
         });
+#endif
     exts.try_emplace(
         PinnedMemoryExt::name,
         [](LCDevice *device) -> DeviceExtension * {
@@ -143,8 +145,7 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element,
                       &nativeDevice,
                       info.total_size_bytes,
                       nativeDevice.defaultAllocator.get());
-    }
-    else if (element->is_custom()) {
+    } else if (element->is_custom()) {
         if (element == Type::of<IndirectKernelDispatch>()) {
             LUISA_ASSERT(external_memory == nullptr,
                          "IndirectKernelDispatch buffer cannot "
@@ -273,6 +274,11 @@ void LCDevice::dispatch(uint64 stream_handle, CommandList &&list) noexcept {
             static_cast<DStorageCommandQueue *>(queue)->Execute(std::move(list));
             break;
     }
+}
+void LCDevice::set_stream_log_callback(uint64_t stream_handle,
+                                       const StreamLogCallback &callback) noexcept {
+    auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
+    queue->logCallback = callback;
 }
 
 ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function kernel) noexcept {

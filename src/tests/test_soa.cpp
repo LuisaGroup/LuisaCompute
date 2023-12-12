@@ -16,8 +16,22 @@ struct A {
     bool2 b;
     bool c;
     D d;
-    int4 e;
+    std::array<std::array<int4, 1>, 1> e;
 };
+
+struct LightDistributionTreeNode {
+    unsigned int left;
+    unsigned int right;
+    float leftContribution;
+    float rightContribution;
+};
+
+struct LightDistributionCell {
+    std::array<std::array<LightDistributionTreeNode, 256>, 2> nodes;
+};
+
+LUISA_STRUCT(LightDistributionTreeNode, left, right, leftContribution, rightContribution) {};
+LUISA_STRUCT(LightDistributionCell, nodes) {};
 
 LUISA_STRUCT(A, a, b, c, d, e) {};
 
@@ -40,7 +54,7 @@ LUISA_STRUCT(A, a, b, c, d, e) {};
            all(lhs.b == rhs.b) &&
            lhs.c == rhs.c &&
            lhs.d == rhs.d &&
-           all(lhs.e == rhs.e);
+           all(lhs.e[0][0] == rhs.e[0][0]);
 }
 
 int main(int argc, char *argv[]) {
@@ -68,7 +82,7 @@ int main(int argc, char *argv[]) {
                               dist(engine), dist(engine), dist(engine));
         a.d.n = make_float2x2(dist(engine), dist(engine),
                               dist(engine), dist(engine));
-        a.e = make_int4(engine(), engine(), engine(), engine());
+        a.e[0][0] = make_int4(engine(), engine(), engine(), engine());
         return a;
     };
     luisa::vector<A> host_upload(n);

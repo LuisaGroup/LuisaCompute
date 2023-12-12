@@ -19,12 +19,15 @@ find_package(Threads REQUIRED)
 add_library(luisa-compute-core SHARED ${LUISA_COMPUTE_CORE_STL_SOURCES} ${LUISA_COMPUTE_CORE_SOURCES})
 target_compile_definitions(luisa-compute-core PRIVATE LC_CORE_EXPORT_DLL=1)
 
-target_link_libraries(luisa-compute-core PUBLIC
+target_link_libraries(luisa-compute-core
+        PUBLIC
         luisa-compute-include
         luisa-compute-ext
         Threads::Threads
         ${CMAKE_DL_LIBS}
-        $<$<PLATFORM_ID:Windows>:dbghelp>)
+        $<$<PLATFORM_ID:Windows>:dbghelp>
+        PRIVATE
+        reproc reproc++)
 
 set_target_properties(luisa-compute-core PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}

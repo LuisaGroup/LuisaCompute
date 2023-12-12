@@ -54,7 +54,8 @@ public:
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(uint64_t stream_handle, CommandList &&list) noexcept override;
-
+    void set_stream_log_callback(uint64_t stream_handle,
+                                 const StreamLogCallback &callback) noexcept override;
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override;
     ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override;

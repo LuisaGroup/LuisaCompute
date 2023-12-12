@@ -6,6 +6,7 @@
 namespace lc::dx {
 namespace shader_ser {
 struct Header {
+    uint64 headerVersion;
     vstd::MD5 md5;
     vstd::MD5 typeMD5;
     uint64 rootSigBytes;
@@ -14,8 +15,10 @@ struct Header {
     uint propertyCount;
     uint bindlessCount;
     uint kernelArgCount;
+    uint printerCount;
 };
 struct RasterHeader {
+    uint64 headerVersion;
     vstd::MD5 md5;
     vstd::MD5 typeMD5;
     uint64 rootSigBytes;
@@ -24,9 +27,36 @@ struct RasterHeader {
     uint propertyCount;
     uint bindlessCount;
     uint kernelArgCount;
+    uint printerCount;
 };
 }// namespace shader_ser
+namespace detail {
+void SerPrinterSize(std::pair<vstd::string, Type const *> const &printer, vstd::vector<std::byte> &vec) {
+    std::pair<size_t, size_t> strAndTypeSize{printer.first.size(), printer.second->description().size()};
+    auto lastSize = vec.size();
+    vec.push_back_uninitialized(strAndTypeSize.first + strAndTypeSize.second + sizeof(strAndTypeSize));
+    auto ptr = vec.data() + lastSize;
+    memcpy(ptr, &strAndTypeSize, sizeof(strAndTypeSize));
+    ptr += sizeof(strAndTypeSize);
+    memcpy(ptr, printer.first.data(), strAndTypeSize.first);
+    ptr += strAndTypeSize.first;
+    memcpy(ptr, printer.second->description().data(), strAndTypeSize.second);
+}
+std::pair<vstd::string, Type const *> DeserPrinterSize(BinaryStream *streamer) {
+    std::pair<size_t, size_t> strAndTypeSize;
+    streamer->read({reinterpret_cast<std::byte *>(&strAndTypeSize), sizeof(strAndTypeSize)});
+    std::pair<vstd::string, Type const *> r;
+    r.first.resize(strAndTypeSize.first);
+    vstd::vector<char> typeDesc;
+    typeDesc.resize_uninitialized(strAndTypeSize.second);
+    streamer->read({reinterpret_cast<std::byte *>(r.first.data()), strAndTypeSize.first});
+    streamer->read({reinterpret_cast<std::byte *>(typeDesc.data()), strAndTypeSize.second});
+    r.second = Type::from(vstd::string_view{typeDesc.data(), typeDesc.size()});
+    return r;
+}
+}// namespace detail
 static constexpr size_t kRootSigReserveSize = 16384;
+static constexpr uint64 kHeaderVersion = 1ull;
 vstd::vector<std::byte>
 ShaderSerializer::Serialize(
     vstd::span<hlsl::Property const> properties,
@@ -35,23 +65,29 @@ ShaderSerializer::Serialize(
     vstd::MD5 const &checkMD5,
     vstd::MD5 const &typeMD5,
     uint bindlessCount,
-    uint3 blockSize) {
+    uint3 blockSize,
+    vstd::span<std::pair<vstd::string, Type const *> const> printers) {
     using namespace shader_ser;
     vstd::vector<std::byte> result;
     result.reserve(sizeof(Header) + binByte.size_bytes() + properties.size_bytes() + kernelArgs.size_bytes() + kRootSigReserveSize);
     result.push_back_uninitialized(sizeof(Header));
+    for (auto &i : printers) {
+        detail::SerPrinterSize(i, result);
+    }
     Header header = {
+        .headerVersion = kHeaderVersion,
         .md5 = checkMD5,
         .typeMD5 = typeMD5,
         .rootSigBytes = (uint64)SerializeRootSig(properties, result, false),
         .codeBytes = (uint64)binByte.size(),
         .propertyCount = static_cast<uint>(properties.size()),
         .bindlessCount = bindlessCount,
-        .kernelArgCount = static_cast<uint>(kernelArgs.size())};
+        .kernelArgCount = static_cast<uint>(kernelArgs.size()),
+        .printerCount = static_cast<uint>(printers.size())};
     for (auto i : vstd::range(3)) {
         header.blockSize[i] = blockSize[i];
     }
-    *reinterpret_cast<Header *>(result.data()) = std::move(header);
+    *reinterpret_cast<Header *>(result.data()) = header;
     vstd::push_back_all(result, binByte);
     vstd::push_back_all(result,
                         reinterpret_cast<std::byte const *>(properties.data()),
@@ -68,12 +104,14 @@ vstd::vector<std::byte> ShaderSerializer::RasterSerialize(
     vstd::span<std::byte const> pixelBin,
     vstd::MD5 const &checkMD5,
     vstd::MD5 const &typeMD5,
-    uint bindlessCount) {
+    uint bindlessCount,
+    vstd::span<std::pair<vstd::string, Type const *> const> printers) {
     using namespace shader_ser;
     vstd::vector<std::byte> result;
     result.reserve(sizeof(RasterHeader) + vertBin.size_bytes() + pixelBin.size_bytes() + properties.size_bytes() + kernelArgs.size_bytes() + kRootSigReserveSize);
     result.push_back_uninitialized(sizeof(RasterHeader));
     RasterHeader header = {
+        .headerVersion = kHeaderVersion,
         .md5 = checkMD5,
         .typeMD5 = typeMD5,
         .rootSigBytes = (uint64)SerializeRootSig(properties, result, true),
@@ -81,8 +119,12 @@ vstd::vector<std::byte> ShaderSerializer::RasterSerialize(
         .pixelCodeBytes = (uint64)pixelBin.size(),
         .propertyCount = static_cast<uint>(properties.size()),
         .bindlessCount = bindlessCount,
-        .kernelArgCount = static_cast<uint>(kernelArgs.size())};
+        .kernelArgCount = static_cast<uint>(kernelArgs.size()),
+        .printerCount = static_cast<uint>(printers.size())};
     *reinterpret_cast<RasterHeader *>(result.data()) = std::move(header);
+    for (auto &i : printers) {
+        detail::SerPrinterSize(i, result);
+    }
     vstd::push_back_all(result, vertBin);
     vstd::push_back_all(result, pixelBin);
     vstd::push_back_all(result,
@@ -100,11 +142,11 @@ bool ShaderSerializer::CheckMD5(
     using namespace shader_ser;
     auto binStream = streamFunc.read_shader_bytecode(fileName);
     if (binStream == nullptr) return false;
-    vstd::MD5 md5;
-    binStream->read({reinterpret_cast<std::byte *>(&md5),
-                     sizeof(vstd::MD5)});
+    std::pair<uint64, vstd::MD5> versionAndMD5;
+    binStream->read({reinterpret_cast<std::byte *>(&versionAndMD5),
+                     sizeof(versionAndMD5)});
 
-    return md5 == checkMD5;
+    return versionAndMD5.first == kHeaderVersion && versionAndMD5.second == checkMD5;
 }
 ComputeShader *ShaderSerializer::DeSerialize(
     vstd::string_view name,
@@ -122,16 +164,21 @@ ComputeShader *ShaderSerializer::DeSerialize(
     Header header;
     binStream->read({reinterpret_cast<std::byte *>(&header),
                      sizeof(Header)});
-    if (checkMD5 && header.md5 != *checkMD5) return nullptr;
+    if (header.headerVersion != kHeaderVersion || (checkMD5 && header.md5 != *checkMD5)) return nullptr;
+    // TODO: printer
+    vstd::vector<std::pair<vstd::string, Type const *>> printers;
+    vstd::push_back_func(
+        printers,
+        header.printerCount,
+        [&](size_t i) {
+            return detail::DeserPrinterSize(binStream.get());
+        });
     size_t targetSize =
         header.rootSigBytes +
         header.codeBytes +
         header.propertyCount * sizeof(hlsl::Property) +
         header.kernelArgCount * sizeof(SavedArgument);
     typeMD5 = header.typeMD5;
-    if (binStream->length() != sizeof(Header) + targetSize) {
-        return nullptr;
-    }
     vstd::vector<std::byte> binCode;
     binCode.push_back_uninitialized(targetSize);
     vstd::vector<std::byte> psoCode;
@@ -194,6 +241,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
         std::move(properties),
         std::move(kernelArgs),
         std::move(bindings),
+        std::move(printers),
         std::move(rootSig),
         std::move(pso));
     cs->bindlessCount = header.bindlessCount;
@@ -214,8 +262,15 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     binStream->read(
         {reinterpret_cast<std::byte *>(&header),
          sizeof(RasterHeader)});
-    if (ilMd5 && header.md5 != *ilMd5) return nullptr;
-
+    if (header.headerVersion != kHeaderVersion || (ilMd5 && header.md5 != *ilMd5)) return nullptr;
+    // TODO: printer
+    vstd::vector<std::pair<vstd::string, Type const *>> printers;
+    vstd::push_back_func(
+        printers,
+        header.printerCount,
+        [&](size_t i) {
+            return detail::DeserPrinterSize(binStream.get());
+        });
     size_t targetSize =
         header.rootSigBytes +
         header.vertCodeBytes +
@@ -223,9 +278,6 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         header.propertyCount * sizeof(hlsl::Property) +
         header.kernelArgCount * sizeof(SavedArgument);
     typeMD5 = header.typeMD5;
-    if (binStream->length() != targetSize + sizeof(RasterHeader)) {
-        return nullptr;
-    }
     vstd::vector<std::byte> binCode;
     binCode.push_back_uninitialized(targetSize);
     binStream->read({binCode.data(), binCode.size()});
@@ -297,6 +349,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         std::move(properties),
         std::move(kernelArgs),
         std::move(rootSig),
+        std::move(printers),
         std::move(vertBin),
         std::move(pixelBin));
     s->bindlessCount = header.bindlessCount;

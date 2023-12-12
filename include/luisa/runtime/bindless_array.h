@@ -1,6 +1,7 @@
 #pragma once
 
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/spin_mutex.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/mipmap.h>
 #include <luisa/runtime/rhi/resource.h>
@@ -49,20 +50,18 @@ private:
     size_t _size{0u};
     // "emplace" and "remove" operations will be cached under _updates and commit in update() command
     luisa::unordered_set<Modification, ModSlotHash, ModSlotEqual> _updates;
+    mutable luisa::spin_mutex _mtx;
 
 private:
     friend class Device;
     friend class ManagedBindless;
     BindlessArray(DeviceInterface *device, size_t size) noexcept;
-    void _emplace_buffer_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
-    void _emplace_tex2d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
-    void _emplace_tex3d_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
 
 public:
     BindlessArray() noexcept = default;
     ~BindlessArray() noexcept override;
     using Resource::operator bool;
-    BindlessArray(BindlessArray &&) noexcept = default;
+    BindlessArray(BindlessArray &&) noexcept;
     BindlessArray(BindlessArray const &) noexcept = delete;
     BindlessArray &operator=(BindlessArray &&rhs) noexcept {
         _move_from(std::move(rhs));
@@ -72,14 +71,20 @@ public:
     // properties
     [[nodiscard]] auto size() const noexcept {
         _check_is_valid();
+        std::lock_guard lck{_mtx};
         return _size;
     }
     // whether there are any stashed updates
     [[nodiscard]] auto dirty() const noexcept {
         _check_is_valid();
+        std::lock_guard lck{_mtx};
         return !_updates.empty();
     }
     // on-update functions' operations will be committed by update()
+    void emplace_buffer_handle_on_update(size_t index, uint64_t handle, size_t offset_bytes) noexcept;
+    void emplace_tex2d_handle_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
+    void emplace_tex3d_handle_on_update(size_t index, uint64_t handle, Sampler sampler) noexcept;
+    
     BindlessArray &remove_buffer_on_update(size_t index) noexcept;
     BindlessArray &remove_tex2d_on_update(size_t index) noexcept;
     BindlessArray &remove_tex3d_on_update(size_t index) noexcept;
@@ -93,27 +98,27 @@ public:
         } else {
             offset_bytes = 0;
         }
-        _emplace_buffer_on_update(index, buffer.handle(), offset_bytes);
+        emplace_buffer_handle_on_update(index, buffer.handle(), offset_bytes);
         return *this;
     }
 
     auto &emplace_on_update(size_t index, const Image<float> &image, Sampler sampler) noexcept {
-        _emplace_tex2d_on_update(index, image.handle(), sampler);
+        emplace_tex2d_handle_on_update(index, image.handle(), sampler);
         return *this;
     }
 
     auto &emplace_on_update(size_t index, const Volume<float> &volume, Sampler sampler) noexcept {
-        _emplace_tex3d_on_update(index, volume.handle(), sampler);
+        emplace_tex3d_handle_on_update(index, volume.handle(), sampler);
         return *this;
     }
 
     auto &emplace_on_update(size_t index, const SparseImage<float> &texture, Sampler sampler) noexcept {
-        _emplace_tex2d_on_update(index, texture.handle(), sampler);
+        emplace_tex2d_handle_on_update(index, texture.handle(), sampler);
         return *this;
     }
 
     auto &emplace_on_update(size_t index, const SparseVolume<float> &texture, Sampler sampler) noexcept {
-        _emplace_tex3d_on_update(index, texture.handle(), sampler);
+        emplace_tex3d_handle_on_update(index, texture.handle(), sampler);
         return *this;
     }
 

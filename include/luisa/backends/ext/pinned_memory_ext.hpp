@@ -61,6 +61,7 @@ public:
         auto info = _allocate_pinned_memory(elem_type, elem_count, option);
         return Buffer<T>{device(), info};
     }
+    virtual ~PinnedMemoryExt() = default;
 };
 
 }// namespace luisa::compute

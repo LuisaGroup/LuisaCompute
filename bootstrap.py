@@ -360,7 +360,7 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
-    print('          [no-]tests         Enable (disable) tests')
+    print('          [no-]tests         Enable (disable) tests (requires and will enable the `dsl` feature if set on)')
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')
     print('      Dependencies:')
@@ -399,11 +399,13 @@ def dump_xmake_options(config: dict):
     if "toolchain" in config:
         cmd += " toolchain=" + config["toolchain"]
     features = config['features']
+
     def add_feature(option: str, feature: str):
         if feature in features:
             return f" {option}=true"
         else:
             return f" {option}=false"
+
     if features:
         cmd += add_feature("enable_dsl", "dsl")
         cmd += add_feature("python", "python")
@@ -784,8 +786,12 @@ def parse_cli_args(args):
                 valid_features.update(ALL_FEATURES)
             elif f in ALL_FEATURES:
                 valid_features.add(f)
+                if f == "tests":
+                    valid_features.add("dsl")
             elif f.startswith('no-'):
                 valid_features.discard(f[3:])
+                if f[3:] == "dsl":
+                    valid_features.discard("tests")
             else:
                 print_red(f'Ignoring invalid feature "{f}"')
         parsed_args['features'] = list(valid_features)

@@ -1,7 +1,17 @@
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+
+#include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
 #include <luisa/core/logging.h>
-#include <luisa/vstl/functional.h>
+#include <luisa/core/stl/functional.h>
 #include <luisa/core/magic_enum.h>
 #include <luisa/rust/api_types.h>
 

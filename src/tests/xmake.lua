@@ -154,6 +154,7 @@ test_proj("test_atomic_queue", true)
 test_proj("test_shared_memory", true)
 test_proj("test_native_include", true)
 test_proj("test_sparse_texture", true)
+test_proj("test_pinned_mem")
 test_proj("test_imgui", true, function()
 	add_deps("imgui")
 	if is_plat("windows") then
@@ -228,3 +229,4 @@ if get_config("dx_backend") and (enable_fsr2 or enable_xess) then
 		end)
 	end)
 end
+includes("amd")

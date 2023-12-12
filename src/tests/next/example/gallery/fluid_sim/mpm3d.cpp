@@ -94,7 +94,7 @@ int mpm3d(Device &device) {
                      0.5f * sqr(fx - 0.5f)};
         Float stress = -4.f * dt * E * p_vol * (J->read(p) - 1.f) / sqr(dx);
         // TODO: here C runtime read will raise error
-        Float3x3 curr_rho = p_mass * C->read(p);
+        // Float3x3 curr_rho = p_mass * C->read(p);
         Float3x3 affine = make_float3x3(
             stress, 0.f, 0.f,
             0.f, stress, 0.f,

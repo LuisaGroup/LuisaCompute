@@ -6,8 +6,7 @@
 namespace luisa::compute {
 
 Expression::Expression(Expression::Tag tag, const Type *type) noexcept
-    : _type{type}, _tag{tag},
-      _builder{detail::FunctionBuilder::current()} {}
+    : _type{type}, _builder{detail::FunctionBuilder::current()}, _tag{tag} {}
 
 void Expression::mark(Usage usage) const noexcept {
     if (auto a = to_underlying(_usage), u = a | to_underlying(usage); a != u) {

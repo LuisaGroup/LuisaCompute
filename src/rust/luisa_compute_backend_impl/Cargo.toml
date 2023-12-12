@@ -33,7 +33,7 @@ half = { version = "2.3.1", features = [
 ] }
 
 [features]
-default = ["cpu"]
+default = []
 cpu = ["embree_sys"]
 remote = []
 

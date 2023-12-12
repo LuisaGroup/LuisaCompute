@@ -68,6 +68,7 @@ pub struct ShaderOption {
     pub time_trace: bool,
     pub max_registers: u32,
     pub name: *const std::ffi::c_char,
+    pub native_include: *const std::ffi::c_char,
 }
 unsafe impl Send for ShaderOption {}
 unsafe impl Sync for ShaderOption {}
@@ -81,6 +82,7 @@ impl Default for ShaderOption {
             time_trace: false,
             max_registers: 0,
             name: std::ptr::null(),
+            native_include: std::ptr::null(),
         }
     }
 }

@@ -20,6 +20,7 @@ private:
         vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         vstd::vector<luisa::compute::Argument> &&bindings,
+        vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
         ComPtr<ID3D12RootSignature> &&rootSig,
         ComPtr<ID3D12PipelineState> &&pso);
 
@@ -65,6 +66,7 @@ public:
         vstd::vector<SavedArgument> &&args,
         vstd::span<std::byte const> binData,
         vstd::vector<luisa::compute::Argument> &&bindings,
+        vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
         Device *device);
     ~ComputeShader();
     KILL_COPY_CONSTRUCT(ComputeShader)

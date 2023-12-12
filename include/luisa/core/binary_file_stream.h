@@ -28,6 +28,7 @@ public:
     [[nodiscard]] size_t length() const noexcept override { return _length; }
     [[nodiscard]] size_t pos() const noexcept override { return _pos; }
     void read(luisa::span<std::byte> dst) noexcept override;
+    void set_pos(size_t pos) noexcept;
     void close() noexcept;
 };
 

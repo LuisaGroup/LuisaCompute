@@ -9,7 +9,7 @@
 
 namespace luisa::compute {
 class ShaderDispatchCommand;
-}
+}// namespace luisa::compute
 
 namespace luisa::compute::cuda {
 
@@ -28,6 +28,9 @@ private:
     virtual void _launch(CUDACommandEncoder &encoder,
                          ShaderDispatchCommand *command) const noexcept = 0;
 
+protected:
+    static void _patch_ptx_version(luisa::string &ptx) noexcept;
+
 public:
     CUDAShader(luisa::unique_ptr<CUDAShaderPrinter> printer,
                luisa::vector<Usage> arg_usages) noexcept;
@@ -45,4 +48,3 @@ public:
 };
 
 }// namespace luisa::compute::cuda
-

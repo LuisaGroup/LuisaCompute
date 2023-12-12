@@ -13,10 +13,8 @@
 
 namespace luisa::compute::cuda {
 
-CUDAShaderNative::CUDAShaderNative(CUDADevice *device,
-                                   const char *ptx, size_t ptx_size,
-                                   const char *entry,
-                                   const CUDAShaderMetadata &metadata,
+CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::string ptx,
+                                   const char *entry, const CUDAShaderMetadata &metadata,
                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
     : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
                  metadata.argument_usages},
@@ -60,28 +58,10 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device,
         return CUDA_SUCCESS;
     };
 
-    auto ret = load_ptx(ptx, ptx_size);
+    auto ret = load_ptx(ptx.data(), ptx.size());
     if (ret == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
-
-        LUISA_WARNING_WITH_LOCATION(
-            "The PTX version is not supported by the installed CUDA driver. "
-            "Trying to patch the PTX to make it compatible with the driver. "
-            "This might cause unexpected behavior. "
-            "Please consider upgrading your CUDA driver.");
-
-        // For users with newer CUDA and older driver,
-        // the generated PTX might be reported invalid.
-        // We have to patch the ".version 7.x" instruction.
-        using namespace std::string_view_literals;
-        luisa::string s{ptx, ptx_size};
-        auto pattern = ".version 7."sv;
-        if (auto p = s.find(pattern); p != luisa::string_view::npos) {
-            auto begin = p + pattern.size();
-            auto end = begin;
-            for (; isdigit(s[end]); end++) {}
-            s.replace(begin, end - begin, "0");
-        }
-        ret = load_ptx(s.c_str(), s.size());
+        CUDAShader::_patch_ptx_version(ptx);
+        ret = load_ptx(ptx.data(), ptx.size());
     }
     LUISA_CHECK_CUDA(ret);
 }
@@ -186,6 +166,7 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
             dispatch_sizes = luisa::span{&single_dispatch_size, 1u};
         }
         for (auto dispatch_size : dispatch_sizes) {
+            if (any(dispatch_size == make_uint3(0u))) { continue; }
             auto launch_size_and_kernel_id = make_uint4(dispatch_size, 0u);
             std::memcpy(ptr, &launch_size_and_kernel_id, sizeof(launch_size_and_kernel_id));
             // launch configuration

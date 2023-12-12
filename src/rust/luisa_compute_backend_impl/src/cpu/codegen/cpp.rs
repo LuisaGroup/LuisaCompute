@@ -723,6 +723,16 @@ impl<'a> FunctionEmitter<'a> {
                 .unwrap();
                 true
             }
+            Func::BufferAddress => {
+                let buffer_ty = self.type_gen.gen_c_type(args[0].type_());
+                writeln!(
+                    &mut self.body,
+                    "const {} {} = lc_buffer_address({});",
+                    node_ty_s, var, args_v[0]
+                )
+                .unwrap();
+                true
+            }
             Func::BindlessByteBufferRead => {
                 writeln!(
                     &mut self.body,
@@ -756,6 +766,15 @@ impl<'a> FunctionEmitter<'a> {
                     &mut self.body,
                     "const {} {} = lc_bindless_buffer_size(k_args, {}, {}, {});",
                     node_ty_s, var, args_v[0], args_v[1], args_v[2]
+                )
+                .unwrap();
+                true
+            }
+            Func::BindlessBufferAddress => {
+                writeln!(
+                    &mut self.body,
+                    "const {} {} = lc_bindless_buffer_address(k_args, {}, {});",
+                    node_ty_s, var, args_v[0], args_v[1]
                 )
                 .unwrap();
                 true
@@ -1119,6 +1138,16 @@ impl<'a> FunctionEmitter<'a> {
                 writeln!(self.body, "const {} {} = *{};", node_ty_s, var, args_v[0]).unwrap();
                 true
             }
+            Func::AddressOf => {
+                let ty = self.type_gen.gen_c_type(args[0].type_());
+                writeln!(
+                    self.body,
+                    "const {} {} = lc_address_of<{}>({});",
+                    node_ty_s, var, ty, args_v[0]
+                )
+                .unwrap();
+                true
+            }
             Func::GradientMarker => {
                 let ty = self.type_gen.gen_c_type(args[1].type_());
                 writeln!(
@@ -1282,6 +1311,10 @@ impl<'a> FunctionEmitter<'a> {
                 self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_xor", 1);
                 true
             }
+            Func::External(_)=>{
+                panic!("Use CpuFn to pass closures to kernel directly instead of ExternalCallable on cpu backend!.");
+                true
+            }
             Func::CpuCustomOp(op) => {
                 let i = *self
                     .globals
@@ -1414,7 +1447,12 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::RayQueryCommitTriangle => {
-                writeln!(self.body, "lc_ray_query_commit_triangle(cvt_rq({0}));", args_v[0]).unwrap();
+                writeln!(
+                    self.body,
+                    "lc_ray_query_commit_triangle(cvt_rq({0}));",
+                    args_v[0]
+                )
+                .unwrap();
                 true
             }
             Func::RayQueryCommitProcedural => {
@@ -1635,11 +1673,17 @@ impl<'a> FunctionEmitter<'a> {
                 self.inside_generic_loop = false;
                 {
                     self.write_ident();
-                    writeln!(&mut self.body, "do {{").unwrap();
-                    self.gen_block(*body);
+                    writeln!(&mut self.body, "for (;;) {{").unwrap();
+                    self.indent += 1;
+                    for node in body.iter() {
+                        self.gen_instr(node);
+                    }
                     let cond_v = self.gen_node(*cond);
                     self.write_ident();
-                    writeln!(&mut self.body, "}} while({});", cond_v).unwrap();
+                    writeln!(&mut self.body, "if (!({})) {{ break; }}", cond_v).unwrap();
+                    self.indent -= 1;
+                    self.write_ident();
+                    writeln!(&mut self.body, "}}").unwrap();
                 }
                 self.inside_generic_loop = old_inside_generic_loop;
             }
@@ -1990,7 +2034,7 @@ pub struct Generated {
 }
 
 impl CpuCodeGen {
-    pub(crate) fn run(module: &ir::KernelModule) -> Generated {
+    pub(crate) fn run(module: &ir::KernelModule, native_include:&str) -> Generated {
         let mut globals = GlobalEmitter {
             message: vec![],
             generated_callables: HashMap::new(),
@@ -2017,7 +2061,7 @@ struct Accel;"#;
         let kernel_fn_decl = r#"lc_kernel void ##kernel_fn##(const KernelFnArgs* k_args) {"#;
         Generated {
             source: format!(
-                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                 defs,
                 CPU_LIBM_DEF,
                 CPU_KERNEL_DEFS,
@@ -2026,6 +2070,7 @@ struct Accel;"#;
                 CPU_RESOURCE,
                 CPU_TEXTURE,
                 type_gen.generated(),
+                native_include,
                 kernel_fn_decl,
                 codegen.fwd_defs,
                 codegen.globals.callable_def,

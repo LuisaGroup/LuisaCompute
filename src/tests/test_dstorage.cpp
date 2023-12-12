@@ -5,9 +5,12 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/image.h>
+#include <luisa/runtime/sparse_command_list.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/event.h>
+#include <luisa/vstl/common.h>
 #include <luisa/backends/ext/dstorage_ext.hpp>
+#include <luisa/backends/ext/pinned_memory_ext.hpp>
 #include <stb/stb_image_write.h>
 #include <luisa/core/clock.h>
 
@@ -26,9 +29,10 @@ int main(int argc, char *argv[]) {
     auto dstorage_ext = device.extension<DStorageExt>();
     static constexpr uint32_t width = 4096;
     static constexpr uint32_t height = 4096;
-    Stream dstorage_memory_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::MemorySource});
-    Stream dstorage_file_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::FileSource});
-    Stream compute_stream = device.create_stream();
+    static constexpr size_t staging_buffer_size = 32ull * 1024ull * 1024ull;
+    Stream dstorage_memory_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::MemorySource, staging_buffer_size});
+    Stream dstorage_file_stream = dstorage_ext->create_stream(DStorageStreamOption{DStorageStreamSource::FileSource, staging_buffer_size});
+    Stream copy_stream = device.create_stream(StreamTag::COPY);
     TimelineEvent event = device.create_timeline_event();
     LUISA_INFO("Start test memory and buffer read.");
     // Write a test file
@@ -63,7 +67,7 @@ int main(int argc, char *argv[]) {
             << event.signal(1);
 
         // wait for disk reading and read back to memory.
-        compute_stream << event.wait(1)
+        copy_stream << event.wait(1)
                        << buffer.copy_to(buffer_data.data())
                        << event.signal(2);
         event.synchronize(2);
@@ -85,16 +89,45 @@ int main(int argc, char *argv[]) {
             pixels[pixel_pos * 4 + 2] = 127;
             pixels[pixel_pos * 4 + 3] = 255;
         }
+    auto f = fopen("pixels.bytes", "wb");
+    fwrite(pixels.data(), pixels.size_bytes(), 1, f);
+    fclose(f);
     {
-        Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
-        luisa::vector<uint8_t> out_pixels(width * height * 4u);
+        auto img = device.create_image<float>(PixelStorage::BYTE4, width, height / 2);
+        luisa::vector<uint8_t> out_pixels(width * height * 2);
+        DStorageFile pinned_pixels = dstorage_ext->open_file("pixels.bytes");
+        auto pinned_ext = device.extension<PinnedMemoryExt>();
+        // D3D12_HEAP_TYPE_UPLOAD
+        auto buffer = pinned_ext->allocate_pinned_memory<uint>(staging_buffer_size, {true});
+        auto evt = device.create_event();
         Clock clock{};
-        DStorageFile pinned_pixels = dstorage_ext->pin_memory(pixels.data(), pixels.size_bytes());
-        dstorage_memory_stream << pinned_pixels.copy_to(img) << synchronize();
+        size_t offset = 0;
+        while (offset < out_pixels.size()) {
+            auto size = pinned_pixels.size_bytes() - offset;
+            size = std::min(size, staging_buffer_size);
+            dstorage_file_stream
+                // pinned memory
+                << pinned_pixels.view(offset).copy_to(buffer.native_handle(), size)
+                << evt.signal();
+            copy_stream
+                << evt.wait()
+                // We have to use sub-range copy here
+                // this api not opened in front-end, due to dx backend's limitation
+                << luisa::make_unique<BufferToTextureCopyCommand>(
+                       buffer.handle(),
+                       0,
+                       img.handle(),
+                       img.storage(),
+                       0,
+                       uint3(width, size / (width * 4), 1),
+                       uint3(0, offset / (width * 4), 0))
+                << synchronize();
+            offset += size;
+        }
         double time = clock.toc();
         LUISA_INFO("Texture read time: {} ms", time);
-        compute_stream << img.copy_to(out_pixels.data()) << synchronize();
-        stbi_write_png("test_dstorage_texture.png", width, height, 4, out_pixels.data(), 0);
+        copy_stream << img.copy_to(out_pixels.data()) << synchronize();
+        stbi_write_png("test_dstorage_texture.png", width, height / 2, 4, out_pixels.data(), 0);
     }
     LUISA_INFO("Texture result written to test_dstorage_texture.png.");
     LUISA_INFO("Start test texture compress and decompress.");
@@ -111,21 +144,21 @@ int main(int argc, char *argv[]) {
     }
     LUISA_INFO("Texture compress time: {} ms, before compress size: {} bytes, after compress size: {} bytes", compress_time, pixels.size_bytes(), compressed_pixels.size_bytes());
     {
-        Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height);
-        luisa::vector<std::byte> out_pixels(width * height * 4u);
+        Image<float> img = device.create_image<float>(PixelStorage::BYTE4, width, height / 2);
+        luisa::vector<std::byte> out_pixels(width * height * 4u / 2);
         Clock decompress_clock{};
         DStorageFile pinned_pixels = dstorage_ext->pin_memory(compressed_pixels.data(), compressed_pixels.size_bytes());
         dstorage_memory_stream << pinned_pixels.copy_to(img, compression)
                                << synchronize();
         double decompress_time = decompress_clock.toc();
         LUISA_INFO("Texture decompress time: {} ms", decompress_time);
-        compute_stream << img.copy_to(out_pixels.data()) << synchronize();
-        stbi_write_png("test_dstorage_texture_decompressed.png", width, height, 4, out_pixels.data(), 0);
+        copy_stream << img.copy_to(out_pixels.data()) << synchronize();
+        stbi_write_png("test_dstorage_texture_decompressed.png", width, height / 2, 4, out_pixels.data(), 0);
         decompress_clock.tic();
         dstorage_memory_stream << pinned_pixels.copy_to(luisa::span{out_pixels}, compression)
                                << synchronize();
         decompress_time = decompress_clock.toc();
         LUISA_INFO("Memory decompress time: {} ms", decompress_time);
-        stbi_write_png("test_dstorage_texture_decompressed_memory.png", width, height, 4, out_pixels.data(), 0);
+        stbi_write_png("test_dstorage_texture_decompressed_memory.png", width, height / 2, 4, out_pixels.data(), 0);
     }
 }

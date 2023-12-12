@@ -8,6 +8,23 @@
 
 namespace luisa::compute {
 
+namespace detail {
+
+template<typename T>
+struct c_array_to_std_array {
+    using type = T;
+};
+
+template<typename T, size_t N>
+struct c_array_to_std_array<T[N]> {
+    using type = std::array<T, N>;
+};
+
+template<typename T>
+using c_array_to_std_array_t = typename c_array_to_std_array<T>::type;
+
+}// namespace detail
+
 template<typename T>
 class SOAView;
 
@@ -387,16 +404,32 @@ public:
     }
     [[nodiscard]] auto operator[](size_t i) const noexcept { return _elems[i]; }
     [[nodiscard]] auto operator->() const noexcept { return this; }
-};
 
-template<typename T, size_t N>
-struct Expr<SOA<T[N]>> : public Expr<SOA<std::array<T, N>>> {
-    using Expr<SOA<std::array<T, N>>>::Expr;
+    template<typename I>
+        requires is_dsl_v<I> && is_integral_expr_v<I>
+    [[nodiscard]] auto operator[](I &&index) const noexcept {
+        auto &&e = _elems[0];
+        auto buffer = e.buffer();
+        auto soa_offset = e.soa_offset();
+        auto soa_size = e.soa_size();
+        auto soa_stride = SOA<T>::compute_soa_size(soa_size);
+        auto elem_offset = e.element_offset();
+        return Expr<SOA<T>>{buffer,
+                            soa_offset + std::forward<I>(index) * soa_stride,
+                            soa_size, elem_offset};
+    }
 };
 
 template<typename T>
 struct Expr<SOAView<T>> : public Expr<SOA<T>> {
     using Expr<SOA<T>>::Expr;
+};
+
+// TODO: This can result in template instantiation failure... C++ too hard!!!
+template<typename T, size_t N>
+    requires(sizeof(T) >= sizeof(uint))// if T is smaller than uint, we do not split it
+struct Expr<SOA<T[N]>> : public Expr<SOA<std::array<T, N>>> {
+    using Expr<SOA<std::array<T, N>>>::Expr;
 };
 
 template<typename T>
@@ -547,8 +580,7 @@ public:
     SOAView(BufferView<uint> buffer,
             size_t soa_offset, size_t soa_size,
             size_t elem_offset, size_t elem_size) noexcept
-        : detail::SOAViewBase<T> { buffer, soa_offset, soa_size, elem_offset, elem_size }
-    {
+        : detail::SOAViewBase<T>{buffer, soa_offset, soa_size, elem_offset, elem_size} {
         auto buffer_end = this->buffer().offset() + soa_offset +
                           (elem_offset + elem_size) * element_stride;
         if (!(buffer_end <= std::numeric_limits<uint>::max())) [[unlikely]] {
@@ -713,23 +745,42 @@ public:
         return SOAView<T>::compute_soa_size(n) * static_cast<uint>(N);
     }
 
+private:
+    template<size_t... i>
+    SOAView(BufferView<uint> buffer,
+            size_t soa_offset, size_t soa_size,
+            size_t elem_offset, size_t elem_size,
+            std::index_sequence<i...>) noexcept
+        : detail::SOAViewBase<std::array<T, N>>{buffer, soa_offset, soa_size, elem_offset, elem_size},
+          _elems{SOAView<T>{buffer, soa_offset + SOAView<T>::compute_soa_size(soa_size) * i,
+                            soa_size, elem_offset, elem_size}...} {}
+
 public:
     SOAView() noexcept = default;
     SOAView(BufferView<uint> buffer,
             size_t soa_offset, size_t soa_size,
             size_t elem_offset, size_t elem_size) noexcept
-        : detail::SOAViewBase<std::array<T, N>>{buffer, soa_offset, soa_size, elem_offset, elem_size},
-          _elems{} {
-        for (auto i = 0u; i < N; i++) {
-            _elems[i] = SOAView<T>{
-                buffer,
-                soa_offset + SOAView<T>::compute_soa_size(soa_size) * i,
-                soa_size, elem_offset, elem_size};
-        }
-    }
+        : SOAView{buffer, soa_offset, soa_size,
+                  elem_offset, elem_size,
+                  std::make_index_sequence<N>{}} {}
 
 public:
     [[nodiscard]] auto operator[](size_t i) const noexcept { return _elems[i]; }
+
+    template<typename I>
+        requires is_dsl_v<I> && is_integral_expr_v<I>
+    [[nodiscard]] auto operator[](I &&i) const noexcept {
+        auto &&e = _elems[0];
+        auto soa_offset = static_cast<uint>(e.soa_offset());
+        auto soa_size = static_cast<uint>(e.soa_size());
+        auto soa_stride = static_cast<uint>(SOAView<T>::compute_soa_size(soa_size));
+        auto elem_offset = static_cast<uint>(e.element_offset());
+        return Expr<SOA<T>>{
+            Expr{e.buffer()},
+            Expr{soa_offset + soa_stride * std::forward<I>(i)},
+            Expr{soa_size},
+            Expr{elem_offset}};
+    }
 };
 
 template<typename T, size_t N>

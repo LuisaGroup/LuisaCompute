@@ -23,6 +23,13 @@ Accel Device::create_accel(const AccelOption &option) noexcept {
 Accel::Accel(DeviceInterface *device, const AccelOption &option) noexcept
     : Resource{device, Resource::Tag::ACCEL, device->create_accel(option)} {}
 
+Accel::Accel(Accel &&rhs) noexcept
+    : Resource{std::move(rhs)},
+      _modifications{std::move(rhs._modifications)},
+      _instance_count{rhs._instance_count} {
+    rhs._instance_count = 0;
+}
+
 Accel::~Accel() noexcept {
     if (!_modifications.empty()) {
         LUISA_WARNING_WITH_LOCATION(
@@ -36,6 +43,7 @@ Accel::~Accel() noexcept {
 luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
                                          bool update_instance_buffer_only) noexcept {
     _check_is_valid();
+    std::lock_guard lock{_mtx};
     if (_instance_count == 0) { LUISA_ERROR_WITH_LOCATION(
         "Building acceleration structure without instances."); }
     // collect modifications
@@ -50,8 +58,9 @@ luisa::unique_ptr<Command> Accel::_build(Accel::BuildRequest request,
                                                  update_instance_buffer_only);
 }
 
-void Accel::_emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+void Accel::emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
     _check_is_valid();
+    std::lock_guard lock{_mtx};
     auto index = static_cast<uint>(_instance_count);
     Modification modification{index};
     modification.set_primitive(mesh);
@@ -65,6 +74,7 @@ void Accel::_emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8
 
 void Accel::pop_back() noexcept {
     _check_is_valid();
+    std::lock_guard lock{_mtx};
     if (_instance_count > 0) {
         _instance_count -= 1;
         _modifications.erase(_instance_count);
@@ -74,9 +84,10 @@ void Accel::pop_back() noexcept {
     }
 }
 
-void Accel::_set_handle(size_t index, uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
     _check_is_valid();
-    if (index >= size()) [[unlikely]] {
+    std::lock_guard lock{_mtx};
+    if (index >= _instance_count) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, handle());
@@ -90,9 +101,10 @@ void Accel::_set_handle(size_t index, uint64_t mesh, float4x4 const &transform, 
         _modifications[index] = modification;
     }
 }
-void Accel::_set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
+void Accel::set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
     _check_is_valid();
-    if (index >= size()) [[unlikely]] {
+    std::lock_guard lock{_mtx};
+    if (index >= _instance_count) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, handle());
@@ -104,7 +116,8 @@ void Accel::_set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
 }
 void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
     _check_is_valid();
-    if (index >= size()) [[unlikely]] {
+    std::lock_guard lock{_mtx};
+    if (index >= _instance_count) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, handle());
@@ -117,7 +130,8 @@ void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
 
 void Accel::set_opaque_on_update(size_t index, bool opaque) noexcept {
     _check_is_valid();
-    if (index >= size()) [[unlikely]] {
+    std::lock_guard lock{_mtx};
+    if (index >= _instance_count) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, handle());
@@ -130,7 +144,8 @@ void Accel::set_opaque_on_update(size_t index, bool opaque) noexcept {
 
 void Accel::set_visibility_on_update(size_t index, uint8_t visibility_mask) noexcept {
     _check_is_valid();
-    if (index >= size()) [[unlikely]] {
+    std::lock_guard lock{_mtx};
+    if (index >= _instance_count) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, handle());
@@ -143,7 +158,8 @@ void Accel::set_visibility_on_update(size_t index, uint8_t visibility_mask) noex
 
 void Accel::set_instance_user_id_on_update(size_t index, uint user_id) noexcept {
     _check_is_valid();
-    if (index >= size()) [[unlikely]] {
+    std::lock_guard lock{_mtx};
+    if (index >= _instance_count) [[unlikely]] {
         LUISA_WARNING_WITH_LOCATION(
             "Invalid index {} in accel #{}.",
             index, handle());

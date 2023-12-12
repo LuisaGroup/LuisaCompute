@@ -363,6 +363,7 @@ struct Func {
         IndirectDispatchSetCount,
         IndirectDispatchSetKernel,
         Load,
+        AddressOf,
         Cast,
         Bitcast,
         Pack,
@@ -498,6 +499,8 @@ struct Func {
         BufferWrite,
         /// buffer -> uint: returns buffer size in *elements*
         BufferSize,
+        /// buffer -> u64: returns address of the buffer
+        BufferAddress,
         /// (buffer, index_bytes) -> value
         ByteBufferRead,
         /// (buffer, index_bytes, value) -> void
@@ -554,6 +557,8 @@ struct Func {
         BindlessBufferWrite,
         /// (bindless_array, index: uint, stride: uint) -> uint: returns the size of the buffer in *elements*
         BindlessBufferSize,
+        /// (bindless_array, index: uint) -> u64: returns the address of the buffer
+        BindlessBufferAddress,
         BindlessBufferType,
         BindlessByteBufferRead,
         Vec,
@@ -572,6 +577,7 @@ struct Func {
         Mat4,
         Callable,
         CpuCustomOp,
+        External,
         ShaderExecutionReorder,
         Unknown0,
         Unknown1,
@@ -593,12 +599,17 @@ struct Func {
         CArc<CpuCustomOp> _0;
     };
 
+    struct External_Body {
+        CBoxedSlice<uint8_t> _0;
+    };
+
     Tag tag;
     union {
         Unreachable_Body unreachable;
         Assert_Body assert;
         Callable_Body callable;
         CpuCustomOp_Body cpu_custom_op;
+        External_Body external;
     };
 };
 

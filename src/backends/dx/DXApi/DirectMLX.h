@@ -2389,7 +2389,9 @@ namespace dml
     {
         TensorDesc inputTensor = input.Impl()->GetOutputDesc();
         detail::GraphBuilder* builder = input.Impl()->GetGraphBuilder();
+#ifndef NDEBUG
         uint32_t axisSizeSum = 0;
+#endif
 
         vstd::vector<TensorDesc> outputTensors;
         outputTensors.reserve(outputAxisSizes.size());
@@ -2406,7 +2408,9 @@ namespace dml
             outputTensors.push_back(std::move(tensorDesc));
             outputDescs.push_back(*outputTensors.back().AsPtr<DML_TENSOR_DESC>());
 
+#ifndef NDEBUG
             axisSizeSum += outputAxisSize;
+#endif
         }
 
         assert(axisSizeSum == inputTensor.sizes[axis]);

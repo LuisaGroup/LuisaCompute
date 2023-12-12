@@ -8,7 +8,7 @@
 #include <luisa/backends/ext/dstorage_ext_interface.h>
 
 namespace lc::dx {
-static constexpr size_t staging_buffer_size = 64ull * 1024ull * 1024ull;
+static constexpr size_t staging_buffer_size = DSTORAGE_STAGING_BUFFER_SIZE_32MB;
 
 class LCEvent;
 class DStorageFileImpl : public vstd::IOperatorNewBase {
@@ -40,8 +40,7 @@ class DStorageCommandQueue : public CmdQueueBase{
     std::mutex exec_mtx;
     std::thread thd;
     std::condition_variable waitCv;
-    std::condition_variable mainCv;
-    uint64 executedFrame = 0;
+    std::atomic_uint64_t executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
     DSTORAGE_REQUEST_SOURCE_TYPE sourceType;
     bool enabled = true;

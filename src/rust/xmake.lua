@@ -7,7 +7,7 @@ before_build(function(target)
 end)
 
 add_rules("build_cargo")
-add_files("luisa_compute_ir/Cargo.toml")
+add_files("luisa_compute_ir_staticlib/Cargo.toml")
 
 -- add_files("luisa_compute_backend/Cargo.toml")
 -- add_files("luisa_compute_backend_impl/Cargo.toml")

@@ -30,6 +30,7 @@ void CodegenStackData::Clear() {
     customStructVector.clear();
     atomicsFuncs.clear();
     sharedVariable.clear();
+    printer.clear();
     constCount = 0;
     argOffset = 0;
     appdataId = -1;
@@ -105,13 +106,13 @@ struct CodegenGlobalPool {
         if (!allCodegen.empty()) {
             auto ite = std::move(allCodegen.back());
             allCodegen.pop_back();
-            ite->Clear();
             return ite;
         }
         return vstd::unique_ptr<CodegenStackData>(new CodegenStackData());
     }
     void DeAllocate(vstd::unique_ptr<CodegenStackData> &&v) {
         std::lock_guard lck(mtx);
+        v->Clear();
         allCodegen.emplace_back(std::move(v));
     }
 };
