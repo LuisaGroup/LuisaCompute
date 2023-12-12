@@ -265,6 +265,9 @@ CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::
                     return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL METHOD: {}::{}", Method->getParent()->getName().data(), Method->getName().data()), x->getBeginLoc()); });
             } else
                 return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL FUNCTION: {}", cxxFunc->getName().data()), x->getBeginLoc()); });
+        } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
+            auto cxxCtorDecl = cxxCtor->getConstructor();
+            return Commenter([=] { commentSourceLoc(fb, luisa::format("CONSTRUCT: {}", cxxCtorDecl->getParent()->getName().data()), x->getBeginLoc()); });
         }
     }
     return {{}, {}};
@@ -671,24 +674,26 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = fb->literal(Type::of<bool>(), (bool)bl->getValue());
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
                 current = fb->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
-            } else if (auto construct = llvm::dyn_cast<CXXConstructExpr>(x)) {
-                auto local = fb->local(bb->FindOrAddType(construct->getType(), bb->astContext));
+            } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
+                bb->CommentStmt_(fb, cxxCtor);
+
+                auto local = fb->local(bb->FindOrAddType(cxxCtor->getType(), bb->astContext));
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
                 lc_args.emplace_back(local);
-                for (auto arg : construct->arguments()) {
+                for (auto arg : cxxCtor->arguments()) {
                     if (auto lc_arg = stack->expr_map[arg])
                         lc_args.emplace_back(lc_arg);
                     else
                         luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                 }
-                if (auto callable = bb->func_builders[construct->getConstructor()]) {
+                if (auto callable = bb->func_builders[cxxCtor->getConstructor()]) {
                     fb->call(luisa::compute::Function(callable.get()), lc_args);
                     current = local;
                 } else {
                     bool isBuiltin = false;
                     llvm::StringRef builtinName = {};
-                    if (auto thisType = GetRecordDeclFromQualType(construct->getType())) {
+                    if (auto thisType = GetRecordDeclFromQualType(cxxCtor->getType())) {
                         for (auto Anno = thisType->specific_attr_begin<clang::AnnotateAttr>(); Anno != thisType->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
                             if (isBuiltinType(*Anno)) {
                                 isBuiltin = true;
@@ -699,7 +704,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     if (isBuiltin) {
                         if (builtinName == "vec") {
-                            auto Ty = construct->getType();
+                            auto Ty = cxxCtor->getType();
                             if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
                                 auto Arguments = TST->template_arguments();
                                 if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
@@ -738,8 +743,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             }
                         }
                     } else {
-                        construct->dump();
-                        luisa::log_error("unfound constructor: {}", construct->getConstructor()->getNameAsString());
+                        cxxCtor->dump();
+                        luisa::log_error("unfound constructor: {}", cxxCtor->getConstructor()->getNameAsString());
                     }
                 }
             } else if (auto unary = llvm::dyn_cast<UnaryOperator>(x)) {
