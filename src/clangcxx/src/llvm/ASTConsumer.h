@@ -49,7 +49,7 @@ struct CXXBlackboard
         luisa::function<void()> Begin = [](){};
         luisa::function<void()> End = [](){};
     };
-    Commenter CommentStmt_(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt* stmt);
+    [[nodiscard]] Commenter CommentStmt_(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt* stmt);
 protected:
     void commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string& prefix, const clang::SourceLocation& loc);
     const luisa::compute::Type* findType(const clang::QualType Ty, const clang::ASTContext* astContext);

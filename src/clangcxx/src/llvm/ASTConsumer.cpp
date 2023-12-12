@@ -235,20 +235,20 @@ CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::
                 });
         } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
             return Commenter(
-                [=] { commentSourceLoc(fb, "IF BEGIN", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "IF END", x->getBeginLoc()); });
+                [=] { commentSourceLoc(fb, "BEGIN IF", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "END IF", x->getBeginLoc()); });
         } else if (auto cxxSwitch = llvm::dyn_cast<clang::SwitchStmt>(x)) {
             return Commenter(
-                [=] { commentSourceLoc(fb, "SWITCH BEGIN", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "SWITCH END", x->getBeginLoc()); });
+                [=] { commentSourceLoc(fb, "BEGIN SWITCH", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "END SWITCH", x->getBeginLoc()); });
         } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
             return Commenter(
-                [=] { commentSourceLoc(fb, "WHILE BEGIN", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "WHILE END", x->getBeginLoc()); });
+                [=] { commentSourceLoc(fb, "BEGIN WHILE", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "END WHILE", x->getBeginLoc()); });
         } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
             return Commenter(
-                [=] { commentSourceLoc(fb, "SCOPE BEGIN", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "SCOPE END", x->getBeginLoc()); });
+                [=] { commentSourceLoc(fb, "BEGIN SCOPE", x->getBeginLoc()); },
+                [=] { commentSourceLoc(fb, "END SCOPE", x->getBeginLoc()); });
         } else if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
             return Commenter([=] { commentSourceLoc(fb, "RETURN", x->getBeginLoc()); });
         } else if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
@@ -521,7 +521,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             FunctionBuilderBuilder bdbd(bb, newStack);
             bdbd.build(cxxCallee);
         } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
-            bb->CommentStmt_(fb, cxxBranch);
+            auto _ = bb->CommentStmt_(fb, cxxBranch);
 
             auto cxxCond = cxxBranch->getCond();
             TraverseStmt(cxxCond);
@@ -537,7 +537,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 TraverseStmt(cxxBranch->getElse());
             fb->pop_scope(lc_if_->false_branch());
         } else if (auto cxxSwitch = llvm::dyn_cast<clang::SwitchStmt>(x)) {
-            bb->CommentStmt_(fb, cxxSwitch);
+            auto _ = bb->CommentStmt_(fb, cxxSwitch);
 
             auto cxxCond = cxxSwitch->getCond();
             TraverseStmt(cxxCond);
@@ -577,7 +577,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         } else if (auto cxxBreak = llvm::dyn_cast<clang::BreakStmt>(x)) {
             fb->break_();
         } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
-            bb->CommentStmt_(fb, cxxWhile);
+            auto _ = bb->CommentStmt_(fb, cxxWhile);
 
             auto lc_while_ = fb->loop_();
             // while (cond)
@@ -620,7 +620,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             }
             fb->pop_scope(lc_while_->body());
         } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
-            bb->CommentStmt_(fb, cxxCompound);
+            auto _ = bb->CommentStmt_(fb, cxxCompound);
 
             for (auto sub : cxxCompound->body())
                 TraverseStmt(sub);
@@ -632,7 +632,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         const luisa::compute::Expression *current = nullptr;
         if (x) {
             if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
-                bb->CommentStmt_(fb, cxxDecl);
+                auto _ = bb->CommentStmt_(fb, cxxDecl);
 
                 const DeclGroupRef declGroup = cxxDecl->getDeclGroup();
                 for (auto decl : declGroup) {
@@ -657,7 +657,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                 }
             } else if (auto cxxRet = llvm::dyn_cast<clang::ReturnStmt>(x)) {
-                bb->CommentStmt_(fb, cxxRet);
+                auto _ = bb->CommentStmt_(fb, cxxRet);
 
                 auto cxx_ret = cxxRet->getRetValue();
                 auto lc_ret = stack->expr_map[cxx_ret];
@@ -685,7 +685,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
                 current = fb->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
             } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
-                bb->CommentStmt_(fb, cxxCtor);
+                auto _ = bb->CommentStmt_(fb, cxxCtor);
 
                 // TODO: REFACTOR THIS
                 auto calleeDecl = cxxCtor->getConstructor();
@@ -828,7 +828,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                 }
             } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
-                bb->CommentStmt_(fb, bin);
+                auto _ = bb->CommentStmt_(fb, bin);
 
                 const auto cxx_op = bin->getOpcode();
                 const auto lhs = stack->expr_map[bin->getLHS()];
@@ -895,7 +895,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[_static_cast->getSubExpr()]);
                 }
             } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
-                bb->CommentStmt_(fb, cxxDefaultArg);
+                auto _ = bb->CommentStmt_(fb, cxxDefaultArg);
 
                 const auto _value = fb->local(bb->FindOrAddType(cxxDefaultArg->getType(), bb->astContext));
                 TraverseStmt(cxxDefaultArg->getExpr());
@@ -915,7 +915,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     luisa::log_error("unsupported member expr: {}", cxxMember->getMemberDecl()->getNameAsString());
                 }
             } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
-                bb->CommentStmt_(fb, call);
+                auto _ = bb->CommentStmt_(fb, call);
 
                 auto calleeDecl = call->getCalleeDecl();
                 llvm::StringRef callopName = {};
