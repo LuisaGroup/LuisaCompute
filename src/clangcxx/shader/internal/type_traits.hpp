@@ -19,6 +19,19 @@ template<typename T>
 trait remove_cvref<T volatile> { using type = T; };
 template<typename T>
 trait remove_cvref<T &&> { using type = T; };
+
+/*
+template<typename T>
+[[ignore]] constexpr T&& forward(typename remove_cvref<T>::type& Arg) {
+    return static_cast<T&&>(Arg);
+}
+
+template<typename T>
+[[ignore]] constexpr T&& forward(typename remove_cvref<T>::type&& Arg) {
+    return static_cast<T&&>(Arg);
+}
+*/
+
 struct [[builtin("half")]] half {
     [[ignore]] half() = default;
     [[ignore]] half(float);
@@ -27,6 +40,7 @@ struct [[builtin("half")]] half {
 private:
     short v;
 };
+
 template<typename T, uint64 N>
 struct vec;
 template<uint64 N>

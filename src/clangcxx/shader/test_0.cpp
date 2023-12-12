@@ -76,7 +76,10 @@ auto TestBinary() {
     int yy = n /= 65;
     int ww = n %= 65;
 
-    return m + x + xx + yy + ww;
+    int v = 5;
+    int complex = v += 5; 
+
+    return m + x + xx + yy + ww + complex;
 }
 
 auto TestUnary() {
@@ -148,6 +151,38 @@ auto TestSwitch() {
     return 3.f;
 }
 
+template <typename T>
+auto TestArgsPack_Sum(T v)
+{
+    return v;
+}
+
+template <typename T, typename... Args>
+auto TestArgsPack_Sum(T v, Args... args)
+{
+    return v + TestArgsPack_Sum(args...);
+}
+
+template <typename T>
+void TestArgsPack_Div(T Div, T &v)
+{
+    v /= Div;
+}
+
+template <typename T, typename... Args>
+void TestArgsPack_Div(T Div, T& v, Args&... args)
+{
+    TestArgsPack_Div(Div, v);
+    TestArgsPack_Div(Div, args...);
+}
+
+template <typename... Args>
+void TestArgsPack_Percentage(Args&... args)
+{
+    auto Sum = TestArgsPack_Sum(args...);
+    TestArgsPack_Div(Sum, args...);
+}
+
 [[kernel_2d(16, 16)]] 
 int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     // member assign
@@ -182,6 +217,20 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     float4 a(1.f, 1.f, 1.f, 1.f);
     buffer2.store(0, a);
 
+    // lambda
+    auto TestLambda = [&, _f](float v, float& vv){
+        ff *= 1.f;
+        vv /= 1.f;
+        auto x = _f + ff - v;
+        return x;
+    };
+    nvidia.f += TestLambda(nvidia.f, nvidia.f);
+
+    // args pack
+    nvidia.f += TestArgsPack_Sum(1.f, 2.f, 3.f);
+    float p0 = 1.f, p1 = 2.f, p2 = 3.f;
+    TestArgsPack_Percentage(p0, p1, p2);
+
     // member call
     auto n = buffer.load(0);
     buffer.store(n.i, nvidia);
@@ -195,15 +244,6 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
         .on_procedural_candidate(1)
         .on_surface_candidate(1)
         .trace();
-    */
-    
-    /*
-    // lambda
-    auto l = [=](int i){
-        int x = n + 1;
-        return x;
-    };
-    auto f = l(2);
     */
 
     return 0;
