@@ -183,12 +183,13 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     buffer2.store(0, a);
 
     // lambda
-    auto TestLambda = [&, _f](float v){
-        ff += 1.f;
+    auto TestLambda = [&, _f](float v, float& vv){
+        ff *= 1.f;
+        vv /= 1.f;
         auto x = _f + ff - v;
         return x;
     };
-    nvidia.f += TestLambda(nvidia.f);
+    nvidia.f += TestLambda(nvidia.f, nvidia.f);
 
     // member call
     auto n = buffer.load(0);
