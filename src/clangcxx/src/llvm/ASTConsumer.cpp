@@ -217,8 +217,7 @@ void CXXBlackboard::commentSourceLoc(luisa::shared_ptr<compute::detail::Function
 
 static constexpr auto kUseComment = true;
 CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt *x) {
-    if (kUseComment)
-    {
+    if (kUseComment) {
         if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
             return Commenter(
                 [=] {
@@ -228,8 +227,8 @@ CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::
                         if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                             luisa::string what =
                                 luisa::format("VarDecl: {} {}",
-                                            varDecl->getType().getAsString(),
-                                            varDecl->getNameAsString());
+                                              varDecl->getType().getAsString(),
+                                              varDecl->getNameAsString());
                             commentSourceLoc(fb, what, varDecl->getBeginLoc());
                         }
                     }
@@ -1055,14 +1054,17 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                 }
 
                 // comment name
-                if (true) {
-                    luisa::string name = luisa::string(S->getName());
-                    if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
-                        {
-                            name += "Ctor: ";
-                            name += Ctor->getQualifiedNameAsString();
-                        }
-                    }
+                if (kUseComment) {
+                    luisa::string name;
+                    if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S))
+                        name = "[Ctor] ";
+                    else if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S))
+                        name = "[Method] ";
+                    else if (auto Dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(S))
+                        name = "[Dtor] ";
+                    else
+                        name = "[Function] ";
+                    name += luisa::string(S->getQualifiedNameAsString());
                     builder->comment_(name);
                 }
                 // Stack stack;
