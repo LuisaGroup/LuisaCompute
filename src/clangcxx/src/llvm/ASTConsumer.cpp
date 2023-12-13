@@ -528,7 +528,7 @@ const luisa::compute::Type *CXXBlackboard::RecordType(const clang::QualType Qt) 
             luisa::log_verbose("template type parameter type...");
             return nullptr;
         } else {
-            recordDecl->dump();
+            Qt->dump();
             luisa::log_error("unsupported & unresolved type [{}]", Ty.getAsString());
         }
     }
