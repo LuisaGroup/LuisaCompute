@@ -6,13 +6,15 @@
 #include <luisa/ast/external_function.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
+#include <luisa/runtime/device.h>
+#include <luisa/runtime/shader.h>
 
 namespace luisa::compute {
 
 template<typename T>
 class Callable;
 
-class LC_AST_API CallableLibrary {
+class LC_RUNTIME_API CallableLibrary {
 
 private:
     struct DeserPackage {
@@ -34,6 +36,10 @@ public:
     template<typename T>
     Callable<T> get_callable(luisa::string_view name) const noexcept;
     [[nodiscard]] Function get_function(luisa::string_view name) const noexcept;
+    template<size_t dim, typename... T>
+    Shader<dim, T...> compile_kernel(Device &device, luisa::string_view name, const ShaderOption &option) const noexcept {
+        return {device.impl(), get_function(name), option};
+    }
     [[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder> get_function_builder(luisa::string_view name) const noexcept;
     [[nodiscard]] luisa::vector<luisa::string_view> names() const noexcept;
     CallableLibrary() noexcept;

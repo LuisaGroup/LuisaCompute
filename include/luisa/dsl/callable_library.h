@@ -1,5 +1,5 @@
 #pragma once
-#include <luisa/ast/callable_library.h>
+#include <luisa/runtime/callable_library.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/func.h>
 namespace luisa::compute {

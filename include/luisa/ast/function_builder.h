@@ -338,6 +338,9 @@ public:
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
     /// Create call expression
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, std::initializer_list<const Expression *> args) noexcept;
+    // Create make_vecN call
+    [[nodiscard]] const CallExpr *make_vector(const Type *type, luisa::span<const Expression *const> args) noexcept;
+
     /// Call function
     void call(CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
     /// Call custom function

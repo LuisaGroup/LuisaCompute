@@ -155,7 +155,65 @@ SwitchDefaultStmt *FunctionBuilder::default_() noexcept {
 void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexcept {
     lhs = _internalize(lhs);
     rhs = _internalize(rhs);
+    if (lhs->tag() == Expression::Tag::MEMBER) [[unlikely]] {
+        auto mem_expr = static_cast<MemberExpr const *>(lhs);
+        if (mem_expr->is_swizzle() && mem_expr->swizzle_size() > 1) [[unlikely]] {
+            auto self = mem_expr->self();
+            LUISA_ASSERT(self->tag() == Expression::Tag::REF, "Only variable's swizzle can be written.");
+            auto local_var = local(mem_expr->type());
+            auto elem = mem_expr->type()->element();
+            _create_and_append_statement<AssignStmt>(local_var, rhs);
+            std::array<const Expression *, 4> exprs{};
+            for (int i = 0; i < mem_expr->swizzle_size(); ++i) {
+                exprs[mem_expr->swizzle_index(i)] = swizzle(elem, local_var, 1, i);
+            }
+            for (int i = 0; i < mem_expr->swizzle_size(); ++i) {
+                if (exprs[i] == nullptr) {
+                    exprs[i] = swizzle(elem, self, 1, i);
+                }
+            }
+            auto make_type = self->type();
+            auto call_expr = make_vector(make_type, {exprs.data(), make_type->dimension()});
+            _create_and_append_statement<AssignStmt>(self, call_expr);
+            return;
+        }
+    }
     _create_and_append_statement<AssignStmt>(lhs, rhs);
+}
+
+const CallExpr *FunctionBuilder::make_vector(const Type *type, luisa::span<const Expression *const> args) noexcept {
+    LUISA_ASSERT(type->tag() == Type::Tag::VECTOR, "Must be vector type.");
+    auto elem = type->element();
+    auto op = static_cast<CallOp>(
+        luisa::to_underlying([&]() {
+            switch (elem->tag()) {
+                case Type::Tag::BOOL:
+                    return CallOp::MAKE_BOOL2;
+                case Type::Tag::UINT16:
+                    return CallOp::MAKE_USHORT2;
+                case Type::Tag::UINT32:
+                    return CallOp::MAKE_UINT2;
+                case Type::Tag::UINT64:
+                    return CallOp::MAKE_ULONG2;
+                case Type::Tag::INT16:
+                    return CallOp::MAKE_SHORT2;
+                case Type::Tag::INT32:
+                    return CallOp::MAKE_INT2;
+                case Type::Tag::INT64:
+                    return CallOp::MAKE_LONG2;
+                case Type::Tag::FLOAT16:
+                    return CallOp::MAKE_HALF2;
+                case Type::Tag::FLOAT32:
+                    return CallOp::MAKE_HALF2;
+                case Type::Tag::FLOAT64:
+                    return CallOp::MAKE_DOUBLE2;
+                default:
+                    LUISA_ERROR("Invalid element type.");
+                    return CallOp::MAKE_BOOL2;
+            }
+        }()) +
+        elem->dimension() - 2);
+    return call(type, op, args);
 }
 
 const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {

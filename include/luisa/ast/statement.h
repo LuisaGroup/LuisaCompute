@@ -244,7 +244,7 @@ public:
 };
 
 /// Expression statement
-class ExprStmt : public Statement {
+class LC_AST_API ExprStmt : public Statement {
     friend class CallableLibrary;
 
 private:
