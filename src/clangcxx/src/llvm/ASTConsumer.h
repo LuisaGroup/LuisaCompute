@@ -3,7 +3,7 @@
 #include <luisa/vstl/common.h>
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/unordered_map.h>
-#include "luisa/runtime/device.h"
+#include <luisa/runtime/device.h>
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Decl.h"

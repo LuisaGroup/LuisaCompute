@@ -1,7 +1,7 @@
 #pragma once
-#include "luisa/core/dll_export.h"
-#include "luisa/runtime/device.h"
-#include "luisa/clangcxx/compiler.h"
+#include <luisa/core/dll_export.h>
+#include <luisa/runtime/device.h>
+#include <luisa/clangcxx/compiler.h>
 #include "FrontendAction.h"
 #include "OptionsParser.h"
 

@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
                 .compile_only = true,
                 .name = "test.bin"
                 });
-        compiler.create_shader(device);
+        compiler.create_shader(context, device);
     }
     return 0;
 }

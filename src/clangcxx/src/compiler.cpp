@@ -27,14 +27,19 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute:
     return std::unique_ptr<FrontendActionFactory>(new SimpleFrontendActionFactory2(device, option));
 }
 
-compute::ShaderCreationInfo Compiler::create_shader(luisa::compute::Device &device) LUISA_NOEXCEPT {
-    std::vector<std::string> args_holder = {
+compute::ShaderCreationInfo Compiler::create_shader(
+    compute::Context const &context,
+    luisa::compute::Device &device) LUISA_NOEXCEPT {
+    auto shader_path = luisa::to_string(context.runtime_directory() / "./../../src/clangcxx/shader/test_0.cpp");
+    auto output_path = luisa::to_string(context.runtime_directory() / "./../../src/clangcxx/shader");
+    output_path = "--output=" + output_path;
+    luisa::vector<luisa::string> args_holder = {
         "luisa_compiler",
-        "./../../../LuisaCompute/src/clangcxx/shader/test_0.cpp",
-        "--output=C:/LuisaCompute/src/clangcxx/shader",
+        std::move(shader_path),
+        std::move(output_path),
         "--",
         "-std=c++20"};
-    std::vector<const char *> args;
+    luisa::vector<const char *> args;
     args.reserve(args_holder.size());
     for (auto &arg : args_holder) {
         args.push_back(arg.c_str());
@@ -44,7 +49,7 @@ compute::ShaderCreationInfo Compiler::create_shader(luisa::compute::Device &devi
     if (!ExpectedParser) {
         // Fail gracefully for unsupported options.
         llvm::errs() << ExpectedParser.takeError();
-        return {};
+        return compute::ShaderCreationInfo::make_invalid();
     }
     OptionsParser &OptionsParser = ExpectedParser.get();
     tooling::ClangTool Tool(OptionsParser.getCompilations(), OptionsParser.getSourcePathList());
@@ -53,7 +58,7 @@ compute::ShaderCreationInfo Compiler::create_shader(luisa::compute::Device &devi
     if (rc != 0) {
         // ...
     }
-    return {};
+    return compute::ShaderCreationInfo::make_invalid();
 }
 
 }// namespace luisa::clangcxx

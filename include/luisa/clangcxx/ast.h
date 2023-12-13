@@ -1,5 +1,5 @@
 #pragma once
-#include "luisa/core/dll_export.h"
+#include <luisa/core/dll_export.h>
 
 namespace luisa::clangcxx {
 
