@@ -160,7 +160,7 @@ void ComputeShader::SaveCompute(
     using namespace ComputeShaderDetail;
     vstd::MD5 md5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
     if (PRINT_CODE) {
-        auto f = fopen("hlsl_output.hlsl", "ab");
+        auto f = fopen("hlsl_output.hlsl", "wb");
         fwrite(str.result.data(), str.result.size(), 1, f);
         fclose(f);
     }
