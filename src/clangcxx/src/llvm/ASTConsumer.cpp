@@ -157,6 +157,21 @@ CXXBlackboard::CXXBlackboard() {
         const auto op = (CallOp)i;
         ops_map.emplace(luisa::to_string(op), op);
     }
+#define LC_CLANGCXX_REG_BUILTIN(_func_name)                                              \
+    ops_map.emplace(                                                                     \
+        #_func_name,                                                                     \
+        [](compute::detail::FunctionBuilder *func_builder) -> const compute::RefExpr * { \
+            return func_builder->_func_name();                                           \
+        });
+    LC_CLANGCXX_REG_BUILTIN(dispatch_id)
+    LC_CLANGCXX_REG_BUILTIN(dispatch_size)
+    LC_CLANGCXX_REG_BUILTIN(block_id)
+    LC_CLANGCXX_REG_BUILTIN(thread_id)
+    LC_CLANGCXX_REG_BUILTIN(kernel_id)
+    LC_CLANGCXX_REG_BUILTIN(warp_lane_count)
+    LC_CLANGCXX_REG_BUILTIN(warp_lane_id)
+    LC_CLANGCXX_REG_BUILTIN(object_id)
+#undef LC_CLANGCXX_REG_BUILTIN
 }
 
 CXXBlackboard::~CXXBlackboard() {
@@ -199,7 +214,7 @@ const luisa::compute::Type *CXXBlackboard::FindOrAddType(const clang::QualType T
     return nullptr;
 }
 
-luisa::compute::CallOp CXXBlackboard::FindCallOp(const luisa::string_view &name) {
+auto CXXBlackboard::FindCallOp(const luisa::string_view &name) -> BuiltinCallCmd {
     auto iter = ops_map.find(name);
     if (iter) {
         return iter.value();
@@ -282,7 +297,7 @@ CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::
             });
         }
     }
-    return {[](){}, [](){}};
+    return {[]() {}, []() {}};
 }
 
 const luisa::compute::Type *CXXBlackboard::RecordAsPrimitiveType(const clang::QualType Ty) {
@@ -446,7 +461,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
         }
 
         luisa::vector<const luisa::compute::Type *> types;
-        if (!S->isLambda()) { // ignore lambda generated capture fields
+        if (!S->isLambda()) {// ignore lambda generated capture fields
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
                 auto Ty = f->getType();
                 if (!tryEmplaceFieldType(Ty, S, types)) {
@@ -944,13 +959,24 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
                 // call
                 if (!callopName.empty()) {
-                    auto op = bb->FindCallOp(callopName);
-                    if (call->getCallReturnType(*bb->astContext)->isVoidType())
-                        fb->call(op, lc_args);
-                    else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                        current = fb->call(lc_type, op, lc_args);
-                    else
-                        luisa::log_error("unfound return type: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
+                    auto op_or_builtin = bb->FindCallOp(callopName);
+                    switch (op_or_builtin.index()) {
+                        case 0: {
+                            CallOp op = luisa::get<0>(op_or_builtin);
+                            if (call->getCallReturnType(*bb->astContext)->isVoidType())
+                                fb->call(op, lc_args);
+                            else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
+                                current = fb->call(lc_type, op, lc_args);
+                            else
+                                luisa::log_error(
+                                    "unfound return type: {}",
+                                    call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
+                        } break;
+                        case 1: {
+                            auto builtin_func = luisa::get<1>(op_or_builtin);
+                            current = builtin_func(fb.get());
+                        } break;
+                    }
                 } else {
                     auto calleeDecl = call->getCalleeDecl();
 

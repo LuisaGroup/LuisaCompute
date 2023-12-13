@@ -9,6 +9,8 @@ namespace luisa::shader {
 [[expr("thread_id")]] extern uint3 thread_id();
 [[expr("dispatch_size")]] extern uint3 dispatch_size();
 [[expr("kernel_id")]] extern uint32 kernel_id();
+[[expr("warp_lane_count")]] extern uint32 warp_lane_count();
+[[expr("warp_lane_id")]] extern uint32 warp_lane_id();
 template <boolN T> 
 [[callop("ALL")]] extern bool all(T x);
 template <boolN T> 
