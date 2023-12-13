@@ -2,17 +2,17 @@
 #include "attributes.hpp"
 
 namespace luisa::shader {
-struct RayQueryTracer {
+trait RayQueryTracer {
     void trace();
 };
 
-struct RayQueryProceduralProxy {
+trait RayQueryProceduralProxy {
     template<typename Func>
     RayQueryTracer on_procedural_candidate(Func &&func);
     [[callop("RAY_QUERY_COMMITTED_HIT")]] void trace();
 };
 
-struct RayQuerySurfaceProxy {
+trait RayQuerySurfaceProxy {
     template<typename Func>
     RayQueryTracer on_surface_candidate(Func &&func);
     [[callop("RAY_QUERY_COMMITTED_HIT")]] void trace();

@@ -3,6 +3,7 @@
 #include "clang/AST/Stmt.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/DeclTemplate.h"
 #include "AttributeHelpers.hpp"
 #include <iostream>
 #include <luisa/core/magic_enum.h>
@@ -346,27 +347,39 @@ const luisa::compute::Type *CXXBlackboard::RecordAsPrimitiveType(const clang::Qu
 }
 
 const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty) {
-    auto decl = GetRecordDeclFromQualType(Ty);
     const luisa::compute::Type *_type = nullptr;
     bool ext_builtin = false;
     llvm::StringRef builtin_type_name = {};
-    for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
-         Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-        if (ext_builtin = isBuiltinType(*Anno)) {
-            builtin_type_name = getBuiltinTypeName(*Anno);
+    if (auto decl = GetRecordDeclFromQualType(Ty))
+    {
+        for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
+            Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+            if (ext_builtin = isBuiltinType(*Anno)) {
+                builtin_type_name = getBuiltinTypeName(*Anno);
+            }
+        }
+    }
+    // TODO: REFACTOR THIS
+    if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) 
+    {
+        auto decl = TSD->getSpecializedTemplate()->getTemplatedDecl();
+        for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
+            Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+            if (ext_builtin = isBuiltinType(*Anno)) {
+                builtin_type_name = getBuiltinTypeName(*Anno);
+            }
         }
     }
 
     if (ext_builtin) {
         if (builtin_type_name == "vec") {
-            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
-                auto Arguments = TST->template_arguments();
-                if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
+            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+                auto &Arguments = TSD->getTemplateArgs();
+                if (auto EType = Arguments.get(0).getAsType()->getAs<clang::BuiltinType>()) {
                     clang::Expr::EvalResult Result;
-                    if (Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *astContext)) {
-                        auto N = Result.Val.getInt().getExtValue();
-                        // TST->dump();
-                        // clang-format off
+                    auto N = Arguments.get(1).getAsIntegral().getLimitedValue();
+                    // TST->dump();
+                    // clang-format off
                         switch (EType->getKind()) {
 #define CASE_VEC_TYPE(type)                                                                                    \
     switch (N) {                                                                                               \
@@ -389,33 +402,27 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
                             } break;
 #undef CASE_VEC_TYPE
                         }
-                        // clang-format on
-                    }
+                    // clang-format on
                 }
             } else {
                 Ty->dump();
             }
         } else if (builtin_type_name == "array") {
-            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
-                auto Arguments = TST->template_arguments();
+            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+                auto &Arguments = TSD->getTemplateArgs();
                 clang::Expr::EvalResult Result;
-                if (Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *astContext)) {
-                    auto N = Result.Val.getInt().getExtValue();
-                    if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), astContext)) {
-                        _type = Type::array(lc_type, N);
-                    } else {
-                        luisa::log_error("unfound array element type: {}", Arguments[0].getAsType().getAsString());
-                    }
+                auto N = Arguments.get(1).getAsIntegral().getLimitedValue();
+                if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), astContext)) {
+                    _type = Type::array(lc_type, N);
+                } else {
+                    luisa::log_error("unfound array element type: {}", Arguments[0].getAsType().getAsString());
                 }
             }
         } else if (builtin_type_name == "matrix") {
-            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
-                auto Arguments = TST->template_arguments();
-                clang::Expr::EvalResult Result;
-                if (Arguments[0].getAsExpr()->EvaluateAsConstantExpr(Result, *astContext)) {
-                    auto N = Result.Val.getInt().getExtValue();
-                    _type = Type::matrix(N);
-                }
+            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+                auto &Arguments = TSD->getTemplateArgs();
+                auto N = Arguments.get(0).getAsIntegral().getLimitedValue();
+                _type = Type::matrix(N);
             }
         } else if (builtin_type_name == "ray_query_all") {
             _type = Type::custom("LC_RayQueryAll");
@@ -424,8 +431,8 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
         } else if (builtin_type_name == "accel") {
             _type = Type::of<luisa::compute::Accel>();
         } else if (builtin_type_name == "buffer") {
-            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
-                auto Arguments = TST->template_arguments();
+            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+                auto &Arguments = TSD->getTemplateArgs();
                 clang::Expr::EvalResult Result;
                 if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), astContext)) {
                     _type = Type::buffer(lc_type);
@@ -434,6 +441,12 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
                 }
             }
         } else {
+            Ty.dump();
+            luisa::log_error("ilegal builtin type: {}", luisa::string(builtin_type_name));
+        }
+
+        if (!_type) {
+            Ty.dump();
             luisa::log_error("unsupported builtin type: {}", luisa::string(builtin_type_name));
         }
     }
@@ -449,8 +462,10 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
     } else {
         auto S = GetRecordDeclFromQualType(Ty);
         bool ignore = false;
+        bool is_builtin = false;
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            ignore |= isIgnore(*Anno) || isBuiltinType(*Anno);
+            is_builtin |= isBuiltinType(*Anno);
+            ignore |= isIgnore(*Anno) || is_builtin;
         }
         if (ignore)
             return nullptr;
@@ -469,6 +484,11 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
                     luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
                 }
             }
+            if (!is_builtin && S->field_empty())
+            {
+                Ty->dump();
+                luisa::log_error("empty struct [{}] detected!", Ty.getAsString());
+            }
         }
         // align
         uint64_t alignment = 4;
@@ -484,7 +504,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
 
 const luisa::compute::Type *CXXBlackboard::RecordType(const clang::QualType Qt) {
     const luisa::compute::Type *_type = nullptr;
-    clang::QualType Ty = Qt.getNonReferenceType();
+    clang::QualType Ty = Qt.getNonReferenceType().getDesugaredType(*astContext);
 
     // 1. PRIMITIVE
     if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
@@ -513,6 +533,7 @@ const luisa::compute::Type *CXXBlackboard::RecordType(const clang::QualType Qt) 
         }
     }
     if (!_type) {
+        Ty->dump();
         luisa::log_error("unsupported type [{}]", Ty.getAsString());
     }
     return _type;
@@ -1019,13 +1040,14 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     luisa::log_error("untranslated member call expr: {}", _init_expr->getExpr()->getStmtClassName());
                 current = v.translated;
             } else if (auto _exprWithCleanup = llvm::dyn_cast<clang::ExprWithCleanups>(x)) {// TODO
-                luisa::log_warning("unsupportted ExprWithCleanups!");
+                luisa::log_warning("unimplemented ExprWithCleanups!");
                 current = stack->expr_map[_exprWithCleanup->getSubExpr()];
             } else if (auto _matTemp = llvm::dyn_cast<clang::MaterializeTemporaryExpr>(x)) {// TODO
-                luisa::log_warning("unsupportted MaterializeTemporaryExpr!");
+                luisa::log_warning("unimplemented MaterializeTemporaryExpr!");
                 current = stack->expr_map[_matTemp->getSubExpr()];
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
-                luisa::log_warning("unsupportted InitListExpr!");
+                luisa::log_warning("unimplemented InitListExpr!");
+            } else if (auto _control_flow = llvm::dyn_cast<CompoundStmt>(x)) {       // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {      // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::ContinueStmt>(x)) {// CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::BreakStmt>(x)) {   // CONTROL FLOW
@@ -1036,8 +1058,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto _control_flow = llvm::dyn_cast<clang::ForStmt>(x)) {     // CONTROL FLOW
             } else if (auto cxxLambda = llvm::dyn_cast<LambdaExpr>(x)) {             // LAMBDA TRANSLATED
             } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {                    // EMPTY
-            } else if (auto compound = llvm::dyn_cast<CompoundStmt>(x)) {            // EMPTY
-
             } else {
                 x->dump();
                 luisa::log_error("unsupportted expr!");
@@ -1181,6 +1201,8 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                                 break;
                         }
                         stack.locals[param] = local;
+                    } else {
+                        luisa::log_error("unfound arg type: {}", Ty.getAsString());
                     }
                 }
 

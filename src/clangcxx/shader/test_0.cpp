@@ -267,8 +267,9 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
 
     // args pack
     nvidia.f += TestArgsPack_Sum(1.f, 2.f, 3.f);
-    float p0 = 1.f, p1 = 2.f, p2 = 3.f;
+    float p0 = 1.f, p1 = 2.f, p2 = 3.f, p3 = 4.f;
     TestArgsPack_Percentage(p0, p1, p2);
+    TestArgsPack_Percentage(p0, p1, p2, p3);
 
     // member call
     auto n = buffer.load(0);

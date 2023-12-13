@@ -23,7 +23,7 @@ enum struct HitType : uint32 {
 */
 
 using HitType = uint32;
-struct HitTypes {
+trait HitTypes {
     static constexpr HitType Miss = 0;
     static constexpr HitType HitTriangle = 1;
     static constexpr HitType HitProcedural = 2;
