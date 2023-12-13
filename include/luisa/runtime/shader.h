@@ -223,33 +223,57 @@ struct shader_argument_encode_count {
 
 }// namespace detail
 
+class ShaderBase : public Resource {
+protected:
+    size_t _uniform_size{};
+    uint3 _block_size;
+    ShaderBase(DeviceInterface *device,
+               const ShaderCreationInfo &info,
+               size_t uniform_size) noexcept
+        : Resource{device, Tag::SHADER, info},
+          _block_size{info.block_size},
+          _uniform_size{uniform_size} {}
+    ShaderBase() = default;
+public:
+    ~ShaderBase() noexcept override {
+        if (*this) { device()->destroy_shader(handle()); }
+    }
+    ShaderBase(ShaderBase &&) noexcept = default;
+    ShaderBase(ShaderBase const &) noexcept = delete;
+    ShaderBase &operator=(ShaderBase &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
+    ShaderBase &operator=(ShaderBase const &) noexcept = delete;
+    using Resource::operator bool;
+    [[nodiscard]] uint3 block_size() const noexcept {
+        _check_is_valid();
+        return _block_size;
+    }
+};
+
 template<size_t dimension, typename... Args>
-class Shader final : public Resource {
+class Shader final : public ShaderBase {
 
     static_assert(dimension == 1u || dimension == 2u || dimension == 3u);
 
-private:
     friend class Device;
     friend class CallableLibrary;
-    uint _block_size[3];
-    size_t _uniform_size{};
 
 private:
     // base ctor
     Shader(DeviceInterface *device,
            const ShaderCreationInfo &info,
            size_t uniform_size) noexcept
-        : Resource{device, Tag::SHADER, info},
-          _block_size{info.block_size.x, info.block_size.y, info.block_size.z},
-          _uniform_size{uniform_size} {}
+        : ShaderBase{device, info, uniform_size} {}
 
 private:
     // JIT shader
     Shader(DeviceInterface *device,
            Function kernel,
            const ShaderOption &option) noexcept
-        : Shader{device, device->create_shader(option, kernel),
-                 ShaderDispatchCmdEncoder::compute_uniform_size(kernel.unbound_arguments())} {}
+        : ShaderBase{device, device->create_shader(option, kernel),
+                     ShaderDispatchCmdEncoder::compute_uniform_size(kernel.unbound_arguments())} {}
 
 #ifdef LUISA_ENABLE_IR
     // JIT shader from IR module
@@ -261,21 +285,16 @@ private:
 
     // AOT shader
     Shader(DeviceInterface *device, string_view file_path) noexcept
-        : Shader{device,
-                 device->load_shader(file_path, detail::shader_argument_types<Args...>()),
-                 ShaderDispatchCmdEncoder::compute_uniform_size(detail::shader_argument_types<Args...>())} {}
+        : ShaderBase{device,
+                     device->load_shader(file_path, detail::shader_argument_types<Args...>()),
+                     ShaderDispatchCmdEncoder::compute_uniform_size(detail::shader_argument_types<Args...>())} {}
 
 public:
     Shader() noexcept = default;
-    ~Shader() noexcept override {
-        if (*this) { device()->destroy_shader(handle()); }
-    }
+    ~Shader() noexcept = default;
     Shader(Shader &&) noexcept = default;
     Shader(Shader const &) noexcept = delete;
-    Shader &operator=(Shader &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
+    Shader &operator=(Shader &&rhs) noexcept = default;
     Shader &operator=(Shader const &) noexcept = delete;
     using Resource::operator bool;
 
@@ -286,10 +305,6 @@ public:
         invoke_type invoke{handle(), arg_count, _uniform_size};
         static_cast<void>((invoke << ... << args));
         return invoke;
-    }
-    [[nodiscard]] uint3 block_size() const noexcept {
-        _check_is_valid();
-        return make_uint3(_block_size[0], _block_size[1], _block_size[2]);
     }
 };
 
