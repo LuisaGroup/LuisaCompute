@@ -6,11 +6,13 @@ namespace luisa::shader {
 
 template<typename Type, uint64 size, uint32 CacheFlags = 0 /*AUTO*/>
 struct [[builtin("array")]] Array {
-    [[expr("ACCESS")]] Type load(uint32 loc);
-    [[ignore]] Type operator[](uint32 loc) const { return load(loc); };
-
-    [[builtin("BUFFER_WRITE")]] void store(uint32 loc, Type value);
-
+    [[expr("ACCESS")]] Type &operator[](uint32 loc);
+    [[ignore]] Array() = default;
+    [[ignore]] Array(Array const &) = delete;
+    [[ignore]] Array(Array &&) = delete;
+    [[ignore]] Array &operator=(Array const &) = delete;
+    [[ignore]] Array &operator=(Array &&) = delete;
+private:
     Type v[size];
 };
 
