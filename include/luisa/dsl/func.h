@@ -206,10 +206,10 @@ private:
     using SharedFunctionBuilder = luisa::shared_ptr<const detail::FunctionBuilder>;
     SharedFunctionBuilder _builder{nullptr};
 
+public:
     explicit Kernel(SharedFunctionBuilder builder) noexcept
         : _builder{std::move(builder)} {}
 
-public:
     /**
      * @brief Create Kernel object from function.
      * 
@@ -334,7 +334,6 @@ struct is_callable<Callable<T>> : std::true_type {};
 /// Callable class with a function type as template parameter.
 template<typename Ret, typename... Args>
 class Callable<Ret(Args...)> {
-    friend class CallableLibrary;
     static_assert(
         std::negation_v<std::disjunction<
             is_buffer_or_view<Ret>,
@@ -343,13 +342,12 @@ class Callable<Ret(Args...)> {
         "Callables may not return buffers, "
         "images or volumes (or their views).");
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
-
 private:
     luisa::shared_ptr<const detail::FunctionBuilder> _builder;
-    explicit Callable(luisa::shared_ptr<const detail::FunctionBuilder> builder) noexcept
-        : _builder{std::move(builder)} {}
 
 public:
+    explicit Callable(luisa::shared_ptr<const detail::FunctionBuilder> builder) noexcept
+        : _builder{std::move(builder)} {}
     /**
      * @brief Construct a Callable object.
      * 

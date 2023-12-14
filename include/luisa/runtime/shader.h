@@ -227,14 +227,15 @@ class ShaderBase : public Resource {
 protected:
     size_t _uniform_size{};
     uint3 _block_size;
-    ShaderBase(DeviceInterface *device,
-               const ShaderCreationInfo &info,
-               size_t uniform_size) noexcept
+
+public:
+    explicit ShaderBase(DeviceInterface *device,
+                        const ShaderCreationInfo &info,
+                        size_t uniform_size) noexcept
         : Resource{device, Tag::SHADER, info},
           _block_size{info.block_size},
           _uniform_size{uniform_size} {}
-    ShaderBase() = default;
-public:
+    explicit ShaderBase() = default;
     ~ShaderBase() noexcept override {
         if (*this) { device()->destroy_shader(handle()); }
     }
@@ -246,9 +247,13 @@ public:
     }
     ShaderBase &operator=(ShaderBase const &) noexcept = delete;
     using Resource::operator bool;
-    [[nodiscard]] uint3 block_size() const noexcept {
+    [[nodiscard]] auto block_size() const noexcept {
         _check_is_valid();
         return _block_size;
+    }
+    [[nodiscard]] auto uniform_size() const noexcept {
+        _check_is_valid();
+        return _uniform_size;
     }
 };
 
@@ -258,7 +263,6 @@ class Shader final : public ShaderBase {
     static_assert(dimension == 1u || dimension == 2u || dimension == 3u);
 
     friend class Device;
-    friend class CallableLibrary;
 
 private:
     // base ctor
