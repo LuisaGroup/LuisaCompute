@@ -126,6 +126,20 @@ template <typename T, uint64 N>
 template <typename T, uint64 N>
 [[binop("MUL")]] vec<T, N> operator*(T,  vec<T, N>);
 
+template <typename...T>
+auto make_vector(T... ts)
+{
+    static constexpr auto DIM = sum_dim_v<T...>;
+    if constexpr (DIM == 1)
+        return vec<float, 1>(ts...);
+    else if constexpr (DIM == 2)
+        return vec<float, 2>(ts...);
+    else if constexpr (DIM == 3)
+        return vec<float, 3>(ts...);
+    else if constexpr (DIM == 4)
+        return vec<float, 4>(ts...);
+}
+
 using float2 = vec<float, 2>;
 using float3 = vec<float, 3>;
 using float4 = vec<float, 4>;

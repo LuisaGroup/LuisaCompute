@@ -131,7 +131,7 @@ CXXBlackboard::CXXBlackboard() {
         call_ops_map.emplace(luisa::to_string(op), op);
     }
 #define LC_CLANGCXX_REG_BUILTIN(_func_name)                                              \
-    call_ops_map.emplace(                                                                     \
+    call_ops_map.emplace(                                                                \
         #_func_name,                                                                     \
         [](compute::detail::FunctionBuilder *func_builder) -> const compute::RefExpr * { \
             return func_builder->_func_name();                                           \
@@ -522,8 +522,7 @@ const luisa::compute::Type *CXXBlackboard::RecordType(const clang::QualType Qt) 
     if (!_type) {
         if (isSwizzle(GetRecordDeclFromQualType(Qt)))
             luisa::log_error("swizzle helper type instantiation detected! please use explicit vector types!");
-        else
-        {
+        else {
             Ty->dump();
             luisa::log_error("unsupported type [{}]", Ty.getAsString());
         }
@@ -765,16 +764,15 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         }
                     }
                     if (isBuiltin) {
+                        auto Ty = cxxCtor->getType().getDesugaredType(*bb->astContext);
                         if (builtinName == "vec") {
-                            auto Ty = cxxCtor->getType();
-                            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
-                                auto Arguments = TST->template_arguments();
+                            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+                                auto &Arguments = TSD->getTemplateArgs();
                                 if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
                                     clang::Expr::EvalResult Result;
-                                    if (Arguments[1].getAsExpr()->EvaluateAsConstantExpr(Result, *bb->astContext)) {
-                                        auto N = Result.Val.getInt().getExtValue();
-                                        // TST->dump();
-                                        // clang-format off
+                                    auto N = Arguments[1].getAsIntegral().getLimitedValue();
+                                    // TST->dump();
+                                    // clang-format off
                         switch (EType->getKind()) {
 #define CASE_VEC_TYPE(stype, type)                                                                                    \
     switch (N) {                                                                                               \
@@ -797,22 +795,18 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             } break;
 #undef CASE_VEC_TYPE
                         }
-                                        // clang-format on
-                                    }
+                                    // clang-format on
                                 }
                             } else
                                 luisa::log_error("???");
                         } else if (builtinName == "matrix") {
-                            auto Ty = cxxCtor->getType();
-                            if (auto TST = Ty->getAs<TemplateSpecializationType>()) {
-                                auto Arguments = TST->template_arguments();
+                            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+                                auto &Arguments = TSD->getTemplateArgs();
                                 clang::Expr::EvalResult Result;
-                                if (Arguments[0].getAsExpr()->EvaluateAsConstantExpr(Result, *bb->astContext)) {
-                                    auto N = Result.Val.getInt().getExtValue();
-                                    auto lc_type = Type::matrix(N);
-                                    const CallOp MATRIX_LUT[3] = {CallOp::MAKE_FLOAT2X2, CallOp::MAKE_FLOAT3X3, CallOp::MAKE_FLOAT4X4};
-                                    current = fb->call(lc_type, MATRIX_LUT[N - 2], {lc_args.begin() + 1, lc_args.end()});
-                                };
+                                auto N = Arguments[0].getAsIntegral().getLimitedValue();
+                                auto lc_type = Type::matrix(N);
+                                const CallOp MATRIX_LUT[3] = {CallOp::MAKE_FLOAT2X2, CallOp::MAKE_FLOAT3X3, CallOp::MAKE_FLOAT4X4};
+                                current = fb->call(lc_type, MATRIX_LUT[N - 2], {lc_args.begin() + 1, lc_args.end()});
                             } else
                                 luisa::log_error("???");
                         } else {
@@ -1053,8 +1047,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             }
                         }
                         if (auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(calleeDecl);
-                            methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) 
-                        {
+                            methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) {
                             fb->assign(lc_args[0], lc_args[1]);
                             current = lc_args[0];
                         } else if (auto func_callable = bb->func_builders[calleeDecl]) {
@@ -1090,7 +1083,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 luisa::log_warning("unimplemented MaterializeTemporaryExpr!");
                 current = stack->expr_map[_matTemp->getSubExpr()];
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
-                luisa::log_warning("unimplemented InitListExpr!");
+                luisa::log_error("InitList is banned! Explicit use constructor instead!");
             } else if (auto _control_flow = llvm::dyn_cast<CompoundStmt>(x)) {       // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {      // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::ContinueStmt>(x)) {// CONTROL FLOW

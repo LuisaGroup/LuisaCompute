@@ -131,6 +131,9 @@ template<uint64 dim, typename T, typename... Ts>
     }
 }
 
+template <typename...T>
+static constexpr auto sum_dim_v = sum_dim<0ull, T...>();
+
 template <typename T>
 trait is_basic_type{ static constexpr bool value = false; };
 template <typename T, uint64 N>

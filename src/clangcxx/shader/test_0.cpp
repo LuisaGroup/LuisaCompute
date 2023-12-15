@@ -112,10 +112,16 @@ auto TestTemplate() {
 }
 
 auto TestTemplateSpec() {
-    NVIDIA nvidia = {};
+    NVIDIA nvidia = NVIDIA();
     Template h(nvidia);
     h.call();
-    return nvidia.f;
+
+    auto vec = make_vector(1.f, 2.f);
+    auto vec2 = make_vector(1.f, vec);
+    auto vec3 = make_vector(vec, 2.f);
+    auto vec4 = make_vector(1.f, vec, 2.f);
+
+    return nvidia.f + vec.y + vec2.z + vec3.z + vec4.w;
 }
 
 auto TestBranch() {
@@ -254,7 +260,7 @@ auto TestInvokeInvoke(F func, Args&... args)
 [[kernel_2d(16, 16)]] 
 int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     // member assign
-    NVIDIA nvidia = {};
+    NVIDIA nvidia = NVIDIA();
     int i = nvidia.ix = is_floatN<int4>::value;
 
     // binary ops
