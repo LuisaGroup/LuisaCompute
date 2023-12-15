@@ -188,6 +188,7 @@ class DStorageExtImpl final : public DStorageExt, public vstd::IOperatorNewBase 
     std::mutex mtx;
     LCDevice *mdevice;
     std::atomic_bool staging{false};
+    size_t staging_buffer_size = DSTORAGE_STAGING_BUFFER_SIZE_32MB;
     bool is_hdd = false;
     void init_factory();
     void init_factory_nolock();

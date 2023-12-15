@@ -1,6 +1,6 @@
 #include <luisa/core/magic_enum.h>
 #include <luisa/core/logging.h>
-#include <luisa/runtime/callable_library.h>
+#include <luisa/ast/callable_library.h>
 
 namespace luisa::compute {
 
