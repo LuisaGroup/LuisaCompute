@@ -250,6 +250,15 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     float4 a(1.f, 1.f, 1.f, 1.f);
     buffer2.store(0, a);
 
+    // swizzle
+    float2 d = float2(1.f, 1.f);
+    float dx = nvidia.f += d.x;
+    float dx2 = nvidia.f += d.y;
+    float2 dd = d.xy;
+    float2 dd2 = d.yx;
+    float dx3 = nvidia.f += dd.y;
+    float dx4 = nvidia.f += dd2.x;
+
     // lambda
     auto TestLambda = [&, _f](float v, float& vv){
         ff *= 1.f;

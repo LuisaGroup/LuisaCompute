@@ -1,5 +1,7 @@
 #pragma once
 #define ignore clang::annotate("luisa-shader", "ignore")
+#define bypass clang::annotate("luisa-shader", "bypass")
+#define swizzle(name) clang::annotate("luisa-shader", "swizzle", (name))
 #define builtin(name) clang::annotate("luisa-shader", "builtin", (name))
 #define callop(name) clang::annotate("luisa-shader", "callop", (name))
 #define expr(name) clang::annotate("luisa-shader", "callop", (name))

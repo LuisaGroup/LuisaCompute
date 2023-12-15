@@ -1,6 +1,8 @@
 #pragma once
 #include "attributes.hpp"
 #include "type_traits.hpp"
+#include "vec.hpp"
+#include "matrix.hpp"
 
 namespace luisa::shader {
 

@@ -121,34 +121,6 @@ inline const luisa::compute::RefExpr *LC_ArgOrRef(clang::QualType qt, luisa::sha
     return nullptr;
 }
 
-inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, luisa::string parent = {}) {
-    clang::RecordDecl *recordDecl = Ty->getAsRecordDecl();
-    if (!recordDecl) {
-        if (const auto TPT = Ty->getAs<clang::PointerType>()) {
-            Ty = TPT->getPointeeType();
-            recordDecl = Ty->getAsRecordDecl();
-        } else if (const auto TRT = Ty->getAs<clang::ReferenceType>()) {
-            Ty = TRT->getPointeeType();
-            recordDecl = Ty->getAsRecordDecl();
-        } else if (const auto *TDT = Ty->getAs<clang::TypedefType>()) {
-            Ty = TDT->getDecl()->getUnderlyingType();
-            recordDecl = Ty->getAsRecordDecl();
-        } else if (const auto *TST = Ty->getAs<clang::TemplateSpecializationType>()) {
-            recordDecl = TST->getAsRecordDecl();
-        } else if (const auto *AT = Ty->getAsArrayTypeUnsafe()) {
-            recordDecl = AT->getAsRecordDecl();
-            if (!parent.empty()) {
-                luisa::log_error("array type is not supported: [{}] in type [{}]", Ty.getAsString(), parent);
-            } else {
-                luisa::log_error("array type is not supported: [{}]", Ty.getAsString());
-            }
-        } else {
-            Ty.dump();
-        }
-    }
-    return recordDecl;
-}
-
 CXXBlackboard::CXXBlackboard() {
     using namespace luisa;
     using namespace luisa::compute;
@@ -350,21 +322,19 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
     const luisa::compute::Type *_type = nullptr;
     bool ext_builtin = false;
     llvm::StringRef builtin_type_name = {};
-    if (auto decl = GetRecordDeclFromQualType(Ty))
-    {
+    if (auto decl = GetRecordDeclFromQualType(Ty)) {
         for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
-            Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+             Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
             if (ext_builtin = isBuiltinType(*Anno)) {
                 builtin_type_name = getBuiltinTypeName(*Anno);
             }
         }
     }
     // TODO: REFACTOR THIS
-    if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) 
-    {
+    if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
         auto decl = TSD->getSpecializedTemplate()->getTemplatedDecl();
         for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
-            Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+             Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
             if (ext_builtin = isBuiltinType(*Anno)) {
                 builtin_type_name = getBuiltinTypeName(*Anno);
             }
@@ -457,7 +427,9 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
 }
 
 const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::QualType Ty) {
-    if (const luisa::compute::Type *_type = findType(Ty, astContext)) {
+    if (Ty->isUnionType())
+        return nullptr;
+    else if (const luisa::compute::Type *_type = findType(Ty, astContext)) {
         return _type;
     } else {
         auto S = GetRecordDeclFromQualType(Ty);
@@ -484,8 +456,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
                     luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
                 }
             }
-            if (!is_builtin && S->field_empty())
-            {
+            if (!is_builtin && S->field_empty()) {
                 Ty->dump();
                 luisa::log_error("empty struct [{}] detected!", Ty.getAsString());
             }
@@ -946,92 +917,128 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
                 current = stack->locals[nullptr];
             } else if (auto cxxMember = llvm::dyn_cast<clang::MemberExpr>(x)) {
-                if (cxxMember->isBoundMemberFunction(*bb->astContext)) {
+                if (auto bypass = isByPass(cxxMember->getMemberDecl())) {
+                    current = stack->expr_map[cxxMember->getBase()];
+                    caller = current;
+                } else if (cxxMember->isBoundMemberFunction(*bb->astContext)) {
                     auto lhs = stack->expr_map[cxxMember->getBase()];
                     caller = lhs;
                 } else if (auto cxxField = llvm::dyn_cast<FieldDecl>(cxxMember->getMemberDecl())) {
-                    auto lhs = stack->expr_map[cxxMember->getBase()];
-                    const auto lcMemberType = bb->FindOrAddType(cxxField->getType(), bb->astContext);
-                    current = fb->member(lcMemberType, lhs, cxxField->getFieldIndex());
+                    if (auto swizzle = getSwizzleName(cxxField); !swizzle.empty()) {
+                        const auto swizzleType = cxxField->getType().getDesugaredType(*bb->astContext);
+                        if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(swizzleType->getAs<clang::RecordType>()->getDecl())) {
+                            const auto cxxResultType = TSD->getTemplateArgs().get(1).getAsType();
+                            if (auto lcResultType = bb->FindOrAddType(cxxResultType, bb->astContext)) {
+                                uint64_t swizzle_code = 0u;
+                                uint64_t swizzle_seq[] = {0u, 0u, 0u, 0u}; /*4*/
+                                int64_t swizzle_size = 0;
+                                for (auto iter = swizzle.begin(); iter != swizzle.end(); iter++) {
+                                    if (*iter == 'x') swizzle_seq[swizzle_size] = 0u;
+                                    if (*iter == 'y') swizzle_seq[swizzle_size] = 1u;
+                                    if (*iter == 'z') swizzle_seq[swizzle_size] = 2u;
+                                    if (*iter == 'w') swizzle_seq[swizzle_size] = 3u;
+                                    swizzle_size += 1;
+                                }
+                                // encode swizzle code
+                                for (int64_t cursor = swizzle_size - 1; cursor >= 0; cursor--) {
+                                    swizzle_code <<= 4;
+                                    swizzle_code |= swizzle_seq[cursor];
+                                }
+                                auto lhs = stack->expr_map[cxxMember->getBase()];
+                                current = fb->swizzle(lcResultType, lhs, swizzle_size, swizzle_code);
+                            }
+                        } else
+                            luisa::log_error("!!!");
+                    } else {
+                        auto lhs = stack->expr_map[cxxMember->getBase()];
+                        const auto lcMemberType = bb->FindOrAddType(cxxField->getType(), bb->astContext);
+                        current = fb->member(lcMemberType, lhs, cxxField->getFieldIndex());
+                    }
                 } else {
                     luisa::log_error("unsupported member expr: {}", cxxMember->getMemberDecl()->getNameAsString());
                 }
             } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
-                auto _ = bb->CommentStmt_(fb, call);
-
-                auto calleeDecl = call->getCalleeDecl();
-                llvm::StringRef callopName = {};
-                for (auto attr = calleeDecl->specific_attr_begin<clang::AnnotateAttr>();
-                     attr != calleeDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
-                    if (callopName.empty())
-                        callopName = getCallopName(*attr);
-                }
-                // args
-                luisa::vector<const luisa::compute::Expression *> lc_args;
-                if (auto mcall = llvm::dyn_cast<clang::CXXMemberCallExpr>(x)) {
-                    lc_args.emplace_back(caller);// from -MemberExpr::isBoundMemberFunction
-                    caller = nullptr;
-                }
-                for (auto arg : call->arguments()) {
-                    if (auto lc_arg = stack->expr_map[arg])
-                        lc_args.emplace_back(lc_arg);
-                    else
-                        luisa::log_error("unfound arg: {}", arg->getStmtClassName());
-                }
-                // call
-                if (!callopName.empty()) {
-                    auto op_or_builtin = bb->FindCallOp(callopName);
-                    switch (op_or_builtin.index()) {
-                        case 0: {
-                            CallOp op = luisa::get<0>(op_or_builtin);
-                            if (call->getCallReturnType(*bb->astContext)->isVoidType())
-                                fb->call(op, lc_args);
-                            else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                                current = fb->call(lc_type, op, lc_args);
-                            else
-                                luisa::log_error(
-                                    "unfound return type: {}",
-                                    call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
-                        } break;
-                        case 1: {
-                            auto builtin_func = luisa::get<1>(op_or_builtin);
-                            current = builtin_func(fb.get());
-                        } break;
+                if (isByPass(call->getCalleeDecl())) {
+                    if (!caller) {
+                        call->dump();
+                        luisa::log_error("incorrect [[bypass]] call detected!");
                     }
+                    current = caller;
                 } else {
+                    auto _ = bb->CommentStmt_(fb, call);
                     auto calleeDecl = call->getCalleeDecl();
-
-                    // TODO: REFACTOR THIS
-                    if (!bb->lambda_builders.contains(calleeDecl) && !bb->func_builders.contains(calleeDecl)) {
-                        auto funcDecl = calleeDecl->getAsFunction();
-                        auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
-                        const auto isTemplateInstant = funcDecl->isTemplateInstantiation();
-                        const auto isLambda = methodDecl && methodDecl->getParent()->isLambda();
-                        if (isTemplateInstant || isLambda) {
-                            FunctionBuilderBuilder fbfb(bb, *stack);
-                            fbfb.build(calleeDecl->getAsFunction());
-                            calleeDecl = funcDecl;
-                        }
+                    llvm::StringRef callopName = {};
+                    for (auto attr = calleeDecl->specific_attr_begin<clang::AnnotateAttr>();
+                         attr != calleeDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
+                        if (callopName.empty())
+                            callopName = getCallopName(*attr);
                     }
-
-                    if (auto func_callable = bb->func_builders[calleeDecl]) {
-                        if (call->getCallReturnType(*bb->astContext)->isVoidType())
-                            fb->call(luisa::compute::Function(func_callable.get()), lc_args);
-                        else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                            current = fb->call(lc_type, luisa::compute::Function(func_callable.get()), lc_args);
+                    // args
+                    luisa::vector<const luisa::compute::Expression *> lc_args;
+                    if (auto mcall = llvm::dyn_cast<clang::CXXMemberCallExpr>(x)) {
+                        lc_args.emplace_back(caller);// from -MemberExpr::isBoundMemberFunction
+                        caller = nullptr;
+                    }
+                    for (auto arg : call->arguments()) {
+                        if (auto lc_arg = stack->expr_map[arg])
+                            lc_args.emplace_back(lc_arg);
                         else
-                            luisa::log_error("unfound return type in method/function: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
-                    } else if (auto lambda_callable = bb->lambda_builders[calleeDecl]) {
-                        luisa::span<const luisa::compute::Expression *> lambda_args = {lc_args.begin() + 1, lc_args.end()};
-                        if (call->getCallReturnType(*bb->astContext)->isVoidType())
-                            fb->call(luisa::compute::Function(lambda_callable.get()), lambda_args);
-                        else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                            current = fb->call(lc_type, luisa::compute::Function(lambda_callable.get()), lambda_args);
-                        else
-                            luisa::log_error("unfound return type in lambda: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
+                            luisa::log_error("unfound arg: {}", arg->getStmtClassName());
+                    }
+                    // call
+                    if (!callopName.empty()) {
+                        auto op_or_builtin = bb->FindCallOp(callopName);
+                        switch (op_or_builtin.index()) {
+                            case 0: {
+                                CallOp op = luisa::get<0>(op_or_builtin);
+                                if (call->getCallReturnType(*bb->astContext)->isVoidType())
+                                    fb->call(op, lc_args);
+                                else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
+                                    current = fb->call(lc_type, op, lc_args);
+                                else
+                                    luisa::log_error(
+                                        "unfound return type: {}",
+                                        call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
+                            } break;
+                            case 1: {
+                                auto builtin_func = luisa::get<1>(op_or_builtin);
+                                current = builtin_func(fb.get());
+                            } break;
+                        }
                     } else {
-                        calleeDecl->dump();
-                        luisa::log_error("unfound function!");
+                        auto calleeDecl = call->getCalleeDecl();
+
+                        // TODO: REFACTOR THIS
+                        if (!bb->lambda_builders.contains(calleeDecl) && !bb->func_builders.contains(calleeDecl)) {
+                            auto funcDecl = calleeDecl->getAsFunction();
+                            auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
+                            const auto isTemplateInstant = funcDecl->isTemplateInstantiation();
+                            const auto isLambda = methodDecl && methodDecl->getParent()->isLambda();
+                            if (isTemplateInstant || isLambda) {
+                                FunctionBuilderBuilder fbfb(bb, *stack);
+                                fbfb.build(calleeDecl->getAsFunction());
+                                calleeDecl = funcDecl;
+                            }
+                        }
+                        if (auto func_callable = bb->func_builders[calleeDecl]) {
+                            if (call->getCallReturnType(*bb->astContext)->isVoidType())
+                                fb->call(luisa::compute::Function(func_callable.get()), lc_args);
+                            else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
+                                current = fb->call(lc_type, luisa::compute::Function(func_callable.get()), lc_args);
+                            else
+                                luisa::log_error("unfound return type in method/function: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
+                        } else if (auto lambda_callable = bb->lambda_builders[calleeDecl]) {
+                            luisa::span<const luisa::compute::Expression *> lambda_args = {lc_args.begin() + 1, lc_args.end()};
+                            if (call->getCallReturnType(*bb->astContext)->isVoidType())
+                                fb->call(luisa::compute::Function(lambda_callable.get()), lambda_args);
+                            else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
+                                current = fb->call(lc_type, luisa::compute::Function(lambda_callable.get()), lambda_args);
+                            else
+                                luisa::log_error("unfound return type in lambda: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
+                        } else {
+                            calleeDecl->dump();
+                            luisa::log_error("unfound function!");
+                        }
                     }
                 }
             } else if (auto _init_expr = llvm::dyn_cast<clang::CXXDefaultInitExpr>(x)) {
@@ -1100,6 +1107,8 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
     }
     if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
         if (auto thisType = GetRecordDeclFromQualType(Method->getThisType()->getPointeeType())) {
+            ignore |= thisType->isUnion();// ignore union
+
             for (auto Anno = thisType->specific_attr_begin<clang::AnnotateAttr>(); Anno != thisType->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
                 ignore |= isBuiltinType(*Anno);
             }

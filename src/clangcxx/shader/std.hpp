@@ -2,8 +2,11 @@
 #include "internal/attributes.hpp"
 #include "internal/type_traits.hpp"
 
-#include "internal/functions.hpp"
 #include "internal/array.hpp"
+#include "internal/vec.hpp"
+#include "internal/matrix.hpp"
+
+#include "internal/functions.hpp"
 #include "internal/buffer.hpp"
 #include "internal/texture.hpp"
 
