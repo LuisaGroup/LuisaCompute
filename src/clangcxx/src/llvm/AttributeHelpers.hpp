@@ -5,7 +5,7 @@
 #include <luisa/core/logging.h>
 
 namespace luisa::clangcxx {
-inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, luisa::string parent = {}) {
+inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, bool isRestrict = true) {
     clang::RecordDecl *recordDecl = Ty->getAsRecordDecl();
     if (!recordDecl) {
         if (const auto TPT = Ty->getAs<clang::PointerType>()) {
@@ -21,13 +21,10 @@ inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, l
             recordDecl = TST->getAsRecordDecl();
         } else if (const auto *AT = Ty->getAsArrayTypeUnsafe()) {
             recordDecl = AT->getAsRecordDecl();
-            if (!parent.empty()) {
-                luisa::log_error("array type is not supported: [{}] in type [{}]", Ty.getAsString(), parent);
-            } else {
-                luisa::log_error("array type is not supported: [{}]", Ty.getAsString());
-            }
-        } else {
+            luisa::log_error("array type is not supported: [{}]", Ty.getAsString());
+        } else if (isRestrict) {
             Ty.dump();
+            luisa::log_error("!!!");
         }
     }
     return recordDecl;
@@ -206,7 +203,7 @@ inline static bool isSwizzle(const clang::Decl *decl) {
     }
     if (auto cxxDeclare = dyn_cast<clang::DeclaratorDecl>(decl))
     {
-        if (auto typeDecl = GetRecordDeclFromQualType(cxxDeclare->getType()))
+        if (auto typeDecl = GetRecordDeclFromQualType(cxxDeclare->getType(), false))
         {
             for (auto Anno = typeDecl->specific_attr_begin<clang::AnnotateAttr>();
                 Anno != typeDecl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
