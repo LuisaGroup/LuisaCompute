@@ -171,6 +171,21 @@ auto TestSwitch() {
     return 3.f;
 }
 
+auto TestSwizzle()
+{
+    float2 d = float2(1.f, 1.f);
+    float dx = d.x;
+    float dx2 = d.y;
+    float2 dd = d.xy;
+    float2 dd2 = d.yx;
+    float dx3 = dd.y + dd2.x;
+    float4 FFFF = float4(1.f, 2.f, 3.f, 4.f);
+    float3 FFF = FFFF.wxz;
+    float2 FF = FFF.zy;
+    float dx4 =FF.x;
+    return dx + dx2 + dx3 + dx4;
+}
+
 template <typename T>
 auto TestArgsPack_Sum(T v)
 {
@@ -251,13 +266,7 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     buffer2.store(0, a);
 
     // swizzle
-    float2 d = float2(1.f, 1.f);
-    float dx = nvidia.f += d.x;
-    float dx2 = nvidia.f += d.y;
-    float2 dd = d.xy;
-    float2 dd2 = d.yx;
-    float dx3 = nvidia.f += dd.y;
-    float dx4 = nvidia.f += dd2.x;
+    nvidia.f += TestSwizzle();
 
     // lambda
     auto TestLambda = [&, _f](float v, float& vv){

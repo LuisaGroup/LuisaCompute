@@ -179,29 +179,15 @@ inline static bool isSwizzle(const clang::FieldDecl *decl) {
         if (isSwizzle(*Anno))
             return true;
     }
-    return false;
-}
-
-inline static llvm::StringRef getSwizzleName(const clang::AnnotateAttr *Anno) {
-    if (!isSwizzle(Anno))
-        return {};
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        arg++;
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return TypeLiterial->getString();
+    if (auto typeDecl = GetRecordDeclFromQualType(decl->getType()))
+    {
+        for (auto Anno = typeDecl->specific_attr_begin<clang::AnnotateAttr>();
+            Anno != typeDecl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+            if (isSwizzle(*Anno))
+                return true;
         }
     }
-    return {};
-}
-
-inline static llvm::StringRef getSwizzleName(const clang::FieldDecl *decl) {
-    for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
-        Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-        if (isSwizzle(*Anno))
-            return getSwizzleName(*Anno);
-    }
-    return {};
+    return false;
 }
 
 }// namespace luisa::clangcxx

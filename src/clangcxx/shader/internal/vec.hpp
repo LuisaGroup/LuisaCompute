@@ -4,36 +4,36 @@
 namespace luisa::shader {
 
 template<typename ET, typename T = ET>
-struct Swizzle
+struct [[swizzle]] Swizzle
 {
-    [[bypass]] operator T();
-    [[bypass]] T operator()();
+    [[bypass]] operator T&();
+    [[bypass]] T& operator()();
     ET no_error;
 };
 
 template<typename ET, typename T = vec<ET, 2>>
-struct Swizzle2
+struct [[swizzle]] Swizzle2
 {
-    [[bypass]] operator T();
-    [[bypass]] T operator()();
+    [[bypass]] operator T&();
+    [[bypass]] T& operator()();
     
     ET no_error;
 };
 
 template<typename ET, typename T = vec<ET, 3>>
-struct Swizzle3
+struct [[swizzle]] Swizzle3
 {
-    [[bypass]] operator T();
-    [[bypass]] T operator()();
+    [[bypass]] operator T&();
+    [[bypass]] T& operator()();
     
     ET no_error;
 };
 
 template<typename ET, typename T = vec<ET, 4>>
-struct Swizzle4
+struct [[swizzle]] Swizzle4
 {
-    [[bypass]] operator T();
-    [[bypass]] T operator()();
+    [[bypass]] operator T&();
+    [[bypass]] T& operator()();
 
     ET no_error;
 };
@@ -43,7 +43,7 @@ struct [[builtin("vec")]] vec {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == N)
-    [[ignore]] explicit vec(Args &&...args) ;
+    [[ignore]] explicit vec(Args &&...args);
 private:
     T v[N];
 };
@@ -54,14 +54,10 @@ struct alignas(8) [[builtin("vec")]] vec<T, 2> {
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 2)
     [[ignore]] explicit vec(Args &&...args);
+
     [[bypass]] union 
     {
-        [[swizzle("x")]] Swizzle<T> x;
-        [[swizzle("y")]] Swizzle<T> y;
-        [[swizzle("xx")]] Swizzle2<T> xx;
-        [[swizzle("yy")]] Swizzle2<T> yy;
-        [[swizzle("xy")]] Swizzle2<T> xy;
-        [[swizzle("yx")]] Swizzle2<T> yx;
+        #include "swizzle/swizzle2.inl"
         T zz_V[2];
     };
 };
@@ -71,9 +67,13 @@ struct alignas(16) [[builtin("vec")]] vec<T, 3> {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 3)
-    [[ignore]] explicit vec(Args &&...args) ;
-private:
-    T v[4];
+    [[ignore]] explicit vec(Args &&...args);
+
+    [[bypass]] union 
+    {
+        #include "swizzle/swizzle3.inl"
+        T zz_V[3];
+    };
 };
 
 template<typename T>
@@ -81,9 +81,13 @@ struct alignas(16) [[builtin("vec")]] vec<T, 4> {
     [[ignore]] vec() noexcept = default;
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 4)
-    [[ignore]] explicit vec(Args &&...args) ;
-private:
-    T v[4];
+    [[ignore]] explicit vec(Args &&...args);
+
+    [[bypass]] union 
+    {
+        #include "swizzle/swizzle4.inl"
+        T zz_V[4];
+    };
 };
 
 using float2 = vec<float, 2>;

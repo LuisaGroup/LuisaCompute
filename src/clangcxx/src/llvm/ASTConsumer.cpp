@@ -924,7 +924,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     auto lhs = stack->expr_map[cxxMember->getBase()];
                     caller = lhs;
                 } else if (auto cxxField = llvm::dyn_cast<FieldDecl>(cxxMember->getMemberDecl())) {
-                    if (auto swizzle = getSwizzleName(cxxField); !swizzle.empty()) {
+                    if (isSwizzle(cxxField)) {
+                        auto swizzleText = cxxField->getName();
                         const auto swizzleType = cxxField->getType().getDesugaredType(*bb->astContext);
                         if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(swizzleType->getAs<clang::RecordType>()->getDecl())) {
                             const auto cxxResultType = TSD->getTemplateArgs().get(1).getAsType();
@@ -932,7 +933,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 uint64_t swizzle_code = 0u;
                                 uint64_t swizzle_seq[] = {0u, 0u, 0u, 0u}; /*4*/
                                 int64_t swizzle_size = 0;
-                                for (auto iter = swizzle.begin(); iter != swizzle.end(); iter++) {
+                                for (auto iter = swizzleText.begin(); iter != swizzleText.end(); iter++) {
                                     if (*iter == 'x') swizzle_seq[swizzle_size] = 0u;
                                     if (*iter == 'y') swizzle_seq[swizzle_size] = 1u;
                                     if (*iter == 'z') swizzle_seq[swizzle_size] = 2u;
