@@ -1,5 +1,5 @@
 #pragma once
-#include <luisa/runtime/callable_library.h>
+#include <luisa/ast/callable_library.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/func.h>
 namespace luisa::compute {
@@ -44,5 +44,15 @@ Callable<T> CallableLibrary::get_callable(luisa::string_view name) const noexcep
     auto &func = iter->second;
     detail::CallableTypeChecker<T>::check(func->return_type(), func->arguments());
     return Callable<T>{func};
+}
+template<size_t dim, typename... T>
+Kernel<dim, T...> CallableLibrary::get_kernel(luisa::string_view name) const noexcept {
+    auto iter = _callables.find(name);
+    if (iter == _callables.end()) [[unlikely]] {
+        LUISA_ERROR("Callable {} not found", name);
+    }
+    auto &func = iter->second;
+    detail::CallableTypeChecker<void(T...)>::check(func->return_type(), func->arguments());
+    return Kernel<dim, T...>{func};
 }
 }// namespace luisa::compute

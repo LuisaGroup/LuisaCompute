@@ -159,7 +159,18 @@ void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexc
         auto mem_expr = static_cast<MemberExpr const *>(lhs);
         if (mem_expr->is_swizzle() && mem_expr->swizzle_size() > 1) [[unlikely]] {
             auto self = mem_expr->self();
-            LUISA_ASSERT(self->tag() == Expression::Tag::REF, "Only variable's swizzle can be written.");
+            switch (self->tag()) {
+                case Expression::Tag::MEMBER: {
+                    if (static_cast<MemberExpr const *>(self)->is_swizzle()) {
+                        LUISA_ERROR("Can not use multiple swizzle write.");
+                    }
+                } break;
+                case Expression::Tag::ACCESS: break;
+                case Expression::Tag::REF: break;
+                default:
+                    LUISA_ERROR("Invalid swizzle");
+                    break;
+            }
             auto local_var = local(mem_expr->type());
             auto elem = mem_expr->type()->element();
             _create_and_append_statement<AssignStmt>(local_var, rhs);
@@ -167,12 +178,12 @@ void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexc
             for (int i = 0; i < mem_expr->swizzle_size(); ++i) {
                 exprs[mem_expr->swizzle_index(i)] = swizzle(elem, local_var, 1, i);
             }
-            for (int i = 0; i < mem_expr->swizzle_size(); ++i) {
+            auto make_type = self->type();
+            for (int i = 0; i < make_type->dimension(); ++i) {
                 if (exprs[i] == nullptr) {
                     exprs[i] = swizzle(elem, self, 1, i);
                 }
             }
-            auto make_type = self->type();
             auto call_expr = make_vector(make_type, {exprs.data(), make_type->dimension()});
             _create_and_append_statement<AssignStmt>(self, call_expr);
             return;

@@ -18,7 +18,6 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         bindless_array.cpp
         buffer.cpp
         byte_buffer.cpp
-        callable_library.cpp
         command_list.cpp
         context.cpp
         device.cpp

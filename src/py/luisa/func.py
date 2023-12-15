@@ -9,6 +9,7 @@ import ast
 
 from .dylibs import lcapi
 from . import globalvars, astbuilder
+from .builtin import builtin_func_names
 from .globalvars import get_global_device
 from .types import dtype_of, to_lctype, implicit_convertible, basic_dtypes, uint
 from .astbuilder import VariableInfo
@@ -118,6 +119,8 @@ class func:
         self.fence_idx = -1
         self.pyfunc = pyfunc
         self.__name__ = pyfunc.__name__
+        if self.__name__ in builtin_func_names:
+            raise RuntimeError(f'Cannot override builtin function "{self.__name__}"')
         self.compiled_results = {}  # maps (arg_type_tuple) to (function, shader_handle)
         frameinfo = inspect.getframeinfo(inspect.stack()[1][0])
         self.filename = frameinfo.filename
