@@ -264,19 +264,15 @@ namespace luisa::shader {
 //     return TestInvoke(func, args...);
 // }
 
-#define WIDTH 3200u
-#define HEIGHT 2400u
 #define PI 3.141592653589793238462643383279502f
 // struct Pixel
 // {
 //     float4 value;
 // };
 
-void mandelbrot(Buffer<float4> &mandelbrot_out, uint3 tid) {
-    if (tid.x >= WIDTH || tid.y >= HEIGHT)
-        return;
-    float x = float(tid.x) / WIDTH;
-    float y = float(tid.y) / HEIGHT;
+void mandelbrot(Buffer<float4> &mandelbrot_out, uint2 tid, uint2 tsize) {
+    float x = float(tid.x) / tsize.x;
+    float y = float(tid.y) / tsize.y;
     float2 uv = float2(x, y);
     float n = 0.0f;
     float2 c = float2(-0.444999992847442626953125f, 0.0f);
@@ -297,9 +293,8 @@ void mandelbrot(Buffer<float4> &mandelbrot_out, uint3 tid) {
     float3 e = float3(-0.2f, -0.3f, -0.5f);
     float3 f = float3(2.1f, 2.0f, 3.0f);
     float3 g = float3(0.0f, 0.1f, 0.0f);
-    // float4 color = float4(d + (e * cos(((f * t) + g) * 2.f * PI)), 1.0f);
-    float4 color = float4(1,1,1,1);
-    mandelbrot_out.store(WIDTH * tid.y + tid.x, color);
+    float4 color = float4(d + (e * cos(((f * t) + g) * 2.f * PI)), 1.0f);
+    mandelbrot_out.store(tsize.x * tid.y + tid.x, color);
 }
 
 // float TestOrder()
@@ -397,7 +392,7 @@ void mandelbrot(Buffer<float4> &mandelbrot_out, uint3 tid) {
 // }
 
 [[kernel_2d(16, 16)]] int kernel(Buffer<float4> &buffer) {
-    mandelbrot(buffer, dispatch_id());
+    mandelbrot(buffer, dispatch_id().xy, dispatch_size().xy);
     return 0;
 }
 }// namespace luisa::shader

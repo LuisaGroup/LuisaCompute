@@ -1,7 +1,6 @@
 target("lc-clangcxx")
     _config_project({
-        project_kind = "shared",
-        batch_size = 4
+        project_kind = "shared"
     })
     add_defines("LC_CLANGCXX_EXPORT_DLL")
     add_deps("lc-core", "lc-runtime")

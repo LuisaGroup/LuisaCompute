@@ -14,7 +14,8 @@ using namespace luisa::compute;
 int main(int argc, char *argv[]) {
     Context context{argv[0]};
     // DeviceConfig config{.headless = true};
-    static constexpr uint width = 3200u, height = 2400u;
+    static constexpr uint width = 1920;
+    static constexpr uint height = 1080;
     Device device = context.create_device("dx", /*&config*/ nullptr);
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     {
@@ -24,9 +25,9 @@ int main(int argc, char *argv[]) {
                 .name = "test.bin"});
         compiler.create_shader(context, device);
     }
-    auto shader = device.load_shader<1, Buffer<float4>>("test.bin");
+    auto shader = device.load_shader<2, Buffer<float4>>("test.bin");
     auto buffer = device.create_buffer<float4>(width * height);
-    Window window{"path tracing", uint2(width, height)};
+    Window window{"test func", uint2(width, height)};
     Swapchain swap_chain{device.create_swapchain(
         window.native_handle(),
         stream,
@@ -42,17 +43,18 @@ int main(int argc, char *argv[]) {
     Kernel2D hdr2ldr_kernel = [&](BufferVar<float4> hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord.x + coord.y * dispatch_size().x);
-        hdr = make_float4(hdr.xyz(), 1.0f);
-        Float3 ldr = hdr.xyz() / hdr.w * scale;
+        Float3 ldr = hdr.xyz() * scale;
         $if (!is_hdr) {
             ldr = linear_to_srgb(ldr);
         };
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
+    auto blk_size = shader.block_size();
+    LUISA_INFO("{}, {}, {}", blk_size.x, blk_size.y, blk_size.z);
     while (!window.should_close()) {
         window.poll_events();
-        stream << shader(buffer).dispatch(buffer.size())
+        stream << shader(buffer).dispatch(width, height)
                << hdr2ldr_shader(buffer, ldr_image, 1.0f, false).dispatch(width, height)
                << swap_chain.present(ldr_image);
     }
