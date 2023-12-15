@@ -25,8 +25,8 @@ int main(int argc, char *argv[]) {
     }
     Device device = context.create_device(argv[1]);
 
-    static constexpr uint n_grid = 128u;
-    static constexpr uint n_steps = 50u;
+    static constexpr uint n_grid = 200u;
+    static constexpr uint n_steps = 24u;
 
     static constexpr uint n_particles = n_grid * n_grid / 2u;
     static constexpr float dx = 1.f / n_grid;
@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
     static constexpr uint bound = 3u;
     static constexpr float E = 400.f;
 
-    static constexpr uint resolution = 512u;
+    static constexpr uint resolution = 1024u;
 
     Buffer<float2> x = device.create_buffer<float2>(n_particles);
     Buffer<float2> v = device.create_buffer<float2>(n_particles);
