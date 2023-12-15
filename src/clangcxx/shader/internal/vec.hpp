@@ -59,7 +59,7 @@ struct [[builtin("vec")]] vec {
         requires(sum_dim<0ull, Args...>() == N)
     [[ignore]] explicit vec(Args &&...args);
     
-    [[bypass]] union 
+    union 
     {
         T zz_V[N];
     };
@@ -77,7 +77,7 @@ struct alignas(8) [[builtin("vec")]] vec<T, 2> {
 
     #include "vec_ops/ops.inl"
 
-    [[bypass]] union 
+    union 
     {
         #include "vec_ops/swizzle2.inl"
         T zz_V[2];
@@ -96,7 +96,7 @@ struct alignas(16) [[builtin("vec")]] vec<T, 3> {
 
     #include "vec_ops/ops.inl"
 
-    [[bypass]] union 
+    union 
     {
         #include "vec_ops/swizzle3.inl"
         T zz_V[3];
@@ -115,7 +115,7 @@ struct alignas(16) [[builtin("vec")]] vec<T, 4> {
 
     #include "vec_ops/ops.inl"
 
-    [[bypass]] union 
+    union 
     {
         #include "vec_ops/swizzle4.inl"
         T zz_V[4];

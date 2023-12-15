@@ -948,7 +948,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto cxxMember = llvm::dyn_cast<clang::MemberExpr>(x)) {
                 if (auto bypass = isByPass(cxxMember->getMemberDecl())) {
                     current = stack->expr_map[cxxMember->getBase()];
-                    callers.emplace_back(current);
+                    if (cxxMember->isBoundMemberFunction(*bb->astContext))
+                        callers.emplace_back(current);
                 } else if (cxxMember->isBoundMemberFunction(*bb->astContext)) {
                     auto lhs = stack->expr_map[cxxMember->getBase()];
                     callers.emplace_back(lhs);
