@@ -264,46 +264,43 @@ namespace luisa::shader {
 //     return TestInvoke(func, args...);
 // }
 
-// #define WIDTH 3200u
-// #define HEIGHT 2400u
-// #define PI 3.141592653589793238462643383279502f
+#define WIDTH 3200u
+#define HEIGHT 2400u
+#define PI 3.141592653589793238462643383279502f
 // struct Pixel
 // {
 //     float4 value;
 // };
 
-// void mandelbrot(Buffer<float4> &mandelbrot_out, uint3 tid)
-// {
-//     if(tid.x >= WIDTH || tid.y >= HEIGHT)
-//         return;
-//     float x = float(tid.x) / WIDTH;
-//     float y = float(tid.y) / HEIGHT;
-//     float2 uv = float2(x, y);
-//     float n = 0.0f;
-//     float2 c = float2(-0.444999992847442626953125f, 0.0f);
-//     c = c + (uv - float2(0.5f, 0.5f)) * 2.3399999141693115234375f;
-//     float2 z = float2(0.f, 0.f);
-//     const int M =128;
-//     for (int i = 0; i < M; i++)
-//     {
-//         z = float2((z.x * z.x) - (z.y * z.y), (2.0f * z.x) * z.y) + c;
-//         if (dot(z, z) > 2.0f)
-//         {
-//             break;
-//         }
-//         n += 1.0f;
-//     }
-//     // we use a simple cosine palette to determine color:
-//     // http://iquilezles.org/www/articles/palettes/palettes.htm
-//     float t = float(n) / float(M);
-//     float3 d = float3(0.3f, 0.3f ,0.5f);
-//     float3 e = float3(-0.2f, -0.3f ,-0.5f);
-//     float3 f = float3(2.1f, 2.0f, 3.0f);
-//     float3 g = float3(0.0f, 0.1f, 0.0f);
-//     float4 color = float4(d + (e * cos(((f * t) + g) * 2.f * PI)), 1.0f);
-
-//     mandelbrot_out.store(WIDTH * tid.y + tid.x, color);
-// }
+void mandelbrot(Buffer<float4> &mandelbrot_out, uint3 tid) {
+    if (tid.x >= WIDTH || tid.y >= HEIGHT)
+        return;
+    float x = float(tid.x) / WIDTH;
+    float y = float(tid.y) / HEIGHT;
+    float2 uv = float2(x, y);
+    float n = 0.0f;
+    float2 c = float2(-0.444999992847442626953125f, 0.0f);
+    c = c + (uv - float2(0.5f, 0.5f)) * 2.3399999141693115234375f;
+    float2 z = float2(0.f, 0.f);
+    const int M = 128;
+    for (int i = 0; i < M; i++) {
+        z = float2((z.x * z.x) - (z.y * z.y), (2.0f * z.x) * z.y) + c;
+        if (dot(z, z) > 2.0f) {
+            break;
+        }
+        n += 1.0f;
+    }
+    // we use a simple cosine palette to determine color:
+    // http://iquilezles.org/www/articles/palettes/palettes.htm
+    float t = float(n) / float(M);
+    float3 d = float3(0.3f, 0.3f, 0.5f);
+    float3 e = float3(-0.2f, -0.3f, -0.5f);
+    float3 f = float3(2.1f, 2.0f, 3.0f);
+    float3 g = float3(0.0f, 0.1f, 0.0f);
+    // float4 color = float4(d + (e * cos(((f * t) + g) * 2.f * PI)), 1.0f);
+    float4 color = float4(1,1,1,1);
+    mandelbrot_out.store(WIDTH * tid.y + tid.x, color);
+}
 
 // float TestOrder()
 // {
@@ -399,9 +396,8 @@ namespace luisa::shader {
 //     return 0;
 // }
 
-[[kernel_1d(256)]] int kernel(Buffer<float> &buffer) {
-    uint32 dsp_id = dispatch_id().x;
-    buffer.store(dsp_id, dsp_id + 2.3f);
+[[kernel_2d(16, 16)]] int kernel(Buffer<float4> &buffer) {
+    mandelbrot(buffer, dispatch_id());
     return 0;
 }
 }// namespace luisa::shader

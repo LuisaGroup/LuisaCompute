@@ -6,7 +6,7 @@ namespace luisa::shader {
 template<typename Type>
 struct [[builtin("buffer")]] Buffer {
     [[callop("BUFFER_READ")]] Type load(uint32 loc);
-    [[callop("BUFFER_WRITE")]] void store(uint32 loc, Type& value);
+    [[callop("BUFFER_WRITE")]] void store(uint32 loc, Type &value);
 };
 template<>
 struct [[builtin("buffer")]] Buffer<int32> {
@@ -49,10 +49,10 @@ struct [[builtin("buffer")]] Buffer<float> {
 };
 template<>
 struct [[builtin("buffer")]] Buffer<void> {
-    template <typename T>
+    template<typename T>
     [[callop("BYTE_BUFFER_READ")]] T byte_load(uint32 byte_index);
-    template <typename T>
+    template<typename T>
     [[callop("BYTE_BUFFER_WRITE")]] T byte_store(uint32 byte_index, T val);
 };
 using ByteBuffer = Buffer<void>;
-}
+}// namespace luisa::shader

@@ -165,7 +165,7 @@ test_proj("test_cuda_dx_interop")
 test_proj("test_dml")
 test_proj("test_manual_ast")
 if  get_config("enable_clangcxx") then
-	test_proj("test_func_builder", false, function()
+	test_proj("test_func_builder", true, function()
 		add_deps("lc-clangcxx")
 	end)
 end

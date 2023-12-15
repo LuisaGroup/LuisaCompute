@@ -7,13 +7,16 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/clangcxx/compiler.h>
+#include <luisa/gui/window.h>
+#include <luisa/runtime/swapchain.h>
 using namespace luisa;
 using namespace luisa::compute;
 int main(int argc, char *argv[]) {
     Context context{argv[0]};
     // DeviceConfig config{.headless = true};
+    static constexpr uint width = 3200u, height = 2400u;
     Device device = context.create_device("dx", /*&config*/ nullptr);
-    Stream stream = device.create_stream();
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
     {
         auto compiler = luisa::clangcxx::Compiler(
             ShaderOption{
@@ -21,17 +24,37 @@ int main(int argc, char *argv[]) {
                 .name = "test.bin"});
         compiler.create_shader(context, device);
     }
-    auto shader = device.load_shader<1, Buffer<float>>("test.bin");
-    auto buffer = device.create_buffer<float>(32);
-    vector<float> result;
-    result.resize(buffer.size());
-    stream << shader(buffer).dispatch(buffer.size())
-           << buffer.copy_to(result.data())
-           << synchronize();
-    string result_str;
-    for (auto &i : result) {
-        result_str += std::to_string(i) + " ";
+    auto shader = device.load_shader<1, Buffer<float4>>("test.bin");
+    auto buffer = device.create_buffer<float4>(width * height);
+    Window window{"path tracing", uint2(width, height)};
+    Swapchain swap_chain{device.create_swapchain(
+        window.native_handle(),
+        stream,
+        uint2(width, height),
+        false, false, 2)};
+    auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), uint2(width, height));
+
+    Callable linear_to_srgb = [&](Var<float3> x) noexcept {
+        return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+                               12.92f * x,
+                               x <= 0.00031308f));
+    };
+    Kernel2D hdr2ldr_kernel = [&](BufferVar<float4> hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
+        UInt2 coord = dispatch_id().xy();
+        Float4 hdr = hdr_image.read(coord.x + coord.y * dispatch_size().x);
+        hdr = make_float4(hdr.xyz(), 1.0f);
+        Float3 ldr = hdr.xyz() / hdr.w * scale;
+        $if (!is_hdr) {
+            ldr = linear_to_srgb(ldr);
+        };
+        ldr_image.write(coord, make_float4(ldr, 1.0f));
+    };
+    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
+    while (!window.should_close()) {
+        window.poll_events();
+        stream << shader(buffer).dispatch(buffer.size())
+               << hdr2ldr_shader(buffer, ldr_image, 1.0f, false).dispatch(width, height)
+               << swap_chain.present(ldr_image);
     }
-    log_info("Result: {}", result_str);
     return 0;
 }
