@@ -158,16 +158,39 @@ template <>
 trait is_basic_type<int16>{ static constexpr bool value = true; };
 template <>
 trait is_basic_type<uint16>{ static constexpr bool value = true; };
+template<typename T>
+concept basic_type = is_basic_type<typename remove_cvref<T>::type>::value;
+
 template <typename T>
 trait is_matrix{ static constexpr bool value = false;};
 template <uint64 N>
 trait is_matrix<matrix<N>>{ static constexpr bool value = true;};
+
 template<typename T>
-concept basic_type = is_basic_type<typename remove_cvref<T>::type>::value;
-template<typename T>
-trait element{ using type = T;};
+trait element { using type = T;};
 template<typename T, uint64 N>
-trait element<vec<T, N>>{ using type = T;};
+trait element<vec<T, N>> { using type = T;};
 template<uint64 N>
-trait element<matrix<N>>{ using type = float;};
+trait element<matrix<N>> { using type = float;};
+
+namespace detail
+{
+    template<uint64 N, typename T, typename...Ts>
+    trait element_of {
+        using type = element_of<N - 1, Ts...>::type; 
+        using type2 = element<T>::type; 
+        static_assert(__is_same_as(type, type2), "!!!");
+    };
+
+    template<typename T, typename...Ts>
+    trait element_of<1, T, Ts...> { 
+        using type = typename element<T>::type; 
+    };
+}
+
+template<typename...Ts>
+trait element_of { 
+    using type = typename detail::element_of<sizeof...(Ts), Ts...>::type; 
+};
+
 }

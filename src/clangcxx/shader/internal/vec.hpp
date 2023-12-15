@@ -129,15 +129,7 @@ template <typename T, uint64 N>
 template <typename...T>
 auto make_vector(T... ts)
 {
-    static constexpr auto DIM = sum_dim_v<T...>;
-    if constexpr (DIM == 1)
-        return vec<float, 1>(ts...);
-    else if constexpr (DIM == 2)
-        return vec<float, 2>(ts...);
-    else if constexpr (DIM == 3)
-        return vec<float, 3>(ts...);
-    else if constexpr (DIM == 4)
-        return vec<float, 4>(ts...);
+    return vec<typename element_of<T...>::type, sum_dim_v<T...>>(ts...);
 }
 
 using float2 = vec<float, 2>;

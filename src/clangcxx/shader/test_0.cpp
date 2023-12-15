@@ -121,7 +121,14 @@ auto TestTemplateSpec() {
     auto vec3 = make_vector(vec, 2.f);
     auto vec4 = make_vector(1.f, vec, 2.f);
 
-    return nvidia.f + vec.y + vec2.z + vec3.z + vec4.w;
+    auto ivec = make_vector(1, 2);
+    auto ivec2 = make_vector(1, ivec);
+    auto ivec3 = make_vector(ivec, 2);
+    auto ivec4 = make_vector(1, ivec, 2);
+    auto isum = ivec.y + ivec2.z + ivec3.z + ivec4.w;
+    return nvidia.f 
+        + vec.y + vec2.z + vec3.z + vec4.w
+        + (float)isum;
 }
 
 auto TestBranch() {
