@@ -3,6 +3,7 @@
 #define bypass clang::annotate("luisa-shader", "bypass")
 #define swizzle clang::annotate("luisa-shader", "swizzle")
 #define builtin(name) clang::annotate("luisa-shader", "builtin", (name))
+#define binop(name) clang::annotate("luisa-shader", "binop", (name))
 #define callop(name) clang::annotate("luisa-shader", "callop", (name))
 #define expr(name) clang::annotate("luisa-shader", "callop", (name))
 #define kernel_1d(x) clang::annotate("luisa-shader", "kernel_1d", (x))

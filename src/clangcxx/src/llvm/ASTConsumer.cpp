@@ -125,13 +125,13 @@ CXXBlackboard::CXXBlackboard() {
     using namespace luisa;
     using namespace luisa::compute;
 
-    ops_map.reserve(call_op_count);
+    call_ops_map.reserve(call_op_count);
     for (auto i : vstd::range(call_op_count)) {
         const auto op = (CallOp)i;
-        ops_map.emplace(luisa::to_string(op), op);
+        call_ops_map.emplace(luisa::to_string(op), op);
     }
 #define LC_CLANGCXX_REG_BUILTIN(_func_name)                                              \
-    ops_map.emplace(                                                                     \
+    call_ops_map.emplace(                                                                     \
         #_func_name,                                                                     \
         [](compute::detail::FunctionBuilder *func_builder) -> const compute::RefExpr * { \
             return func_builder->_func_name();                                           \
@@ -145,6 +145,13 @@ CXXBlackboard::CXXBlackboard() {
     LC_CLANGCXX_REG_BUILTIN(warp_lane_id)
     LC_CLANGCXX_REG_BUILTIN(object_id)
 #undef LC_CLANGCXX_REG_BUILTIN
+
+    constexpr auto bin_op_count = to_underlying(BinaryOp::NOT_EQUAL) + 1u;
+    bin_ops_map.reserve(bin_op_count);
+    for (auto i : vstd::range(bin_op_count)) {
+        const auto op = (BinaryOp)i;
+        bin_ops_map.emplace(luisa::to_string(op), op);
+    }
 }
 
 CXXBlackboard::~CXXBlackboard() {
@@ -188,12 +195,21 @@ const luisa::compute::Type *CXXBlackboard::FindOrAddType(const clang::QualType T
 }
 
 auto CXXBlackboard::FindCallOp(const luisa::string_view &name) -> BuiltinCallCmd {
-    auto iter = ops_map.find(name);
+    auto iter = call_ops_map.find(name);
     if (iter) {
         return iter.value();
     }
     luisa::log_error("unfound call op: {}", name);
     return CallOp::ASIN;
+}
+
+auto CXXBlackboard::FindBinOp(const luisa::string_view &name) -> luisa::compute::BinaryOp {
+    auto iter = bin_ops_map.find(name);
+    if (iter) {
+        return iter.value();
+    }
+    luisa::log_error("unfound call op: {}", name);
+    return luisa::compute::BinaryOp::ADD;
 }
 
 void CXXBlackboard::commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
@@ -977,10 +993,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     auto _ = bb->CommentStmt_(fb, call);
                     auto calleeDecl = call->getCalleeDecl();
                     llvm::StringRef callopName = {};
+                    llvm::StringRef binopName = {};
                     for (auto attr = calleeDecl->specific_attr_begin<clang::AnnotateAttr>();
                          attr != calleeDecl->specific_attr_end<clang::AnnotateAttr>(); attr++) {
                         if (callopName.empty())
                             callopName = getCallopName(*attr);
+                        if (binopName.empty())
+                            binopName = getBinopName(*attr);
                     }
                     // args
                     luisa::vector<const luisa::compute::Expression *> lc_args;
@@ -995,15 +1014,19 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                     }
                     // call
-                    if (!callopName.empty()) {
+                    if (!binopName.empty()) {
+                        auto lc_binop = bb->FindBinOp(binopName.data());
+                        if (auto lcReturnType = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
+                            current = fb->binary(lcReturnType, lc_binop, lc_args[0], lc_args[1]);
+                    } else if (!callopName.empty()) {
                         auto op_or_builtin = bb->FindCallOp(callopName);
                         switch (op_or_builtin.index()) {
                             case 0: {
                                 CallOp op = luisa::get<0>(op_or_builtin);
                                 if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                     fb->call(op, lc_args);
-                                else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                                    current = fb->call(lc_type, op, lc_args);
+                                else if (auto lcReturnType = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
+                                    current = fb->call(lcReturnType, op, lc_args);
                                 else
                                     luisa::log_error(
                                         "unfound return type: {}",
@@ -1029,7 +1052,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 calleeDecl = funcDecl;
                             }
                         }
-                        if (auto func_callable = bb->func_builders[calleeDecl]) {
+                        if (auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(calleeDecl);
+                            methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) 
+                        {
+                            fb->assign(lc_args[0], lc_args[1]);
+                            current = lc_args[0];
+                        } else if (auto func_callable = bb->func_builders[calleeDecl]) {
                             if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                 fb->call(luisa::compute::Function(func_callable.get()), lc_args);
                             else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))

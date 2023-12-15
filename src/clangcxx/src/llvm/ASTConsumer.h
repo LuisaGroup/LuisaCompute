@@ -37,6 +37,7 @@ struct CXXBlackboard {
         luisa::compute::CallOp,
         const compute::RefExpr *(*)(compute::detail::FunctionBuilder *)>;
     BuiltinCallCmd FindCallOp(const luisa::string_view &name);
+    luisa::compute::BinaryOp FindBinOp(const luisa::string_view &name);
 
     struct Commenter {
         Commenter(
@@ -57,7 +58,8 @@ protected:
     bool tryEmplaceFieldType(const clang::QualType Ty, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types);
     bool registerType(clang::QualType Ty, const clang::ASTContext *astContext, const luisa::compute::Type *type);
 
-    vstd::HashMap<vstd::string, BuiltinCallCmd> ops_map;
+    vstd::HashMap<vstd::string, luisa::compute::BinaryOp> bin_ops_map;
+    vstd::HashMap<vstd::string, BuiltinCallCmd> call_ops_map;
     luisa::unordered_map<luisa::string, const luisa::compute::Type *> type_map;
 };
 

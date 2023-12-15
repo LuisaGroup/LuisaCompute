@@ -171,6 +171,26 @@ auto TestSwitch() {
     return 3.f;
 }
 
+auto TestVecOp()
+{
+    float2 d0 = float2(1.f, 2.f);
+    float2 d1 = float2(2.f, 1.f);
+    d0 = d0 = d0 + d1;
+    d0 = d0 - d1;
+    d0 = d0 * d1;
+    d0 = d0 / d1;
+    d0 = d0 % d1;
+    float N = 5.f;
+    d0 = N + d0;
+    d0 = d0 + N;
+    d0 = d0 - N;
+    d0 = N * d0;
+    d0 = d0 * N;
+    d0 = d0 / N;
+    d0 = d0 % N;
+    return (float)d0.x;
+}
+
 auto TestSwizzle()
 {
     float2 d = float2(1.f, 1.f);
@@ -182,7 +202,8 @@ auto TestSwizzle()
     float4 FFFF = float4(1.f, 2.f, 3.f, 4.f);
     float3 FFF = FFFF.wxz;
     float2 FF = FFF.zy;
-    float dx4 =FF.x;
+    FF.x += 2.f;
+    float dx4 = FF.x;
     return dx + dx2 + dx3 + dx4;
 }
 
@@ -264,6 +285,9 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     // vec
     float4 a(1.f, 1.f, 1.f, 1.f);
     buffer2.store(0, a);
+
+    // vec bin ops
+    nvidia.f += TestVecOp();
 
     // swizzle
     nvidia.f += TestSwizzle();

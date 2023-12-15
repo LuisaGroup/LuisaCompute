@@ -49,55 +49,82 @@ union [[swizzle]] Swizzle4
 
 template<typename T, uint64 N>
 struct [[builtin("vec")]] vec {
+    using ThisType = vec<T, N>;
+
     [[ignore]] vec() noexcept = default;
+
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == N)
     [[ignore]] explicit vec(Args &&...args);
-private:
-    T v[N];
+    
+    [[bypass]] union 
+    {
+        T zz_V[N];
+    };
 };
 
 template<typename T>
 struct alignas(8) [[builtin("vec")]] vec<T, 2> {
+    using ThisType = vec<T, 2>;
+
     [[ignore]] vec() noexcept = default;
+    
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 2)
     [[ignore]] explicit vec(Args &&...args);
 
+    #include "vec_ops/ops.inl"
+
     [[bypass]] union 
     {
-        #include "swizzle/swizzle2.inl"
+        #include "vec_ops/swizzle2.inl"
         T zz_V[2];
     };
 };
 
 template<typename T>
 struct alignas(16) [[builtin("vec")]] vec<T, 3> {
+    using ThisType = vec<T, 3>;
+
     [[ignore]] vec() noexcept = default;
+
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 3)
     [[ignore]] explicit vec(Args &&...args);
 
+    #include "vec_ops/ops.inl"
+
     [[bypass]] union 
     {
-        #include "swizzle/swizzle3.inl"
+        #include "vec_ops/swizzle3.inl"
         T zz_V[3];
     };
 };
 
 template<typename T>
 struct alignas(16) [[builtin("vec")]] vec<T, 4> {
+    using ThisType = vec<T, 4>;
+
     [[ignore]] vec() noexcept = default;
+
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 4)
     [[ignore]] explicit vec(Args &&...args);
 
+    #include "vec_ops/ops.inl"
+
     [[bypass]] union 
     {
-        #include "swizzle/swizzle4.inl"
+        #include "vec_ops/swizzle4.inl"
         T zz_V[4];
     };
 };
+
+template <typename T, uint64 N>
+[[binop("ADD")]] vec<T, N> operator+(T,  vec<T, N>);
+
+template <typename T, uint64 N>
+[[binop("MUL")]] vec<T, N> operator*(T,  vec<T, N>);
 
 using float2 = vec<float, 2>;
 using float3 = vec<float, 3>;
