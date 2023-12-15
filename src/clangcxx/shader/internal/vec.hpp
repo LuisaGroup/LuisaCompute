@@ -4,38 +4,47 @@
 namespace luisa::shader {
 
 template<typename ET, typename T = ET>
-struct [[swizzle]] Swizzle
+union [[swizzle]] Swizzle
 {
     [[bypass]] operator T&();
     [[bypass]] T& operator()();
-    ET no_error;
+
+    union U{
+        ET EMIT_ERROR;
+    } SHOULD_NEVER_SCAN_THIS;
 };
 
 template<typename ET, typename T = vec<ET, 2>>
-struct [[swizzle]] Swizzle2
+union [[swizzle]] Swizzle2
 {
     [[bypass]] operator T&();
     [[bypass]] T& operator()();
     
-    ET no_error;
+    union U{
+        ET EMIT_ERROR;
+    } SHOULD_NEVER_SCAN_THIS;
 };
 
 template<typename ET, typename T = vec<ET, 3>>
-struct [[swizzle]] Swizzle3
+union [[swizzle]] Swizzle3
 {
     [[bypass]] operator T&();
     [[bypass]] T& operator()();
     
-    ET no_error;
+    union U{
+        ET EMIT_ERROR;
+    } SHOULD_NEVER_SCAN_THIS;
 };
 
 template<typename ET, typename T = vec<ET, 4>>
-struct [[swizzle]] Swizzle4
+union [[swizzle]] Swizzle4
 {
     [[bypass]] operator T&();
     [[bypass]] T& operator()();
 
-    ET no_error;
+    union U{
+        ET EMIT_ERROR;
+    } SHOULD_NEVER_SCAN_THIS;
 };
 
 template<typename T, uint64 N>

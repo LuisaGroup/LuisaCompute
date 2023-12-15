@@ -173,18 +173,21 @@ inline static bool isSwizzle(const clang::AnnotateAttr *Anno) {
     return false;
 }
 
-inline static bool isSwizzle(const clang::FieldDecl *decl) {
+inline static bool isSwizzle(const clang::Decl *decl) {
     for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
         Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
         if (isSwizzle(*Anno))
             return true;
     }
-    if (auto typeDecl = GetRecordDeclFromQualType(decl->getType()))
+    if (auto cxxDeclare = dyn_cast<clang::DeclaratorDecl>(decl))
     {
-        for (auto Anno = typeDecl->specific_attr_begin<clang::AnnotateAttr>();
-            Anno != typeDecl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            if (isSwizzle(*Anno))
-                return true;
+        if (auto typeDecl = GetRecordDeclFromQualType(cxxDeclare->getType()))
+        {
+            for (auto Anno = typeDecl->specific_attr_begin<clang::AnnotateAttr>();
+                Anno != typeDecl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+                if (isSwizzle(*Anno))
+                    return true;
+            }
         }
     }
     return false;

@@ -448,7 +448,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
         }
 
         luisa::vector<const luisa::compute::Type *> types;
-        if (!S->isLambda()) {// ignore lambda generated capture fields
+        if (!S->isLambda() && !isSwizzle(S)) {// ignore lambda generated capture fields
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
                 auto Ty = f->getType();
                 if (!tryEmplaceFieldType(Ty, S, types)) {
@@ -504,8 +504,13 @@ const luisa::compute::Type *CXXBlackboard::RecordType(const clang::QualType Qt) 
         }
     }
     if (!_type) {
-        Ty->dump();
-        luisa::log_error("unsupported type [{}]", Ty.getAsString());
+        if (isSwizzle(GetRecordDeclFromQualType(Qt)))
+            luisa::log_error("swizzle helper type instantiation detected! please use explicit vector types!");
+        else
+        {
+            Ty->dump();
+            luisa::log_error("unsupported type [{}]", Ty.getAsString());
+        }
     }
     return _type;
 }
@@ -653,6 +658,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
                     if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                         auto Ty = varDecl->getType();
+                        if (isSwizzle(varDecl))
+                            luisa::log_error("can not use auto type to deduct swizzles!");
+
                         if (auto lc_type = bb->FindOrAddType(Ty, bb->astContext)) {
                             auto lc_var = fb->local(lc_type);
                             stack->locals[varDecl] = lc_var;
