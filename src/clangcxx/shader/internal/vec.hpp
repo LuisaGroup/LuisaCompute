@@ -8,6 +8,8 @@ union [[swizzle]] Swizzle
 {
     [[bypass]] operator T&();
     [[bypass]] T& operator()();
+    [[bypass]] operator T() const;
+    [[bypass]] T operator()() const;
 
     union U{
         ET EMIT_ERROR;

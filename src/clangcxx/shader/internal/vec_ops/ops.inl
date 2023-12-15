@@ -1,11 +1,11 @@
-[[binop("ADD")]] ThisType operator+(ThisType);
-[[binop("SUB")]] ThisType operator-(ThisType);
-[[binop("MUL")]] ThisType operator*(ThisType);
-[[binop("DIV")]] ThisType operator/(ThisType);
-[[binop("MOD")]] ThisType operator%(ThisType);
+[[binop("ADD")]] ThisType operator+(ThisType) const;
+[[binop("SUB")]] ThisType operator-(ThisType) const;
+[[binop("MUL")]] ThisType operator*(ThisType) const;
+[[binop("DIV")]] ThisType operator/(ThisType) const;
+[[binop("MOD")]] ThisType operator%(ThisType) const;
 
-[[binop("ADD")]] ThisType operator+(T);
-[[binop("SUB")]] ThisType operator-(T);
-[[binop("MUL")]] ThisType operator*(T);
-[[binop("DIV")]] ThisType operator/(T);
-[[binop("MOD")]] ThisType operator%(T);
+[[binop("ADD")]] ThisType operator+(T) const;
+[[binop("SUB")]] ThisType operator-(T) const;
+[[binop("MUL")]] ThisType operator*(T) const;
+[[binop("DIV")]] ThisType operator/(T) const;
+[[binop("MOD")]] ThisType operator%(T) const;

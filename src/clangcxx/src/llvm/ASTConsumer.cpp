@@ -539,7 +539,7 @@ bool CXXBlackboard::tryEmplaceFieldType(const clang::QualType Qt, const clang::R
 }
 
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
-    const luisa::compute::Expression *caller = nullptr;
+    luisa::vector<const luisa::compute::Expression*> callers;
     clang::ForStmt *currentCxxForStmt = nullptr;
 
     bool TraverseStmt(clang::Stmt *x) {
@@ -907,6 +907,17 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[implicit_cast->getSubExpr()]);
                 }
+            } else if (auto _cxx_cast = llvm::dyn_cast<CXXFunctionalCastExpr>(x)) {
+                    if (stack->expr_map[_cxx_cast->getSubExpr()] != nullptr) {
+                    const auto lc_type = bb->FindOrAddType(_cxx_cast->getType(), bb->astContext);
+                    if (!stack->expr_map[_cxx_cast->getSubExpr()]) {
+                        _cxx_cast->getSubExpr()->dump();
+                        luisa::log_error("!!!");
+                    }
+                    current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[_cxx_cast->getSubExpr()]);
+                }
+            } else if (auto _cxxParen = llvm::dyn_cast<ParenExpr>(x)) {
+                current = stack->expr_map[_cxxParen->getSubExpr()];
             } else if (auto _c_cast = llvm::dyn_cast<CStyleCastExpr>(x)) {
                 if (stack->expr_map[_c_cast->getSubExpr()] != nullptr) {
                     const auto lc_type = bb->FindOrAddType(_c_cast->getType(), bb->astContext);
@@ -937,10 +948,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto cxxMember = llvm::dyn_cast<clang::MemberExpr>(x)) {
                 if (auto bypass = isByPass(cxxMember->getMemberDecl())) {
                     current = stack->expr_map[cxxMember->getBase()];
-                    caller = current;
+                    callers.emplace_back(current);
                 } else if (cxxMember->isBoundMemberFunction(*bb->astContext)) {
                     auto lhs = stack->expr_map[cxxMember->getBase()];
-                    caller = lhs;
+                    callers.emplace_back(lhs);
                 } else if (auto cxxField = llvm::dyn_cast<FieldDecl>(cxxMember->getMemberDecl())) {
                     if (isSwizzle(cxxField)) {
                         auto swizzleText = cxxField->getName();
@@ -978,6 +989,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
             } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
                 if (isByPass(call->getCalleeDecl())) {
+                    auto caller = callers.back();
+                    callers.pop_back();
                     if (!caller) {
                         call->dump();
                         luisa::log_error("incorrect [[bypass]] call detected!");
@@ -998,8 +1011,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     // args
                     luisa::vector<const luisa::compute::Expression *> lc_args;
                     if (auto mcall = llvm::dyn_cast<clang::CXXMemberCallExpr>(x)) {
+                        auto caller = callers.back();
+                        callers.pop_back();
+
                         lc_args.emplace_back(caller);// from -MemberExpr::isBoundMemberFunction
-                        caller = nullptr;
                     }
                     for (auto arg : call->arguments()) {
                         if (auto lc_arg = stack->expr_map[arg])

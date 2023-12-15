@@ -120,15 +120,15 @@ auto TestTemplateSpec() {
     auto vec2 = make_vector(1.f, vec);
     auto vec3 = make_vector(vec, 2.f);
     auto vec4 = make_vector(1.f, vec, 2.f);
+    auto fsum = vec.y + vec2.z + vec3.z + vec4.w;
 
     auto ivec = make_vector(1, 2);
     auto ivec2 = make_vector(1, ivec);
     auto ivec3 = make_vector(ivec, 2);
     auto ivec4 = make_vector(1, ivec, 2);
     auto isum = ivec.y + ivec2.z + ivec3.z + ivec4.w;
-    return nvidia.f 
-        + vec.y + vec2.z + vec3.z + vec4.w
-        + (float)isum;
+
+    return nvidia.f + fsum + (float)isum;
 }
 
 auto TestBranch() {
@@ -264,8 +264,57 @@ auto TestInvokeInvoke(F func, Args&... args)
     return TestInvoke(func, args...);
 }
 
-[[kernel_2d(16, 16)]] 
-int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
+#define WIDTH 3200u
+#define HEIGHT 2400u
+#define PI 3.141592653589793238462643383279502f
+struct Pixel
+{
+    float4 value;
+};
+
+void mandelbrot(Buffer<float4> &mandelbrot_out, uint3 tid)
+{
+    if(tid.x >= WIDTH || tid.y >= HEIGHT)
+        return;
+    float x = float(tid.x) / WIDTH;
+    float y = float(tid.y) / HEIGHT;
+    float2 uv = float2(x, y);
+    float n = 0.0f;
+    float2 c = float2(-0.444999992847442626953125f, 0.0f);
+    c = c + (uv - float2(0.5f, 0.5f)) * 2.3399999141693115234375f;
+    float2 z = float2(0.f, 0.f);
+    const int M =128;
+    for (int i = 0; i < M; i++)
+    {
+        z = float2((z.x * z.x) - (z.y * z.y), (2.0f * z.x) * z.y) + c;
+        if (dot(z, z) > 2.0f)
+        {
+            break;
+        }
+        n += 1.0f;
+    }
+    // we use a simple cosine palette to determine color:
+    // http://iquilezles.org/www/articles/palettes/palettes.htm
+    float t = float(n) / float(M);
+    float3 d = float3(0.3f, 0.3f ,0.5f);
+    float3 e = float3(-0.2f, -0.3f ,-0.5f);
+    float3 f = float3(2.1f, 2.0f, 3.0f);
+    float3 g = float3(0.0f, 0.1f, 0.0f);
+    float4 color = float4(d + (e * cos(((f * t) + g) * 2.f * PI)), 1.0f);
+    
+    mandelbrot_out.store(WIDTH * tid.y + tid.x, color);
+}
+
+float TestOrder()
+{
+    float N = 1.f;
+    float x = (N + 2.f) * 3.f;
+    float xx = N + 2.f * 3.f;
+    return x + xx;
+}
+
+[[kernel_2d(32, 32)]] 
+int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mandelbrot_out, Accel& accel) {
     // member assign
     NVIDIA nvidia = NVIDIA();
     int i = nvidia.ix = is_floatN<int4>::value;
@@ -275,6 +324,9 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
 
     // unary ops
     int iii = nvidia.i = TestUnary();
+
+    // order
+    nvidia.f += TestOrder();
 
     // template
     Template h = TestTemplate();
@@ -329,6 +381,9 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Accel& accel) {
     // member call
     auto n = buffer.load(0);
     buffer.store(n.i, nvidia);
+
+    // draw mandelbrot
+    mandelbrot(mandelbrot_out, thread_id());
 
     // query
     const auto Origin = float3(0.f, 0.f, 0.f);
