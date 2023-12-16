@@ -39,26 +39,29 @@ public:
 
     DxNativeResourceExt(DeviceInterface *lc_device, Device *dx_device);
     ~DxNativeResourceExt() = default;
-    BufferCreationInfo register_external_buffer(
+    BufferCreationInfo registe_external_buffer(
         void *external_ptr,
         const Type *element,
         size_t elem_count,
         // D3D12_RESOURCE_STATES const*
         void *custom_data) noexcept override;
-    ResourceCreationInfo register_external_image(
+    ResourceCreationInfo registe_external_image(
         void *external_ptr,
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels,
         // NativeTextureDesc const*
         void *custom_data) noexcept override;
-    ResourceCreationInfo register_external_depth_buffer(
+    ResourceCreationInfo registe_external_depth_buffer(
         void *external_ptr,
         DepthFormat format,
         uint width,
         uint height,
         // D3D12_RESOURCE_STATES const*
         void *custom_data) noexcept override;
+    SwapchainCreationInfo registe_external_swapchain(
+        void *swapchain_ptr,
+        bool vsync) noexcept override;
     uint64_t get_native_resource_device_address(
         void *native_handle) noexcept override;
     static PixelFormat ToPixelFormat(GFXFormat f) {

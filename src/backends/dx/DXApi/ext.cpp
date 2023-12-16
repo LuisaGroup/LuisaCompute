@@ -11,6 +11,7 @@
 #include <Resource/ReadbackBuffer.h>
 #include <DXApi/LCEvent.h>
 #include <DXApi/LCDevice.h>
+#include <DXApi/LCSwapChain.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>
 #include <luisa/runtime/image.h>
@@ -77,7 +78,7 @@ uint64_t DxNativeResourceExt::get_native_resource_device_address(
     void *native_handle) noexcept {
     return reinterpret_cast<ID3D12Resource *>(native_handle)->GetGPUVirtualAddress();
 }
-BufferCreationInfo DxNativeResourceExt::register_external_buffer(
+BufferCreationInfo DxNativeResourceExt::registe_external_buffer(
     void *external_ptr,
     const Type *element,
     size_t elem_count,
@@ -93,7 +94,7 @@ BufferCreationInfo DxNativeResourceExt::register_external_buffer(
     info.total_size_bytes = element->size() * elem_count;
     return info;
 }
-ResourceCreationInfo DxNativeResourceExt::register_external_image(
+ResourceCreationInfo DxNativeResourceExt::registe_external_image(
     void *external_ptr,
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
@@ -121,7 +122,7 @@ ResourceCreationInfo DxNativeResourceExt::register_external_image(
         reinterpret_cast<uint64_t>(res),
         external_ptr};
 }
-ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
+ResourceCreationInfo DxNativeResourceExt::registe_external_depth_buffer(
     void *external_ptr,
     DepthFormat format,
     uint width,
@@ -138,6 +139,19 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
     return {
         reinterpret_cast<uint64_t>(res),
         external_ptr};
+}
+SwapchainCreationInfo DxNativeResourceExt::registe_external_swapchain(
+    void *swapchain_ptr,
+    bool vsync) noexcept {
+    SwapchainCreationInfo info;
+    auto res = new LCSwapChain(
+        info.storage,
+        dx_device,
+        reinterpret_cast<IDXGISwapChain3 *>(swapchain_ptr),
+        vsync);
+    info.handle = reinterpret_cast<uint64_t>(res);
+    info.native_handle = swapchain_ptr;
+    return info;
 }
 void DStorageExtImpl::init_factory_nolock() {
     HRESULT(WINAPI * DStorageGetFactory)

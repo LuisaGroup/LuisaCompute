@@ -106,10 +106,14 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         if (settings && settings->extension) {
             deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
         }
+        vstd::optional<DirectXDeviceConfigExt::ExternalDevice> extDevice;
         if (deviceSettings) {
-            device = {static_cast<ID3D12Device5 *>(deviceSettings->GetDevice()), false};
-            adapter = {deviceSettings->GetAdapter(), false};
-            dxgiFactory = {deviceSettings->GetDXGIFactory(), false};
+            extDevice = deviceSettings->CreateExternalDevice();
+        }
+        if (extDevice) {
+            device = {static_cast<ID3D12Device5 *>(extDevice->device), false};
+            adapter = {extDevice->adapter, false};
+            dxgiFactory = {extDevice->factory, false};
             DXGI_ADAPTER_DESC1 desc;
             adapter->GetDesc1(&desc);
             adapterID = GenAdapterGUID(desc);
@@ -180,6 +184,12 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         for (auto i : vstd::range(samplers.size())) {
             samplerHeap->CreateSampler(
                 samplers[i], i);
+        }
+        if (deviceSettings) {
+            deviceSettings->ReadbackDX12Device(
+                device,
+                adapter,
+                dxgiFactory);
         }
     }
 }

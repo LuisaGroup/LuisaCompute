@@ -30,7 +30,7 @@ LCSwapChain::LCSwapChain(
         swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
     swapChainDesc.SampleDesc.Count = 1;
     {
-        ComPtr<IDXGISwapChain1> localSwap;
+        IDXGISwapChain1 *localSwap;
         ThrowIfFailed(device->dxgiFactory->CreateSwapChainForHwnd(
             queue->Queue(),
             windowHandle,
@@ -38,11 +38,29 @@ LCSwapChain::LCSwapChain(
             nullptr,
             nullptr,
             &localSwap));
-        ThrowIfFailed(localSwap.As(&swapChain));
+        swapChain = DxPtr(static_cast<IDXGISwapChain3 *>(localSwap), true);
     }
     for (uint32_t n = 0; n < frameCount; n++) {
         ThrowIfFailed(swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n].rt)));
     }
 }
-
+LCSwapChain::LCSwapChain(
+    PixelStorage &storage,
+    Device *device,
+    IDXGISwapChain3 *swapChain,
+    bool vsync)
+    : Resource(device),
+      swapChain(swapChain, false),
+      vsync(vsync) {
+    DXGI_SWAP_CHAIN_DESC1 swapChainDesc;
+    swapChain->GetDesc1(&swapChainDesc);
+    vstd::push_back_func(
+        m_renderTargets,
+        swapChainDesc.BufferCount,
+        [&] { return device; });
+    for (uint32_t n = 0; n < swapChainDesc.BufferCount; n++) {
+        ThrowIfFailed(swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n].rt)));
+    }
+    storage = pixel_format_to_storage(TextureBase::ToPixelFormat(static_cast<GFXFormat>(swapChainDesc.Format)));
+}
 }// namespace lc::dx

@@ -6,9 +6,16 @@
 #include <luisa/runtime/rhi/device_interface.h>
 namespace luisa::compute {
 struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNewBase {
-    virtual ID3D12Device *GetDevice() noexcept = 0;
-    virtual IDXGIAdapter1 *GetAdapter() noexcept = 0;
-    virtual IDXGIFactory2 *GetDXGIFactory() noexcept = 0;
+    struct ExternalDevice {
+        ID3D12Device *device;
+        IDXGIAdapter1 *adapter;
+        IDXGIFactory2 *factory;
+    };
+    virtual vstd::optional<ExternalDevice> CreateExternalDevice() noexcept { return {}; }
+    virtual void ReadbackDX12Device(
+        ID3D12Device *device,
+        IDXGIAdapter1 *adapter,
+        IDXGIFactory2 *factory) noexcept {}
     // plugin resources
     virtual ID3D12CommandQueue *CreateQueue(D3D12_COMMAND_LIST_TYPE type) noexcept { return nullptr; }
     virtual ID3D12GraphicsCommandList *BorrowCommandList(D3D12_COMMAND_LIST_TYPE type) noexcept { return nullptr; }
@@ -20,5 +27,6 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNe
     virtual bool SignalFence(
         ID3D12CommandQueue *queue,
         ID3D12Fence *fence, uint64_t fenceIndex) noexcept { return false; }
+    virtual ~DirectXDeviceConfigExt() noexcept = default;
 };
 }// namespace luisa::compute
