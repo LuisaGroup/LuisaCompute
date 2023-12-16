@@ -78,7 +78,7 @@ uint64_t DxNativeResourceExt::get_native_resource_device_address(
     void *native_handle) noexcept {
     return reinterpret_cast<ID3D12Resource *>(native_handle)->GetGPUVirtualAddress();
 }
-BufferCreationInfo DxNativeResourceExt::registe_external_buffer(
+BufferCreationInfo DxNativeResourceExt::register_external_buffer(
     void *external_ptr,
     const Type *element,
     size_t elem_count,
@@ -94,7 +94,7 @@ BufferCreationInfo DxNativeResourceExt::registe_external_buffer(
     info.total_size_bytes = element->size() * elem_count;
     return info;
 }
-ResourceCreationInfo DxNativeResourceExt::registe_external_image(
+ResourceCreationInfo DxNativeResourceExt::register_external_image(
     void *external_ptr,
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
@@ -122,7 +122,7 @@ ResourceCreationInfo DxNativeResourceExt::registe_external_image(
         reinterpret_cast<uint64_t>(res),
         external_ptr};
 }
-ResourceCreationInfo DxNativeResourceExt::registe_external_depth_buffer(
+ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
     void *external_ptr,
     DepthFormat format,
     uint width,
@@ -140,7 +140,7 @@ ResourceCreationInfo DxNativeResourceExt::registe_external_depth_buffer(
         reinterpret_cast<uint64_t>(res),
         external_ptr};
 }
-SwapchainCreationInfo DxNativeResourceExt::registe_external_swapchain(
+SwapchainCreationInfo DxNativeResourceExt::register_external_swapchain(
     void *swapchain_ptr,
     bool vsync) noexcept {
     SwapchainCreationInfo info;

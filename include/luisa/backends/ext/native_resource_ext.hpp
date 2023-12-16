@@ -49,7 +49,7 @@ template<typename T>
 Buffer<T> NativeResourceExt::create_native_buffer(void *native_ptr, size_t elem_count, void *custom_data) noexcept {
     auto type = Type::of<T>();
     return ResourceGenerator::create_native_buffer<T>(
-        registe_external_buffer(native_ptr, type, elem_count, custom_data),
+        register_external_buffer(native_ptr, type, elem_count, custom_data),
         _device);
 }
 inline DepthBuffer NativeResourceExt::create_native_depth_buffer(
@@ -59,7 +59,7 @@ inline DepthBuffer NativeResourceExt::create_native_depth_buffer(
     uint height,
     void *custom_data) noexcept {
     return ResourceGenerator::create_native_depth_buffer(
-        registe_external_depth_buffer(native_ptr, format, width, height, custom_data),
+        register_external_depth_buffer(native_ptr, format, width, height, custom_data),
         _device, format, {width, height});
 }
 template<typename T>
@@ -72,7 +72,7 @@ Image<T> NativeResourceExt::create_native_image(
     void *custom_data) noexcept {
     auto fmt = pixel_storage_to_format<T>(storage);
     return ResourceGenerator::create_native_image<T>(
-        registe_external_image(external_ptr, fmt, 2, width, height, 1, mip, custom_data),
+        register_external_image(external_ptr, fmt, 2, width, height, 1, mip, custom_data),
         _device,
         storage,
         uint2{width, height},
@@ -89,14 +89,14 @@ Volume<T> NativeResourceExt::create_native_volume(
     void *custom_data) noexcept {
     auto fmt = pixel_storage_to_format<T>(storage);
     return ResourceGenerator::create_native_volume<T>(
-        registe_external_image(external_ptr, fmt, 3, width, height, volume, mip, custom_data),
+        register_external_image(external_ptr, fmt, 3, width, height, volume, mip, custom_data),
         _device, storage, uint3{width, height, volume}, mip);
 }
 Swapchain NativeResourceExt::create_native_swapchain(
     void *swapchain_ptr,
     bool vsync) noexcept {
     return ResourceGenerator::create_native_swapchain(
-        registe_external_swapchain(swapchain_ptr, vsync),
+        register_external_swapchain(swapchain_ptr, vsync),
         _device);
 }
 

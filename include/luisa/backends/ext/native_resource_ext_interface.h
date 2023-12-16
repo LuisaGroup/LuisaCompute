@@ -20,27 +20,27 @@ public:
         : _device{device} {}
 
     static constexpr luisa::string_view name = "NativeResourceExt";
-    virtual BufferCreationInfo registe_external_buffer(
+    virtual BufferCreationInfo register_external_buffer(
         void *buffer_ptr,
         const Type *element,
         size_t elem_count,
         // custom data see backends' header
         void *custom_data) noexcept = 0;
-    virtual ResourceCreationInfo registe_external_image(
+    virtual ResourceCreationInfo register_external_image(
         void *image_ptr,
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels,
         // custom data see backends' header
         void *custom_data) noexcept = 0;
-    virtual ResourceCreationInfo registe_external_depth_buffer(
+    virtual ResourceCreationInfo register_external_depth_buffer(
         void *depth_buffer_ptr,
         DepthFormat format,
         uint width,
         uint height,
         // custom data see backends' header
         void *custom_data) noexcept = 0;
-    virtual SwapchainCreationInfo registe_external_swapchain(
+    virtual SwapchainCreationInfo register_external_swapchain(
         void *swapchain_ptr,
         bool vsync) noexcept = 0;
     virtual uint64_t get_native_resource_device_address(
