@@ -9,6 +9,7 @@
 #include <luisa/backends/ext/native_resource_ext_interface.h>
 
 namespace luisa::compute {
+
 class ResourceGenerator {
 
 public:
@@ -48,6 +49,7 @@ Buffer<T> NativeResourceExt::create_native_buffer(void *native_ptr, size_t elem_
         register_external_buffer(native_ptr, type, elem_count, custom_data),
         _device);
 }
+
 inline DepthBuffer NativeResourceExt::create_native_depth_buffer(
     void *native_ptr,
     DepthFormat format,
@@ -58,6 +60,7 @@ inline DepthBuffer NativeResourceExt::create_native_depth_buffer(
         register_external_depth_buffer(native_ptr, format, width, height, custom_data),
         _device, format, {width, height});
 }
+
 template<typename T>
 Image<T> NativeResourceExt::create_native_image(
     void *external_ptr,
@@ -74,6 +77,7 @@ Image<T> NativeResourceExt::create_native_image(
         uint2{width, height},
         mip);
 }
+
 template<typename T>
 Volume<T> NativeResourceExt::create_native_volume(
     void *external_ptr,
@@ -88,14 +92,17 @@ Volume<T> NativeResourceExt::create_native_volume(
         register_external_image(external_ptr, fmt, 3, width, height, volume, mip, custom_data),
         _device, storage, uint3{width, height, volume}, mip);
 }
+
 template<typename T>
 uint64_t NativeResourceExt::get_device_address(const Buffer<T> &buffer) noexcept {
     return get_native_resource_device_address(buffer.native_handle());
 }
+
 template<typename T>
 uint64_t NativeResourceExt::get_device_address(const Image<T> &image) noexcept {
     return get_native_resource_device_address(image.native_handle());
 }
+
 template<typename T>
 uint64_t NativeResourceExt::get_device_address(const Volume<T> &volume) noexcept {
     return get_native_resource_device_address(volume.native_handle());
