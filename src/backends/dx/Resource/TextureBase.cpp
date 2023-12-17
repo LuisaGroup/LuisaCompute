@@ -242,6 +242,51 @@ GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
     }
     LUISA_ERROR_WITH_LOCATION("Unreachable.");
 }
+PixelFormat TextureBase::ToPixelFormat(GFXFormat format) {
+    switch (format) {
+        case GFXFormat_R8_SInt: return PixelFormat::R8SInt;
+        case GFXFormat_R8_UInt: return PixelFormat::R8UInt;
+        case GFXFormat_R8_UNorm: return PixelFormat::R8UNorm;
+        case GFXFormat_R8G8_SInt: return PixelFormat::RG8SInt;
+        case GFXFormat_R8G8_UInt: return PixelFormat::RG8UInt;
+        case GFXFormat_R8G8_UNorm: return PixelFormat::RG8UNorm;
+        case GFXFormat_R8G8B8A8_SInt: return PixelFormat::RGBA8SInt;
+        case GFXFormat_R8G8B8A8_UInt: return PixelFormat::RGBA8UInt;
+        case GFXFormat_R8G8B8A8_UNorm: return PixelFormat::RGBA8UNorm;
+        case GFXFormat_R16_SInt: return PixelFormat::R16SInt;
+        case GFXFormat_R16_UInt: return PixelFormat::R16UInt;
+        case GFXFormat_R16_UNorm: return PixelFormat::R16UNorm;
+        case GFXFormat_R16G16_SInt: return PixelFormat::RG16SInt;
+        case GFXFormat_R16G16_UInt: return PixelFormat::RG16UInt;
+        case GFXFormat_R16G16_UNorm: return PixelFormat::RG16UNorm;
+        case GFXFormat_R16G16B16A16_SInt: return PixelFormat::RGBA16SInt;
+        case GFXFormat_R16G16B16A16_UInt: return PixelFormat::RGBA16UInt;
+        case GFXFormat_R16G16B16A16_UNorm: return PixelFormat::RGBA16UNorm;
+        case GFXFormat_R32_SInt: return PixelFormat::R32SInt;
+        case GFXFormat_R32_UInt: return PixelFormat::R32UInt;
+        case GFXFormat_R32G32_SInt: return PixelFormat::RG32SInt;
+        case GFXFormat_R32G32_UInt: return PixelFormat::RG32UInt;
+        case GFXFormat_R32G32B32A32_SInt: return PixelFormat::RGBA32SInt;
+        case GFXFormat_R32G32B32A32_UInt: return PixelFormat::RGBA32UInt;
+        case GFXFormat_R16_Float: return PixelFormat::R16F;
+        case GFXFormat_R16G16_Float: return PixelFormat::RG16F;
+        case GFXFormat_R16G16B16A16_Float: return PixelFormat::RGBA16F;
+        case GFXFormat_R32_Float: return PixelFormat::R32F;
+        case GFXFormat_R32G32_Float: return PixelFormat::RG32F;
+        case GFXFormat_R32G32B32A32_Float: return PixelFormat::RGBA32F;
+        case GFXFormat_BC6H_UF16: return PixelFormat::BC6HUF16;
+        case GFXFormat_BC7_UNorm: return PixelFormat::BC7UNorm;
+        case GFXFormat_BC5_UNorm: return PixelFormat::BC5UNorm;
+        case GFXFormat_BC4_UNorm: return PixelFormat::BC4UNorm;
+        case GFXFormat_BC1_UNorm: return PixelFormat::BC1UNorm;
+        case GFXFormat_BC2_UNorm: return PixelFormat::BC2UNorm;
+        case GFXFormat_BC3_UNorm: return PixelFormat::BC3UNorm;
+        case GFXFormat_R10G10B10A2_UNorm: return PixelFormat::R10G10B10A2UNorm;
+        case GFXFormat_R10G10B10A2_UInt: return PixelFormat::R10G10B10A2UInt;
+        case GFXFormat_R11G11B10_Float: return PixelFormat::R11G11B10F;
+    }
+    LUISA_ERROR_WITH_LOCATION("Unreachable.");
+}
 D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(uint3 size, uint mip, bool allowUav, bool allowSimul, bool reserved) const {
     D3D12_RESOURCE_DESC texDesc{};
     switch (dimension) {

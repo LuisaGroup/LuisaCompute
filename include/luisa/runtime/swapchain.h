@@ -22,6 +22,7 @@ public:
 
 private:
     friend class Device;
+    friend class ResourceGenerator;
     PixelStorage _storage{};
     Swapchain(DeviceInterface *device, const SwapchainCreationInfo &create_info) noexcept;
     Swapchain(DeviceInterface *device, uint64_t window_handle,

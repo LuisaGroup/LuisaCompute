@@ -25,6 +25,7 @@ protected:
 public:
     //	vstd::span<std::atomic<D3D12_BARRIER_LAYOUT>> Layouts() const;
     static GFXFormat ToGFXFormat(PixelFormat format);
+    static PixelFormat ToPixelFormat(GFXFormat format);
     uint Width() const { return width; }
     uint Height() const { return height; }
     GFXFormat Format() const { return format; }

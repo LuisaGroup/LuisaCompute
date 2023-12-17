@@ -5,6 +5,7 @@
 #include <luisa/runtime/volume.h>
 #include <luisa/runtime/raster/depth_buffer.h>
 #include <luisa/runtime/buffer.h>
+#include <luisa/runtime/swapchain.h>
 #include <luisa/backends/ext/raster_ext.hpp>
 #include <luisa/backends/ext/native_resource_ext_interface.h>
 
@@ -13,6 +14,9 @@ namespace luisa::compute {
 class ResourceGenerator {
 
 public:
+    static Swapchain create_native_swapchain(const SwapchainCreationInfo &create_info, DeviceInterface *device) {
+        return {device, create_info};
+    }
     template<typename T>
     [[nodiscard]] static Image<T> create_native_image(const ResourceCreationInfo &create_info, DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels) noexcept {
         return {device, create_info, storage, size, mip_levels};
@@ -91,6 +95,14 @@ Volume<T> NativeResourceExt::create_native_volume(
     return ResourceGenerator::create_native_volume<T>(
         register_external_image(external_ptr, fmt, 3, width, height, volume, mip, custom_data),
         _device, storage, uint3{width, height, volume}, mip);
+}
+
+Swapchain NativeResourceExt::create_native_swapchain(
+    void *swapchain_ptr,
+    bool vsync) noexcept {
+    return ResourceGenerator::create_native_swapchain(
+        register_external_swapchain(swapchain_ptr, vsync),
+        _device);
 }
 
 template<typename T>

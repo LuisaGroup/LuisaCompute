@@ -1,5 +1,8 @@
 #pragma once
 #include <stdint.h>
+#ifdef CreateEvent
+#undef CreateEvent
+#endif
 namespace luisa::compute {
 enum class DeviceFunc : uint32_t {
     CreateBufferAst,
@@ -30,6 +33,8 @@ enum class DeviceFunc : uint32_t {
     DestroyMesh,
     CreateProcedrualPrim,
     DestroyProcedrualPrim,
+    CreateCurve,
+    DestroyCurve,
     CreateAccel,
     DestroyAccel,
     CreateSparseBuffer,

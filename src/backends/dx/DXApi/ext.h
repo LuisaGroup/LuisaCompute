@@ -59,6 +59,9 @@ public:
         uint height,
         // D3D12_RESOURCE_STATES const*
         void *custom_data) noexcept override;
+    SwapchainCreationInfo register_external_swapchain(
+        void *swapchain_ptr,
+        bool vsync) noexcept override;
     uint64_t get_native_resource_device_address(
         void *native_handle) noexcept override;
     static PixelFormat ToPixelFormat(GFXFormat f) {
