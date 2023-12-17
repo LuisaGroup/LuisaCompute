@@ -31,7 +31,7 @@ license = { file = "LICENSE" }
 cmake.minimum-version = "3.23"
 ninja.minimum-version = "1.10"
 ninja.make-fallback = false
-cmake.build-type = "Debug"
+cmake.build-type = "Release"
 cmake.args = ["-G Ninja"]
 sdist.reproducible = false
 wheel.expand-macos-universal-tags = true
