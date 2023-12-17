@@ -1022,7 +1022,7 @@ void LCCmdBuffer::Execute(
                 visitor.argBuffer = {};
             } else {
 // Use default buffer as arguments buffer
-#ifdef false
+#if false
                 auto uploadBuffer = allocator->GetTempDefaultBuffer(ppVisitor.argBuffer->size(), 16);
                 tracker.RecordState(
                     uploadBuffer.buffer,
