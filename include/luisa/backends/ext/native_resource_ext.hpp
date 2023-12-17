@@ -97,7 +97,7 @@ Volume<T> NativeResourceExt::create_native_volume(
         _device, storage, uint3{width, height, volume}, mip);
 }
 
-Swapchain NativeResourceExt::create_native_swapchain(
+inline Swapchain NativeResourceExt::create_native_swapchain(
     void *swapchain_ptr,
     bool vsync) noexcept {
     return ResourceGenerator::create_native_swapchain(
