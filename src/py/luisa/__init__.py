@@ -29,7 +29,7 @@ import inspect
 
 
 def _select_backend(backends):
-    if "LUSIA_BACKEND" in environ:
+    if "LUISA_BACKEND" in environ:
         backend_name = environ["LUSIA_BACKEND"].lower()
         if backend_name in backends:
             print(f"Detected backends: {backends}.",
