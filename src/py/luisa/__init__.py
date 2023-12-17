@@ -30,7 +30,7 @@ import inspect
 
 def _select_backend(backends):
     if "LUISA_BACKEND" in environ:
-        backend_name = environ["LUSIA_BACKEND"].lower()
+        backend_name = environ["LUISA_BACKEND"].lower()
         if backend_name in backends:
             print(f"Detected backends: {backends}.",
                   f"Selecting {backend_name} according to environment variable `LUISA_BACKEND`.")
