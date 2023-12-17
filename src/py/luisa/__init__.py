@@ -1,4 +1,35 @@
 from .dylibs import lcapi
+
+
+# callback: (level: string, message: string) -> None
+def set_log_callback(callback):
+    lcapi.set_log_callback(callback)
+
+
+try:
+    shell = get_ipython().__class__.__name__
+    if shell != "TerminalInteractiveShell":
+        from datetime import datetime
+
+
+        def _default_log_callback(level, message):
+            now = datetime.now()
+            match level:
+                case "D":
+                    color, level = 96, "debug"
+                case "I":
+                    color, level = 92, "info"
+                case "W":
+                    color, level = 93, "warning"
+                case _:
+                    color, level = 91, "error"
+            print(f"[{now}] [luisa] [\033[{color}m{level}\033[00m] {message}")
+
+
+        set_log_callback(_default_log_callback)
+except NameError:
+    pass
+
 from . import globalvars
 from .types import half, short, ushort, half2, short2, ushort2, half3, short3, ushort3, half4, short4, ushort4
 
@@ -51,30 +82,6 @@ def _select_backend(backends):
         backend_name = backends[0]
     print(f"Detected backends: {backends}. Selecting {backend_name}.")
     return backend_name
-
-
-# callback: (level: string, message: string) -> None
-def set_log_callback(callback):
-    lcapi.set_log_callback(callback)
-
-
-def set_default_log_callback():
-    from datetime import datetime
-
-    def _log(level, message):
-        now = datetime.now()
-        match level:
-            case "D":
-                color, level = 96, "debug"
-            case "I":
-                color, level = 92, "info"
-            case "W":
-                color, level = 93, "warning"
-            case _:
-                color, level = 91, "error"
-        print(f"[{now}] [luisa] [\033[{color}m{level}\033[00m] {message}")
-
-    set_log_callback(_log)
 
 
 def verbose(fmt: str, *args, **kwargs):
@@ -166,7 +173,3 @@ def execute(stream=None):
     if stream is None:
         stream = globalvars.vars.stream
     stream.execute()
-
-
-# override the C++ logger to support ipython
-set_default_log_callback()
