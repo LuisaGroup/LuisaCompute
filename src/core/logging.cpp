@@ -92,6 +92,11 @@ LC_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLogger
         callback(m);
     });
 }
+
+LC_CORE_API spdlog::sink_ptr create_sink_with_callback(luisa::function<void(const char *level, const char *message)> callback) noexcept {
+    return std::make_shared<luisa::detail::SinkWithCallback<std::mutex>>(std::move(callback));
+}
+
 }// namespace detail
 
 void log_level_verbose() noexcept { detail::default_logger().set_level(spdlog::level::debug); }

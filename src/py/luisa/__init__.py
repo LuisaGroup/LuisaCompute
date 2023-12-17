@@ -25,6 +25,7 @@ from os.path import realpath
 import platform
 import sys
 from os import environ
+import inspect
 
 
 def _select_backend(backends):
@@ -50,6 +51,67 @@ def _select_backend(backends):
         backend_name = backends[0]
     print(f"Detected backends: {backends}. Selecting {backend_name}.")
     return backend_name
+
+
+# callback: (level: string, message: string) -> None
+def set_log_callback(callback):
+    lcapi.set_log_callback(callback)
+
+
+def set_default_log_callback():
+    from datetime import datetime
+
+    def _log(level, message):
+        now = datetime.now()
+        match level:
+            case "D":
+                color, level = 96, "debug"
+            case "I":
+                color, level = 92, "info"
+            case "W":
+                color, level = 93, "warning"
+            case _:
+                color, level = 91, "error"
+        print(f"[{now}] [luisa] [\033[{color}m{level}\033[00m] {message}")
+
+    set_log_callback(_log)
+
+
+def verbose(fmt: str, *args, **kwargs):
+    lcapi.log_verbose(fmt.format(*args, **kwargs))
+
+
+def info(fmt: str, *args, **kwargs):
+    lcapi.log_info(fmt.format(*args, **kwargs))
+
+
+def warning(fmt: str, *args, **kwargs):
+    lcapi.log_warning(fmt.format(*args, **kwargs))
+
+
+def error(fmt: str, *args, **kwargs):
+    lcapi.log_error(fmt.format(*args, **kwargs))
+
+
+def _get_source_location_log_suffix():
+    frame = inspect.currentframe().f_back.f_back
+    return f" [{inspect.getfile(frame)}:{inspect.getlineno(frame)}]"
+
+
+def verbose_with_location(fmt: str, *args, **kwargs):
+    lcapi.log_verbose(fmt.format(*args, **kwargs) + _get_source_location_log_suffix())
+
+
+def info_with_location(fmt: str, *args, **kwargs):
+    lcapi.log_info(fmt.format(*args, **kwargs) + _get_source_location_log_suffix())
+
+
+def warning_with_location(fmt: str, *args, **kwargs):
+    lcapi.log_warning(fmt.format(*args, **kwargs) + _get_source_location_log_suffix())
+
+
+def error_with_location(fmt: str, *args, **kwargs):
+    lcapi.log_error(fmt.format(*args, **kwargs) + _get_source_location_log_suffix())
 
 
 def init(backend_name=None, shader_path=None, support_gui=True):
@@ -104,3 +166,7 @@ def execute(stream=None):
     if stream is None:
         stream = globalvars.vars.stream
     stream.execute()
+
+
+# override the C++ logger to support ipython
+set_default_log_callback()
