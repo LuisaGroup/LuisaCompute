@@ -59,6 +59,7 @@ ResourceCreationInfo ClientInterface::create_texture(
     r.handle = _flag++;
     r.native_handle = nullptr;
     SerDe::ser_value(DeviceFunc::CreateTexture, _send_bytes);
+    SerDe::ser_value(r.handle, _send_bytes);
     SerDe::ser_value(format, _send_bytes);
     SerDe::ser_value(dimension, _send_bytes);
     SerDe::ser_value(width, _send_bytes);
@@ -83,13 +84,12 @@ ResourceCreationInfo ClientInterface::create_bindless_array(size_t size) noexcep
     r.native_handle = nullptr;
 
     SerDe::ser_value(DeviceFunc::CreateBindlessArray, _send_bytes);
-    SerDe::ser_value(size, _send_bytes);
     SerDe::ser_value(r.handle, _send_bytes);
+    SerDe::ser_value(size, _send_bytes);
     _callback->async_send(std::move(_send_bytes));
     return r;
 }
 void ClientInterface::destroy_bindless_array(uint64_t handle) noexcept {
-
     SerDe::ser_value(DeviceFunc::DestroyBindlessArray, _send_bytes);
     SerDe::ser_value(handle, _send_bytes);
     _callback->async_send(std::move(_send_bytes));
@@ -100,10 +100,9 @@ ResourceCreationInfo ClientInterface::create_stream(StreamTag stream_tag) noexce
     ResourceCreationInfo r;
     r.handle = _flag++;
     r.native_handle = nullptr;
-
     SerDe::ser_value(DeviceFunc::CreateStream, _send_bytes);
-    SerDe::ser_value(stream_tag, _send_bytes);
     SerDe::ser_value(r.handle, _send_bytes);
+    SerDe::ser_value(stream_tag, _send_bytes);
     _callback->async_send(std::move(_send_bytes));
     return r;
 }

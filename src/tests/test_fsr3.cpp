@@ -89,7 +89,7 @@ public:
         this->factory = factory;
     }
 };
-struct FSR3SwapChain {
+class FSR3SwapChain {
     FfxSwapchain _swapchain;
 public:
     FSR3SwapChain(
@@ -132,12 +132,56 @@ public:
     [[nodiscard]] auto swapchain() const { return _swapchain; }
     [[nodiscard]] auto swapchain_dx12() const { return fp_ffxGetDX12SwapchainPtr(_swapchain); }
 };
-
+FfxErrorCode present_callback(const FfxPresentCallbackDescription *params) {
+    LUISA_INFO("{}", params->isInterpolatedFrame);
+    auto pDxCmdList = reinterpret_cast<ID3D12GraphicsCommandList2 *>(params->commandList);
+    auto pRtResource = reinterpret_cast<ID3D12Resource *>(params->outputSwapChainBuffer.resource);
+    auto pBbResource = reinterpret_cast<ID3D12Resource *>(params->currentBackBuffer.resource);
+    D3D12_RESOURCE_BARRIER rt_barriers[2];
+    rt_barriers[0] = D3D12_RESOURCE_BARRIER{
+        .Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+        .Transition = D3D12_RESOURCE_TRANSITION_BARRIER{
+            .pResource = pRtResource,
+            .Subresource = 0xffffffff,
+            .StateBefore = D3D12_RESOURCE_STATE_COMMON,
+            .StateAfter = D3D12_RESOURCE_STATE_COPY_DEST}};
+    rt_barriers[1] = D3D12_RESOURCE_BARRIER{
+        .Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+        .Transition = D3D12_RESOURCE_TRANSITION_BARRIER{
+            .pResource = pBbResource,
+            .Subresource = 0xffffffff,
+            .StateBefore = D3D12_RESOURCE_STATE_COMMON,
+            .StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE}};
+    pDxCmdList->ResourceBarrier(2, rt_barriers);
+    pDxCmdList->CopyResource(pRtResource, pBbResource);
+    rt_barriers[0] = D3D12_RESOURCE_BARRIER{
+        .Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+        .Transition = D3D12_RESOURCE_TRANSITION_BARRIER{
+            .pResource = pRtResource,
+            .Subresource = 0xffffffff,
+            .StateBefore = D3D12_RESOURCE_STATE_COPY_DEST,
+            .StateAfter = D3D12_RESOURCE_STATE_COMMON}};
+    rt_barriers[1] = D3D12_RESOURCE_BARRIER{
+        .Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+        .Transition = D3D12_RESOURCE_TRANSITION_BARRIER{
+            .pResource = pBbResource,
+            .Subresource = 0xffffffff,
+            .StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE,
+            .StateAfter = D3D12_RESOURCE_STATE_COMMON}};
+    pDxCmdList->ResourceBarrier(2, rt_barriers);
+    return FFX_OK;
+}
 int main(int argc, char *argv[]) {
     constexpr uint display_width = 1024, display_height = 1024;
     constexpr uint2 display_resolution = uint2(display_width, display_height);
 
-    auto dx12_module = DynamicModule::load("ffx_backend_dx12_x64");
+    auto dx12_module = DynamicModule::load(
+#ifndef NDEBUG
+        "ffx_backend_dx12_x64d"
+#else
+        "ffx_backend_dx12_x64"
+#endif
+    );
     auto fsr3_module = DynamicModule::load("ffx_fsr3_x64");
     LOAD_FUNCPTR(dx12_module, ffxGetScratchMemorySizeDX12);
     LOAD_FUNCPTR(dx12_module, ffxGetDeviceDX12);
@@ -156,8 +200,8 @@ int main(int argc, char *argv[]) {
     LOAD_FUNCPTR(dx12_module, ffxGetFrameinterpolationCommandlistDX12);
     LOAD_FUNCPTR(dx12_module, ffxGetFrameinterpolationTextureDX12);
     LOAD_FUNCPTR(dx12_module, ffxSetFrameGenerationConfigToSwapchainDX12);
-    LOAD_FUNCPTR(fsr3_module, ffxFsr3DispatchFrameGeneration);
 
+    LOAD_FUNCPTR(fsr3_module, ffxFsr3DispatchFrameGeneration);
     LOAD_FUNCPTR(fsr3_module, ffxFsr3ContextCreate);
     LOAD_FUNCPTR(fsr3_module, ffxFsr3ContextDispatchUpscale);
     LOAD_FUNCPTR(fsr3_module, ffxFsr3SkipPresent);
@@ -205,7 +249,7 @@ int main(int argc, char *argv[]) {
         .fpMessage = msg,
         .backBufferFormat = FfxSurfaceFormat::FFX_SURFACE_FORMAT_R8G8B8A8_UNORM};
     auto fsr3_context = luisa::make_unique<FfxFsr3Context>();
-    fp_ffxFsr3ContextCreate(fsr3_context.get(), &context_desc);
+    FFX_VALIDATE(fp_ffxFsr3ContextCreate(fsr3_context.get(), &context_desc));
     const uint jitter_phase_count = fp_ffxFsr3GetJitterPhaseCount(display_width, display_width);
     UpscaleSetup upload_setup;
     upload_setup.unresolved_color_resource = device.create_image<float>(
@@ -226,12 +270,23 @@ int main(int argc, char *argv[]) {
     auto lc_swapchain = native_res_ext->create_native_swapchain(swapchain.swapchain_dx12(), false);
     Image<float> ldr_image = device.create_image<float>(lc_swapchain.backend_storage(), display_resolution);
     Kernel2D clear_kernel = [](ImageVar<float> image) {
-        image.write(dispatch_id().xy(), make_float4(make_float3(0.1f), 0));
+        image.write(dispatch_id().xy(), make_float4(0.3f, 0.6f, 0.7f, 1.f));
     };
     auto clear_shader = device.compile(clear_kernel);
     static constexpr uint32_t framebuffer_count = 3;
     TimelineEvent graphics_event = device.create_timeline_event();
     uint64_t frame_index = 0;
+    FfxFrameGenerationConfig frame_gen_config{};
+    frame_gen_config.frameGenerationEnabled = true;
+    frame_gen_config.frameGenerationCallback = fp_ffxFsr3DispatchFrameGeneration;
+    frame_gen_config.presentCallback = present_callback;
+    frame_gen_config.onlyPresentInterpolated = false;
+    frame_gen_config.allowAsyncWorkloads = true;
+    frame_gen_config.swapChain = swapchain.swapchain();
+    frame_gen_config.HUDLessColor = {};
+    FFX_VALIDATE(fp_ffxFsr3ConfigureFrameGeneration(
+        fsr3_context.get(),
+        &frame_gen_config));
     while (!window.should_close()) {
         if (frame_index >= framebuffer_count) {
             graphics_event.synchronize(frame_index - (framebuffer_count - 1));
@@ -247,7 +302,7 @@ int main(int argc, char *argv[]) {
     // upload_setup.resolved_color_resource = device.create_image<float>(
     //     swap_chain.backend_storage(),
     //     display_resolution);
-    fp_ffxFsr3ContextDestroy(fsr3_context.get());
+    FFX_VALIDATE(fp_ffxFsr3ContextDestroy(fsr3_context.get()));
     return 0;
 }
 #undef LOAD_FUNCPTR
