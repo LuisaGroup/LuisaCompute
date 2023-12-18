@@ -691,7 +691,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 current = lc_var;
                             }
                         }
+                    } else if (auto aliasDecl = dyn_cast<clang::TypeAliasDecl>(decl)) { // ignore
                     } else {
+                        x->dump();
                         luisa::log_error("unsupported decl stmt: {}", cxxDecl->getStmtClassName());
                     }
                 }
@@ -1173,9 +1175,12 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
         is_method = !is_lambda;
         methodThisType = Method->getThisType()->getPointeeType();
     }
+    ignore |= (S->isTemplateDecl() && !S->isTemplateInstantiation());
     for (auto param : params) {
-        ignore |= param->getType()->isTemplateTypeParmType();
-        ignore |= (param->getType()->getTypeClass() == clang::Type::PackExpansion);
+        auto DesugaredParamType = param->getType().getNonReferenceType().getDesugaredType(*bb->astContext);
+        ignore |= DesugaredParamType->isTemplateTypeParmType();
+        ignore |= (DesugaredParamType->getTypeClass() == clang::Type::TemplateTypeParm);
+        ignore |= (DesugaredParamType->getTypeClass() == clang::Type::PackExpansion);
         ignore |= param->isTemplateParameterPack();
         ignore |= param->isTemplateParameter();
     }

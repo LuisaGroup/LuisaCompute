@@ -1,5 +1,6 @@
 #pragma once
-#include "ray.h"
+#include "./../ray.hpp"
+#include "./../matrix.hpp"
 
 namespace luisa::shader {
 struct RayQueryAll;

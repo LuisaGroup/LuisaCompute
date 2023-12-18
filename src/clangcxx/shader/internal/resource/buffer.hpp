@@ -1,11 +1,13 @@
 #pragma once
-#include "attributes.hpp"
-#include "type_traits.hpp"
-#include "vec.hpp"
+#include "./../attributes.hpp"
+#include "./../type_traits.hpp"
+#include "./../vec.hpp"
 
 namespace luisa::shader {
 template<typename Type>
 struct [[builtin("buffer")]] Buffer {
+    using ElementType = Type;
+
     [[callop("BUFFER_READ")]] Type load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, Type value);
     [[ignore]] Buffer() = delete;
@@ -14,6 +16,8 @@ struct [[builtin("buffer")]] Buffer {
 };
 template<>
 struct [[builtin("buffer")]] Buffer<int32> {
+    using ElementType = int32;
+
     [[callop("BUFFER_READ")]] int32 load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, int32 value);
     [[callop("ATOMIC_EXCHANGE")]] int32 atomic_exchange(uint32 loc, int32 desired);
@@ -31,6 +35,8 @@ struct [[builtin("buffer")]] Buffer<int32> {
 };
 template<>
 struct [[builtin("buffer")]] Buffer<uint32> {
+    using ElementType = uint32;
+
     [[callop("BUFFER_READ")]] uint32 load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, uint32 value);
     [[callop("ATOMIC_EXCHANGE")]] uint32 atomic_exchange(uint32 loc, uint32 desired);
@@ -48,6 +54,8 @@ struct [[builtin("buffer")]] Buffer<uint32> {
 };
 template<>
 struct [[builtin("buffer")]] Buffer<float> {
+    using ElementType = float;
+
     [[callop("BUFFER_READ")]] float load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, float value);
     [[callop("ATOMIC_EXCHANGE")]] float atomic_exchange(uint32 loc, float desired);

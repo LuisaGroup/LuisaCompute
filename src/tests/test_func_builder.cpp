@@ -34,8 +34,8 @@ int main(int argc, char *argv[]) {
     }
     if (kTestRuntime)
     {
-        auto shader = device.load_shader<2, Buffer<float4>>("test.bin");
-        auto buffer = device.create_buffer<float4>(width * height);
+        auto shader = device.load_shader<2, Image<float>>("test.bin");
+        auto texture = device.create_image<float>(PixelStorage::FLOAT4, width, height);
         Window window{"test func", uint2(width, height)};
         Swapchain swap_chain{device.create_swapchain(
             window.native_handle(),
@@ -49,9 +49,9 @@ int main(int argc, char *argv[]) {
                                 12.92f * x,
                                 x <= 0.00031308f));
         };
-        Kernel2D hdr2ldr_kernel = [&](BufferVar<float4> hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
+        Kernel2D hdr2ldr_kernel = [&](ImageVar<float> hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
             UInt2 coord = dispatch_id().xy();
-            Float4 hdr = hdr_image.read(coord.x + coord.y * dispatch_size().x);
+            Float4 hdr = hdr_image.read(coord);
             Float3 ldr = hdr.xyz() * scale;
             $if (!is_hdr) {
                 ldr = linear_to_srgb(ldr);
@@ -63,8 +63,8 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("{}, {}, {}", blk_size.x, blk_size.y, blk_size.z);
         while (!window.should_close()) {
             window.poll_events();
-            stream << shader(buffer).dispatch(width, height)
-                << hdr2ldr_shader(buffer, ldr_image, 1.0f, true).dispatch(width, height)
+            stream << shader(texture).dispatch(width, height)
+                << hdr2ldr_shader(texture, ldr_image, 1.0f, true).dispatch(width, height)
                 << swap_chain.present(ldr_image);
         }
     }

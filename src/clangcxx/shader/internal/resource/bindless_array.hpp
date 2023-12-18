@@ -1,6 +1,5 @@
 #pragma once
-#include "attributes.hpp"
-#include "type_traits.hpp"
+#include "./../vec.hpp"
 
 namespace luisa::shader {
 struct [[builtin("bindless_array")]] BindlessArray {

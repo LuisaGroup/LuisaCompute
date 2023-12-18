@@ -9,6 +9,9 @@ using int64 = long long;
 using uint32 = unsigned int;
 using uint64 = unsigned long long;
 
+template<typename T, typename U>
+static constexpr bool is_same_v = __is_same_as(T, U);
+
 template<typename T>
 trait remove_cvref { using type = T; };
 template<typename T>
@@ -177,8 +180,8 @@ namespace detail
 {
     template<uint64 N, typename T, typename...Ts>
     trait element_of {
-        using type = element_of<N - 1, Ts...>::type; 
-        using type2 = element<T>::type; 
+        using type = typename element_of<N - 1, Ts...>::type; 
+        using type2 = typename element<T>::type; 
         static_assert(__is_same_as(type, type2), "!!!");
     };
 

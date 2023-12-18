@@ -5,12 +5,9 @@
 #include "internal/array.hpp"
 #include "internal/vec.hpp"
 #include "internal/matrix.hpp"
+#include "internal/resource.hpp"
 
 #include "internal/functions.hpp"
-#include "internal/buffer.hpp"
-#include "internal/texture.hpp"
-
-#include "internal/accel.hpp"
 #include "internal/ray_query.hpp"
 
 struct zzSHADER_PRIMITIVES
@@ -28,3 +25,16 @@ struct zzSHADER_PRIMITIVES
     float f;
     double d;
 };
+
+namespace luisa::shader::mandelbrot {
+
+template <typename Resource, typename T>
+static void store2d(Resource& r, uint32 row_pitch, uint2 pos, T val)
+{
+    using ResourceType = remove_cvref<Resource>::type;
+    if constexpr (is_same_v<ResourceType, Buffer<T>>)
+        r.store(pos.x + pos.y * row_pitch, val);
+    else if constexpr (is_same_v<ResourceType, Image<typename element<T>::type>>)
+        r.store(pos, val);
+}
+}

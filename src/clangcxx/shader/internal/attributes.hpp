@@ -1,4 +1,7 @@
 #pragma once
+#include "defines.hpp"
+
+#define export clang::annotate("luisa-shader", "export")
 #define ignore clang::annotate("luisa-shader", "ignore")
 #define bypass clang::annotate("luisa-shader", "bypass")
 #define swizzle clang::annotate("luisa-shader", "swizzle")
