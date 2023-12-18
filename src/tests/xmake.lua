@@ -231,7 +231,6 @@ if get_config("dx_backend") and enable_fsr3 then
             local function rela(p)
                 return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
             end
-            target:add("linkdirs", rela("FidelityFX-SDK-FSR3-v3.0.3/bin/ffx_sdk"))
             target:add("includedirs", rela("FidelityFX-SDK-FSR3-v3.0.3/sdk/include"))
             target:add("syslinks", "Advapi32", "User32")
         end)
