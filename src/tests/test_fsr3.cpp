@@ -66,7 +66,6 @@ DEFINE_FUNCPTR(ffxFsr3GetRenderResolutionFromQualityMode);
 DEFINE_FUNCPTR(ffxFsr3GetJitterPhaseCount);
 DEFINE_FUNCPTR(ffxFsr3GetJitterOffset);
 DEFINE_FUNCPTR(ffxFsr3ResourceIsNull);
-
 void fsr_assert(FfxErrorCode code) {
     if (code != FFX_OK) [[unlikely]] {
 #define FSR2_LOG(x) LUISA_ERROR("FSR error code: {}", #x)
@@ -164,7 +163,6 @@ public:
     [[nodiscard]] auto swapchain_dx12() const { return fp_ffxGetDX12SwapchainPtr(_swapchain); }
 };
 FfxErrorCode present_callback(const FfxPresentCallbackDescription *params) {
-    // LUISA_INFO("Present: {}", params->isInterpolatedFrame);
     auto pDxCmdList = reinterpret_cast<ID3D12GraphicsCommandList2 *>(params->commandList);
     auto pRtResource = reinterpret_cast<ID3D12Resource *>(params->outputSwapChainBuffer.resource);
     auto pBbResource = reinterpret_cast<ID3D12Resource *>(params->currentBackBuffer.resource);
@@ -310,17 +308,6 @@ public:
 };
 
 int main(int argc, char *argv[]) {
-    bool use_framegen = false;
-    if (argc > 1) {
-        if (luisa::string(argv[1]) == "--frame_gen") {
-            use_framegen = true;
-        }
-    }
-    if (use_framegen) {
-        LUISA_INFO("Frame gen enabled.");
-    } else {
-        LUISA_INFO("Frame gen disabled.");
-    }
     constexpr uint display_width = 1024, display_height = 1024;
     constexpr uint2 display_resolution = uint2(display_width, display_height);
     auto fsr3_module = DynamicModule::load("ffx_fsr3_x64");
@@ -386,7 +373,7 @@ int main(int argc, char *argv[]) {
     }
 
     auto native_res_ext = device.extension<NativeResourceExt>();
-    auto stream = device.create_stream();
+    auto stream = device.create_stream(StreamTag::GRAPHICS);
     FfxFsr3UpscalerMessage msg = [](FfxMsgType type, const wchar_t *message) {
         if (type == FFX_MESSAGE_TYPE_ERROR) {
             std::wcerr << message << '\n';
@@ -395,7 +382,6 @@ int main(int argc, char *argv[]) {
         }
     };
     FfxFsr3ContextDescription context_desc{
-        .flags = FFX_FSR3_ENABLE_DEPTH_INVERTED | FFX_FSR3_ENABLE_ASYNC_WORKLOAD_SUPPORT,
         .maxRenderSize = FfxDimensions2D{display_width, display_height},
         .upscaleOutputSize = FfxDimensions2D{display_width, display_height},
         .displaySize = FfxDimensions2D{display_width, display_height},
@@ -428,17 +414,21 @@ int main(int argc, char *argv[]) {
         config_ext->factory,
         window.native_handle(),
         stream,
-        display_resolution, 3);
+        display_resolution, 2);
     auto lc_swapchain = native_res_ext->create_native_swapchain(swapchain.swapchain_dx12(), false);
+    Kernel2D clear_kernel = [](ImageVar<float> image) {
+        image.write(dispatch_id().xy(), make_float4(0.3f, 0.6f, 0.7f, 1.f));
+    };
+    auto clear_shader = device.compile(clear_kernel);
     static constexpr uint32_t framebuffer_count = 3;
     TimelineEvent graphics_event = device.create_timeline_event();
     uint64_t frame_index = 0;
     FfxFrameGenerationConfig frame_gen_config{};
-    frame_gen_config.frameGenerationEnabled = use_framegen;
+    frame_gen_config.frameGenerationEnabled = false;
     frame_gen_config.frameGenerationCallback = fp_ffxFsr3DispatchFrameGeneration;
     frame_gen_config.presentCallback = present_callback;
-    frame_gen_config.onlyPresentInterpolated = true;
-    frame_gen_config.allowAsyncWorkloads = true;
+    frame_gen_config.onlyPresentInterpolated = false;
+    frame_gen_config.allowAsyncWorkloads = false;
     frame_gen_config.swapChain = swapchain.swapchain();
     frame_gen_config.HUDLessColor = {};
     fsr_assert(fp_ffxFsr3ConfigureFrameGeneration(
@@ -575,45 +565,40 @@ int main(int argc, char *argv[]) {
         UInt2 coord = dispatch_id().xy();
         UInt2 resolution = dispatch_size().xy();
         UInt state = seed_image.read(coord).x;
+        Float2 pixel = (make_float2(coord) + 0.5f + jitter * -1.0f) / make_float2(resolution.x.cast<float>(), resolution.y.cast<float>()) * 2.0f - 1.0f;
+
         Float3 radiance;
         Float2 mv;
         Float depth_value;
-        const uint spp = 512;
-        for (auto i : dynamic_range(spp)) {
-            Float2 pixel = (make_float2(coord) + make_float2(lcg(state), lcg(state)) + jitter * -1.0f) / make_float2(resolution.x.cast<float>(), resolution.y.cast<float>()) * 2.0f - 1.0f;
-            Float4 dst_pos = inverse_vp * make_float4(pixel, 0.5f, 1.0f);
-            dst_pos /= dst_pos.w;
-            Var<Ray> ray = make_ray(cam_origin, normalize(dst_pos.xyz() - cam_origin), 0.3f, 1000.0f);
-            Float3 beta = def(make_float3(1.0f));
-            Float pdf_bsdf = def(0.0f);
-            // trace
-            Var<TriangleHit> hit = accel.trace_closest(ray);
-            $if (!hit->miss()) {
-                Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
-                Float3 p0 = vertex_buffer->read(triangle.i0);
-                Float3 p1 = vertex_buffer->read(triangle.i1);
-                Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 local_pos = hit->interpolate(p0, p1, p2);
-                Float3 world_pos = (accel.instance_transform(hit.inst) * make_float4(local_pos, 1.f)).xyz();
-                Float4 proj_pos = vp * make_float4(world_pos, 1.0f);
-                depth_value += proj_pos.z / proj_pos.w;
-                Float4x4 last_obj_mat = last_obj_mats.read(hit.inst);
-                Float4 last_world_pos = last_obj_mat * make_float4(local_pos, 1.f);
-                Float4 last_proj_pos = vp * last_world_pos;
-                Float2 last_uv = (last_proj_pos.xy() / last_proj_pos.w) * 0.5f + 0.5f;
-                Float2 curr_uv = (proj_pos.xy() / proj_pos.w) * 0.5f + 0.5f;
-                mv = curr_uv - last_uv;
-                mv *= motion_vectors_scale;
-                UInt color_seed = tea(hit.inst, hit.prim);
-                Float3 cur_radiance;
-                cur_radiance.x = lcg(color_seed);
-                cur_radiance.y = lcg(color_seed);
-                cur_radiance.z = lcg(color_seed);
-                cur_radiance = aces_tonemapping(cur_radiance);
-                radiance += cur_radiance;
-            };
+        Float4 dst_pos = inverse_vp * make_float4(pixel, 0.5f, 1.0f);
+        dst_pos /= dst_pos.w;
+        Var<Ray> ray = make_ray(cam_origin, normalize(dst_pos.xyz() - cam_origin), 0.3f, 1000.0f);
+        Float3 beta = def(make_float3(1.0f));
+        Float pdf_bsdf = def(0.0f);
+        // trace
+        Var<TriangleHit> hit = accel.trace_closest(ray);
+        $if (!hit->miss()) {
+            Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
+            Float3 p0 = vertex_buffer->read(triangle.i0);
+            Float3 p1 = vertex_buffer->read(triangle.i1);
+            Float3 p2 = vertex_buffer->read(triangle.i2);
+            Float3 local_pos = hit->interpolate(p0, p1, p2);
+            Float3 world_pos = (accel.instance_transform(hit.inst) * make_float4(local_pos, 1.f)).xyz();
+            Float4 proj_pos = vp * make_float4(world_pos, 1.0f);
+            depth_value = proj_pos.z / proj_pos.w;
+            Float4x4 last_obj_mat = last_obj_mats.read(hit.inst);
+            Float4 last_world_pos = last_obj_mat * make_float4(local_pos, 1.f);
+            Float4 last_proj_pos = vp * last_world_pos;
+            Float2 last_uv = (last_proj_pos.xy() / last_proj_pos.w) * 0.5f + 0.5f;
+            Float2 curr_uv = (proj_pos.xy() / proj_pos.w) * 0.5f + 0.5f;
+            mv = curr_uv - last_uv;
+            mv *= motion_vectors_scale;
+            UInt color_seed = tea(hit.inst, hit.prim);
+            radiance.x = lcg(color_seed);
+            radiance.y = lcg(color_seed);
+            radiance.z = lcg(color_seed);
+            radiance = aces_tonemapping(radiance);
         };
-        radiance /= float(spp);
         seed_image.write(coord, make_uint4(state));
         image.write(coord, make_float4(radiance, 1.f));
         depth_image.write(coord, make_float4(depth_value));
@@ -657,7 +642,6 @@ int main(int argc, char *argv[]) {
         accel.set_transform_on_update(cube_inst, t);
         window.poll_events();
         delta_time = clk.toc();
-        LUISA_INFO("{}", delta_time);
         time += delta_time;
         clk.tic();
         float2 jitter;
@@ -683,10 +667,11 @@ int main(int argc, char *argv[]) {
             jitter,
             sharpness,
             std::max<float>(delta_time, 1e-5f));
-        stream << cmdlist.commit();
+        stream
+            << cmdlist.commit()
+            << lc_swapchain.present(upscale_setup.resolved_color_resource);
         ++frame_index;
         stream << graphics_event.signal(frame_index);
-        stream << lc_swapchain.present(upscale_setup.resolved_color_resource);
     }
     stream << synchronize();
     swapchain.dispose();
