@@ -310,7 +310,7 @@ public:
 int main(int argc, char *argv[]) {
     constexpr uint display_width = 1024, display_height = 1024;
     constexpr uint2 display_resolution = uint2(display_width, display_height);
-
+    auto fsr3_module = DynamicModule::load("ffx_fsr3_x64");
     auto dx12_module = DynamicModule::load(
 #ifndef NDEBUG
         "ffx_backend_dx12_x64d"
@@ -318,7 +318,6 @@ int main(int argc, char *argv[]) {
         "ffx_backend_dx12_x64"
 #endif
     );
-    auto fsr3_module = DynamicModule::load("ffx_fsr3_x64");
     LOAD_FUNCPTR(dx12_module, ffxGetScratchMemorySizeDX12);
     LOAD_FUNCPTR(dx12_module, ffxGetDeviceDX12);
     LOAD_FUNCPTR(dx12_module, ffxGetInterfaceDX12);
@@ -349,24 +348,32 @@ int main(int argc, char *argv[]) {
     LOAD_FUNCPTR(fsr3_module, ffxFsr3GetJitterPhaseCount);
     LOAD_FUNCPTR(fsr3_module, ffxFsr3GetJitterOffset);
     LOAD_FUNCPTR(fsr3_module, ffxFsr3ResourceIsNull);
-
+    struct FfxInterfacePack {
+        FfxInterface ptr;
+        luisa::vector<std::byte> scratch_buffer;
+    };
     Context context{argv[0]};
     DeviceConfig config{
         .extension = luisa::make_unique<ConfigExt>(),
         .inqueue_buffer_limit = false};
     auto config_ext = static_cast<ConfigExt *>(config.extension.get());
     Device device = context.create_device("dx", &config);
+    FfxInterfacePack interfaces[3];
+    int effects_count[] = {1, 1, 2};
+    for (auto i : vstd::range(vstd::array_count(interfaces))) {
+        auto size = fp_ffxGetScratchMemorySizeDX12(effects_count[i]);
+        auto &v = interfaces[i];
+        v.scratch_buffer.resize(size);
+        fsr_assert(fp_ffxGetInterfaceDX12(
+            &v.ptr,
+            reinterpret_cast<ID3D12Device *>(device.impl()->native_handle()),
+            v.scratch_buffer.data(),
+            v.scratch_buffer.size(),
+            effects_count[i]));
+    }
+
     auto native_res_ext = device.extension<NativeResourceExt>();
     auto stream = device.create_stream(StreamTag::GRAPHICS);
-    auto scratch_size = fp_ffxGetScratchMemorySizeDX12(1);
-    luisa::vector<std::byte> scratch_buffer{scratch_size};
-    FfxInterface dx12_interface;
-    fsr_assert(fp_ffxGetInterfaceDX12(
-        &dx12_interface,
-        reinterpret_cast<ID3D12Device *>(device.impl()->native_handle()),
-        scratch_buffer.data(),
-        scratch_buffer.size(),
-        1));
     FfxFsr3UpscalerMessage msg = [](FfxMsgType type, const wchar_t *message) {
         if (type == FFX_MESSAGE_TYPE_ERROR) {
             std::wcerr << message << '\n';
@@ -378,9 +385,9 @@ int main(int argc, char *argv[]) {
         .maxRenderSize = FfxDimensions2D{display_width, display_height},
         .upscaleOutputSize = FfxDimensions2D{display_width, display_height},
         .displaySize = FfxDimensions2D{display_width, display_height},
-        .backendInterfaceSharedResources = dx12_interface,
-        .backendInterfaceUpscaling = dx12_interface,
-        .backendInterfaceFrameInterpolation = dx12_interface,
+        .backendInterfaceSharedResources = interfaces[0].ptr,
+        .backendInterfaceUpscaling = interfaces[1].ptr,
+        .backendInterfaceFrameInterpolation = interfaces[2].ptr,
         .fpMessage = msg,
         .backBufferFormat = FfxSurfaceFormat::FFX_SURFACE_FORMAT_R8G8B8A8_UNORM};
     auto fsr3_context = luisa::make_unique<FfxFsr3Context>();
@@ -417,7 +424,7 @@ int main(int argc, char *argv[]) {
     TimelineEvent graphics_event = device.create_timeline_event();
     uint64_t frame_index = 0;
     FfxFrameGenerationConfig frame_gen_config{};
-    frame_gen_config.frameGenerationEnabled = true;
+    frame_gen_config.frameGenerationEnabled = false;
     frame_gen_config.frameGenerationCallback = fp_ffxFsr3DispatchFrameGeneration;
     frame_gen_config.presentCallback = present_callback;
     frame_gen_config.onlyPresentInterpolated = false;
@@ -625,7 +632,6 @@ int main(int argc, char *argv[]) {
     Buffer<float4x4> last_obj_mat = device.create_buffer<float4x4>(meshes.size());
     stream << heap.update() << accel.build() << set_obj_mat_shader(last_obj_mat, accel).dispatch(meshes.size());
     float2 mv_scale{1, 1};
-
     while (!window.should_close()) {
         if (frame_index >= framebuffer_count) {
             graphics_event.synchronize(frame_index - (framebuffer_count - 1));
