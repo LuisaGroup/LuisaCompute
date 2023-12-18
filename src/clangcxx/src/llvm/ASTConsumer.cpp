@@ -631,14 +631,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             }
                         }
 
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate")) {
-                            auto query = queries.back();
+                        auto query = queries.empty() ? nullptr : queries.back();
+                        if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate")) 
                             fb->push_scope(query->on_triangle_candidate());
-                        }
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate")) {
-                            auto query = queries.back();
+                        if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate")) 
                             fb->push_scope(query->on_procedural_candidate());
-                        }
 
                         if (auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(calleeDecl);
                             methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) {
@@ -664,14 +661,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             luisa::log_error("unfound function!");
                         }
 
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate")) {
-                            auto query = queries.back();
+                        if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate")) 
                             fb->pop_scope(query->on_triangle_candidate());
-                        }
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate")) {
-                            auto query = queries.back();
+                        if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate")) 
                             fb->pop_scope(query->on_procedural_candidate());
-                        }
                     }
                 }
             } else if (auto _init_expr = llvm::dyn_cast<clang::CXXDefaultInitExpr>(x)) {
