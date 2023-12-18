@@ -28,8 +28,8 @@ static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEX
                                            const VkDebugUtilsMessengerCallbackDataEXT *data,
                                            void * /* user data */) noexcept {
     if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-        LUISA_WARNING("Vulkan Validation Error (ID = 0x{:X}, Name = {}): {}",
-                      data->messageIdNumber, data->pMessageIdName, data->pMessage);
+        LUISA_WARNING("Vulkan Validation Error (ID = {}): {}",
+                      data->pMessageIdName, data->pMessage);
     } else {
         auto is_image_layout_warning = [&]() noexcept {
             using namespace std::string_view_literals;
@@ -38,8 +38,8 @@ static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEX
                    data->pMessageIdName == name;
         };
         if (!is_image_layout_warning()) {
-            LUISA_WARNING("Vulkan Validation Message (ID = 0x{:X}, Name = {}): {}",
-                          data->messageIdNumber, data->pMessageIdName, data->pMessage);
+            LUISA_WARNING("Vulkan Validation Message (ID = {}): {}",
+                          data->pMessageIdName, data->pMessage);
         }
     }
     return VK_FALSE;
