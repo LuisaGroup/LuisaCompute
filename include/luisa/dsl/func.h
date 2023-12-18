@@ -400,7 +400,36 @@ public:
         }
     }
 };
-
+/// @brief A callable of type T(T) implemented via host closures of type void(T &arg)
+/// arg is modified in place and returned.
+template<class T>
+class CpuCallable {
+public:
+    using Func = std::function<void(T &)>;
+    template<class F>
+        requires std::is_invocable_v<F, T &> && std::is_same_v<std::invoke_result_t<F, T &>, void>
+    explicit CpuCallable(F func) noexcept : _func{luisa::make_shared<Func>(std::move(func))} {}
+    template<class A>
+        requires std::is_same_v<expr_value_t<A>, T>
+    [[nodiscard]] Var<T> operator()(A arg) const noexcept {
+        auto fb = detail::FunctionBuilder::current();
+        auto wrapper = [func = _func](T *ptr) noexcept {
+            (*func)(*ptr);
+        };
+        using wrapper_t = decltype(wrapper);
+        auto wrapper2 = [](void *wrapper, void *arg) noexcept {
+            (*reinterpret_cast<wrapper_t *>(wrapper))(reinterpret_cast<T *>(arg));
+        };
+        auto wrapper_ptr = luisa::new_with_allocator<wrapper_t>(std::move(wrapper));
+        return def<T>(fb->call(
+            Type::of<T>(), wrapper2, [](void *wrapper_ptr) {
+                luisa::delete_with_allocator(reinterpret_cast<wrapper_t *>(wrapper_ptr));
+            },
+            wrapper_ptr, arg.expression()));
+    }
+private:
+    luisa::shared_ptr<Func> _func;
+};
 // TODO: External callable
 template<typename T>
 class ExternalCallable {

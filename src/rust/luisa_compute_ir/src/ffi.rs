@@ -90,7 +90,7 @@ impl<'a, T: Debug> std::fmt::Debug for CSliceMut<'a, T> {
 }
 #[repr(C)]
 pub struct CArcSharedBlock<T> {
-    ptr: *mut T,
+    pub(crate) ptr: *mut T,
     ref_count: AtomicUsize,
     destructor: extern "C" fn(*mut CArcSharedBlock<T>),
 }

@@ -3,6 +3,7 @@ use crate::panic_abort;
 use luisa_compute_api_types::ShaderOption;
 use luisa_compute_cpu_kernel_defs as defs;
 use luisa_compute_cpu_kernel_defs::KernelFnArgs;
+use luisa_compute_ir::{ffi::CArc, ir::CpuCustomOp};
 use serde::{Deserialize, Serialize};
 use std::{
     env::{self, current_exe},
@@ -218,7 +219,7 @@ pub(crate) struct ShaderImpl {
     entry: KernelFn,
     pub(crate) dir: PathBuf,
     pub(crate) captures: Vec<defs::KernelFnArg>,
-    pub(crate) custom_ops: Vec<defs::CpuCustomOp>,
+    pub(crate) custom_ops: Vec<CArc<CpuCustomOp>>,
     pub(crate) block_size: [u32; 3],
     pub(crate) messages: Vec<String>,
 }
@@ -227,7 +228,7 @@ impl ShaderImpl {
         name: String,
         path: PathBuf,
         captures: Vec<defs::KernelFnArg>,
-        custom_ops: Vec<defs::CpuCustomOp>,
+        custom_ops: Vec<CArc<CpuCustomOp>>,
         block_size: [u32; 3],
         messages: &Vec<String>,
     ) -> Option<Self> {

@@ -772,7 +772,10 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     }
     return expr;
 }
-
+const CpuCustomOpExpr *FunctionBuilder::call(const Type *type, void (*f)(void *, void *), void (*dtor)(void *), void *data, const Expression *arg) noexcept {
+    auto expr = _create_expression<CpuCustomOpExpr>(type, f, dtor, data, arg);
+    return expr;
+}
 void FunctionBuilder::call(CallOp call_op, luisa::span<const Expression *const> args) noexcept {
     _void_expr(call(nullptr, call_op, args));
 }
