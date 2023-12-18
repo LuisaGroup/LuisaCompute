@@ -594,17 +594,23 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                         rq_type = Type::of<luisa::compute::detail::RayQueryProxy<true>>();
                                     else if (isQueryAll)
                                         rq_type = Type::of<luisa::compute::detail::RayQueryProxy<false>>();
+                                    
                                     auto local = fb->local(rq_type);
-                                    current = fb->call(rq_type, op, lc_args);
-                                    fb->assign(local, current);
+                                    auto rq_stmt = fb->call(rq_type, op, lc_args);
+                                    fb->assign(local, rq_stmt);
+                                    current = local;
 
-                                    auto _stmt = fb->ray_query_(local);
-                                    queries.emplace_back(_stmt);
+                                    auto ctrl_stmt = fb->ray_query_(local);
+                                    queries.emplace_back(ctrl_stmt);
                                 } else {
                                     if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                         fb->call(op, lc_args);
                                     else if (auto lcReturnType = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                                        current = fb->call(lcReturnType, op, lc_args);
+                                    {
+                                        auto ret_value = fb->local(lcReturnType);
+                                        fb->assign(ret_value, fb->call(lcReturnType, op, lc_args));
+                                        current = ret_value;
+                                    }
                                     else
                                         luisa::log_error(
                                             "unfound return type: {}",
@@ -632,10 +638,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         }
 
                         auto query = queries.empty() ? nullptr : queries.back();
+                        luisa::compute::ScopeStmt* query_scope = nullptr;
                         if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate")) 
-                            fb->push_scope(query->on_triangle_candidate());
+                            query_scope = query->on_triangle_candidate();
                         if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate")) 
-                            fb->push_scope(query->on_procedural_candidate());
+                            query_scope = query->on_procedural_candidate();
+                        if (query_scope)
+                            fb->push_scope(query_scope);
 
                         if (auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(calleeDecl);
                             methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) {
@@ -645,7 +654,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                 fb->call(luisa::compute::Function(func_callable.get()), lc_args);
                             else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                                current = fb->call(lc_type, luisa::compute::Function(func_callable.get()), lc_args);
+                            {
+                                auto ret_value = fb->local(lc_type);
+                                fb->assign(ret_value, fb->call(lc_type, luisa::compute::Function(func_callable.get()), lc_args));
+                                current = ret_value;
+                            }
                             else
                                 luisa::log_error("unfound return type in method/function: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
                         } else if (auto lambda_callable = bb->lambda_builders[calleeDecl]) {
@@ -653,7 +666,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                 fb->call(luisa::compute::Function(lambda_callable.get()), lambda_args);
                             else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                                current = fb->call(lc_type, luisa::compute::Function(lambda_callable.get()), lambda_args);
+                            {
+                                auto ret_value = fb->local(lc_type);
+                                fb->assign(ret_value, fb->call(lc_type, luisa::compute::Function(lambda_callable.get()), lambda_args));
+                                current = ret_value;
+                            }
                             else
                                 luisa::log_error("unfound return type in lambda: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
                         } else {
@@ -661,10 +678,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             luisa::log_error("unfound function!");
                         }
 
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate")) 
-                            fb->pop_scope(query->on_triangle_candidate());
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate")) 
-                            fb->pop_scope(query->on_procedural_candidate());
+                        if (query_scope)
+                            fb->pop_scope(query_scope);
                     }
                 }
             } else if (auto _init_expr = llvm::dyn_cast<clang::CXXDefaultInitExpr>(x)) {

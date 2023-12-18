@@ -277,6 +277,12 @@ float TestOrder() {
     return x + xx;
 }
 
+auto TestIgnoreReturn(float& f)
+{
+    f += 2.f;
+    return 2.f;
+}
+
 [[kernel_2d(32, 32)]] int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mandelbrot_out, Accel &accel) {
     // member assign
     NVIDIA nvidia = NVIDIA();
@@ -344,6 +350,9 @@ float TestOrder() {
     float p0 = 1.f, p1 = 2.f, p2 = 3.f, p3 = 4.f;
     TestArgsPack_Percentage(p0, p1, p2);
     TestArgsPack_Percentage(p0, p1, p2, p3);
+
+    // ignore return value
+    TestIgnoreReturn(nvidia.f);
 
     // query
     const auto Origin = float3(0.f, 0.f, 0.f);
