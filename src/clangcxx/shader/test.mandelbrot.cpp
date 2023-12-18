@@ -13,9 +13,9 @@ template <> trait MandelbrotOutput<false> { using type = Buffer<float4>; };
 using MandelbrotResource = typename MandelbrotOutput<kMandelbrotOutputAsImage>::type;
 
 float4 mandelbrot(uint2 tid, uint2 tsize) {
-    float x = float(tid.x) / tsize.x;
-    float y = float(tid.y) / tsize.y;
-    float2 uv = float2(x, y);
+    const float x = float(tid.x) / (float)tsize.x;
+    const float y = float(tid.y) / (float)tsize.y;
+    const float2 uv = float2(x, y);
     float n = 0.0f;
     float2 c = float2(-0.444999992847442626953125f, 0.0f);
     c = c + (uv - float2(0.5f, 0.5f)) * 2.3399999141693115234375f;
@@ -30,11 +30,11 @@ float4 mandelbrot(uint2 tid, uint2 tsize) {
     }
     // we use a simple cosine palette to determine color:
     // http://iquilezles.org/www/articles/palettes/palettes.htm
-    float t = float(n) / float(M);
-    float3 d = float3(0.3f, 0.3f, 0.5f);
-    float3 e = float3(-0.2f, -0.3f, -0.5f);
-    float3 f = float3(2.1f, 2.0f, 3.0f);
-    float3 g = float3(0.0f, 0.1f, 0.0f);
+    const float t = float(n) / float(M);
+    const float3 d = float3(0.3f, 0.3f, 0.5f);
+    const float3 e = float3(-0.2f, -0.3f, -0.5f);
+    const float3 f = float3(2.1f, 2.0f, 3.0f);
+    const float3 g = float3(0.0f, 0.1f, 0.0f);
     return float4(d + (e * cos(((f * t) + g) * 2.f * PI)), 1.0f);
 }
 
@@ -43,7 +43,7 @@ void kernel(MandelbrotResource& output) {
     const uint2 tid = dispatch_id().xy;
     const uint2 tsize = dispatch_size().xy; 
     const uint32 row_pitch = tsize.x;
-    store2d(output, row_pitch, tid, mandelbrot(tid, tsize));
+    store_2d(output, row_pitch, tid, mandelbrot(tid, tsize));
 }
 
 }// namespace luisa::shader

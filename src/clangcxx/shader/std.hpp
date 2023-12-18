@@ -29,7 +29,7 @@ struct zzSHADER_PRIMITIVES
 namespace luisa::shader::mandelbrot {
 
 template <typename Resource, typename T>
-static void store2d(Resource& r, uint32 row_pitch, uint2 pos, T val)
+static void store_2d(Resource& r, uint32 row_pitch, uint2 pos, T val)
 {
     using ResourceType = remove_cvref<Resource>::type;
     if constexpr (is_same_v<ResourceType, Buffer<T>>)

@@ -4,14 +4,14 @@
 namespace luisa::shader {
 struct Ray {
     float3 origin;
-    float3 dir;
     float t_min;
+    float3 dir;
     float t_max;
     // Ray() = default;
     Ray(float3 origin,
         float3 dir,
         float t_min = 0.0f,
-        float t_max = 1e30f) : origin(origin), dir(dir), t_min(t_min), t_max(t_min) {}
+        float t_max = 1e30f) : origin(origin), t_min(t_min), dir(dir), t_max(t_min) {}
 };
 
 /* TODO
