@@ -1,6 +1,7 @@
 #pragma once
 #include "attributes.hpp"
 #include "type_traits.hpp"
+#include "vec.hpp"
 
 namespace luisa::shader {
 template<arithmetic_scalar T>
@@ -12,6 +13,7 @@ struct [[builtin("image")]] Image {
     [[ignore]] Image(Image const &) = delete;
     [[ignore]] Image &operator=(Image const &) = delete;
 };
+
 template<arithmetic_scalar T>
 struct [[builtin("volume")]] Volume {
     [[callop("TEXTURE_READ")]] vec<T, 4> load(uint3 coord);
@@ -21,4 +23,5 @@ struct [[builtin("volume")]] Volume {
     [[ignore]] Volume(Volume const &) = delete;
     [[ignore]] Volume &operator=(Volume const &) = delete;
 };
+
 }// namespace luisa::shader

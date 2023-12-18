@@ -5,7 +5,6 @@
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/DeclTemplate.h"
 #include "AttributeHelpers.hpp"
-#include <iostream>
 #include <luisa/core/magic_enum.h>
 #include <luisa/ast/op.h>
 #include <luisa/vstl/common.h>
@@ -155,14 +154,7 @@ CXXBlackboard::CXXBlackboard() {
 }
 
 CXXBlackboard::~CXXBlackboard() {
-    for (auto &&[name, type] : type_map) {
-        std::cout << name << " - ";
-        std::cout << type->description() << std::endl;
-    }
-    for (auto &&[name, global] : globals) {
-        std::cout << name << " - ";
-        std::cout << global->type()->description() << std::endl;
-    }
+
 }
 
 bool CXXBlackboard::registerType(clang::QualType Ty, const clang::ASTContext *astContext, const luisa::compute::Type *type) {
@@ -346,7 +338,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
             }
         }
     }
-    // TODO: REFACTOR THIS
+    // TODO: REFACTOR THIS (TSD)
     if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
         auto decl = TSD->getSpecializedTemplate()->getTemplatedDecl();
         for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
@@ -358,6 +350,9 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
     }
 
     if (ext_builtin) {
+        const auto is_image = builtin_type_name.startswith("image");
+        const auto is_volume = builtin_type_name.startswith("volume");
+        const auto is_buffer = builtin_type_name.startswith("buffer");
         if (builtin_type_name == "vec") {
             if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
                 auto &Arguments = TSD->getTemplateArgs();
@@ -416,14 +411,21 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
             _type = Type::custom("LC_RayQueryAny");
         } else if (builtin_type_name == "accel") {
             _type = Type::of<luisa::compute::Accel>();
-        } else if (builtin_type_name == "buffer") {
+        } else if (is_image || is_buffer || is_volume) {
             if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
                 auto &Arguments = TSD->getTemplateArgs();
-                clang::Expr::EvalResult Result;
                 if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), astContext)) {
-                    _type = Type::buffer(lc_type);
+                    if (is_buffer)
+                        _type = Type::buffer(lc_type);
+                    if (is_image)
+                        _type = Type::texture(lc_type, 2);
+                    if (is_volume)
+                        _type = Type::texture(lc_type, 3);
                 } else {
-                    luisa::log_error("unfound buffer element type: {}", Arguments[0].getAsType().getAsString());
+                    luisa::log_error("unfound {} element type: {}",
+                                     is_buffer ? "buffer" : is_image ? "image" :
+                                                                       "volume",
+                                     Arguments[0].getAsType().getAsString());
                 }
             }
         } else {
@@ -451,14 +453,15 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
         auto S = GetRecordDeclFromQualType(Ty);
         bool ignore = false;
         bool is_builtin = false;
-        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>();
+             Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
             is_builtin |= isBuiltinType(*Anno);
             ignore |= isIgnore(*Anno) || is_builtin;
         }
-        if (ignore)
-            return nullptr;
 
-        for (auto f = S->field_begin(); f != S->field_end(); f++) {
+        if (ignore) return nullptr;
+
+        for (auto f : S->fields()) {
             if (f->getType()->isTemplateTypeParmType())
                 return nullptr;
         }
@@ -539,7 +542,7 @@ bool CXXBlackboard::tryEmplaceFieldType(const clang::QualType Qt, const clang::R
 }
 
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
-    luisa::vector<const luisa::compute::Expression*> callers;
+    luisa::vector<const luisa::compute::Expression *> callers;
     clang::ForStmt *currentCxxForStmt = nullptr;
 
     bool TraverseStmt(clang::Stmt *x) {
@@ -908,7 +911,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[implicit_cast->getSubExpr()]);
                 }
             } else if (auto _cxx_cast = llvm::dyn_cast<CXXFunctionalCastExpr>(x)) {
-                    if (stack->expr_map[_cxx_cast->getSubExpr()] != nullptr) {
+                if (stack->expr_map[_cxx_cast->getSubExpr()] != nullptr) {
                     const auto lc_type = bb->FindOrAddType(_cxx_cast->getType(), bb->astContext);
                     if (!stack->expr_map[_cxx_cast->getSubExpr()]) {
                         _cxx_cast->getSubExpr()->dump();
