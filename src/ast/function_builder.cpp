@@ -133,7 +133,7 @@ LoopStmt *FunctionBuilder::loop_() noexcept {
     return _create_and_append_statement<LoopStmt>();
 }
 
-void FunctionBuilder::_void_expr(const Expression *expr) noexcept {
+void FunctionBuilder::void_expr(const Expression *expr) noexcept {
     expr = _internalize(expr);
     if (expr != nullptr) { _create_and_append_statement<ExprStmt>(expr); }
 }
@@ -652,7 +652,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, CallOp call_op, luisa::s
     for (auto arg : args) { internalized_args.emplace_back(_internalize(arg)); }
     auto expr = _create_expression<CallExpr>(type, call_op, internalized_args);
     if (type == nullptr) {
-        _void_expr(expr);
+        void_expr(expr);
         return nullptr;
     }
     return expr;
@@ -671,7 +671,7 @@ const CallExpr *FunctionBuilder::call(const Type *type,
         _used_external_functions.emplace_back(std::move(func));
     }
     if (type == nullptr) {
-        _void_expr(expr);
+        void_expr(expr);
         return nullptr;
     }
     return expr;
@@ -687,7 +687,7 @@ void FunctionBuilder::mark_required_curve_basis_set(CurveBasisSet basis_set) noe
 
 void FunctionBuilder::call(luisa::shared_ptr<const ExternalFunction> func,
                            luisa::span<const Expression *const> args) noexcept {
-    _void_expr(call(nullptr, std::move(func), args));
+    void_expr(call(nullptr, std::move(func), args));
 }
 
 // call custom functions
@@ -767,7 +767,7 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
         _requires_printing |= f->_requires_printing;
     }
     if (type == nullptr) {
-        _void_expr(expr);
+        void_expr(expr);
         return nullptr;
     }
     return expr;
@@ -777,11 +777,11 @@ const CpuCustomOpExpr *FunctionBuilder::call(const Type *type, void (*f)(void *,
     return expr;
 }
 void FunctionBuilder::call(CallOp call_op, luisa::span<const Expression *const> args) noexcept {
-    _void_expr(call(nullptr, call_op, args));
+    void_expr(call(nullptr, call_op, args));
 }
 
 void FunctionBuilder::call(Function custom, luisa::span<const Expression *const> args) noexcept {
-    _void_expr(call(nullptr, custom, args));
+    void_expr(call(nullptr, custom, args));
 }
 
 const RefExpr *FunctionBuilder::reference(const Type *type) noexcept {

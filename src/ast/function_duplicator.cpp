@@ -308,7 +308,7 @@ private:
                                     s->expression()->type() == nullptr;
                 // call to void function will be handled by FunctionBuilder,
                 // otherwise we need to explicitly call void_expr()
-                if (!is_void_call) { fb->_void_expr(e); }
+                if (!is_void_call) { fb->void_expr(e); }
                 break;
             }
             case Statement::Tag::SWITCH: {

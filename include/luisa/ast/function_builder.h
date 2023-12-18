@@ -123,7 +123,6 @@ protected:
 
     [[nodiscard]] const RefExpr *_builtin(Type const *type, Variable::Tag tag) noexcept;
     [[nodiscard]] const RefExpr *_ref(Variable v) noexcept;
-    void _void_expr(const Expression *expr) noexcept;
     void _compute_hash() noexcept;
 
     template<typename Stmt, typename... Args>
@@ -346,6 +345,7 @@ public:
     /// Create call expression
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, Function custom, luisa::span<const Expression *const> args) noexcept;
     [[nodiscard]] const CpuCustomOpExpr *call(const Type *type, void (*f)(void *, void *), void (*dtor)(void *), void *data, const Expression *arg) noexcept;
+    void void_expr(const Expression *expr) noexcept;
     /// Call function
     void call(CallOp call_op, luisa::span<const Expression *const> args) noexcept;
     /// Call custom function
