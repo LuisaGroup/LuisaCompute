@@ -172,7 +172,7 @@ if get_config("cuda_ext_lcub") then
 end
 
 local enable_fsr2
-local enable_fsr3
+local enable_fsr3 = true
 local enable_xess
 -- Super-sampling example
 -- For FSR2, you need to clone https://github.com/GPUOpen-Effects/FidelityFX-FSR2 into this directory and compile
