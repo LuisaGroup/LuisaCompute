@@ -177,7 +177,7 @@ public:
         }
     };
     void visit(const DXCustomCmd *cmd) noexcept {
-        for (auto &&i : cmd->resource_usages) {
+        for (auto &&i : cmd->get_resource_usages()) {
             uint64_t handle =
                 luisa::visit(
                     [](auto &&t) -> uint64_t {
