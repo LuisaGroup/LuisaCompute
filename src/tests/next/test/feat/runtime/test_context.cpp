@@ -7,7 +7,7 @@
 
 #include "common/config.h"
 #include <luisa/runtime/context.h>
-
+#include <luisa/core/logging.h>
 
 TEST_SUITE("runtime") {
     TEST_CASE("context") {
@@ -15,6 +15,7 @@ TEST_SUITE("runtime") {
         // require the testing context are all installed and working
         for (auto &&backend : context.installed_backends()) {
             auto device_names = context.backend_device_names(backend);
+            LUISA_INFO("backend {} has {} devices installed", backend, device_names.size());
             REQUIRE_MESSAGE(!device_names.empty(), "the backend ", backend, " has no device installed");
         }
         for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
