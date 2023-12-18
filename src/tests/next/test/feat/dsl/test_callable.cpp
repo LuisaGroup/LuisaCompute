@@ -95,5 +95,5 @@ int test_callable(Device &device) {
 }// namespace luisa::test
 
 TEST_SUITE("dsl") {
-    LUISA_TEST_CASE_WITH_DEVICE("callable", luisa::test::test_callable(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("dsl_callable", luisa::test::test_callable(device) == 0);
 }
