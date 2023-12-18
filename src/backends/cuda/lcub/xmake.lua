@@ -16,7 +16,7 @@ on_load(function(target)
 end)
 rule_end()
 
-target("lc-backend-cuda-ext-dcub")
+target("luisa-compute-cuda-ext-dcub")
     add_rules("cuda_ext")
     set_toolchains("cuda") -- compiler: nvcc
     set_languages("cxx17")
@@ -29,10 +29,10 @@ target("lc-backend-cuda-ext-dcub")
 target_end()
 
 
-target("lc-backend-cuda-ext-lcub")
+target("luisa-compute-cuda-ext-lcub")
     set_languages("cxx20")
     set_kind("shared")
-	add_deps("lc-backend-cuda-ext-dcub")
+	add_deps("luisa-compute-cuda-ext-dcub")
 	add_deps("lc-runtime")
     add_files("*.cpp")
 target_end()

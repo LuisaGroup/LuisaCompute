@@ -211,10 +211,10 @@ int test_float4x4(Device &device) {
 }// namespace luisa::test
 
 TEST_SUITE("runtime") {
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3x3", luisa::test::test_float3x3(device) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3x3_order", luisa::test::test_float3x3_order(device) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float4x4", luisa::test::test_float4x4(device) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float4", luisa::test::test_floatx<float4>(device, 4, 4) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3", luisa::test::test_floatx<float3>(device, 3, 4) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float2", luisa::test::test_floatx<float2>(device, 2, 2) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float3x3", luisa::test::test_float3x3(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float3x3_order", luisa::test::test_float3x3_order(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float4x4", luisa::test::test_float4x4(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float4", luisa::test::test_floatx<float4>(device, 4, 4) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float3", luisa::test::test_floatx<float3>(device, 3, 4) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float2", luisa::test::test_floatx<float2>(device, 2, 2) == 0);
 }
