@@ -16,14 +16,14 @@ public:
 };
 
 template<typename T>
-void SerDe::ser_value(T const &t, luisa::vector<std::byte> &vec) noexcept {
+inline void SerDe::ser_value(T const &t, luisa::vector<std::byte> &vec) noexcept {
     static_assert(std::is_trivially_destructible_v<T> && !std::is_pointer_v<T>);
     auto last_len = vec.size();
     vec.push_back_uninitialized(sizeof(T));
     memcpy(vec.data() + last_len, &t, sizeof(T));
 }
 template<typename T>
-T SerDe::deser_value(std::byte const *&ptr) noexcept {
+inline T SerDe::deser_value(std::byte const *&ptr) noexcept {
     static_assert(std::is_trivially_destructible_v<T> && !std::is_pointer_v<T>);
     T t;
     memcpy(&t, ptr, sizeof(T));
@@ -31,18 +31,18 @@ T SerDe::deser_value(std::byte const *&ptr) noexcept {
     return t;
 }
 template<>
-void SerDe::ser_value(luisa::string_view const &t, luisa::vector<std::byte> &vec) noexcept {
+inline void SerDe::ser_value(luisa::string_view const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value(t.size(), vec);
     auto last_len = vec.size();
     vec.push_back_uninitialized(t.size());
     memcpy(vec.data() + last_len, t.data(), t.size());
 }
 template<>
-void SerDe::ser_value(luisa::string const &t, luisa::vector<std::byte> &vec) noexcept {
+inline void SerDe::ser_value(luisa::string const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value(luisa::string_view{t}, vec);
 }
 template<>
-luisa::string SerDe::deser_value(std::byte const *&ptr) noexcept {
+inline luisa::string SerDe::deser_value(std::byte const *&ptr) noexcept {
     luisa::string t;
     auto size = deser_value<size_t>(ptr);
     t.clear();
@@ -52,14 +52,14 @@ luisa::string SerDe::deser_value(std::byte const *&ptr) noexcept {
     return t;
 }
 template<typename T>
-void SerDe::ser_array(span<const T> t, luisa::vector<std::byte> &vec) noexcept {
+inline void SerDe::ser_array(span<const T> t, luisa::vector<std::byte> &vec) noexcept {
     ser_value<size_t>(t.size(), vec);
     for (auto &i : t) {
         ser_value<T>(i, vec);
     }
 }
 template<typename T>
-vector<T> SerDe::deser_array(std::byte const *&ptr) noexcept {
+inline vector<T> SerDe::deser_array(std::byte const *&ptr) noexcept {
     vector<T> r;
     auto size = deser_value<size_t>(ptr);
     r.push_back_uninitialized(size);

@@ -139,6 +139,19 @@ CUDADevice::CUDADevice(Context &&ctx,
     // prepare default shaders
     with_handle([&] {
         auto error = cuModuleLoadData(&_builtin_kernel_module, builtin_kernel_ptx.data());
+        auto retry_with_ptx_version_patched = [this](auto error, auto &builtin_kernel_ptx) noexcept -> CUresult {
+            const char *error_string = nullptr;
+            cuGetErrorString(error, &error_string);
+            LUISA_WARNING_WITH_LOCATION(
+                "Failed to load built-in kernels: {}. "
+                "Re-trying with patched PTX version...",
+                error_string ? error_string : "Unknown error");
+            CUDAShader::_patch_ptx_version(builtin_kernel_ptx);
+            return cuModuleLoadData(&_builtin_kernel_module, builtin_kernel_ptx.data());
+        };
+        if (error == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
+            error = retry_with_ptx_version_patched(error, builtin_kernel_ptx);
+        }
         if (error != CUDA_SUCCESS) {
             const char *error_string = nullptr;
             cuGetErrorString(error, &error_string);
@@ -150,6 +163,9 @@ CUDADevice::CUDADevice(Context &&ctx,
             options.front() = "-arch=compute_60";
             builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, "luisa_builtin.cu", options);
             error = cuModuleLoadData(&_builtin_kernel_module, builtin_kernel_ptx.data());
+            if (error == CUDA_ERROR_UNSUPPORTED_PTX_VERSION) {
+                error = retry_with_ptx_version_patched(error, builtin_kernel_ptx);
+            }
         }
         LUISA_CHECK_CUDA(error);
         LUISA_CHECK_CUDA(cuModuleGetFunction(

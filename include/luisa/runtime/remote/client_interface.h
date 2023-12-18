@@ -10,7 +10,7 @@ protected:
     ~ClientCallback() = default;
 
 public:
-    virtual void async_send(luisa::span<const std::byte> data) noexcept = 0;
+    virtual void async_send(luisa::vector<std::byte> data) noexcept = 0;
     virtual void sync_send(luisa::span<const std::byte> send, luisa::vector<std::byte> &received) noexcept = 0;
 };
 class LC_RUNTIME_API ClientInterface : public DeviceInterface {
@@ -23,7 +23,9 @@ private:
     luisa::vector<std::byte> _receive_bytes;
     luisa::vector<std::byte> _send_bytes;
     luisa::spin_mutex _stream_map_mtx;
+    mutable luisa::spin_mutex _evt_mtx;
     luisa::unordered_map<uint64_t, vstd::SingleThreadArrayQueue<DispatchFeedback>> _unfinished_stream;
+    luisa::unordered_map<uint64_t, uint64_t> _events;
     uint64_t _flag{0};
     [[nodiscard]] void *native_handle() const noexcept override { return nullptr; }
     [[nodiscard]] uint compute_warp_size() const noexcept override { return 0; }

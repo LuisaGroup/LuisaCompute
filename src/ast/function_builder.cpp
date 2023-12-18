@@ -158,19 +158,65 @@ void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexc
     if (lhs->tag() == Expression::Tag::MEMBER) [[unlikely]] {
         auto mem_expr = static_cast<MemberExpr const *>(lhs);
         if (mem_expr->is_swizzle() && mem_expr->swizzle_size() > 1) [[unlikely]] {
-            auto self = mem_expr->self();
-            switch (self->tag()) {
-                case Expression::Tag::MEMBER: {
-                    if (static_cast<MemberExpr const *>(self)->is_swizzle()) {
-                        LUISA_ERROR("Can not use multiple swizzle write.");
+            // switch (self->tag()) {
+            //     case Expression::Tag::MEMBER: {
+            //         if (static_cast<MemberExpr const *>(self)->is_swizzle()) {
+            //             LUISA_ERROR("Can not use multiple swizzle write.");
+            //         }
+            //     } break;
+            //     case Expression::Tag::ACCESS: break;
+            //     case Expression::Tag::REF: break;
+            //     default:
+            //         LUISA_ERROR("Invalid swizzle");
+            //         break;
+            // }
+            auto non_trivial = [&](Expression const *expr) -> bool {
+                switch (expr->tag()) {
+                    case Expression::Tag::LITERAL:
+                    case Expression::Tag::REF:
+                        return false;
+                    default:
+                        return true;
+                }
+            };
+            auto temp_var = [&](Expression const *expr) {
+                auto local_var = local(expr->type());
+                assign(local_var, expr);
+                return local_var;
+            };
+            auto access_chain_decode = [&](auto &&access_chain_decode, Expression const *expr) -> Expression const * {
+                switch (expr->tag()) {
+                    case Expression::Tag::MEMBER: {
+                        auto mem = static_cast<MemberExpr const *>(expr);
+                        if (mem->is_swizzle()) [[unlikely]] {
+                            LUISA_ERROR("Can not use multiple swizzle write.");
+                        }
+                        auto mem_self = mem->self();
+                        auto new_self = access_chain_decode(access_chain_decode, mem_self);
+                        if (new_self != mem_self) {
+                            return member(new_self->type(), new_self, mem->member_index());
+                        }
+                        return expr;
                     }
-                } break;
-                case Expression::Tag::ACCESS: break;
-                case Expression::Tag::REF: break;
-                default:
-                    LUISA_ERROR("Invalid swizzle");
-                    break;
-            }
+                    case Expression::Tag::ACCESS: {
+                        auto access_expr = static_cast<AccessExpr const *>(expr);
+                        auto new_range = access_chain_decode(access_chain_decode, access_expr->range());
+                        if (non_trivial(access_expr->index())) {
+                            return access(access_expr->type(), new_range, temp_var(access_expr->index()));
+                        } else if (new_range != access_expr->range()) {
+                            return access(access_expr->type(), new_range, access_expr->index());
+                        }
+                        return access_expr;
+                    }
+                    case Expression::Tag::REF: return expr;
+                    default:
+                        LUISA_ERROR("Invalid swizzle");
+                        break;
+                }
+                return nullptr;
+            };
+            auto self = mem_expr->self();
+            self = access_chain_decode(access_chain_decode, self);
             auto local_var = local(mem_expr->type());
             auto elem = mem_expr->type()->element();
             _create_and_append_statement<AssignStmt>(local_var, rhs);
@@ -726,7 +772,10 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     }
     return expr;
 }
-
+const CpuCustomOpExpr *FunctionBuilder::call(const Type *type, void (*f)(void *, void *), void (*dtor)(void *), void *data, const Expression *arg) noexcept {
+    auto expr = _create_expression<CpuCustomOpExpr>(type, f, dtor, data, arg);
+    return expr;
+}
 void FunctionBuilder::call(CallOp call_op, luisa::span<const Expression *const> args) noexcept {
     _void_expr(call(nullptr, call_op, args));
 }

@@ -300,10 +300,7 @@ impl Backend for RustBackend {
                     captures.push(convert_capture(*c));
                 }
                 for op in kernel.cpu_custom_ops.as_ref() {
-                    custom_ops.push(defs::CpuCustomOp {
-                        func: op.func,
-                        data: op.data,
-                    });
+                    custom_ops.push(op.clone());
                 }
             }
             shader = shader::ShaderImpl::new(

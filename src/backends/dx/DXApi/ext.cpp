@@ -11,6 +11,7 @@
 #include <Resource/ReadbackBuffer.h>
 #include <DXApi/LCEvent.h>
 #include <DXApi/LCDevice.h>
+#include <DXApi/LCSwapChain.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>
 #include <luisa/runtime/image.h>
@@ -138,6 +139,19 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
     return {
         reinterpret_cast<uint64_t>(res),
         external_ptr};
+}
+SwapchainCreationInfo DxNativeResourceExt::register_external_swapchain(
+    void *swapchain_ptr,
+    bool vsync) noexcept {
+    SwapchainCreationInfo info;
+    auto res = new LCSwapChain(
+        info.storage,
+        dx_device,
+        reinterpret_cast<IDXGISwapChain3 *>(swapchain_ptr),
+        vsync);
+    info.handle = reinterpret_cast<uint64_t>(res);
+    info.native_handle = swapchain_ptr;
+    return info;
 }
 void DStorageExtImpl::init_factory_nolock() {
     HRESULT(WINAPI * DStorageGetFactory)

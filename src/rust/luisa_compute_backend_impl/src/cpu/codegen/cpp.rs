@@ -1312,7 +1312,7 @@ impl<'a> FunctionEmitter<'a> {
                 true
             }
             Func::External(_)=>{
-                panic!("Use CpuFn to pass closures to kernel directly instead of ExternalCallable on cpu backend!.");
+                panic!("Use CpuFn/CpuCallable to pass closures to kernel directly instead of ExternalCallable on cpu backend!.");
                 true
             }
             Func::CpuCustomOp(op) => {

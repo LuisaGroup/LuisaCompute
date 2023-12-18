@@ -5,13 +5,18 @@
 #include <luisa/runtime/volume.h>
 #include <luisa/runtime/raster/depth_buffer.h>
 #include <luisa/runtime/buffer.h>
+#include <luisa/runtime/swapchain.h>
 #include <luisa/backends/ext/raster_ext.hpp>
 #include <luisa/backends/ext/native_resource_ext_interface.h>
 
 namespace luisa::compute {
+
 class ResourceGenerator {
 
 public:
+    static Swapchain create_native_swapchain(const SwapchainCreationInfo &create_info, DeviceInterface *device) {
+        return {device, create_info};
+    }
     template<typename T>
     [[nodiscard]] static Image<T> create_native_image(const ResourceCreationInfo &create_info, DeviceInterface *device, PixelStorage storage, uint2 size, uint mip_levels) noexcept {
         return {device, create_info, storage, size, mip_levels};
@@ -48,6 +53,7 @@ Buffer<T> NativeResourceExt::create_native_buffer(void *native_ptr, size_t elem_
         register_external_buffer(native_ptr, type, elem_count, custom_data),
         _device);
 }
+
 inline DepthBuffer NativeResourceExt::create_native_depth_buffer(
     void *native_ptr,
     DepthFormat format,
@@ -58,6 +64,7 @@ inline DepthBuffer NativeResourceExt::create_native_depth_buffer(
         register_external_depth_buffer(native_ptr, format, width, height, custom_data),
         _device, format, {width, height});
 }
+
 template<typename T>
 Image<T> NativeResourceExt::create_native_image(
     void *external_ptr,
@@ -74,6 +81,7 @@ Image<T> NativeResourceExt::create_native_image(
         uint2{width, height},
         mip);
 }
+
 template<typename T>
 Volume<T> NativeResourceExt::create_native_volume(
     void *external_ptr,
@@ -88,14 +96,25 @@ Volume<T> NativeResourceExt::create_native_volume(
         register_external_image(external_ptr, fmt, 3, width, height, volume, mip, custom_data),
         _device, storage, uint3{width, height, volume}, mip);
 }
+
+inline Swapchain NativeResourceExt::create_native_swapchain(
+    void *swapchain_ptr,
+    bool vsync) noexcept {
+    return ResourceGenerator::create_native_swapchain(
+        register_external_swapchain(swapchain_ptr, vsync),
+        _device);
+}
+
 template<typename T>
 uint64_t NativeResourceExt::get_device_address(const Buffer<T> &buffer) noexcept {
     return get_native_resource_device_address(buffer.native_handle());
 }
+
 template<typename T>
 uint64_t NativeResourceExt::get_device_address(const Image<T> &image) noexcept {
     return get_native_resource_device_address(image.native_handle());
 }
+
 template<typename T>
 uint64_t NativeResourceExt::get_device_address(const Volume<T> &volume) noexcept {
     return get_native_resource_device_address(volume.native_handle());

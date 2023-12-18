@@ -76,7 +76,7 @@ jobs:
           submodules: recursive
       - name: "Install Dependencies"
         run: |
-          brew install --overwrite python@3.11
+          brew install --overwrite python@3.12
           brew install --overwrite llvm molten-vk
       - name: "Setup XMake"
         uses: xmake-io/github-action-setup-xmake@v1

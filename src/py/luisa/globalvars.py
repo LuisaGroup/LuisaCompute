@@ -1,13 +1,17 @@
 # global variables
 from .dylibs import lcapi
+
 current_context = None
 device = None
 saved_shader_count = 0
+
+
 class Vars:
     def __init__(self) -> None:
         self.context = None
         self.stream = None
         self.stream_support_gui = False
+
     def __del__(self):
         if lcapi:
             lcapi.delete_all_swapchain()
@@ -20,7 +24,10 @@ class Vars:
         if self.context:
             del self.context
 
+
 vars = None
+
+
 def get_global_device():
     global device
     return device

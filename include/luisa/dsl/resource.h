@@ -88,6 +88,10 @@ public:
              value.expression()});
     }
 
+    [[nodiscard]] Expr<uint64_t> device_address() const noexcept {
+        return def<uint64_t>(detail::FunctionBuilder::current()->call(
+            Type::of<uint64_t>(), CallOp::BUFFER_ADDRESS, {_expression}));
+    }
     /// Self-pointer to unify the interfaces of the captured Buffer<T> and Expr<Buffer<T>>
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
@@ -128,6 +132,10 @@ public:
             {_expression,
              detail::extract_expression(std::forward<I>(byte_offset)),
              detail::extract_expression(std::forward<V>(value))});
+    }
+    [[nodiscard]] Expr<uint64_t> device_address() const noexcept {
+        return def<uint64_t>(detail::FunctionBuilder::current()->call(
+            Type::of<uint64_t>(), CallOp::BUFFER_ADDRESS, {_expression}));
     }
 };
 
@@ -517,6 +525,10 @@ public:
     [[nodiscard]] auto atomic(I &&index) const noexcept {
         return Expr<T>{_buffer}.atomic(std::forward<I>(index));
     }
+
+    [[nodiscard]] Expr<uint64_t> device_address() const noexcept {
+        return Expr<T>{_buffer}.device_address();
+    }
 };
 
 class ByteBufferExprProxy {
@@ -538,6 +550,9 @@ public:
     void write(I &&index, V &&value) const noexcept {
         Expr<ByteBuffer>{_buffer}.write(std::forward<I>(index),
                                         std::forward<V>(value));
+    }
+    [[nodiscard]] Expr<uint64_t> device_address() const noexcept {
+        return Expr<ByteBuffer>{_buffer}.device_address();
     }
 };
 
@@ -624,8 +639,7 @@ public:
 template<typename T>
 struct Var<Buffer<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Buffer<T>> { detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>()) }
-    {}
+        : Expr<Buffer<T>>{detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -633,8 +647,7 @@ struct Var<Buffer<T>> : public Expr<Buffer<T>> {
 template<>
 struct Var<ByteBuffer> : public Expr<ByteBuffer> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<ByteBuffer> { detail::FunctionBuilder::current()->buffer(Type::of<ByteBuffer>()) }
-    {}
+        : Expr<ByteBuffer>{detail::FunctionBuilder::current()->buffer(Type::of<ByteBuffer>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -642,8 +655,7 @@ struct Var<ByteBuffer> : public Expr<ByteBuffer> {
 template<typename T>
 struct Var<BufferView<T>> : public Expr<Buffer<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Buffer<T>> { detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>()) }
-    {}
+        : Expr<Buffer<T>>{detail::FunctionBuilder::current()->buffer(Type::of<Buffer<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -651,8 +663,7 @@ struct Var<BufferView<T>> : public Expr<Buffer<T>> {
 template<typename T>
 struct Var<Image<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>> { detail::FunctionBuilder::current()->texture(Type::of<Image<T>>()) }
-    {
+        : Expr<Image<T>>{detail::FunctionBuilder::current()->texture(Type::of<Image<T>>())} {
     }
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
@@ -661,8 +672,7 @@ struct Var<Image<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<ImageView<T>> : public Expr<Image<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Image<T>> { detail::FunctionBuilder::current()->texture(Type::of<Image<T>>()) }
-    {}
+        : Expr<Image<T>>{detail::FunctionBuilder::current()->texture(Type::of<Image<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -670,8 +680,7 @@ struct Var<ImageView<T>> : public Expr<Image<T>> {
 template<typename T>
 struct Var<Volume<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>> { detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>()) }
-    {}
+        : Expr<Volume<T>>{detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -679,8 +688,7 @@ struct Var<Volume<T>> : public Expr<Volume<T>> {
 template<typename T>
 struct Var<VolumeView<T>> : public Expr<Volume<T>> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<Volume<T>> { detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>()) }
-    {}
+        : Expr<Volume<T>>{detail::FunctionBuilder::current()->texture(Type::of<Volume<T>>())} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };
@@ -688,8 +696,7 @@ struct Var<VolumeView<T>> : public Expr<Volume<T>> {
 template<>
 struct Var<BindlessArray> : public Expr<BindlessArray> {
     explicit Var(detail::ArgumentCreation) noexcept
-        : Expr<BindlessArray> { detail::FunctionBuilder::current()->bindless_array() }
-    {}
+        : Expr<BindlessArray>{detail::FunctionBuilder::current()->bindless_array()} {}
     Var(Var &&) noexcept = default;
     Var(const Var &) noexcept = delete;
 };

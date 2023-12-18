@@ -501,15 +501,16 @@ public:
 class CpuCustomOpExpr final : public Expression {
 
 public:
-    using Callback = void (*)(void *arg, void *user_data);
-    CpuCustomOpExpr(const Type *type, Callback callback, void *user_data, const Expression *arg) noexcept
-        : Expression{Tag::CPUCUSTOM, type}, _callback{callback}, _arg(arg), _user_data{user_data} {}
-    [[nodiscard]] auto callback() const noexcept { return _callback; }
+    using Func = void (*)(void *userdata, void *arg);
+    using Dtor = void (*)(void *userdata);
+    CpuCustomOpExpr(const Type *type, Func Func, Dtor dtor, void *user_data, const Expression *arg) noexcept
+        : Expression{Tag::CPUCUSTOM, type}, _callback{Func}, _dtor(dtor), _arg(arg), _user_data{user_data} {}
     [[nodiscard]] auto user_data() const noexcept { return _user_data; }
     LUISA_EXPRESSION_COMMON()
 
 private:
-    Callback _callback;
+    Func _callback;
+    Dtor _dtor;
     const Expression *_arg;
     void *_user_data;
 
@@ -519,6 +520,8 @@ protected:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
 
 public:
+    [[nodiscard]] Func func() const noexcept { return _callback; }
+    [[nodiscard]] Dtor dtor() const noexcept { return _dtor; }
     [[nodiscard]] auto arg() const noexcept { return _arg; }
 };
 

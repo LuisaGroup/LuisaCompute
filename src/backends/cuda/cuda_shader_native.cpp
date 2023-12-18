@@ -151,7 +151,7 @@ void CUDAShaderNative::_launch(CUDACommandEncoder &encoder, ShaderDispatchComman
         auto block_count = (indirect_binding.capacity - indirect_binding.offset + block_size - 1u) / block_size;
         LUISA_CHECK_CUDA(cuLaunchKernel(
             _indirect_function,
-            static_cast<uint>(block_count), 1u, 1u,
+            block_count, 1u, 1u,
             block_size, 1u, 1u,
             0u, cuda_stream, arguments, nullptr));
     } else {
