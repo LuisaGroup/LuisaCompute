@@ -437,7 +437,7 @@ int main(int argc, char *argv[]) {
     frame_gen_config.frameGenerationEnabled = use_framegen;
     frame_gen_config.frameGenerationCallback = fp_ffxFsr3DispatchFrameGeneration;
     frame_gen_config.presentCallback = present_callback;
-    frame_gen_config.onlyPresentInterpolated = true;
+    frame_gen_config.onlyPresentInterpolated = false;
     frame_gen_config.allowAsyncWorkloads = true;
     frame_gen_config.swapChain = swapchain.swapchain();
     frame_gen_config.HUDLessColor = {};
