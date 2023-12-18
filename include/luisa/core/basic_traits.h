@@ -56,8 +56,10 @@ template<typename T>
 using is_integral = std::disjunction<
     std::is_same<std::remove_cvref_t<T>, int>,
     std::is_same<std::remove_cvref_t<T>, uint>,
-    std::is_same<std::remove_cvref_t<T>, slong>,
-    std::is_same<std::remove_cvref_t<T>, ulong>,
+    std::is_same<std::remove_cvref_t<T>, long>,
+    std::is_same<std::remove_cvref_t<T>, unsigned long>,
+    std::is_same<std::remove_cvref_t<T>, long long>,
+    std::is_same<std::remove_cvref_t<T>, unsigned long long>,
     std::is_same<std::remove_cvref_t<T>, short>,
     std::is_same<std::remove_cvref_t<T>, ushort>>;
 
