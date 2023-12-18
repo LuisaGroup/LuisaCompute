@@ -7,6 +7,9 @@ template<typename Type>
 struct [[builtin("buffer")]] Buffer {
     [[callop("BUFFER_READ")]] Type load(uint32 loc);
     [[callop("BUFFER_WRITE")]] void store(uint32 loc, Type value);
+    [[ignore]] Buffer() = delete;
+    [[ignore]] Buffer(Buffer const &) = delete;
+    [[ignore]] Buffer &operator=(Buffer const &) = delete;
 };
 template<>
 struct [[builtin("buffer")]] Buffer<int32> {
@@ -21,6 +24,9 @@ struct [[builtin("buffer")]] Buffer<int32> {
     [[callop("ATOMIC_FETCH_XOR")]] int32 atomic_fetch_xor(uint32 loc, int32 val);
     [[callop("ATOMIC_FETCH_MIN")]] int32 atomic_fetch_min(uint32 loc, int32 val);
     [[callop("ATOMIC_FETCH_MAX")]] int32 atomic_fetch_max(uint32 loc, int32 val);
+    [[ignore]] Buffer() = delete;
+    [[ignore]] Buffer(Buffer const &) = delete;
+    [[ignore]] Buffer &operator=(Buffer const &) = delete;
 };
 template<>
 struct [[builtin("buffer")]] Buffer<uint32> {
@@ -35,6 +41,9 @@ struct [[builtin("buffer")]] Buffer<uint32> {
     [[callop("ATOMIC_FETCH_XOR")]] uint32 atomic_fetch_xor(uint32 loc, uint32 val);
     [[callop("ATOMIC_FETCH_MIN")]] uint32 atomic_fetch_min(uint32 loc, uint32 val);
     [[callop("ATOMIC_FETCH_MAX")]] uint32 atomic_fetch_max(uint32 loc, uint32 val);
+    [[ignore]] Buffer() = delete;
+    [[ignore]] Buffer(Buffer const &) = delete;
+    [[ignore]] Buffer &operator=(Buffer const &) = delete;
 };
 template<>
 struct [[builtin("buffer")]] Buffer<float> {
@@ -46,13 +55,19 @@ struct [[builtin("buffer")]] Buffer<float> {
     [[callop("ATOMIC_FETCH_SUB")]] float atomic_fetch_sub(uint32 loc, float val);
     [[callop("ATOMIC_FETCH_MIN")]] float atomic_fetch_min(uint32 loc, float val);
     [[callop("ATOMIC_FETCH_MAX")]] float atomic_fetch_max(uint32 loc, float val);
+    [[ignore]] Buffer() = delete;
+    [[ignore]] Buffer(Buffer const &) = delete;
+    [[ignore]] Buffer &operator=(Buffer const &) = delete;
 };
 template<>
 struct [[builtin("buffer")]] Buffer<void> {
-    template <typename T>
+    template<typename T>
     [[callop("BYTE_BUFFER_READ")]] T byte_load(uint32 byte_index);
-    template <typename T>
+    template<typename T>
     [[callop("BYTE_BUFFER_WRITE")]] T byte_store(uint32 byte_index, T val);
+    [[ignore]] Buffer() = delete;
+    [[ignore]] Buffer(Buffer const &) = delete;
+    [[ignore]] Buffer &operator=(Buffer const &) = delete;
 };
 using ByteBuffer = Buffer<void>;
-}
+}// namespace luisa::shader
