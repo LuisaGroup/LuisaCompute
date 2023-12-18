@@ -1921,9 +1921,9 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             }))
         };
         extern "C" fn dtor_(block: *mut CArcSharedBlock<CpuCustomOp>) {
-            // let block = unsafe { Box::from_raw(block) };
-            // let op = unsafe { Box::from_raw(block.ptr.as_mut().unwrap()) };
-            // (op.destructor)(op.data);
+            let block = unsafe { Box::from_raw(block) };
+            let op = unsafe { Box::from_raw(block.ptr.as_mut().unwrap()) };
+            (op.destructor)(op.data);
         }
         let op = CArc::new_with_dtor(op, dtor_);
 
