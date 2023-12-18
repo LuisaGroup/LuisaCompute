@@ -18,7 +18,7 @@ target("lc-backend-cuda")
 	end
 
 	if get_config("cuda_ext_lcub") then 
-		add_deps("lc-backend-cuda-ext-lcub")
+		add_deps("luisa-compute-cuda-ext-lcub")
 	end 
 
 	set_pcxxheader("pch.h")

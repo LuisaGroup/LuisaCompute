@@ -5,6 +5,8 @@ The Next Stage Test Framework will be
 - built on `doctest`
 - on branch: `next-test`
 
+WIP: currently next-test only support xmake build sys, CMAKE is in progress.
+
 `src/tests/xmake.lua`
 
 dummy test is not required, we can just start for 
@@ -44,8 +46,7 @@ e.g. if you want to test the 'write_image' example on dx device, you can simply 
 
 Then you may found write_image_dx.png in your /bin folder
 
-<!-- Hot Updating -->
-ir is updating...
+<!-- WIP -->
 - [ ] ast2ir_headless
 - [ ] ast2ir_ir2ast
 - [ ] ast2ir
@@ -55,29 +56,43 @@ ir is updating...
 ### Test
 
 ##### test_feat
-suite "common"
+suite "ast" The Core Feature, Kernel and Shader
+- [x] ast_basic: basic ast procedure
+suite "dsl" The Semantic
+- [x] dsl_calc: calculation
+- [x] dsl_callable: DSL callable
+- [x] dsl_var: DSL variable
+- [x] dsl_matrix_float2x2
+- [x] dsl_soa_simple: SOA simple situation
+
+suite "runtime"
 - [x] context: info output the installed backends, make sure there is at least one backend available
-- [x] ast: the simplest test case, write 42 in position 1 in a buffer of length 10
-- [x] callable: a simple add callable test
+- [x] buffer
+    - [x] buffer_float3x3
+    - [x] buffer_float3x3_order
+    - [x] buffer_float4x4
+    - [x] buffer_float4
+    - [x] buffer_float3
+    - [x] buffer_float2
+- [x] buffer_view
+- [x] external_buffer
+- [x] device
+    - [x] device_create
+    - [x] device_wrapped
+- [x] shared_memory
 - [ ] thread_pool
 - [ ] type
 - [ ] runtime
 - [ ] command_reorder
 - [ ] copy
 - [ ] dml -> where is CPP_params.txt?
-- [ ] dstorage_decompression
-- [ ] dx_supersampling
 - [ ] indirect
 - [ ] kernel_ir
 - [ ] mipmap
 - [ ] native_include
 - [ ] normal_encoding
 - [ ] shader_visuals_present
-- [ ] shared_memory
-suite "dsl"
-- [ ] dsl
-- [ ] dsl_multithread
-- [ ] dsl_sugar
+
 suite "swapchain"
 - [ ] swapchain_qt
 - [ ] swapchain_static
@@ -96,7 +111,17 @@ suite "autodiff"
 - [ ] atomic_queue
 - [ ] atomic
 
-##### test_io
+##### test_ext
+
+The Test Cases for built-in extensions
+
+Core
+- [ ] dstorage
+- [ ] dstorage_decompression
+CUDA
+- [ ] cuda-lcub
+DX
+- [ ] dx_supersampling
 
 
 ### Example
@@ -113,7 +138,6 @@ The minimum examples to show how to use a feature, which is useful in tutorials.
 
 - [ ] shader_toy
 - [ ] game_of_life
-
 
 suite "fluid_sim"
 - [x] mpm3d -> example/gallary/fluid_sim/mpm3d.cpp
