@@ -61,6 +61,9 @@ public:
     [[nodiscard]] StreamTag stream_tag() const noexcept override {
         return StreamTag::COMPUTE;
     }
+    [[nodiscard]] luisa::span<const ResourceUsage> get_resource_usages() const noexcept override {
+        return {};
+    }
 
 private:
     DxDMLGraph *dmlGraph;
@@ -239,6 +242,10 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
 }
 
 class DxGraphForwardCommand final : public DXCustomCmd {
+    luisa::vector<ResourceUsage> resource_usages;
+    luisa::span<const ResourceUsage> get_resource_usages() const noexcept {
+        return resource_usages;
+    }
 public:
     DxGraphForwardCommand(DxDMLGraph *graph, Argument::Buffer const &ipt, Argument::Buffer const &opt, Argument::Buffer const &w)
         : dmlGraph(graph),
