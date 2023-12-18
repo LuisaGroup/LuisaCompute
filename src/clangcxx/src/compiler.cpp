@@ -30,7 +30,7 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute:
 compute::ShaderCreationInfo Compiler::create_shader(
     compute::Context const &context,
     luisa::compute::Device &device) LUISA_NOEXCEPT {
-    auto shader_path = luisa::to_string(context.runtime_directory() / "./../../src/clangcxx/shader/test.mandelbrot.cpp");
+    auto shader_path = luisa::to_string(context.runtime_directory() / "./../../src/clangcxx/shader/test.lang.cpp");
     auto output_path = luisa::to_string(context.runtime_directory() / "./../../src/clangcxx/shader");
     output_path = "--output=" + output_path;
     luisa::vector<luisa::string> args_holder = {

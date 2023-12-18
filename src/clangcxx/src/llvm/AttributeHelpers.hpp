@@ -158,6 +158,31 @@ inline static llvm::StringRef getCallopName(const clang::AnnotateAttr *Anno) {
     return {};
 }
 
+inline static bool isScope(const clang::AnnotateAttr *Anno) {
+    if (!isLuisaAttribute(Anno))
+        return false;
+    if (Anno->args_size() >= 1) {
+        auto arg = Anno->args_begin();
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+            return (TypeLiterial->getString() == "scope");
+        }
+    }
+    return false;
+}
+
+inline static llvm::StringRef getScopeName(const clang::AnnotateAttr *Anno) {
+    if (!isScope(Anno))
+        return {};
+    if (Anno->args_size() >= 1) {
+        auto arg = Anno->args_begin();
+        arg++;
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+            return TypeLiterial->getString();
+        }
+    }
+    return {};
+}
+
 inline static bool isBinop(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
         return false;

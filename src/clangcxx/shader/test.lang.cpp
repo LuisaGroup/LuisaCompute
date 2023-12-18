@@ -78,6 +78,14 @@ struct TestDtor {
 };
 */
 
+auto TestCast() {
+    int i = 5;
+    const auto f0 = (float)i;
+    const auto f1 = float(i);
+    const auto f2 = static_cast<float>(i);
+    return f0 + f1 + f2;
+}
+
 auto TestBinary() {
     // binary op
     int n = 0 + 2 - 56;
@@ -90,18 +98,18 @@ auto TestBinary() {
     int ww = n %= 65;
 
     int v = 5;
-    int complex = v += 5; 
+    int complex = v += 5;
 
     return m + x + xx + yy + ww + complex;
 }
 
 auto TestUnary() {
     int n = 0;
-    int m = n++;
-    int x = n--;
+    int x = n++;
+    int y = n--;
     int xx = ++n;
     int yy = --n;
-    return m + x + xx + yy;
+    return x + y + xx + yy;
 }
 
 auto TestTemplate() {
@@ -184,8 +192,7 @@ auto TestSwitch() {
     return 3.f;
 }
 
-auto TestVecOp()
-{
+auto TestVecOp() {
     float2 d0 = float2(1.f, 2.f);
     float2 d1 = float2(2.f, 1.f);
     d0 = d0 = d0 + d1;
@@ -204,8 +211,7 @@ auto TestVecOp()
     return (float)d0.x;
 }
 
-auto TestSwizzle()
-{
+auto TestSwizzle() {
     float2 d = float2(1.f, 1.f);
     float dx = d.x;
     float dx2 = d.y;
@@ -220,68 +226,58 @@ auto TestSwizzle()
     return dx + dx2 + dx3 + dx4;
 }
 
-template <typename T>
-auto TestArgsPack_Sum(T v)
-{
+template<typename T>
+auto TestArgsPack_Sum(T v) {
     return v;
 }
 
-template <typename T, typename... Args>
-auto TestArgsPack_Sum(T v, Args... args)
-{
+template<typename T, typename... Args>
+auto TestArgsPack_Sum(T v, Args... args) {
     return v + TestArgsPack_Sum(args...);
 }
 
-template <typename T>
-void TestArgsPack_Div(T Div, T &v)
-{
+template<typename T>
+void TestArgsPack_Div(T Div, T &v) {
     v /= Div;
 }
 
-template <typename T, typename... Args>
-void TestArgsPack_Div(T Div, T& v, Args&... args)
-{
+template<typename T, typename... Args>
+void TestArgsPack_Div(T Div, T &v, Args &...args) {
     TestArgsPack_Div(Div, v);
     TestArgsPack_Div(Div, args...);
 }
 
-template <typename... Args>
-void TestArgsPack_Percentage(Args&... args)
-{
+template<typename... Args>
+void TestArgsPack_Percentage(Args &...args) {
     auto Sum = TestArgsPack_Sum(args...);
     TestArgsPack_Div(Sum, args...);
 }
 
-template <typename F, typename... Args>
-auto TestInvoke(F func, Args&... args)
-{
+template<typename F, typename... Args>
+auto TestInvoke(F func, Args &...args) {
     return func(args...);
 }
 
-template <typename F, typename... Args>
-auto TestInvokeInvoke(F func, Args&... args)
-{
+template<typename F, typename... Args>
+auto TestInvokeInvoke(F func, Args &...args) {
     return TestInvoke(func, args...);
 }
 
 #define WIDTH 3200u
 #define HEIGHT 2400u
 #define PI 3.141592653589793238462643383279502f
-struct Pixel
-{
+struct Pixel {
     float4 value;
 };
 
-float TestOrder()
-{
+float TestOrder() {
     float N = 1.f;
     float x = (N + 2.f) * 3.f;
     float xx = N + 2.f * 3.f;
     return x + xx;
 }
 
-[[kernel_2d(32, 32)]] 
-int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mandelbrot_out, Accel& accel) {
+[[kernel_2d(32, 32)]] int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mandelbrot_out, Accel &accel) {
     // member assign
     NVIDIA nvidia = NVIDIA();
     int i = nvidia.ix = is_floatN<int4>::value;
@@ -291,6 +287,9 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mand
 
     // unary ops
     int iii = nvidia.i = TestUnary();
+
+    // casts
+    nvidia.f += TestCast();
 
     // order
     nvidia.f += TestOrder();
@@ -325,7 +324,7 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mand
     nvidia.f += TestSwizzle();
 
     // lambda
-    auto TestLambda = [&, _f](float v, float& vv){
+    auto TestLambda = [&, _f](float v, float &vv) {
         ff *= 1.f;
         vv /= 1.f;
         auto x = _f + ff - v;
@@ -349,7 +348,14 @@ int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mand
     // query
     const auto Origin = float3(0.f, 0.f, 0.f);
     const auto Direction = float3(1.f, 0.f, 0.f);
-    accel.query_all(Ray(Origin, Direction));
+    accel.query_all(Ray(Origin, Direction))
+        .on_procedural_candidate([&]() {
+            nvidia.f += 1.f;
+        })
+        .on_surface_candidate([&]() {
+            nvidia.f -= 1.f;
+        })
+        .trace();
 
     // member call
     auto n = buffer.load(0);

@@ -15,7 +15,13 @@
 namespace luisa::clangcxx {
 
 class ASTConsumer;
+using CXXBinOp = clang::BinaryOperator::Opcode;
+using LCBinOp = luisa::compute::BinaryOp;
+using CXXUnaryOp = clang::UnaryOperator::Opcode;
+using LCUnaryOp = luisa::compute::UnaryOp;
 using MatchFinder = clang::ast_matchers::MatchFinder;
+
+static constexpr auto kUseComment = true;
 
 struct CXXBlackboard {
     CXXBlackboard();

@@ -1,4 +1,6 @@
 #pragma once
+#include <luisa/vstl/common.h>
+
 #include <luisa/core/dll_export.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/basic_traits.h>
@@ -9,6 +11,7 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
+#include <luisa/core/magic_enum.h>
 
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/context.h>
@@ -16,11 +19,11 @@
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/shader.h>
 
-#include <luisa/core/magic_enum.h>
 #include <luisa/ast/op.h>
-#include <luisa/vstl/common.h>
+
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/dsl/rtx/ray_query.h>
 
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Path.h"
