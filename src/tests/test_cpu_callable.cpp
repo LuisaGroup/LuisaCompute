@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
             sorted_arr_vars->write(cast<uint64_t>(tid) * batch + i, arr2[i]);
         };
     };
-    Shader1D<> sort = device.compile(sort_kernel);
+    auto sort = device.compile(sort_kernel);
     stream << sort().dispatch(count) << synchronize();
     std::vector<uint> host_buffer(batch * count);
     stream << buffer.copy_to(host_buffer.data()) << synchronize();

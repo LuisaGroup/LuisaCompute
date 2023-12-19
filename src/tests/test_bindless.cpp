@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
     Kernel1D kernel = [&] {
         out_buffer->write(dispatch_id().x, heap->buffer<int>(dispatch_id().x + 5).read(0));
     };
-    Shader1D<> shader = device.compile(kernel);
+    auto shader = device.compile(kernel);
     int v0 = 555;
     int v1 = 666;
     int result[2];
@@ -41,4 +41,3 @@ int main(int argc, char *argv[]) {
     stream << buffer0.copy_from(&v0) << buffer1.copy_from(&v1) << shader().dispatch(2) << out_buffer.copy_to(result) << synchronize();
     LUISA_INFO("Value: {}, {}", result[0], result[1]);
 }
-

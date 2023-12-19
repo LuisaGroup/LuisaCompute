@@ -33,8 +33,7 @@ int main(int argc, char *argv[]) {
     Kernel1D k1 = [&] {
         buf->write(1, 42);
     };
-    Shader1D<> s = device.compile(k1);
+    auto s = device.compile(k1);
     stream << s().dispatch(1u);
     stream << synchronize();
 }
-

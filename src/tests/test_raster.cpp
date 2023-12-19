@@ -57,7 +57,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     Device device = context.create_device(argv[1], nullptr);
-    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel);
+    auto clear_shader = device.compile(clear_kernel);
     MeshFormat mesh_format;
     VertexAttribute attributes[] = {
         {VertexAttributeType::Position, VertexElementFormat::XYZW32Float},
@@ -106,8 +106,7 @@ int main(int argc, char *argv[]) {
         .depth_state = DepthState{
             .enable_depth = true,
             .comparison = Comparison::Less,
-            .write = true
-        },
+            .write = true},
         .conservative = true};
     while (!window.should_close()) {
         float time = clock.toc() / 1000.0f;

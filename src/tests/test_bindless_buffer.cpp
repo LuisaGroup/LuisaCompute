@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
         Float4 p = vertex_array.read(i2);
         device_image1->write(coord, make_float4(p));
     };
-    Shader2D<float> s = device.compile(kernel);
+    auto s = device.compile(kernel);
 
     Window window{"Display", resolution};
 
@@ -51,4 +51,3 @@ int main(int argc, char *argv[]) {
         window.poll_events();
     }
 }
-

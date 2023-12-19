@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
     log_level_verbose();
 
     Context context{argv[0]};
-    if(argc <= 1){
+    if (argc <= 1) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
         auto xx = load(buffer, index);
         store(result, index, add(load(source, index), x) + xx);
     };
-    Shader1D<Buffer<float>, Buffer<float>, float> kernel = device.compile(kernel_def);
+    auto kernel = device.compile(kernel_def);
 
     Stream stream = device.create_stream();
     Buffer<float> result_buffer = device.create_buffer<float>(n);
@@ -82,4 +82,3 @@ int main(int argc, char *argv[]) {
     //     LUISA_ASSERT(results[i] == data[i] + 3.0f, "Results mismatch.");
     // }
 }
-

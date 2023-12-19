@@ -422,7 +422,7 @@ int main(int argc, char *argv[]) {
         seed_image.write(coord, make_uint4(seed));
     };
 
-    Shader2D<Image<uint>, Image<float>, uint> render = device.compile(render_kernel);
+    auto render = device.compile(render_kernel);
 
     Clock clk;
     for (uint sample_index = 0u; sample_index < samples_per_pixel; sample_index++) {
@@ -442,7 +442,7 @@ int main(int argc, char *argv[]) {
         output.write(coord, make_float4(sqrt(accum_image.read(coord).xyz()), 1.0f));
     };
 
-    Shader2D<Image<float>, Image<float>> gamma_correct = device.compile(gamma_kernel);
+    auto gamma_correct = device.compile(gamma_kernel);
     auto output_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
 
     stream << gamma_correct(accum_image, output_image).dispatch(resolution);

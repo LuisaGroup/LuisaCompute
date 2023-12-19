@@ -36,7 +36,7 @@ int main(int argc, char *argv[]) {
         image.write(coord, sample(heap, 2.0f * uv - make_float2(0.5f), t * 7.0f));
     };
 
-    Shader2D<BindlessArray, Image<float>> fill_image = device.compile(fill_image_kernel);
+    auto fill_image = device.compile(fill_image_kernel);
 
     BindlessArray heap = device.create_bindless_array();
     int image_width = 0;

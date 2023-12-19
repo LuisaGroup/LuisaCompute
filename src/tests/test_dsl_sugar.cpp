@@ -13,7 +13,7 @@ struct Test {
     float a;
 };
 
-LUISA_STRUCT(Test, something, a){};
+LUISA_STRUCT(Test, something, a) {};
 
 using $Test = Var<Test>;
 
@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
         $ v_int = 10;
         static_assert(std::is_same_v<decltype(v_int), $int>);
 
-        $for(x, 1) {
+        $for (x, 1) {
             array[x] = cast<float>(v_int);
         };
 
@@ -65,24 +65,21 @@ int main(int argc, char *argv[]) {
         $float2 w{cast<float>(v_int), v_float};
         w *= float2{1.2f};
 
-        $if(w.x < 5) {
+        $if (w.x < 5) {
         }
-        $elif(w.x > 0) {
+        $elif (w.x > 0) {
         }
-        $else{
-
+        $else {
         };
 
         $loop {
             $break;
         };
 
-        $switch(123) {
-            $case(1){
-
+        $switch (123) {
+            $case (1) {
             };
-            $default{
-
+            $default {
             };
         };
 
@@ -101,8 +98,7 @@ int main(int argc, char *argv[]) {
         $ another_vec4 = buffer->read(v_int);// indexing into captured buffer (with Var)
     };
 
-    Shader1D<Buffer<float>, uint> shader = device.compile(kernel);
+    auto shader = device.compile(kernel);
     luisa::unique_ptr<Command> command = shader(float_buffer, 12u).dispatch(1024u);
-    ShaderDispatchCommand * launch_command = static_cast<ShaderDispatchCommand *>(command.get());
+    ShaderDispatchCommand *launch_command = static_cast<ShaderDispatchCommand *>(command.get());
 }
-

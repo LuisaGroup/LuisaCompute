@@ -17,7 +17,7 @@ struct Test {
     float a;
 };
 
-LUISA_STRUCT(Test, something, a){};
+LUISA_STRUCT(Test, something, a) {};
 
 int main(int argc, char *argv[]) {
 
@@ -106,11 +106,11 @@ int main(int argc, char *argv[]) {
             };
             double t1 = clock.toc();
 
-            Shader1D<Buffer<float>, uint> kernel = device.compile(kernel_def);
+            auto kernel = device.compile(kernel_def);
             luisa::unique_ptr<Command> command = kernel(float_buffer, 12u).dispatch(1024u);
 
             clock.tic();
-            Shader1D<Buffer<float>, uint> shader = device.compile<1>(kernel_def);
+            auto shader = device.compile<1>(kernel_def);
             double t2 = clock.toc();
             LUISA_INFO("Thread: {}, AST: {:.3f} ms, Codegen & Compile: {:.3f} ms",
                        worker, t1, t2);
@@ -119,4 +119,3 @@ int main(int argc, char *argv[]) {
 
     for (std::thread &t : threads) { t.join(); }
 }
-

@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
         Float f = def(1.0f);
         Float invB = 1.0f / b;
         Float r = def(0.0f);
-        $while(i > 0u) {
+        $while (i > 0u) {
             f = f * invB;
             r = r + f * (i % b);
             i = i / b;
@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
             make_float3(p * make_float2(1.0f, -1.0f), 1.0f),
             make_float3(0.0f, 0.0f, -1.0f));
         Var<TriangleHit> hit = accel.intersect(ray, {});
-        $if(!hit->miss()) {
+        $if (!hit->miss()) {
             constexpr float3 red = float3(1.0f, 0.0f, 0.0f);
             constexpr float3 green = float3(0.0f, 1.0f, 0.0f);
             constexpr float3 blue = float3(0.0f, 0.0f, 1.0f);
@@ -124,9 +124,9 @@ int main(int argc, char *argv[]) {
     stream << mesh.build()
            << accel.build();
 
-    Shader2D<Buffer<float4>, Buffer<uint>> colorspace_shader = device.compile(colorspace_kernel);
-    Shader2D<Buffer<float4>, Accel, uint> raytracing_shader = device.compile(raytracing_kernel);
-    Shader1D<Accel, float4x4, uint> set_transform_shader = device.compile(set_transform_kernel);
+    auto colorspace_shader = device.compile(colorspace_kernel);
+    auto raytracing_shader = device.compile(raytracing_kernel);
+    auto set_transform_shader = device.compile(set_transform_kernel);
 
     Buffer<float4> hdr_image = device.create_buffer<float4>(width * height);
     Buffer<uint> ldr_image = device.create_buffer<uint>(width * height);

@@ -57,7 +57,7 @@ int test_callable(Device &device) {
         self_add(x);
         store(result, index, add(load(source, index), x));
     };
-    Shader1D<Buffer<float>, Buffer<float>, float> shader = device.compile(kernel_def);
+    auto shader = device.compile(kernel_def);
     Stream stream = device.create_stream();
     Buffer<float> result_buffer = device.create_buffer<float>(n);
 

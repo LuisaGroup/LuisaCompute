@@ -70,13 +70,13 @@ int main(int argc, char *argv[]) {
     };
     auto trace = [](Float3x3 m) noexcept { return m[0][0] + m[1][1] + m[2][2]; };
 
-    Shader3D<> clear_grid = device.compile<3>([&] {
+    auto clear_grid = device.compile<3>([&] {
         set_block_size(8, 8, 1);
         UInt idx = index(dispatch_id().xyz());
         grid->write(idx, make_float4());
     });
 
-    Shader1D<> point_to_grid = device.compile<1>([&] {
+    auto point_to_grid = device.compile<1>([&] {
         set_block_size(64, 1, 1);
         UInt p = dispatch_id().x;
         Float3 Xp = x->read(p) / dx;
@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
         }
     });
 
-    Shader3D<> simulate_grid = device.compile<3>([&] {
+    auto simulate_grid = device.compile<3>([&] {
         set_block_size(8, 8, 1);
         Int3 coord = make_int3(dispatch_id().xyz());
         UInt i = index(coord);
@@ -120,7 +120,7 @@ int main(int argc, char *argv[]) {
         grid->write(i, make_float4(v, m));
     });
 
-    Shader1D<> grid_to_point = device.compile<1>([&] {
+    auto grid_to_point = device.compile<1>([&] {
         set_block_size(64, 1, 1);
         UInt p = dispatch_id().x;
         Float3 Xp = x->read(p) / dx;
@@ -175,7 +175,7 @@ int main(int argc, char *argv[]) {
                << synchronize();
     };
 
-    Shader2D<> clear_display = device.compile<2>([&] {
+    auto clear_display = device.compile<2>([&] {
         display->write(dispatch_id().xy(),
                        make_float4(.1f, .2f, .3f, 1.f));
     });
@@ -194,7 +194,7 @@ int main(int argc, char *argv[]) {
         return make_float2(a.x, a.y * C + a.z * S) + 0.5f;
     };
 
-    Shader1D<> draw_particles = device.compile<1>([&] {
+    auto draw_particles = device.compile<1>([&] {
         UInt p = dispatch_id().x;
         Float2 basepos = T(x->read(p));
         for (int i = -1; i <= 1; i++) {
