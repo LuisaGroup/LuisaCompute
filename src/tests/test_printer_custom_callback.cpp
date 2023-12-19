@@ -18,15 +18,15 @@ struct MyStruct {
 
 LUISA_STRUCT(MyStruct, a, b) {};
 
-#define DEVICE_VERBOSE(FMT, ...) device_log(luisa::format("V{}", FMT), __VA_ARGS__)
-#define DEVICE_INFO(FMT, ...) device_log(luisa::format("I{}", FMT), __VA_ARGS__)
-#define DEVICE_WARNING(FMT, ...) device_log(luisa::format("W{}", FMT), __VA_ARGS__)
-#define DEVICE_ERROR(FMT, ...) device_log(luisa::format("E{}", FMT), __VA_ARGS__)
+#define DEVICE_VERBOSE(FMT, ...) device_log(luisa::format("V{} [dispatch{{}}]", FMT), __VA_ARGS__, $dispatch_id)
+#define DEVICE_INFO(FMT, ...) device_log(luisa::format("I{} [dispatch{{}}]", FMT), __VA_ARGS__, $dispatch_id)
+#define DEVICE_WARNING(FMT, ...) device_log(luisa::format("W{} [dispatch{{}}]", FMT), __VA_ARGS__, $dispatch_id)
+#define DEVICE_ERROR(FMT, ...) device_log(luisa::format("E{} [dispatch{{}}]", FMT), __VA_ARGS__, $dispatch_id)
 
-#define DEVICE_VERBOSE_WITH_LOCATION(FMT, ...) device_log(luisa::format("V{} [{}:{}]", FMT, __FILE__, __LINE__), __VA_ARGS__)
-#define DEVICE_INFO_WITH_LOCATION(FMT, ...) device_log(luisa::format("I{} [{}:{}]", FMT, __FILE__, __LINE__), __VA_ARGS__)
-#define DEVICE_WARNING_WITH_LOCATION(FMT, ...) device_log(luisa::format("W{} [{}:{}]", FMT, __FILE__, __LINE__), __VA_ARGS__)
-#define DEVICE_ERROR_WITH_LOCATION(FMT, ...) device_log(luisa::format("E{} [{}:{}]", FMT, __FILE__, __LINE__), __VA_ARGS__)
+#define DEVICE_VERBOSE_WITH_LOCATION(FMT, ...) device_log(luisa::format("V{} [{}:{}:dispatch{{}}]", FMT, __FILE__, __LINE__), __VA_ARGS__, $dispatch_id)
+#define DEVICE_INFO_WITH_LOCATION(FMT, ...) device_log(luisa::format("I{} [{}:{}:dispatch{{}}]", FMT, __FILE__, __LINE__), __VA_ARGS__, $dispatch_id)
+#define DEVICE_WARNING_WITH_LOCATION(FMT, ...) device_log(luisa::format("W{} [{}:{}:dispatch{{}}]", FMT, __FILE__, __LINE__), __VA_ARGS__, $dispatch_id)
+#define DEVICE_ERROR_WITH_LOCATION(FMT, ...) device_log(luisa::format("E{} [{}:{}:dispatch{{}}]", FMT, __FILE__, __LINE__), __VA_ARGS__, $dispatch_id)
 
 int main(int argc, char *argv[]) {
 
@@ -52,6 +52,9 @@ int main(int argc, char *argv[]) {
             $outline {
                 DEVICE_INFO("s = {}", s);
             };
+        };
+        $if (coord.y == 11) {
+            DEVICE_WARNING("u64_max = {}", std::numeric_limits<uint64_t>::max());
         };
     };
     auto shader = device.compile(kernel);
