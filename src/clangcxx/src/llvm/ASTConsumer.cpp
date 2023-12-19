@@ -697,8 +697,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             luisa::log_error("unfound function!");
                         }
 
-                        if (query_scope)
+                        if (query_scope) {
                             fb->pop_scope(query_scope);
+                            fb->clangcxx_rayquery_postprocess(query_scope);
+                        }
                     }
                 }
             } else if (auto _init_expr = llvm::dyn_cast<clang::CXXDefaultInitExpr>(x)) {

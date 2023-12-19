@@ -437,6 +437,9 @@ public:
 
     /// Duplicate the function builder, also perform certain simplifications and canonicalizations.
     [[nodiscard]] luisa::shared_ptr<const FunctionBuilder> duplicate() const noexcept;
+
+    //////////////////// clang-cxx
+    void clangcxx_rayquery_postprocess(ScopeStmt* stmt);
 };
 
 }// namespace luisa::compute::detail
