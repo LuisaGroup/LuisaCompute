@@ -328,7 +328,10 @@ void StringStateVisitor::visit(const PrintStmt *stmt) {
     vstd::string counterName = "_p";
     vstd::to_string(printCount, counterName);
     str << "uint "sv << counterName << ";\nInterlockedAdd(_printCounter[0],"sv;
-    vstd::to_string(structType->size() + 4, str);
+    size_t align = std::max<size_t>(structType->alignment(), 4);
+    size_t ele_size = structType->size() + align;
+    ele_size = ((ele_size + 15ull) & (~15ull));
+    vstd::to_string(ele_size, str);
     str << ',' << counterName << ");\n"sv
         << "if("sv << counterName << "<1048576){\n"sv;
     {
@@ -340,6 +343,10 @@ void StringStateVisitor::visit(const PrintStmt *stmt) {
         for (auto i : vstd::range(types.size())) {
             str << dataName << ".v"sv;
             vstd::to_string(i, str);
+            auto t = types[i];
+            if (t->is_vector() && t->dimension() == 3) {
+                str << ".v"sv;
+            }
             str << '=';
             stmt->arguments()[i]->accept(*this);
             str << ";\n"sv;
@@ -350,7 +357,7 @@ void StringStateVisitor::visit(const PrintStmt *stmt) {
         vstd::to_string(printerIdx, str);
         str << ");\n"sv
             << "_printBuffer.Store("sv
-            << counterName << "+4,"sv << dataName << ");\n"sv;
+            << counterName << '+' + vstd::to_string(align) + ',' << dataName << ");\n"sv;
         printCount++;
     }
     str << "}\n"sv;
