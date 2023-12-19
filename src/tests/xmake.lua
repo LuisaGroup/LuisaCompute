@@ -167,6 +167,7 @@ test_proj("test_manual_ast")
 if  get_config("enable_clangcxx") then
 	test_proj("test_func_builder", true, function()
 		add_deps("lc-clangcxx")
+        set_pcxxheader("pch.h")
 	end)
 end
 
