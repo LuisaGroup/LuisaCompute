@@ -122,8 +122,7 @@ auto TestArray() {
     auto z = a;
     z = b;
     float sum = 0.f;
-    for (int i = 0; i < 4; i++)
-    {
+    for (int i = 0; i < 4; i++) {
         sum += z[i];
         sum += z.get(i);
     }
@@ -295,10 +294,36 @@ float TestOrder() {
     return x + xx;
 }
 
-auto TestIgnoreReturn(float& f)
-{
+auto TestIgnoreReturn(float &f) {
     f += 2.f;
     return 2.f;
+}
+
+template<typename T, uint32 StackSize>
+struct FixedVector {
+    uint32 capacity() const { return StackSize; }
+    uint32 size() const { return size_; }
+    T &emplace_back(T v) {
+        auto &slot = a.access_(size_);
+        slot = v;
+        size_ += 1;
+        return slot;
+    }
+    T get(uint32 i) const { return a.get(i); }
+private:
+    uint32 size_ = 0;
+    Array<T, StackSize> a;
+    T d;
+};
+
+auto TestVector() {
+    FixedVector<float, 32> fs;
+    float sum = fs.emplace_back(1.f);
+    fs.emplace_back(12.f);
+    fs.emplace_back(3.f);
+    for (int i = 0; i < fs.size(); i++)
+        sum += fs.get(i);
+    return sum;
 }
 
 [[kernel_2d(32, 32)]] int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mandelbrot_out, Accel &accel) {
@@ -318,8 +343,9 @@ auto TestIgnoreReturn(float& f)
     // order
     nvidia.f += TestOrder();
 
-    // array
+    // array & vector
     nvidia.f += TestArray();
+    nvidia.f += TestVector();
 
     // template
     Template h = TestTemplate();

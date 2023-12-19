@@ -4,7 +4,7 @@
 
 namespace luisa::shader {
 
-template<typename Type, uint64 size, uint32 CacheFlags = 0 /*AUTO*/>
+template<typename Type, uint32 size, uint32 CacheFlags = 0 /*AUTO*/>
 struct [[builtin("array")]] Array {
     template <typename...Args>
     [[noignore]] Array(Args... args)

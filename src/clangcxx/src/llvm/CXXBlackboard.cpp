@@ -364,7 +364,11 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
         if (ignore) return nullptr;
 
         for (auto f : S->fields()) {
-            if (f->getType()->isTemplateTypeParmType())
+            auto Ty = f->getType();
+            if (Ty->isTemplateTypeParmType())
+                return nullptr;
+            if (auto decl = GetRecordDeclFromQualType(Ty, false);
+                decl && decl->isTemplateDecl() && !decl->isTemplated())
                 return nullptr;
         }
 
@@ -442,4 +446,4 @@ bool CXXBlackboard::tryEmplaceFieldType(const clang::QualType Qt, const clang::R
     }
     return false;
 }
-}
+}// namespace luisa::clangcxx
