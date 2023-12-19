@@ -16,7 +16,9 @@ struct SortArgs {
     uint64_t begin;
     uint64_t end;
 };
+
 LUISA_STRUCT(SortArgs, buffer_ptr, begin, end) {};
+
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
@@ -96,4 +98,4 @@ int main(int argc, char *argv[]) {
         }
         std::cout << '\n';
     }
-};
+}
