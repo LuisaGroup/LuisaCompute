@@ -82,6 +82,9 @@ public:
     void backward(const Local<T> grad) const noexcept;
     [[nodiscard]] Local<T> grad() const noexcept;
     Local<T> detach() const noexcept;
+
+    [[nodiscard]] Expr<uint64_t> address() const noexcept { return def<uint64_t>(detail::FunctionBuilder::current()->call(
+        Type::of<uint64_t>(), CallOp::ADDRESS_OF, {_expression})); }
 };
 
 }// namespace luisa::compute
@@ -100,4 +103,3 @@ template<typename T>
                   LUISA_DISABLE_DSL_ADDRESS_OF_MESSAGE);
     std::abort();
 }
-

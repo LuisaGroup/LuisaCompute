@@ -893,6 +893,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "BUFFER_WRITE" => Func::BufferWrite,
             "BUFFER_SIZE" => Func::BufferSize,
             "BUFFER_ADDRESS" => Func::BufferAddress,
+            "ADDRESS_OF" => Func::AddressOf,
             "BYTE_BUFFER_READ" => Func::ByteBufferRead,
             "BYTE_BUFFER_WRITE" => Func::ByteBufferWrite,
             "BYTE_BUFFER_SIZE" => Func::ByteBufferSize,
@@ -1282,6 +1283,11 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 // [(buffer) -> size]
                 let args = convert_args(&[false]);
                 check_is_buffer(args[0]);
+                assert!(t.is_int() && t.is_unsigned());
+                args
+            }
+            "ADDRESS_OF" => {
+                let args = convert_args(&[true]);
                 assert!(t.is_int() && t.is_unsigned());
                 args
             }
@@ -1844,7 +1850,9 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             _ => panic!("Invalid custom function."),
         };
         for cpu_custom_op in f.cpu_custom_ops.iter() {
-            self._curr_ctx_mut().cpu_custom_ops.push(cpu_custom_op.clone());
+            self._curr_ctx_mut()
+                .cpu_custom_ops
+                .push(cpu_custom_op.clone());
         }
         self._curr_ctx_mut().has_autodiff |= f
             .module
