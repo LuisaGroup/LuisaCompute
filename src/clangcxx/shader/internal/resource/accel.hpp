@@ -1,10 +1,9 @@
 #pragma once
 #include "./../ray.hpp"
+#include "./../ray_query.hpp"
 #include "./../matrix.hpp"
 
 namespace luisa::shader {
-struct RayQueryAll;
-struct RayQueryAny;
 struct [[builtin("accel")]] Accel {
     [[callop("RAY_TRACING_INSTANCE_TRANSFORM")]] float4x4 instance_transform(uint32 index);
     [[callop("RAY_TRACING_INSTANCE_USER_ID")]] uint32 instance_user_id(uint32 index);

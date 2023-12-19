@@ -71,6 +71,31 @@ inline static bool isByPass(const clang::Decl *decl) {
     return false;
 }
 
+inline static bool isAccess(const clang::AnnotateAttr *Anno) {
+    if (!isLuisaAttribute(Anno))
+        return false;
+    if (Anno->args_size() >= 1) {
+        auto arg = Anno->args_begin();
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+            return (TypeLiterial->getString() == "access");
+        }
+    }
+    return false;
+}
+
+inline static bool isAccess(const clang::Decl *decl) {
+    if (auto cxxField = llvm::dyn_cast<clang::FieldDecl>(decl)) {
+        if (cxxField->isAnonymousStructOrUnion())
+            return true;
+    }
+    for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
+        Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+        if (isAccess(*Anno))
+            return true;
+    }
+    return false;
+}
+
 inline static bool isKernel(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
         return false;

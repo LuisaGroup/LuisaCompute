@@ -22,8 +22,7 @@ struct NVIDIA {
     float4 f4;
 
     float4x4 f44;
-    // TODO: CTOR, COPY
-    // Array<int, 3> a3;
+    Array<int, 3> a3;
 
     // ! C-Style array is not supportted !
     // int ds[5];
@@ -110,6 +109,24 @@ auto TestUnary() {
     int xx = ++n;
     int yy = --n;
     return x + y + xx + yy;
+}
+
+auto TestArray() {
+    // default ctor
+    auto a = Array<float, 4>();
+    // assign ctor
+    auto b = Array<float, 4>(1.f, 2.f, 3.f, 4.f);
+    b[0] = 1.f;
+    b.set(1, 2.f);
+    // copy
+    auto z = a;
+    z = b;
+    float sum = 0.f;
+    for (int i = 0; i < 4; i++)
+    {
+        sum += z[i];
+    }
+    return 2.f;
 }
 
 auto TestTemplate() {
@@ -299,6 +316,9 @@ auto TestIgnoreReturn(float& f)
 
     // order
     nvidia.f += TestOrder();
+
+    // array
+    nvidia.f += TestArray();
 
     // template
     Template h = TestTemplate();
