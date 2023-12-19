@@ -811,6 +811,11 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
 
     if (!is_ignore) {
         // S->dump();
+        if (S->getReturnType()->isReferenceType())
+        {
+            S->dump();
+            luisa::log_error("return ref is not supportted now!");
+        }
 
         if (auto Dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(S)) {
             if (!Dtor->isDefaulted()) {

@@ -303,7 +303,7 @@ template<typename T, uint32 StackSize>
 struct FixedVector {
     uint32 capacity() const { return StackSize; }
     uint32 size() const { return size_; }
-    T &emplace_back(T v) {
+    T emplace_back(T v) {
         auto &slot = a.access_(size_);
         slot = v;
         size_ += 1;
