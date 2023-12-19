@@ -594,7 +594,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                         rq_type = Type::of<luisa::compute::detail::RayQueryProxy<true>>();
                                     else if (isQueryAll)
                                         rq_type = Type::of<luisa::compute::detail::RayQueryProxy<false>>();
-                                    
+
                                     auto local = fb->local(rq_type);
                                     auto rq_stmt = fb->call(rq_type, op, lc_args);
                                     fb->assign(local, rq_stmt);
@@ -605,13 +605,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 } else {
                                     if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                         fb->call(op, lc_args);
-                                    else if (auto lcReturnType = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                                    {
+                                    else if (auto lcReturnType = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext)) {
                                         auto ret_value = fb->local(lcReturnType);
                                         fb->assign(ret_value, fb->call(lcReturnType, op, lc_args));
                                         current = ret_value;
-                                    }
-                                    else
+                                    } else
                                         luisa::log_error(
                                             "unfound return type: {}",
                                             call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
@@ -638,10 +636,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         }
 
                         auto query = queries.empty() ? nullptr : queries.back();
-                        luisa::compute::ScopeStmt* query_scope = nullptr;
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate")) 
+                        luisa::compute::ScopeStmt *query_scope = nullptr;
+                        if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate"))
                             query_scope = query->on_triangle_candidate();
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate")) 
+                        if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate"))
                             query_scope = query->on_procedural_candidate();
                         if (query_scope)
                             fb->push_scope(query_scope);
@@ -653,33 +651,31 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         } else if (auto func_callable = bb->func_builders[calleeDecl]) {
                             if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                 fb->call(luisa::compute::Function(func_callable.get()), lc_args);
-                            else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                            {
+                            else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext)) {
                                 auto ret_value = fb->local(lc_type);
                                 fb->assign(ret_value, fb->call(lc_type, luisa::compute::Function(func_callable.get()), lc_args));
                                 current = ret_value;
-                            }
-                            else
+                            } else
                                 luisa::log_error("unfound return type in method/function: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
                         } else if (auto lambda_callable = bb->lambda_builders[calleeDecl]) {
                             luisa::span<const luisa::compute::Expression *> lambda_args = {lc_args.begin() + 1, lc_args.end()};
                             if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                 fb->call(luisa::compute::Function(lambda_callable.get()), lambda_args);
-                            else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext))
-                            {
+                            else if (auto lc_type = bb->FindOrAddType(call->getCallReturnType(*bb->astContext), bb->astContext)) {
                                 auto ret_value = fb->local(lc_type);
                                 fb->assign(ret_value, fb->call(lc_type, luisa::compute::Function(lambda_callable.get()), lambda_args));
                                 current = ret_value;
-                            }
-                            else
+                            } else
                                 luisa::log_error("unfound return type in lambda: {}", call->getCallReturnType(*bb->astContext)->getCanonicalTypeInternal().getAsString());
                         } else {
                             calleeDecl->dump();
                             luisa::log_error("unfound function!");
                         }
 
-                        if (query_scope)
+                        if (query_scope) {
                             fb->pop_scope(query_scope);
+                            fb->clangcxx_rayquery_postprocess(query_scope);
+                        }
                     }
                 }
             } else if (auto _init_expr = llvm::dyn_cast<clang::CXXDefaultInitExpr>(x)) {
