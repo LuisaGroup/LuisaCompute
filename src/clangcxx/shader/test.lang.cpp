@@ -313,7 +313,6 @@ struct FixedVector {
 private:
     uint32 size_ = 0;
     Array<T, StackSize> a;
-    T d;
 };
 
 auto TestVector() {

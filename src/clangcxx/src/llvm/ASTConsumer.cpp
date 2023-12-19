@@ -776,24 +776,16 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
             is_ignore |= thisType->isUnion();// ignore union
             for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>())
                 is_ignore |= isBuiltinType(Anno);
-            for (auto f : thisType->fields())
-                is_template |= f->getType()->isTemplateTypeParmType();
             if (thisType->isLambda())// ignore global lambda declares, we deal them on stacks only
                 is_lambda = true;
 
-            is_template |= thisType->isTemplateDecl() && !thisType->isTemplated();
+            is_template |= (thisType->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
         } else {
             luisa::log_error("unfound this type [{}] in method [{}]",
                              Method->getThisType()->getPointeeType().getAsString(), S->getNameAsString());
         }
         is_method = !is_lambda;
         methodThisType = Method->getThisType()->getPointeeType();
-    }
-
-    {
-        auto RQT = S->getReturnType();
-        is_template |= RQT->isTemplateTypeParmType();
-        is_template |= (RQT->getTypeClass() == clang::Type::TemplateTypeParm);
     }
     for (auto param : params) {
         auto DesugaredParamType = param->getType().getNonReferenceType().getDesugaredType(*bb->astContext);

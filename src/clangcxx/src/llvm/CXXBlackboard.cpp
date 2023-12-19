@@ -353,14 +353,13 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
         return _type;
     } else {
         auto S = GetRecordDeclFromQualType(Ty);
-        bool ignore = false;
+        bool ignore = (S->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName); 
         bool is_builtin = false;
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>();
              Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
             is_builtin |= isBuiltinType(*Anno);
             ignore |= isIgnore(*Anno) || is_builtin;
         }
-
         if (ignore) return nullptr;
 
         for (auto f : S->fields()) {
