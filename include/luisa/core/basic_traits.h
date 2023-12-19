@@ -52,6 +52,9 @@ using uint = uint32_t;
 using ulong = uint64_t;
 using slong = int64_t;// long has different size on different platforms
 
+using canonical_c_long = std::conditional_t<sizeof(long) == sizeof(int), int, slong>;
+using canonical_c_ulong = std::conditional_t<sizeof(long) == sizeof(int), uint, ulong>;
+
 template<typename T>
 using is_integral = std::disjunction<
     std::is_same<std::remove_cvref_t<T>, int>,

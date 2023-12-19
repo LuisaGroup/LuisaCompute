@@ -106,7 +106,9 @@ struct luisa_compute_extension {};
     };                                                                                        \
     namespace detail {                                                                        \
     template<>                                                                                \
-    struct Ref<S> : public detail::ExprEnableBitwiseCast<Ref<S>> {                            \
+    struct Ref<S>                                                                             \
+        : public detail::ExprEnableBitwiseCast<Ref<S>>,                                       \
+          public detail::RefEnableGetAddress<Ref<S>> {                                        \
     private:                                                                                  \
         using this_type = S;                                                                  \
         const Expression *_expression;                                                        \
@@ -143,10 +145,6 @@ struct luisa_compute_extension {};
         }                                                                                     \
         [[nodiscard]] auto operator->() const noexcept {                                      \
             return reinterpret_cast<const luisa_compute_extension<S> *>(this);                \
-        }                                                                                     \
-        [[nodiscard]] Var<uint64_t> address() const noexcept {                                \
-            return def<uint64_t>(detail::FunctionBuilder::current()->call(                    \
-                Type::of<uint64_t>(), CallOp::ADDRESS_OF, {_expression}));                    \
         }                                                                                     \
     };                                                                                        \
     }                                                                                         \
