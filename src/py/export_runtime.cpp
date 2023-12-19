@@ -696,12 +696,12 @@ void export_runtime(py::module &m) {
                             };
                             switch (type->tag()) {
                                 case Type::Tag::INT16: return self.literal(type, safe_convert(short{}));
-                                case Type::Tag::UINT16: return self.literal(type, safe_convert(ushort{}));
+                                case Type::Tag::UINT16: return self.literal(type, safe_convert(luisa::ushort{}));
                                 case Type::Tag::INT32: return self.literal(type, safe_convert(int{}));
-                                case Type::Tag::UINT32: return self.literal(type, safe_convert(uint{}));
-                                case Type::Tag::INT64: return self.literal(type, safe_convert(slong{}));
-                                case Type::Tag::UINT64: return self.literal(type, safe_convert(ulong{}));
-                                case Type::Tag::FLOAT16: return self.literal(type, static_cast<half>(v));
+                                case Type::Tag::UINT32: return self.literal(type, safe_convert(luisa::uint{}));
+                                case Type::Tag::INT64: return self.literal(type, safe_convert(luisa::slong{}));
+                                case Type::Tag::UINT64: return self.literal(type, safe_convert(luisa::ulong{}));
+                                case Type::Tag::FLOAT16: return self.literal(type, static_cast<luisa::half>(v));
                                 case Type::Tag::FLOAT32: return self.literal(type, static_cast<float>(v));
                                 case Type::Tag::FLOAT64: return self.literal(type, static_cast<double>(v));
                                 default: break;
