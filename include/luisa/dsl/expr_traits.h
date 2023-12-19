@@ -19,7 +19,7 @@ template<typename T>
 struct Var;
 
 template<typename T>
-struct Local;
+class Local;
 
 namespace detail {
 

@@ -83,8 +83,10 @@ public:
     [[nodiscard]] Local<T> grad() const noexcept;
     Local<T> detach() const noexcept;
 
-    [[nodiscard]] Expr<uint64_t> address() const noexcept { return def<uint64_t>(detail::FunctionBuilder::current()->call(
-        Type::of<uint64_t>(), CallOp::ADDRESS_OF, {_expression})); }
+    [[nodiscard]] Var<uint64_t> address() const noexcept {
+        return def<uint64_t>(detail::FunctionBuilder::current()->call(
+            Type::of<uint64_t>(), CallOp::ADDRESS_OF, {_expression}));
+    }
 };
 
 }// namespace luisa::compute

@@ -57,24 +57,26 @@ struct RefEnableGetMemberByIndex {
 };
 
 /// Ref class common definition
-#define LUISA_REF_COMMON(...)                                                                                              \
-private:                                                                                                                   \
-    const Expression *_expression;                                                                                         \
-                                                                                                                           \
-public:                                                                                                                    \
-    explicit Ref(const Expression *e) noexcept : _expression{e} {}                                                         \
-    [[nodiscard]] auto expression() const noexcept { return _expression; }                                                 \
-    Ref(Ref &&) noexcept = default;                                                                                        \
-    Ref(const Ref &) noexcept = default;                                                                                   \
-    template<typename Rhs>                                                                                                 \
-    void operator=(Rhs &&rhs) & noexcept {                                                                                 \
-        dsl::assign(*this, std::forward<Rhs>(rhs));                                                                        \
-    }                                                                                                                      \
-    [[nodiscard]] operator Expr<__VA_ARGS__>() const noexcept {                                                            \
-        return Expr<__VA_ARGS__>{this->expression()};                                                                      \
-    }                                                                                                                      \
-    [[nodiscard]] Expr<uint64_t> address() const noexcept { return def<uint64_t>(detail::FunctionBuilder::current()->call( \
-        Type::of<uint64_t>(), CallOp::ADDRESS_OF, {_expression})); }                                                       \
+#define LUISA_REF_COMMON(...)                                              \
+private:                                                                   \
+    const Expression *_expression;                                         \
+                                                                           \
+public:                                                                    \
+    explicit Ref(const Expression *e) noexcept : _expression{e} {}         \
+    [[nodiscard]] auto expression() const noexcept { return _expression; } \
+    Ref(Ref &&) noexcept = default;                                        \
+    Ref(const Ref &) noexcept = default;                                   \
+    template<typename Rhs>                                                 \
+    void operator=(Rhs &&rhs) & noexcept {                                 \
+        dsl::assign(*this, std::forward<Rhs>(rhs));                        \
+    }                                                                      \
+    [[nodiscard]] operator Expr<__VA_ARGS__>() const noexcept {            \
+        return Expr<__VA_ARGS__>{this->expression()};                      \
+    }                                                                      \
+    [[nodiscard]] auto address() const noexcept {                          \
+        return def<uint64_t>(detail::FunctionBuilder::current()->call(     \
+            Type::of<uint64_t>(), CallOp::ADDRESS_OF, {_expression}));     \
+    }                                                                      \
     void operator=(Ref rhs) & noexcept { (*this) = Expr<__VA_ARGS__>{rhs}; }
 
 /// Ref<T>

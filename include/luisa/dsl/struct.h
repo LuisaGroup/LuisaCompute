@@ -50,104 +50,106 @@ struct luisa_compute_extension {};
         }                                                                             \
     };
 
-#define LUISA_DERIVE_DSL_STRUCT(S, ...)                                                                                        \
-    namespace luisa::compute {                                                                                                 \
-    namespace detail {                                                                                                         \
-    template<>                                                                                                                 \
-    class AtomicRef<S> : private AtomicRefBase {                                                                               \
-    private:                                                                                                                   \
-        using this_type = S;                                                                                                   \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                                                  \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                                  \
-            constexpr const std::string_view member_names[]{                                                                   \
-                LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                                                 \
-            return std::find(std::begin(member_names),                                                                         \
-                             std::end(member_names),                                                                           \
-                             name) -                                                                                           \
-                   std::begin(member_names);                                                                                   \
-        }                                                                                                                      \
-                                                                                                                               \
-    public:                                                                                                                    \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_ATOMIC_REF_DECL, __VA_ARGS__)                                                       \
-        explicit AtomicRef(const AtomicRefNode *node) noexcept                                                                 \
-            : AtomicRefBase{node} {}                                                                                           \
-    };                                                                                                                         \
-    }                                                                                                                          \
-    template<>                                                                                                                 \
-    struct Expr<S> : public detail::ExprEnableBitwiseCast<Expr<S>> {                                                           \
-    private:                                                                                                                   \
-        using this_type = S;                                                                                                   \
-        const Expression *_expression;                                                                                         \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                                                  \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                                  \
-            constexpr const std::string_view member_names[]{                                                                   \
-                LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                                                 \
-            return std::find(std::begin(member_names),                                                                         \
-                             std::end(member_names),                                                                           \
-                             name) -                                                                                           \
-                   std::begin(member_names);                                                                                   \
-        }                                                                                                                      \
-                                                                                                                               \
-    public:                                                                                                                    \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_EXPR_DECL, __VA_ARGS__)                                                             \
-        explicit Expr(const Expression *e) noexcept                                                                            \
-            : _expression{e},                                                                                                  \
-              LUISA_MAP_LIST(LUISA_STRUCT_MAKE_MEMBER_INIT, __VA_ARGS__) {}                                                    \
-        [[nodiscard]] auto expression() const noexcept { return this->_expression; }                                           \
-        Expr(Expr &&another) noexcept = default;                                                                               \
-        Expr(const Expr &another) noexcept = default;                                                                          \
-        Expr &operator=(Expr) noexcept = delete;                                                                               \
-        template<size_t i>                                                                                                     \
-        [[nodiscard]] auto get() const noexcept {                                                                              \
-            using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                                                       \
-            return Expr<M>{detail::FunctionBuilder::current()->member(                                                         \
-                Type::of<M>(), this->expression(), i)};                                                                        \
-        };                                                                                                                     \
-    };                                                                                                                         \
-    namespace detail {                                                                                                         \
-    template<>                                                                                                                 \
-    struct Ref<S> : public detail::ExprEnableBitwiseCast<Ref<S>> {                                                             \
-    private:                                                                                                                   \
-        using this_type = S;                                                                                                   \
-        const Expression *_expression;                                                                                         \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                                                  \
-        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                                  \
-            constexpr const std::string_view member_names[]{                                                                   \
-                LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                                                 \
-            return std::find(std::begin(member_names), std::end(member_names), name) -                                         \
-                   std::begin(member_names);                                                                                   \
-        }                                                                                                                      \
-                                                                                                                               \
-    public:                                                                                                                    \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_REF_DECL, __VA_ARGS__)                                                              \
-        explicit Ref(const Expression *e) noexcept                                                                             \
-            : _expression{e},                                                                                                  \
-              LUISA_MAP_LIST(LUISA_STRUCT_MAKE_MEMBER_INIT, __VA_ARGS__) {}                                                    \
-        [[nodiscard]] auto expression() const noexcept { return this->_expression; }                                           \
-        Ref(Ref &&another) noexcept = default;                                                                                 \
-        Ref(const Ref &another) noexcept = default;                                                                            \
-        [[nodiscard]] operator Expr<S>() const noexcept {                                                                      \
-            return Expr<S>{this->expression()};                                                                                \
-        }                                                                                                                      \
-        template<typename Rhs>                                                                                                 \
-        void operator=(Rhs &&rhs) & noexcept { dsl::assign(*this, std::forward<Rhs>(rhs)); }                                   \
-        void operator=(Ref rhs) & noexcept { (*this) = Expr{rhs}; }                                                            \
-        template<size_t i>                                                                                                     \
-        [[nodiscard]] auto get() const noexcept {                                                                              \
-            using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                                                       \
-            return Ref<M>{detail::FunctionBuilder::current()->member(                                                          \
-                Type::of<M>(), this->expression(), i)};                                                                        \
-        };                                                                                                                     \
-        [[nodiscard]] auto operator->() noexcept {                                                                             \
-            return reinterpret_cast<luisa_compute_extension<S> *>(this);                                                       \
-        }                                                                                                                      \
-        [[nodiscard]] auto operator->() const noexcept {                                                                       \
-            return reinterpret_cast<const luisa_compute_extension<S> *>(this);                                                 \
-        }                                                                                                                      \
-        [[nodiscard]] Expr<uint64_t> address() const noexcept { return def<uint64_t>(detail::FunctionBuilder::current()->call( \
-            Type::of<uint64_t>(), CallOp::ADDRESS_OF, {_expression})); }                                                       \
-    };                                                                                                                         \
-    }                                                                                                                          \
+#define LUISA_DERIVE_DSL_STRUCT(S, ...)                                                       \
+    namespace luisa::compute {                                                                \
+    namespace detail {                                                                        \
+    template<>                                                                                \
+    class AtomicRef<S> : private AtomicRefBase {                                              \
+    private:                                                                                  \
+        using this_type = S;                                                                  \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                 \
+        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept { \
+            constexpr const std::string_view member_names[]{                                  \
+                LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                \
+            return std::find(std::begin(member_names),                                        \
+                             std::end(member_names),                                          \
+                             name) -                                                          \
+                   std::begin(member_names);                                                  \
+        }                                                                                     \
+                                                                                              \
+    public:                                                                                   \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_ATOMIC_REF_DECL, __VA_ARGS__)                      \
+        explicit AtomicRef(const AtomicRefNode *node) noexcept                                \
+            : AtomicRefBase{node} {}                                                          \
+    };                                                                                        \
+    }                                                                                         \
+    template<>                                                                                \
+    struct Expr<S> : public detail::ExprEnableBitwiseCast<Expr<S>> {                          \
+    private:                                                                                  \
+        using this_type = S;                                                                  \
+        const Expression *_expression;                                                        \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                 \
+        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept { \
+            constexpr const std::string_view member_names[]{                                  \
+                LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                \
+            return std::find(std::begin(member_names),                                        \
+                             std::end(member_names),                                          \
+                             name) -                                                          \
+                   std::begin(member_names);                                                  \
+        }                                                                                     \
+                                                                                              \
+    public:                                                                                   \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_EXPR_DECL, __VA_ARGS__)                            \
+        explicit Expr(const Expression *e) noexcept                                           \
+            : _expression{e},                                                                 \
+              LUISA_MAP_LIST(LUISA_STRUCT_MAKE_MEMBER_INIT, __VA_ARGS__) {}                   \
+        [[nodiscard]] auto expression() const noexcept { return this->_expression; }          \
+        Expr(Expr &&another) noexcept = default;                                              \
+        Expr(const Expr &another) noexcept = default;                                         \
+        Expr &operator=(Expr) noexcept = delete;                                              \
+        template<size_t i>                                                                    \
+        [[nodiscard]] auto get() const noexcept {                                             \
+            using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                      \
+            return Expr<M>{detail::FunctionBuilder::current()->member(                        \
+                Type::of<M>(), this->expression(), i)};                                       \
+        };                                                                                    \
+    };                                                                                        \
+    namespace detail {                                                                        \
+    template<>                                                                                \
+    struct Ref<S> : public detail::ExprEnableBitwiseCast<Ref<S>> {                            \
+    private:                                                                                  \
+        using this_type = S;                                                                  \
+        const Expression *_expression;                                                        \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                 \
+        [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept { \
+            constexpr const std::string_view member_names[]{                                  \
+                LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                \
+            return std::find(std::begin(member_names), std::end(member_names), name) -        \
+                   std::begin(member_names);                                                  \
+        }                                                                                     \
+                                                                                              \
+    public:                                                                                   \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_REF_DECL, __VA_ARGS__)                             \
+        explicit Ref(const Expression *e) noexcept                                            \
+            : _expression{e},                                                                 \
+              LUISA_MAP_LIST(LUISA_STRUCT_MAKE_MEMBER_INIT, __VA_ARGS__) {}                   \
+        [[nodiscard]] auto expression() const noexcept { return this->_expression; }          \
+        Ref(Ref &&another) noexcept = default;                                                \
+        Ref(const Ref &another) noexcept = default;                                           \
+        [[nodiscard]] operator Expr<S>() const noexcept {                                     \
+            return Expr<S>{this->expression()};                                               \
+        }                                                                                     \
+        template<typename Rhs>                                                                \
+        void operator=(Rhs &&rhs) & noexcept { dsl::assign(*this, std::forward<Rhs>(rhs)); }  \
+        void operator=(Ref rhs) & noexcept { (*this) = Expr{rhs}; }                           \
+        template<size_t i>                                                                    \
+        [[nodiscard]] auto get() const noexcept {                                             \
+            using M = std::tuple_element_t<i, struct_member_tuple_t<S>>;                      \
+            return Ref<M>{detail::FunctionBuilder::current()->member(                         \
+                Type::of<M>(), this->expression(), i)};                                       \
+        };                                                                                    \
+        [[nodiscard]] auto operator->() noexcept {                                            \
+            return reinterpret_cast<luisa_compute_extension<S> *>(this);                      \
+        }                                                                                     \
+        [[nodiscard]] auto operator->() const noexcept {                                      \
+            return reinterpret_cast<const luisa_compute_extension<S> *>(this);                \
+        }                                                                                     \
+        [[nodiscard]] Var<uint64_t> address() const noexcept {                                \
+            return def<uint64_t>(detail::FunctionBuilder::current()->call(                    \
+                Type::of<uint64_t>(), CallOp::ADDRESS_OF, {_expression}));                    \
+        }                                                                                     \
+    };                                                                                        \
+    }                                                                                         \
     }
 
 #define LUISA_SOA_VIEW_MAKE_MEMBER_DECL(m) \
