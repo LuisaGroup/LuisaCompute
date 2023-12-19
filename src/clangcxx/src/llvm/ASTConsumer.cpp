@@ -752,10 +752,10 @@ protected:
 };
 
 void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
-    bool is_ignore = S->isTemplateDecl();
+    bool is_ignore = false;
     bool is_kernel = false;
     uint3 kernelSize;
-    bool is_template = false;
+    bool is_template = S->isTemplateDecl() && !S->isTemplateInstantiation();
     bool is_scope = false;
     bool is_method = false;
     bool is_lambda = false;
@@ -763,14 +763,16 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
     auto params = S->parameters();
     for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
         is_ignore |= isIgnore(*Anno);
-        is_scope |= isScope(*Anno);
+        is_scope |= isNoignore(*Anno);
         if (isKernel(*Anno)) {
             is_kernel = true;
             getKernelSize(*Anno, kernelSize.x, kernelSize.y, kernelSize.z);
         }
     }
+
     if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
-        if (auto thisType = GetRecordDeclFromQualType(Method->getThisType()->getPointeeType())) {
+        auto thisQt = Method->getThisType()->getPointeeType();
+        if (auto thisType = GetRecordDeclFromQualType(thisQt)) {
             is_ignore |= thisType->isUnion();// ignore union
             for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>())
                 is_ignore |= isBuiltinType(Anno);
@@ -778,6 +780,8 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                 is_template |= f->getType()->isTemplateTypeParmType();
             if (thisType->isLambda())// ignore global lambda declares, we deal them on stacks only
                 is_lambda = true;
+
+            is_template |= thisType->isTemplateDecl() && !thisType->isTemplated();
         } else {
             luisa::log_error("unfound this type [{}] in method [{}]",
                              Method->getThisType()->getPointeeType().getAsString(), S->getNameAsString());
@@ -786,7 +790,11 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
         methodThisType = Method->getThisType()->getPointeeType();
     }
 
-    is_template |= (S->isTemplateDecl() && !S->isTemplateInstantiation());
+    {
+        auto RQT = S->getReturnType();
+        is_template |= RQT->isTemplateTypeParmType();
+        is_template |= (RQT->getTypeClass() == clang::Type::TemplateTypeParm);
+    }
     for (auto param : params) {
         auto DesugaredParamType = param->getType().getNonReferenceType().getDesugaredType(*bb->astContext);
         is_template |= DesugaredParamType->isTemplateTypeParmType();
@@ -795,6 +803,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
         is_template |= param->isTemplateParameterPack();
         is_template |= param->isTemplateParameter();
     }
+
     if (is_scope)
         is_ignore = false;
     if (is_template)

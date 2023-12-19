@@ -3,7 +3,7 @@
 
 #define export clang::annotate("luisa-shader", "export")
 #define ignore clang::annotate("luisa-shader", "ignore")
-#define scope clang::annotate("luisa-shader", "scope")
+#define noignore clang::annotate("luisa-shader", "noignore")
 #define bypass clang::annotate("luisa-shader", "bypass")
 #define swizzle clang::annotate("luisa-shader", "swizzle")
 #define access clang::annotate("luisa-shader", "access")

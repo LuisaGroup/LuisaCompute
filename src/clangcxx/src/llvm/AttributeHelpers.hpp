@@ -30,6 +30,18 @@ inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, b
     return recordDecl;
 }
 
+inline static clang::ClassTemplateSpecializationDecl *GetClassTemplateSpecializationDecl(clang::QualType Ty, bool isRestrict = true) {
+    if (auto Record = Ty->getAs<clang::RecordType>())
+        return llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Record->getDecl());
+    else if (auto Injected = Ty->getAs<clang::InjectedClassNameType>())
+    {
+        Ty.dump();
+        luisa::log_error("unsupportted, InjectedClassNameType!!!!");
+        return nullptr;
+    }
+    return nullptr;
+}
+
 inline static bool isLuisaAttribute(const clang::AnnotateAttr *Anno) {
     return Anno->getAnnotation() == "luisa-shader";
 }
@@ -183,13 +195,13 @@ inline static llvm::StringRef getCallopName(const clang::AnnotateAttr *Anno) {
     return {};
 }
 
-inline static bool isScope(const clang::AnnotateAttr *Anno) {
+inline static bool isNoignore(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
         return false;
     if (Anno->args_size() >= 1) {
         auto arg = Anno->args_begin();
         if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "scope");
+            return (TypeLiterial->getString() == "noignore");
         }
     }
     return false;

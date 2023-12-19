@@ -125,6 +125,7 @@ auto TestArray() {
     for (int i = 0; i < 4; i++)
     {
         sum += z[i];
+        sum += z.get(i);
     }
     return 2.f;
 }

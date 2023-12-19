@@ -241,7 +241,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
         }
     }
     // TODO: REFACTOR THIS (TSD)
-    if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+    if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
         auto decl = TSD->getSpecializedTemplate()->getTemplatedDecl();
         for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
              Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
@@ -256,7 +256,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
         const auto is_volume = builtin_type_name.startswith("volume");
         const auto is_buffer = builtin_type_name.startswith("buffer");
         if (builtin_type_name == "vec") {
-            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+            if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
                 auto &Arguments = TSD->getTemplateArgs();
                 if (auto EType = Arguments.get(0).getAsType()->getAs<clang::BuiltinType>()) {
                     clang::Expr::EvalResult Result;
@@ -291,7 +291,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
                 Ty->dump();
             }
         } else if (builtin_type_name == "array") {
-            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+            if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
                 auto &Arguments = TSD->getTemplateArgs();
                 clang::Expr::EvalResult Result;
                 auto N = Arguments.get(1).getAsIntegral().getLimitedValue();
@@ -302,7 +302,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
                 }
             }
         } else if (builtin_type_name == "matrix") {
-            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+            if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
                 auto &Arguments = TSD->getTemplateArgs();
                 auto N = Arguments.get(0).getAsIntegral().getLimitedValue();
                 _type = Type::matrix(N);
@@ -314,7 +314,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
         } else if (builtin_type_name == "accel") {
             _type = Type::of<luisa::compute::Accel>();
         } else if (is_image || is_buffer || is_volume) {
-            if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
+            if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
                 auto &Arguments = TSD->getTemplateArgs();
                 if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), astContext)) {
                     if (is_buffer)
