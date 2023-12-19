@@ -14,7 +14,6 @@
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/dsl/syntax.h>
-#include <luisa/dsl/rtx/ray_query.h>
 
 namespace luisa::clangcxx {
 
@@ -102,8 +101,6 @@ inline const luisa::compute::RefExpr *LC_ArgOrRef(clang::QualType qt, luisa::sha
 }
 
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
-    luisa::vector<const luisa::compute::Expression *> callers;
-    luisa::vector<luisa::compute::RayQueryStmt *> queries;
     clang::ForStmt *currentCxxForStmt = nullptr;
 
     bool TraverseStmt(clang::Stmt *x) {
@@ -490,10 +487,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 if (auto bypass = isByPass(cxxMember->getMemberDecl())) {
                     current = stack->expr_map[cxxMember->getBase()];
                     if (cxxMember->isBoundMemberFunction(*bb->astContext))
-                        callers.emplace_back(current);
+                        stack->callers.emplace_back(current);
                 } else if (cxxMember->isBoundMemberFunction(*bb->astContext)) {
                     auto lhs = stack->expr_map[cxxMember->getBase()];
-                    callers.emplace_back(lhs);
+                    stack->callers.emplace_back(lhs);
                 } else if (auto cxxField = llvm::dyn_cast<FieldDecl>(cxxMember->getMemberDecl())) {
                     if (isSwizzle(cxxField)) {
                         auto swizzleText = cxxField->getName();
@@ -531,8 +528,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
             } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
                 if (isByPass(call->getCalleeDecl())) {
-                    auto caller = callers.back();
-                    callers.pop_back();
+                    auto caller = stack->callers.back();
+                    stack->callers.pop_back();
                     if (!caller) {
                         call->dump();
                         luisa::log_error("incorrect [[bypass]] call detected!");
@@ -553,8 +550,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     // args
                     luisa::vector<const luisa::compute::Expression *> lc_args;
                     if (auto mcall = llvm::dyn_cast<clang::CXXMemberCallExpr>(x)) {
-                        auto caller = callers.back();
-                        callers.pop_back();
+                        auto caller = stack->callers.back();
+                        stack->callers.pop_back();
 
                         lc_args.emplace_back(caller);// from -MemberExpr::isBoundMemberFunction
                     }
@@ -584,8 +581,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 const bool isQuery = isQueryAny || isQueryAll;
 
                                 if (isHit) {
-                                    auto _stmt = queries.back();
-                                    queries.pop_back();
+                                    auto _stmt = stack->queries.back();
+                                    stack->queries.pop_back();
                                     auto tvar = def<CommittedHit>(fb->call(Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT, {_stmt->query()}));
                                     current = tvar.expression();
                                 } else if (isQuery) {
@@ -601,7 +598,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                     current = local;
 
                                     auto ctrl_stmt = fb->ray_query_(local);
-                                    queries.emplace_back(ctrl_stmt);
+                                    stack->queries.emplace_back(ctrl_stmt);
                                 } else {
                                     if (call->getCallReturnType(*bb->astContext)->isVoidType())
                                         fb->call(op, lc_args);
@@ -637,11 +634,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             }
                         }
 
-                        auto query = queries.empty() ? nullptr : queries.back();
+                        auto query = stack->queries.empty() ? nullptr : stack->queries.back();
                         luisa::compute::ScopeStmt* query_scope = nullptr;
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_surface_candidate")) 
+                        auto functionName = calleeDecl->getAsFunction()->getName();
+                        if (functionName.starts_with("on_surface_candidate")) 
                             query_scope = query->on_triangle_candidate();
-                        if (calleeDecl->getAsFunction()->getName().starts_with("on_procedural_candidate")) 
+                        if (functionName.starts_with("on_procedural_candidate")) 
                             query_scope = query->on_procedural_candidate();
                         if (query_scope)
                             fb->push_scope(query_scope);

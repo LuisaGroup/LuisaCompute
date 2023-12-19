@@ -5,6 +5,7 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/variant.h>
 #include <luisa/runtime/device.h>
+#include <luisa/dsl/rtx/ray_query.h>
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/Decl.h"
@@ -72,6 +73,8 @@ protected:
 struct Stack {
     luisa::unordered_map<const clang::ValueDecl *, const luisa::compute::RefExpr *> locals;
     luisa::unordered_map<const clang::Stmt *, const luisa::compute::Expression *> expr_map;
+    luisa::vector<const luisa::compute::Expression *> callers;
+    luisa::vector<class luisa::compute::RayQueryStmt*> queries;
 };
 
 struct FunctionBuilderBuilder {
