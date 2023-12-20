@@ -18,8 +18,12 @@ struct alignas(8) [[builtin("vec")]] vec<T, 2> {
     template<typename... Args>
         requires(legal_ctor(sum_dim<0ull, Args...>(), 2))
     [[ignore]] explicit vec(Args &&...args);
+    
     template <typename U>
-    [[ignore]] operator vec<U, 2>();
+    [[noignore]] operator vec<U, 2>()
+    {
+        return vec<U, 2>(static_cast<U>(x), static_cast<U>(y));
+    }
 
     #include "vec_ops/ops.inl"
 
@@ -40,7 +44,10 @@ struct alignas(16) [[builtin("vec")]] vec<T, 3> {
     [[ignore]] explicit vec(Args &&...args);
 
     template <typename U>
-    [[ignore]] operator vec<U, 3>();
+    [[noignore]] operator vec<U, 3>()
+    {
+        return vec<U, 3>(static_cast<U>(x), static_cast<U>(y), static_cast<U>(z));
+    }
 
     #include "vec_ops/ops.inl"
     union {
@@ -60,7 +67,10 @@ struct alignas(16) [[builtin("vec")]] vec<T, 4> {
     [[ignore]] explicit vec(Args &&...args);
 
     template <typename U>
-    [[ignore]] operator vec<U, 4>();
+    [[noignore]] operator vec<U, 4>()
+    {
+        return vec<U, 4>(static_cast<U>(x), static_cast<U>(y), static_cast<U>(z), static_cast<U>(w));
+    }
 
     #include "vec_ops/ops.inl"
     union {
