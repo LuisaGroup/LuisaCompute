@@ -38,9 +38,7 @@ private:
         IDXGIFactory2 *dxgi_factory,
         ID3D12Device *device,
         ID3D12GraphicsCommandList4 *command_list) const noexcept = 0;
-
-protected:
-    luisa::vector<ResourceUsage> resource_usages;
+    [[nodiscard]] virtual luisa::span<const ResourceUsage> get_resource_usages() const noexcept = 0;
 
     [[nodiscard]] static auto resource_state_to_usage(D3D12_RESOURCE_STATES state) noexcept {
         constexpr auto read_state =
@@ -69,7 +67,8 @@ protected:
 
 public:
     void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
-        for (auto &&[handle, state] : resource_usages) {
+        auto usages = get_resource_usages();
+        for (auto &&[handle, state] : usages) {
             visitor.visit(handle, resource_state_to_usage(state));
         }
     }

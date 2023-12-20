@@ -50,5 +50,5 @@ int test_shared_mem(Device &device) {
 }// namespace luisa::test
 
 TEST_SUITE("runtime") {
-    LUISA_TEST_CASE_WITH_DEVICE("shared_mem", luisa::test::test_shared_mem(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("shared_memory", luisa::test::test_shared_mem(device) == 0);
 }

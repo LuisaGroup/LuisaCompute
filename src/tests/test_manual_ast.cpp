@@ -71,21 +71,17 @@ int main(int argc, char *argv[]) {
             CallOp::MAKE_FLOAT3,
             {uv_var,
              cur.literal(Type::of<float>(), 1.0f)});
-        cur.call(Function(callable_builder.get()), {
-            arg0,
-            coord,
-            color
-        });
+        cur.call(Function(callable_builder.get()), {arg0,
+                                                    coord,
+                                                    color});
     });
     // save shader to test_manual_ast.bytes
     auto invalid_shader = device.impl()->create_shader(
-        {
-            .compile_only = true,
-            .name = "test_manual_ast.bytes"
-        },
+        {.compile_only = true,
+         .name = "test_manual_ast.bytes"},
         Function(kernel.get()));
     // load shader from disk
-    Shader2D<Image<float>> shader = device.load_shader<2, Image<float>>("test_manual_ast.bytes");
+    auto shader = device.load_shader<2, Image<float>>("test_manual_ast.bytes");
 
     // Kernel2D kernel = [&]() {
     //     Var coord = dispatch_id().xy();
@@ -93,7 +89,7 @@ int main(int argc, char *argv[]) {
     //     Var uv = (make_float2(coord) + 0.5f) / make_float2(size);
     //     image->write(coord, make_float4(uv, 0.5f, 1.0f));
     // };
-    // Shader2D<> shader = device.compile(Function(kernel.get()));
+    // auto shader = device.compile(Function(kernel.get()));
     stream << shader(image).dispatch(resolution)
            << image.copy_to(host_image.data())
            << synchronize();

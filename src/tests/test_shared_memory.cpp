@@ -25,11 +25,11 @@ public:
 
     void push(Expr<T> value) noexcept {
         Shared<uint> index{1u};
-        $if(thread_x() == 0u) { index.write(0u, 0u); };
+        $if (thread_x() == 0u) { index.write(0u, 0u); };
         sync_block();
         auto local_index = index.atomic(0u).fetch_add(1u);
         sync_block();
-        $if(thread_x() == 0u) {
+        $if (thread_x() == 0u) {
             auto local_count = index.read(0u);
             auto global_offset = _counter->atomic(0u).fetch_add(local_count);
             index.write(0u, global_offset);
@@ -94,4 +94,3 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("count = {} (expected {}), mean = {} (expected ~0.5)",
                n, queue_size, mean);
 }
-

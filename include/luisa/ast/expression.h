@@ -8,6 +8,8 @@
 #include <luisa/ast/op.h>
 #include <luisa/ast/constant_data.h>
 
+#include <utility>
+
 namespace luisa::compute {
 
 class Statement;
@@ -284,13 +286,33 @@ struct make_literal_value<std::tuple<T...>> {
 template<typename T>
 using make_literal_value_t = typename make_literal_value<T>::type;
 
+using LiteralValueVariant = make_literal_value_t<basic_types>;
+
+struct LiteralValue : LiteralValueVariant {
+
+    LiteralValue() noexcept = default;
+
+    template<typename T>
+    LiteralValue(T &&x) noexcept : LiteralValueVariant{std::forward<T>(x)} {}
+
+    template<typename T>
+        requires std::same_as<std::remove_cvref_t<T>, long>
+    LiteralValue(T &&x) noexcept
+        : LiteralValueVariant{static_cast<canonical_c_long>(x)} {}
+
+    template<typename T>
+        requires std::same_as<std::remove_cvref_t<T>, unsigned long>
+    LiteralValue(T &&x) noexcept
+        : LiteralValueVariant{static_cast<canonical_c_ulong>(x)} {}
+};
+
 }// namespace detail
 
 class LC_AST_API LiteralExpr final : public Expression {
     friend class CallableLibrary;
 
 public:
-    using Value = detail::make_literal_value_t<basic_types>;
+    using Value = detail::LiteralValue;
 
 private:
     Value _value;
@@ -308,7 +330,7 @@ public:
      * @param v value
      */
     LiteralExpr(const Type *type, Value v) noexcept
-        : Expression{Tag::LITERAL, type}, _value{v} {}
+        : Expression{Tag::LITERAL, type}, _value{std::move(v)} {}
     [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
     LUISA_EXPRESSION_COMMON()
 };
@@ -601,3 +623,9 @@ void traverse_subexpressions(const Expression *expr,
 }
 
 }// namespace luisa::compute
+
+namespace eastl {
+template<>
+struct variant_size<luisa::compute::detail::LiteralValue>
+    : variant_size<luisa::compute::detail::LiteralValueVariant> {};
+}// namespace eastl

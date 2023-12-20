@@ -20,12 +20,12 @@ int use_printer(Device &device) {
 
     Kernel2D kernel = [&]() noexcept {
         UInt2 coord = dispatch_id().xy();
-        $if(coord.x == coord.y) {
+        $if (coord.x == coord.y) {
             Float2 v = make_float2(coord) / make_float2(dispatch_size().xy());
             printer.info_with_location("v = ({}, {})", v.x, v.y);
         };
     };
-    Shader2D<> shader = device.compile(kernel);
+    auto shader = device.compile(kernel);
     Stream stream = device.create_stream();
     stream << printer.reset()
            << shader().dispatch(128u, 128u)
@@ -38,7 +38,7 @@ int use_printer(Device &device) {
 TEST_SUITE("example") {
     TEST_CASE("use_printer") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
             luisa::string device_name = luisa::test::backends_to_test()[i];
             SUBCASE(device_name.c_str()) {

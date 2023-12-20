@@ -53,19 +53,8 @@ end
 
 -- temp test suites
 lc_add_app("test_feat", "test", "feat") -- core feature test
--- for common features
-
-if get_config("enable_gui") then
-    add_defines("ENABLE_DISPLAY")
-    -- all test suites for release
-    -- example app 
-    lc_add_app("gallery", "example", "gallery") -- demo
-    lc_add_app("tutorial", "example", "use") -- basic use tutorial
-end
--- all test requires more stable dependencies
--- lc_add_app("test_all", "test", "all") -- all test
--- for extensions
-
+lc_add_app("test_ext_core", "test", "ext/core") -- core extensions
+-- extensions for different backends
 if get_config("dx_backend") then
     lc_add_app("test_ext_dx", "test", "ext/dx")
 end
@@ -74,7 +63,16 @@ if get_config("cuda_backend") then
         lc_add_app("test_ext_cuda", "test", "ext/cuda")
     end
 end
--- lc_add_app("test_io", "test", "io")
+-- examples & gallery
+if get_config("enable_gui") then
+    add_defines("ENABLE_DISPLAY")
+    -- example app 
+    lc_add_app("gallery", "example", "gallery") -- demo
+    lc_add_app("tutorial", "example", "use") -- basic use tutorial
+end
+-- all test requires more stable dependencies
+-- lc_add_app("test_all", "test", "all") -- all test
+-- for extensions
 ------------------------------------
 -- TEST MAIN end
 
@@ -129,6 +127,7 @@ test_proj("test_path_tracing_camera", true)
 test_proj("test_path_tracing_cutout", true)
 test_proj("test_photon_mapping", true)
 test_proj("test_printer")
+test_proj("test_printer_custom_callback")
 test_proj("test_procedural")
 test_proj("test_rtx")
 test_proj("test_runtime", true)
@@ -173,11 +172,12 @@ end
 
 if get_config("cuda_ext_lcub") then
     test_proj("test_cuda_lcub", false, function()
-        add_deps("lc-backend-cuda-ext-lcub")
+        add_deps("luisa-compute-cuda-ext-lcub")
     end)
 end
 
 local enable_fsr2
+-- local enable_fsr3 = true
 local enable_fsr3
 local enable_xess
 -- Super-sampling example
@@ -239,7 +239,6 @@ if get_config("dx_backend") and enable_fsr3 then
             local function rela(p)
                 return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
             end
-            target:add("linkdirs", rela("FidelityFX-SDK-FSR3-v3.0.3/bin/ffx_sdk"))
             target:add("includedirs", rela("FidelityFX-SDK-FSR3-v3.0.3/sdk/include"))
             target:add("syslinks", "Advapi32", "User32")
         end)

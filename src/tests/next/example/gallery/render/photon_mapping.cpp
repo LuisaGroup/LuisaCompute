@@ -438,13 +438,13 @@ int photon_mapping(Device &device) {
         seed_image.write(p, make_uint4(state));
     };
 
-    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel);
-    Shader2D<Image<uint>> make_sampler_shader = device.compile(make_sampler_kernel);
-    Shader1D<> clear_grid_shader = device.compile(clear_grid_kernel);
-    Shader1D<Accel> photon_tracing_shader = device.compile(photon_tracing_kernel);
-    Shader2D<Image<float>, Image<uint>, Accel, uint2> photon_gathering_shader = device.compile(photon_gathering_kernel);
-    Shader2D<Image<float>, Image<float>> accumulate_shader = device.compile(accumulate_kernel);
-    Shader2D<Image<float>, Image<float>, float> hdr2ldr_shader = device.compile(hdr2ldr_kernel);
+    auto clear_shader = device.compile(clear_kernel);
+    auto make_sampler_shader = device.compile(make_sampler_kernel);
+    auto clear_grid_shader = device.compile(clear_grid_kernel);
+    auto photon_tracing_shader = device.compile(photon_tracing_kernel);
+    auto photon_gathering_shader = device.compile(photon_gathering_kernel);
+    auto accumulate_shader = device.compile(accumulate_kernel);
+    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
 
     static constexpr uint2 resolution = make_uint2(1024u);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);

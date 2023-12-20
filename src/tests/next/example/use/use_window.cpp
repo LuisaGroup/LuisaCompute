@@ -35,7 +35,7 @@ int test_window(Device &device, bool enable_clear = false) {
 
     Image<float> display = device.create_image<float>(swap_chain.backend_storage(), make_uint2(resolution));
 
-    Shader2D<> clear_display = device.compile<2>([&] {
+    auto clear_display = device.compile<2>([&] {
         display->write(dispatch_id().xy(), make_float4(.1f, .2f, .3f, 1.f));
     });
 
@@ -55,12 +55,12 @@ int test_window(Device &device, bool enable_clear = false) {
     return 0;
 }
 
-} // namespace luisa::test
+}// namespace luisa::test
 
 TEST_SUITE("test_gui") {
     TEST_CASE("plain_window") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
             luisa::string device_name = luisa::test::backends_to_test()[i];
             SUBCASE(device_name.c_str()) {
@@ -71,7 +71,7 @@ TEST_SUITE("test_gui") {
     }
     TEST_CASE("cleared_window") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
             luisa::string device_name = luisa::test::backends_to_test()[i];
             SUBCASE(device_name.c_str()) {

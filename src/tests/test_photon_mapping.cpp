@@ -253,13 +253,13 @@ int main(int argc, char *argv[]) {
         // auto power = def(light_emission * light_cos / light_pdf_pos / light_pdf_dir) =>
         Float3 power = def(light_emission / (light_pdf_pos * inv_pi));
 
-        $for(depth, max_depth) {
+        $for (depth, max_depth) {
             // trace
             Var<TriangleHit> hit = accel.intersect(light_ray, {});
-            $if(hit->miss()) { $break; };
+            $if (hit->miss()) { $break; };
             // $if(hit.inst == 0 & hit.prim == 0) { $break; };
             // TODO
-            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+            $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                 $break;
             };
 
@@ -270,7 +270,7 @@ int main(int argc, char *argv[]) {
             Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
             Float3 n = normalize(cross(p1 - p0, p2 - p0));
             Float cos_wi = dot(-light_ray->direction(), n);
-            $if(cos_wi < 1e-4f) { $break; };
+            $if (cos_wi < 1e-4f) { $break; };
 
             Var<Material> material = material_buffer->read(hit.inst);
 
@@ -299,7 +299,7 @@ int main(int argc, char *argv[]) {
             // rr
             Float rr_prob = 0.9f;
             Float rr_check = lcg(state);
-            $if(rr_check >= rr_prob) { $break; };
+            $if (rr_check >= rr_prob) { $break; };
             power *= 1.0f / rr_prob;
         };
     };
@@ -321,17 +321,17 @@ int main(int argc, char *argv[]) {
         UInt3 p_index = get_index_from_point(p);
         UInt photon_sum = def(0);
 
-        $for(x, ite(p_index.x == 0, 0u, p_index.x - 1), min(p_index.x + 1, grid_size.x)) {
-            $for(y, ite(p_index.y == 0, 0u, p_index.y - 1), min(p_index.y + 1, grid_size.y)) {
-                $for(z, ite(p_index.z == 0, 0u, p_index.z - 1), min(p_index.z + 1, grid_size.z)) {
+        $for (x, ite(p_index.x == 0, 0u, p_index.x - 1), min(p_index.x + 1, grid_size.x)) {
+            $for (y, ite(p_index.y == 0, 0u, p_index.y - 1), min(p_index.y + 1, grid_size.y)) {
+                $for (z, ite(p_index.z == 0, 0u, p_index.z - 1), min(p_index.z + 1, grid_size.z)) {
                     UInt grid_index_m = get_index_merge(x, y, z);
                     UInt photon_index = grid_head_buffer->read(grid_index_m);
-                    $while(photon_index != ~0u) {
+                    $while (photon_index != ~0u) {
                         photon_sum += 1;
                         Var<Photon> photon = photon_buffer->read(photon_index);
                         Float dis = distance(Float3{photon.position}, p);
-                        $if(dis < r) {
-                            radiance += material.albedo * inv_pi *Float3{photon.power};
+                        $if (dis < r) {
+                            radiance += material.albedo * inv_pi * Float3{photon.power};
                         };
                         photon_index = photon.nxt;
                     };
@@ -398,8 +398,8 @@ int main(int argc, char *argv[]) {
 
         Var<TriangleHit> hit = accel.intersect(ray, {});
         // $if(!hit->miss() & (hit.inst != 0 | hit.prim != 0)) {
-        $if(!hit->miss()) {
-            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+        $if (!hit->miss()) {
+            $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                 // radiance = light_emission / light_area;
             }
             $else {
@@ -412,7 +412,7 @@ int main(int argc, char *argv[]) {
                 Var<Material> material = material_buffer->read(hit.inst);
                 Float cos_wi = dot(-ray->direction(), n);
 
-                $if(cos_wi > 1e-4f) {
+                $if (cos_wi > 1e-4f) {
                     radiance = density_estimation_radius(coord, p, -ray->direction(), radius, material);
                     radiance *= inv_pi / (radius * radius * photon_number);
 
@@ -441,8 +441,8 @@ int main(int argc, char *argv[]) {
         Var<TriangleHit> hit = accel.intersect(ray, {});
         Float3 radiance = def(make_float3(0.0f));
 
-        $if(!hit->miss()) {
-            $if(hit.inst == static_cast<uint>(meshes.size() - 1u)) {
+        $if (!hit->miss()) {
+            $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                 radiance = light_emission;
             }
             $else {
@@ -453,7 +453,7 @@ int main(int argc, char *argv[]) {
                 Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
                 Float cos_wi = dot(-ray->direction(), n);
-                $if(cos_wi > 1e-4f) {
+                $if (cos_wi > 1e-4f) {
                     Var<Material> material = material_buffer->read(hit.inst);
                     //direct illumination
                     Float ux_light = lcg(state);
@@ -468,7 +468,7 @@ int main(int argc, char *argv[]) {
                     Float cos_wi_light = dot(wi_light, n);
                     Float cos_light = -dot(light_normal, wi_light);
                     Float3 albedo = material.albedo;
-                    $if(!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                    $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                         Float pdf_light = (d_light * d_light) / (light_area * cos_light);
                         Float pdf_bsdf = cos_wi_light * inv_pi;
                         Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
@@ -493,7 +493,7 @@ int main(int argc, char *argv[]) {
         };
 
         seed_image.write(coord, make_uint4(state));
-        $if(any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
+        $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 
@@ -528,13 +528,13 @@ int main(int argc, char *argv[]) {
         seed_image.write(p, make_uint4(state));
     };
 
-    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel);
-    Shader2D<Image<uint>> make_sampler_shader = device.compile(make_sampler_kernel);
-    Shader1D<> clear_grid_shader = device.compile(clear_grid_kernel);
-    Shader1D<Accel> photon_tracing_shader = device.compile(photon_tracing_kernel);
-    Shader2D<Image<float>, Image<uint>, Accel, uint2> photon_gathering_shader = device.compile(photon_gathering_kernel);
-    Shader2D<Image<float>, Image<float>> accumulate_shader = device.compile(accumulate_kernel);
-    Shader2D<Image<float>, Image<float>, float> hdr2ldr_shader = device.compile(hdr2ldr_kernel);
+    auto clear_shader = device.compile(clear_kernel);
+    auto make_sampler_shader = device.compile(make_sampler_kernel);
+    auto clear_grid_shader = device.compile(clear_grid_kernel);
+    auto photon_tracing_shader = device.compile(photon_tracing_kernel);
+    auto photon_gathering_shader = device.compile(photon_gathering_kernel);
+    auto accumulate_shader = device.compile(accumulate_kernel);
+    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
 
     static constexpr uint2 resolution = make_uint2(1024u);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
@@ -579,4 +579,3 @@ int main(int argc, char *argv[]) {
 
     stbi_write_png("test_photon_mapping.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
-

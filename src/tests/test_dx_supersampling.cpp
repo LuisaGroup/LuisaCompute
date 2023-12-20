@@ -97,6 +97,10 @@ void fsr2_message(FfxFsr2MsgType type, const wchar_t *message) {
     }
 }
 class FSRCommand : public DXCustomCmd {
+    luisa::vector<ResourceUsage> resource_usages;
+    luisa::span<const ResourceUsage> get_resource_usages() const noexcept {
+        return resource_usages;
+    }
 public:
     FfxFsr2Context *context;
     mutable FfxFsr2DispatchDescription dispatch_params{};
@@ -243,6 +247,11 @@ struct XessJitter {
     }
 };
 class XessCommand : public DXCustomCmd {
+    luisa::vector<ResourceUsage> resource_usages;
+    luisa::span<const ResourceUsage> get_resource_usages() const noexcept {
+        return resource_usages;
+    }
+
 public:
     xess_context_handle_t xess_context{};
     xess_d3d12_execute_params_t exec_params{};
@@ -289,7 +298,7 @@ int main(int argc, char *argv[]) {
     Kernel2D clear_kernel = [](ImageVar<float> image) {
         image.write(dispatch_id().xy(), make_float4(0, 0, 0, 0));
     };
-    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel);
+    auto clear_shader = device.compile(clear_kernel);
     ///////////////////////////// Path Tracing
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -433,7 +442,7 @@ int main(int argc, char *argv[]) {
         Float pdf_bsdf = def(0.0f);
         // trace
         Var<TriangleHit> hit = accel.trace_closest(ray);
-        $if(!hit->miss()) {
+        $if (!hit->miss()) {
             Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
             Float3 p0 = vertex_buffer->read(triangle.i0);
             Float3 p1 = vertex_buffer->read(triangle.i1);

@@ -103,9 +103,9 @@ int main(int argc, char *argv[]) {
 
     Callable ray_march = [&sdf](Float3 p, Float3 d) noexcept {
         Float dist = def(0.0f);
-        $for(j, 100) {
+        $for (j, 100) {
             Float s = sdf(p + dist * d);
-            $if(s <= 1e-6f | dist >= inf) { $break; };
+            $if (s <= 1e-6f | dist >= inf) { $break; };
             dist += s;
         };
         return min(dist, inf);
@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
         normal = make_float3();
         c = make_float3();
         Float ray_march_dist = ray_march(pos, d);
-        $if(ray_march_dist < min(dist_limit, closest)) {
+        $if (ray_march_dist < min(dist_limit, closest)) {
             closest = ray_march_dist;
             Float3 hit_pos = pos + d * closest;
             normal = sdf_normal(hit_pos);
@@ -142,7 +142,7 @@ int main(int argc, char *argv[]) {
 
         Float2 resolution = make_float2(dispatch_size().xy());
         UInt2 coord = dispatch_id().xy();
-        $if(frame_index == 0u) {
+        $if (frame_index == 0u) {
             seed_image.write(coord, make_uint4(tea(coord.x, coord.y)));
             accum_image.write(coord, make_float4(make_float3(0.0f), 1.0f));
         };
@@ -158,17 +158,17 @@ int main(int argc, char *argv[]) {
         d = normalize(d);
         Float3 throughput = def(make_float3(1.0f, 1.0f, 1.0f));
         Float hit_light = def(0.0f);
-        $for(depth, max_ray_depth) {
+        $for (depth, max_ray_depth) {
             Float closest = def(0.0f);
             Float3 normal = def(make_float3());
             Float3 c = def(make_float3());
             next_hit(closest, normal, c, pos, d);
             Float dist_to_light = intersect_light(pos, d);
-            $if(dist_to_light < closest) {
+            $if (dist_to_light < closest) {
                 hit_light = 1.0f;
                 $break;
             };
-            $if(length_squared(normal) == 0.0f) { $break; };
+            $if (length_squared(normal) == 0.0f) { $break; };
             Float3 hit_pos = pos + closest * d;
             d = out_dir(normal, seed);
             pos = hit_pos + 1e-4f * d;
@@ -187,7 +187,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     Device device = context.create_device(argv[1]);
-    Shader2D<Image<uint>, Image<float>, uint> render = device.compile(render_kernel);
+    auto render = device.compile(render_kernel);
 
     static constexpr uint width = 1280u;
     static constexpr uint height = 720u;
@@ -222,7 +222,7 @@ int main(int argc, char *argv[]) {
         Float3 ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
-    Shader2D<Image<float>, Image<float>, float> hdr2ldr_shader = device.compile(hdr2ldr_kernel);
+    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     double t0 = clock.toc();
     uint spp_count = 0u;
     for (uint spp = 0u; spp < total_spp; spp += interval) {
@@ -254,4 +254,3 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0);
 }
-

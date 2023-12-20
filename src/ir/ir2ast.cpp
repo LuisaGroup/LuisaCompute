@@ -960,6 +960,9 @@ const Expression *IR2AST::_convert_instr_call(const ir::Node *node) noexcept {
 
         case ir::Func::Tag::IndirectDispatchSetCount: return builtin_func(2, CallOp::INDIRECT_SET_DISPATCH_COUNT);
         case ir::Func::Tag::IndirectDispatchSetKernel: return builtin_func(5, CallOp::INDIRECT_SET_DISPATCH_KERNEL);
+        case ir::Func::Tag::AddressOf: return builtin_func(1, CallOp::ADDRESS_OF);
+        case ir::Func::Tag::BufferAddress: return builtin_func(1, CallOp::BUFFER_ADDRESS);
+        case ir::Func::Tag::BindlessBufferAddress: return builtin_func(1, CallOp::BINDLESS_BUFFER_ADDRESS);
     }
     return nullptr;
 }

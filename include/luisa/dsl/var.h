@@ -218,4 +218,16 @@ using ArrayHalf3 = ArrayVar<half3, N>;
 template<size_t N>
 using ArrayHalf4 = ArrayVar<half4, N>;
 
+namespace detail {
+
+// Now Var<ulong> is defined and we can use it here.
+template<typename T>
+Var<ulong> RefEnableGetAddress<T>::address() const noexcept {
+    auto self = static_cast<const T *>(this);
+    return def<ulong>(FunctionBuilder::current()->call(
+        Type::of<ulong>(), CallOp::ADDRESS_OF, {self->expression()}));
+}
+
+}// namespace detail
+
 }// namespace luisa::compute
