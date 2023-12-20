@@ -1,8 +1,10 @@
 #include "Utils/Defer.hpp"
 #include "TypeDatabase.h"
 
-#include <luisa/dsl/sugar.h>
 #include <clang/AST/DeclTemplate.h>
+#include <clang/AST/ExprCXX.h>
+
+#include <luisa/dsl/sugar.h>
 
 namespace luisa::clangcxx {
 
@@ -59,13 +61,13 @@ TypeDatabase::TypeDatabase() {
 TypeDatabase::~TypeDatabase() {
 }
 
-bool TypeDatabase::registerType(clang::QualType Ty, const clang::ASTContext *astContext, const luisa::compute::Type *type) {
+bool TypeDatabase::registerType(clang::QualType Ty, const luisa::compute::Type *type) {
     auto name = GetNonQualifiedTypeName(Ty, astContext);
     type_map[name] = type;
     return true;
 }
 
-const luisa::compute::Type *TypeDatabase::findType(const clang::QualType Ty, const clang::ASTContext *astContext) {
+const luisa::compute::Type *TypeDatabase::findType(const clang::QualType Ty) {
     auto name = GetNonQualifiedTypeName(Ty, astContext);
     auto iter = type_map.find(name);
     if (iter != type_map.end()) {
@@ -74,7 +76,7 @@ const luisa::compute::Type *TypeDatabase::findType(const clang::QualType Ty, con
     return nullptr;
 }
 
-const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty, const clang::ASTContext *astContext) {
+const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty) {
     auto name = GetNonQualifiedTypeName(Ty, astContext);
     auto iter = type_map.find(name);
     if (iter != type_map.end()) {
@@ -222,7 +224,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsPrimitiveType(const clang::Qua
         // clang-format on
     }
     if (_type) {
-        registerType(Ty, astContext, _type);
+        registerType(Ty, _type);
     }
     return _type;
 }
@@ -294,7 +296,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                 auto &Arguments = TSD->getTemplateArgs();
                 clang::Expr::EvalResult Result;
                 auto N = Arguments.get(1).getAsIntegral().getLimitedValue();
-                if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), astContext)) {
+                if (auto lc_type = FindOrAddType(Arguments[0].getAsType())) {
                     _type = Type::array(lc_type, N);
                 } else {
                     luisa::log_error("unfound array element type: {}", Arguments[0].getAsType().getAsString());
@@ -315,7 +317,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         } else if (is_image || is_buffer || is_volume) {
             if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
                 auto &Arguments = TSD->getTemplateArgs();
-                if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), astContext)) {
+                if (auto lc_type = FindOrAddType(Arguments[0].getAsType())) {
                     if (is_buffer)
                         _type = Type::buffer(lc_type);
                     if (is_image)
@@ -340,7 +342,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         }
     }
     if (_type) {
-        registerType(Ty, astContext, _type);
+        registerType(Ty, _type);
     }
     return _type;
 }
@@ -348,7 +350,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
 const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::QualType Ty) {
     if (Ty->isUnionType())
         return nullptr;
-    else if (const luisa::compute::Type *_type = findType(Ty, astContext)) {
+    else if (const luisa::compute::Type *_type = findType(Ty)) {
         return _type;
     } else {
         auto S = GetRecordDeclFromQualType(Ty);
@@ -391,7 +393,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         }
         auto lc_type = Type::structure(alignment, types);
         QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
-        registerType(Ty, astContext, lc_type);
+        registerType(Ty, lc_type);
         return lc_type;
     }
 }
