@@ -36,6 +36,7 @@ int main(int argc, char *argv[]) {
     static constexpr uint height = 1080;
     Device device = context.create_device("dx", /*&config*/ nullptr);
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
+    // compile cxx shader
     {
         auto src_relative = "./../../src/tests/cxx_shaders/test." + kTestName + ".cpp";
         auto inc_relative = "./../../src/tests/cxx_shaders";
@@ -48,8 +49,13 @@ int main(int argc, char *argv[]) {
         compiler.create_shader(context, device, shader_path, include_path);
     }
     if (kTestRuntime) {
+        Callable linear_to_srgb = [&](Var<float3> x) noexcept {
+            return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+                                   12.92f * x,
+                                   x <= 0.00031308f));
+        };
         if (kTestName == "mandelbrot") {
-            auto shader = device.load_shader<2, Image<float>>("test.bin");
+            auto mandelbrot_shader = device.load_shader<2, Image<float>>("test.bin");
             auto texture = device.create_image<float>(PixelStorage::FLOAT4, width, height);
             Window window{"test func", uint2(width, height)};
             Swapchain swap_chain{device.create_swapchain(
@@ -59,11 +65,6 @@ int main(int argc, char *argv[]) {
                 false, false, 2)};
             auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), uint2(width, height));
 
-            Callable linear_to_srgb = [&](Var<float3> x) noexcept {
-                return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
-                                       12.92f * x,
-                                       x <= 0.00031308f));
-            };
             Kernel2D hdr2ldr_kernel = [&](ImageVar<float> hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
                 UInt2 coord = dispatch_id().xy();
                 Float4 hdr = hdr_image.read(coord);
@@ -74,27 +75,18 @@ int main(int argc, char *argv[]) {
                 ldr_image.write(coord, make_float4(ldr, 1.0f));
             };
             auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
-            auto blk_size = shader.block_size();
+
+            auto blk_size = mandelbrot_shader.block_size();
             LUISA_INFO("{}, {}, {}", blk_size.x, blk_size.y, blk_size.z);
             while (!window.should_close()) {
                 window.poll_events();
-                stream << shader(texture).dispatch(width, height)
+                stream << mandelbrot_shader(texture).dispatch(width, height)
                        << hdr2ldr_shader(texture, ldr_image, 1.0f, true).dispatch(width, height)
                        << swap_chain.present(ldr_image);
             }
         }
         if (kTestName == "rtx") {
-            std::array vertices{
-                float3(-0.5f, -0.5f, 0.0f),
-                float3(0.5f, -0.5f, 0.0f),
-                float3(0.0f, 0.5f, 0.0f)};
-            std::array indices{0u, 1u, 2u};
-
-            Callable linear_to_srgb = [](Var<float3> x) noexcept {
-                return select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
-                              12.92f * x,
-                              x <= 0.00031308f);
-            };
+            auto raytracing_shader = device.load_shader<2, Buffer<float4>, Accel, uint32_t>("test.bin");
 
             Kernel2D colorspace_kernel = [&](BufferFloat4 hdr_image, BufferUInt ldr_image) noexcept {
                 UInt i = dispatch_y() * dispatch_size_x() + dispatch_x();
@@ -102,9 +94,18 @@ int main(int argc, char *argv[]) {
                 UInt3 ldr = make_uint3(round(clamp(linear_to_srgb(hdr), 0.f, 1.f) * 255.0f));
                 ldr_image.write(i, ldr.x | (ldr.y << 8u) | (ldr.z << 16u) | (255u << 24u));
             };
+            auto colorspace_shader = device.compile(colorspace_kernel);
+
             Kernel1D set_transform_kernel = [&](AccelVar accel, Float4x4 matrix, UInt offset) noexcept {
                 accel.set_instance_transform(dispatch_id().x + offset, matrix);
             };
+            auto set_transform_shader = device.compile(set_transform_kernel);
+
+            std::array vertices{
+                float3(-0.5f, -0.5f, 0.0f),
+                float3(0.5f, -0.5f, 0.0f),
+                float3(0.0f, 0.5f, 0.0f)};
+            std::array indices{0u, 1u, 2u};
             Stream stream = device.create_stream();
             Buffer<float3> vertex_buffer = device.create_buffer<float3>(3u);
             Buffer<Triangle> triangle_buffer = device.create_buffer<Triangle>(1u);
@@ -116,24 +117,7 @@ int main(int argc, char *argv[]) {
             accel.emplace_back(mesh, scaling(1.5f));
             accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                          rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
-            stream << mesh.build()
-                   << accel.build();
-
-            auto colorspace_shader = device.compile(colorspace_kernel);
-            // auto raytracing_shader = device.compile(raytracing_kernel);
-            {
-                auto src_relative = "./../../src/tests/cxx_shaders/test.rtx.cpp";
-                auto inc_relative = "./../../src/tests/cxx_shaders";
-                auto shader_path = context.runtime_directory() / src_relative;
-                auto include_path = context.runtime_directory() / inc_relative;
-                auto compiler = luisa::clangcxx::Compiler(
-                    ShaderOption{
-                        .compile_only = true,
-                        .name = "test.bin"});
-                compiler.create_shader(context, device, shader_path, include_path);
-            }
-            auto raytracing_shader = device.load_shader<2, Buffer<float4>, Accel, uint32_t>("test.bin");
-            auto set_transform_shader = device.compile(set_transform_kernel);
+            stream << mesh.build() << accel.build();
 
             static constexpr uint width = 512u;
             static constexpr uint height = 512u;
@@ -166,6 +150,7 @@ int main(int argc, char *argv[]) {
                    << ldr_image.copy_to(pixels.data())
                    << synchronize();
             double time = clock.toc();
+
             LUISA_INFO("Time: {} ms", time);
             stbi_write_png("test_rtx.png", width, height, 4, pixels.data(), 0);
         }
