@@ -11,7 +11,8 @@ struct LC_CLANGCXX_API Compiler {
     compute::ShaderCreationInfo create_shader(
         compute::Context const &context,
         compute::Device &device,
-        const std::filesystem::path& shader_path) LUISA_NOEXCEPT;
+        const std::filesystem::path& shader_path,
+        const std::filesystem::path& include_path) LUISA_NOEXCEPT;
 
     compute::ShaderOption option;
 };

@@ -1,4 +1,4 @@
-#include "std.hpp"
+#include "luisa-shader/std.hpp"
 
 using namespace luisa::shader;
 

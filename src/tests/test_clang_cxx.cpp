@@ -10,14 +10,23 @@
 #include <luisa/gui/window.h>
 #include <luisa/runtime/swapchain.h>
 
+#include <iostream>
+
 using namespace luisa;
 using namespace luisa::compute;
 
 static bool kTestRuntime = false;
+static std::string kTestName = "lang";
 
 int main(int argc, char *argv[]) {
-    if (argc > 1) 
-        kTestRuntime = luisa::string(argv[1]) == "--with_runtime";
+    for (int i = 0; i < argc; i++)
+    {
+        auto argV = luisa::string(argv[i]);
+        kTestRuntime |= (argV == "--with_runtime");
+        auto _ = luisa::string("--test_name=");
+        if (argV.starts_with(_))
+            kTestName = argV.substr(_.size());
+    } 
 
     Context context{argv[0]};
     // DeviceConfig config{.headless = true};
@@ -26,12 +35,15 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device("dx", /*&config*/ nullptr);
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     {
-        auto shader_path = context.runtime_directory() / "./../../src/clangcxx/shader/test.lang.cpp";
+        auto src_relative = "./../../src/tests/cxx_shaders/test." + kTestName + ".cpp";
+        auto inc_relative = "./../../src/tests/cxx_shaders";
+        auto shader_path = context.runtime_directory() / src_relative;
+        auto include_path = context.runtime_directory() / inc_relative;
         auto compiler = luisa::clangcxx::Compiler(
             ShaderOption{
                 .compile_only = true,
                 .name = "test.bin"});
-        compiler.create_shader(context, device, shader_path);
+        compiler.create_shader(context, device, shader_path, include_path);
     }
     if (kTestRuntime)
     {

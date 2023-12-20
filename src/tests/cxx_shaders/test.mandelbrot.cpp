@@ -1,4 +1,4 @@
-#include "std.hpp"
+#include "luisa-shader/std.hpp"
 
 #ifndef MANDELBROT_OUTPUT_AS_IMAGE
 #define MANDELBROT_OUTPUT_AS_IMAGE 1

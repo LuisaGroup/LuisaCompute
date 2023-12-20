@@ -164,7 +164,7 @@ test_proj("test_cuda_dx_interop")
 test_proj("test_dml")
 test_proj("test_manual_ast")
 if  get_config("enable_clangcxx") then
-	test_proj("test_func_builder", true, function()
+	test_proj("test_clang_cxx", true, function()
 		add_deps("lc-clangcxx")
         set_pcxxheader("pch.h")
 	end)
