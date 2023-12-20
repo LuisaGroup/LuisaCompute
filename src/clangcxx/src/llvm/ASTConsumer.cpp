@@ -253,7 +253,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 current = lc_var;
                             }
                         }
-                    } else if (auto aliasDecl = dyn_cast<clang::TypeAliasDecl>(decl)) {// ignore
+                    } else if (auto aliasDecl = dyn_cast<clang::TypeAliasDecl>(decl)) {          // ignore
                     } else if (auto staticAssertDecl = dyn_cast<clang::StaticAssertDecl>(decl)) {// ignore
                     } else {
                         x->dump();
@@ -568,14 +568,18 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 } else {
                     auto _ = db->CommentStmt(fb, call);
                     auto calleeDecl = call->getCalleeDecl();
+                    auto funcDecl = calleeDecl->getAsFunction();
                     llvm::StringRef callopName = {};
                     llvm::StringRef binopName = {};
+                    llvm::StringRef exprName = {};
                     bool isAccess = false;
                     for (auto attr : calleeDecl->specific_attrs<clang::AnnotateAttr>()) {
                         if (callopName.empty())
                             callopName = getCallopName(attr);
                         if (binopName.empty())
                             binopName = getBinopName(attr);
+                        if (exprName.empty())
+                            exprName = getExprName(attr);
                         isAccess |= luisa::clangcxx::isAccess(attr);
                     }
                     // args
@@ -603,59 +607,67 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext))) {
                             current = fb->access(lcReturnType, lc_args[0], lc_args[1]);
                         }
+                    } else if (!exprName.empty()) {
+                        if (exprName == "dispatch_id")
+                            current = fb->dispatch_id();
+                        else if (exprName == "block_id")
+                            current = fb->block_id();
+                        else if (exprName == "thread_id")
+                            current = fb->thread_id();
+                        else if (exprName == "dispatch_size")
+                            current = fb->dispatch_size();
+                        else if (exprName == "kernel_id")
+                            current = fb->kernel_id();
+                        else if (exprName == "warp_lane_count")
+                            current = fb->warp_lane_count();
+                        else if (exprName == "warp_lane_id")
+                            current = fb->warp_lane_id();
+                        else if (exprName == "bit_cast")
+                        {
+                            auto lcReturnType = db->FindOrAddType(funcDecl->getReturnType());
+                            current = fb->cast(lcReturnType, luisa::compute::CastOp::BITWISE, lc_args[0]);
+                        }
                     } else if (!callopName.empty()) {
-                        auto op_or_builtin = db->FindCallOp(callopName);
-                        switch (op_or_builtin.index()) {
-                            case 0: {
-                                CallOp op = luisa::get<0>(op_or_builtin);
+                        auto op = db->FindCallOp(callopName);
+                        const bool isHit = (op == CallOp::RAY_QUERY_COMMITTED_HIT);
 
-                                const bool isHit = (op == CallOp::RAY_QUERY_COMMITTED_HIT);
+                        const bool isQueryAny = (op == CallOp::RAY_TRACING_QUERY_ANY);
+                        const bool isQueryAll = (op == CallOp::RAY_TRACING_QUERY_ALL);
+                        const bool isQuery = isQueryAny || isQueryAll;
 
-                                const bool isQueryAny = (op == CallOp::RAY_TRACING_QUERY_ANY);
-                                const bool isQueryAll = (op == CallOp::RAY_TRACING_QUERY_ALL);
-                                const bool isQuery = isQueryAny || isQueryAll;
+                        if (isHit) {
+                            auto _stmt = stack->queries.back();
+                            stack->queries.pop_back();
+                            auto tvar = def<CommittedHit>(fb->call(Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT, {_stmt->query()}));
+                            current = tvar.expression();
+                        } else if (isQuery) {
+                            const luisa::compute::Type *rq_type = nullptr;
+                            if (isQueryAny)
+                                rq_type = Type::of<luisa::compute::detail::RayQueryProxy<true>>();
+                            else if (isQueryAll)
+                                rq_type = Type::of<luisa::compute::detail::RayQueryProxy<false>>();
 
-                                if (isHit) {
-                                    auto _stmt = stack->queries.back();
-                                    stack->queries.pop_back();
-                                    auto tvar = def<CommittedHit>(fb->call(Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT, {_stmt->query()}));
-                                    current = tvar.expression();
-                                } else if (isQuery) {
-                                    const luisa::compute::Type *rq_type = nullptr;
-                                    if (isQueryAny)
-                                        rq_type = Type::of<luisa::compute::detail::RayQueryProxy<true>>();
-                                    else if (isQueryAll)
-                                        rq_type = Type::of<luisa::compute::detail::RayQueryProxy<false>>();
+                            auto local = fb->local(rq_type);
+                            auto rq_stmt = fb->call(rq_type, op, lc_args);
+                            fb->assign(local, rq_stmt);
+                            current = local;
 
-                                    auto local = fb->local(rq_type);
-                                    auto rq_stmt = fb->call(rq_type, op, lc_args);
-                                    fb->assign(local, rq_stmt);
-                                    current = local;
-
-                                    auto ctrl_stmt = fb->ray_query_(local);
-                                    stack->queries.emplace_back(ctrl_stmt);
-                                } else {
-                                    if (call->getCallReturnType(*astContext)->isVoidType())
-                                        fb->call(op, lc_args);
-                                    else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext))) {
-                                        auto ret_value = fb->local(lcReturnType);
-                                        fb->assign(ret_value, fb->call(lcReturnType, op, lc_args));
-                                        current = ret_value;
-                                    } else
-                                        luisa::log_error(
-                                            "unfound return type: {}",
-                                            call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
-                                }
-                            } break;
-                            case 1: {
-                                auto builtin_func = luisa::get<1>(op_or_builtin);
-                                current = builtin_func(fb.get());
-                            } break;
+                            auto ctrl_stmt = fb->ray_query_(local);
+                            stack->queries.emplace_back(ctrl_stmt);
+                        } else {
+                            if (call->getCallReturnType(*astContext)->isVoidType())
+                                fb->call(op, lc_args);
+                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext))) {
+                                auto ret_value = fb->local(lcReturnType);
+                                fb->assign(ret_value, fb->call(lcReturnType, op, lc_args));
+                                current = ret_value;
+                            } else
+                                luisa::log_error(
+                                    "unfound return type: {}",
+                                    call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
                         }
                     } else {
-                        auto calleeDecl = call->getCalleeDecl();
                         // TODO: REFACTOR THIS
-                        auto funcDecl = calleeDecl->getAsFunction();
                         auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
                         const auto isTemplateInstant = funcDecl->isTemplateInstantiation();
                         const auto isLambda = methodDecl && methodDecl->getParent()->isLambda();

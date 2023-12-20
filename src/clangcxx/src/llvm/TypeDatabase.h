@@ -4,10 +4,6 @@
 namespace luisa::clangcxx {
 
 struct TypeDatabase {
-    using BuiltinCallCmd = luisa::variant<
-        luisa::compute::CallOp,
-        const compute::RefExpr *(*)(compute::detail::FunctionBuilder *)>;
-
     TypeDatabase();
     ~TypeDatabase();
 
@@ -17,7 +13,7 @@ struct TypeDatabase {
     const luisa::compute::Type *RecordType(const clang::QualType Ty);
 
     const luisa::compute::Type *FindOrAddType(const clang::QualType Ty);
-    BuiltinCallCmd FindCallOp(const luisa::string_view &name);
+    luisa::compute::CallOp FindCallOp(const luisa::string_view &name);
     luisa::compute::BinaryOp FindBinOp(const luisa::string_view &name);
 
     [[nodiscard]] void SetASTContext(clang::ASTContext *ctx) { astContext = ctx; }
@@ -37,7 +33,7 @@ protected:
 
     clang::ASTContext *astContext = nullptr;
     vstd::HashMap<vstd::string, luisa::compute::BinaryOp> bin_ops_map;
-    vstd::HashMap<vstd::string, BuiltinCallCmd> call_ops_map;
+    vstd::HashMap<vstd::string, luisa::compute::CallOp> call_ops_map;
     luisa::unordered_map<luisa::string, const luisa::compute::Type *> type_map;
 
 public:

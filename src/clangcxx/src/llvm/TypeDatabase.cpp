@@ -34,21 +34,6 @@ TypeDatabase::TypeDatabase() {
         const auto op = (CallOp)i;
         call_ops_map.emplace(luisa::to_string(op), op);
     }
-#define LC_CLANGCXX_REG_BUILTIN(_func_name)                                              \
-    call_ops_map.emplace(                                                                \
-        #_func_name,                                                                     \
-        [](compute::detail::FunctionBuilder *func_builder) -> const compute::RefExpr * { \
-            return func_builder->_func_name();                                           \
-        });
-    LC_CLANGCXX_REG_BUILTIN(dispatch_id)
-    LC_CLANGCXX_REG_BUILTIN(dispatch_size)
-    LC_CLANGCXX_REG_BUILTIN(block_id)
-    LC_CLANGCXX_REG_BUILTIN(thread_id)
-    LC_CLANGCXX_REG_BUILTIN(kernel_id)
-    LC_CLANGCXX_REG_BUILTIN(warp_lane_count)
-    LC_CLANGCXX_REG_BUILTIN(warp_lane_id)
-    LC_CLANGCXX_REG_BUILTIN(object_id)
-#undef LC_CLANGCXX_REG_BUILTIN
 
     constexpr auto bin_op_count = to_underlying(BinaryOp::NOT_EQUAL) + 1u;
     bin_ops_map.reserve(bin_op_count);
@@ -90,7 +75,7 @@ const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty
     return nullptr;
 }
 
-auto TypeDatabase::FindCallOp(const luisa::string_view &name) -> BuiltinCallCmd {
+auto TypeDatabase::FindCallOp(const luisa::string_view &name) -> luisa::compute::CallOp {
     auto iter = call_ops_map.find(name);
     if (iter) {
         return iter.value();

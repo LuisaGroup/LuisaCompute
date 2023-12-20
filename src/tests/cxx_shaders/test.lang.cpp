@@ -77,8 +77,21 @@ struct TestDtor {
 };
 */
 
+auto TestBuiltinExprs()
+{
+    float3 did = dispatch_id();
+    float3 bid = block_id();
+    float3 tid = thread_id();
+    float3 ds = dispatch_size();
+    float kid = kernel_id();
+    float wlc = warp_lane_count();
+    float wli = warp_lane_id();
+    return did.x + bid.x + tid.x + ds.x + kid + wlc + wli;
+}
+
 auto TestCast() {
     int i = 5;
+    const auto fx = bit_cast<float>(i);
     const auto f0 = (float)i;
     const auto f1 = float(i);
     const auto f2 = static_cast<float>(i);
@@ -230,7 +243,7 @@ auto TestVecOp() {
 
 auto TestSwizzle() {
     float4 FFFF = float4(1.f, 2.f, 3.f, 4.f);
-    
+
     static_assert(sizeof(FFFF.x) == sizeof(float));
     static_assert(sizeof(FFFF.xx) == sizeof(float2));
     static_assert(sizeof(FFFF.xxx) == sizeof(float3));
@@ -350,6 +363,8 @@ auto TestVector() {
 
     // unary ops
     int iii = nvidia.i = TestUnary();
+
+    nvidia.f += TestBuiltinExprs();
 
     // casts
     nvidia.f += TestCast();
