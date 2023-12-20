@@ -3,47 +3,42 @@
 
 namespace luisa::shader {
 
-template<typename ET, typename T = ET>
-union [[swizzle]] Swizzle {
-    [[bypass]] operator T &();
-    [[bypass]] T &operator()();
-    [[bypass]] operator T() const;
-    [[bypass]] T operator()() const;
+namespace detail {
+    template<typename ET, uint32 N, typename T = vec<ET, N>>
+    union [[swizzle]] Swizzle {
+        [[bypass]] operator T &();
+        [[bypass]] T &operator()();
+        [[bypass]] operator T() const;
+        [[bypass]] T operator()() const;
 
-    union U {
-        ET EMIT_ERROR;
-    } SHOULD_NEVER_SCAN_THIS;
-};
+        union U {
+            ET EMIT_ERROR;
+        } SHOULD_NEVER_SCAN_THIS;
+    };
+    template<typename T>
+    union [[swizzle]] Swizzle<T, 1, T> {
+        [[bypass]] operator T &();
+        [[bypass]] T &operator()();
+        [[bypass]] operator T() const;
+        [[bypass]] T operator()() const;
 
-template<typename ET, typename T = vec<ET, 2>>
-union [[swizzle]] Swizzle2 {
-    [[bypass]] operator T &();
-    [[bypass]] T &operator()();
+        union U {
+            T EMIT_ERROR;
+        } SHOULD_NEVER_SCAN_THIS;
+    };
+}
 
-    union U {
-        ET EMIT_ERROR;
-    } SHOULD_NEVER_SCAN_THIS;
-};
+template<typename ET>
+using Swizzle = detail::Swizzle<ET, 1, ET>;
 
-template<typename ET, typename T = vec<ET, 3>>
-union [[swizzle]] Swizzle3 {
-    [[bypass]] operator T &();
-    [[bypass]] T &operator()();
+template<typename ET>
+using Swizzle2 = detail::Swizzle<ET, 2>;
 
-    union U {
-        ET EMIT_ERROR;
-    } SHOULD_NEVER_SCAN_THIS;
-};
+template<typename ET>
+using Swizzle3 = detail::Swizzle<ET, 3>;
 
-template<typename ET, typename T = vec<ET, 4>>
-union [[swizzle]] Swizzle4 {
-    [[bypass]] operator T &();
-    [[bypass]] T &operator()();
-
-    union U {
-        ET EMIT_ERROR;
-    } SHOULD_NEVER_SCAN_THIS;
-};
+template<typename ET>
+using Swizzle4 = detail::Swizzle<ET, 4>;
 
 template<typename T, uint64 N>
 struct [[builtin("vec")]] vec;

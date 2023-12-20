@@ -525,7 +525,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         auto swizzleText = cxxField->getName();
                         const auto swizzleType = cxxField->getType().getDesugaredType(*astContext);
                         if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(swizzleType->getAs<clang::RecordType>()->getDecl())) {
-                            const auto cxxResultType = TSD->getTemplateArgs().get(1).getAsType();
+                            const auto cxxResultType = TSD->getTemplateArgs().get(2).getAsType();
                             if (auto lcResultType = db->FindOrAddType(cxxResultType)) {
                                 uint64_t swizzle_code = 0u;
                                 uint64_t swizzle_seq[] = {0u, 0u, 0u, 0u}; /*4*/
