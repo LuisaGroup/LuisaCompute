@@ -289,7 +289,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 auto lcExpr = stack->expr_map[substNonType->getReplacement()];
                 current = lcExpr;
             } else if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
-                current = fb->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
+                auto limitedVal = il->getValue().getLimitedValue();
+                if (limitedVal <= UINT32_MAX)
+                    current = fb->literal(Type::of<uint>(), (uint)il->getValue().getLimitedValue());
+                else
+                    current = fb->literal(Type::of<uint64>(), il->getValue().getLimitedValue());
             } else if (auto bl = llvm::dyn_cast<CXXBoolLiteralExpr>(x)) {
                 current = fb->literal(Type::of<bool>(), (bool)bl->getValue());
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {

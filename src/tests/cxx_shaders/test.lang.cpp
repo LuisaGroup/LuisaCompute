@@ -328,7 +328,10 @@ auto TestVector() {
 [[kernel_2d(32, 32)]] int kernel(Buffer<NVIDIA> &buffer, Buffer<float4> &buffer2, Buffer<float4> &mandelbrot_out, Accel &accel) {
     // member assign
     NVIDIA nvidia = NVIDIA();
-    int i = nvidia.ix = is_floatN<int4>::value;
+    uint32 i0 = 4294967294;
+    uint32 i01 = 4294967295u;
+    int32 i03 = -94967;
+    int i = nvidia.ix = is_floatN<int4>::value + i01 + i0 + i03;
 
     // copy 
     NVIDIA nvidia2 = nvidia;
