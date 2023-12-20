@@ -58,7 +58,7 @@ struct [[builtin("vec")]] vec {
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == N)
     [[ignore]] explicit vec(Args &&...args);
-    
+
     union 
     {
         T zz_V[N];
@@ -74,6 +74,9 @@ struct alignas(8) [[builtin("vec")]] vec<T, 2> {
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 2)
     [[ignore]] explicit vec(Args &&...args);
+
+    template <typename U>
+    [[ignore]] operator vec<U, 2>();
 
     #include "vec_ops/ops.inl"
 
@@ -94,6 +97,9 @@ struct alignas(16) [[builtin("vec")]] vec<T, 3> {
         requires(sum_dim<0ull, Args...>() == 3)
     [[ignore]] explicit vec(Args &&...args);
 
+    template <typename U>
+    [[ignore]] operator vec<U, 3>();
+
     #include "vec_ops/ops.inl"
 
     union 
@@ -112,6 +118,9 @@ struct alignas(16) [[builtin("vec")]] vec<T, 4> {
     template<typename... Args>
         requires(sum_dim<0ull, Args...>() == 4)
     [[ignore]] explicit vec(Args &&...args);
+
+    template <typename U>
+    [[ignore]] operator vec<U, 4>();
 
     #include "vec_ops/ops.inl"
 

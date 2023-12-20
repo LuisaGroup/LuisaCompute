@@ -784,6 +784,8 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
             if (thisType->isLambda())// ignore global lambda declares, we deal them on stacks only
                 is_lambda = true;
 
+            is_ignore |= (Method->isImplicit() && Method->isCopyAssignmentOperator());
+            is_ignore |= (Method->isImplicit() && Method->isMoveAssignmentOperator());
             is_template |= (thisType->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
         } else {
             luisa::log_error("unfound this type [{}] in method [{}]",

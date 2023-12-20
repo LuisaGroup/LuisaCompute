@@ -330,6 +330,10 @@ auto TestVector() {
     NVIDIA nvidia = NVIDIA();
     int i = nvidia.ix = is_floatN<int4>::value;
 
+    // copy 
+    NVIDIA nvidia2 = nvidia;
+    nvidia2 = nvidia;
+
     // binary ops
     int ii = nvidia.i = TestBinary();
 
