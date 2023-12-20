@@ -45,6 +45,9 @@ compute::ShaderCreationInfo Compiler::create_shader(
         std::move(output_arg),
         "--",
         "-std=c++20",
+        // swizzle uses reference member in union 
+        "-fms-extensions",
+        "-Wno-microsoft-union-member-reference",
         std::move(include_arg)};
     luisa::vector<const char *> args;
     args.reserve(args_holder.size());

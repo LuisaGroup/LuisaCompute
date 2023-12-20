@@ -229,17 +229,25 @@ auto TestVecOp() {
 }
 
 auto TestSwizzle() {
+    float4 FFFF = float4(1.f, 2.f, 3.f, 4.f);
+    static_assert(sizeof(FFFF.x) == sizeof(float));
+    static_assert(sizeof(FFFF.xx) == sizeof(float2));
+    static_assert(sizeof(FFFF.xxx) == sizeof(float3));
+    static_assert(sizeof(FFFF.xxxx) == sizeof(float4));
+    static_assert(sizeof(float2) == 2 * sizeof(float));
+    static_assert(sizeof(float3) == 4 * sizeof(float));
+    static_assert(sizeof(float4) == 4 * sizeof(float));
+
     float2 d = float2(1.f, 1.f);
     float dx = d.x;
     float dx2 = d.y;
     float2 dd = d.xy;
     float2 dd2 = d.yx;
     float dx3 = dd.y + dd2.x;
-    float4 FFFF = float4(1.f, 2.f, 3.f, 4.f);
     float3 FFF = FFFF.wxz;
     float2 FF = FFF.zy;
     FF.x += 2.f;
-    float dx4 = FF.x;
+    auto dx4 = FF.x;
     return dx + dx2 + dx3 + dx4;
 }
 
@@ -301,15 +309,13 @@ auto TestIgnoreReturn(float &f) {
 
 template<typename T, uint32 StackSize>
 struct FixedVector {
-    uint32 capacity() const { return StackSize; }
-    uint32 size() const { return size_; }
-    T emplace_back(T v) {
-        auto &slot = a.access_(size_);
-        slot = v;
+    [[nodiscard]] uint32 capacity() const { return StackSize; }
+    [[nodiscard]] uint32 size() const { return size_; }
+    void emplace_back(T v) {
+        a.set(size_, v);
         size_ += 1;
-        return slot;
     }
-    T get(uint32 i) const { return a.get(i); }
+    [[nodiscard]] T get(uint32 i) const { return a.get(i); }
 private:
     uint32 size_ = 0;
     Array<T, StackSize> a;
@@ -317,10 +323,10 @@ private:
 
 auto TestVector() {
     FixedVector<float, 32> fs;
-    float sum = fs.emplace_back(1.f);
-    fs.emplace_back(12);
-    fs.emplace_back(12.0);
+    fs.emplace_back(1.f);
+    fs.emplace_back(12.f);
     fs.emplace_back(3.f);
+    float sum = 0.f;
     for (int i = 0; i < fs.size(); i++)
         sum += fs.get(i);
     return sum;

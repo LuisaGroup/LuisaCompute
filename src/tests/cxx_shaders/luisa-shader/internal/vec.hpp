@@ -3,43 +3,6 @@
 
 namespace luisa::shader {
 
-namespace detail {
-    template<typename ET, uint32 N, typename T = vec<ET, N>>
-    union [[swizzle]] Swizzle {
-        [[bypass]] operator T &();
-        [[bypass]] T &operator()();
-        [[bypass]] operator T() const;
-        [[bypass]] T operator()() const;
-
-        union U {
-            ET EMIT_ERROR;
-        } SHOULD_NEVER_SCAN_THIS;
-    };
-    template<typename T>
-    union [[swizzle]] Swizzle<T, 1, T> {
-        [[bypass]] operator T &();
-        [[bypass]] T &operator()();
-        [[bypass]] operator T() const;
-        [[bypass]] T operator()() const;
-
-        union U {
-            T EMIT_ERROR;
-        } SHOULD_NEVER_SCAN_THIS;
-    };
-}
-
-template<typename ET>
-using Swizzle = detail::Swizzle<ET, 1, ET>;
-
-template<typename ET>
-using Swizzle2 = detail::Swizzle<ET, 2>;
-
-template<typename ET>
-using Swizzle3 = detail::Swizzle<ET, 3>;
-
-template<typename ET>
-using Swizzle4 = detail::Swizzle<ET, 4>;
-
 template<typename T, uint64 N>
 struct [[builtin("vec")]] vec;
 

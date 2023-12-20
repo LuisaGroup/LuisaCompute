@@ -241,9 +241,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
                     if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                         auto Ty = varDecl->getType();
-                        if (isSwizzle(varDecl))
-                            luisa::log_error("can not use auto type to deduct swizzles!");
-
                         if (auto lc_type = db->FindOrAddType(Ty)) {
                             auto lc_var = fb->local(lc_type);
                             stack->locals[varDecl] = lc_var;
@@ -397,12 +394,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                     current = fb->local(lcArrayType);
                                 else if (cxxCtor->isConvertingConstructor(true))
                                     current = fb->cast(lcArrayType, CastOp::STATIC, lc_args[1]);
-                                else if (cxxCtor->isCopyOrMoveConstructor())
-                                {
+                                else if (cxxCtor->isCopyOrMoveConstructor()) {
                                     fb->assign(lc_args[0], lc_args[1]);
                                     current = lc_args[0];
-                                }
-                                else
+                                } else
                                     luisa::log_error("unhandled array constructor: {}", cxxCtor->getNameAsString());
                             }
                         } else {
@@ -523,30 +518,26 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 } else if (auto cxxField = llvm::dyn_cast<FieldDecl>(cxxMember->getMemberDecl())) {
                     if (isSwizzle(cxxField)) {
                         auto swizzleText = cxxField->getName();
-                        const auto swizzleType = cxxField->getType().getDesugaredType(*astContext);
-                        if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(swizzleType->getAs<clang::RecordType>()->getDecl())) {
-                            const auto cxxResultType = TSD->getTemplateArgs().get(2).getAsType();
-                            if (auto lcResultType = db->FindOrAddType(cxxResultType)) {
-                                uint64_t swizzle_code = 0u;
-                                uint64_t swizzle_seq[] = {0u, 0u, 0u, 0u}; /*4*/
-                                int64_t swizzle_size = 0;
-                                for (auto iter = swizzleText.begin(); iter != swizzleText.end(); iter++) {
-                                    if (*iter == 'x') swizzle_seq[swizzle_size] = 0u;
-                                    if (*iter == 'y') swizzle_seq[swizzle_size] = 1u;
-                                    if (*iter == 'z') swizzle_seq[swizzle_size] = 2u;
-                                    if (*iter == 'w') swizzle_seq[swizzle_size] = 3u;
-                                    swizzle_size += 1;
-                                }
-                                // encode swizzle code
-                                for (int64_t cursor = swizzle_size - 1; cursor >= 0; cursor--) {
-                                    swizzle_code <<= 4;
-                                    swizzle_code |= swizzle_seq[cursor];
-                                }
-                                auto lhs = stack->expr_map[cxxMember->getBase()];
-                                current = fb->swizzle(lcResultType, lhs, swizzle_size, swizzle_code);
+                        const auto swizzleType = cxxField->getType().getDesugaredType(*astContext).getNonReferenceType();
+                        if (auto lcResultType = db->FindOrAddType(swizzleType)) {
+                            uint64_t swizzle_code = 0u;
+                            uint64_t swizzle_seq[] = {0u, 0u, 0u, 0u}; /*4*/
+                            int64_t swizzle_size = 0;
+                            for (auto iter = swizzleText.begin(); iter != swizzleText.end(); iter++) {
+                                if (*iter == 'x') swizzle_seq[swizzle_size] = 0u;
+                                if (*iter == 'y') swizzle_seq[swizzle_size] = 1u;
+                                if (*iter == 'z') swizzle_seq[swizzle_size] = 2u;
+                                if (*iter == 'w') swizzle_seq[swizzle_size] = 3u;
+                                swizzle_size += 1;
                             }
-                        } else
-                            luisa::log_error("!!!");
+                            // encode swizzle code
+                            for (int64_t cursor = swizzle_size - 1; cursor >= 0; cursor--) {
+                                swizzle_code <<= 4;
+                                swizzle_code |= swizzle_seq[cursor];
+                            }
+                            auto lhs = stack->expr_map[cxxMember->getBase()];
+                            current = fb->swizzle(lcResultType, lhs, swizzle_size, swizzle_code);
+                        }
                     } else {
                         auto lhs = stack->expr_map[cxxMember->getBase()];
                         const auto lcMemberType = db->FindOrAddType(cxxField->getType());
@@ -570,7 +561,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     llvm::StringRef callopName = {};
                     llvm::StringRef binopName = {};
                     bool isAccess = false;
-                    for (auto attr : calleeDecl->specific_attrs<clang::AnnotateAttr>()){
+                    for (auto attr : calleeDecl->specific_attrs<clang::AnnotateAttr>()) {
                         if (callopName.empty())
                             callopName = getCallopName(attr);
                         if (binopName.empty())
@@ -814,8 +805,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
 
     if (!is_ignore) {
         // S->dump();
-        if (S->getReturnType()->isReferenceType())
-        {
+        if (S->getReturnType()->isReferenceType()) {
             S->dump();
             luisa::log_error("return ref is not supportted now!");
         }

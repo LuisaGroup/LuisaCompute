@@ -54,8 +54,8 @@ auto rand(uint32 f, uint2 p) {
 }
 
 [[kernel_2d(16, 16)]] int kernel(Buffer<float4> &buffer, Accel &accel, uint32 frame_index) {
-    uint2 coord = dispatch_id().xy;
-    uint2 size = dispatch_size().xy;
+    auto coord = dispatch_id().xy;
+    auto size = dispatch_size().xy;
     auto p = (float2(coord) + rand(frame_index, coord)) / (float2(size));
     p = p * 2.0f - 1.0f;
     auto color = float3(0.3f, 0.5f, 0.7f);
