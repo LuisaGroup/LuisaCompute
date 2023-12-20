@@ -22,8 +22,9 @@ requires(vec_dim<T>::value == vec_dim<B>::value)
 [[callop("SELECT")]] extern T select(T false_v, T true_v, B bool_v);
 template<arithmetic T>
 [[callop("CLAMP")]] extern T clamp(T v, T min_v, T max_v);
-template<floatN T>
-[[callop("LERP")]] extern T lerp(T left_v, T right_v, T step);
+template<floatN T, floatN B>
+requires(vec_dim<T>::value == vec_dim<B>::value || vec_dim<B>::value == 1)
+[[callop("LERP")]] extern T lerp(T left_v, T right_v, B step);
 template<floatN T>
 [[callop("SMOOTHSTEP")]] extern T smoothstep(T left_v, T right_v, T step);
 template<floatN T>

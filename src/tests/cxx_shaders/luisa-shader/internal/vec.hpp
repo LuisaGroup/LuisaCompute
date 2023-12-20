@@ -4,85 +4,69 @@
 namespace luisa::shader {
 
 template<typename ET, typename T = ET>
-union [[swizzle]] Swizzle
-{
-    [[bypass]] operator T&();
-    [[bypass]] T& operator()();
+union [[swizzle]] Swizzle {
+    [[bypass]] operator T &();
+    [[bypass]] T &operator()();
     [[bypass]] operator T() const;
     [[bypass]] T operator()() const;
 
-    union U{
+    union U {
         ET EMIT_ERROR;
     } SHOULD_NEVER_SCAN_THIS;
 };
 
 template<typename ET, typename T = vec<ET, 2>>
-union [[swizzle]] Swizzle2
-{
-    [[bypass]] operator T&();
-    [[bypass]] T& operator()();
-    
-    union U{
+union [[swizzle]] Swizzle2 {
+    [[bypass]] operator T &();
+    [[bypass]] T &operator()();
+
+    union U {
         ET EMIT_ERROR;
     } SHOULD_NEVER_SCAN_THIS;
 };
 
 template<typename ET, typename T = vec<ET, 3>>
-union [[swizzle]] Swizzle3
-{
-    [[bypass]] operator T&();
-    [[bypass]] T& operator()();
-    
-    union U{
+union [[swizzle]] Swizzle3 {
+    [[bypass]] operator T &();
+    [[bypass]] T &operator()();
+
+    union U {
         ET EMIT_ERROR;
     } SHOULD_NEVER_SCAN_THIS;
 };
 
 template<typename ET, typename T = vec<ET, 4>>
-union [[swizzle]] Swizzle4
-{
-    [[bypass]] operator T&();
-    [[bypass]] T& operator()();
+union [[swizzle]] Swizzle4 {
+    [[bypass]] operator T &();
+    [[bypass]] T &operator()();
 
-    union U{
+    union U {
         ET EMIT_ERROR;
     } SHOULD_NEVER_SCAN_THIS;
 };
 
 template<typename T, uint64 N>
-struct [[builtin("vec")]] vec {
-    using ThisType = vec<T, N>;
+struct [[builtin("vec")]] vec;
 
-    [[ignore]] vec() noexcept = default;
-
-    template<typename... Args>
-        requires(sum_dim<0ull, Args...>() == N)
-    [[ignore]] explicit vec(Args &&...args);
-
-    union 
-    {
-        T zz_V[N];
-    };
-};
-
+[[ignore]] consteval bool legal_ctor(size_t count, size_t dim) {
+    return count == 1 || count == dim;
+}
 template<typename T>
 struct alignas(8) [[builtin("vec")]] vec<T, 2> {
     using ThisType = vec<T, 2>;
 
     [[ignore]] vec() noexcept = default;
-    
-    template<typename... Args>
-        requires(sum_dim<0ull, Args...>() == 2)
-    [[ignore]] explicit vec(Args &&...args);
 
+    template<typename... Args>
+        requires(legal_ctor(sum_dim<0ull, Args...>(), 2))
+    [[ignore]] explicit vec(Args &&...args);
     template <typename U>
     [[ignore]] operator vec<U, 2>();
 
     #include "vec_ops/ops.inl"
 
-    union 
-    {
-        #include "vec_ops/swizzle2.inl"
+    union {
+#include "vec_ops/swizzle2.inl"
         T zz_V[2];
     };
 };
@@ -94,17 +78,15 @@ struct alignas(16) [[builtin("vec")]] vec<T, 3> {
     [[ignore]] vec() noexcept = default;
 
     template<typename... Args>
-        requires(sum_dim<0ull, Args...>() == 3)
+        requires(legal_ctor(sum_dim<0ull, Args...>(), 3))
     [[ignore]] explicit vec(Args &&...args);
 
     template <typename U>
     [[ignore]] operator vec<U, 3>();
 
     #include "vec_ops/ops.inl"
-
-    union 
-    {
-        #include "vec_ops/swizzle3.inl"
+    union {
+#include "vec_ops/swizzle3.inl"
         T zz_V[3];
     };
 };
@@ -116,30 +98,27 @@ struct alignas(16) [[builtin("vec")]] vec<T, 4> {
     [[ignore]] vec() noexcept = default;
 
     template<typename... Args>
-        requires(sum_dim<0ull, Args...>() == 4)
+        requires(legal_ctor(sum_dim<0ull, Args...>(), 4))
     [[ignore]] explicit vec(Args &&...args);
 
     template <typename U>
     [[ignore]] operator vec<U, 4>();
 
     #include "vec_ops/ops.inl"
-
-    union 
-    {
-        #include "vec_ops/swizzle4.inl"
+    union {
+#include "vec_ops/swizzle4.inl"
         T zz_V[4];
     };
 };
 
-template <typename T, uint64 N>
-[[binop("ADD")]] vec<T, N> operator+(T,  vec<T, N>);
+template<typename T, uint64 N>
+[[binop("ADD")]] vec<T, N> operator+(T, vec<T, N>);
 
-template <typename T, uint64 N>
-[[binop("MUL")]] vec<T, N> operator*(T,  vec<T, N>);
+template<typename T, uint64 N>
+[[binop("MUL")]] vec<T, N> operator*(T, vec<T, N>);
 
-template <typename...T>
-auto make_vector(T... ts)
-{
+template<typename... T>
+auto make_vector(T... ts) {
     return vec<typename element_of<T...>::type, sum_dim_v<T...>>(ts...);
 }
 
@@ -162,4 +141,4 @@ using bool2 = vec<bool, 2>;
 using bool3 = vec<bool, 3>;
 using bool4 = vec<bool, 4>;
 
-}; // namespace luisa::shader
+};// namespace luisa::shader
