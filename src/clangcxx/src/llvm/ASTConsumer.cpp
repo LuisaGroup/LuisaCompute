@@ -595,7 +595,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     // call
                     if (!binopName.empty()) {
-                        auto lc_binop = db->FindBinOp(binopName.data());
+                        auto lc_binop = db->FindBinOp(binopName);
                         if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext)))
                             current = fb->binary(lcReturnType, lc_binop, lc_args[0], lc_args[1]);
                     } else if (isAccess) {
