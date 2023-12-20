@@ -23,6 +23,28 @@ auto halton(uint32 i, uint32 b) {
     };
     return r;
 }
+auto lcg(uint32 &state) {
+    const uint32 lcg_a = 1664525u;
+    const uint32 lcg_c = 1013904223u;
+    state = lcg_a * state + lcg_c;
+    return static_cast<float>(state & 0x00ffffffu) *
+           (1.0f / static_cast<float>(0x01000000u));
+}
+
+template<basic_type T, boolN B>
+    requires(vec_dim<T>::value == vec_dim<B>::value || vec_dim<B>::value == 1)
+extern T ite(B bool_v, T true_v, T false_v) {
+    return select(false_v, true_v, bool_v);
+}
+
+auto make_onb(float3 &normal) {
+    // auto ff = abs(normal.x);
+    // float3 binormal = normalize(ite(
+    //     abs(normal.x) > abs(normal.z),
+    //         float3(-normal.y, normal.x, 0.0f),
+    //         float3(0.0f, -normal.z, normal.y))
+    // );
+}
 
 auto rand(uint32 f, uint2 p) {
     auto i = tea(p.x, p.y) + f;
@@ -39,8 +61,7 @@ auto rand(uint32 f, uint2 p) {
     auto color = float3(0.3f, 0.5f, 0.7f);
     Ray ray{float3(p * float2(1.0f, -1.0f), 1.0f), float3(0.0f, 0.0f, -1.0f), 0.0f, 1e10f};
     auto hit = accel.trace_closest(ray, 255u);
-    if(!hit.miss())
-     {
+    if (!hit.miss()) {
         float3 red = float3(1.0f, 0.0f, 0.0f);
         float3 green = float3(0.0f, 1.0f, 0.0f);
         float3 blue = float3(0.0f, 0.0f, 1.0f);

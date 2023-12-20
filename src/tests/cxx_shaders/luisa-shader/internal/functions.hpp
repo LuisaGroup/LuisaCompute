@@ -18,7 +18,7 @@ template <boolN T>
 template <boolN T> 
 [[callop("ANY")]] extern bool any(T x);
 template <basic_type T, boolN B>
-requires(vec_dim<T>::value == vec_dim<B>::value)
+requires(vec_dim<T>::value == vec_dim<B>::value || vec_dim<B>::value == 1)
 [[callop("SELECT")]] extern T select(T false_v, T true_v, B bool_v);
 template<arithmetic T>
 [[callop("CLAMP")]] extern T clamp(T v, T min_v, T max_v);
@@ -30,7 +30,7 @@ template<floatN T>
 template<floatN T>
 [[callop("SATURATE")]] extern T saturate(T v);
 template<typename T>
-requires(is_floatN<T>::value || is_intN<T>::value)
+requires(is_float_family<T>::value || is_sint_family<T>::value)
 [[callop("ABS")]] extern T abs(T v);
 template<arithmetic T>
 [[callop("MIN")]] extern T min(T v);
@@ -159,13 +159,13 @@ template <floatN T>
 template <arithmetic T>
 [[callop("WARP_ACTIVE_ALL_EQUAL")]] vec<bool, vec_dim<T>::value> warp_active_all_equal();
 template <typename T>
-requires(is_intN<T>::value && is_uintN<T>::value)
+requires(is_sint_family<T>::value && is_uint_family<T>::value)
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T warp_active_bit_and(T v);
 template <typename T>
-requires(is_intN<T>::value && is_uintN<T>::value)
+requires(is_sint_family<T>::value && is_uint_family<T>::value)
 [[callop("WARP_ACTIVE_BIT_OR")]] extern T warp_active_bit_or(T v);
 template <typename T>
-requires(is_intN<T>::value && is_uintN<T>::value)
+requires(is_sint_family<T>::value && is_uint_family<T>::value)
 [[callop("WARP_ACTIVE_BIT_XOR")]] extern T warp_active_bit_xor(T v);
 [[callop("WARP_ACTIVE_COUNT_BITS")]] extern uint32 warp_active_count_bits(bool val);
 template <arithmetic T>

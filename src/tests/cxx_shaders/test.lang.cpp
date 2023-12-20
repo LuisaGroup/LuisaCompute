@@ -37,10 +37,10 @@ struct Template {
     Template(T v)
         : value(v), value2(v) {}
     void call() {
-        if constexpr (is_floatN<T>::value) {
+        if constexpr (is_float_family<T>::value) {
             value = 2.f;
             value2 = 2.f;
-        } else if constexpr (is_intN<T>::value) {
+        } else if constexpr (is_sint_family<T>::value) {
             value = 0;
             value2 = 0;
         }
@@ -163,9 +163,9 @@ auto TestBranch() {
         return 2.f;
     else
         return 3.f;
-    if constexpr (is_floatN<float4>::value)
+    if constexpr (is_float_family<float4>::value)
         return 4.f;
-    else if constexpr (is_floatN<int4>::value)
+    else if constexpr (is_float_family<int4>::value)
         return 5.f;
     else
         return 6.f;
@@ -332,7 +332,7 @@ auto TestVector() {
     uint32 i0 = 4294967294;
     uint32 i01 = 4294967295u;
     int32 i03 = -94967;
-    int i = nvidia.ix = is_floatN<int4>::value + i01 + i0 + i03;
+    int i = nvidia.ix = is_float_family<int4>::value + i01 + i0 + i03;
 
     // copy 
     NVIDIA nvidia2 = nvidia;

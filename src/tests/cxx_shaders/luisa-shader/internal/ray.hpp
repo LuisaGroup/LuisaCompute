@@ -71,7 +71,7 @@ struct TriangleHit {
         return inst != 4294967295u;
     }
     template<typename T>
-        requires(is_floatN<T>::value)
+        requires(is_float_family<T>::value)
     T interpolate(T a, T b, T c) {
         return T(1.0f - bary.x - bary.y) * a + T(bary.x) * b + T(bary.y) * c;
     }

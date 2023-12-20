@@ -49,39 +49,26 @@ struct vec;
 
 template<uint64 N>
 struct matrix;
+template<typename T>
+trait is_float_family { static constexpr bool value = is_same_v<T, float> | is_same_v<T, double> | is_same_v<T, half>; };
+template<typename T>
+trait is_sint_family { static constexpr bool value = is_same_v<T, int16> | is_same_v<T, int32> | is_same_v<T, int64>; };
+template<typename T>
+trait is_uint_family { static constexpr bool value = is_same_v<T, uint16> | is_same_v<T, uint32> | is_same_v<T, uint64>;};
+template<typename T>
+trait is_bool_family { static constexpr bool value = is_same_v<T, bool>; };
 
-template<typename T>
-trait is_floatN { static constexpr bool value = false; };
-template<typename T>
-trait is_intN { static constexpr bool value = false; };
-template<typename T>
-trait is_uintN { static constexpr bool value = false; };
-template<typename T>
-trait is_boolN { static constexpr bool value = false; };
-template<> trait is_floatN<float> { static constexpr bool value = true; };
-template<> trait is_floatN<half> { static constexpr bool value = true; };
-template<> trait is_floatN<double> { static constexpr bool value = true; };
-template<> trait is_intN<int16> { static constexpr bool value = true; };
-template<> trait is_intN<int32> { static constexpr bool value = true; };
-template<> trait is_intN<int64> { static constexpr bool value = true; };
-template<> trait is_uintN<uint16> { static constexpr bool value = true; };
-template<> trait is_uintN<uint32> { static constexpr bool value = true; };
-template<> trait is_uintN<uint64> { static constexpr bool value = true; };
-template<> trait is_boolN<bool> { static constexpr bool value = true; };
-template<uint64 N> trait is_boolN<vec<bool, N>> { static constexpr bool value = true; };
-
-template<uint64 N> trait is_floatN<vec<half, N>> { static constexpr bool value = true; };
-template<uint64 N> trait is_floatN<vec<float, N>> { static constexpr bool value = true; };
-template<uint64 N> trait is_floatN<vec<double, N>> { static constexpr bool value = true; };
-template<uint64 N> trait is_intN<vec<int16, N>> { static constexpr bool value = true; };
-template<uint64 N> trait is_intN<vec<int32, N>> { static constexpr bool value = true; };
-template<uint64 N> trait is_intN<vec<int64, N>> { static constexpr bool value = true; };
-template<uint64 N> trait is_uintN<vec<uint16, N>> { static constexpr bool value = true; };
-template<uint64 N> trait is_uintN<vec<uint32, N>> { static constexpr bool value = true; };
-template<uint64 N> trait is_uintN<vec<uint64, N>> { static constexpr bool value = true; };
+template<typename T, size_t N>
+trait is_float_family<vec<T, N>> { static constexpr bool value = is_same_v<T, float> | is_same_v<T, double> | is_same_v<T, half>; };
+template<typename T, size_t N>
+trait is_sint_family<vec<T, N>> { static constexpr bool value = is_same_v<T, int16> | is_same_v<T, int32> | is_same_v<T, int64>; };
+template<typename T, size_t N>
+trait is_uint_family<vec<T, N>> { static constexpr bool value = is_same_v<T, uint16> | is_same_v<T, uint32> | is_same_v<T, uint64>;};
+template<typename T, size_t N>
+trait is_bool_family<vec<T, N>> { static constexpr bool value = is_same_v<T, bool>; };
 
 template <typename T>
-trait is_arithmetic{ static constexpr bool value = is_floatN<T>::value || is_boolN<T>::value || is_intN<T>::value || is_uintN<T>::value; };
+trait is_arithmetic{ static constexpr bool value = is_float_family<T>::value || is_bool_family<T>::value || is_sint_family<T>::value || is_uint_family<T>::value; };
 template <typename T>
 trait is_arithmetic_scalar { static constexpr bool value = false;};
 template <>
@@ -100,16 +87,16 @@ template <>
 trait is_arithmetic_scalar<int64>{ static constexpr bool value = true;};
 
 template<typename T>
-concept floatN = is_floatN<typename remove_cvref<T>::type>::value;
+concept floatN = is_float_family<typename remove_cvref<T>::type>::value;
 
 template<typename T>
-concept boolN = is_boolN<typename remove_cvref<T>::type>::value;
+concept boolN = is_bool_family<typename remove_cvref<T>::type>::value;
 
 template<typename T>
-concept intN = is_intN<typename remove_cvref<T>::type>::value;
+concept intN = is_sint_family<typename remove_cvref<T>::type>::value;
 
 template<typename T>
-concept uintN = is_uintN<typename remove_cvref<T>::type>::value;
+concept uintN = is_uint_family<typename remove_cvref<T>::type>::value;
 
 template<typename T>
 concept arithmetic = is_arithmetic<T>::value;
