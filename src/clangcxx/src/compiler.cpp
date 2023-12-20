@@ -29,14 +29,15 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute:
 
 compute::ShaderCreationInfo Compiler::create_shader(
     compute::Context const &context,
-    luisa::compute::Device &device) LUISA_NOEXCEPT {
-    auto shader_path = luisa::to_string(context.runtime_directory() / "./../../src/clangcxx/shader/test.lang.cpp");
-    auto output_path = luisa::to_string(context.runtime_directory() / "./../../src/clangcxx/shader");
-    output_path = "--output=" + output_path;
-    luisa::vector<luisa::string> args_holder = {
+    luisa::compute::Device &device,
+    const std::filesystem::path& shader_path) LUISA_NOEXCEPT {
+    auto output_path = context.runtime_directory() / "./../../src/clangcxx/shader";
+    auto output_arg = output_path.string();
+    output_arg = "--output=" + output_arg;
+    luisa::vector<std::string> args_holder = {
         "luisa_compiler",
-        std::move(shader_path),
-        std::move(output_path),
+        std::move(shader_path.string()),
+        std::move(output_arg),
         "--",
         "-std=c++20"};
     luisa::vector<const char *> args;

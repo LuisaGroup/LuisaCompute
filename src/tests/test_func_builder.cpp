@@ -26,11 +26,12 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device("dx", /*&config*/ nullptr);
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     {
+        auto shader_path = context.runtime_directory() / "./../../src/clangcxx/shader/test.lang.cpp";
         auto compiler = luisa::clangcxx::Compiler(
             ShaderOption{
                 .compile_only = true,
                 .name = "test.bin"});
-        compiler.create_shader(context, device);
+        compiler.create_shader(context, device, shader_path);
     }
     if (kTestRuntime)
     {

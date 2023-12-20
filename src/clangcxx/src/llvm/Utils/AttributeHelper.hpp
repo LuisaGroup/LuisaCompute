@@ -2,9 +2,20 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/Expr.h"
+#include <luisa/core/dll_export.h>
+#include <luisa/vstl/common.h>
 #include <luisa/core/logging.h>
+#include <luisa/runtime/device.h>
 
 namespace luisa::clangcxx {
+
+static constexpr auto kUseComment = true;
+
+using CXXBinOp = clang::BinaryOperator::Opcode;
+using LCBinOp = luisa::compute::BinaryOp;
+using CXXUnaryOp = clang::UnaryOperator::Opcode;
+using LCUnaryOp = luisa::compute::UnaryOp;
+
 inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, bool isRestrict = true) {
     clang::RecordDecl *recordDecl = Ty->getAsRecordDecl();
     if (!recordDecl) {

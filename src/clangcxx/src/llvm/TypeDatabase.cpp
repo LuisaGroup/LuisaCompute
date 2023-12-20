@@ -1,13 +1,12 @@
-#include "ASTConsumer.h"
-#include "defer.hpp"
-#include "AttributeHelpers.hpp"
-#include <luisa/vstl/common.h>
+#include "Utils/Defer.hpp"
+#include "TypeDatabase.h"
+
 #include <luisa/dsl/sugar.h>
+#include <clang/AST/DeclTemplate.h>
 
 namespace luisa::clangcxx {
 
 using namespace clang;
-using namespace clang::ast_matchers;
 using namespace luisa::compute;
 
 inline static void Remove(luisa::string &str, const luisa::string &remove_str) {
@@ -24,7 +23,7 @@ inline static luisa::string GetNonQualifiedTypeName(clang::QualType type, const 
     return baseName;
 }
 
-CXXBlackboard::CXXBlackboard() {
+TypeDatabase::TypeDatabase() {
     using namespace luisa;
     using namespace luisa::compute;
 
@@ -57,16 +56,16 @@ CXXBlackboard::CXXBlackboard() {
     }
 }
 
-CXXBlackboard::~CXXBlackboard() {
+TypeDatabase::~TypeDatabase() {
 }
 
-bool CXXBlackboard::registerType(clang::QualType Ty, const clang::ASTContext *astContext, const luisa::compute::Type *type) {
+bool TypeDatabase::registerType(clang::QualType Ty, const clang::ASTContext *astContext, const luisa::compute::Type *type) {
     auto name = GetNonQualifiedTypeName(Ty, astContext);
     type_map[name] = type;
     return true;
 }
 
-const luisa::compute::Type *CXXBlackboard::findType(const clang::QualType Ty, const clang::ASTContext *astContext) {
+const luisa::compute::Type *TypeDatabase::findType(const clang::QualType Ty, const clang::ASTContext *astContext) {
     auto name = GetNonQualifiedTypeName(Ty, astContext);
     auto iter = type_map.find(name);
     if (iter != type_map.end()) {
@@ -75,7 +74,7 @@ const luisa::compute::Type *CXXBlackboard::findType(const clang::QualType Ty, co
     return nullptr;
 }
 
-const luisa::compute::Type *CXXBlackboard::FindOrAddType(const clang::QualType Ty, const clang::ASTContext *astContext) {
+const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty, const clang::ASTContext *astContext) {
     auto name = GetNonQualifiedTypeName(Ty, astContext);
     auto iter = type_map.find(name);
     if (iter != type_map.end()) {
@@ -89,7 +88,7 @@ const luisa::compute::Type *CXXBlackboard::FindOrAddType(const clang::QualType T
     return nullptr;
 }
 
-auto CXXBlackboard::FindCallOp(const luisa::string_view &name) -> BuiltinCallCmd {
+auto TypeDatabase::FindCallOp(const luisa::string_view &name) -> BuiltinCallCmd {
     auto iter = call_ops_map.find(name);
     if (iter) {
         return iter.value();
@@ -98,7 +97,7 @@ auto CXXBlackboard::FindCallOp(const luisa::string_view &name) -> BuiltinCallCmd
     return CallOp::ASIN;
 }
 
-auto CXXBlackboard::FindBinOp(const luisa::string_view &name) -> luisa::compute::BinaryOp {
+auto TypeDatabase::FindBinOp(const luisa::string_view &name) -> luisa::compute::BinaryOp {
     auto iter = bin_ops_map.find(name);
     if (iter) {
         return iter.value();
@@ -107,14 +106,14 @@ auto CXXBlackboard::FindBinOp(const luisa::string_view &name) -> luisa::compute:
     return luisa::compute::BinaryOp::ADD;
 }
 
-void CXXBlackboard::commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
+void TypeDatabase::commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
     const auto &SM = astContext->getSourceManager();
     auto RawLocString = loc.printToString(SM);
     luisa::string fmt = prefix + ", at {}";
     fb->comment_(luisa::format(fmt, RawLocString.data()));
 }
 
-CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt *x) {
+TypeDatabase::Commenter TypeDatabase::CommentStmt_(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt *x) {
     if (kUseComment) {
         if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
             return Commenter(
@@ -183,7 +182,7 @@ CXXBlackboard::Commenter CXXBlackboard::CommentStmt_(luisa::shared_ptr<compute::
     return {[]() {}, []() {}};
 }
 
-const luisa::compute::Type *CXXBlackboard::RecordAsPrimitiveType(const clang::QualType Ty) {
+const luisa::compute::Type *TypeDatabase::RecordAsPrimitiveType(const clang::QualType Ty) {
     const luisa::compute::Type *_type = nullptr;
     if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
         // clang-format off
@@ -228,7 +227,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsPrimitiveType(const clang::Qu
     return _type;
 }
 
-const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty) {
+const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty) {
     const luisa::compute::Type *_type = nullptr;
     bool ext_builtin = false;
     llvm::StringRef builtin_type_name = {};
@@ -346,7 +345,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsBuiltinType(const QualType Ty
     return _type;
 }
 
-const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::QualType Ty) {
+const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::QualType Ty) {
     if (Ty->isUnionType())
         return nullptr;
     else if (const luisa::compute::Type *_type = findType(Ty, astContext)) {
@@ -397,7 +396,7 @@ const luisa::compute::Type *CXXBlackboard::RecordAsStuctureType(const clang::Qua
     }
 }
 
-const luisa::compute::Type *CXXBlackboard::RecordType(const clang::QualType Qt) {
+const luisa::compute::Type *TypeDatabase::RecordType(const clang::QualType Qt) {
     const luisa::compute::Type *_type = nullptr;
     clang::QualType Ty = Qt.getNonReferenceType().getDesugaredType(*astContext);
 
@@ -438,7 +437,7 @@ const luisa::compute::Type *CXXBlackboard::RecordType(const clang::QualType Qt) 
     return _type;
 }
 
-bool CXXBlackboard::tryEmplaceFieldType(const clang::QualType Qt, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types) {
+bool TypeDatabase::tryEmplaceFieldType(const clang::QualType Qt, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types) {
     if (auto _type = RecordType(Qt)) {
         types.emplace_back(_type);
         return true;
