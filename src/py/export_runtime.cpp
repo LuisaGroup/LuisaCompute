@@ -675,7 +675,7 @@ void export_runtime(py::module &m) {
         .def("accel", &FunctionBuilder::accel, pyref)
 
         .def(
-            "literal", [](FunctionBuilder &self, const Type *type, luisa::compute::detail::LiteralValueVariant value) {
+            "literal", [](FunctionBuilder &self, const Type *type, const luisa::compute::detail::LiteralValueVariant &value) {
                 return luisa::visit(
                     [&self, type]<typename T>(T v) {
                         // we do not allow conversion between vector/matrix/bool types
