@@ -278,7 +278,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         current = fb->literal(Type::of<int>(), (int)ce->getResultAsAPSInt().getLimitedValue());
                         break;
                     case clang::APValue::ValueKind::Float:
-                        current = fb->literal(Type::of<float>(), (float)APV.getFloat().convertToFloat());
+                        current = fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
                         break;
                     default:
                         luisa::log_error("unsupportted ConstantExpr APValueKind {}", APK);
@@ -297,7 +297,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto bl = llvm::dyn_cast<CXXBoolLiteralExpr>(x)) {
                 current = fb->literal(Type::of<bool>(), (bool)bl->getValue());
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
-                current = fb->literal(Type::of<float>(), (float)fl->getValue().convertToFloat());
+                current = fb->literal(Type::of<float>(), (float)fl->getValue().convertToDouble());
             } else if (auto cxxCtorCall = llvm::dyn_cast<CXXConstructExpr>(x)) {
                 auto _ = db->CommentStmt(fb, cxxCtorCall);
 
@@ -471,7 +471,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             if (eval->isInt())
                                 current = fb->literal(Type::of<int>(), (int)eval->getInt().getLimitedValue());
                             else if (eval->isFloat())
-                                current = fb->literal(Type::of<float>(), (float)eval->getFloat().convertToFloat());
+                                current = fb->literal(Type::of<float>(), (float)eval->getFloat().convertToDouble());
                             else
                                 luisa::log_error("unsupportted eval type: {}", eval->getKind());
                         } else {

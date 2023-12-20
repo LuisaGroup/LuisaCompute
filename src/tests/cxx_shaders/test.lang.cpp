@@ -318,7 +318,8 @@ private:
 auto TestVector() {
     FixedVector<float, 32> fs;
     float sum = fs.emplace_back(1.f);
-    fs.emplace_back(12.f);
+    fs.emplace_back(12);
+    fs.emplace_back(12.0);
     fs.emplace_back(3.f);
     for (int i = 0; i < fs.size(); i++)
         sum += fs.get(i);
