@@ -675,7 +675,7 @@ void export_runtime(py::module &m) {
         .def("accel", &FunctionBuilder::accel, pyref)
 
         .def(
-            "literal", [](FunctionBuilder &self, const Type *type, LiteralExpr::Value value) {
+            "literal", [](FunctionBuilder &self, const Type *type, luisa::compute::detail::LiteralValueVariant value) {
                 return luisa::visit(
                     [&self, type]<typename T>(T v) {
                         // we do not allow conversion between vector/matrix/bool types
@@ -711,7 +711,7 @@ void export_runtime(py::module &m) {
                             "Cannot convert literal value {} to type {}.",
                             v, type->description());
                     },
-                    value);
+                    LiteralExpr::Value{value});
             },
             pyref)
         .def("unary", &FunctionBuilder::unary, pyref)
