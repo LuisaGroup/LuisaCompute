@@ -4,6 +4,9 @@
 
 namespace luisa::compute {
 
+template<typename T>
+struct Var;
+
 inline namespace dsl {
 /// Assign rhs to lhs
 template<typename Lhs, typename Rhs>
@@ -56,6 +59,12 @@ struct RefEnableGetMemberByIndex {
     }
 };
 
+template<typename T>
+struct RefEnableGetAddress {
+    // see definition in var.h as we need to specialize Var<ulong> for address()
+    [[nodiscard]] Var<ulong> address() const noexcept;
+};
+
 /// Ref class common definition
 #define LUISA_REF_COMMON(...)                                              \
 private:                                                                   \
@@ -79,7 +88,8 @@ public:                                                                    \
 template<typename T>
 struct Ref
     : detail::ExprEnableStaticCast<Ref<T>>,
-      detail::ExprEnableBitwiseCast<Ref<T>> {
+      detail::ExprEnableBitwiseCast<Ref<T>>,
+      detail::RefEnableGetAddress<Ref<T>> {
     static_assert(concepts::scalar<T>);
     LUISA_REF_COMMON(T)
     template<size_t i>
@@ -94,7 +104,8 @@ template<typename T, size_t N>
 struct Ref<std::array<T, N>>
     : detail::ExprEnableBitwiseCast<Ref<std::array<T, N>>>,
       detail::RefEnableSubscriptAccess<Ref<std::array<T, N>>>,
-      detail::RefEnableGetMemberByIndex<Ref<std::array<T, N>>> {
+      detail::RefEnableGetMemberByIndex<Ref<std::array<T, N>>>,
+      detail::RefEnableGetAddress<Ref<std::array<T, N>>> {
     LUISA_REF_COMMON(std::array<T, N>)
 };
 
@@ -103,7 +114,8 @@ template<typename T, size_t N>
 struct Ref<T[N]>
     : detail::ExprEnableBitwiseCast<Ref<T[N]>>,
       detail::RefEnableSubscriptAccess<Ref<T[N]>>,
-      detail::RefEnableGetMemberByIndex<Ref<T[N]>> {
+      detail::RefEnableGetMemberByIndex<Ref<T[N]>>,
+      detail::RefEnableGetAddress<Ref<T[N]>> {
     LUISA_REF_COMMON(T[N])
 };
 
@@ -112,7 +124,8 @@ template<size_t N>
 struct Ref<Matrix<N>>
     : detail::ExprEnableBitwiseCast<Ref<Matrix<N>>>,
       detail::RefEnableSubscriptAccess<Ref<Matrix<N>>>,
-      detail::RefEnableGetMemberByIndex<Ref<Matrix<N>>> {
+      detail::RefEnableGetMemberByIndex<Ref<Matrix<N>>>,
+      detail::RefEnableGetAddress<Ref<Matrix<N>>> {
     LUISA_REF_COMMON(Matrix<N>)
 };
 
@@ -134,7 +147,8 @@ struct Ref<Vector<T, 2>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 2>>>,
       detail::ExprEnableBitwiseCast<Ref<Vector<T, 2>>>,
       detail::RefEnableSubscriptAccess<Ref<Vector<T, 2>>>,
-      detail::RefEnableGetMemberByIndex<Ref<Vector<T, 2>>> {
+      detail::RefEnableGetMemberByIndex<Ref<Vector<T, 2>>>,
+      detail::RefEnableGetAddress<Ref<Vector<T, 2>>> {
     LUISA_REF_COMMON(Vector<T, 2>)
     Var<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Var<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
@@ -147,7 +161,8 @@ struct Ref<Vector<T, 3>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 3>>>,
       detail::ExprEnableBitwiseCast<Ref<Vector<T, 3>>>,
       detail::RefEnableSubscriptAccess<Ref<Vector<T, 3>>>,
-      detail::RefEnableGetMemberByIndex<Ref<Vector<T, 3>>> {
+      detail::RefEnableGetMemberByIndex<Ref<Vector<T, 3>>>,
+      detail::RefEnableGetAddress<Ref<Vector<T, 3>>> {
     LUISA_REF_COMMON(Vector<T, 3>)
     Var<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Var<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};
@@ -161,7 +176,8 @@ struct Ref<Vector<T, 4>>
     : detail::ExprEnableStaticCast<Ref<Vector<T, 4>>>,
       detail::ExprEnableBitwiseCast<Ref<Vector<T, 4>>>,
       detail::RefEnableSubscriptAccess<Ref<Vector<T, 4>>>,
-      detail::RefEnableGetMemberByIndex<Ref<Vector<T, 4>>> {
+      detail::RefEnableGetMemberByIndex<Ref<Vector<T, 4>>>,
+      detail::RefEnableGetAddress<Ref<Vector<T, 4>>> {
     LUISA_REF_COMMON(Vector<T, 4>)
     Var<T> x{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x0u)};
     Var<T> y{detail::FunctionBuilder::current()->swizzle(Type::of<T>(), this->expression(), 1u, 0x1u)};

@@ -170,6 +170,8 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
     ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
+    ADDRESS_OF, // (expr) -> uint64
+
     BUFFER_READ,   /// [(buffer, index) -> value]: reads the index-th element in buffer
     BUFFER_WRITE,  /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
     BUFFER_SIZE,   /// [(buffer) -> size]

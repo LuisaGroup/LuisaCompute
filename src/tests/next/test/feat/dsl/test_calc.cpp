@@ -39,7 +39,7 @@ int test_calc(Device &device) {
     stream << mat_buf.copy_from(mat.data());
     stream << synchronize();
 
-    Shader1D<Buffer<float2>, Buffer<float2x2>, Buffer<float2>> shader = device.compile(mat_vert_prod);
+    auto shader = device.compile(mat_vert_prod);
     stream << shader(vert_buf, mat_buf, out_buf).dispatch(10u);
     stream << synchronize();
 

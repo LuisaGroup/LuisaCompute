@@ -49,7 +49,7 @@ int test_buffer_view(Device &device, size_t literal_size, size_t align_size = 4)
         };
     };
 
-    Shader1D<Buffer<T_FloatX>> selfadd = device.compile(selfadd_kernel);
+    auto selfadd = device.compile(selfadd_kernel);
     stream << selfadd(view).dispatch(n);
     stream << synchronize();
 

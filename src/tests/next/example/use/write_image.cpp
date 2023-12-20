@@ -29,7 +29,7 @@ int write_image(Device &device, luisa::string filename = "write_image.png") {
         Var uv = (make_float2(coord) + 0.5f) / make_float2(size);
         image->write(coord, make_float4(uv, 0.5f, 1.0f));
     };
-    Shader2D<> shader = device.compile(kernel);
+    auto shader = device.compile(kernel);
     stream << shader().dispatch(resolution)
            << image.copy_to(host_image.data())
            << synchronize();
@@ -38,16 +38,15 @@ int write_image(Device &device, luisa::string filename = "write_image.png") {
 }
 }// namespace luisa::test
 
-
 TEST_SUITE("example") {
     TEST_CASE("write_image") {
         Context context{luisa::test::argv()[0]};
-       
+
         for (auto i = 0; i < luisa::test::backends_to_test_count(); i++) {
             luisa::string device_name = luisa::test::backends_to_test()[i];
             SUBCASE(device_name.c_str()) {
                 Device device = context.create_device(device_name.c_str());
-                REQUIRE(luisa::test::write_image(device, "write_image_"+device_name+".png") == 0);
+                REQUIRE(luisa::test::write_image(device, "write_image_" + device_name + ".png") == 0);
             }
         }
     }

@@ -298,7 +298,7 @@ int main(int argc, char *argv[]) {
     Kernel2D clear_kernel = [](ImageVar<float> image) {
         image.write(dispatch_id().xy(), make_float4(0, 0, 0, 0));
     };
-    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel);
+    auto clear_shader = device.compile(clear_kernel);
     ///////////////////////////// Path Tracing
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;

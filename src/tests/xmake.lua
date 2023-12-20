@@ -127,6 +127,7 @@ test_proj("test_path_tracing_camera", true)
 test_proj("test_path_tracing_cutout", true)
 test_proj("test_photon_mapping", true)
 test_proj("test_printer")
+test_proj("test_printer_custom_callback")
 test_proj("test_procedural")
 test_proj("test_rtx")
 test_proj("test_runtime", true)
@@ -170,6 +171,7 @@ if get_config("cuda_ext_lcub") then
 end
 
 local enable_fsr2
+-- local enable_fsr3 = true
 local enable_fsr3
 local enable_xess
 -- Super-sampling example

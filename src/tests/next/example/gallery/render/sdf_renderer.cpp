@@ -185,7 +185,7 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
 
     LUISA_INFO("Recorded AST in {} ms.", clock.toc());
 
-    Shader2D<Image<uint>, Image<float>, uint> render = device.compile(render_kernel);
+    auto render = device.compile(render_kernel);
 
     static constexpr uint width = 1280u;
     static constexpr uint height = 720u;
@@ -220,7 +220,7 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
         Float3 ldr = linear_to_srgb(hdr.xyz() / hdr.w * scale);
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
-    Shader2D<Image<float>, Image<float>, float> hdr2ldr_shader = device.compile(hdr2ldr_kernel);
+    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     double t0 = clock.toc();
     uint spp_count = 0u;
     for (uint spp = 0u; spp < total_spp; spp += interval) {
@@ -256,8 +256,7 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
 }
 }// namespace luisa::test
 
-
 TEST_SUITE("gallary") {
     LUISA_TEST_CASE_WITH_DEVICE("sdf_renderer",
-        luisa::test::sdf_renderer(device, "sdf_renderer_" + device_name + ".png") == 0);
+                                luisa::test::sdf_renderer(device, "sdf_renderer_" + device_name + ".png") == 0);
 }

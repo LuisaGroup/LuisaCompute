@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
         Float2 uv = (make_float2(coord) + 0.5f) / make_float2(dispatch_size().xy());
         ldr_image->write(coord, make_float4(uv, sin(time) * 0.5f + 0.5f, 1.f));
     };
-    Shader2D<float> shader = device.compile(kernel);
+    auto shader = device.compile(kernel);
 
     Clock clk;
     clk.tic();

@@ -591,21 +591,23 @@ public:
                         readback_buffer.offset,
                         {reinterpret_cast<uint8_t *>(data.data()), data.size()});
                 auto printers = shader->Printers();
-                auto ptr = data.data();
-                auto end = ptr + data.size();
-                while (ptr < end) {
-                    uint flagTypeIdx = *reinterpret_cast<uint32_t *>(ptr);
-                    ptr += sizeof(uint);
+                size_t offset = 0;
+                const auto ptr = data.data();
+                const auto end = data.size();
+                while (offset < end) {
+                    uint flagTypeIdx = *reinterpret_cast<uint32_t *>(ptr + offset);
                     auto &type = printers[flagTypeIdx];
                     ShaderPrintFormatter formatter{type.first, type.second, false};
                     luisa::string result;
-                    formatter(result, {ptr, type.second->size()});
-                    ptr += type.second->size();
+                    auto align = std::max<size_t>(4, type.second->alignment());
+                    formatter(result, {ptr + offset + align, type.second->size()});
+                    size_t ele_size = align + type.second->size();
+                    ele_size = ((ele_size + 15ull) & (~15ull));
+                    offset += ele_size;
                     if (logger) [[likely]] {
                         (*logger)(result);
                     }
                 }
-                // while(reinterpret_cast<size_t>(ptr) < reinterpret_cast<size_t>())
             });
         }
     }

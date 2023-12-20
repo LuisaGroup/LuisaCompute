@@ -24,13 +24,23 @@ namespace luisa::compute {
 namespace detail {
 #ifndef NDEBUG
 static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
-                                           VkDebugUtilsMessageTypeFlagsEXT /* types */,
+                                           VkDebugUtilsMessageTypeFlagsEXT types,
                                            const VkDebugUtilsMessengerCallbackDataEXT *data,
                                            void * /* user data */) noexcept {
     if (severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-        LUISA_WARNING("Vulkan Validation Error: {}", data->pMessage);
+        LUISA_WARNING("Vulkan Validation Error (ID = {}): {}",
+                      data->pMessageIdName, data->pMessage);
     } else {
-        LUISA_WARNING("Vulkan Validation Warning: {}", data->pMessage);
+        auto is_image_layout_warning = [&]() noexcept {
+            using namespace std::string_view_literals;
+            constexpr auto name = "UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout"sv;
+            return (types & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) &&
+                   data->pMessageIdName == name;
+        };
+        if (!is_image_layout_warning()) {
+            LUISA_WARNING("Vulkan Validation Message (ID = {}): {}",
+                          data->pMessageIdName, data->pMessage);
+        }
     }
     return VK_FALSE;
 }
