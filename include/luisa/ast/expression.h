@@ -290,20 +290,26 @@ using LiteralValueVariant = make_literal_value_t<basic_types>;
 
 struct LiteralValue : LiteralValueVariant {
 
+    using variant_type = LiteralValueVariant;
+
     LiteralValue() noexcept = default;
 
     template<typename T>
-    LiteralValue(T &&x) noexcept : LiteralValueVariant{std::forward<T>(x)} {}
+    LiteralValue(T &&x) noexcept : variant_type{std::forward<T>(x)} {}
 
     template<typename T>
         requires std::same_as<std::remove_cvref_t<T>, long>
     LiteralValue(T &&x) noexcept
-        : LiteralValueVariant{static_cast<canonical_c_long>(x)} {}
+        : variant_type{static_cast<canonical_c_long>(x)} {}
 
     template<typename T>
         requires std::same_as<std::remove_cvref_t<T>, unsigned long>
     LiteralValue(T &&x) noexcept
-        : LiteralValueVariant{static_cast<canonical_c_ulong>(x)} {}
+        : variant_type{static_cast<canonical_c_ulong>(x)} {}
+
+    [[nodiscard]] auto to_variant() const noexcept {
+        return static_cast<const variant_type &>(*this);
+    }
 };
 
 }// namespace detail
