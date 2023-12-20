@@ -13,6 +13,9 @@ namespace luisa::shader {
 [[expr("kernel_id")]] extern uint32 kernel_id();
 [[expr("warp_lane_count")]] extern uint32 warp_lane_count();
 [[expr("warp_lane_id")]] extern uint32 warp_lane_id();
+template<arithmetic T, arithmetic U>
+[[expr("bit_cast")]] extern T bit_cast(U v);
+
 template <boolN T> 
 [[callop("ALL")]] extern bool all(T x);
 template <boolN T> 

@@ -230,6 +230,7 @@ auto TestVecOp() {
 
 auto TestSwizzle() {
     float4 FFFF = float4(1.f, 2.f, 3.f, 4.f);
+    
     static_assert(sizeof(FFFF.x) == sizeof(float));
     static_assert(sizeof(FFFF.xx) == sizeof(float2));
     static_assert(sizeof(FFFF.xxx) == sizeof(float3));

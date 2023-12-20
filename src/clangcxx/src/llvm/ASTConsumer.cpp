@@ -254,6 +254,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             }
                         }
                     } else if (auto aliasDecl = dyn_cast<clang::TypeAliasDecl>(decl)) {// ignore
+                    } else if (auto staticAssertDecl = dyn_cast<clang::StaticAssertDecl>(decl)) {// ignore
                     } else {
                         x->dump();
                         luisa::log_error("unsupported decl stmt: {}", cxxDecl->getStmtClassName());
@@ -408,6 +409,15 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         luisa::log_error("unfound constructor: {}", cxxCtor->getNameAsString());
                     }
                 }
+            } else if (auto unary_or_trait = llvm::dyn_cast<UnaryExprOrTypeTraitExpr>(x)) {
+                if (unary_or_trait->getKind() == clang::UETT_SizeOf)
+                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeSize(unary_or_trait->getType()));
+                else if (unary_or_trait->getKind() == clang::UETT_PreferredAlignOf)
+                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeAlign(unary_or_trait->getType()));
+                else if (unary_or_trait->getKind() == clang::UETT_AlignOf)
+                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeAlign(unary_or_trait->getType()));
+                else
+                    luisa::log_error("unsupportted UnaryExprOrTypeTraitExpr: {}", unary_or_trait->getStmtClassName());
             } else if (auto unary = llvm::dyn_cast<UnaryOperator>(x)) {
                 const auto cxx_op = unary->getOpcode();
                 const auto lhs = stack->expr_map[unary->getSubExpr()];
