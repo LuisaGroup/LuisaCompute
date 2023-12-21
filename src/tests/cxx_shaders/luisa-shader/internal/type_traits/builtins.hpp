@@ -9,13 +9,55 @@ using uint32 = unsigned int;
 using uint64 = unsigned long long;
 
 template<typename T, typename U>
-static constexpr bool is_same_v = __is_same_as(T, U);
+inline constexpr bool is_same_v = __is_same_as(T, U);
+
+template <class T, class Arg>
+inline constexpr bool is_assignable_v = __is_assignable(T, Arg);
+
+template <class T, template <class...> class Template>
+inline constexpr bool is_specialization_v = false; // true if and only if T is a specialization of Template
+
+template <template <class...> class Template, class... Args>
+inline constexpr bool is_specialization_v<Template<Args...>, Template> = true;
+
+template<class T>
+inline constexpr bool is_void_v = __is_void(T);
+
+template<class T>
+using decay_t = __decay(T);
+
+template<class T>
+static constexpr bool is_signed_v = __is_signed(T);
+
+template<class T>
+using signed_t = __make_signed(T);
+
+template<class T>
+static constexpr bool is_unsigned_v = __is_unsigned(T);
+
+template<class T>
+using unsigned_t = __make_unsigned(T);
+
+template<class T>
+using remove_extent_t = __remove_extent(T);
 
 template<typename T>
 static constexpr bool is_reference_v = __is_reference(T);
 
 template<class T>
-using decay_t = __decay(T);
+using remove_reference_t = __remove_reference_t(T);
+
+template<class T>
+static constexpr bool is_const_v = __is_const(T);
+
+template<class T>
+using remove_const_t = __remove_const(T);
+
+template<class T>
+static constexpr bool is_volatile_v = __is_volatile(T);
+
+template<class T>
+using remove_volatile_t = __remove_volatile(T);
 
 template<class T>
 using remove_cv_t = __remove_cv(T);
