@@ -345,43 +345,49 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
                                 auto &Arguments = TSD->getTemplateArgs();
                                 if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
+                                    bool defaultInit = (lc_args.size() <= 1);
                                     auto N = Arguments[1].getAsIntegral().getLimitedValue();
                                     // TST->dump();
                                     // clang-format off
-                        switch (EType->getKind()) {
-#define CASE_VEC_TYPE(stype, type)                                                                                    \
-    switch (N) {                                                                                               \
-        case 2: { auto lc_type = Type::of<stype##2>(); current = fb->call(lc_type, CallOp::MAKE_##type##2, { lc_args.begin() + 1, lc_args.end() }); } break;                                            \
-        case 3: { auto lc_type = Type::of<stype##3>(); current = fb->call(lc_type, CallOp::MAKE_##type##3, { lc_args.begin() + 1, lc_args.end() }); } break;                                            \
-        case 4: { auto lc_type = Type::of<stype##4>(); current = fb->call(lc_type, CallOp::MAKE_##type##4, { lc_args.begin() + 1, lc_args.end() }); } break;                                            \
-        default: {                                                                                             \
-            luisa::log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
-        } break;                                                                                               \
-    }
-                            case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool, BOOL) } break;
-                            case (BuiltinType::Kind::Float): { CASE_VEC_TYPE(float, FLOAT) } break;
-                            case (BuiltinType::Kind::Long): { CASE_VEC_TYPE(slong, LONG) } break;
-                            case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int, INT) } break;
-                            case (BuiltinType::Kind::ULong): { CASE_VEC_TYPE(ulong, ULONG) } break;
-                            case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint, UINT) } break;
-                            case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double, DOUBLE) } break;
-                            default: {
-                                luisa::log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
-                            } break;
-#undef CASE_VEC_TYPE
-                        }
+                                    switch (EType->getKind()) {
+            #define CASE_VEC_TYPE(stype, type)                                                                                    \
+                switch (N) {                       \
+                    using RET = const luisa::compute::Expression*;                                                                       \
+                    case 2: { auto lc_type = Type::of<stype##2>(); current = defaultInit ? (RET)fb->local(lc_type) : (RET)fb->call(lc_type, CallOp::MAKE_##type##2, { lc_args.begin() + 1, lc_args.end() }); } break; \
+                    case 3: { auto lc_type = Type::of<stype##3>(); current = defaultInit ? (RET)fb->local(lc_type) : (RET)fb->call(lc_type, CallOp::MAKE_##type##3, { lc_args.begin() + 1, lc_args.end() }); } break; \
+                    case 4: { auto lc_type = Type::of<stype##4>(); current = defaultInit ? (RET)fb->local(lc_type) : (RET)fb->call(lc_type, CallOp::MAKE_##type##4, { lc_args.begin() + 1, lc_args.end() }); } break; \
+                    default: {                                                                                             \
+                        luisa::log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
+                    } break;                                                                                               \
+                }
+                                        case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool, BOOL) } break;
+                                        case (BuiltinType::Kind::Float): { CASE_VEC_TYPE(float, FLOAT) } break;
+                                        case (BuiltinType::Kind::Long): { CASE_VEC_TYPE(slong, LONG) } break;
+                                        case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int, INT) } break;
+                                        case (BuiltinType::Kind::ULong): { CASE_VEC_TYPE(ulong, ULONG) } break;
+                                        case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint, UINT) } break;
+                                        case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double, DOUBLE) } break;
+                                        default: {
+                                            luisa::log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
+                                        } break;
+            #undef CASE_VEC_TYPE
+                                    }
                                     // clang-format on
                                 }
                             } else
                                 luisa::log_error("???");
                         } else if (builtinName == "matrix") {
+
                             if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
                                 auto &Arguments = TSD->getTemplateArgs();
                                 clang::Expr::EvalResult Result;
                                 auto N = Arguments[0].getAsIntegral().getLimitedValue();
                                 auto lc_type = Type::matrix(N);
                                 const CallOp MATRIX_LUT[3] = {CallOp::MAKE_FLOAT2X2, CallOp::MAKE_FLOAT3X3, CallOp::MAKE_FLOAT4X4};
-                                current = fb->call(lc_type, MATRIX_LUT[N - 2], {lc_args.begin() + 1, lc_args.end()});
+                                if (lc_args.size() <= 1) /*ignore MAKE_MAT with empty args*/
+                                    current = fb->local(lc_type);
+                                else
+                                    current = fb->call(lc_type, MATRIX_LUT[N - 2], {lc_args.begin() + 1, lc_args.end()});
                             } else
                                 luisa::log_error("???");
                         } else if (builtinName == "array") {
@@ -622,8 +628,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->warp_lane_count();
                         else if (exprName == "warp_lane_id")
                             current = fb->warp_lane_id();
-                        else if (exprName == "bit_cast")
-                        {
+                        else if (exprName == "bit_cast") {
                             auto lcReturnType = db->FindOrAddType(funcDecl->getReturnType());
                             current = fb->cast(lcReturnType, luisa::compute::CastOp::BITWISE, lc_args[0]);
                         }
@@ -769,7 +774,7 @@ protected:
     TypeDatabase *db = nullptr;
     luisa::shared_ptr<compute::detail::FunctionBuilder> fb = nullptr;
     clang::Stmt *root = nullptr;
-};
+};// namespace luisa::clangcxx
 
 void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
     bool is_ignore = false;
@@ -827,6 +832,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
 
     if (!is_ignore) {
         // S->dump();
+
         if (S->getReturnType()->isReferenceType()) {
             S->dump();
             luisa::log_error("return ref is not supportted now!");
