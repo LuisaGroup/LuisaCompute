@@ -87,16 +87,16 @@ template <>
 trait is_arithmetic_scalar<int64>{ static constexpr bool value = true;};
 
 template<typename T>
-concept floatN = is_float_family<typename remove_cvref<T>::type>::value;
+concept float_family = is_float_family<typename remove_cvref<T>::type>::value;
 
 template<typename T>
-concept boolN = is_bool_family<typename remove_cvref<T>::type>::value;
+concept bool_family = is_bool_family<typename remove_cvref<T>::type>::value;
 
 template<typename T>
-concept intN = is_sint_family<typename remove_cvref<T>::type>::value;
+concept int_family = is_sint_family<typename remove_cvref<T>::type>::value;
 
 template<typename T>
-concept uintN = is_uint_family<typename remove_cvref<T>::type>::value;
+concept uint_family = is_uint_family<typename remove_cvref<T>::type>::value;
 
 template<typename T>
 concept arithmetic = is_arithmetic<T>::value;
