@@ -31,7 +31,7 @@ template<bool_family T>
 template<bool_family T>
 [[callop("ANY")]] extern bool any(T x);
 
-template<basic_type T, bool_family B>
+template<primitive T, bool_family B>
     requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
 [[callop("SELECT")]] extern T select(T false_v, T true_v, B bool_v);
 
@@ -172,35 +172,35 @@ template<float_family T>
 
 template<float_family T>
     requires(vec_dim_v<T> > 1)
-[[callop("DOT")]] extern typename element<T>::type dot(T a, T b);
+[[callop("DOT")]] extern scalar_type<T> dot(T a, T b);
 
 template<float_family T>
     requires(vec_dim_v<T> > 1)
-[[callop("LENGTH")]] extern typename element<T>::type length(T v);
+[[callop("LENGTH")]] extern scalar_type<T> length(T v);
 
 template<float_family T>
     requires(vec_dim_v<T> > 1)
-[[callop("LENGTH_SQUARED")]] extern typename element<T>::type length_squared(T v);
+[[callop("LENGTH_SQUARED")]] extern scalar_type<T> length_squared(T v);
 
 template<float_family T>
     requires(vec_dim_v<T> > 1)
-[[callop("NORMALIZE")]] extern typename element<T>::type normalize(T v);
+[[callop("NORMALIZE")]] extern scalar_type<T> normalize(T v);
 
 template<arithmetic T>
     requires(vec_dim_v<T> > 1)
-[[callop("REDUCE_SUM")]] extern typename element<T>::type reduce_sum(T v);
+[[callop("REDUCE_SUM")]] extern scalar_type<T> reduce_sum(T v);
 
 template<arithmetic T>
     requires(vec_dim_v<T> > 1)
-[[callop("REDUCE_PRODUCT")]] extern typename element<T>::type reduce_product(T v);
+[[callop("REDUCE_PRODUCT")]] extern scalar_type<T> reduce_product(T v);
 
 template<arithmetic T>
     requires(vec_dim_v<T> > 1)
-[[callop("REDUCE_MIN")]] extern typename element<T>::type reduce_min(T v);
+[[callop("REDUCE_MIN")]] extern scalar_type<T> reduce_min(T v);
 
 template<arithmetic T>
     requires(vec_dim_v<T> > 1)
-[[callop("REDUCE_MAX")]] extern typename element<T>::type reduce_max(T v);
+[[callop("REDUCE_MAX")]] extern scalar_type<T> reduce_max(T v);
 
 template<typename T>
     requires(is_matrix_v<T>)
@@ -300,15 +300,15 @@ template<arithmetic T>
 template<arithmetic T>
 [[callop("WARP_PREFIX_SUM")]] extern T wave_prefix_sum(T v);
 
-template<basic_type T>
+template<primitive T>
 [[callop("WARP_READ_LANE")]] extern T warp_read_lane(uint32 lane_index);
-template<basic_type T>
+template<primitive T>
 [[callop("WARP_READ_LANE")]] extern T wave_read_lane_at(uint32 lane_index);
 
-template<basic_type T>
+template<primitive T>
 [[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T warp_read_first_active_lane(uint32 lane_index);
 
-template<basic_type T>
+template<primitive T>
 [[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T wave_read_lane_first(uint32 lane_index);
 
 // cuda

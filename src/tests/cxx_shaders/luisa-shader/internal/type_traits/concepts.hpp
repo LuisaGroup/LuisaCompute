@@ -6,24 +6,40 @@ namespace luisa::shader {
 
 namespace detail {
 template<class T>
-trait is_vec : public false_type { using scalar_type = T; };
-template<class T, uint64 N>
-trait is_vec<vec<T, N>> : public true_type { using scalar_type = T; };
+trait vec_or_matrix : public false_type 
+{ 
+    using scalar_type = T; 
+    static constexpr bool is_vec = false;
+    static constexpr bool is_matrix = false;
+};
 
-template<typename T>
-trait is_matrix { static constexpr bool value = false; };
+template<class T, uint64 N>
+trait vec_or_matrix<vec<T, N>> : public true_type 
+{ 
+    using scalar_type = T; 
+    static constexpr bool is_vec = true;
+    static constexpr bool is_matrix = false;    
+};
+
 template<uint64 N>
-trait is_matrix<matrix<N>> { static constexpr bool value = true; };
+trait vec_or_matrix<matrix<N>> : public true_type {
+    using scalar_type = float;
+    static constexpr bool is_vec = false;
+    static constexpr bool is_matrix = true;
+};
 }// namespace detail
 
 template<typename T>
-using scalar_type = typename detail::is_vec<decay_t<T>>::scalar_type;
+using scalar_type = typename detail::vec_or_matrix<decay_t<T>>::scalar_type;
 
 template<typename T>
-static constexpr bool is_matrix_v = detail::is_matrix<decay_t<T>>::value;
+static constexpr bool is_matrix_v = detail::vec_or_matrix<decay_t<T>>::is_matrix;
 
 template<typename T>
-static constexpr bool is_vec_v = detail::is_vec<decay_t<T>>::value;
+static constexpr bool is_vec_v = detail::vec_or_matrix<decay_t<T>>::is_vec;
+
+template<typename T>
+static constexpr bool is_vec_or_matrix_v = detail::vec_or_matrix<decay_t<T>>::value;
 
 template<typename T>
 static constexpr bool is_float_family_v = is_same_v<scalar_type<T>, float> | is_same_v<scalar_type<T>, double> | is_same_v<scalar_type<T>, half>;
@@ -39,6 +55,7 @@ static constexpr bool is_bool_family_v = is_same_v<scalar_type<T>, bool>;
 
 template<typename T>
 static constexpr bool is_arithmetic_v = is_float_family_v<T> || is_bool_family_v<T> || is_sint_family_v<T> || is_uint_family_v<T>;
+
 template<typename T>
 static constexpr bool is_arithmetic_scalar_v = is_arithmetic_v<T> && !is_vec_v<T>;
 
@@ -62,7 +79,11 @@ concept uint_family = is_uint_family_v<T>;
 
 template<typename T>
 concept arithmetic = is_arithmetic_v<T>;
+
 template<typename T>
 concept arithmetic_scalar = is_arithmetic_scalar_v<T>;
+
+template<typename T>
+concept primitive = is_arithmetic_v<T> || is_vec_or_matrix_v<T>;
 
 }// namespace luisa::shader

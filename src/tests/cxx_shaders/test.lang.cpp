@@ -85,7 +85,9 @@ auto TestBuiltinExprs() {
     auto kid = (float)kernel_id();
     auto wlc = (float)warp_lane_count();
     auto wli = (float)warp_lane_id();
-    return did.x + bid.x + tid.x + ds.x + kid + wlc + wli;
+    auto _d = dot(float3(1.f, 1.f, 1.f), float3(2.f, 2.f, 2.f));
+    static_assert(is_same_v<decltype(_d), float>);
+    return did.x + bid.x + tid.x + ds.x + kid + wlc + wli + _d;
 }
 
 auto TestCast() {
