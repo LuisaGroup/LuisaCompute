@@ -345,8 +345,10 @@ impl<'a> FunctionEmitter<'a> {
         for (i, index) in indices.iter().enumerate() {
             if ty.is_vector() || ty.is_matrix() {
                 var = format!("{}[{}]", var, self.gen_node(*index));
-                assert_eq!(i, indices.len() - 1);
-                break;
+                if ty.is_vector() {
+                    assert_eq!(i, indices.len() - 1);
+                    break;
+                }
             } else if ty.is_array() {
                 var = format!("{}[{}]", var, self.gen_node(*index));
                 ty = ty.extract(0)
@@ -1311,7 +1313,7 @@ impl<'a> FunctionEmitter<'a> {
                 self.atomic_chain_op(var, node_ty_s, args, args_v, "lc_atomic_fetch_xor", 1);
                 true
             }
-            Func::External(_)=>{
+            Func::External(_) => {
                 panic!("Use CpuFn to pass closures to kernel directly instead of ExternalCallable on cpu backend!.");
                 true
             }
@@ -1869,7 +1871,7 @@ impl<'a> FunctionEmitter<'a> {
         self.write_ident();
         writeln!(
             &mut self.body,
-            "char print_buf[1024]; snprintf(print_buf, 1024, \"{}\"{}); device_log(print_buf);",
+            "{{ char print_buf[1024]; snprintf(print_buf, 1024, \"{}\"{}); device_log(print_buf); }}",
             printf_fmt.escape_default(),
             printf_args
         )
@@ -2034,7 +2036,7 @@ pub struct Generated {
 }
 
 impl CpuCodeGen {
-    pub(crate) fn run(module: &ir::KernelModule, native_include:&str) -> Generated {
+    pub(crate) fn run(module: &ir::KernelModule, native_include: &str) -> Generated {
         let mut globals = GlobalEmitter {
             message: vec![],
             generated_callables: HashMap::new(),
