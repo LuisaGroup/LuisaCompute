@@ -53,10 +53,10 @@ template<typename T>
 [[callop("ABS")]] extern T abs(T v);
 
 template<arithmetic T>
-[[callop("MIN")]] extern T min(T v);
+[[callop("MIN")]] extern T min(T a, T b);
 
 template<arithmetic T>
-[[callop("MAX")]] extern T max(T v);
+[[callop("MAX")]] extern T max(T v, T b);
 
 template<uint_family T>
 [[callop("CLZ")]] extern T clz(T v);
@@ -184,7 +184,7 @@ template<float_family T>
 
 template<float_family T>
     requires(vec_dim<T>::value > 1)
-[[callop("NORMALIZE")]] extern typename element<T>::type normalize(T v);
+[[callop("NORMALIZE")]] extern T normalize(T v);
 
 template<arithmetic T>
     requires(vec_dim<T>::value > 1)
