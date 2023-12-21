@@ -12,7 +12,7 @@ struct [[builtin("vec")]] vec;
 template<typename T>
 struct alignas(8) [[builtin("vec")]] vec<T, 2> {
     using ThisType = vec<T, 2>;
-
+    static constexpr uint32 dim = 2;
     [[ignore]] vec() noexcept = default;
 
     template<typename... Args>
@@ -36,7 +36,7 @@ struct alignas(8) [[builtin("vec")]] vec<T, 2> {
 template<typename T>
 struct alignas(16) [[builtin("vec")]] vec<T, 3> {
     using ThisType = vec<T, 3>;
-
+    static constexpr uint32 dim = 3;
     [[ignore]] vec() noexcept = default;
 
     template<typename... Args>
@@ -59,7 +59,7 @@ struct alignas(16) [[builtin("vec")]] vec<T, 3> {
 template<typename T>
 struct alignas(16) [[builtin("vec")]] vec<T, 4> {
     using ThisType = vec<T, 4>;
-
+    static constexpr uint32 dim = 4;
     [[ignore]] vec() noexcept = default;
 
     template<typename... Args>

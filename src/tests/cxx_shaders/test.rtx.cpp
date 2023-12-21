@@ -61,6 +61,9 @@ struct Onb {
         float3 tangent,
         float3 binormal,
         float3 normal) : tangent(tangent), binormal(binormal), normal(normal) {}
+    float3 to_world(float3 v) const{
+        return v.x * tangent + v.y * binormal + v.z * normal;
+    }
 };
 
 auto make_onb(float3 normal) {
@@ -104,12 +107,22 @@ struct Triangle {
     uint i2;
 };
 
+float3 offset_ray_origin(float3 p, float3 n) noexcept {
+    const auto origin = 1.0f / 32.0f;
+    const auto float_scale = 1.0f / 65536.0f;
+    const auto int_scale = 256.0f;
+    auto of_i = int3(int_scale * n);
+    auto p_i = bit_cast<float3>(bit_cast<int3>(p) + ite(p < float3(0.0f), -of_i, of_i));
+    return ite(abs(p) < origin, p + float_scale * n, p_i);
+}
+
 [[kernel_2d(16, 16)]] int kernel(
     Image<float> &image,
     Image<uint> &seed_image,
     Accel &accel,
     BindlessArray &heap,
     Buffer<float3> &vertex_buffer,
+    Buffer<float3> &materials,
     uint2 resolution) {
     auto coord = dispatch_id().xy;
     auto size = dispatch_size().xy;
@@ -120,6 +133,7 @@ struct Triangle {
     float3 radiance;
     const uint spp_per_dispatch = 64;
     for (uint i = 0; i < spp_per_dispatch; ++i) {
+        float3 beta(1.f);
         auto ray = generate_ray(pixel * float2(1.f, -1.f));
         float pdf_bsdf = 0.;
         const float3 light_position = float3(-0.24f, 1.98f, 0.16f);
@@ -141,6 +155,51 @@ struct Triangle {
             float3 n = normalize(cross(p1 - p0, p2 - p0));
             float cos_wo = dot(-ray.dir(), n);
             if (cos_wo < 1e-4f) { break; };
+            if (hit.inst == 7u) {
+                if (depth == 0) {
+                    radiance += light_emission;
+                } else {
+                    auto pdf_light = length_squared(p - ray.origin()) / (light_area * cos_wo);
+                    auto mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
+                    radiance += mis_weight * beta * light_emission;
+                }
+            }
+            float ux_light = lcg(state);
+            float uy_light = lcg(state);
+            float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
+            float3 pp = offset_ray_origin(p, n);
+            float3 pp_light = offset_ray_origin(p_light, light_normal);
+            float d_light = distance(pp, pp_light);
+            float3 wi_light = normalize(pp_light - pp);
+            Ray shadow_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
+            bool occluded = accel.trace_any(shadow_ray, {});
+            float cos_wi_light = dot(wi_light, n);
+            float cos_light = -dot(light_normal, wi_light);
+            float3 albedo = materials.load(hit.inst);
+            if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+                float pdf_light = (d_light * d_light) / (light_area * cos_light);
+                float pdf_bsdf = cos_wi_light * inv_pi;
+                float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
+                float3 bsdf = albedo * inv_pi * cos_wi_light;
+                radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
+            };
+            auto onb = make_onb(n);
+            float ux = lcg(state);
+            float uy = lcg(state);
+            float3 wi_local = cosine_sample_hemisphere(float2(ux, uy));
+            float cos_wi = abs(wi_local.z);
+            float3 new_direction = onb.to_world(wi_local);
+            ray = Ray(pp, new_direction);
+            pdf_bsdf = cos_wi * inv_pi;
+            beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
+
+            // rr
+            float l = dot(float3(0.212671f, 0.715160f, 0.072169f), beta);
+            if (l == 0.0f) { break; };
+            float q = max(l, 0.05f);
+            float r = lcg(state);
+            if (r >= q) { break; };
+            beta *= 1.0f / q;
         }
     }
     return 0;

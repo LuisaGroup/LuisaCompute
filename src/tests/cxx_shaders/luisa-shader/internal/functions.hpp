@@ -180,6 +180,12 @@ template<float_family T>
 
 template<float_family T>
     requires(vec_dim_v<T> > 1)
+scalar_type<T> distance(T a, T b){
+    return length(a - b);
+}
+
+template<float_family T>
+    requires(vec_dim_v<T> > 1)
 [[callop("LENGTH_SQUARED")]] extern scalar_type<T> length_squared(T v);
 
 template<float_family T>
