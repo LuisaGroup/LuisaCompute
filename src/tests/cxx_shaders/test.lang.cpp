@@ -34,13 +34,13 @@ struct NVIDIA {
 // Buffer<NVIDIA> buffer;
 template<typename T>
 struct Template {
-    Template(T v)
+    explicit Template(T v)
         : value(v), value2(v) {}
     void call() {
-        if constexpr (is_float_family<T>::value) {
+        if constexpr (is_sint_family_v<T>) {
             value = 2.f;
             value2 = 2.f;
-        } else if constexpr (is_sint_family<T>::value) {
+        } else if constexpr (is_sint_family_v<T>) {
             value = 0;
             value2 = 0;
         }
@@ -51,7 +51,7 @@ struct Template {
 
 template<>
 struct Template<NVIDIA> {
-    Template(NVIDIA v)
+    explicit Template(NVIDIA v)
         : nv(v) {}
     void call() {
         nv.f += 1.f;
@@ -60,7 +60,7 @@ struct Template<NVIDIA> {
 };
 
 struct TestCtor {
-    TestCtor(int v)
+    explicit TestCtor(int v)
         : x(-1 /*unary -*/), xx(v) {
     }
     int x;
@@ -77,15 +77,14 @@ struct TestDtor {
 };
 */
 
-auto TestBuiltinExprs()
-{
+auto TestBuiltinExprs() {
     float3 did = dispatch_id();
     float3 bid = block_id();
     float3 tid = thread_id();
     float3 ds = dispatch_size();
-    float kid = kernel_id();
-    float wlc = warp_lane_count();
-    float wli = warp_lane_id();
+    auto kid = (float)kernel_id();
+    auto wlc = (float)warp_lane_count();
+    auto wli = (float)warp_lane_id();
     return did.x + bid.x + tid.x + ds.x + kid + wlc + wli;
 }
 
@@ -176,9 +175,9 @@ auto TestBranch() {
         return 2.f;
     else
         return 3.f;
-    if constexpr (is_float_family<float4>::value)
+    if constexpr (is_float_family_v<float4>)
         return 4.f;
-    else if constexpr (is_float_family<int4>::value)
+    else if constexpr (is_float_family_v<int4>)
         return 5.f;
     else
         return 6.f;
@@ -244,6 +243,7 @@ auto TestVecOp() {
 auto TestSwizzle() {
     float4 FFFF = float4(1.f, 2.f, 3.f, 4.f);
 
+    static_assert(is_float_family_v<float4 &>);
     static_assert(sizeof(FFFF.x) == sizeof(float));
     static_assert(sizeof(FFFF.xx) == sizeof(float2));
     static_assert(sizeof(FFFF.xxx) == sizeof(float3));
@@ -352,9 +352,9 @@ auto TestVector() {
     uint32 i0 = 4294967294;
     uint32 i01 = 4294967295u;
     int32 i03 = -94967;
-    int i = nvidia.ix = is_float_family<int4>::value + i01 + i0 + i03;
+    int i = nvidia.ix = is_float_family_v<int4> + i01 + i0 + i03;
 
-    // copy 
+    // copy
     NVIDIA nvidia2 = nvidia;
     nvidia2 = nvidia;
 

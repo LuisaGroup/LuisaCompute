@@ -32,14 +32,14 @@ template<bool_family T>
 [[callop("ANY")]] extern bool any(T x);
 
 template<basic_type T, bool_family B>
-    requires(vec_dim<T>::value == vec_dim<B>::value || vec_dim<B>::value == 1)
+    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
 [[callop("SELECT")]] extern T select(T false_v, T true_v, B bool_v);
 
 template<arithmetic T>
 [[callop("CLAMP")]] extern T clamp(T v, T min_v, T max_v);
 
 template<float_family T, float_family B>
-    requires(vec_dim<T>::value == vec_dim<B>::value || vec_dim<B>::value == 1)
+    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
 [[callop("LERP")]] extern T lerp(T left_v, T right_v, B step);
 
 template<float_family T>
@@ -49,7 +49,7 @@ template<float_family T>
 [[callop("SATURATE")]] extern T saturate(T v);
 
 template<typename T>
-    requires(is_float_family<T>::value || is_sint_family<T>::value)
+    requires(is_float_family_v<T> || is_sint_family_v<T>)
 [[callop("ABS")]] extern T abs(T v);
 
 template<arithmetic T>
@@ -71,10 +71,10 @@ template<uint_family T>
 [[callop("REVERSE")]] extern T reverse(T v);
 
 template<float_family T>
-[[callop("ISINF")]] extern vec<bool, vec_dim<T>::value> is_inf(T v);
+[[callop("ISINF")]] extern vec<bool, vec_dim_v<T>> is_inf(T v);
 
 template<float_family T>
-[[callop("ISNAN")]] extern vec<bool, vec_dim<T>::value> is_nan(T v);
+[[callop("ISNAN")]] extern vec<bool, vec_dim_v<T>> is_nan(T v);
 
 template<float_family T>
 [[callop("ACOS")]] extern T acos(T v);
@@ -159,7 +159,7 @@ template<float_family T>
 [[callop("COPYSIGN")]] extern T fma(T a, T b);
 
 template<float_family T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("CROSS")]] extern T cross(T a, T b);
 
 [[callop("FACEFORWARD")]] extern float3 faceforward(float3 a, float3 b, float3 c);
@@ -171,47 +171,47 @@ template<float_family T>
 [[callop("REFLECT")]] extern half3 reflect(half3 i, half3 n);
 
 template<float_family T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("DOT")]] extern typename element<T>::type dot(T a, T b);
 
 template<float_family T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("LENGTH")]] extern typename element<T>::type length(T v);
 
 template<float_family T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("LENGTH_SQUARED")]] extern typename element<T>::type length_squared(T v);
 
 template<float_family T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("NORMALIZE")]] extern typename element<T>::type normalize(T v);
 
 template<arithmetic T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("REDUCE_SUM")]] extern typename element<T>::type reduce_sum(T v);
 
 template<arithmetic T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("REDUCE_PRODUCT")]] extern typename element<T>::type reduce_product(T v);
 
 template<arithmetic T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("REDUCE_MIN")]] extern typename element<T>::type reduce_min(T v);
 
 template<arithmetic T>
-    requires(vec_dim<T>::value > 1)
+    requires(vec_dim_v<T> > 1)
 [[callop("REDUCE_MAX")]] extern typename element<T>::type reduce_max(T v);
 
 template<typename T>
-    requires(is_matrix<T>::value)
+    requires(is_matrix_v<T>)
 [[callop("DETERMINANT")]] extern T determinant(T v);
 
 template<typename T>
-    requires(is_matrix<T>::value)
+    requires(is_matrix_v<T>)
 [[callop("TRANSPOSE")]] extern T transpose(T v);
 
 template<typename T>
-    requires(is_matrix<T>::value)
+    requires(is_matrix_v<T>)
 [[callop("INVERSE")]] extern T inverse(T v);
 
 [[callop("SYNCHRONIZE_BLOCK")]] void sync_block();
@@ -230,29 +230,29 @@ template<float_family T>
 [[callop("WARP_IS_FIRST_ACTIVE_LANE")]] bool wave_is_first_lane();
 
 template<arithmetic T>
-[[callop("WARP_ACTIVE_ALL_EQUAL")]] vec<bool, vec_dim<T>::value> warp_active_all_equal();
+[[callop("WARP_ACTIVE_ALL_EQUAL")]] vec<bool, vec_dim_v<T>> warp_active_all_equal();
 template<arithmetic T>
-[[callop("WARP_ACTIVE_ALL_EQUAL")]] vec<bool, vec_dim<T>::value> wave_active_all_equal();
+[[callop("WARP_ACTIVE_ALL_EQUAL")]] vec<bool, vec_dim_v<T>> wave_active_all_equal();
 
 template<typename T>
-    requires(is_sint_family<T>::value && is_uint_family<T>::value)
+    requires(is_sint_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T warp_active_bit_and(T v);
 template<typename T>
-    requires(is_sint_family<T>::value && is_uint_family<T>::value)
+    requires(is_sint_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T wave_active_bit_and(T v);
 
 template<typename T>
-    requires(is_sint_family<T>::value && is_uint_family<T>::value)
+    requires(is_sint_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_OR")]] extern T warp_active_bit_or(T v);
 template<typename T>
-    requires(is_sint_family<T>::value && is_uint_family<T>::value)
+    requires(is_sint_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_OR")]] extern T wave_active_bit_or(T v);
 
 template<typename T>
-    requires(is_sint_family<T>::value && is_uint_family<T>::value)
+    requires(is_sint_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_XOR")]] extern T warp_active_bit_xor(T v);
 template<typename T>
-    requires(is_sint_family<T>::value && is_uint_family<T>::value)
+    requires(is_sint_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_XOR")]] extern T wave_active_bit_xor(T v);
 
 [[callop("WARP_ACTIVE_COUNT_BITS")]] extern uint32 warp_active_count_bits(bool val);
