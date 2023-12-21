@@ -17,6 +17,7 @@ using namespace luisa;
 using namespace luisa::compute;
 
 namespace luisa::test {
+
 int test_matrix2x2(Device &device) {
 
     auto m = make_float2x2(1.f, 2.f, 3.f, 4.f);
@@ -64,5 +65,5 @@ int test_matrix2x2(Device &device) {
 }// namespace luisa::test
 
 TEST_SUITE("runtime") {
-    LUISA_TEST_CASE_WITH_DEVICE("matrix::float2x2", luisa::test::test_matrix2x2(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("dsl_matrix_float2x2", luisa::test::test_matrix2x2(device) == 0);
 }

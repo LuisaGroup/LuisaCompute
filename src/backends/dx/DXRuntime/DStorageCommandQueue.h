@@ -8,7 +8,6 @@
 #include <luisa/backends/ext/dstorage_ext_interface.h>
 
 namespace lc::dx {
-static constexpr size_t staging_buffer_size = DSTORAGE_STAGING_BUFFER_SIZE_32MB;
 
 class LCEvent;
 class DStorageFileImpl : public vstd::IOperatorNewBase {
@@ -49,6 +48,7 @@ class DStorageCommandQueue : public CmdQueueBase{
     void ExecuteThread();
 
 public:
+    size_t staging_buffer_size = DSTORAGE_STAGING_BUFFER_SIZE_32MB;
     void Signal(ID3D12Fence *fence, UINT64 value);
     uint64 LastFrame() const { return lastFrame; }
     DStorageCommandQueue(IDStorageFactory *factory, Device *device, luisa::compute::DStorageStreamSource source);

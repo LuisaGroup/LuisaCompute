@@ -332,8 +332,8 @@ public:
     [[nodiscard]] auto dst_handle() const noexcept { return _dst_handle; }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto src_level() const noexcept { return _src_level; }
-    [[nodiscard]] auto src_offset() const noexcept { return _src_offset; }
-    [[nodiscard]] auto dst_offset() const noexcept { return _dst_offset; }
+    [[nodiscard]] auto src_offset() const noexcept { return uint3(_src_offset[0], _src_offset[1], _src_offset[2]); }
+    [[nodiscard]] auto dst_offset() const noexcept { return uint3(_dst_offset[0], _dst_offset[1], _dst_offset[2]); }
     [[nodiscard]] auto dst_level() const noexcept { return _dst_level; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };

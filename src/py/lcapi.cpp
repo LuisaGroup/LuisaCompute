@@ -35,6 +35,13 @@ PYBIND11_MODULE(lcapi, m) {
     m.doc() = "LuisaCompute API";// optional module docstring
 
     // log
+    m.def("set_log_callback", [](const luisa::function<void(const char *level, const char *message)> &callback) {
+        luisa::detail::set_sink(luisa::detail::create_sink_with_callback(callback));
+    });
+    m.def("log_verbose", [](const char *msg) { LUISA_VERBOSE("{}", msg); });
+    m.def("log_info", [](const char *msg) { LUISA_INFO("{}", msg); });
+    m.def("log_warning", [](const char *msg) { LUISA_WARNING("{}", msg); });
+    m.def("log_error", [](const char *msg) { LUISA_ERROR("{}", msg); });
     m.def("log_level_verbose", luisa::log_level_verbose);
     m.def("log_level_info", luisa::log_level_info);
     m.def("log_level_warning", luisa::log_level_warning);
@@ -63,8 +70,12 @@ PYBIND11_MODULE(lcapi, m) {
     export_matrix(m);
 
     // util function for uniform encoding
-    m.def("to_bytes", [](LiteralExpr::Value value) {
-        return luisa::visit([](auto x) noexcept { return py::bytes(std::string(reinterpret_cast<char *>(&x), sizeof(x))); }, value);
+    m.def("to_bytes", [](const LiteralExpr::Value::variant_type &value) {
+        return luisa::visit(
+            [](auto x) noexcept {
+                return py::bytes(reinterpret_cast<const char *>(&x), sizeof(x));
+            },
+            value);
     });
     //.def()
 

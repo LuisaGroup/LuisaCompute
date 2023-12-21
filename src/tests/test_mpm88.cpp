@@ -25,8 +25,8 @@ int main(int argc, char *argv[]) {
     }
     Device device = context.create_device(argv[1]);
 
-    static constexpr uint n_grid = 128u;
-    static constexpr uint n_steps = 50u;
+    static constexpr uint n_grid = 200u;
+    static constexpr uint n_steps = 24u;
 
     static constexpr uint n_particles = n_grid * n_grid / 2u;
     static constexpr float dx = 1.f / n_grid;
@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
     static constexpr uint bound = 3u;
     static constexpr float E = 400.f;
 
-    static constexpr uint resolution = 512u;
+    static constexpr uint resolution = 1024u;
 
     Buffer<float2> x = device.create_buffer<float2>(n_particles);
     Buffer<float2> v = device.create_buffer<float2>(n_particles);
@@ -64,14 +64,14 @@ int main(int argc, char *argv[]) {
     };
     auto trace = [](Float2x2 m) noexcept { return m[0][0] + m[1][1]; };
 
-    Shader2D<> clear_grid = device.compile<2>([&] {
+    auto clear_grid = device.compile<2>([&] {
         UInt idx = index(dispatch_id().xy());
         grid_v->write(idx * 2u, 0.f);
         grid_v->write(idx * 2u + 1u, 0.f);
         grid_m->write(idx, 0.f);
     });
 
-    Shader1D<> point_to_grid = device.compile<1>([&] {
+    auto point_to_grid = device.compile<1>([&] {
         UInt p = dispatch_id().x;
         Float2 Xp = x->read(p) / dx;
         Int2 base = make_int2(Xp - 0.5f);
@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
         }
     });
 
-    Shader2D<> simulate_grid = device.compile<2>([&] {
+    auto simulate_grid = device.compile<2>([&] {
         UInt2 coord = dispatch_id().xy();
         UInt i = index(coord);
         Float2 v = make_float2(grid_v->read(i * 2u), grid_v->read(i * 2u + 1u));
@@ -109,7 +109,7 @@ int main(int argc, char *argv[]) {
         grid_v->write(i * 2u + 1u, v.y);
     });
 
-    Shader1D<> grid_to_point = device.compile<1>([&] {
+    auto grid_to_point = device.compile<1>([&] {
         UInt p = dispatch_id().x;
         Float2 Xp = x->read(p) / dx;
         Int2 base = make_int2(Xp - 0.5f);
@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
             Float weight = w[i].x * w[j].y;
             UInt idx = index(base + offset);
             Float2 g_v = make_float2(grid_v->read(idx * 2u),
-                                   grid_v->read(idx * 2u + 1u));
+                                     grid_v->read(idx * 2u + 1u));
             new_v += weight * g_v;
             new_C = new_C + 4.f * weight * outer_product(g_v, dpos) / sqr(dx);
         }
@@ -163,16 +163,16 @@ int main(int argc, char *argv[]) {
                << synchronize();
     };
 
-    Shader2D<> clear_display = device.compile<2>([&] {
+    auto clear_display = device.compile<2>([&] {
         display->write(dispatch_id().xy(), make_float4(.1f, .2f, .3f, 1.f));
     });
 
-    Shader1D<> draw_particles = device.compile<1>([&] {
+    auto draw_particles = device.compile<1>([&] {
         UInt p = dispatch_id().x;
         for (int i = -1; i <= 1; i++) {
             for (int j = -1; j <= 1; j++) {
                 Int2 pos = make_int2(x->read(p) * static_cast<float>(resolution)) + make_int2(i, j);
-                $if(pos.x >= 0 & pos.x < resolution & pos.y >= 0 & pos.y < resolution) {
+                $if (pos.x >= 0 & pos.x < resolution & pos.y >= 0 & pos.y < resolution) {
                     display->write(make_uint2(cast<uint>(pos.x), resolution - 1u - pos.y),
                                    make_float4(.4f, .6f, .6f, 1.f));
                 };
@@ -180,9 +180,8 @@ int main(int argc, char *argv[]) {
         }
     });
 
-
     init(stream);
-    
+
     while (!window.should_close()) {
         CommandList cmd_list;
         for (uint i = 0u; i < n_steps; i++) { substep(cmd_list); }
@@ -193,4 +192,3 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
-

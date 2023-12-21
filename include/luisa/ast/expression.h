@@ -8,6 +8,8 @@
 #include <luisa/ast/op.h>
 #include <luisa/ast/constant_data.h>
 
+#include <utility>
+
 namespace luisa::compute {
 
 class Statement;
@@ -284,13 +286,39 @@ struct make_literal_value<std::tuple<T...>> {
 template<typename T>
 using make_literal_value_t = typename make_literal_value<T>::type;
 
+using LiteralValueVariant = make_literal_value_t<basic_types>;
+
+struct LiteralValue : LiteralValueVariant {
+
+    using variant_type = LiteralValueVariant;
+
+    LiteralValue() noexcept = default;
+
+    template<typename T>
+    LiteralValue(T &&x) noexcept : variant_type{std::forward<T>(x)} {}
+
+    template<typename T>
+        requires std::same_as<std::remove_cvref_t<T>, long>
+    LiteralValue(T &&x) noexcept
+        : variant_type{static_cast<canonical_c_long>(x)} {}
+
+    template<typename T>
+        requires std::same_as<std::remove_cvref_t<T>, unsigned long>
+    LiteralValue(T &&x) noexcept
+        : variant_type{static_cast<canonical_c_ulong>(x)} {}
+
+    [[nodiscard]] auto to_variant() const noexcept {
+        return static_cast<const variant_type &>(*this);
+    }
+};
+
 }// namespace detail
 
 class LC_AST_API LiteralExpr final : public Expression {
     friend class CallableLibrary;
 
 public:
-    using Value = detail::make_literal_value_t<basic_types>;
+    using Value = detail::LiteralValue;
 
 private:
     Value _value;
@@ -308,7 +336,7 @@ public:
      * @param v value
      */
     LiteralExpr(const Type *type, Value v) noexcept
-        : Expression{Tag::LITERAL, type}, _value{v} {}
+        : Expression{Tag::LITERAL, type}, _value{std::move(v)} {}
     [[nodiscard]] decltype(auto) value() const noexcept { return _value; }
     LUISA_EXPRESSION_COMMON()
 };
@@ -460,7 +488,7 @@ public:
     LUISA_EXPRESSION_COMMON()
 };
 
-class TypeIDExpr final : public Expression {
+class LC_AST_API TypeIDExpr final : public Expression {
     friend class CallableLibrary;
 
 private:
@@ -480,7 +508,7 @@ public:
     LUISA_EXPRESSION_COMMON()
 };
 
-class StringIDExpr final : public Expression {
+class LC_AST_API StringIDExpr final : public Expression {
     friend class CallableLibrary;
 
 private:
@@ -501,15 +529,16 @@ public:
 class CpuCustomOpExpr final : public Expression {
 
 public:
-    using Callback = void (*)(void *arg, void *user_data);
-    CpuCustomOpExpr(const Type *type, Callback callback, void *user_data, const Expression *arg) noexcept
-        : Expression{Tag::CPUCUSTOM, type}, _callback{callback}, _arg(arg), _user_data{user_data} {}
-    [[nodiscard]] auto callback() const noexcept { return _callback; }
+    using Func = void (*)(void *userdata, void *arg);
+    using Dtor = void (*)(void *userdata);
+    CpuCustomOpExpr(const Type *type, Func Func, Dtor dtor, void *user_data, const Expression *arg) noexcept
+        : Expression{Tag::CPUCUSTOM, type}, _callback{Func}, _dtor(dtor), _arg(arg), _user_data{user_data} {}
     [[nodiscard]] auto user_data() const noexcept { return _user_data; }
     LUISA_EXPRESSION_COMMON()
 
 private:
-    Callback _callback;
+    Func _callback;
+    Dtor _dtor;
     const Expression *_arg;
     void *_user_data;
 
@@ -519,6 +548,8 @@ protected:
     [[nodiscard]] uint64_t _compute_hash() const noexcept override { return 0; }
 
 public:
+    [[nodiscard]] Func func() const noexcept { return _callback; }
+    [[nodiscard]] Dtor dtor() const noexcept { return _dtor; }
     [[nodiscard]] auto arg() const noexcept { return _arg; }
 };
 
@@ -598,3 +629,9 @@ void traverse_subexpressions(const Expression *expr,
 }
 
 }// namespace luisa::compute
+
+namespace eastl {
+template<>
+struct variant_size<luisa::compute::detail::LiteralValue>
+    : variant_size<luisa::compute::detail::LiteralValueVariant> {};
+}// namespace eastl

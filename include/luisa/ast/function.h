@@ -86,17 +86,6 @@ public:
             : Argument::Accel{.handle = handle} {}
         [[nodiscard]] uint64_t hash() const noexcept;
     };
-
-    /**
-     * @brief CPU extension callback.
-     *
-     * Extension callback for CPU backends.
-     */
-    struct CpuCallback {
-        CpuCustomOpExpr::Callback callback;
-        void *user_data;
-    };
-
     using Binding = luisa::variant<
         luisa::monostate,// not bound
         BufferBinding,

@@ -842,7 +842,7 @@ private:
             case Expression::Tag::CAST: _convert_cast_expr(j, static_cast<const CastExpr *>(expr)); break;
             case Expression::Tag::TYPE_ID: _convert_type_id_expr(j, static_cast<const TypeIDExpr *>(expr)); break;
             case Expression::Tag::STRING_ID: _convert_string_id_expr(j, static_cast<const StringIDExpr *>(expr)); break;
-            case Expression::Tag::CPUCUSTOM: LUISA_NOT_IMPLEMENTED();
+            case Expression::Tag::CPUCUSTOM: _convert_cpu_custom_expr(j, static_cast<const CpuCustomOpExpr *>(expr)); break;
             case Expression::Tag::GPUCUSTOM: LUISA_NOT_IMPLEMENTED();
         }
         return j;
@@ -910,6 +910,15 @@ private:
     }
     void _convert_string_id_expr(JSON &j, const StringIDExpr *expr) noexcept {
         j["data"] = expr->data();
+    }
+    void _convert_cpu_custom_expr(JSON &j, const CpuCustomOpExpr *expr) noexcept {
+        auto f = reinterpret_cast<size_t>(expr->func());
+        j["func"] = _encode_base64(&f, sizeof(f));
+        auto dtor = reinterpret_cast<size_t>(expr->dtor());
+        j["dtor"] = _encode_base64(&dtor, sizeof(dtor));
+        auto data = reinterpret_cast<size_t>(expr->user_data());
+        j["data"] = _encode_base64(&data, sizeof(data));
+        j["arg"] = _convert_expr(expr->arg());
     }
     [[nodiscard]] JSON _convert_stmt(const Statement *stmt) noexcept {
         JSON j;

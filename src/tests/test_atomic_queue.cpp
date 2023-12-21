@@ -32,18 +32,18 @@ public:
 
     void push_if(Expr<bool> pred, Expr<T> value) noexcept {
         Shared<uint> index{1};
-        $if(thread_x() == 0u) { index.write(0u, 0u); };
+        $if (thread_x() == 0u) { index.write(0u, 0u); };
         sync_block();
         auto local_index = def(0u);
-        $if(pred) { local_index = index.atomic(0).fetch_add(1u); };
+        $if (pred) { local_index = index.atomic(0).fetch_add(1u); };
         sync_block();
-        $if(thread_x() == 0u) {
+        $if (thread_x() == 0u) {
             auto local_count = index.read(0u);
             auto global_offset = _counter->atomic(0u).fetch_add(local_count);
             index.write(0u, global_offset);
         };
         sync_block();
-        $if(pred) {
+        $if (pred) {
             auto global_index = index.read(0u) + local_index;
             _buffer->write(global_index, value);
         };
@@ -145,4 +145,3 @@ int main(int argc, char *argv[]) {
     do_test(test_double, "double", 1024u);
     do_test(test_select, "select", 1024u);
 }
-

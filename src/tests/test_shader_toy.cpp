@@ -83,8 +83,8 @@ int main(int argc, char *argv[]) {
     main_kernel = k;
     k = main_kernel;
 
-    Shader2D<Image<float>> clear = device.compile(clear_kernel);
-    Shader2D<Image<float>, float> shader = device.compile(k);
+    auto clear = device.compile(clear_kernel);
+    auto shader = device.compile(k);
 
     static constexpr uint width = 1024u;
     static constexpr uint height = 1024u;

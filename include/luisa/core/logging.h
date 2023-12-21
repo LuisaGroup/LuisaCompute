@@ -11,6 +11,7 @@
 #pragma warning(pop)
 #endif
 
+#include <luisa/core/stl/functional.h>
 #include <luisa/core/stl/format.h>
 #include <luisa/core/platform.h>
 
@@ -26,6 +27,10 @@ namespace detail {
 [[nodiscard]] LC_CORE_API luisa::logger &default_logger() noexcept;
 LC_CORE_API void set_sink(spdlog::sink_ptr sink) noexcept;
 LC_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLoggerMessage)) noexcept;
+LC_CORE_API spdlog::sink_ptr create_sink_with_callback(
+    luisa::function<void(const char *level,
+                         const char *message)>
+        callback) noexcept;
 }// namespace detail
 
 template<typename... Args>
@@ -128,4 +133,3 @@ LC_CORE_API void log_flush() noexcept;
                 #x, msg);                        \
         }                                        \
     } while (false)
-

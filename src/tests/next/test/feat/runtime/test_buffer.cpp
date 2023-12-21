@@ -32,7 +32,7 @@ int test_floatx(Device &device, int literal_size = 1, int align_size = 4) {
             c->write(index, a->read(index) + b->read(index));
         };
     };
-    Shader1D<Buffer<T_FloatX>, Buffer<T_FloatX>, Buffer<T_FloatX>> add = device.compile(add_kernel);
+    auto add = device.compile(add_kernel);
 
     // init a, b and c
 
@@ -72,7 +72,7 @@ int test_float3x3_order(Device &device) {
             c->write(index, a->read(index) + b->read(index));
         };
     };
-    Shader1D<Buffer<float3x3>, Buffer<float3x3>, Buffer<float3x3>> add = device.compile(add_kernel);
+    auto add = device.compile(add_kernel);
 
     // init a, b and c
 
@@ -136,7 +136,7 @@ int test_float3x3(Device &device) {
             c->write(index, a->read(index) + b->read(index));
         };
     };
-    Shader1D<Buffer<float3x3>, Buffer<float3x3>, Buffer<float3x3>> add = device.compile(add_kernel);
+    auto add = device.compile(add_kernel);
 
     // init a, b and c
 
@@ -180,7 +180,7 @@ int test_float4x4(Device &device) {
             c->write(index, a->read(index) + b->read(index));
         };
     };
-    Shader1D<Buffer<float4x4>, Buffer<float4x4>, Buffer<float4x4>> add = device.compile(add_kernel);
+    auto add = device.compile(add_kernel);
 
     // init a, b and c
 
@@ -211,10 +211,10 @@ int test_float4x4(Device &device) {
 }// namespace luisa::test
 
 TEST_SUITE("runtime") {
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3x3", luisa::test::test_float3x3(device) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3x3_order", luisa::test::test_float3x3_order(device) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float4x4", luisa::test::test_float4x4(device) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float4", luisa::test::test_floatx<float4>(device, 4, 4) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float3", luisa::test::test_floatx<float3>(device, 3, 4) == 0);
-    LUISA_TEST_CASE_WITH_DEVICE("buffer::float2", luisa::test::test_floatx<float2>(device, 2, 2) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float3x3", luisa::test::test_float3x3(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float3x3_order", luisa::test::test_float3x3_order(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float4x4", luisa::test::test_float4x4(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float4", luisa::test::test_floatx<float4>(device, 4, 4) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float3", luisa::test::test_floatx<float3>(device, 3, 4) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("buffer_float2", luisa::test::test_floatx<float2>(device, 2, 2) == 0);
 }

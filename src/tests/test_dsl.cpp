@@ -43,7 +43,7 @@ struct MDArray {
     int v[2][3][4];
 };
 
-LUISA_STRUCT(TriArray, v){};
+LUISA_STRUCT(TriArray, v) {};
 
 LUISA_STRUCT(Test1, something, a) {};
 LUISA_STRUCT(Test2, a, b) {};
@@ -116,6 +116,11 @@ TEST_CASE("dsl") {
     Constant int_consts = const_vector;
 
     Kernel1D<Buffer<float>, uint> kernel_def = [&](BufferVar<float> buffer_float, Var<uint> count) noexcept -> void {
+        using namespace dsl_literals;
+        auto lx = 0._half;
+        auto ly = 0._float;
+        auto lz = 0_ulong2;
+
         Shared<float4> shared_floats{16};
 
         Constant float_consts = {1.0f, 2.0f};
@@ -194,4 +199,3 @@ TEST_CASE("dsl") {
     auto command = kernel(float_buffer, 12u).dispatch(1024u);
     auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
 }
-

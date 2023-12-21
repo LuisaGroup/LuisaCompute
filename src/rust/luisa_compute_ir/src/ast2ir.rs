@@ -1,7 +1,6 @@
-use crate::ir::*;
+use crate::{ir::*, CArcSharedBlock};
 use crate::{CArc, CBoxedSlice, Pooled, TypeOf};
 use base64ct::{Base64, Encoding};
-
 
 use half::f16;
 use json::{parse as parse_json, JsonValue as JSON};
@@ -21,6 +20,7 @@ struct AST2IRCtx<'a> {
     variables: HashMap<u32, NodeRef>,
     constants: HashMap<u32, NodeRef>,
     shared: Vec<NodeRef>,
+    cpu_custom_ops: Vec<CArc<CpuCustomOp>>,
     has_autodiff: bool,
 }
 
@@ -892,6 +892,8 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             "BUFFER_READ" => Func::BufferRead,
             "BUFFER_WRITE" => Func::BufferWrite,
             "BUFFER_SIZE" => Func::BufferSize,
+            "BUFFER_ADDRESS" => Func::BufferAddress,
+            "ADDRESS_OF" => Func::AddressOf,
             "BYTE_BUFFER_READ" => Func::ByteBufferRead,
             "BYTE_BUFFER_WRITE" => Func::ByteBufferWrite,
             "BYTE_BUFFER_SIZE" => Func::ByteBufferSize,
@@ -1277,10 +1279,15 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 assert!(t.is_void());
                 args
             }
-            "BUFFER_SIZE" | "BYTE_BUFFER_SIZE" => {
+            "BUFFER_SIZE" | "BYTE_BUFFER_SIZE" | "BUFFER_ADDRESS" => {
                 // [(buffer) -> size]
                 let args = convert_args(&[false]);
                 check_is_buffer(args[0]);
+                assert!(t.is_int() && t.is_unsigned());
+                args
+            }
+            "ADDRESS_OF" => {
+                let args = convert_args(&[true]);
                 assert!(t.is_int() && t.is_unsigned());
                 args
             }
@@ -1842,6 +1849,11 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             FunctionModule::Callable(callable) => callable,
             _ => panic!("Invalid custom function."),
         };
+        for cpu_custom_op in f.cpu_custom_ops.iter() {
+            self._curr_ctx_mut()
+                .cpu_custom_ops
+                .push(cpu_custom_op.clone());
+        }
         self._curr_ctx_mut().has_autodiff |= f
             .module
             .flags
@@ -1899,7 +1911,35 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             _ => panic!("Invalid cast operator: {}.", op),
         }
     }
+    fn _convert_cpu_custom_expr(&mut self, t: &CArc<Type>, j: &JSON) -> NodeRef {
+        let func = Base64::decode_vec(j["func"].as_str().unwrap()).unwrap();
+        let func = usize::from_le_bytes(func.as_slice().try_into().unwrap());
+        let dtor = Base64::decode_vec(j["dtor"].as_str().unwrap()).unwrap();
+        let dtor = usize::from_le_bytes(dtor.as_slice().try_into().unwrap());
+        let data = Base64::decode_vec(j["data"].as_str().unwrap()).unwrap();
+        let data = usize::from_le_bytes(data.as_slice().try_into().unwrap());
+        let arg = self._convert_expression(&j["arg"], false);
+        let (builder, ..) = self.unwrap_ctx();
+        let op = unsafe {
+            Box::into_raw(Box::new(CpuCustomOp {
+                data: data as *mut u8,
+                func: std::mem::transmute::<_, extern "C" fn(*mut u8, *mut u8)>(func),
+                destructor: std::mem::transmute::<_, extern "C" fn(*mut u8)>(dtor),
+                arg_type: t.clone(),
+            }))
+        };
+        extern "C" fn dtor_(block: *mut CArcSharedBlock<CpuCustomOp>) {
+            let block = unsafe { Box::from_raw(block) };
+            let op = unsafe { Box::from_raw(block.ptr.as_mut().unwrap()) };
+            (op.destructor)(op.data);
+        }
+        let op = CArc::new_with_dtor(op, dtor_);
 
+        let f = Func::CpuCustomOp(op.clone());
+        let ret = builder.call(f, &[arg], t.clone());
+        self._curr_ctx_mut().cpu_custom_ops.push(op);
+        ret
+    }
     fn _convert_expression(&mut self, j: &JSON, is_lval: bool) -> NodeRef {
         if j.is_null() {
             assert!(!is_lval, "L-value cannot be null.");
@@ -1937,6 +1977,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 }
                 "TYPE_ID" => unimplemented!("TypeID expressions."),
                 "STRING_ID" => unimplemented!("StringID expressions."),
+                "CPUCUSTOM" => self._convert_cpu_custom_expr(&t, j),
                 _ => panic!("Invalid expression tag: {}", tag),
             }
         }
@@ -1975,11 +2016,18 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 builder.continue_()
             }
             "RETURN" => {
-                let v = self._convert_expression(&j["expression"], false);
-                let ret_type = self._curr_ctx().ret_type.clone();
-                let (builder, ..) = self.unwrap_ctx();
-                let v = Self::_cast(builder, &ret_type, v);
-                builder.return_(v)
+                if j["expression"].is_null() {
+                    assert!(self._curr_ctx().ret_type.is_void());
+                    let (builder, ..) = self.unwrap_ctx();
+                    builder.return_(INVALID_REF)
+                } else {
+                    assert!(!self._curr_ctx().ret_type.is_void());
+                    let v = self._convert_expression(&j["expression"], false);
+                    let ret_type = self._curr_ctx().ret_type.clone();
+                    let (builder, ..) = self.unwrap_ctx();
+                    let v = Self::_cast(builder, &ret_type, v);
+                    builder.return_(v)
+                }
             }
             "SCOPE" => unreachable!("Scope should be handled by _convert_scope."),
             "IF" => {
@@ -2220,7 +2268,10 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             captures: CBoxedSlice::new(captures),
             args: CBoxedSlice::new(args),
             shared: CBoxedSlice::new(shared),
-            cpu_custom_ops: CBoxedSlice::new(vec![]),
+            cpu_custom_ops: CBoxedSlice::new(std::mem::replace(
+                &mut self._curr_ctx_mut().cpu_custom_ops,
+                vec![],
+            )),
             block_size,
             pools: self.pools.clone(),
         }
@@ -2241,7 +2292,10 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             ret_type,
             args: CBoxedSlice::new(args),
             captures: CBoxedSlice::new(Vec::new()),
-            cpu_custom_ops: CBoxedSlice::new(Vec::new()),
+            cpu_custom_ops: CBoxedSlice::new(std::mem::replace(
+                &mut self._curr_ctx_mut().cpu_custom_ops,
+                vec![],
+            )),
             pools: self.pools.clone(),
         }
     }
@@ -2265,6 +2319,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             } else {
                 Type::void()
             },
+            cpu_custom_ops: Vec::new(),
             has_autodiff: false,
         };
         // push current context

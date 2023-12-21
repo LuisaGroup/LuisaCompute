@@ -101,18 +101,30 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
     auto set_arg = [&](Argument &arg) {
         switch (arg.tag) {
             case Argument::Tag::BUFFER: {
+                if (arg.buffer.handle == invalid_resource_handle) [[unlikely]] {
+                    LUISA_ERROR("Invalid shader dispatch buffer argument.");
+                }
                 mark_handle(arg.buffer.handle, Range{arg.buffer.offset, arg.buffer.size});
             } break;
             case Argument::Tag::TEXTURE: {
+                if (arg.texture.handle == invalid_resource_handle) [[unlikely]] {
+                    LUISA_ERROR("Invalid shader dispatch texture argument.");
+                }
                 auto tex_usage = mark_handle(arg.texture.handle, Range{arg.texture.level, 1});
                 if (tex_usage.first->tag() == Resource::Tag::DEPTH_BUFFER && (luisa::to_underlying(tex_usage.second) & luisa::to_underlying(Usage::WRITE)) != 0) {
                     LUISA_ERROR("{} can not be written by kernel.", tex_usage.first->get_name());
                 }
             } break;
             case Argument::Tag::BINDLESS_ARRAY: {
+                if (arg.bindless_array.handle == invalid_resource_handle) [[unlikely]] {
+                    LUISA_ERROR("Invalid shader dispatch bindless argument.");
+                }
                 mark_handle(arg.bindless_array.handle, Range{});
             } break;
             case Argument::Tag::ACCEL: {
+                if (arg.accel.handle == invalid_resource_handle) [[unlikely]] {
+                    LUISA_ERROR("Invalid shader dispatch accel argument.");
+                }
                 mark_handle(arg.accel.handle, Range{});
             } break;
             default:

@@ -28,7 +28,7 @@ private:
     virtual void _launch(CUDACommandEncoder &encoder,
                          ShaderDispatchCommand *command) const noexcept = 0;
 
-protected:
+public:
     static void _patch_ptx_version(luisa::string &ptx) noexcept;
 
 public:

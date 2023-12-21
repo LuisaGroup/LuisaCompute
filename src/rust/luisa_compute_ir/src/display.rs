@@ -1,6 +1,6 @@
 use crate::{
     context::is_type_equal,
-    ir::{BasicBlock, Instruction, Module, NodeRef, PhiIncoming, SwitchCase, Type, Func},
+    ir::{BasicBlock, Func, Instruction, Module, NodeRef, PhiIncoming, SwitchCase, Type},
     Pooled,
 };
 use std::collections::{HashMap, HashSet};
@@ -12,7 +12,7 @@ pub struct DisplayIR {
     cnt: usize,
     block_cnt: usize,
     block_labels: HashMap<*const BasicBlock, String>,
-    defs:HashSet<NodeRef>,
+    defs: HashSet<NodeRef>,
 }
 
 impl DisplayIR {
@@ -23,7 +23,7 @@ impl DisplayIR {
             cnt: 0,
             block_labels: HashMap::new(),
             block_cnt: 0,
-            defs:HashSet::new(),
+            defs: HashSet::new(),
         }
     }
 
@@ -148,10 +148,9 @@ impl DisplayIR {
                     .join(", ");
                 if let Func::Assert(_) = func {
                     self.output += format!("Call Assert({})", args,).as_str();
-                }else{
+                } else {
                     self.output += format!("Call {:?}({})", func, args,).as_str();
                 }
-                
             }
             Instruction::Phi(incomings) => {
                 let n = self.get(&node);
@@ -303,7 +302,11 @@ impl DisplayIR {
             }
             Instruction::Comment(_) => {}
             Instruction::Return(v) => {
-                let temp = format!("return ${}", self.get(v));
+                let temp = if v.valid() {
+                    format!("return ${}", self.get(v))
+                } else {
+                    "return void".to_string()
+                };
                 self.output += temp.as_str();
             }
             Instruction::Print { .. } => {}

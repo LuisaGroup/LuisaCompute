@@ -170,9 +170,12 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
     ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-    BUFFER_READ, /// [(buffer, index) -> value]: reads the index-th element in buffer
-    BUFFER_WRITE,/// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
-    BUFFER_SIZE, /// [(buffer) -> size]
+    ADDRESS_OF, // (expr) -> uint64
+
+    BUFFER_READ,   /// [(buffer, index) -> value]: reads the index-th element in buffer
+    BUFFER_WRITE,  /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
+    BUFFER_SIZE,   /// [(buffer) -> size]
+    BUFFER_ADDRESS,/// [(buffer) -> address]
 
     BYTE_BUFFER_READ, /// [(buffer, byte_index) -> value]: reads the index-th element in buffer
     BYTE_BUFFER_WRITE,/// [(buffer, byte_index, value) -> void]: writes value into the index-th element of buffer
@@ -205,6 +208,7 @@ enum struct CallOp : uint32_t {
     BINDLESS_BUFFER_SIZE,     // (bindless_array, index: uint, stride: uint) -> size
     BINDLESS_BUFFER_TYPE,     // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
                               // could be compared with the value of a TypeIDExpr to examine the type of the buffer
+    BINDLESS_BUFFER_ADDRESS,  // (bindless_array, index: uint) -> uint64 (address of the buffer)
 
     MAKE_BOOL2, // (bool, bool2)
     MAKE_BOOL3, // (bool, bool3)

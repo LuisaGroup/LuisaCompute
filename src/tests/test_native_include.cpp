@@ -46,7 +46,7 @@ float2 get_uv(float2 coord, float2 size){
 }
     )";
     }
-    Shader2D<> shader = device.compile(kernel, option);
+    auto shader = device.compile(kernel, option);
     stream << shader().dispatch(resolution)
            << image.copy_to(host_image.data())
            << synchronize();

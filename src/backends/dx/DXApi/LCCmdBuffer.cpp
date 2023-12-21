@@ -177,7 +177,7 @@ public:
         }
     };
     void visit(const DXCustomCmd *cmd) noexcept {
-        for (auto &&i : cmd->resource_usages) {
+        for (auto &&i : cmd->get_resource_usages()) {
             uint64_t handle =
                 luisa::visit(
                     [](auto &&t) -> uint64_t {
@@ -591,21 +591,23 @@ public:
                         readback_buffer.offset,
                         {reinterpret_cast<uint8_t *>(data.data()), data.size()});
                 auto printers = shader->Printers();
-                auto ptr = data.data();
-                auto end = ptr + data.size();
-                while (ptr < end) {
-                    uint flagTypeIdx = *reinterpret_cast<uint32_t *>(ptr);
-                    ptr += sizeof(uint);
+                size_t offset = 0;
+                const auto ptr = data.data();
+                const auto end = data.size();
+                while (offset < end) {
+                    uint flagTypeIdx = *reinterpret_cast<uint32_t *>(ptr + offset);
                     auto &type = printers[flagTypeIdx];
                     ShaderPrintFormatter formatter{type.first, type.second, false};
                     luisa::string result;
-                    formatter(result, {ptr, type.second->size()});
-                    ptr += type.second->size();
+                    auto align = std::max<size_t>(4, type.second->alignment());
+                    formatter(result, {ptr + offset + align, type.second->size()});
+                    size_t ele_size = align + type.second->size();
+                    ele_size = ((ele_size + 15ull) & (~15ull));
+                    offset += ele_size;
                     if (logger) [[likely]] {
                         (*logger)(result);
                     }
                 }
-                // while(reinterpret_cast<size_t>(ptr) < reinterpret_cast<size_t>())
             });
         }
     }
@@ -995,10 +997,10 @@ void LCCmdBuffer::Execute(
         ID3D12DescriptorHeap *h[2] = {
             device->globalHeap->GetHeap(),
             device->samplerHeap->GetHeap()};
-        if (!commands.empty() && allocType != D3D12_COMMAND_LIST_TYPE_COPY) {
-            cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
-        }
         for (auto lst : cmdLists) {
+            if (allocType != D3D12_COMMAND_LIST_TYPE_COPY) {
+                cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
+            }
             cmdListIsEmpty = cmdListIsEmpty && (lst == nullptr);
             // Clear caches
             ppVisitor.argVecs->clear();
@@ -1022,7 +1024,7 @@ void LCCmdBuffer::Execute(
                 visitor.argBuffer = {};
             } else {
 // Use default buffer as arguments buffer
-#ifdef false
+#if false
                 auto uploadBuffer = allocator->GetTempDefaultBuffer(ppVisitor.argBuffer->size(), 16);
                 tracker.RecordState(
                     uploadBuffer.buffer,

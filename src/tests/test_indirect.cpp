@@ -34,10 +34,10 @@ int main(int argc, char *argv[]) {
         set_block_size(kernel_block_size.x, kernel_block_size.y, kernel_block_size.z);
         buffer.atomic(kernel_id()).fetch_add(dispatch_size().x);
     };
-    Shader1D<IndirectDispatchBuffer> clear_shader = device.compile(clear_kernel);
-    Shader1D<IndirectDispatchBuffer> emplace_shader = device.compile(emplace_kernel);
-    Shader1D<IndirectDispatchBuffer> set_shader = device.compile(set_kernel);
-    Shader1D<Buffer<uint>> dispatch_shader = device.compile(dispatch_kernel);
+    auto clear_shader = device.compile(clear_kernel);
+    auto emplace_shader = device.compile(emplace_kernel);
+    auto set_shader = device.compile(set_kernel);
+    auto dispatch_shader = device.compile(dispatch_kernel);
 
     IndirectDispatchBuffer dispatch_buffer = device.create_indirect_dispatch_buffer(dispatch_count);
     Buffer<uint> buffer = device.create_buffer<uint>(dispatch_count);

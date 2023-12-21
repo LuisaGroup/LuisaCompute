@@ -57,7 +57,7 @@ int test_callable(Device &device) {
         self_add(x);
         store(result, index, add(load(source, index), x));
     };
-    Shader1D<Buffer<float>, Buffer<float>, float> shader = device.compile(kernel_def);
+    auto shader = device.compile(kernel_def);
     Stream stream = device.create_stream();
     Buffer<float> result_buffer = device.create_buffer<float>(n);
 
@@ -95,5 +95,5 @@ int test_callable(Device &device) {
 }// namespace luisa::test
 
 TEST_SUITE("dsl") {
-    LUISA_TEST_CASE_WITH_DEVICE("callable", luisa::test::test_callable(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("dsl_callable", luisa::test::test_callable(device) == 0);
 }

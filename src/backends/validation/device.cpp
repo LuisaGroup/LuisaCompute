@@ -47,7 +47,7 @@ Device::Device(Context &&ctx, luisa::shared_ptr<DeviceInterface> &&native) noexc
                     delete static_cast<DStorageExtImpl *>(ptr);
                 }}});
     }
-    if(pinned_ext){
+    if (pinned_ext) {
         auto pinned_ext_impl = new PinnedMemoryExtImpl(pinned_ext);
         exts.try_emplace(
             PinnedMemoryExt::name,
@@ -142,6 +142,7 @@ ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
     return str;
 }
 void Device::destroy_stream(uint64_t handle) noexcept {
+    RWResource::get<Stream>(handle)->sync();
     RWResource::dispose(handle);
     {
         std::lock_guard lck{stream_mtx};

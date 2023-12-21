@@ -351,6 +351,14 @@ impl StreamImpl {
                             shader: shader as *const _,
                             terminated: AtomicBool::new(false),
                         });
+                        let custom_ops = shader
+                            .custom_ops
+                            .iter()
+                            .map(|op| defs::CpuCustomOp {
+                                func: op.func,
+                                data: op.data,
+                            })
+                            .collect::<Vec<_>>();
                         let kernel_args = defs::KernelFnArgs {
                             captured: shader.captures.as_ptr(),
                             captured_count: shader.captures.len(),
@@ -360,8 +368,8 @@ impl StreamImpl {
                             dispatch_size,
                             block_id: [0, 0, 0],
                             args_count: args.len(),
-                            custom_ops: shader.custom_ops.as_ptr(),
-                            custom_ops_count: shader.custom_ops.len(),
+                            custom_ops: custom_ops.as_ptr(),
+                            custom_ops_count: custom_ops.len(),
                             internal_data: Arc::as_ptr(&ctx) as *const _ as *const _,
                         };
 

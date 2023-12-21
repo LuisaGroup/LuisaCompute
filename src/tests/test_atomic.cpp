@@ -14,7 +14,7 @@ struct Something {
     float3 v;
 };
 
-LUISA_STRUCT(Something, x, v){};
+LUISA_STRUCT(Something, x, v) {};
 
 int main(int argc, char *argv[]) {
 
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
             buffer->write(0u, 1u);
         });
     };
-    Shader1D<> count = device.compile(count_kernel);
+    auto count = device.compile(count_kernel);
 
     uint4 host_buffer = make_uint4(0u);
     Stream stream = device.create_stream();
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
     Kernel1D add_kernel = [&](BufferFloat buffer) noexcept {
         buffer.atomic(0u).fetch_sub(-1.f);
     };
-    Shader1D<Buffer<float>> add_shader = device.compile(add_kernel);
+    auto add_shader = device.compile(add_kernel);
 
     Kernel1D vector_atomic_kernel = [](BufferFloat3 buffer) noexcept {
         buffer.atomic(0u).x.fetch_add(1.f);
@@ -84,4 +84,3 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Atomic float result: {}.", result);
     LUISA_ASSERT(result == 1024.f, "Atomic float operation failed.");
 }
-

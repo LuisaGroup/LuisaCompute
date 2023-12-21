@@ -253,15 +253,15 @@ int path_tracer(Device &device, luisa::string filename = "path_tracer.png") {
 
     ShaderOption o{.enable_debug_info = true};
     o.name = "clear";
-    Shader2D<Image<float>> clear_shader = device.compile(clear_kernel, o);
+    auto clear_shader = device.compile(clear_kernel, o);
     o.name = "hdr2ldr";
-    Shader2D<Image<float>, Image<float>, float, bool> hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
+    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
     o.name = "accumulate";
-    Shader2D<Image<float>, Image<float>> accumulate_shader = device.compile(accumulate_kernel, o);
+    auto accumulate_shader = device.compile(accumulate_kernel, o);
     o.name = "raytracing";
-    Shader2D<Image<float>, Image<uint>, Accel, uint2> raytracing_shader = device.compile(raytracing_kernel, o);
+    auto raytracing_shader = device.compile(raytracing_kernel, o);
     o.name = "make_sampler";
-    Shader2D<Image<uint>> make_sampler_shader = device.compile(make_sampler_kernel, o);
+    auto make_sampler_shader = device.compile(make_sampler_kernel, o);
 
     static constexpr uint2 resolution = make_uint2(1024u);
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);

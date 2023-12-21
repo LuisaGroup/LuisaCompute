@@ -7,7 +7,7 @@
 #include <luisa/backends/ext/dstorage_cmd.h>
 namespace lc::dx {
 void DStorageCommandQueue::ExecuteThread() {
-    while (enabled) {
+    while (enabled || executedAllocators.length() != 0) {
         uint64_t fence;
         bool wakeupThread;
         auto max_fence = [&]() {

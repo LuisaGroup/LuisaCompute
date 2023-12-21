@@ -155,7 +155,122 @@ SwitchDefaultStmt *FunctionBuilder::default_() noexcept {
 void FunctionBuilder::assign(const Expression *lhs, const Expression *rhs) noexcept {
     lhs = _internalize(lhs);
     rhs = _internalize(rhs);
+    if (lhs->tag() == Expression::Tag::MEMBER) [[unlikely]] {
+        auto mem_expr = static_cast<MemberExpr const *>(lhs);
+        if (mem_expr->is_swizzle() && mem_expr->swizzle_size() > 1) [[unlikely]] {
+            // switch (self->tag()) {
+            //     case Expression::Tag::MEMBER: {
+            //         if (static_cast<MemberExpr const *>(self)->is_swizzle()) {
+            //             LUISA_ERROR("Can not use multiple swizzle write.");
+            //         }
+            //     } break;
+            //     case Expression::Tag::ACCESS: break;
+            //     case Expression::Tag::REF: break;
+            //     default:
+            //         LUISA_ERROR("Invalid swizzle");
+            //         break;
+            // }
+            auto non_trivial = [&](Expression const *expr) -> bool {
+                switch (expr->tag()) {
+                    case Expression::Tag::LITERAL:
+                    case Expression::Tag::REF:
+                        return false;
+                    default:
+                        return true;
+                }
+            };
+            auto temp_var = [&](Expression const *expr) {
+                auto local_var = local(expr->type());
+                assign(local_var, expr);
+                return local_var;
+            };
+            auto access_chain_decode = [&](auto &&access_chain_decode, Expression const *expr) -> Expression const * {
+                switch (expr->tag()) {
+                    case Expression::Tag::MEMBER: {
+                        auto mem = static_cast<MemberExpr const *>(expr);
+                        if (mem->is_swizzle()) [[unlikely]] {
+                            LUISA_ERROR("Can not use multiple swizzle write.");
+                        }
+                        auto mem_self = mem->self();
+                        auto new_self = access_chain_decode(access_chain_decode, mem_self);
+                        if (new_self != mem_self) {
+                            return member(new_self->type(), new_self, mem->member_index());
+                        }
+                        return expr;
+                    }
+                    case Expression::Tag::ACCESS: {
+                        auto access_expr = static_cast<AccessExpr const *>(expr);
+                        auto new_range = access_chain_decode(access_chain_decode, access_expr->range());
+                        if (non_trivial(access_expr->index())) {
+                            return access(access_expr->type(), new_range, temp_var(access_expr->index()));
+                        } else if (new_range != access_expr->range()) {
+                            return access(access_expr->type(), new_range, access_expr->index());
+                        }
+                        return access_expr;
+                    }
+                    case Expression::Tag::REF: return expr;
+                    default:
+                        LUISA_ERROR("Invalid swizzle");
+                        break;
+                }
+                return nullptr;
+            };
+            auto self = mem_expr->self();
+            self = access_chain_decode(access_chain_decode, self);
+            auto local_var = local(mem_expr->type());
+            auto elem = mem_expr->type()->element();
+            _create_and_append_statement<AssignStmt>(local_var, rhs);
+            std::array<const Expression *, 4> exprs{};
+            for (int i = 0; i < mem_expr->swizzle_size(); ++i) {
+                exprs[mem_expr->swizzle_index(i)] = swizzle(elem, local_var, 1, i);
+            }
+            auto make_type = self->type();
+            for (int i = 0; i < make_type->dimension(); ++i) {
+                if (exprs[i] == nullptr) {
+                    exprs[i] = swizzle(elem, self, 1, i);
+                }
+            }
+            auto call_expr = make_vector(make_type, {exprs.data(), make_type->dimension()});
+            _create_and_append_statement<AssignStmt>(self, call_expr);
+            return;
+        }
+    }
     _create_and_append_statement<AssignStmt>(lhs, rhs);
+}
+
+const CallExpr *FunctionBuilder::make_vector(const Type *type, luisa::span<const Expression *const> args) noexcept {
+    LUISA_ASSERT(type->tag() == Type::Tag::VECTOR, "Must be vector type.");
+    auto elem = type->element();
+    auto op = static_cast<CallOp>(
+        luisa::to_underlying([&]() {
+            switch (elem->tag()) {
+                case Type::Tag::BOOL:
+                    return CallOp::MAKE_BOOL2;
+                case Type::Tag::UINT16:
+                    return CallOp::MAKE_USHORT2;
+                case Type::Tag::UINT32:
+                    return CallOp::MAKE_UINT2;
+                case Type::Tag::UINT64:
+                    return CallOp::MAKE_ULONG2;
+                case Type::Tag::INT16:
+                    return CallOp::MAKE_SHORT2;
+                case Type::Tag::INT32:
+                    return CallOp::MAKE_INT2;
+                case Type::Tag::INT64:
+                    return CallOp::MAKE_LONG2;
+                case Type::Tag::FLOAT16:
+                    return CallOp::MAKE_HALF2;
+                case Type::Tag::FLOAT32:
+                    return CallOp::MAKE_HALF2;
+                case Type::Tag::FLOAT64:
+                    return CallOp::MAKE_DOUBLE2;
+                default:
+                    LUISA_ERROR("Invalid element type.");
+                    return CallOp::MAKE_BOOL2;
+            }
+        }()) +
+        elem->dimension() - 2);
+    return call(type, op, args);
 }
 
 const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value value) noexcept {
@@ -657,7 +772,10 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
     }
     return expr;
 }
-
+const CpuCustomOpExpr *FunctionBuilder::call(const Type *type, void (*f)(void *, void *), void (*dtor)(void *), void *data, const Expression *arg) noexcept {
+    auto expr = _create_expression<CpuCustomOpExpr>(type, f, dtor, data, arg);
+    return expr;
+}
 void FunctionBuilder::call(CallOp call_op, luisa::span<const Expression *const> args) noexcept {
     _void_expr(call(nullptr, call_op, args));
 }

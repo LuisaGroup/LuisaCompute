@@ -51,33 +51,33 @@ struct TypeDesc {
 
 // scalar
 #define LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(S, desc) \
-    template<>                                                              \
-    struct TypeDesc<S> {                                                    \
-        static constexpr luisa::string_view description() noexcept {        \
-            using namespace std::string_view_literals;                      \
-            return #desc##sv;                                               \
-        }                                                                   \
-    };                                                                      \
-    template<>                                                              \
-    struct TypeDesc<Vector<S, 2>> {                                         \
-        static constexpr luisa::string_view description() noexcept {        \
-            using namespace std::string_view_literals;                      \
-            return "vector<" #desc ",2>"sv;                                 \
-        }                                                                   \
-    };                                                                      \
-    template<>                                                              \
-    struct TypeDesc<Vector<S, 3>> {                                         \
-        static constexpr luisa::string_view description() noexcept {        \
-            using namespace std::string_view_literals;                      \
-            return "vector<" #desc ",3>"sv;                                 \
-        }                                                                   \
-    };                                                                      \
-    template<>                                                              \
-    struct TypeDesc<Vector<S, 4>> {                                         \
-        static constexpr luisa::string_view description() noexcept {        \
-            using namespace std::string_view_literals;                      \
-            return "vector<" #desc ",4>"sv;                                 \
-        }                                                                   \
+    template<>                                                         \
+    struct TypeDesc<S> {                                               \
+        static constexpr luisa::string_view description() noexcept {   \
+            using namespace std::string_view_literals;                 \
+            return #desc##sv;                                          \
+        }                                                              \
+    };                                                                 \
+    template<>                                                         \
+    struct TypeDesc<Vector<S, 2>> {                                    \
+        static constexpr luisa::string_view description() noexcept {   \
+            using namespace std::string_view_literals;                 \
+            return "vector<" #desc ",2>"sv;                            \
+        }                                                              \
+    };                                                                 \
+    template<>                                                         \
+    struct TypeDesc<Vector<S, 3>> {                                    \
+        static constexpr luisa::string_view description() noexcept {   \
+            using namespace std::string_view_literals;                 \
+            return "vector<" #desc ",3>"sv;                            \
+        }                                                              \
+    };                                                                 \
+    template<>                                                         \
+    struct TypeDesc<Vector<S, 4>> {                                    \
+        static constexpr luisa::string_view description() noexcept {   \
+            using namespace std::string_view_literals;                 \
+            return "vector<" #desc ",4>"sv;                            \
+        }                                                              \
     };
 
 LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(bool, bool)
@@ -95,12 +95,18 @@ LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION(double, double)
 
 #undef LUISA_MAKE_SCALAR_AND_VECTOR_TYPE_DESC_SPECIALIZATION
 
+template<>
+struct TypeDesc<long>
+    : public TypeDesc<canonical_c_long> {};
+
+template<>
+struct TypeDesc<unsigned long>
+    : public TypeDesc<canonical_c_ulong> {};
+
 template<typename T>
     requires std::is_enum_v<T>
 struct TypeDesc<T>
-    : TypeDesc<std::conditional_t<
-          std::is_signed_v<std::underlying_type_t<T>>,
-          int, uint>> {};
+    : TypeDesc<std::underlying_type_t<T>> {};
 
 // array
 template<typename T, size_t N>

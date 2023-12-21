@@ -12,6 +12,8 @@ on_load(function(target)
 		return
 	end
 	target:add("includedirs", 
+		--[[pybind11]]
+		path.join(lc_dir,"src/ext/pybind11/include"),
 		--[[spdlog]]
 		path.join(lc_dir,"src/ext/spdlog/include"),
 		--[[half]]

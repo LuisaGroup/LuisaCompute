@@ -12,6 +12,9 @@ namespace luisa::compute {
 template<typename T>
 class Callable;
 
+template<size_t dim, typename... T>
+class Kernel;
+
 class LC_AST_API CallableLibrary {
 
 private:
@@ -32,7 +35,9 @@ private:
 
 public:
     template<typename T>
-    Callable<T> get_callable(luisa::string_view name) const noexcept;
+    [[nodiscard]] Callable<T> get_callable(luisa::string_view name) const noexcept;
+    template<size_t dim, typename... T>
+    [[nodiscard]] Kernel<dim, T...> get_kernel(luisa::string_view name) const noexcept;
     [[nodiscard]] Function get_function(luisa::string_view name) const noexcept;
     [[nodiscard]] luisa::shared_ptr<const detail::FunctionBuilder> get_function_builder(luisa::string_view name) const noexcept;
     [[nodiscard]] luisa::vector<luisa::string_view> names() const noexcept;

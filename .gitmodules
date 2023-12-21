@@ -26,3 +26,6 @@
 	path = src/ext/imgui
 	url = https://github.com/ocornut/imgui.git
 	branch = docking
+[submodule "src/ext/reproc"]
+	path = src/ext/reproc
+	url = https://github.com/LuisaGroup/reproc.git

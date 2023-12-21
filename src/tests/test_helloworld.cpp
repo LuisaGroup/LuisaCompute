@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
         Var uv = (make_float2(coord) + 0.5f) / make_float2(size);
         image->write(coord, make_float4(uv, 0.5f, 1.0f));
     };
-    Shader2D<> shader = device.compile(kernel);
+    auto shader = device.compile(kernel);
     stream << shader().dispatch(resolution)
            << image.copy_to(host_image.data())
            << synchronize();

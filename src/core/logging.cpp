@@ -81,7 +81,9 @@ static luisa::logger LOGGER = [] {
 LC_CORE_API void set_sink(spdlog::sink_ptr sink) noexcept {
     std::lock_guard _lock{LOGGER_MUTEX};
     LOGGER.sinks().clear();
-    LOGGER.sinks().emplace_back(std::move(sink));
+    if (sink) {
+        LOGGER.sinks().emplace_back(std::move(sink));
+    }
 }
 
 LC_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLoggerMessage)) noexcept {
@@ -92,6 +94,11 @@ LC_CORE_API spdlog::sink_ptr create_sink_with_callback(void (*callback)(LCLogger
         callback(m);
     });
 }
+
+LC_CORE_API spdlog::sink_ptr create_sink_with_callback(luisa::function<void(const char *level, const char *message)> callback) noexcept {
+    return std::make_shared<luisa::detail::SinkWithCallback<std::mutex>>(std::move(callback));
+}
+
 }// namespace detail
 
 void log_level_verbose() noexcept { detail::default_logger().set_level(spdlog::level::debug); }

@@ -11,6 +11,7 @@
 #include <Resource/ReadbackBuffer.h>
 #include <DXApi/LCEvent.h>
 #include <DXApi/LCDevice.h>
+#include <DXApi/LCSwapChain.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 #include <DXApi/TypeCheck.h>
 #include <luisa/runtime/image.h>
@@ -139,6 +140,19 @@ ResourceCreationInfo DxNativeResourceExt::register_external_depth_buffer(
         reinterpret_cast<uint64_t>(res),
         external_ptr};
 }
+SwapchainCreationInfo DxNativeResourceExt::register_external_swapchain(
+    void *swapchain_ptr,
+    bool vsync) noexcept {
+    SwapchainCreationInfo info;
+    auto res = new LCSwapChain(
+        info.storage,
+        dx_device,
+        reinterpret_cast<IDXGISwapChain3 *>(swapchain_ptr),
+        vsync);
+    info.handle = reinterpret_cast<uint64_t>(res);
+    info.native_handle = swapchain_ptr;
+    return info;
+}
 void DStorageExtImpl::init_factory_nolock() {
     HRESULT(WINAPI * DStorageGetFactory)
     (REFIID riid, _COM_Outptr_ void **ppv);
@@ -169,15 +183,17 @@ DStorageExtImpl::DStorageExtImpl(std::filesystem::path const &runtime_dir, LCDev
 }
 ResourceCreationInfo DStorageExtImpl::create_stream_handle(const DStorageStreamOption &option) noexcept {
     set_config(option.supports_hdd);
-    if (option.staging_buffer_size != DSTORAGE_STAGING_BUFFER_SIZE_32MB) {
+    if (option.staging_buffer_size != staging_buffer_size) {
         if (!staging.exchange(true)) {
             factory->SetStagingBufferSize(option.staging_buffer_size);
+            staging_buffer_size = option.staging_buffer_size;
         } else {
             LUISA_WARNING("Staging buffer already setted, staging set failed.");
         }
     }
     ResourceCreationInfo r;
     auto ptr = new DStorageCommandQueue{factory.Get(), &mdevice->nativeDevice, option.source};
+    ptr->staging_buffer_size = staging_buffer_size;
     r.handle = reinterpret_cast<uint64_t>(ptr);
     r.native_handle = nullptr;
     return r;

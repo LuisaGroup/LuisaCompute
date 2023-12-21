@@ -171,6 +171,14 @@ struct canonical_layout<ulong> {
     using type = std::tuple<ulong>;
 };
 
+template<>
+struct canonical_layout<long>
+    : canonical_layout<canonical_c_long> {};
+
+template<>
+struct canonical_layout<unsigned long>
+    : canonical_layout<canonical_c_ulong> {};
+
 template<typename T>
 struct canonical_layout<std::tuple<T>> {
     using type = typename canonical_layout<T>::type;

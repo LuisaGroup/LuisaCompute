@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
         Bool c1 = count == 3u;
         curr.write(uv, make_uint4(make_uint3(ite((state & c0) | c1, 255u, 0u)), 255u));
     };
-    Shader2D<Image<uint>, Image<uint>> shader = device.compile(kernel);
+    auto shader = device.compile(kernel);
     Kernel2D display_kernel = [&](ImageUInt in_tex, ImageFloat out_tex) noexcept {
         set_block_size(16, 16, 1);
         UInt2 uv = dispatch_id().xy();
@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
         UInt4 value = in_tex.read(coord);
         out_tex.write(uv, make_float4(value) / 255.0f);
     };
-    Shader2D<Image<uint>, Image<float>> display_shader = device.compile(display_kernel);
+    auto display_shader = device.compile(display_kernel);
     static constexpr uint width = 128u;
     static constexpr uint height = 128u;
     ImagePair image_pair{device, PixelStorage::BYTE4, width, height};
@@ -92,4 +92,3 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
-

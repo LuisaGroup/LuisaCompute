@@ -5,7 +5,7 @@ add_custom_target(luisa-compute-ext-copy ALL
 add_dependencies(luisa-compute-ext-copy luisa-compute-ext)
 
 function(luisa_compute_install_extension target)
-    cmake_parse_arguments("EXT" "" "INCLUDE;HEADER_DESTINATION" "HEADER_FILES" ${ARGN})
+    cmake_parse_arguments("EXT" "" "INCLUDE;HEADER_DESTINATION" "INCLUDES;HEADER_FILES" ${ARGN})
     install(TARGETS ${target}
             EXPORT LuisaComputeTargets
             LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -16,6 +16,13 @@ function(luisa_compute_install_extension target)
         install(DIRECTORY ${EXT_INCLUDE}
                 DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
                 FILES_MATCHING REGEX ".*\\.(h|hpp|hxx|hxx|inl)$")
+    endif ()
+    if (EXT_INCLUDES)
+        foreach (include ${EXT_INCLUDES})
+            install(DIRECTORY ${include}
+                    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
+                    FILES_MATCHING REGEX ".*\\.(h|hpp|hxx|hxx|inl)$")
+        endforeach ()
     endif ()
     if (EXT_HEADER_FILES)
         install(FILES ${EXT_HEADER_FILES}
@@ -69,7 +76,7 @@ luisa_compute_install_extension(stb HEADER_FILES
 add_library(magic_enum INTERFACE)
 target_include_directories(magic_enum INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/magic_enum/include>)
 target_link_libraries(luisa-compute-ext INTERFACE magic_enum)
-luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include)
+luisa_compute_install_extension(magic_enum INCLUDE magic_enum/include/magic_enum)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
 
@@ -134,15 +141,40 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
     target_compile_options(EASTL PUBLIC -Wno-deprecated-builtins)
 endif ()
 
-add_library(unordered_dense INTERFACE)
-target_include_directories(unordered_dense INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/unordered_dense/include>)
-target_link_libraries(luisa-compute-ext INTERFACE unordered_dense)
-luisa_compute_install_extension(unordered_dense INCLUDE unordered_dense/include)
-
 add_library(half INTERFACE)
 target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/half/include>)
 target_link_libraries(luisa-compute-ext INTERFACE half)
-luisa_compute_install_extension(half INCLUDE half/include)
+luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
+
+# reproc
+set(REPROC_DEVELOP OFF CACHE BOOL "" FORCE)
+set(REPROC_TEST OFF CACHE BOOL "" FORCE)
+set(REPROC_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(REPROC_WARNINGS ON CACHE BOOL "" FORCE)
+set(REPROC_TIDY OFF CACHE BOOL "" FORCE)
+set(REPROC_SANITIZERS OFF CACHE BOOL "" FORCE)
+set(REPROC_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+set(REPROC_OBJECT_LIBRARIES ON CACHE BOOL "" FORCE)
+set(REPROC_INSTALL OFF CACHE BOOL "" FORCE)
+set(REPROC_INSTALL_PKGCONFIG OFF CACHE BOOL "" FORCE)
+set(REPROC++ ON CACHE BOOL "" FORCE)
+set(REPROC_MULTITHREADED ON CACHE BOOL "" FORCE)
+add_subdirectory(reproc)
+if (UNIX AND NOT APPLE)
+    target_compile_options(reproc PUBLIC "-fPIC")
+    target_compile_options(reproc++ PUBLIC "-fPIC")
+endif ()
+target_include_directories(luisa-compute-ext INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc++/include>)
+install(DIRECTORY reproc/reproc/include/reproc
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
+        FILES_MATCHING REGEX ".*\\.h$")
+install(DIRECTORY reproc/reproc++/include/reproc++
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
+        FILES_MATCHING REGEX ".*\\.hpp$")
+# Note: we do not link `reproc` and `reproc++` to `luisa-compute-ext` but
+#       instead to `luisa-compute-core` since this is an OBJECT library.
 
 if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)

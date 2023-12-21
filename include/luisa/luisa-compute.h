@@ -47,7 +47,6 @@
 #include <luisa/dsl/atomic.h>
 #include <luisa/dsl/binding_group.h>
 #include <luisa/dsl/builtin.h>
-#include <luisa/dsl/callable_library.h>
 #include <luisa/dsl/constant.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/dsl/expr.h>

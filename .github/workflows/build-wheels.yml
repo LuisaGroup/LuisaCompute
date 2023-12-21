@@ -37,7 +37,7 @@ jobs:
           submodules: recursive
       - name: "Setup LLVM"
         run: |
-          brew install --overwrite python@3.11
+          brew install --overwrite python@3.12
           brew install --overwrite llvm molten-vk
       - name: "Build Wheels"
         run: |
@@ -45,7 +45,10 @@ jobs:
           export CC=clang
           export CXX=clang++
           python -m pip install -U cibuildwheel
-          python -m cibuildwheel --output-dir wheelhouse
+          for dep_target in 13.0; do
+            export MACOSX_DEPLOYMENT_TARGET=${dep_target}
+            python -m cibuildwheel --output-dir wheelhouse
+          done
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
