@@ -1,115 +1,21 @@
 #pragma once
 #include "attributes.hpp"
+#include "type_traits/builtins.hpp"
+#include "type_traits/concepts.hpp"
 
 namespace luisa::shader {
-using int16 = short;
-using uint16 = unsigned short;
-using int32 = int;
-using int64 = long long;
-using uint32 = unsigned int;
-using uint64 = unsigned long long;
 
-template<typename T, typename U>
-static constexpr bool is_same_v = __is_same_as(T, U);
+namespace detail
+{
+    template<typename T>
+    trait vec_dim { static constexpr uint64 value = 1; };
 
-template<typename T>
-trait remove_cvref { using type = T; };
-template<typename T>
-trait remove_cvref<T &> { using type = T; };
-template<typename T>
-trait remove_cvref<T const> { using type = T; };
-template<typename T>
-trait remove_cvref<T volatile> { using type = T; };
-template<typename T>
-trait remove_cvref<T &&> { using type = T; };
-
-/*
-template<typename T>
-[[ignore]] constexpr T&& forward(typename remove_cvref<T>::type& Arg) {
-    return static_cast<T&&>(Arg);
+    template<typename T, uint64 N>
+    trait vec_dim<vec<T, N>> { static constexpr uint64 value = N; };
 }
 
 template<typename T>
-[[ignore]] constexpr T&& forward(typename remove_cvref<T>::type&& Arg) {
-    return static_cast<T&&>(Arg);
-}
-*/
-
-struct [[builtin("half")]] half {
-    [[ignore]] half() = default;
-    [[ignore]] half(float);
-    [[ignore]] half(uint32);
-    [[ignore]] half(int32);
-private:
-    short v;
-};
-
-template<typename T, uint64 N>
-struct vec;
-
-template<uint64 N>
-struct matrix;
-template<typename T>
-trait is_float_family { static constexpr bool value = is_same_v<T, float> | is_same_v<T, double> | is_same_v<T, half>; };
-template<typename T>
-trait is_sint_family { static constexpr bool value = is_same_v<T, int16> | is_same_v<T, int32> | is_same_v<T, int64>; };
-template<typename T>
-trait is_uint_family { static constexpr bool value = is_same_v<T, uint16> | is_same_v<T, uint32> | is_same_v<T, uint64>;};
-template<typename T>
-trait is_bool_family { static constexpr bool value = is_same_v<T, bool>; };
-
-template<typename T, size_t N>
-trait is_float_family<vec<T, N>> { static constexpr bool value = is_same_v<T, float> | is_same_v<T, double> | is_same_v<T, half>; };
-template<typename T, size_t N>
-trait is_sint_family<vec<T, N>> { static constexpr bool value = is_same_v<T, int16> | is_same_v<T, int32> | is_same_v<T, int64>; };
-template<typename T, size_t N>
-trait is_uint_family<vec<T, N>> { static constexpr bool value = is_same_v<T, uint16> | is_same_v<T, uint32> | is_same_v<T, uint64>;};
-template<typename T, size_t N>
-trait is_bool_family<vec<T, N>> { static constexpr bool value = is_same_v<T, bool>; };
-
-template <typename T>
-trait is_arithmetic{ static constexpr bool value = is_float_family<T>::value || is_bool_family<T>::value || is_sint_family<T>::value || is_uint_family<T>::value; };
-template <typename T>
-trait is_arithmetic_scalar { static constexpr bool value = false;};
-template <>
-trait is_arithmetic_scalar<float>{ static constexpr bool value = true;};
-template <>
-trait is_arithmetic_scalar<uint32>{ static constexpr bool value = true;};
-template <>
-trait is_arithmetic_scalar<int32>{ static constexpr bool value = true;};
-template <>
-trait is_arithmetic_scalar<uint16>{ static constexpr bool value = true;};
-template <>
-trait is_arithmetic_scalar<int16>{ static constexpr bool value = true;};
-template <>
-trait is_arithmetic_scalar<uint64>{ static constexpr bool value = true;};
-template <>
-trait is_arithmetic_scalar<int64>{ static constexpr bool value = true;};
-
-template<typename T>
-concept float_family = is_float_family<typename remove_cvref<T>::type>::value;
-
-template<typename T>
-concept bool_family = is_bool_family<typename remove_cvref<T>::type>::value;
-
-template<typename T>
-concept int_family = is_sint_family<typename remove_cvref<T>::type>::value;
-
-template<typename T>
-concept uint_family = is_uint_family<typename remove_cvref<T>::type>::value;
-
-template<typename T>
-concept arithmetic = is_arithmetic<T>::value;
-template<typename T>
-concept arithmetic_scalar = is_arithmetic_scalar<T>::value;
-
-template<typename T>
-trait vec_dim { static constexpr uint64 value = 1; };
-
-template<typename T, uint64 N>
-trait vec_dim<vec<T, N>> { static constexpr uint64 value = N; };
-template<typename T>
-[[ignore]] constexpr uint64 vec_dim_v = vec_dim<typename remove_cvref<T>::type>::value;
+[[ignore]] constexpr uint64 vec_dim_v = detail::vec_dim<decay_t<T>>::value;
 
 template<uint64 dim, typename T, typename... Ts>
 [[ignore]] consteval uint64 sum_dim() {
@@ -149,12 +55,7 @@ trait is_basic_type<int16>{ static constexpr bool value = true; };
 template <>
 trait is_basic_type<uint16>{ static constexpr bool value = true; };
 template<typename T>
-concept basic_type = is_basic_type<typename remove_cvref<T>::type>::value;
-
-template <typename T>
-trait is_matrix{ static constexpr bool value = false;};
-template <uint64 N>
-trait is_matrix<matrix<N>>{ static constexpr bool value = true;};
+concept basic_type = is_basic_type<decay_t<T>>::value;
 
 template<typename T>
 trait element { using type = T;};

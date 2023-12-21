@@ -20,10 +20,10 @@ struct Ray {
         _dir[1] = dir.y;
         _dir[2] = dir.z;
     }
-    float3 origin() const {
+    [[nodiscard]] float3 origin() const {
         return float3(_origin[0], _origin[1], _origin[2]);
     }
-    float3 dir() const {
+    [[nodiscard]] float3 dir() const {
         return float3(_dir[0], _dir[1], _dir[2]);
     }
 };
@@ -48,13 +48,13 @@ struct CommittedHit {
     uint32 prim;
     float2 bary;
     HitType hit_type;
-    bool miss() const {
+    [[nodiscard]] bool miss() const {
         return hit_type == HitTypes::Miss;
     }
-    bool hit_triangle() const {
+    [[nodiscard]] bool hit_triangle() const {
         return hit_type == HitTypes::HitTriangle;
     }
-    bool hit_procedural() const {
+    [[nodiscard]] bool hit_procedural() const {
         return hit_type == HitTypes::HitProcedural;
     }
 };
@@ -71,7 +71,7 @@ struct TriangleHit {
         return inst != 4294967295u;
     }
     template<typename T>
-        requires(is_float_family<T>::value)
+        requires(is_float_family_v<T>)
     T interpolate(T a, T b, T c) {
         return T(1.0f - bary.x - bary.y) * a + T(bary.x) * b + T(bary.y) * c;
     }
