@@ -8,6 +8,7 @@
 #define swizzle clang::annotate("luisa-shader", "swizzle")
 #define access clang::annotate("luisa-shader", "access")
 #define builtin(name) clang::annotate("luisa-shader", "builtin", (name))
+#define unaop(name) clang::annotate("luisa-shader", "unaop", (name))
 #define binop(name) clang::annotate("luisa-shader", "binop", (name))
 #define callop(name) clang::annotate("luisa-shader", "callop", (name))
 #define expr(name) clang::annotate("luisa-shader", "expr", (name))

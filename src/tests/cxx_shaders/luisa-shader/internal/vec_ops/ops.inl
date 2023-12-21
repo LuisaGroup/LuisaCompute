@@ -1,3 +1,5 @@
+[[unaop("PLUS")]] ThisType operator+() const;
+[[unaop("MINUS")]] ThisType operator-() const;
 [[binop("ADD")]] ThisType operator+(ThisType) const;
 [[binop("SUB")]] ThisType operator-(ThisType) const;
 [[binop("MUL")]] ThisType operator*(ThisType) const;
