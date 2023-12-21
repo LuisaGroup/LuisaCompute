@@ -49,7 +49,7 @@ template<float_family T>
 [[callop("SATURATE")]] extern T saturate(T v);
 
 template<typename T>
-    requires(is_float_family_v<T> || is_sint_family_v<T>)
+    requires(is_float_family_v<T> || is_int_family_v<T>)
 [[callop("ABS")]] extern T abs(T v);
 
 template<arithmetic T>
@@ -235,24 +235,24 @@ template<arithmetic T>
 [[callop("WARP_ACTIVE_ALL_EQUAL")]] vec<bool, vec_dim_v<T>> wave_active_all_equal();
 
 template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+    requires(is_int_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T warp_active_bit_and(T v);
 template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+    requires(is_int_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T wave_active_bit_and(T v);
 
 template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+    requires(is_int_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_OR")]] extern T warp_active_bit_or(T v);
 template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+    requires(is_int_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_OR")]] extern T wave_active_bit_or(T v);
 
 template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+    requires(is_int_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_XOR")]] extern T warp_active_bit_xor(T v);
 template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+    requires(is_int_family_v<T> && is_uint_family_v<T>)
 [[callop("WARP_ACTIVE_BIT_XOR")]] extern T wave_active_bit_xor(T v);
 
 [[callop("WARP_ACTIVE_COUNT_BITS")]] extern uint32 warp_active_count_bits(bool val);

@@ -37,10 +37,10 @@ struct Template {
     explicit Template(T v)
         : value(v), value2(v) {}
     void call() {
-        if constexpr (is_sint_family_v<T>) {
+        if constexpr (is_int_family_v<T>) {
             value = 2.f;
             value2 = 2.f;
-        } else if constexpr (is_sint_family_v<T>) {
+        } else if constexpr (is_int_family_v<T>) {
             value = 0;
             value2 = 0;
         }
