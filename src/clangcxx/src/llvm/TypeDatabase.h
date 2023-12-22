@@ -12,13 +12,16 @@ struct TypeDatabase {
     const luisa::compute::Type *RecordAsStuctureType(const clang::QualType Ty);
     const luisa::compute::Type *RecordType(const clang::QualType Ty);
 
-    const luisa::compute::Type *FindOrAddType(const clang::QualType Ty);
+    const luisa::compute::Type *FindOrAddType(const clang::QualType Ty, const clang::SourceLocation &loc);
     luisa::compute::CallOp FindCallOp(const luisa::string_view &name);
     luisa::compute::BinaryOp FindBinOp(const luisa::string_view &name);
 
     [[nodiscard]] void SetASTContext(clang::ASTContext *ctx) { astContext = ctx; }
     [[nodiscard]] clang::ASTContext *GetASTContext() { return astContext; }
     [[nodiscard]] const clang::ASTContext *GetASTContext() const { return astContext; }
+
+    void DumpWithLocation(const clang::Stmt* stmt);
+    void DumpWithLocation(const clang::Decl* decl);
 
     luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
     luisa::unordered_map<luisa::string, const luisa::compute::RefExpr *> globals;

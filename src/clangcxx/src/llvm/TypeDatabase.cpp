@@ -61,7 +61,15 @@ const luisa::compute::Type *TypeDatabase::findType(const clang::QualType Ty) {
     return nullptr;
 }
 
-const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty) {
+const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty, const clang::SourceLocation &loc) {
+    if (Ty->isPointerType())
+    {
+        loc.dump(GetASTContext()->getSourceManager());
+        Ty->dump();
+        luisa::log_error("pointer types are banned!");
+        return nullptr;
+    }
+
     auto name = GetNonQualifiedTypeName(Ty, astContext);
     auto iter = type_map.find(name);
     if (iter != type_map.end()) {
@@ -91,6 +99,19 @@ auto TypeDatabase::FindBinOp(const luisa::string_view &name) -> luisa::compute::
     }
     luisa::log_error("unfound call op: {}", name);
     return luisa::compute::BinaryOp::ADD;
+}
+
+
+void TypeDatabase::DumpWithLocation(const clang::Stmt* stmt)
+{
+    stmt->getBeginLoc().dump(GetASTContext()->getSourceManager());
+    stmt->dump();
+}
+
+void TypeDatabase::DumpWithLocation(const clang::Decl* decl)
+{
+    decl->getBeginLoc().dump(GetASTContext()->getSourceManager());
+    decl->dump();
 }
 
 void TypeDatabase::commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
@@ -281,7 +302,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                 auto &Arguments = TSD->getTemplateArgs();
                 clang::Expr::EvalResult Result;
                 auto N = Arguments.get(1).getAsIntegral().getLimitedValue();
-                if (auto lc_type = FindOrAddType(Arguments[0].getAsType())) {
+                if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), TSD->getBeginLoc())) {
                     _type = Type::array(lc_type, N);
                 } else {
                     luisa::log_error("unfound array element type: {}", Arguments[0].getAsType().getAsString());
@@ -304,7 +325,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         } else if (is_image || is_buffer || is_volume) {
             if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
                 auto &Arguments = TSD->getTemplateArgs();
-                if (auto lc_type = FindOrAddType(Arguments[0].getAsType())) {
+                if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), TSD->getBeginLoc())) {
                     if (is_buffer)
                         _type = Type::buffer(lc_type);
                     if (is_image)

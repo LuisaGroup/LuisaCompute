@@ -231,7 +231,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             if (auto cxxLambda = llvm::dyn_cast<LambdaExpr>(x)) {
                 auto cxxCallee = cxxLambda->getLambdaClass()->getLambdaCallOperator();
                 auto methodThisType = cxxCallee->getThisType()->getPointeeType();
-                current = fb->local(db->FindOrAddType(methodThisType));
+                current = fb->local(db->FindOrAddType(methodThisType, x->getBeginLoc()));
             } else if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
                 auto _ = db->CommentStmt(fb, cxxDecl);
 
@@ -241,7 +241,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
                     if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                         auto Ty = varDecl->getType();
-                        if (auto lc_type = db->FindOrAddType(Ty)) {
+                        if (auto lc_type = db->FindOrAddType(Ty, x->getBeginLoc())) {
                             if (!Ty->isReferenceType()) {
                                 auto lc_var = fb->local(lc_type);
                                 stack->locals[varDecl] = lc_var;
@@ -254,14 +254,14 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                     current = lc_var;
                                 }
                             } else {
-                                x->dump();
+                                db->DumpWithLocation(x);
                                 luisa::log_error("VarDecl as reference type is not supported: [{}]", Ty.getAsString());
                             }
                         }
                     } else if (auto aliasDecl = dyn_cast<clang::TypeAliasDecl>(decl)) {          // ignore
                     } else if (auto staticAssertDecl = dyn_cast<clang::StaticAssertDecl>(decl)) {// ignore
                     } else {
-                        x->dump();
+                        db->DumpWithLocation(x);
                         luisa::log_error("unsupported decl stmt: {}", cxxDecl->getStmtClassName());
                     }
                 }
@@ -288,7 +288,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         break;
                 }
             } else if (auto substNonType = llvm::dyn_cast<SubstNonTypeTemplateParmExpr>(x)) {
-                // auto lcType = db->FindOrAddType(substNonType->getType());
                 auto lcExpr = stack->expr_map[substNonType->getReplacement()];
                 current = lcExpr;
             } else if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
@@ -316,7 +315,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                 }
 
-                auto local = fb->local(db->FindOrAddType(cxxCtorCall->getType()));
+                auto local = fb->local(db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()));
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
                 lc_args.emplace_back(local);
@@ -352,7 +351,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
                                     bool defaultInit = (lc_args.size() <= 1);
                                     auto N = Arguments[1].getAsIntegral().getLimitedValue();
-                                    // TST->dump();
                                     // clang-format off
                                     switch (EType->getKind()) {
             #define CASE_VEC_TYPE(stype, type)                                                                                    \
@@ -400,7 +398,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 auto &Arguments = TSD->getTemplateArgs();
                                 auto EType = Arguments[0].getAsType();
                                 auto N = Arguments[1].getAsIntegral().getLimitedValue();
-                                auto lcElemType = db->FindOrAddType(EType);
+                                auto lcElemType = db->FindOrAddType(EType, x->getBeginLoc());
                                 auto lcArrayType = Type::array(lcElemType, N);
                                 if (cxxCtor->isDefaultConstructor())
                                     current = fb->local(lcArrayType);
@@ -416,7 +414,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             luisa::log_error("unhandled builtin constructor: {}", cxxCtor->getNameAsString());
                         }
                     } else {
-                        cxxCtor->dump();
+                        db->DumpWithLocation(cxxCtor);
                         luisa::log_error("unfound constructor: {}", cxxCtor->getNameAsString());
                     }
                 }
@@ -432,7 +430,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto unary = llvm::dyn_cast<UnaryOperator>(x)) {
                 const auto cxx_op = unary->getOpcode();
                 const auto lhs = stack->expr_map[unary->getSubExpr()];
-                const auto lc_type = db->FindOrAddType(unary->getType());
+                const auto lc_type = db->FindOrAddType(unary->getType(), x->getBeginLoc());
                 if (cxx_op == CXXUnaryOp::UO_Deref) {
                     if (auto _this = llvm::dyn_cast<CXXThisExpr>(unary->getSubExpr()))
                         current = stack->locals[nullptr];
@@ -470,7 +468,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 const auto cxx_op = bin->getOpcode();
                 const auto lhs = stack->expr_map[bin->getLHS()];
                 const auto rhs = stack->expr_map[bin->getRHS()];
-                const auto lc_type = db->FindOrAddType(bin->getType());
+                const auto lc_type = db->FindOrAddType(bin->getType(), x->getBeginLoc());
                 if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
                     auto ca_expr = fb->binary(lc_type, TranslateBinaryAssignOp(cxx_op), lhs, rhs);
                     fb->assign(lhs, ca_expr);
@@ -496,7 +494,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             else
                                 luisa::log_error("unsupportted eval type: {}", eval->getKind());
                         } else {
-                            dref->dump();
+                            db->DumpWithLocation(dref);
                             luisa::log_error("unfound & unresolved ref: {}", str);
                         }
                     }
@@ -508,26 +506,26 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = stack->expr_map[_cxxParen->getSubExpr()];
             } else if (auto implicit_cast = llvm::dyn_cast<ImplicitCastExpr>(x)) {
                 if (stack->expr_map[implicit_cast->getSubExpr()] != nullptr) {
-                    const auto lc_type = db->FindOrAddType(implicit_cast->getType());
+                    const auto lc_type = db->FindOrAddType(implicit_cast->getType(), x->getBeginLoc());
                     if (!stack->expr_map[implicit_cast->getSubExpr()]) {
-                        implicit_cast->getSubExpr()->dump();
-                        luisa::log_error("!!!");
+                        db->DumpWithLocation(implicit_cast->getSubExpr());
+                        luisa::log_error("unknown error: rhs not found!");
                     }
                     current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[implicit_cast->getSubExpr()]);
                 }
             } else if (auto _explicit_cast = llvm::dyn_cast<ExplicitCastExpr>(x)) {
                 if (stack->expr_map[_explicit_cast->getSubExpr()] != nullptr) {
-                    const auto lc_type = db->FindOrAddType(_explicit_cast->getType());
+                    const auto lc_type = db->FindOrAddType(_explicit_cast->getType(), x->getBeginLoc());
                     if (!stack->expr_map[_explicit_cast->getSubExpr()]) {
-                        _explicit_cast->getSubExpr()->dump();
-                        luisa::log_error("!!!");
+                        db->DumpWithLocation(_explicit_cast->getSubExpr());
+                        luisa::log_error("unknown error: rhs not found!");
                     }
                     current = fb->cast(lc_type, CastOp::STATIC, stack->expr_map[_explicit_cast->getSubExpr()]);
                 }
             } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
                 auto _ = db->CommentStmt(fb, cxxDefaultArg);
 
-                const auto _value = fb->local(db->FindOrAddType(cxxDefaultArg->getType()));
+                const auto _value = fb->local(db->FindOrAddType(cxxDefaultArg->getType(), x->getBeginLoc()));
                 TraverseStmt(cxxDefaultArg->getExpr());
                 fb->assign(_value, stack->expr_map[cxxDefaultArg->getExpr()]);
                 current = _value;
@@ -545,7 +543,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     if (isSwizzle(cxxField)) {
                         auto swizzleText = cxxField->getName();
                         const auto swizzleType = cxxField->getType().getDesugaredType(*astContext).getNonReferenceType();
-                        if (auto lcResultType = db->FindOrAddType(swizzleType)) {
+                        if (auto lcResultType = db->FindOrAddType(swizzleType, x->getBeginLoc())) {
                             uint64_t swizzle_code = 0u;
                             uint64_t swizzle_seq[] = {0u, 0u, 0u, 0u}; /*4*/
                             int64_t swizzle_size = 0;
@@ -566,7 +564,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         }
                     } else {
                         auto lhs = stack->expr_map[cxxMember->getBase()];
-                        const auto lcMemberType = db->FindOrAddType(cxxField->getType());
+                        const auto lcMemberType = db->FindOrAddType(cxxField->getType(), x->getBeginLoc());
                         current = fb->member(lcMemberType, lhs, cxxField->getFieldIndex());
                     }
                 } else {
@@ -577,7 +575,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     auto caller = stack->callers.back();
                     stack->callers.pop_back();
                     if (!caller) {
-                        call->dump();
+                        db->DumpWithLocation(call);
                         luisa::log_error("incorrect [[bypass]] call detected!");
                     }
                     current = caller;
@@ -613,23 +611,24 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         if (auto lc_arg = stack->expr_map[arg])
                             lc_args.emplace_back(lc_arg);
                         else {
-                            arg->dump();
+                            db->DumpWithLocation(arg);
                             luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                         }
                     }
                     // call
+                    auto cxxReturnType = call->getCallReturnType(*astContext);
                     if (!binopName.empty()) {
                         auto lc_binop = db->FindBinOp(binopName);
-                        if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext)))
+                        if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc()))
                             current = fb->binary(lcReturnType, lc_binop, lc_args[0], lc_args[1]);
                     } else if (!unaopName.empty()) {
                         UnaryOp lc_unaop = (unaopName == "PLUS")  ? UnaryOp::PLUS :
                                            (unaopName == "MINUS") ? UnaryOp::MINUS :
                                                                     (luisa::log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
-                        if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext)))
+                        if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc()))
                             current = fb->unary(lcReturnType, lc_unaop, lc_args[0]);
                     } else if (isAccess) {
-                        if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext))) {
+                        if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc())) {
                             current = fb->access(lcReturnType, lc_args[0], lc_args[1]);
                         }
                     } else if (!exprName.empty()) {
@@ -648,7 +647,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         else if (exprName == "warp_lane_id")
                             current = fb->warp_lane_id();
                         else if (exprName == "bit_cast") {
-                            auto lcReturnType = db->FindOrAddType(funcDecl->getReturnType());
+                            auto lcReturnType = db->FindOrAddType(funcDecl->getReturnType(), x->getBeginLoc());
                             current = fb->cast(lcReturnType, luisa::compute::CastOp::BITWISE, lc_args[0]);
                         }
                     } else if (!callopName.empty()) {
@@ -681,7 +680,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         } else {
                             if (call->getCallReturnType(*astContext)->isVoidType())
                                 fb->call(op, lc_args);
-                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext))) {
+                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
                                 auto ret_value = fb->local(lcReturnType);
                                 fb->assign(ret_value, fb->call(lcReturnType, op, lc_args));
                                 current = ret_value;
@@ -720,7 +719,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         } else if (auto func_callable = db->func_builders[calleeDecl]) {
                             if (call->getCallReturnType(*astContext)->isVoidType())
                                 fb->call(luisa::compute::Function(func_callable.get()), lc_args);
-                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext))) {
+                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
                                 auto ret_value = fb->local(lcReturnType);
                                 fb->assign(ret_value, fb->call(lcReturnType, luisa::compute::Function(func_callable.get()), lc_args));
                                 current = ret_value;
@@ -730,14 +729,14 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             luisa::span<const luisa::compute::Expression *> lambda_args = {lc_args.begin() + 1, lc_args.end()};
                             if (call->getCallReturnType(*astContext)->isVoidType())
                                 fb->call(luisa::compute::Function(lambda_callable.get()), lambda_args);
-                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext))) {
+                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
                                 auto ret_value = fb->local(lcReturnType);
                                 fb->assign(ret_value, fb->call(lcReturnType, luisa::compute::Function(lambda_callable.get()), lambda_args));
                                 current = ret_value;
                             } else
                                 luisa::log_error("unfound return type in lambda: {}", call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
                         } else {
-                            calleeDecl->dump();
+                            db->DumpWithLocation(calleeDecl);
                             luisa::log_error("unfound function!");
                         }
 
@@ -759,8 +758,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 // luisa::log_warning("unimplemented MaterializeTemporaryExpr!");
                 current = stack->expr_map[_matTemp->getSubExpr()];
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
-                x->dump();
-                x->getBeginLoc().dump(db->GetASTContext()->getSourceManager());
+                db->DumpWithLocation(x);
                 luisa::log_error("InitList is banned! Explicit use constructor instead!");
             } else if (auto _control_flow = llvm::dyn_cast<CompoundStmt>(x)) {       // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {      // CONTROL FLOW
@@ -773,7 +771,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto _control_flow = llvm::dyn_cast<clang::ForStmt>(x)) {     // CONTROL FLOW
             } else if (auto null = llvm::dyn_cast<NullStmt>(x)) {                    // EMPTY
             } else {
-                x->dump();
+                db->DumpWithLocation(x);
                 luisa::log_error("unsupportted expr!");
             }
         }
@@ -852,16 +850,14 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
         is_ignore = true;
 
     if (!is_ignore) {
-        // S->dump();
-
         if (S->getReturnType()->isReferenceType()) {
-            S->dump();
+            db->DumpWithLocation(S);
             luisa::log_error("return ref is not supportted now!");
         }
 
         if (auto Dtor = llvm::dyn_cast<clang::CXXDestructorDecl>(S)) {
             if (!Dtor->isDefaulted()) {
-                S->dump();
+                db->DumpWithLocation(S);
                 auto dtorName = Dtor->getQualifiedNameAsString();
                 luisa::log_error("dtor {} is not allowed!", dtorName.c_str());
             }
@@ -905,7 +901,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                 // this arg
                 if (is_method) {
                     auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S);
-                    if (auto lc_type = db->FindOrAddType(methodThisType)) {
+                    if (auto lc_type = db->FindOrAddType(methodThisType, Method->getBeginLoc())) {
                         auto this_local = builder->reference(lc_type);
                         stack.locals[nullptr] = this_local;
                     } else {
@@ -916,7 +912,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                 // collect args
                 for (auto param : params) {
                     auto Ty = param->getType();
-                    if (auto lc_type = db->FindOrAddType(Ty)) {
+                    if (auto lc_type = db->FindOrAddType(Ty, param->getBeginLoc())) {
                         const luisa::compute::RefExpr *local = nullptr;
                         switch (lc_type->tag()) {
                             case compute::Type::Tag::BUFFER:
@@ -943,7 +939,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
 
                 // ctor initializers
                 if (is_method) {
-                    if (auto lc_type = db->FindOrAddType(methodThisType)) {
+                    if (auto lc_type = db->FindOrAddType(methodThisType, S->getBeginLoc())) {
                         auto this_local = stack.locals[nullptr];
                         if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
                             for (auto ctor_init : Ctor->inits()) {
@@ -951,7 +947,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                                 ExprTranslator v(&stack, db, builder, init);
                                 if (v.TraverseStmt(init)) {
                                     const auto cxxMember = ctor_init->getMember();
-                                    const auto lcMemberType = db->FindOrAddType(cxxMember->getType());
+                                    const auto lcMemberType = db->FindOrAddType(cxxMember->getType(), cxxMember->getBeginLoc());
                                     const auto fid = cxxMember->getFieldIndex();
                                     auto mem = builder->member(lcMemberType, this_local, fid);
                                     builder->assign(mem, v.translated);
@@ -999,7 +995,7 @@ void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
         const auto isConst = S->isConstexpr() || S->getType().isConstQualified();
         const auto isNonConstGlobal = isGlobal && !isConst;
         if (!ignore && isNonConstGlobal) {
-            S->dump();
+            db->DumpWithLocation(S);
             luisa::log_error("global vars are banned!");
         }
     }
