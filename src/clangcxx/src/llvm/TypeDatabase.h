@@ -22,8 +22,8 @@ struct TypeDatabase {
     void DumpWithLocation(const clang::Stmt* stmt);
     void DumpWithLocation(const clang::Decl* decl);
 
+    // luisa::unordered_map<luisa::string, const luisa::compute::RefExpr *> globals;
     luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
-    luisa::unordered_map<luisa::string, const luisa::compute::RefExpr *> globals;
     luisa::unordered_map<const clang::Decl *, luisa::shared_ptr<compute::detail::FunctionBuilder>> func_builders;
     luisa::unordered_map<const clang::Decl *, luisa::shared_ptr<compute::detail::FunctionBuilder>> lambda_builders;
 
