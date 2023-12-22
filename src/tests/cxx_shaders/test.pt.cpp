@@ -61,7 +61,7 @@ struct Onb {
         float3 tangent,
         float3 binormal,
         float3 normal) : tangent(tangent), binormal(binormal), normal(normal) {}
-    float3 to_world(float3 v) const{
+    float3 to_world(float3 v) const {
         return v.x * tangent + v.y * binormal + v.z * normal;
     }
 };
@@ -202,6 +202,10 @@ float3 offset_ray_origin(float3 p, float3 n) noexcept {
             beta *= 1.0f / q;
         }
     }
+    radiance /= static_cast<float>(spp_per_dispatch);
+    seed_image.store(coord, uint4(state));
+    if (any(is_nan(radiance))) { radiance = float3(0.0f); };
+    image.store(dispatch_id().xy, float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     return 0;
 }
 }// namespace luisa::shader

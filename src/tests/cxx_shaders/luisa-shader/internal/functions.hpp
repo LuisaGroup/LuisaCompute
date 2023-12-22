@@ -35,15 +35,17 @@ template<primitive T, bool_family B>
     requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
 [[callop("SELECT")]] extern T select(T false_v, T true_v, B bool_v);
 
-template<arithmetic T>
-[[callop("CLAMP")]] extern T clamp(T v, T min_v, T max_v);
+template<arithmetic T, arithmetic B>
+    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
+[[callop("CLAMP")]] extern T clamp(T v, B min_v, B max_v);
 
 template<float_family T, float_family B>
     requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
 [[callop("LERP")]] extern T lerp(T left_v, T right_v, B step);
 
-template<float_family T>
-[[callop("SMOOTHSTEP")]] extern T smoothstep(T left_v, T right_v, T step);
+template<float_family T, float_family B>
+    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
+[[callop("SMOOTHSTEP")]] extern T smoothstep(T left_v, B right_v, B step);
 
 template<float_family T>
 [[callop("SATURATE")]] extern T saturate(T v);
@@ -180,7 +182,7 @@ template<float_family T>
 
 template<float_family T>
     requires(vec_dim_v<T> > 1)
-scalar_type<T> distance(T a, T b){
+scalar_type<T> distance(T a, T b) {
     return length(a - b);
 }
 
