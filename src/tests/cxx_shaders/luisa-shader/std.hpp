@@ -25,7 +25,7 @@ struct zzSHADER_PRIMITIVES
     double d;
 };
 
-namespace luisa::shader::mandelbrot {
+namespace luisa::shader {
 
 template <typename Resource, typename T>
 static void store_2d(Resource& r, uint32 row_pitch, uint2 pos, T val)

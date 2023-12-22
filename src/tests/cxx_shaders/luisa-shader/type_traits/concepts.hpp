@@ -4,21 +4,38 @@
 
 namespace luisa::shader {
 
+template<typename T, uint64 N>
+struct vec;
+
+template<uint64 N>
+struct matrix;
+
+template<typename Type, uint32 size>
+struct SharedArray;
+
+template<typename Type>
+struct Buffer;
+
+struct Ray;
+struct Accel;
+struct CommittedHit;
+struct TriangleHit;
+struct ProceduralHit;
+struct IndirectBuffer;
+
 namespace detail {
 template<class T>
-trait vec_or_matrix : public false_type 
-{ 
-    using scalar_type = T; 
+trait vec_or_matrix : public false_type {
+    using scalar_type = T;
     static constexpr bool is_vec = false;
     static constexpr bool is_matrix = false;
 };
 
 template<class T, uint64 N>
-trait vec_or_matrix<vec<T, N>> : public true_type 
-{ 
-    using scalar_type = T; 
+trait vec_or_matrix<vec<T, N>> : public true_type {
+    using scalar_type = T;
     static constexpr bool is_vec = true;
-    static constexpr bool is_matrix = false;    
+    static constexpr bool is_matrix = false;
 };
 
 template<uint64 N>
@@ -33,13 +50,22 @@ template<typename T>
 using scalar_type = typename detail::vec_or_matrix<decay_t<T>>::scalar_type;
 
 template<typename T>
-static constexpr bool is_matrix_v = detail::vec_or_matrix<decay_t<T>>::is_matrix;
-
-template<typename T>
 static constexpr bool is_vec_v = detail::vec_or_matrix<decay_t<T>>::is_vec;
 
 template<typename T>
+static constexpr bool is_matrix_v = detail::vec_or_matrix<decay_t<T>>::is_matrix;
+
+template<typename T>
 static constexpr bool is_vec_or_matrix_v = detail::vec_or_matrix<decay_t<T>>::value;
+
+template <typename T>
+inline constexpr bool is_shared_array_v = false; 
+
+template<typename U, uint32 N>
+inline constexpr bool is_shared_array_v<SharedArray<U, N>> = true;
+
+template <typename T>
+inline constexpr bool is_buffer_v = is_specialization_v<T, Buffer>; 
 
 template<typename T>
 static constexpr bool is_float_family_v = is_same_v<scalar_type<T>, float> | is_same_v<scalar_type<T>, double> | is_same_v<scalar_type<T>, half>;
@@ -69,6 +95,12 @@ template<typename T>
 concept non_vec_family = !is_vec_v<T>;
 
 template<typename T>
+concept matrix_family = is_matrix_v<T>;
+
+template<typename T>
+concept buffer_family = is_buffer_v<T>;
+
+template<typename T>
 concept float_family = is_float_family_v<T>;
 
 template<typename T>
@@ -90,6 +122,30 @@ template<typename T>
 concept arithmetic_scalar = is_arithmetic_scalar_v<T>;
 
 template<typename T>
-concept primitive = is_arithmetic_v<T> || is_vec_or_matrix_v<T>;
+concept primitive_family = is_arithmetic_v<T> || is_vec_or_matrix_v<T>;
+
+template<arithmetic_scalar T>
+struct Image;
+
+template<arithmetic_scalar T>
+struct Volume;
+
+template <typename T>
+inline constexpr bool is_image_v = is_specialization_v<T, Image>; 
+
+template <typename T>
+inline constexpr bool is_volume_v = is_specialization_v<T, Volume>; 
+
+template <typename T>
+inline constexpr bool is_texture_v = is_image_v<T> || is_volume_v<T>;
+
+template<typename T>
+concept image_family = is_image_v<T>;
+
+template<typename T>
+concept volume_family = is_volume_v<T>;
+
+template<typename T>
+concept texture_family = is_texture_v<T>;
 
 }// namespace luisa::shader

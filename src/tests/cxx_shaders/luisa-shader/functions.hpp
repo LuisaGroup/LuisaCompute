@@ -31,7 +31,7 @@ template<bool_family T>
 template<bool_family T>
 [[callop("ANY")]] extern bool any(T x);
 
-template<primitive T, bool_family B>
+template<primitive_family T, bool_family B>
     requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
 [[callop("SELECT")]] extern T select(T false_v, T true_v, B bool_v);
 
@@ -308,15 +308,15 @@ template<arithmetic T>
 template<arithmetic T>
 [[callop("WARP_PREFIX_SUM")]] extern T wave_prefix_sum(T v);
 
-template<primitive T>
+template<primitive_family T>
 [[callop("WARP_READ_LANE")]] extern T warp_read_lane(uint32 lane_index);
-template<primitive T>
+template<primitive_family T>
 [[callop("WARP_READ_LANE")]] extern T wave_read_lane_at(uint32 lane_index);
 
-template<primitive T>
+template<primitive_family T>
 [[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T warp_read_first_active_lane(uint32 lane_index);
 
-template<primitive T>
+template<primitive_family T>
 [[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T wave_read_lane_first(uint32 lane_index);
 
 // cuda
