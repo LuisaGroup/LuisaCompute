@@ -242,15 +242,20 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                         auto Ty = varDecl->getType();
                         if (auto lc_type = db->FindOrAddType(Ty)) {
-                            auto lc_var = fb->local(lc_type);
-                            stack->locals[varDecl] = lc_var;
+                            if (!Ty->isReferenceType()) {
+                                auto lc_var = fb->local(lc_type);
+                                stack->locals[varDecl] = lc_var;
 
-                            auto init = varDecl->getInit();
-                            if (auto lc_init = stack->expr_map[init]) {
-                                fb->assign(lc_var, lc_init);
-                                current = lc_var;
+                                auto init = varDecl->getInit();
+                                if (auto lc_init = stack->expr_map[init]) {
+                                    fb->assign(lc_var, lc_init);
+                                    current = lc_var;
+                                } else {
+                                    current = lc_var;
+                                }
                             } else {
-                                current = lc_var;
+                                x->dump();
+                                luisa::log_error("VarDecl as reference type is not supported: [{}]", Ty.getAsString());
                             }
                         }
                     } else if (auto aliasDecl = dyn_cast<clang::TypeAliasDecl>(decl)) {          // ignore
@@ -428,14 +433,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 const auto cxx_op = unary->getOpcode();
                 const auto lhs = stack->expr_map[unary->getSubExpr()];
                 const auto lc_type = db->FindOrAddType(unary->getType());
-                if (cxx_op == CXXUnaryOp::UO_Deref)
-                {
+                if (cxx_op == CXXUnaryOp::UO_Deref) {
                     if (auto _this = llvm::dyn_cast<CXXThisExpr>(unary->getSubExpr()))
                         current = stack->locals[nullptr];
                     else
                         luisa::log_error("only support deref 'this'(*this)!");
-                }
-                else if (!IsUnaryAssignOp(cxx_op)) {
+                } else if (!IsUnaryAssignOp(cxx_op)) {
                     current = fb->unary(lc_type, TranslateUnaryOp(cxx_op), lhs);
                 } else {
                     auto one = fb->literal(Type::of<int>(), 1);
@@ -619,8 +622,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         auto lc_binop = db->FindBinOp(binopName);
                         if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext)))
                             current = fb->binary(lcReturnType, lc_binop, lc_args[0], lc_args[1]);
-                    }
-                    else if (!unaopName.empty()) {
+                    } else if (!unaopName.empty()) {
                         UnaryOp lc_unaop = (unaopName == "PLUS")  ? UnaryOp::PLUS :
                                            (unaopName == "MINUS") ? UnaryOp::MINUS :
                                                                     (luisa::log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
