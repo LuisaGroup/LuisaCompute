@@ -45,8 +45,11 @@ inline static clang::ClassTemplateSpecializationDecl *GetClassTemplateSpecializa
         return llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Record->getDecl());
     else if (auto Injected = Ty->getAs<clang::InjectedClassNameType>())
     {
-        Ty.dump();
-        luisa::log_error("unsupportted, InjectedClassNameType!!!!");
+        if (isRestrict)
+        {
+            Ty.dump();
+            luisa::log_error("unsupportted, InjectedClassNameType!!!!");
+        }
         return nullptr;
     }
     return nullptr;

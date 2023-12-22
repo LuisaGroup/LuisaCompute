@@ -62,10 +62,15 @@ const luisa::compute::Type *TypeDatabase::findType(const clang::QualType Ty) {
 }
 
 const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty, const clang::SourceLocation &loc) {
-    if (Ty->isPointerType()) {
+    const bool isPointer = Ty->isPointerType();
+    const bool isUnion = Ty->isUnionType();
+    if (isPointer || isUnion) {
         loc.dump(GetASTContext()->getSourceManager());
         Ty->dump();
-        luisa::log_error("pointer types are banned!");
+        if (isPointer)
+            luisa::log_error("pointer types are banned!");
+        if (isUnion)
+            luisa::log_error("union types are banned!");
         return nullptr;
     }
 
@@ -244,7 +249,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         }
     }
     // TODO: REFACTOR THIS (TSD)
-    if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
+    if (auto TSD = GetClassTemplateSpecializationDecl(Ty, false)) {
         auto decl = TSD->getSpecializedTemplate()->getTemplatedDecl();
         for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
              Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
@@ -316,6 +321,8 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
             _type = Type::custom("LC_RayQueryAll");
         } else if (builtin_type_name == "ray_query_any") {
             _type = Type::custom("LC_RayQueryAny");
+        } else if (builtin_type_name == "half") {
+            _type = Type::of<luisa::half>();
         } else if (builtin_type_name == "accel") {
             _type = Type::of<luisa::compute::Accel>();
         } else if (is_image || is_buffer || is_volume) {
@@ -360,10 +367,9 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         auto S = GetRecordDeclFromQualType(Ty);
         bool ignore = (S->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
         bool is_builtin = false;
-        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>();
-             Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            is_builtin |= isBuiltinType(*Anno);
-            ignore |= isIgnore(*Anno) || is_builtin;
+        for (auto Anno : S->specific_attrs<clang::AnnotateAttr>()) {
+            is_builtin |= isBuiltinType(Anno);
+            ignore |= isIgnore(Anno) || is_builtin;
         }
         if (ignore) return nullptr;
 
@@ -380,13 +386,11 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         if (!S->isLambda() && !isSwizzle(S)) {// ignore lambda generated capture fields
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
                 auto Ty = f->getType();
-                if (auto isRef = Ty->isReferenceType())
-                {
+                if (auto isRef = Ty->isReferenceType()) {
                     DumpWithLocation(f->getFirstDecl());
                     luisa::log_error("Field as reference type is not supported: [{}]", Ty.getAsString());
                 }
-                if (auto isArray = Ty->getAsArrayTypeUnsafe())
-                {
+                if (auto isArray = Ty->getAsArrayTypeUnsafe()) {
                     DumpWithLocation(f->getFirstDecl());
                     luisa::log_error("Field as C-style array type is not supported: [{}]", Ty.getAsString());
                 }
@@ -413,7 +417,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
     }
 }
 
-const luisa::compute::Type *TypeDatabase::RecordType(const clang::QualType Qt) {
+const luisa::compute::Type *TypeDatabase::RecordType(const clang::QualType Qt, bool isRestrict) {
     const luisa::compute::Type *_type = nullptr;
     clang::QualType Ty = Qt.getNonReferenceType().getDesugaredType(*astContext);
 
@@ -443,12 +447,14 @@ const luisa::compute::Type *TypeDatabase::RecordType(const clang::QualType Qt) {
             luisa::log_error("unsupported & unresolved type [{}]", Ty.getAsString());
         }
     }
-    if (!_type) {
+    if (isRestrict && !_type) {
         if (isSwizzle(GetRecordDeclFromQualType(Qt)))
             luisa::log_error("swizzle helper type instantiation detected! please use explicit vector types!");
-        else {
-            Ty->dump();
-            luisa::log_error("unsupported type [{}]", Ty.getAsString());
+        else if (auto UnionType = Qt->getAsUnionType()) {
+            DumpWithLocation(UnionType->getDecl());
+            luisa::log_error("union is not supportted! [{}]", Ty.getAsString());
+        } else {
+            luisa::log_error("unsupported type: [{}]", Ty.getAsString());
         }
     }
     return _type;

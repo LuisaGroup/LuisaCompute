@@ -331,7 +331,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                 }
-                
+
                 if (cxxCtor->isImplicit() && (cxxCtor->isCopyConstructor() || cxxCtor->isMoveConstructor())) {
                     fb->assign(lc_args[0], lc_args[1]);
                     current = local;
@@ -817,12 +817,12 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
 
     auto params = S->parameters();
     auto astContext = db->GetASTContext();
-    for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-        is_ignore |= isIgnore(*Anno);
-        is_scope |= isNoignore(*Anno);
-        if (isKernel(*Anno)) {
+    for (auto Anno : S->specific_attrs<clang::AnnotateAttr>()) {
+        is_ignore |= isIgnore(Anno);
+        is_scope |= isNoignore(Anno);
+        if (isKernel(Anno)) {
             is_kernel = true;
-            getKernelSize(*Anno, kernelSize.x, kernelSize.y, kernelSize.z);
+            getKernelSize(Anno, kernelSize.x, kernelSize.y, kernelSize.z);
         }
     }
 
@@ -990,7 +990,13 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     auto &kernel_builder = db->kernel_builder;
     if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
         QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
-        db->RecordAsStuctureType(Ty);
+        bool ignore = S->isUnion();
+        for (auto Anno : S->specific_attrs<clang::AnnotateAttr>()) {
+            ignore |= isIgnore(Anno);
+            ignore |= isBuiltinType(Anno);
+        }
+        if (!ignore)
+            db->RecordType(Ty);
     }
 }
 
@@ -998,9 +1004,8 @@ void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
     auto &kernel_builder = db->kernel_builder;
     if (const auto *S = Result.Nodes.getNodeAs<clang::VarDecl>("VarDecl")) {
         bool ignore = false;
-        for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>(); Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            ignore |= isIgnore(*Anno);
-        }
+        for (auto Anno : S->specific_attrs<clang::AnnotateAttr>())
+            ignore |= isIgnore(Anno);
         const auto isGlobal = S->isStaticLocal() || S->isStaticDataMember() || S->isFileVarDecl();
         const auto isConst = S->isConstexpr() || S->getType().isConstQualified();
         const auto isNonConstGlobal = isGlobal && !isConst;
