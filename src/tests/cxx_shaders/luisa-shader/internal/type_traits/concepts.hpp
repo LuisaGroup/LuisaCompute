@@ -45,16 +45,19 @@ template<typename T>
 static constexpr bool is_float_family_v = is_same_v<scalar_type<T>, float> | is_same_v<scalar_type<T>, double> | is_same_v<scalar_type<T>, half>;
 
 template<typename T>
-static constexpr bool is_int_family_v = is_same_v<scalar_type<T>, int16> | is_same_v<scalar_type<T>, int32> | is_same_v<scalar_type<T>, int64>;
+static constexpr bool is_sint_family_v = is_same_v<scalar_type<T>, int16> | is_same_v<scalar_type<T>, int32> | is_same_v<scalar_type<T>, int64>;
 
 template<typename T>
 static constexpr bool is_uint_family_v = is_same_v<scalar_type<T>, uint16> | is_same_v<scalar_type<T>, uint32> | is_same_v<scalar_type<T>, uint64>;
 
 template<typename T>
+static constexpr bool is_int_family_v = is_sint_family_v<T> || is_uint_family_v<T>;
+
+template<typename T>
 static constexpr bool is_bool_family_v = is_same_v<scalar_type<T>, bool>;
 
 template<typename T>
-static constexpr bool is_arithmetic_v = is_float_family_v<T> || is_bool_family_v<T> || is_int_family_v<T> || is_uint_family_v<T>;
+static constexpr bool is_arithmetic_v = is_float_family_v<T> || is_bool_family_v<T> || is_sint_family_v<T> || is_uint_family_v<T>;
 
 template<typename T>
 static constexpr bool is_arithmetic_scalar_v = is_arithmetic_v<T> && !is_vec_v<T>;
@@ -72,10 +75,13 @@ template<typename T>
 concept bool_family = is_bool_family_v<T>;
 
 template<typename T>
-concept int_family = is_int_family_v<T>;
+concept sint_family = is_sint_family_v<T>;
 
 template<typename T>
 concept uint_family = is_uint_family_v<T>;
+
+template<typename T>
+concept int_family = is_int_family_v<T>;
 
 template<typename T>
 concept arithmetic = is_arithmetic_v<T>;
