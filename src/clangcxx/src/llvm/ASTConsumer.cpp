@@ -428,7 +428,14 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 const auto cxx_op = unary->getOpcode();
                 const auto lhs = stack->expr_map[unary->getSubExpr()];
                 const auto lc_type = db->FindOrAddType(unary->getType());
-                if (!IsUnaryAssignOp(cxx_op)) {
+                if (cxx_op == CXXUnaryOp::UO_Deref)
+                {
+                    if (auto _this = llvm::dyn_cast<CXXThisExpr>(unary->getSubExpr()))
+                        current = stack->locals[nullptr];
+                    else
+                        luisa::log_error("only support deref 'this'(*this)!");
+                }
+                else if (!IsUnaryAssignOp(cxx_op)) {
                     current = fb->unary(lc_type, TranslateUnaryOp(cxx_op), lhs);
                 } else {
                     auto one = fb->literal(Type::of<int>(), 1);
@@ -577,6 +584,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     auto funcDecl = calleeDecl->getAsFunction();
                     llvm::StringRef callopName = {};
                     llvm::StringRef binopName = {};
+                    llvm::StringRef unaopName = {};
                     llvm::StringRef exprName = {};
                     bool isAccess = false;
                     for (auto attr : calleeDecl->specific_attrs<clang::AnnotateAttr>()) {
@@ -584,6 +592,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             callopName = getCallopName(attr);
                         if (binopName.empty())
                             binopName = getBinopName(attr);
+                        if (unaopName.empty())
+                            unaopName = getUnaopName(attr);
                         if (exprName.empty())
                             exprName = getExprName(attr);
                         isAccess |= luisa::clangcxx::isAccess(attr);
@@ -609,6 +619,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         auto lc_binop = db->FindBinOp(binopName);
                         if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext)))
                             current = fb->binary(lcReturnType, lc_binop, lc_args[0], lc_args[1]);
+                    }
+                    else if (!unaopName.empty()) {
+                        UnaryOp lc_unaop = (unaopName == "PLUS")  ? UnaryOp::PLUS :
+                                           (unaopName == "MINUS") ? UnaryOp::MINUS :
+                                                                    (luisa::log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
+                        if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext)))
+                            current = fb->unary(lcReturnType, lc_unaop, lc_args[0]);
                     } else if (isAccess) {
                         if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext))) {
                             current = fb->access(lcReturnType, lc_args[0], lc_args[1]);
@@ -740,6 +757,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 // luisa::log_warning("unimplemented MaterializeTemporaryExpr!");
                 current = stack->expr_map[_matTemp->getSubExpr()];
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
+                x->dump();
+                x->getBeginLoc().dump(db->GetASTContext()->getSourceManager());
                 luisa::log_error("InitList is banned! Explicit use constructor instead!");
             } else if (auto _control_flow = llvm::dyn_cast<CompoundStmt>(x)) {       // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {      // CONTROL FLOW

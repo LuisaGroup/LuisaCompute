@@ -293,6 +293,8 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                 auto N = Arguments.get(0).getAsIntegral().getLimitedValue();
                 _type = Type::matrix(N);
             }
+        } else if (builtin_type_name == "bindless_array") {
+            _type = Type::of<BindlessArray>();
         } else if (builtin_type_name == "ray_query_all") {
             _type = Type::custom("LC_RayQueryAll");
         } else if (builtin_type_name == "ray_query_any") {

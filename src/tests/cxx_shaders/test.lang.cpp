@@ -230,7 +230,6 @@ auto TestVecOp() {
     d0 = d0 - d1;
     d0 = d0 * d1;
     d0 = d0 / d1;
-    d0 = d0 % d1;
     float N = 5.f;
     d0 = N + d0;
     d0 = d0 + N;
@@ -238,8 +237,12 @@ auto TestVecOp() {
     d0 = N * d0;
     d0 = d0 * N;
     d0 = d0 / N;
-    d0 = d0 % N;
-    return (float)d0.x;
+    uint2 u0 = uint2(1, 2);
+    uint2 u1 = uint2(2, 1);
+    uint32 M = 5;
+    u0 = u0 % u1;
+    u0 = u0 % M;
+    return (float)u0.x + d0.x;
 }
 
 auto TestSwizzle() {

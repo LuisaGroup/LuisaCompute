@@ -172,11 +172,11 @@ float3 offset_ray_origin(float3 p, float3 n) noexcept {
             float d_light = distance(pp, pp_light);
             float3 wi_light = normalize(pp_light - pp);
             Ray shadow_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
-            bool occluded = accel.trace_any(shadow_ray, {});
+            bool occluded = accel.trace_any(shadow_ray);
             float cos_wi_light = dot(wi_light, n);
             float cos_light = -dot(light_normal, wi_light);
             float3 albedo = materials.load(hit.inst);
-            if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
+            if (!occluded & (cos_wi_light > 1e-4f) & (cos_light > 1e-4f)) {
                 float pdf_light = (d_light * d_light) / (light_area * cos_light);
                 float pdf_bsdf = cos_wi_light * inv_pi;
                 float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);

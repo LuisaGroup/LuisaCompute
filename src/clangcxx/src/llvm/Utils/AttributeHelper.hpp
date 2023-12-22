@@ -243,6 +243,31 @@ inline static llvm::StringRef getBinopName(const clang::AnnotateAttr *Anno) {
     return {};
 }
 
+inline static bool isUnaop(const clang::AnnotateAttr *Anno) {
+    if (!isLuisaAttribute(Anno))
+        return false;
+    if (Anno->args_size() >= 1) {
+        auto arg = Anno->args_begin();
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+            return (TypeLiterial->getString() == "unaop");
+        }
+    }
+    return false;
+}
+
+inline static llvm::StringRef getUnaopName(const clang::AnnotateAttr *Anno) {
+    if (!isUnaop(Anno))
+        return {};
+    if (Anno->args_size() >= 1) {
+        auto arg = Anno->args_begin();
+        arg++;
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+            return TypeLiterial->getString();
+        }
+    }
+    return {};
+}
+
 inline static bool isExpr(const clang::AnnotateAttr *Anno) {
     if (!isLuisaAttribute(Anno))
         return false;
