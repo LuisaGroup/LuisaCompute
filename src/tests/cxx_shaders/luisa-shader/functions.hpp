@@ -32,26 +32,25 @@ template<concepts::bool_family T>
 [[callop("ANY")]] extern bool any(T x);
 
 template<concepts::primitive T, concepts::bool_family B>
-    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
+    requires(same_dim_v<T, B> || is_scalar_v<B>)
 [[callop("SELECT")]] extern T select(T false_v, T true_v, B bool_v);
 
 template<concepts::arithmetic T, concepts::arithmetic B>
-    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
+    requires(same_dim_v<T, B> || is_scalar_v<B>)
 [[callop("CLAMP")]] extern T clamp(T v, B min_v, B max_v);
 
 template<concepts::float_family T, concepts::float_family B>
-    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
+    requires(same_dim_v<T, B> || is_scalar_v<B>)
 [[callop("LERP")]] extern T lerp(T left_v, T right_v, B step);
 
 template<concepts::float_family T, concepts::float_family B>
-    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
+    requires(same_dim_v<T, B> || is_scalar_v<B>)
 [[callop("SMOOTHSTEP")]] extern T smoothstep(T left_v, B right_v, B step);
 
 template<concepts::float_family T>
 [[callop("SATURATE")]] extern T saturate(T v);
 
-template<typename T>
-    requires(is_float_family_v<T> || is_sint_family_v<T>)
+template<concepts::signed_arithmetic T>
 [[callop("ABS")]] extern T abs(T v);
 
 template<concepts::arithmetic T>
@@ -98,14 +97,19 @@ template<concepts::float_family T>
 
 template<concepts::float_family T>
 [[callop("ATANH")]] extern T atanh(T v);
+
 template<concepts::float_family T>
 [[callop("COS")]] extern T cos(T v);
+
 template<concepts::float_family T>
 [[callop("COSH")]] extern T cosh(T v);
+
 template<concepts::float_family T>
 [[callop("SIN")]] extern T sin(T v);
+
 template<concepts::float_family T>
 [[callop("SINH")]] extern T sinh(T v);
+
 template<concepts::float_family T>
 [[callop("TAN")]] extern T tan(T v);
 
@@ -160,8 +164,7 @@ template<concepts::float_family T>
 template<concepts::float_family T>
 [[callop("COPYSIGN")]] extern T fma(T a, T b);
 
-template<concepts::float_family T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::float_vec_family T>
 [[callop("CROSS")]] extern T cross(T a, T b);
 
 [[callop("FACEFORWARD")]] extern float3 faceforward(float3 a, float3 b, float3 c);
@@ -172,54 +175,42 @@ template<concepts::float_family T>
 
 [[callop("REFLECT")]] extern half3 reflect(half3 i, half3 n);
 
-template<concepts::float_family T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::float_vec_family T>
 [[callop("DOT")]] extern scalar_type<T> dot(T a, T b);
 
-template<concepts::float_family T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::float_vec_family T>
 [[callop("LENGTH")]] extern scalar_type<T> length(T v);
 
-template<concepts::float_family T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::float_vec_family T>
 scalar_type<T> distance(T a, T b) {
     return length(a - b);
 }
 
-template<concepts::float_family T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::float_vec_family T>
 [[callop("LENGTH_SQUARED")]] extern scalar_type<T> length_squared(T v);
 
-template<concepts::float_family T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::float_vec_family T>
 [[callop("NORMALIZE")]] extern T normalize(T v);
 
-template<concepts::arithmetic T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::arithmetic_vec T>
 [[callop("REDUCE_SUM")]] extern scalar_type<T> reduce_sum(T v);
 
-template<concepts::arithmetic T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::arithmetic_vec T>
 [[callop("REDUCE_PRODUCT")]] extern scalar_type<T> reduce_product(T v);
 
-template<concepts::arithmetic T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::arithmetic_vec T>
 [[callop("REDUCE_MIN")]] extern scalar_type<T> reduce_min(T v);
 
-template<concepts::arithmetic T>
-    requires(vec_dim_v<T> > 1)
+template<concepts::arithmetic_vec T>
 [[callop("REDUCE_MAX")]] extern scalar_type<T> reduce_max(T v);
 
-template<typename T>
-    requires(is_matrix_v<T>)
+template<concepts::matrix T>
 [[callop("DETERMINANT")]] extern T determinant(T v);
 
-template<typename T>
-    requires(is_matrix_v<T>)
+template<concepts::matrix T>
 [[callop("TRANSPOSE")]] extern T transpose(T v);
 
-template<typename T>
-    requires(is_matrix_v<T>)
+template<concepts::matrix T>
 [[callop("INVERSE")]] extern T inverse(T v);
 
 [[callop("SYNCHRONIZE_BLOCK")]] void sync_block();
@@ -242,25 +233,19 @@ template<concepts::arithmetic T>
 template<concepts::arithmetic T>
 [[callop("WARP_ACTIVE_ALL_EQUAL")]] vec<bool, vec_dim_v<T>> wave_active_all_equal();
 
-template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+template<concepts::int_family T>
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T warp_active_bit_and(T v);
-template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+template<concepts::int_family T>
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T wave_active_bit_and(T v);
 
-template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+template<concepts::int_family T>
 [[callop("WARP_ACTIVE_BIT_OR")]] extern T warp_active_bit_or(T v);
-template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+template<concepts::int_family T>
 [[callop("WARP_ACTIVE_BIT_OR")]] extern T wave_active_bit_or(T v);
 
-template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+template<concepts::int_family T>
 [[callop("WARP_ACTIVE_BIT_XOR")]] extern T warp_active_bit_xor(T v);
-template<typename T>
-    requires(is_sint_family_v<T> && is_uint_family_v<T>)
+template<concepts::int_family T>
 [[callop("WARP_ACTIVE_BIT_XOR")]] extern T wave_active_bit_xor(T v);
 
 [[callop("WARP_ACTIVE_COUNT_BITS")]] extern uint32 warp_active_count_bits(bool val);

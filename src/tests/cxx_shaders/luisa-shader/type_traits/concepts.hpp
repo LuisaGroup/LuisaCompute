@@ -50,6 +50,9 @@ template<typename T>
 using scalar_type = typename detail::vec_or_matrix<decay_t<T>>::scalar_type;
 
 template<typename T>
+static constexpr bool is_scalar_v = !detail::vec_or_matrix<decay_t<T>>::is_vec;
+
+template<typename T>
 static constexpr bool is_vec_v = detail::vec_or_matrix<decay_t<T>>::is_vec;
 
 template<typename T>
@@ -83,7 +86,10 @@ template<typename T>
 static constexpr bool is_bool_family_v = is_same_v<scalar_type<T>, bool>;
 
 template<typename T>
-static constexpr bool is_arithmetic_v = is_float_family_v<T> || is_bool_family_v<T> || is_sint_family_v<T> || is_uint_family_v<T>;
+static constexpr bool is_arithmetic_v = is_float_family_v<T> || is_bool_family_v<T> || is_int_family_v<T>;
+
+template<typename T>
+static constexpr bool is_signed_arithmetic_v = is_float_family_v<T> || is_sint_family_v<T>;
 
 template<typename T>
 static constexpr bool is_arithmetic_scalar_v = is_arithmetic_v<T> && !is_vec_v<T>;
@@ -106,19 +112,40 @@ template<typename T>
 concept float_family = is_float_family_v<T>;
 
 template<typename T>
+concept float_vec_family = is_float_family_v<T> && is_vec_v<T>;
+
+template<typename T>
 concept bool_family = is_bool_family_v<T>;
+
+template<typename T>
+concept bool_vec_family = is_bool_family_v<T>  && is_vec_v<T>;
 
 template<typename T>
 concept sint_family = is_sint_family_v<T>;
 
 template<typename T>
+concept sint_vec_family = is_sint_family_v<T> && is_vec_v<T>;
+
+template<typename T>
 concept uint_family = is_uint_family_v<T>;
+
+template<typename T>
+concept uint_vec_family = is_uint_family_v<T> && is_vec_v<T>;
 
 template<typename T>
 concept int_family = is_int_family_v<T>;
 
 template<typename T>
+concept int_vec_family = is_int_family_v<T> && is_vec_v<T>;
+
+template<typename T>
 concept arithmetic = is_arithmetic_v<T>;
+
+template<typename T>
+concept arithmetic_vec = is_arithmetic_v<T> && is_vec_v<T>;
+
+template<typename T>
+concept signed_arithmetic = is_signed_arithmetic_v<T>;
 
 template<typename T>
 concept arithmetic_scalar = is_arithmetic_scalar_v<T>;
