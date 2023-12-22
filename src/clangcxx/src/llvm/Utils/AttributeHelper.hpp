@@ -53,33 +53,34 @@ inline static clang::ClassTemplateSpecializationDecl *GetClassTemplateSpecializa
     return nullptr;
 }
 
-inline static bool isLuisaAttribute(const clang::AnnotateAttr *Anno) {
-    return Anno->getAnnotation() == "luisa-shader";
-}
-
-inline static bool isIgnore(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() == 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "ignore");
+inline static bool isLuisaAttribute(const clang::AnnotateAttr *Anno, const char* what) {
+    if (Anno->getAnnotation() == "luisa-shader")
+    {
+        if (Anno->args_size() == 1) {
+            auto arg = Anno->args_begin();
+            if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+                return (TypeLiterial->getString() == "ignore");
+            }
         }
     }
     return false;
 }
 
-inline static bool isByPass(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "bypass");
-        }
-    }
-    return false;
-}
+inline static bool isIgnore(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "ignore"); }
+inline static bool isByPass(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "bypass"); }
+inline static bool isAccess(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "access"); }
+inline static bool isCallop(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "callop"); }
+inline static bool isBuiltinType(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "builtin"); }
+inline static bool isNoignore(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "noignore"); }
+inline static bool isBinop(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "binop"); }
+inline static bool isUnaop(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "unaop"); }
+inline static bool isExpr(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "expr"); }
+inline static bool isSwizzle(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "swizzle"); }
+
+inline static bool isKernel1D(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "kernel_1d"); }
+inline static bool isKernel2D(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "kernel_2d"); }
+inline static bool isKernel3D(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "kernel_3d"); }
+inline static bool isKernel(const clang::AnnotateAttr *Anno) { return isKernel1D(Anno) || isKernel2D(Anno) || isKernel3D(Anno); }
 
 inline static bool isByPass(const clang::Decl *decl) {
     if (auto cxxField = llvm::dyn_cast<clang::FieldDecl>(decl)) {
@@ -94,18 +95,6 @@ inline static bool isByPass(const clang::Decl *decl) {
     return false;
 }
 
-inline static bool isAccess(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "access");
-        }
-    }
-    return false;
-}
-
 inline static bool isAccess(const clang::Decl *decl) {
     if (auto cxxField = llvm::dyn_cast<clang::FieldDecl>(decl)) {
         if (cxxField->isAnonymousStructOrUnion())
@@ -115,16 +104,6 @@ inline static bool isAccess(const clang::Decl *decl) {
         Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
         if (isAccess(*Anno))
             return true;
-    }
-    return false;
-}
-
-inline static bool isKernel(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    auto arg = Anno->args_begin();
-    if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-        return (TypeLiterial->getString().starts_with("kernel_"));
     }
     return false;
 }
@@ -156,18 +135,6 @@ inline static bool getKernelSize(const clang::AnnotateAttr *Anno, uint32_t &x, u
     return true;
 }
 
-inline static bool isBuiltinType(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "builtin");
-        }
-    }
-    return false;
-}
-
 inline static llvm::StringRef getBuiltinTypeName(const clang::AnnotateAttr *Anno) {
     if (!isBuiltinType(Anno))
         return {};
@@ -179,18 +146,6 @@ inline static llvm::StringRef getBuiltinTypeName(const clang::AnnotateAttr *Anno
         }
     }
     return {};
-}
-
-inline static bool isCallop(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "callop");
-        }
-    }
-    return false;
 }
 
 inline static llvm::StringRef getCallopName(const clang::AnnotateAttr *Anno) {
@@ -206,30 +161,6 @@ inline static llvm::StringRef getCallopName(const clang::AnnotateAttr *Anno) {
     return {};
 }
 
-inline static bool isNoignore(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "noignore");
-        }
-    }
-    return false;
-}
-
-inline static bool isBinop(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "binop");
-        }
-    }
-    return false;
-}
-
 inline static llvm::StringRef getBinopName(const clang::AnnotateAttr *Anno) {
     if (!isBinop(Anno))
         return {};
@@ -241,18 +172,6 @@ inline static llvm::StringRef getBinopName(const clang::AnnotateAttr *Anno) {
         }
     }
     return {};
-}
-
-inline static bool isUnaop(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "unaop");
-        }
-    }
-    return false;
 }
 
 inline static llvm::StringRef getUnaopName(const clang::AnnotateAttr *Anno) {
@@ -268,18 +187,6 @@ inline static llvm::StringRef getUnaopName(const clang::AnnotateAttr *Anno) {
     return {};
 }
 
-inline static bool isExpr(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "expr");
-        }
-    }
-    return false;
-}
-
 inline static llvm::StringRef getExprName(const clang::AnnotateAttr *Anno) {
     if (!isExpr(Anno))
         return {};
@@ -291,18 +198,6 @@ inline static llvm::StringRef getExprName(const clang::AnnotateAttr *Anno) {
         }
     }
     return {};
-}
-
-inline static bool isSwizzle(const clang::AnnotateAttr *Anno) {
-    if (!isLuisaAttribute(Anno))
-        return false;
-    if (Anno->args_size() >= 1) {
-        auto arg = Anno->args_begin();
-        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-            return (TypeLiterial->getString() == "swizzle");
-        }
-    }
-    return false;
 }
 
 inline static bool isSwizzle(const clang::Decl *decl) {
