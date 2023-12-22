@@ -4,7 +4,7 @@
 #include "./../types/vec.hpp"
 
 namespace luisa::shader {
-template<arithmetic_scalar T>
+template<concepts::arithmetic_scalar T>
 struct [[builtin("image")]] Image {
     using ElementType = T;
     
@@ -16,7 +16,7 @@ struct [[builtin("image")]] Image {
     [[ignore]] Image &operator=(Image const &) = delete;
 };
 
-template<arithmetic_scalar T>
+template<concepts::arithmetic_scalar T>
 struct [[builtin("volume")]] Volume {
     using ElementType = T;
 

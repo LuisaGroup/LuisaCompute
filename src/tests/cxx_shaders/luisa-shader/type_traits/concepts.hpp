@@ -58,14 +58,14 @@ static constexpr bool is_matrix_v = detail::vec_or_matrix<decay_t<T>>::is_matrix
 template<typename T>
 static constexpr bool is_vec_or_matrix_v = detail::vec_or_matrix<decay_t<T>>::value;
 
-template <typename T>
-inline constexpr bool is_shared_array_v = false; 
+template<typename T>
+inline constexpr bool is_shared_array_v = false;
 
 template<typename U, uint32 N>
 inline constexpr bool is_shared_array_v<SharedArray<U, N>> = true;
 
-template <typename T>
-inline constexpr bool is_buffer_v = is_specialization_v<T, Buffer>; 
+template<typename T>
+inline constexpr bool is_buffer_v = is_specialization_v<T, Buffer>;
 
 template<typename T>
 static constexpr bool is_float_family_v = is_same_v<scalar_type<T>, float> | is_same_v<scalar_type<T>, double> | is_same_v<scalar_type<T>, half>;
@@ -88,17 +88,19 @@ static constexpr bool is_arithmetic_v = is_float_family_v<T> || is_bool_family_v
 template<typename T>
 static constexpr bool is_arithmetic_scalar_v = is_arithmetic_v<T> && !is_vec_v<T>;
 
-template<typename T>
-concept vec_family = is_vec_v<T>;
+namespace concepts {
 
 template<typename T>
-concept non_vec_family = !is_vec_v<T>;
+concept vec = is_vec_v<T>;
 
 template<typename T>
-concept matrix_family = is_matrix_v<T>;
+concept non_vec = !is_vec_v<T>;
 
 template<typename T>
-concept buffer_family = is_buffer_v<T>;
+concept matrix = is_matrix_v<T>;
+
+template<typename T>
+concept buffer = is_buffer_v<T>;
 
 template<typename T>
 concept float_family = is_float_family_v<T>;
@@ -122,30 +124,36 @@ template<typename T>
 concept arithmetic_scalar = is_arithmetic_scalar_v<T>;
 
 template<typename T>
-concept primitive_family = is_arithmetic_v<T> || is_vec_or_matrix_v<T>;
+concept primitive = is_arithmetic_v<T> || is_vec_or_matrix_v<T>;
 
-template<arithmetic_scalar T>
+}// namespace concepts
+
+template<concepts::arithmetic_scalar T>
 struct Image;
 
-template<arithmetic_scalar T>
+template<concepts::arithmetic_scalar T>
 struct Volume;
 
-template <typename T>
-inline constexpr bool is_image_v = is_specialization_v<T, Image>; 
+template<typename T>
+inline constexpr bool is_image_v = is_specialization_v<T, Image>;
 
-template <typename T>
-inline constexpr bool is_volume_v = is_specialization_v<T, Volume>; 
+template<typename T>
+inline constexpr bool is_volume_v = is_specialization_v<T, Volume>;
 
-template <typename T>
+template<typename T>
 inline constexpr bool is_texture_v = is_image_v<T> || is_volume_v<T>;
 
-template<typename T>
-concept image_family = is_image_v<T>;
+namespace concepts {
 
 template<typename T>
-concept volume_family = is_volume_v<T>;
+concept image = is_image_v<T>;
 
 template<typename T>
-concept texture_family = is_texture_v<T>;
+concept volume = is_volume_v<T>;
+
+template<typename T>
+concept texture = is_texture_v<T>;
+
+}// namespace concepts
 
 }// namespace luisa::shader

@@ -27,7 +27,7 @@ auto lcg(uint32 &state) {
            (1.0f / static_cast<float>(0x01000000u));
 }
 
-template<primitive_family T, bool_family B>
+template<concepts::primitive T, concepts::bool_family B>
     requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
 extern T ite(B bool_v, T true_v, T false_v) {
     return select(false_v, true_v, bool_v);
