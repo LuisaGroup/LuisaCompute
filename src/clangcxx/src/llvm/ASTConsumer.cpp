@@ -331,7 +331,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                 }
-                if (auto callable = db->func_builders[cxxCtor]) {
+                
+                if (cxxCtor->isImplicit() && (cxxCtor->isCopyConstructor() || cxxCtor->isMoveConstructor())) {
+                    fb->assign(lc_args[0], lc_args[1]);
+                    current = local;
+                } else if (auto callable = db->func_builders[cxxCtor]) {
                     fb->call(luisa::compute::Function(callable.get()), lc_args);
                     current = local;
                 } else if (cxxCtor->getParent()->isLambda()) {
