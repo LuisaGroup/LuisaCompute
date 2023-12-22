@@ -383,6 +383,7 @@ template<typename T>
 struct array_meta;
 template<typename T, size_t N>
 struct array_meta<T[N]> {
+    using value_type = T;
     static constexpr size_t array_size = N;
     static constexpr size_t byte_size = N * sizeof(T);
 };
