@@ -50,6 +50,7 @@ struct alignas(16) [[builtin("vec")]] vec<T, 3> {
     }
 
     #include "vec_ops/ops.inl"
+
     union {
 #include "vec_ops/swizzle3.inl"
         T zz_V[3];
@@ -73,6 +74,7 @@ struct alignas(16) [[builtin("vec")]] vec<T, 4> {
     }
 
     #include "vec_ops/ops.inl"
+    
     union {
 #include "vec_ops/swizzle4.inl"
         T zz_V[4];

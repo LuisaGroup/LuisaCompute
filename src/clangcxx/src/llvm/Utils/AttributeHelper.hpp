@@ -56,10 +56,11 @@ inline static clang::ClassTemplateSpecializationDecl *GetClassTemplateSpecializa
 inline static bool isLuisaAttribute(const clang::AnnotateAttr *Anno, const char* what) {
     if (Anno->getAnnotation() == "luisa-shader")
     {
-        if (Anno->args_size() == 1) {
+        if (Anno->args_size() >= 1) {
             auto arg = Anno->args_begin();
-            if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
-                return (TypeLiterial->getString() == "ignore");
+            if (auto Literal = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+                auto _what = Literal->getString();
+                return (_what == what);
             }
         }
     }

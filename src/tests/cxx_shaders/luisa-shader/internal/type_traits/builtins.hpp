@@ -6,6 +6,7 @@ using uint16 = unsigned short;
 using int32 = int;
 using int64 = long long;
 using uint32 = unsigned int;
+using uint = uint32;
 using uint64 = unsigned long long;
 
 template<typename T, typename U>

@@ -309,7 +309,6 @@ auto TestInvokeInvoke(F func, Args &...args) {
 
 #define WIDTH 3200u
 #define HEIGHT 2400u
-#define PI 3.141592653589793238462643383279502f
 struct Pixel {
     float4 value;
 };

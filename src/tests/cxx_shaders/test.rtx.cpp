@@ -2,7 +2,6 @@
 
 using namespace luisa::shader;
 
-namespace luisa::shader {
 auto tea(uint32 v0, uint32 v1) {
     uint32 s0 = 0;
     for (uint32 n = 0; n < 4; ++n) {
@@ -12,6 +11,7 @@ auto tea(uint32 v0, uint32 v1) {
     }
     return v0;
 }
+
 auto halton(uint32 i, uint32 b) {
     auto f = 1.0f;
     auto invB = 1.0f / b;
@@ -23,28 +23,6 @@ auto halton(uint32 i, uint32 b) {
     };
     return r;
 }
-auto lcg(uint32 &state) {
-    const uint32 lcg_a = 1664525u;
-    const uint32 lcg_c = 1013904223u;
-    state = lcg_a * state + lcg_c;
-    return static_cast<float>(state & 0x00ffffffu) *
-           (1.0f / static_cast<float>(0x01000000u));
-}
-
-template<primitive T, bool_family B>
-    requires(vec_dim_v<T> == vec_dim_v<B> || vec_dim_v<B> == 1)
-extern T ite(B bool_v, T true_v, T false_v) {
-    return select(false_v, true_v, bool_v);
-}
-
-auto make_onb(float3 &normal) {
-    // auto ff = abs(normal.x);
-    // float3 binormal = normalize(ite(
-    //     abs(normal.x) > abs(normal.z),
-    //         float3(-normal.y, normal.x, 0.0f),
-    //         float3(0.0f, -normal.z, normal.y))
-    // );
-}
 
 auto rand(uint32 f, uint2 p) {
     auto i = tea(p.x, p.y) + f;
@@ -53,7 +31,8 @@ auto rand(uint32 f, uint2 p) {
     return float2(rx, ry);
 }
 
-[[kernel_2d(16, 16)]] int kernel(Buffer<float4> &buffer, Accel &accel, uint32 frame_index) {
+[[kernel_2d(16, 16)]] 
+int kernel(Buffer<float4> &buffer, Accel &accel, uint32 frame_index) {
     auto coord = dispatch_id().xy;
     auto size = dispatch_size().xy;
     auto p = (float2(coord) + rand(frame_index, coord)) / (float2(size));
@@ -72,4 +51,3 @@ auto rand(uint32 f, uint2 p) {
     buffer.store(coord.y * size.x + coord.x, float4(lerp(old, color, t), 1.0f));
     return 0;
 }
-}// namespace luisa::shader
