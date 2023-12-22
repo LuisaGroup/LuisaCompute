@@ -1,3 +1,4 @@
+// clang-format off
 [[unaop("PLUS")]] ThisType operator+() const;
 [[unaop("MINUS")]] ThisType operator-() const;
 
@@ -53,32 +54,15 @@ template <typename U> requires(operatable<U>)
 [[noignore]] ThisType operator/=(U rhs) { return *this = *this / rhs; }
 
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator%=(U rhs) const requires(is_int_family_v<ThisType>)
-{
-    return *this = *this % rhs;
-}
+[[noignore]] ThisType operator%=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator&=(U rhs) const requires(is_int_family_v<ThisType>)
-{
-    return *this = *this & rhs;
-}
+[[noignore]] ThisType operator&=(U rhs) const requires(is_int_family_v<ThisType>)  { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator|=(U rhs) const requires(is_int_family_v<ThisType>)
-{
-    return *this = *this | rhs;
-}
+[[noignore]] ThisType operator|=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator^=(U rhs) const requires(is_int_family_v<ThisType>)
-{
-    return *this = *this ^ rhs;
-}
+[[noignore]] ThisType operator^=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator<<=(U rhs) const requires(is_int_family_v<ThisType>)
-{
-    return *this = *this << rhs;
-}
+[[noignore]] ThisType operator<<=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator>>=(U rhs) const requires(is_int_family_v<ThisType>)
-{
-    return *this = *this >> rhs;
-}
+[[noignore]] ThisType operator>>=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
+// clang-format on
