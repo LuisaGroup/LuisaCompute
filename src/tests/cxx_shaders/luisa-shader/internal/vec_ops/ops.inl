@@ -42,12 +42,12 @@
 [[noignore]] ThisType operator+=(ThisType rhs) { return *this = *this + rhs; }
 [[noignore]] ThisType operator-=(ThisType rhs) { return *this = *this - rhs; }
 [[noignore]] ThisType operator*=(ThisType rhs) { return *this = *this * rhs; }
-[[noignore]] ThisType operator/=(ThisType rhs) { return *this = *this * rhs; }
+[[noignore]] ThisType operator/=(ThisType rhs) { return *this = *this / rhs; }
 
 [[noignore]] ThisType operator+=(T rhs) { return *this = *this + rhs; }
 [[noignore]] ThisType operator-=(T rhs) { return *this = *this - rhs; }
 [[noignore]] ThisType operator*=(T rhs) { return *this = *this * rhs; }
-[[noignore]] ThisType operator/=(T rhs) { return *this = *this * rhs; }
+[[noignore]] ThisType operator/=(T rhs) { return *this = *this / rhs; }
 
 [[noignore]] ThisType operator%=(ThisType) const requires(is_int_family_v<ThisType>)
 {
