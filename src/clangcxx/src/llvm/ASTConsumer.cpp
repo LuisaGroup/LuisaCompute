@@ -102,6 +102,20 @@ inline const luisa::compute::RefExpr *LC_ArgOrRef(clang::QualType qt, luisa::sha
     return nullptr;
 }
 
+const luisa::compute::RefExpr *Stack::GetLocal(const clang::ValueDecl *decl) const {
+    if (locals.contains(decl))
+        return locals.find(decl)->second;
+    return nullptr;
+}
+
+void Stack::SetLocal(const clang::ValueDecl *decl, const luisa::compute::RefExpr *expr) {
+    if (!decl)
+        luisa::log_error("unknown error: SetLocal with nullptr!");
+    if (locals.contains(decl))
+        luisa::log_error("unknown error: SetLocal with existed!");
+    locals[decl] = expr;
+}
+
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     clang::ForStmt *currentCxxForStmt = nullptr;
 
@@ -247,7 +261,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         if (!isRef && !isArray) {
                             if (auto lc_type = db->FindOrAddType(Ty, x->getBeginLoc())) {
                                 auto lc_var = fb->local(lc_type);
-                                stack->locals[varDecl] = lc_var;
+                                stack->SetLocal(varDecl, lc_var);
 
                                 auto init = varDecl->getInit();
                                 if (auto lc_init = stack->expr_map[init]) {
@@ -443,7 +457,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 const auto lc_type = db->FindOrAddType(unary->getType(), x->getBeginLoc());
                 if (cxx_op == CXXUnaryOp::UO_Deref) {
                     if (auto _this = llvm::dyn_cast<CXXThisExpr>(unary->getSubExpr()))
-                        current = stack->locals[nullptr];
+                        current = db->GetFunctionThis(fb.get());
                     else
                         luisa::log_error("only support deref 'this'(*this)!");
                 } else if (!IsUnaryAssignOp(cxx_op)) {
@@ -491,8 +505,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
             } else if (auto dref = llvm::dyn_cast<DeclRefExpr>(x)) {
                 auto str = luisa::string(dref->getNameInfo().getName().getAsString());
-                if (stack->locals[dref->getDecl()]) {
-                    current = stack->locals[dref->getDecl()];
+                if (auto _current = stack->GetLocal(dref->getDecl())) {
+                    current = _current;
                 } else if (auto value = dref->getDecl(); value && llvm::isa<clang::VarDecl>(value))// Value Ref
                 {
                     if (auto var = value->getPotentiallyDecomposedVarDecl()) {
@@ -540,7 +554,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 fb->assign(_value, stack->expr_map[cxxDefaultArg->getExpr()]);
                 current = _value;
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
-                current = stack->locals[nullptr];
+                current = db->GetFunctionThis(fb.get());
             } else if (auto cxxMember = llvm::dyn_cast<clang::MemberExpr>(x)) {
                 if (auto bypass = isByPass(cxxMember->getMemberDecl())) {
                     current = stack->expr_map[cxxMember->getBase()];
@@ -913,7 +927,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                     auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S);
                     if (auto lc_type = db->FindOrAddType(methodThisType, Method->getBeginLoc())) {
                         auto this_local = builder->reference(lc_type);
-                        stack.locals[nullptr] = this_local;
+                        db->SetFunctionThis(builder.get(), this_local);
                     } else {
                         luisa::log_error("???");
                     }
@@ -941,7 +955,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                                 local = LC_ArgOrRef(Ty, builder, lc_type);
                                 break;
                         }
-                        stack.locals[param] = local;
+                        stack.SetLocal(param, local);
                     } else {
                         luisa::log_error("unfound arg type: {}", Ty.getAsString());
                     }
@@ -950,7 +964,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                 // ctor initializers
                 if (is_method) {
                     if (auto lc_type = db->FindOrAddType(methodThisType, S->getBeginLoc())) {
-                        auto this_local = stack.locals[nullptr];
+                        auto this_local = db->GetFunctionThis(builder.get());
                         if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
                             for (auto ctor_init : Ctor->inits()) {
                                 auto init = ctor_init->getInit();

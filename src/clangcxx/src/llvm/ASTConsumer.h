@@ -20,10 +20,15 @@ class ASTConsumer;
 using MatchFinder = clang::ast_matchers::MatchFinder;
 
 struct Stack {
-    luisa::unordered_map<const clang::ValueDecl *, const luisa::compute::RefExpr *> locals;
+    const luisa::compute::RefExpr* GetLocal(const clang::ValueDecl *decl) const;
+    void SetLocal(const clang::ValueDecl *decl, const luisa::compute::RefExpr *expr);
+
     luisa::unordered_map<const clang::Stmt *, const luisa::compute::Expression *> expr_map;
     luisa::vector<const luisa::compute::Expression *> callers;
     luisa::vector<class luisa::compute::RayQueryStmt*> queries;
+
+private:
+    luisa::unordered_map<const clang::ValueDecl *, const luisa::compute::RefExpr *> locals;
 };
 
 struct FunctionBuilderBuilder {

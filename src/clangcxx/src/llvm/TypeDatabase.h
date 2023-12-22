@@ -16,6 +16,9 @@ struct TypeDatabase {
     [[nodiscard]] clang::ASTContext *GetASTContext() { return astContext; }
     [[nodiscard]] const clang::ASTContext *GetASTContext() const { return astContext; }
 
+    void SetFunctionThis(const compute::detail::FunctionBuilder* _this, const compute::RefExpr* fb);
+    const luisa::compute::RefExpr* GetFunctionThis(const compute::detail::FunctionBuilder* fb) const;
+
     void DumpWithLocation(const clang::Stmt* stmt);
     void DumpWithLocation(const clang::Decl* decl);
 
@@ -38,6 +41,7 @@ protected:
     vstd::HashMap<vstd::string, luisa::compute::BinaryOp> bin_ops_map;
     vstd::HashMap<vstd::string, luisa::compute::CallOp> call_ops_map;
     luisa::unordered_map<luisa::string, const luisa::compute::Type *> type_map;
+    luisa::unordered_map<const compute::detail::FunctionBuilder *, const luisa::compute::RefExpr *> this_map;
 
 public:
     struct Commenter {

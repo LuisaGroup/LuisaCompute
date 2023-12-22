@@ -104,6 +104,22 @@ auto TypeDatabase::FindBinOp(const luisa::string_view &name) -> luisa::compute::
     luisa::log_error("unfound call op: {}", name);
     return luisa::compute::BinaryOp::ADD;
 }
+   
+void TypeDatabase::SetFunctionThis(const compute::detail::FunctionBuilder* _this, const compute::RefExpr* fb)
+{
+    if (this_map.contains(_this))
+        luisa::log_error("function builder already has this pointer");
+    this_map[_this] = fb;
+}
+
+const luisa::compute::RefExpr* TypeDatabase::GetFunctionThis(const compute::detail::FunctionBuilder* fb) const
+{
+    auto iter = this_map.find(fb);
+    if (iter != this_map.end()) {
+        return iter->second;
+    }
+    return nullptr;
+}
 
 void TypeDatabase::DumpWithLocation(const clang::Stmt *stmt) {
     stmt->getBeginLoc().dump(GetASTContext()->getSourceManager());
