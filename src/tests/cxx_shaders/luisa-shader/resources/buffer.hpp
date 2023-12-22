@@ -1,7 +1,7 @@
 #pragma once
 #include "./../attributes.hpp"
 #include "./../type_traits.hpp"
-#include "./../vec.hpp"
+#include "./../types/vec.hpp"
 
 namespace luisa::shader {
 template<typename Type>

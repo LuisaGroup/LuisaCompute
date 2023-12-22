@@ -1,5 +1,5 @@
 #pragma once
-#include "./../vec.hpp"
+#include "./../types/vec.hpp"
 
 namespace luisa::shader {
 struct [[builtin("indirect_buffer")]] IndirectBuffer {
