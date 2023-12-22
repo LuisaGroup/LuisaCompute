@@ -38,31 +38,31 @@ struct FunctionBuilderBuilder {
     explicit FunctionBuilderBuilder(TypeDatabase *db, Stack &stack)
         : db(db), stack(stack) {}
     void build(const clang::FunctionDecl *S);
+
 private:
     bool recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack);
     TypeDatabase *db = nullptr;
     Stack &stack;
 };
 
-class RecordDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
-public:
+struct RecordDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
     RecordDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
 
     TypeDatabase *db = nullptr;
 };
 
-class GlobalVarHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
-public:
+struct GlobalVarHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
     GlobalVarHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
+
     TypeDatabase *db = nullptr;
 };
 
-class FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
-public:
+struct FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
     FunctionDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
+
     TypeDatabase *db = nullptr;
 };
 
@@ -73,11 +73,11 @@ public:
     void HandleTranslationUnit(clang::ASTContext &Context) override;
 
     std::string OutputPath;
-    luisa::compute::Device *device = nullptr;
-    compute::ShaderOption option;
+    const luisa::compute::Device *device = nullptr;
+    const compute::ShaderOption option;
 
+private:
     TypeDatabase db;
-
     RecordDeclStmtHandler HandlerForTypeDecl;
     GlobalVarHandler HandlerForGlobalVar;
     FunctionDeclStmtHandler HandlerForFuncionDecl;
