@@ -31,8 +31,7 @@ inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, b
         } else if (const auto *TST = Ty->getAs<clang::TemplateSpecializationType>()) {
             recordDecl = TST->getAsRecordDecl();
         } else if (const auto *AT = Ty->getAsArrayTypeUnsafe()) {
-            recordDecl = AT->getAsRecordDecl();
-            luisa::log_error("array type is not supported: [{}]", Ty.getAsString());
+            return nullptr;
         } else if (isRestrict) {
             Ty.dump();
             luisa::log_error("!!!");

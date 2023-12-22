@@ -241,8 +241,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
                     if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                         auto Ty = varDecl->getType();
-                        if (auto lc_type = db->FindOrAddType(Ty, x->getBeginLoc())) {
-                            if (!Ty->isReferenceType()) {
+
+                        const bool isRef = Ty->isReferenceType();
+                        const bool isArray = Ty->getAsArrayTypeUnsafe();
+                        if (!isRef && !isArray) {
+                            if (auto lc_type = db->FindOrAddType(Ty, x->getBeginLoc())) {
                                 auto lc_var = fb->local(lc_type);
                                 stack->locals[varDecl] = lc_var;
 
@@ -253,10 +256,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 } else {
                                     current = lc_var;
                                 }
-                            } else {
-                                db->DumpWithLocation(x);
-                                luisa::log_error("VarDecl as reference type is not supported: [{}]", Ty.getAsString());
                             }
+                        } else {
+                            db->DumpWithLocation(x);
+                            if (isRef)
+                                luisa::log_error("VarDecl as reference type is not supported: [{}]", Ty.getAsString());
+                            if (isArray)
+                                luisa::log_error("VarDecl as C-style array type is not supported: [{}]", Ty.getAsString());
                         }
                     } else if (auto aliasDecl = dyn_cast<clang::TypeAliasDecl>(decl)) {          // ignore
                     } else if (auto staticAssertDecl = dyn_cast<clang::StaticAssertDecl>(decl)) {// ignore

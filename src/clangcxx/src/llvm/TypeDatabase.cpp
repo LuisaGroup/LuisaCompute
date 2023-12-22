@@ -62,8 +62,7 @@ const luisa::compute::Type *TypeDatabase::findType(const clang::QualType Ty) {
 }
 
 const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty, const clang::SourceLocation &loc) {
-    if (Ty->isPointerType())
-    {
+    if (Ty->isPointerType()) {
         loc.dump(GetASTContext()->getSourceManager());
         Ty->dump();
         luisa::log_error("pointer types are banned!");
@@ -101,15 +100,12 @@ auto TypeDatabase::FindBinOp(const luisa::string_view &name) -> luisa::compute::
     return luisa::compute::BinaryOp::ADD;
 }
 
-
-void TypeDatabase::DumpWithLocation(const clang::Stmt* stmt)
-{
+void TypeDatabase::DumpWithLocation(const clang::Stmt *stmt) {
     stmt->getBeginLoc().dump(GetASTContext()->getSourceManager());
     stmt->dump();
 }
 
-void TypeDatabase::DumpWithLocation(const clang::Decl* decl)
-{
+void TypeDatabase::DumpWithLocation(const clang::Decl *decl) {
     decl->getBeginLoc().dump(GetASTContext()->getSourceManager());
     decl->dump();
 }
@@ -362,7 +358,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         return _type;
     } else {
         auto S = GetRecordDeclFromQualType(Ty);
-        bool ignore = (S->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName); 
+        bool ignore = (S->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
         bool is_builtin = false;
         for (auto Anno = S->specific_attr_begin<clang::AnnotateAttr>();
              Anno != S->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
@@ -384,6 +380,17 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         if (!S->isLambda() && !isSwizzle(S)) {// ignore lambda generated capture fields
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
                 auto Ty = f->getType();
+                if (auto isRef = Ty->isReferenceType())
+                {
+                    DumpWithLocation(f->getFirstDecl());
+                    luisa::log_error("Field as reference type is not supported: [{}]", Ty.getAsString());
+                }
+                if (auto isArray = Ty->getAsArrayTypeUnsafe())
+                {
+                    DumpWithLocation(f->getFirstDecl());
+                    luisa::log_error("Field as C-style array type is not supported: [{}]", Ty.getAsString());
+                }
+
                 if (!tryEmplaceFieldType(Ty, S, types)) {
                     S->dump();
                     luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
