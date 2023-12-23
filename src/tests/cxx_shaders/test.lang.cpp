@@ -327,7 +327,6 @@ auto TestIgnoreReturn(float &f) {
     return 2.f;
 }
 
-
 constexpr auto c_f3 = identity<float3>;
 
 constexpr auto c_arr = Array<float, 2>(1.f, 2.f);

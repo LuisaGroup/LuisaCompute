@@ -21,18 +21,16 @@ constexpr void set(U v, Args...args) {
     if constexpr (dim == 2)
     {
         _v[i] = v[0]; _v[i + 1] = v[1];
-        set<i + 2>(args...);
     }
-    if constexpr (dim == 3)
+    else if constexpr (dim == 3)
     {
         _v[i] = v[0]; _v[i + 1] = v[1]; _v[i + 2] = v[2];
-        set<i + 3>(args...);
     }
-    if constexpr (dim == 4)
+    else if constexpr (dim == 4)
     {
         _v[i] = v[0]; _v[i + 1] = v[1]; _v[i + 2] = v[2]; _v[i + 3] = v[3];
-        set<i + 4>(args...);
     }
+    set<i + dim>(args...);
 }
 
 template<typename X>

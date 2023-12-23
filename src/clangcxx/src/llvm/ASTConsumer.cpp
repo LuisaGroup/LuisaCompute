@@ -531,8 +531,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 current = fb->literal(Type::of<int>(), (int)eval->getInt().getLimitedValue());
                             else if (eval->isFloat())
                                 current = fb->literal(Type::of<float>(), (float)eval->getFloat().convertToDouble());
-                            else
-                                luisa::log_error("unsupportted eval type: {}", eval->getKind());
+                            else // TODO: support assignment by constexpr var 
+                            {
+                                db->DumpWithLocation(var);
+                                luisa::log_error("unsupportted gloal const eval type: {}", var->getKind());
+                            }
                         } else {
                             db->DumpWithLocation(dref);
                             luisa::log_error("unfound & unresolved ref: {}", str);
