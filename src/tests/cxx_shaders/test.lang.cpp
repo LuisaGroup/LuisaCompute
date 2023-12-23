@@ -127,14 +127,12 @@ auto TestUnary() {
     return x + y + xx + yy;
 }
 
-template <concepts::array A, typename Predicate>
-void bubble_sort(A& arr, Predicate pred)
-{
+template<concepts::array A, typename Predicate>
+void bubble_sort(A &arr, Predicate pred) {
     auto n = A::N;
-    for (int i = 0; i < n - 1; i++) 
-        for (int j = 0; j < n - i - 1; j++) 
-            if (pred(arr[j], arr[j + 1]))
-            {
+    for (int i = 0; i < n - 1; i++)
+        for (int j = 0; j < n - i - 1; j++)
+            if (pred(arr[j], arr[j + 1])) {
                 const auto temp = arr[j];
                 arr[j] = arr[j + 1];
                 arr[j + 1] = temp;
@@ -159,7 +157,7 @@ auto TestArray() {
 
     int i = -1;
     auto arr = Array<float, 4>(1.f, 2.f, 3.f, 4.f);
-    bubble_sort(arr, [&](float lhs, float rhs){
+    bubble_sort(arr, [&](float lhs, float rhs) {
         i++;
         if (i > 2)
             return abs(lhs) > abs(rhs);
@@ -367,16 +365,31 @@ constexpr auto c_f33 = matrix<3>(c_f22);
 static_assert(c_f33.get(0, 0) == 1.f);
 static_assert(c_f33.get(0, 2) == 0.f);
 
-struct DDD
-{
-    alignas(16) float i = 0.f;
+struct Complex {
+    constexpr Complex(int i)
+        : i(i) {}
+    int i = 5;
+    int ix = 25;
 };
 
-struct FFF
-{
-    DDD ddd;
-    float f;
+struct ComplexComplex {
+    constexpr ComplexComplex(int i)
+        : c(i) {}
+    Complex c;
+    float f = 3.f;
 };
+constexpr auto c_complex = Complex(33);
+constexpr auto c_complexcomplex = ComplexComplex(666);
+
+auto TestConstexprAssign() {
+    Complex complex(22);
+    complex = c_complex;
+
+    ComplexComplex complexcomplex(44);
+    complexcomplex = c_complexcomplex;
+
+    return (float)(complexcomplex.c.i + complex.i);
+}
 
 auto TestMatrix() {
     auto f22 = matrix<2>(1.f, 2.f, 3.f, 4.f);
@@ -385,9 +398,9 @@ auto TestMatrix() {
     auto f3 = f33[0];
     f3 = identity<float3>;
     auto i3 = identity<uint3>;
-    
-    FFF d;
-    return f33.get(1, 2) + d.ddd.i;
+
+
+    return f33.get(1, 2);
 }
 
 template<typename T, uint32 StackSize>
@@ -427,21 +440,16 @@ auto TestVector() {
     NVIDIA nvidia2 = nvidia;
     nvidia2 = nvidia;
 
-    // binary ops
+    // binary & unary ops
     int ii = nvidia.i = TestBinary();
-
-    // unary ops
     int iii = nvidia.i = TestUnary();
 
     nvidia.f += TestBuiltinExprs();
-
-    // casts
     nvidia.f += TestCast();
-
-    // order
     nvidia.f += TestOrder();
+    nvidia.f += TestConstexprAssign();
 
-    // array & vector
+    // array & vector & matrix
     nvidia.f += TestArray();
     nvidia.f += TestVector();
     nvidia.f += TestMatrix();

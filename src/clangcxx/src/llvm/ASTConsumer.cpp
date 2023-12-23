@@ -135,38 +135,32 @@ void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *e
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     clang::ForStmt *currentCxxForStmt = nullptr;
 
-    const luisa::compute::Expression *TraverseAPValue(const APValue &APV, clang::Stmt* where = nullptr) {
+    const luisa::compute::Expression *TraverseAPValue(const APValue &APV, clang::RecordDecl *what, clang::Stmt *where) {
         const auto APK = APV.getKind();
         switch (APK) {
             case clang::APValue::ValueKind::Int:
                 return fb->literal(Type::of<int>(), (int)APV.getInt().getLimitedValue());
             case clang::APValue::ValueKind::Float:
                 return fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
-            case clang::APValue::ValueKind::Struct:
-            {
+            case clang::APValue::ValueKind::Struct: {
                 auto N = APV.getStructNumFields();
                 bool isVecInner = false;
-                const APValue* VecInnerField = nullptr;
-                const clang::RecordDecl* VectorDecl = nullptr;
-                for (int i = 0; i < N; i++)
-                {
-                    const auto& field = APV.getStructField(i);
-                    if (field.isUnion())
-                    {
+                const APValue *VecInnerField = nullptr;
+                const clang::RecordDecl *VectorDecl = nullptr;
+                for (int i = 0; i < N; i++) {
+                    const auto &field = APV.getStructField(i);
+                    if (field.isUnion()) {
                         auto UF = field.getUnionField();
                         for (auto attr : UF->specific_attrs<clang::AnnotateAttr>())
                             isVecInner |= (getBuiltinTypeName(attr) == "vec_inner");
-                        if (isVecInner)
-                        {
+                        if (isVecInner) {
                             VecInnerField = &field.getUnionValue();
                             VectorDecl = llvm::dyn_cast<clang::RecordDecl>(UF->getParent()->getParent());
-                        }
-                        else
+                        } else
                             luisa::log_error("union field not supportted as constexpr detected!!!");
                     }
                 }
-                if (isVecInner)
-                {
+                if (isVecInner) {
                     // clang-format off
                     if (auto VecType = db->FindOrAddType(VectorDecl->getTypeForDecl()->getCanonicalTypeUnqualified(), VectorDecl->getBeginLoc()))
                     {
@@ -229,14 +223,25 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     #undef TYPE_CASE_FLOAT
                     #undef TYPE_CASE_INT
                     // clang-format on
+                } else {
+                    if (auto lcType = db->FindOrAddType(what->getTypeForDecl()->getCanonicalTypeUnqualified(), what->getBeginLoc())) {
+                        auto constant = fb->local(lcType);
+                        auto fields = what->fields();
+                        uint32_t i = 0;
+                        for (auto field : fields) {
+                            auto FieldWhat = GetRecordDeclFromQualType(field->getType(), false);
+                            if (auto lcFieldType = db->FindOrAddType(field->getType(), field->getBeginLoc()))
+                            {
+                                auto lcField = TraverseAPValue(APV.getStructField(i), FieldWhat, where);
+                                fb->assign(fb->member(lcFieldType, constant, i), lcField);
+                            }
+                            i += 1;
+                        }
+                        return constant;
+                    } else
+                        luisa::log_error("bad constexpr field!");
                 }
-                else
-                {
-                    for (int i = 0; i < N; i++)
-                        TraverseAPValue(APV.getStructField(i), where);
-                }
-            }
-            break;
+            } break;
             case clang::APValue::ValueKind::Union:
             case clang::APValue::ValueKind::ComplexInt:
             case clang::APValue::ValueKind::ComplexFloat:
@@ -425,7 +430,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     fb->return_(lc_ret);
                 }
             } else if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
-                if (auto constant = TraverseAPValue(ce->getAPValueResult(), x))
+                if (auto constant = TraverseAPValue(ce->getAPValueResult(), nullptr, x))
                     current = constant;
                 else
                     luisa::log_error("unsupportted ConstantExpr APValueKind {}", ce->getResultAPValueKind());
@@ -632,7 +637,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 {
                     if (auto var = value->getPotentiallyDecomposedVarDecl()) {
                         if (auto eval = var->getEvaluatedValue()) {
-                            if (auto constant = TraverseAPValue(*eval, x))
+                            auto VarTypeDecl = GetRecordDeclFromQualType(var->getType(), false);
+                            if (auto constant = TraverseAPValue(*eval, VarTypeDecl, x))
                                 current = constant;
                             else// TODO: support assignment by constexpr var
                             {
