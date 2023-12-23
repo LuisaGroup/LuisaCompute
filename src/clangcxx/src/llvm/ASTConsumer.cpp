@@ -125,8 +125,7 @@ const luisa::compute::Expression *Stack::GetExpr(const clang::Stmt *stmt) const 
 void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *expr) {
     if (!stmt)
         luisa::log_error("unknown error: SetExpr with nullptr!");
-    if (expr_map.contains(stmt))
-    {
+    if (expr_map.contains(stmt)) {
         stmt->dump();
         luisa::log_error("unknown error: SetExpr with existed!");
     }
@@ -135,6 +134,121 @@ void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *e
 
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     clang::ForStmt *currentCxxForStmt = nullptr;
+
+    const luisa::compute::Expression *TraverseAPValue(const APValue &APV, clang::Stmt* where = nullptr) {
+        const auto APK = APV.getKind();
+        switch (APK) {
+            case clang::APValue::ValueKind::Int:
+                return fb->literal(Type::of<int>(), (int)APV.getInt().getLimitedValue());
+            case clang::APValue::ValueKind::Float:
+                return fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
+            case clang::APValue::ValueKind::Struct:
+            {
+                auto N = APV.getStructNumFields();
+                bool isVecInner = false;
+                const APValue* VecInnerField = nullptr;
+                const clang::RecordDecl* VectorDecl = nullptr;
+                for (int i = 0; i < N; i++)
+                {
+                    const auto& field = APV.getStructField(i);
+                    if (field.isUnion())
+                    {
+                        auto UF = field.getUnionField();
+                        for (auto attr : UF->specific_attrs<clang::AnnotateAttr>())
+                            isVecInner |= (getBuiltinTypeName(attr) == "vec_inner");
+                        if (isVecInner)
+                        {
+                            VecInnerField = &field.getUnionValue();
+                            VectorDecl = llvm::dyn_cast<clang::RecordDecl>(UF->getParent()->getParent());
+                        }
+                        else
+                            luisa::log_error("union field not supportted as constexpr detected!!!");
+                    }
+                }
+                if (isVecInner)
+                {
+                    // clang-format off
+                    if (auto VecType = db->FindOrAddType(VectorDecl->getTypeForDecl()->getCanonicalTypeUnqualified(), VectorDecl->getBeginLoc()))
+                    {
+                        auto INNER = VecInnerField->getStructField(0);
+                        auto DIM = INNER.getArraySize();
+
+#define TYPE_CASE_FLOAT(TYPE, COND)\
+    else if (DIM == 2 && COND) return fb->literal(VecType, \
+            TYPE##2((TYPE)INNER.getArrayInitializedElt(0).getFloat().convertToDouble(),\
+                (TYPE)INNER.getArrayInitializedElt(1).getFloat().convertToDouble()));\
+    else if (DIM == 3 && COND) return fb->literal(VecType, \
+            TYPE##3((TYPE)INNER.getArrayInitializedElt(0).getFloat().convertToDouble(),\
+                (TYPE)INNER.getArrayInitializedElt(1).getFloat().convertToDouble(),\
+                (TYPE)INNER.getArrayInitializedElt(2).getFloat().convertToDouble()));\
+    else if (DIM == 4 && COND) return fb->literal(VecType, \
+            TYPE##4((TYPE)INNER.getArrayInitializedElt(0).getFloat().convertToDouble(),\
+                (TYPE)INNER.getArrayInitializedElt(1).getFloat().convertToDouble(),\
+                (TYPE)INNER.getArrayInitializedElt(2).getFloat().convertToDouble(),\
+                (TYPE)INNER.getArrayInitializedElt(3).getFloat().convertToDouble()));
+
+#define TYPE_CASE_INT(TYPE, COND)\
+    else if (DIM == 2 && COND) return fb->literal(VecType, \
+            TYPE##2((TYPE)INNER.getArrayInitializedElt(0).getInt().getLimitedValue(),\
+                (TYPE)INNER.getArrayInitializedElt(1).getInt().getLimitedValue()));\
+    else if (DIM == 3 && COND) return fb->literal(VecType, \
+            TYPE##3((TYPE)INNER.getArrayInitializedElt(0).getInt().getLimitedValue(),\
+                (TYPE)INNER.getArrayInitializedElt(1).getInt().getLimitedValue(),\
+                (TYPE)INNER.getArrayInitializedElt(2).getInt().getLimitedValue()));\
+    else if (DIM == 4 && COND) return fb->literal(VecType, \
+            TYPE##4((TYPE)INNER.getArrayInitializedElt(0).getInt().getLimitedValue(),\
+                (TYPE)INNER.getArrayInitializedElt(1).getInt().getLimitedValue(),\
+                (TYPE)INNER.getArrayInitializedElt(2).getInt().getLimitedValue(),\
+                (TYPE)INNER.getArrayInitializedElt(3).getInt().getLimitedValue()));
+
+                        auto AS_HALF = VecType->is_float16_vector();
+                        auto AS_FLOAT = VecType->is_float32_vector();
+                        auto AS_INT16 = VecType->is_int16_vector();
+                        auto AS_INT32 = VecType->is_int32_vector();
+                        auto AS_INT64 = VecType->is_int64_vector();
+                        auto AS_UINT16 = VecType->is_uint16_vector();
+                        auto AS_UINT32 = VecType->is_uint32_vector();
+                        auto AS_UINT64 = VecType->is_uint64_vector();
+                        auto AS_BOOL = VecType->is_bool_vector();
+                        if (false);
+                        TYPE_CASE_FLOAT(half, AS_HALF)
+                        TYPE_CASE_FLOAT(float, AS_FLOAT)
+
+                        TYPE_CASE_INT(bool, AS_BOOL)
+
+                        TYPE_CASE_INT(short, AS_INT16)
+                        TYPE_CASE_INT(int, AS_INT32)
+                        TYPE_CASE_INT(slong, AS_INT64)
+
+                        TYPE_CASE_INT(ushort, AS_UINT16)
+                        TYPE_CASE_INT(uint, AS_UINT32)
+                        TYPE_CASE_INT(ulong, AS_UINT64)
+                        else
+                            luisa::log_error("vec not supportted as constexpr detected!!!");
+                    }
+                    #undef TYPE_CASE_FLOAT
+                    #undef TYPE_CASE_INT
+                    // clang-format on
+                }
+                else
+                {
+                    for (int i = 0; i < N; i++)
+                        TraverseAPValue(APV.getStructField(i), where);
+                }
+            }
+            break;
+            case clang::APValue::ValueKind::Union:
+            case clang::APValue::ValueKind::ComplexInt:
+            case clang::APValue::ValueKind::ComplexFloat:
+            default:
+                if (where)
+                    db->DumpWithLocation(where);
+                APV.dump();
+                luisa::log_error("unsupportted ConstantExpr APValueKind {}", APK);
+                break;
+        }
+        return nullptr;
+    }
 
     bool TraverseStmt(clang::Stmt *x) {
         if (x == nullptr) return true;
@@ -311,19 +425,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     fb->return_(lc_ret);
                 }
             } else if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
-                const auto APK = ce->getResultAPValueKind();
-                const auto &APV = ce->getAPValueResult();
-                switch (APK) {
-                    case clang::APValue::ValueKind::Int:
-                        current = fb->literal(Type::of<int>(), (int)ce->getResultAsAPSInt().getLimitedValue());
-                        break;
-                    case clang::APValue::ValueKind::Float:
-                        current = fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
-                        break;
-                    default:
-                        luisa::log_error("unsupportted ConstantExpr APValueKind {}", APK);
-                        break;
-                }
+                if (auto constant = TraverseAPValue(ce->getAPValueResult(), x))
+                    current = constant;
+                else
+                    luisa::log_error("unsupportted ConstantExpr APValueKind {}", ce->getResultAPValueKind());
             } else if (auto substNonType = llvm::dyn_cast<SubstNonTypeTemplateParmExpr>(x)) {
                 auto lcExpr = stack->GetExpr(substNonType->getReplacement());
                 current = lcExpr;
@@ -527,11 +632,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 {
                     if (auto var = value->getPotentiallyDecomposedVarDecl()) {
                         if (auto eval = var->getEvaluatedValue()) {
-                            if (eval->isInt())
-                                current = fb->literal(Type::of<int>(), (int)eval->getInt().getLimitedValue());
-                            else if (eval->isFloat())
-                                current = fb->literal(Type::of<float>(), (float)eval->getFloat().convertToDouble());
-                            else // TODO: support assignment by constexpr var 
+                            if (auto constant = TraverseAPValue(*eval, x))
+                                current = constant;
+                            else// TODO: support assignment by constexpr var
                             {
                                 db->DumpWithLocation(var);
                                 luisa::log_error("unsupportted gloal const eval type: {}", var->getKind());
@@ -822,7 +925,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         if (auto existed = stack->GetExpr(x); !existed)
             stack->SetExpr(x, current);
 
-        if (x == root) 
+        if (x == root)
             translated = current;
 
         return true;

@@ -372,8 +372,8 @@ auto TestMatrix() {
     f22 = f22 * f22;
     auto f33 = matrix<3>(f22);
     auto f3 = f33[0];
-    // TODO:
-    // f3 = identity<float3>;
+    f3 = identity<float3>;
+    auto i3 = identity<uint3>;
     return f33.get(1, 2);
 }
 
