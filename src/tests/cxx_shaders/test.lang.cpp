@@ -367,6 +367,17 @@ constexpr auto c_f33 = matrix<3>(c_f22);
 static_assert(c_f33.get(0, 0) == 1.f);
 static_assert(c_f33.get(0, 2) == 0.f);
 
+struct DDD
+{
+    alignas(16) float i = 0.f;
+};
+
+struct FFF
+{
+    DDD ddd;
+    float f;
+};
+
 auto TestMatrix() {
     auto f22 = matrix<2>(1.f, 2.f, 3.f, 4.f);
     f22 = f22 * f22;
@@ -374,7 +385,9 @@ auto TestMatrix() {
     auto f3 = f33[0];
     f3 = identity<float3>;
     auto i3 = identity<uint3>;
-    return f33.get(1, 2);
+    
+    FFF d;
+    return f33.get(1, 2) + d.ddd.i;
 }
 
 template<typename T, uint32 StackSize>

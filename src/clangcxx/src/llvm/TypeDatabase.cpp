@@ -398,9 +398,11 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
                 return nullptr;
         }
 
+        uint64_t alignment = 4u;
         luisa::vector<const luisa::compute::Type *> types;
         if (!S->isLambda() && !isSwizzle(S)) {// ignore lambda generated capture fields
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
+                alignment = std::max(alignment, (uint64_t)f->getMaxAlignment() / 8);
                 auto Ty = f->getType();
                 if (auto isRef = Ty->isReferenceType()) {
                     DumpWithLocation(f->getFirstDecl());
@@ -422,7 +424,13 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
             }
         }
         // align
-        uint64_t alignment = 4;
+        alignment = std::max(alignment, (uint64_t)S->getMaxAlignment() / 8);
+        if (alignment > 16u)
+        {
+            DumpWithLocation(S);
+            luisa::log_error("Invalid structure alignment 128 (must be 4, 8, or 16).");
+        }
+
         for (auto ft : types) {
             alignment = std::max(alignment, ft->alignment());
         }
