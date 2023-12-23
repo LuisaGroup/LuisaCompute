@@ -144,66 +144,55 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 return fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
             case clang::APValue::ValueKind::Struct: {
                 auto N = APV.getStructNumFields();
-                bool isVecInner = false;
-                const APValue *VecInnerField = nullptr;
-                const clang::RecordDecl *VectorDecl = nullptr;
-                for (int i = 0; i < N; i++) {
-                    const auto &field = APV.getStructField(i);
-                    if (field.isUnion()) {
-                        auto UF = field.getUnionField();
-                        for (auto attr : UF->specific_attrs<clang::AnnotateAttr>())
-                            isVecInner |= (getBuiltinTypeName(attr) == "vec_inner");
-                        if (isVecInner) {
-                            VecInnerField = &field.getUnionValue();
-                            VectorDecl = llvm::dyn_cast<clang::RecordDecl>(UF->getParent()->getParent());
-                        } else
-                            luisa::log_error("union field not supportted as constexpr detected!!!");
-                    }
-                }
-                if (isVecInner) {
+                if (auto lcType = db->FindOrAddType(what->getTypeForDecl()->getCanonicalTypeUnqualified(), what->getBeginLoc())) {
                     // clang-format off
-                    if (auto VecType = db->FindOrAddType(VectorDecl->getTypeForDecl()->getCanonicalTypeUnqualified(), VectorDecl->getBeginLoc()))
+                    if (lcType->is_array())
                     {
+                        luisa::log_error("TODO: constexpr array assign!");
+                    }
+                    else if (lcType->is_vector())
+                    {
+                        const APValue *VecInnerField = &APV.getStructField(0).getUnionValue();
                         auto INNER = VecInnerField->getStructField(0);
                         auto DIM = INNER.getArraySize();
 
 #define TYPE_CASE_FLOAT(TYPE, COND)\
-    else if (DIM == 2 && COND) return fb->literal(VecType, \
+    else if (DIM == 2 && COND) return fb->literal(lcType, \
             TYPE##2((TYPE)INNER.getArrayInitializedElt(0).getFloat().convertToDouble(),\
                 (TYPE)INNER.getArrayInitializedElt(1).getFloat().convertToDouble()));\
-    else if (DIM == 3 && COND) return fb->literal(VecType, \
+    else if (DIM == 3 && COND) return fb->literal(lcType, \
             TYPE##3((TYPE)INNER.getArrayInitializedElt(0).getFloat().convertToDouble(),\
                 (TYPE)INNER.getArrayInitializedElt(1).getFloat().convertToDouble(),\
                 (TYPE)INNER.getArrayInitializedElt(2).getFloat().convertToDouble()));\
-    else if (DIM == 4 && COND) return fb->literal(VecType, \
+    else if (DIM == 4 && COND) return fb->literal(lcType, \
             TYPE##4((TYPE)INNER.getArrayInitializedElt(0).getFloat().convertToDouble(),\
                 (TYPE)INNER.getArrayInitializedElt(1).getFloat().convertToDouble(),\
                 (TYPE)INNER.getArrayInitializedElt(2).getFloat().convertToDouble(),\
                 (TYPE)INNER.getArrayInitializedElt(3).getFloat().convertToDouble()));
 
 #define TYPE_CASE_INT(TYPE, COND)\
-    else if (DIM == 2 && COND) return fb->literal(VecType, \
+    else if (DIM == 2 && COND) return fb->literal(lcType, \
             TYPE##2((TYPE)INNER.getArrayInitializedElt(0).getInt().getLimitedValue(),\
                 (TYPE)INNER.getArrayInitializedElt(1).getInt().getLimitedValue()));\
-    else if (DIM == 3 && COND) return fb->literal(VecType, \
+    else if (DIM == 3 && COND) return fb->literal(lcType, \
             TYPE##3((TYPE)INNER.getArrayInitializedElt(0).getInt().getLimitedValue(),\
                 (TYPE)INNER.getArrayInitializedElt(1).getInt().getLimitedValue(),\
                 (TYPE)INNER.getArrayInitializedElt(2).getInt().getLimitedValue()));\
-    else if (DIM == 4 && COND) return fb->literal(VecType, \
+    else if (DIM == 4 && COND) return fb->literal(lcType, \
             TYPE##4((TYPE)INNER.getArrayInitializedElt(0).getInt().getLimitedValue(),\
                 (TYPE)INNER.getArrayInitializedElt(1).getInt().getLimitedValue(),\
                 (TYPE)INNER.getArrayInitializedElt(2).getInt().getLimitedValue(),\
                 (TYPE)INNER.getArrayInitializedElt(3).getInt().getLimitedValue()));
 
-                        auto AS_HALF = VecType->is_float16_vector();
-                        auto AS_FLOAT = VecType->is_float32_vector();
-                        auto AS_INT16 = VecType->is_int16_vector();
-                        auto AS_INT32 = VecType->is_int32_vector();
-                        auto AS_INT64 = VecType->is_int64_vector();
-                        auto AS_UINT16 = VecType->is_uint16_vector();
-                        auto AS_UINT32 = VecType->is_uint32_vector();
-                        auto AS_UINT64 = VecType->is_uint64_vector();
-                        auto AS_BOOL = VecType->is_bool_vector();
+                        auto AS_HALF = lcType->is_float16_vector();
+                        auto AS_FLOAT = lcType->is_float32_vector();
+                        auto AS_INT16 = lcType->is_int16_vector();
+                        auto AS_INT32 = lcType->is_int32_vector();
+                        auto AS_INT64 = lcType->is_int64_vector();
+                        auto AS_UINT16 = lcType->is_uint16_vector();
+                        auto AS_UINT32 = lcType->is_uint32_vector();
+                        auto AS_UINT64 = lcType->is_uint64_vector();
+                        auto AS_BOOL = lcType->is_bool_vector();
                         if (false);
                         TYPE_CASE_FLOAT(half, AS_HALF)
                         TYPE_CASE_FLOAT(float, AS_FLOAT)
@@ -223,23 +212,21 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     #undef TYPE_CASE_FLOAT
                     #undef TYPE_CASE_INT
                     // clang-format on
-                } else {
-                    if (auto lcType = db->FindOrAddType(what->getTypeForDecl()->getCanonicalTypeUnqualified(), what->getBeginLoc())) {
+                    else {
                         auto constant = fb->local(lcType);
                         auto fields = what->fields();
                         uint32_t i = 0;
                         for (auto field : fields) {
                             auto FieldWhat = GetRecordDeclFromQualType(field->getType(), false);
-                            if (auto lcFieldType = db->FindOrAddType(field->getType(), field->getBeginLoc()))
-                            {
+                            if (auto lcFieldType = db->FindOrAddType(field->getType(), field->getBeginLoc())) {
                                 auto lcField = TraverseAPValue(APV.getStructField(i), FieldWhat, where);
                                 fb->assign(fb->member(lcFieldType, constant, i), lcField);
-                            }
+                            } else
+                                luisa::log_error("bad constexpr field!");
                             i += 1;
                         }
                         return constant;
-                    } else
-                        luisa::log_error("bad constexpr field!");
+                    }
                 }
             } break;
             case clang::APValue::ValueKind::Union:

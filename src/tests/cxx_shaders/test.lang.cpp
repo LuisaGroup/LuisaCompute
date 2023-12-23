@@ -382,6 +382,12 @@ constexpr auto c_complex = Complex(33);
 constexpr auto c_complexcomplex = ComplexComplex(666);
 
 auto TestConstexprAssign() {
+    float3 f3 = c_f3;
+    f3 = c_f3;
+
+    // decay_t<decltype(c_arr)> arr = c_arr;
+    // arr = c_arr;
+
     Complex complex(22);
     complex = c_complex;
 
@@ -398,8 +404,6 @@ auto TestMatrix() {
     auto f3 = f33[0];
     f3 = identity<float3>;
     auto i3 = identity<uint3>;
-
-
     return f33.get(1, 2);
 }
 
