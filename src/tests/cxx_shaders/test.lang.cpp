@@ -21,6 +21,8 @@ struct NVIDIA {
     F fuck;
     float4 f4;
 
+    float2x2 f22;
+    float3x3 f33;
     float4x4 f44;
     Array<int, 3> a3;
 
@@ -325,6 +327,30 @@ auto TestIgnoreReturn(float &f) {
     return 2.f;
 }
 
+
+constexpr auto c_f3 = identity<float3>;
+
+constexpr auto c_arr = Array<float, 2>(1.f, 2.f);
+static_assert(c_arr[0] == 1.f);
+static_assert(c_arr[1] == 2.f);
+
+constexpr matrix<2> c_f22 = matrix<2>(1.f, 2.f, 3.f, 4.f);
+static_assert(c_f22.get(0, 1) == 2.f);
+static_assert(c_f22.get(1, 0) == 3.f);
+static_assert(c_f22.get(1, 1) == 4.f);
+
+constexpr auto c_f33 = matrix<3>(c_f22);
+static_assert(c_f33.get(0, 0) == 1.f);
+static_assert(c_f33.get(0, 2) == 0.f);
+
+auto TestMatrix() {
+    auto f22 = matrix<2>(1.f, 2.f, 3.f, 4.f);
+    f22 = f22 * f22;
+    auto f33 = matrix<3>(f22);
+    auto f3 = f33[0];
+    return f33.get(1, 2);
+}
+
 template<typename T, uint32 StackSize>
 struct FixedVector {
     [[nodiscard]] uint32 capacity() const { return StackSize; }
@@ -379,6 +405,7 @@ auto TestVector() {
     // array & vector
     nvidia.f += TestArray();
     nvidia.f += TestVector();
+    nvidia.f += TestMatrix();
 
     // template
     Template h = TestTemplate();

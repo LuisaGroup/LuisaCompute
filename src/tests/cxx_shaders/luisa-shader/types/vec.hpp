@@ -1,4 +1,5 @@
 #pragma once
+#include "array.hpp"
 #include "../type_traits.hpp"
 
 namespace luisa::shader {
@@ -6,30 +7,34 @@ namespace luisa::shader {
 template<typename T, uint64 N>
 struct [[builtin("vec")]] vec;
 
-[[ignore]] consteval bool legal_ctor(size_t count, size_t dim) {
-    return count == 1 || count == dim;
-}
 template<typename T>
 struct alignas(8) [[builtin("vec")]] vec<T, 2> {
     using ThisType = vec<T, 2>;
     static constexpr uint32 dim = 2;
-    [[ignore]] vec() noexcept = default;
+    vec() noexcept = default;
 
     template<typename... Args>
-        requires(legal_ctor(sum_dim<0ull, Args...>(), 2))
-    [[ignore]] explicit vec(Args &&...args);
-    
-    template <typename U>
-    [[noignore]] operator vec<U, 2>()
+        requires(sum_dim<0ull, Args...>() == 2)
+    explicit constexpr vec(Args &&...args)
+        : _v() // active union member
     {
+        set<0>(args...);
+    }
+
+    template<concepts::arithmetic_scalar U>
+    explicit constexpr vec(U v)
+        : _v(v, v) {}
+
+    template<concepts::arithmetic_scalar U>
+    [[nodiscard, noignore]] operator vec<U, 2>() {
         return vec<U, 2>(static_cast<U>(x), static_cast<U>(y));
     }
 
-    #include "vec_ops/ops.inl"
+#include "ops/vec_ops.inl"
 
     union {
-#include "vec_ops/swizzle2.inl"
-        T zz_V[2];
+        Array<T, 2> _v;
+#include "ops/swizzle2.inl"
     };
 };
 
@@ -37,23 +42,30 @@ template<typename T>
 struct alignas(16) [[builtin("vec")]] vec<T, 3> {
     using ThisType = vec<T, 3>;
     static constexpr uint32 dim = 3;
-    [[ignore]] vec() noexcept = default;
+    vec() noexcept = default;
 
     template<typename... Args>
-        requires(legal_ctor(sum_dim<0ull, Args...>(), 3))
-    [[ignore]] explicit vec(Args &&...args);
-
-    template <typename U>
-    [[noignore]] operator vec<U, 3>()
+        requires(sum_dim<0ull, Args...>() == 3)
+    explicit constexpr vec(Args &&...args)
+        : _v() // active union member
     {
+        set<0>(args...);
+    }
+
+    template<concepts::arithmetic_scalar U>
+    explicit constexpr vec(U v)
+        : _v(v, v, v) {}
+
+    template<concepts::arithmetic_scalar U>
+    [[nodiscard, noignore]] operator vec<U, 3>() {
         return vec<U, 3>(static_cast<U>(x), static_cast<U>(y), static_cast<U>(z));
     }
 
-    #include "vec_ops/ops.inl"
+#include "ops/vec_ops.inl"
 
     union {
-#include "vec_ops/swizzle3.inl"
-        T zz_V[3];
+        Array<T, 3> _v;
+#include "ops/swizzle3.inl"
     };
 };
 
@@ -61,23 +73,30 @@ template<typename T>
 struct alignas(16) [[builtin("vec")]] vec<T, 4> {
     using ThisType = vec<T, 4>;
     static constexpr uint32 dim = 4;
-    [[ignore]] vec() noexcept = default;
+    vec() noexcept = default;
 
     template<typename... Args>
-        requires(legal_ctor(sum_dim<0ull, Args...>(), 4))
-    [[ignore]] explicit vec(Args &&...args);
-
-    template <typename U>
-    [[noignore]] operator vec<U, 4>()
+        requires(sum_dim<0ull, Args...>() == 4)
+    explicit constexpr vec(Args &&...args)
+        : _v() // active union member
     {
+        set<0>(args...);
+    }
+
+    template<concepts::arithmetic_scalar U>
+    explicit constexpr vec(U v)
+        : _v(v, v, v, v) {}
+
+    template<concepts::arithmetic_scalar U>
+    [[nodiscard, noignore]] operator vec<U, 4>() {
         return vec<U, 4>(static_cast<U>(x), static_cast<U>(y), static_cast<U>(z), static_cast<U>(w));
     }
 
-    #include "vec_ops/ops.inl"
-    
+#include "ops/vec_ops.inl"
+
     union {
-#include "vec_ops/swizzle4.inl"
-        T zz_V[4];
+        Array<T, 4> _v;
+#include "ops/swizzle4.inl"
     };
 };
 

@@ -126,7 +126,10 @@ void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *e
     if (!stmt)
         luisa::log_error("unknown error: SetExpr with nullptr!");
     if (expr_map.contains(stmt))
+    {
+        stmt->dump();
         luisa::log_error("unknown error: SetExpr with existed!");
+    }
     expr_map[stmt] = expr;
 }
 
@@ -418,7 +421,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             } else
                                 luisa::log_error("???");
                         } else if (builtinName == "matrix") {
-
                             if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
                                 auto &Arguments = TSD->getTemplateArgs();
                                 clang::Expr::EvalResult Result;
@@ -814,10 +816,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             }
         }
 
-        stack->SetExpr(x, current);
-        if (x == root) {
+        if (auto existed = stack->GetExpr(x); !existed)
+            stack->SetExpr(x, current);
+
+        if (x == root) 
             translated = current;
-        }
+
         return true;
     }
 

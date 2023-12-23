@@ -1,5 +1,6 @@
 #pragma once
 #include "../defines.hpp"
+#include "../type_traits.hpp"
 
 namespace luisa::shader {
 
@@ -26,5 +27,12 @@ constexpr float inv_sqrt_two = 0.707106781186547524400844362104849039f;
 
 /// 1-epsilon
 constexpr float one_minus_epsilon = 0x1.fffffep-1f;
+
+template <typename T>
+inline constexpr T identity;
+
+template <concepts::arithmetic_scalar T> inline constexpr T identity<T> = 1;
+template <concepts::arithmetic_scalar T, uint32 N> inline constexpr vec<T, N> identity<vec<T, N>> = vec<T, N>(1);
+
 
 }

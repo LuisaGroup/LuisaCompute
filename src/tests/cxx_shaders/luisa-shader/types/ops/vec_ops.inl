@@ -1,11 +1,45 @@
 // clang-format off
-[[unaop("PLUS")]] ThisType operator+() const;
-[[unaop("MINUS")]] ThisType operator-() const;
-
 using ElementType = T;
+
+[[nodiscard, access]] constexpr T access_(uint32 idx) const noexcept {
+    return _v[idx];
+}
+
+[[nodiscard, access]] constexpr T operator[](uint32 idx) const noexcept {
+    return _v[idx];
+}
+
+template<uint32 i>
+constexpr void set() {}
+
+template<uint32 i, concepts::arithmetic_scalar U, typename...Args>
+constexpr void set(U v, Args...args) { _v[i] = v; set<i + 1>(args...); }
+
+template<uint32 i, concepts::arithmetic_vec U, typename...Args>
+constexpr void set(U v, Args...args) {
+    constexpr auto dim = vec_dim_v<U>;
+    if constexpr (dim == 2)
+    {
+        _v[i] = v[0]; _v[i + 1] = v[1];
+        set<i + 2>(args...);
+    }
+    if constexpr (dim == 3)
+    {
+        _v[i] = v[0]; _v[i + 1] = v[1]; _v[i + 2] = v[2];
+        set<i + 3>(args...);
+    }
+    if constexpr (dim == 4)
+    {
+        _v[i] = v[0]; _v[i + 1] = v[1]; _v[i + 2] = v[2]; _v[i + 3] = v[3];
+        set<i + 4>(args...);
+    }
+}
 
 template<typename X>
 static constexpr bool operatable = is_same_v<X, ThisType> || is_same_v<X, ElementType>;
+
+[[unaop("PLUS")]] ThisType operator+() const;
+[[unaop("MINUS")]] ThisType operator-() const;
 
 template <typename U> requires(operatable<U>)
 [[binop("ADD")]] ThisType operator+(U) const;
