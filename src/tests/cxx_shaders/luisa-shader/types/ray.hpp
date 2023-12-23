@@ -4,21 +4,12 @@
 
 namespace luisa::shader {
 struct Ray {
-    Array<float, 3> _origin;
-    float t_min;
-    Array<float, 3> _dir;
-    float t_max;
-    // Ray() = default;
-    Ray(float3 origin,
-        float3 dir,
-        float t_min = 0.0f,
-        float t_max = 1e30f) : t_min(t_min), t_max(t_max) {
-        _origin[0] = origin.x;
-        _origin[1] = origin.y;
-        _origin[2] = origin.z;
-        _dir[0] = dir.x;
-        _dir[1] = dir.y;
-        _dir[2] = dir.z;
+    Ray() = default;
+    Ray(float3 origin, float3 dir, float t_min = 0.0f, float t_max = 1e30f)
+        : t_min(t_min), t_max(t_max) 
+    {
+        _origin.set<0>(origin.x, origin.y, origin.z);
+        _dir.set<0>(dir.x, dir.y, dir.z);
     }
     [[nodiscard]] float3 origin() const {
         return float3(_origin[0], _origin[1], _origin[2]);
@@ -26,6 +17,11 @@ struct Ray {
     [[nodiscard]] float3 dir() const {
         return float3(_dir[0], _dir[1], _dir[2]);
     }
+
+    Array<float, 3> _origin;
+    float t_min = 0.0f;
+    Array<float, 3> _dir;
+    float t_max = 1e30f;
 };
 
 /* TODO
@@ -64,14 +60,13 @@ struct TriangleHit {
     uint32 prim;
     float2 bary;
     float ray_t;
-    bool miss() const {
+    [[nodiscard]] bool miss() const {
         return inst == 4294967295u;
     }
-    bool hitted() const {
+    [[nodiscard]] bool hitted() const {
         return inst != 4294967295u;
     }
-    template<typename T>
-        requires(is_float_family_v<T>)
+    template<concepts::float_family T>
     T interpolate(T a, T b, T c) {
         return T(1.0f - bary.x - bary.y) * a + T(bary.x) * b + T(bary.y) * c;
     }

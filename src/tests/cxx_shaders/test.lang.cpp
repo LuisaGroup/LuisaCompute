@@ -127,6 +127,20 @@ auto TestUnary() {
     return x + y + xx + yy;
 }
 
+template <concepts::array A, typename Predicate>
+void bubble_sort(A& arr, Predicate pred)
+{
+    auto n = A::N;
+    for (int i = 0; i < n - 1; i++) 
+        for (int j = 0; j < n - i - 1; j++) 
+            if (pred(arr[j], arr[j + 1]))
+            {
+                const auto temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+}
+
 auto TestArray() {
     // default ctor
     auto a = Array<float, 4>();
@@ -142,6 +156,17 @@ auto TestArray() {
         sum += z[i];
         sum += z.get(i);
     }
+
+    int i = -1;
+    auto arr = Array<float, 4>(1.f, 2.f, 3.f, 4.f);
+    bubble_sort(arr, [&](float lhs, float rhs){
+        i++;
+        if (i > 2)
+            return abs(lhs) > abs(rhs);
+        else
+            return abs(lhs) < abs(rhs);
+    });
+
     return 2.f;
 }
 
@@ -347,6 +372,8 @@ auto TestMatrix() {
     f22 = f22 * f22;
     auto f33 = matrix<3>(f22);
     auto f3 = f33[0];
+    // TODO:
+    // f3 = identity<float3>;
     return f33.get(1, 2);
 }
 

@@ -11,6 +11,9 @@ template<uint64 N>
 struct matrix;
 
 template<typename Type, uint32 size>
+struct Array;
+
+template<typename Type, uint32 size>
 struct SharedArray;
 
 template<typename Type>
@@ -68,6 +71,12 @@ template<typename U, uint32 N>
 inline constexpr bool is_shared_array_v<SharedArray<U, N>> = true;
 
 template<typename T>
+inline constexpr bool is_array_v = false;
+
+template<typename U, uint32 N>
+inline constexpr bool is_array_v<Array<U, N>> = true;
+
+template<typename T>
 inline constexpr bool is_buffer_v = is_specialization_v<T, Buffer>;
 
 template<typename T>
@@ -104,6 +113,9 @@ concept non_vec = !is_vec_v<T>;
 
 template<typename T>
 concept matrix = is_matrix_v<T>;
+
+template<typename T>
+concept array = is_array_v<T>;
 
 template<typename T>
 concept buffer = is_buffer_v<T>;
