@@ -365,6 +365,7 @@ auto TestIgnoreReturn(float &f) {
 static constexpr auto c_f3 = identity<float3>;
 
 constexpr auto c_arr = Array<float, 2>(1.f, 2.f);
+constexpr auto c_arr2 = Array<float, 2>(3.f, 4.f);
 static_assert(c_arr[0] == 1.f);
 static_assert(c_arr[1] == 2.f);
 
@@ -395,10 +396,15 @@ constexpr auto c_complexcomplex = ComplexComplex(666);
 
 auto TestConstexprAssign() {
     decay_t<decltype(c_arr)> arr = c_arr;
-    // arr = c_arr;
+    arr = c_arr2;
 
     float3 f3 = c_f3;
     f3 = c_f3;
+
+    matrix<3> f33 = identity<matrix<3>>;
+    f33 = c_f33;
+    
+    auto f22 = matrix<2>(c_f33);
 
     Complex complex(22);
     complex = c_complex;

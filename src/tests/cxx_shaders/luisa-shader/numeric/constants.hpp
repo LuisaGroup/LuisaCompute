@@ -33,6 +33,7 @@ inline constexpr T identity;
 
 template <concepts::arithmetic_scalar T> inline constexpr T identity<T> = 1;
 template <concepts::arithmetic_scalar T, uint32 N> inline constexpr vec<T, N> identity<vec<T, N>> = vec<T, N>(1);
+template <uint32 N> inline constexpr matrix<N> identity<matrix<N>> = matrix<N>::identity();
 
 
 }

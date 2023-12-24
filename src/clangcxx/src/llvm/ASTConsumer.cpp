@@ -197,6 +197,20 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         return nullptr;
     }
 
+    const luisa::compute::Expression *TraverseAPMatrix(const APValue &APV, const luisa::compute::Type *lcType) {
+        const APValue &VEC_ARRAY = APV.getStructField(0).getStructField(0);
+        auto Y = VEC_ARRAY.getArraySize();
+        auto X = (Y == 3) ? 4 : Y;
+        const luisa::compute::Type* VecTypeLUT[] = { nullptr, nullptr, Type::of<float2>(), Type::of<float3>(), Type::of<float4>() };
+        auto lcMatrix = fb->local(lcType);
+        for (uint32_t y = 0; y < Y; y++) {
+            fb->assign(
+                fb->access(VecTypeLUT[X], lcMatrix, fb->literal(Type::of<uint32_t>(), y)),
+                TraverseAPVector(VEC_ARRAY.getArrayInitializedElt(y), VecTypeLUT[X]));
+        }
+        return lcMatrix; \
+    }
+
     const luisa::compute::Expression *TraverseAPVector(const APValue &APV, const luisa::compute::Type *lcType) {
         const APValue *VecInnerField = &APV.getStructField(0).getUnionValue();
         auto INNER = VecInnerField->getStructField(0);
@@ -253,7 +267,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         TYPE_CASE_INT(uint, AS_UINT32)
         TYPE_CASE_INT(ulong, AS_UINT64)
         else
-            luisa::log_error("vec not supportted as constexpr detected!!!");
+        {
+            APV.dump();
+            luisa::log_error("vec not supportted as constexpr detected! description: {}", lcType->description());
+        }
         // clang-format on
 #undef TYPE_CASE_FLOAT
 #undef TYPE_CASE_INT
@@ -275,7 +292,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     } else if (lcType->is_vector()) {
                         return TraverseAPVector(APV, lcType);
                     } else if (lcType->is_matrix()) {
-                        luisa::log_error("TODO: constexpr matrix assign!");
+                        return TraverseAPMatrix(APV, lcType);
                     } else {
                         auto constant = fb->local(lcType);
                         auto fields = what->fields();
@@ -1051,8 +1068,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
     }
 
     if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
-        auto thisQt = Method->getThisType()->getPointeeType();
-        if (auto thisType = GetRecordDeclFromQualType(thisQt)) {
+        if (auto thisType = Method->getParent()) {
             is_ignore |= thisType->isUnion();// ignore union
             for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>())
                 is_ignore |= isBuiltinType(Anno);
@@ -1066,10 +1082,10 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
             is_template |= (thisType->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
         } else {
             luisa::log_error("unfound this type [{}] in method [{}]",
-                             Method->getThisType()->getPointeeType().getAsString(), S->getNameAsString());
+                             Method->getParent()->getNameAsString(), S->getNameAsString());
         }
         is_method = !is_lambda;
-        methodThisType = Method->getThisType()->getPointeeType();
+        methodThisType = Method->getParent()->getTypeForDecl()->getCanonicalTypeUnqualified();
     }
     for (auto param : params) {
         auto DesugaredParamType = param->getType().getNonReferenceType().getDesugaredType(*astContext);
