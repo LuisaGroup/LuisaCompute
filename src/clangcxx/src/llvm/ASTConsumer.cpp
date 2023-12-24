@@ -702,19 +702,22 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 if (auto _current = stack->GetLocal(dref->getDecl())) {
                     current = _current;
                 } else if (auto Var = dref->getDecl(); Var && llvm::isa<clang::VarDecl>(Var)) { // Value Ref
-                    if (auto Decompressed = Var->getPotentiallyDecomposedVarDecl()) { 
-                        if (auto eval = Decompressed->getEvaluatedValue()) {
-                            auto VarTypeDecl = GetRecordDeclFromQualType(Decompressed->getType(), false);
-                            if (auto constant = TraverseAPValue(*eval, VarTypeDecl, x)) {
-                                current = constant;
-                            } else// TODO: support assignment by constexpr var
-                            {
+                    if (dref->isNonOdrUse() != NonOdrUseReason::NOUR_Unevaluated)
+                    {
+                        if (auto Decompressed = Var->getPotentiallyDecomposedVarDecl()) { 
+                            if (auto eval = Decompressed->getEvaluatedValue()) {
+                                auto VarTypeDecl = GetRecordDeclFromQualType(Decompressed->getType(), false);
+                                if (auto constant = TraverseAPValue(*eval, VarTypeDecl, x)) {
+                                    current = constant;
+                                } else// TODO: support assignment by constexpr var
+                                {
+                                    db->DumpWithLocation(dref);
+                                    luisa::log_error("unsupportted gloal const eval type: {}", Decompressed->getKind());
+                                }
+                            } else {
                                 db->DumpWithLocation(dref);
-                                luisa::log_error("unsupportted gloal const eval type: {}", Decompressed->getKind());
+                                luisa::log_error("unfound & unresolved ref: {}", str);
                             }
-                        } else {
-                            db->DumpWithLocation(dref);
-                            luisa::log_error("unfound & unresolved ref: {}", str);
                         }
                     }
                 } else if (auto value = dref->getDecl(); value && llvm::isa<clang::FunctionDecl>(value))// Func Ref
