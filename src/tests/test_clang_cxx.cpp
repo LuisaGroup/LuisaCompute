@@ -20,21 +20,28 @@ using namespace luisa::compute;
 
 static bool kTestRuntime = false;
 static std::string kTestName = "lang";
+static std::string kBackend = "dx";
 
 int main(int argc, char *argv[]) {
     for (int i = 0; i < argc; i++) {
         auto argV = luisa::string(argv[i]);
         kTestRuntime |= (argV == "--with_runtime");
         auto _ = luisa::string("--test_name=");
-        if (argV.starts_with(_))
+        if (argV.starts_with(_)) {
             kTestName = argV.substr(_.size());
+        }
+        using namespace std::string_view_literals;
+        constexpr auto backend_option = "--backend="sv;
+        if (argV.starts_with(backend_option)) {
+            kBackend = argV.substr(backend_option.size());
+        }
     }
 
     Context context{argv[0]};
     // DeviceConfig config{.headless = true};
     static constexpr uint width = 1920;
     static constexpr uint height = 1080;
-    Device device = context.create_device("dx", /*&config*/ nullptr);
+    Device device = context.create_device(kBackend, /*&config*/ nullptr);
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     // compile cxx shader
     {
