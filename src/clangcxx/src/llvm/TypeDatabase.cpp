@@ -104,16 +104,14 @@ auto TypeDatabase::FindBinOp(const luisa::string_view &name) -> luisa::compute::
     luisa::log_error("unfound call op: {}", name);
     return luisa::compute::BinaryOp::ADD;
 }
-   
-void TypeDatabase::SetFunctionThis(const compute::detail::FunctionBuilder* _this, const compute::RefExpr* fb)
-{
+
+void TypeDatabase::SetFunctionThis(const compute::detail::FunctionBuilder *_this, const compute::RefExpr *fb) {
     if (this_map.contains(_this))
         luisa::log_error("function builder already has this pointer");
     this_map[_this] = fb;
 }
 
-const luisa::compute::RefExpr* TypeDatabase::GetFunctionThis(const compute::detail::FunctionBuilder* fb) const
-{
+const luisa::compute::RefExpr *TypeDatabase::GetFunctionThis(const compute::detail::FunctionBuilder *fb) const {
     auto iter = this_map.find(fb);
     if (iter != this_map.end()) {
         return iter->second;
@@ -192,7 +190,11 @@ TypeDatabase::Commenter TypeDatabase::CommentStmt(luisa::shared_ptr<compute::det
                 return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL FUNCTION: {}", cxxFunc->getName().data()), x->getBeginLoc()); });
         } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
             auto cxxCtorDecl = cxxCtor->getConstructor();
-            return Commenter([=] { commentSourceLoc(fb, luisa::format("CONSTRUCT: {}", cxxCtorDecl->getParent()->getName().data()), x->getBeginLoc()); });
+            return Commenter([=] { commentSourceLoc(fb,
+                                                    luisa::format("CONSTRUCT{}: {}",
+                                                                  cxxCtorDecl->isMoveConstructor() ? "(MOVE)" : "",
+                                                                  cxxCtorDecl->getParent()->getName().data()),
+                                                    x->getBeginLoc()); });
         } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
             return Commenter([=] {
                 auto funcDecl = llvm::dyn_cast<FunctionDecl>(cxxDefaultArg->getParam()->getParentFunctionOrMethod());
@@ -425,8 +427,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         }
         // align
         alignment = std::max(alignment, (uint64_t)S->getMaxAlignment() / 8);
-        if (alignment > 16u)
-        {
+        if (alignment > 16u) {
             DumpWithLocation(S);
             luisa::log_error("Invalid structure alignment 128 (must be 4, 8, or 16).");
         }

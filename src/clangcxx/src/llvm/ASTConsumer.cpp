@@ -132,13 +132,11 @@ void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *e
     expr_map[stmt] = expr;
 }
 
-bool Stack::isCtorExpr(const luisa::compute::Expression * expr)
-{
+bool Stack::isCtorExpr(const luisa::compute::Expression *expr) {
     return ctor_exprs.contains(expr);
 }
 
-void Stack::SetExprAsCtor(const luisa::compute::Expression * expr)
-{
+void Stack::SetExprAsCtor(const luisa::compute::Expression *expr) {
     ctor_exprs.emplace(expr);
 }
 
@@ -451,9 +449,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto cxxCtorCall = llvm::dyn_cast<CXXConstructExpr>(x)) {
                 auto _ = db->CommentStmt(fb, cxxCtorCall);
 
-                // TODO: REFACTOR THIS
                 auto cxxCtor = cxxCtorCall->getConstructor();
-                if (!db->func_builders.contains(cxxCtor)) {
+                const bool needCustom = !(cxxCtor->isImplicit() && cxxCtor->isCopyOrMoveConstructor());
+                const bool moveCtor = cxxCtor->isMoveConstructor();
+
+                // TODO: REFACTOR THIS
+                if (needCustom && !db->func_builders.contains(cxxCtor)) {
                     auto funcDecl = cxxCtor->getAsFunction();
                     auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
                     const auto isTemplateInstant = funcDecl->isTemplateInstantiation();
@@ -462,20 +463,27 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         fbfb.build(funcDecl);
                     }
                 }
-                auto constructed = fb->local(db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()));
-                SKR_DEFER({  stack->SetExprAsCtor(constructed); current = constructed; });
-                // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
-                lc_args.emplace_back(constructed);
-                for (auto arg : cxxCtorCall->arguments()) {
-                    if (auto lc_arg = stack->GetExpr(arg))
-                        lc_args.emplace_back(lc_arg);
-                    else
-                        luisa::log_error("unfound arg: {}", arg->getStmtClassName());
+                const compute::RefExpr *constructed = nullptr;
+                SKR_DEFER({  stack->SetExprAsCtor(constructed); current = constructed; });
+                if (!moveCtor)
+                {
+                    constructed = fb->local(db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()));
+                    // args
+                    lc_args.emplace_back(constructed);
+                    for (auto arg : cxxCtorCall->arguments()) {
+                        if (auto lc_arg = stack->GetExpr(arg))
+                            lc_args.emplace_back(lc_arg);
+                        else
+                            luisa::log_error("unfound arg: {}", arg->getStmtClassName());
+                    }
                 }
 
-                if (cxxCtor->isImplicit() && cxxCtor->isCopyOrMoveConstructor()) {
-                    fb->assign(lc_args[0], lc_args[1]);
+                if (moveCtor) {
+                    auto lcArg = stack->GetExpr(cxxCtorCall->getArg(0));
+                    constructed = static_cast<const compute::RefExpr *>(lcArg);
+                } else if (cxxCtor->isCopyConstructor()) {
+                    fb->assign(constructed, lc_args[1]);
                 } else if (auto callable = db->func_builders[cxxCtor]) {
                     fb->call(luisa::compute::Function(callable.get()), lc_args);
                 } else if (cxxCtor->getParent()->isLambda()) {
@@ -656,21 +664,29 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = stack->GetExpr(_cxxParen->getSubExpr());
             } else if (auto implicit_cast = llvm::dyn_cast<ImplicitCastExpr>(x)) {
                 if (stack->GetExpr(implicit_cast->getSubExpr()) != nullptr) {
-                    const auto lc_type = db->FindOrAddType(implicit_cast->getType(), x->getBeginLoc());
-                    if (!stack->GetExpr(implicit_cast->getSubExpr())) {
+                    const auto lcType = db->FindOrAddType(implicit_cast->getType(), x->getBeginLoc());
+                    auto lcExpr = stack->GetExpr(implicit_cast->getSubExpr());
+                    if (!lcExpr) {
                         db->DumpWithLocation(implicit_cast->getSubExpr());
                         luisa::log_error("unknown error: rhs not found!");
                     }
-                    current = fb->cast(lc_type, CastOp::STATIC, stack->GetExpr(implicit_cast->getSubExpr()));
+                    if (lcExpr->type() != lcType)
+                        current = fb->cast(lcType, CastOp::STATIC, lcExpr);
+                    else 
+                        current = lcExpr;
                 }
             } else if (auto _explicit_cast = llvm::dyn_cast<ExplicitCastExpr>(x)) {
                 if (stack->GetExpr(_explicit_cast->getSubExpr()) != nullptr) {
-                    const auto lc_type = db->FindOrAddType(_explicit_cast->getType(), x->getBeginLoc());
-                    if (!stack->GetExpr(_explicit_cast->getSubExpr())) {
+                    const auto lcType = db->FindOrAddType(_explicit_cast->getType(), x->getBeginLoc());
+                    auto lcExpr = stack->GetExpr(_explicit_cast->getSubExpr());
+                    if (!lcExpr) {
                         db->DumpWithLocation(_explicit_cast->getSubExpr());
                         luisa::log_error("unknown error: rhs not found!");
                     }
-                    current = fb->cast(lc_type, CastOp::STATIC, stack->GetExpr(_explicit_cast->getSubExpr()));
+                    if (lcExpr->type() != lcType)
+                        current = fb->cast(lcType, CastOp::STATIC, lcExpr);
+                    else 
+                        current = lcExpr;
                 }
             } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
                 auto _ = db->CommentStmt(fb, cxxDefaultArg);
@@ -863,7 +879,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             fb->push_scope(query_scope);
 
                         if (auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(calleeDecl);
-                            methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) { //TODO
+                            methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) {//TODO
                             fb->assign(lc_args[0], lc_args[1]);
                             current = lc_args[0];
                         } else if (auto func_callable = db->func_builders[calleeDecl]) {
@@ -979,7 +995,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
 
             is_ignore |= (Method->isImplicit() && Method->isCopyAssignmentOperator());
             is_ignore |= (Method->isImplicit() && Method->isMoveAssignmentOperator());
-            if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) 
+            if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S))
                 is_ignore |= (Ctor->isImplicit() && Ctor->isCopyOrMoveConstructor());
             is_template |= (thisType->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
         } else {
@@ -1102,8 +1118,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                             case compute::Type::Tag::ACCEL:
                                 local = builder->accel();
                                 break;
-                            default:
-                            {
+                            default: {
                                 /*
                                 const bool isBuiltinType = param->getType()->isBuiltinType();
                                 auto cxxDecl = param->getType()->getAsCXXRecordDecl();
@@ -1116,8 +1131,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                                 }
                                 */
                                 local = LC_ArgOrRef(Ty, builder, lc_type);
-                            }
-                                break;
+                            } break;
                         }
                         stack.SetLocal(param, local);
                     } else {

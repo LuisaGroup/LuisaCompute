@@ -74,9 +74,11 @@ auto TestCtor()
 {
     // CallInit
     TestCtorStructure ctor0(5);
+    TestCtorStructure ctor1(TestCtorStructure(TestCtorStructure(TestCtorStructure(3))));
+    TestCtorStructure ctor2(ctor1);
     // CInit
-    auto ctor1 = TestCtorStructure(5);
-    return ctor0.xxx + ctor1.xxx;
+    auto cinit0 = TestCtorStructure(5);
+    return ctor0.xxx + ctor1.xxx + ctor2.xxx + cinit0.xxx;
 }
 
 /* dtors are not allowed
