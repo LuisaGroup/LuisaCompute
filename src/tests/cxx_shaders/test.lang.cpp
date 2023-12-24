@@ -3,7 +3,7 @@
 using namespace luisa::shader;
 
 namespace luisa::shader {
-struct F {
+struct Structure {
     int f;
 };
 struct NVIDIA {
@@ -18,7 +18,7 @@ struct NVIDIA {
     float3 f3;
     int3 i3;
     uint3 u3;
-    F fuck;
+    Structure s;
     float4 f4;
 
     float2x2 f22;
@@ -74,7 +74,7 @@ auto TestCtor()
 {
     // CallInit
     TestCtorStructure ctor0(5);
-    TestCtorStructure ctor1(TestCtorStructure(TestCtorStructure(TestCtorStructure(3))));
+    auto ctor1(TestCtorStructure(TestCtorStructure(TestCtorStructure(3))));
     TestCtorStructure ctor2(ctor1);
     // CInit
     auto cinit0 = TestCtorStructure(5);
