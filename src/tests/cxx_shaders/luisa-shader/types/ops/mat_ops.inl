@@ -25,6 +25,6 @@ static constexpr bool operatable = is_same_v<X, ThisType> || is_same_v<X, vec<T,
 [[unaop("MINUS")]] ThisType operator-() const;
 
 template <typename U> requires(operatable<U>)
-[[binop("MUL")]] ThisType operator*(U) const;
+[[binop("MUL")]] ThisType operator*(const U&) const;
 
 // clang-format on

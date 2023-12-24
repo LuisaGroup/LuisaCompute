@@ -40,61 +40,61 @@ static constexpr bool operatable = is_same_v<X, ThisType> || is_same_v<X, Elemen
 [[unaop("MINUS")]] ThisType operator-() const;
 
 template <typename U> requires(operatable<U>)
-[[binop("ADD")]] ThisType operator+(U) const;
+[[binop("ADD")]] ThisType operator+(const U&) const;
 template <typename U> requires(operatable<U>)
-[[binop("SUB")]] ThisType operator-(U) const;
+[[binop("SUB")]] ThisType operator-(const U&) const;
 template <typename U> requires(operatable<U>)
-[[binop("MUL")]] ThisType operator*(U) const;
+[[binop("MUL")]] ThisType operator*(const U&) const;
 template <typename U> requires(operatable<U>)
-[[binop("DIV")]] ThisType operator/(U) const;
+[[binop("DIV")]] ThisType operator/(const U&) const;
 template <typename U> requires(operatable<U>)
-[[binop("MOD")]] ThisType operator%(U) const requires(is_int_family_v<ThisType>);
+[[binop("MOD")]] ThisType operator%(const U&) const requires(is_int_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("BIT_AND")]] ThisType operator&(U) const requires(is_int_family_v<ThisType>);
+[[binop("BIT_AND")]] ThisType operator&(const U&) const requires(is_int_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("BIT_OR")]] ThisType operator|(U) const requires(is_int_family_v<ThisType>);
+[[binop("BIT_OR")]] ThisType operator|(const U&) const requires(is_int_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("BIT_XOR")]] ThisType operator^(U) const requires(is_int_family_v<ThisType>);
+[[binop("BIT_XOR")]] ThisType operator^(const U&) const requires(is_int_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("SHL")]] ThisType operator<<(U) const requires(is_int_family_v<ThisType>);
+[[binop("SHL")]] ThisType operator<<(const U&) const requires(is_int_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("SHR")]] ThisType operator>>(U) const requires(is_int_family_v<ThisType>);
+[[binop("SHR")]] ThisType operator>>(const U&) const requires(is_int_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("AND")]] ThisType operator&&(U) const requires(is_bool_family_v<ThisType>);
+[[binop("AND")]] ThisType operator&&(const U&) const requires(is_bool_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("OR")]] ThisType operator||(U) const requires(is_bool_family_v<ThisType>);
+[[binop("OR")]] ThisType operator||(const U&) const requires(is_bool_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("LESS")]] vec<bool, dim> operator<(U) const requires(!is_bool_family_v<ThisType>);
+[[binop("LESS")]] vec<bool, dim> operator<(const U&) const requires(!is_bool_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("GREATER")]] vec<bool, dim> operator>(U) const requires(!is_bool_family_v<ThisType>);
+[[binop("GREATER")]] vec<bool, dim> operator>(const U&) const requires(!is_bool_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("LESS_EQUAL")]] vec<bool, dim> operator<=(U) const requires(!is_bool_family_v<ThisType>);
+[[binop("LESS_EQUAL")]] vec<bool, dim> operator<=(const U&) const requires(!is_bool_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("GREATER_EQUAL")]] vec<bool, dim> operator>=(U) const requires(!is_bool_family_v<ThisType>);
+[[binop("GREATER_EQUAL")]] vec<bool, dim> operator>=(const U&) const requires(!is_bool_family_v<ThisType>);
 template <typename U> requires(operatable<U>)
-[[binop("EQUAL")]] vec<bool, dim> operator==(U) const;
+[[binop("EQUAL")]] vec<bool, dim> operator==(const U&) const;
 template <typename U> requires(operatable<U>)
-[[binop("NOT_EQUAL")]] vec<bool, dim> operator!=(U) const;
+[[binop("NOT_EQUAL")]] vec<bool, dim> operator!=(const U&) const;
 
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator+=(U rhs) { return *this = *this + rhs; }
+[[noignore]] ThisType operator+=(const U& rhs) { return *this = *this + rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator-=(U rhs) { return *this = *this - rhs; }
+[[noignore]] ThisType operator-=(const U& rhs) { return *this = *this - rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator*=(U rhs) { return *this = *this * rhs; }
+[[noignore]] ThisType operator*=(const U& rhs) { return *this = *this * rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator/=(U rhs) { return *this = *this / rhs; }
+[[noignore]] ThisType operator/=(const U& rhs) { return *this = *this / rhs; }
 
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator%=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
+[[noignore]] ThisType operator%=(const U& rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator&=(U rhs) const requires(is_int_family_v<ThisType>)  { return *this = *this % rhs; }
+[[noignore]] ThisType operator&=(const U& rhs) const requires(is_int_family_v<ThisType>)  { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator|=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
+[[noignore]] ThisType operator|=(const U& rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator^=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
+[[noignore]] ThisType operator^=(const U& rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator<<=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
+[[noignore]] ThisType operator<<=(const U& rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 template <typename U> requires(operatable<U>)
-[[noignore]] ThisType operator>>=(U rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
+[[noignore]] ThisType operator>>=(const U& rhs) const requires(is_int_family_v<ThisType>) { return *this = *this % rhs; }
 // clang-format on
