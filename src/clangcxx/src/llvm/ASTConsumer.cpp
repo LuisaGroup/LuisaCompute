@@ -132,6 +132,24 @@ void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *e
     expr_map[stmt] = expr;
 }
 
+const luisa::compute::Expression* Stack::GetConstant(const clang::ValueDecl *var) const
+{
+    if (constants.contains(var))
+        return constants.find(var)->second;
+    return nullptr;
+}
+
+void Stack::SetConstant(const clang::ValueDecl *var, const luisa::compute::Expression *expr)
+{
+    if (!var)
+        luisa::log_error("unknown error: SetConstant with nullptr!");
+    if (constants.contains(var)) {
+        var->dump();
+        luisa::log_error("unknown error: SetConstant with existed!");
+    }
+    constants[var] = expr;
+}
+
 bool Stack::isCtorExpr(const luisa::compute::Expression *expr) {
     return ctor_exprs.contains(expr);
 }
@@ -201,14 +219,14 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         const APValue &VEC_ARRAY = APV.getStructField(0).getStructField(0);
         auto Y = VEC_ARRAY.getArraySize();
         auto X = (Y == 3) ? 4 : Y;
-        const luisa::compute::Type* VecTypeLUT[] = { nullptr, nullptr, Type::of<float2>(), Type::of<float3>(), Type::of<float4>() };
+        const luisa::compute::Type *VecTypeLUT[] = {nullptr, nullptr, Type::of<float2>(), Type::of<float3>(), Type::of<float4>()};
         auto lcMatrix = fb->local(lcType);
         for (uint32_t y = 0; y < Y; y++) {
             fb->assign(
                 fb->access(VecTypeLUT[X], lcMatrix, fb->literal(Type::of<uint32_t>(), y)),
                 TraverseAPVector(VEC_ARRAY.getArrayInitializedElt(y), VecTypeLUT[X]));
         }
-        return lcMatrix; \
+        return lcMatrix;
     }
 
     const luisa::compute::Expression *TraverseAPVector(const APValue &APV, const luisa::compute::Type *lcType) {
@@ -319,6 +337,25 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 APV.dump();
                 luisa::log_error("unsupportted ConstantExpr APValueKind {}", APK);
                 break;
+        }
+        return nullptr;
+    }
+
+    const luisa::compute::Expression *FindOrTraverseAPValue(const clang::ValueDecl *cxxVar, clang::Stmt *where) {
+        if (auto Cached = stack->GetConstant(cxxVar))
+            return Cached;
+        if (auto Decompressed = cxxVar->getPotentiallyDecomposedVarDecl()) {
+            if (auto Evaluated = Decompressed->getEvaluatedValue()) {
+                auto VarTypeDecl = GetRecordDeclFromQualType(Decompressed->getType(), false);
+                if (auto constant = TraverseAPValue(*Evaluated, VarTypeDecl, where)) {
+                    stack->SetConstant(cxxVar, constant);
+                    return constant;
+                } else// TODO: support assignment by constexpr var
+                {
+                    db->DumpWithLocation(where);
+                    luisa::log_error("unsupportted gloal const eval type: {}", Decompressed->getKind());
+                }
+            }
         }
         return nullptr;
     }
@@ -707,8 +744,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     fb->assign(lhs, rhs);
                     current = lhs;
                 } else {
-                    if (!rhs)
-                    {
+                    if (!rhs) {
                         db->DumpWithLocation(x);
                         luisa::log_error("ICE, unexpected parameter: rhs not found!");
                     }
@@ -718,23 +754,13 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 auto str = luisa::string(dref->getNameInfo().getName().getAsString());
                 if (auto _current = stack->GetLocal(dref->getDecl())) {
                     current = _current;
-                } else if (auto Var = dref->getDecl(); Var && llvm::isa<clang::VarDecl>(Var)) { // Value Ref
-                    if (dref->isNonOdrUse() != NonOdrUseReason::NOUR_Unevaluated)
-                    {
-                        if (auto Decompressed = Var->getPotentiallyDecomposedVarDecl()) { 
-                            if (auto eval = Decompressed->getEvaluatedValue()) {
-                                auto VarTypeDecl = GetRecordDeclFromQualType(Decompressed->getType(), false);
-                                if (auto constant = TraverseAPValue(*eval, VarTypeDecl, x)) {
-                                    current = constant;
-                                } else// TODO: support assignment by constexpr var
-                                {
-                                    db->DumpWithLocation(dref);
-                                    luisa::log_error("unsupportted gloal const eval type: {}", Decompressed->getKind());
-                                }
-                            } else {
-                                db->DumpWithLocation(dref);
-                                luisa::log_error("unfound & unresolved ref: {}", str);
-                            }
+                } else if (auto Var = dref->getDecl(); Var && llvm::isa<clang::VarDecl>(Var)) {// Value Ref
+                    if (dref->isNonOdrUse() != NonOdrUseReason::NOUR_Unevaluated) {
+                        if (auto constant = FindOrTraverseAPValue(Var, x))
+                            current = constant;
+                        else {
+                            db->DumpWithLocation(dref);
+                            luisa::log_error("unfound & unresolved ref: {}", str);
                         }
                     }
                 } else if (auto value = dref->getDecl(); value && llvm::isa<clang::FunctionDecl>(value))// Func Ref

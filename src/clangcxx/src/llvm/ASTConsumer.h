@@ -26,6 +26,9 @@ struct Stack {
     const luisa::compute::Expression* GetExpr(const clang::Stmt *stmt) const;
     void SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *expr);
 
+    const luisa::compute::Expression* GetConstant(const clang::ValueDecl *var) const;
+    void SetConstant(const clang::ValueDecl *var, const luisa::compute::Expression *expr);
+
     bool isCtorExpr(const luisa::compute::Expression * expr);
     void SetExprAsCtor(const luisa::compute::Expression * expr);
 
@@ -36,6 +39,7 @@ private:
     luisa::unordered_set< const luisa::compute::Expression *> ctor_exprs;
     luisa::unordered_map<const clang::Stmt *, const luisa::compute::Expression *> expr_map;
     luisa::unordered_map<const clang::ValueDecl *, const luisa::compute::RefExpr *> locals;
+    luisa::unordered_map<const clang::ValueDecl *, const luisa::compute::Expression *> constants;
 };
 
 struct FunctionBuilderBuilder {
