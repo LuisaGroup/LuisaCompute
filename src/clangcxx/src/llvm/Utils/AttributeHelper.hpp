@@ -69,6 +69,7 @@ inline static bool isLuisaAttribute(const clang::AnnotateAttr *Anno, const char*
     return false;
 }
 
+inline static bool isDump(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "dump"); }
 inline static bool isIgnore(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "ignore"); }
 inline static bool isByPass(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "bypass"); }
 inline static bool isAccess(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "access"); }

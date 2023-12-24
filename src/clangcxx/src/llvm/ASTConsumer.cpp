@@ -144,7 +144,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     clang::ForStmt *currentCxxForStmt = nullptr;
 
     const luisa::compute::Expression *TraverseAPArray(const APValue &APV, const luisa::compute::Type *lcType) {
-        const APValue& INNER = APV.getStructField(0);
+        const APValue &INNER = APV.getStructField(0);
         auto DIM = INNER.getArraySize();
         // clang-format off
 #define TYPE_CASE_FLOAT(TYPE, COND)\
@@ -196,7 +196,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 #undef TYPE_CASE_INT
         return nullptr;
     }
-    
+
     const luisa::compute::Expression *TraverseAPVector(const APValue &APV, const luisa::compute::Type *lcType) {
         const APValue *VecInnerField = &APV.getStructField(0).getUnionValue();
         auto INNER = VecInnerField->getStructField(0);
@@ -485,9 +485,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     fb->return_(lc_ret);
                 }
             } else if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
-                if (auto constant = TraverseAPValue(ce->getAPValueResult(), nullptr, x))
+                if (auto constant = TraverseAPValue(ce->getAPValueResult(), nullptr, x)) {
                     current = constant;
-                else
+                } else
                     luisa::log_error("unsupportted ConstantExpr APValueKind {}", ce->getResultAPValueKind());
             } else if (auto substNonType = llvm::dyn_cast<SubstNonTypeTemplateParmExpr>(x)) {
                 auto lcExpr = stack->GetExpr(substNonType->getReplacement());
@@ -690,23 +690,27 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     fb->assign(lhs, rhs);
                     current = lhs;
                 } else {
+                    if (!rhs)
+                    {
+                        db->DumpWithLocation(x);
+                        luisa::log_error("ICE, unexpected parameter: rhs not found!");
+                    }
                     current = fb->binary(lc_type, TranslateBinaryOp(cxx_op), lhs, rhs);
                 }
             } else if (auto dref = llvm::dyn_cast<DeclRefExpr>(x)) {
                 auto str = luisa::string(dref->getNameInfo().getName().getAsString());
                 if (auto _current = stack->GetLocal(dref->getDecl())) {
                     current = _current;
-                } else if (auto value = dref->getDecl(); value && llvm::isa<clang::VarDecl>(value))// Value Ref
-                {
-                    if (auto var = value->getPotentiallyDecomposedVarDecl()) {
-                        if (auto eval = var->getEvaluatedValue()) {
-                            auto VarTypeDecl = GetRecordDeclFromQualType(var->getType(), false);
-                            if (auto constant = TraverseAPValue(*eval, VarTypeDecl, x))
+                } else if (auto Var = dref->getDecl(); Var && llvm::isa<clang::VarDecl>(Var)) { // Value Ref
+                    if (auto Decompressed = Var->getPotentiallyDecomposedVarDecl()) { 
+                        if (auto eval = Decompressed->getEvaluatedValue()) {
+                            auto VarTypeDecl = GetRecordDeclFromQualType(Decompressed->getType(), false);
+                            if (auto constant = TraverseAPValue(*eval, VarTypeDecl, x)) {
                                 current = constant;
-                            else// TODO: support assignment by constexpr var
+                            } else// TODO: support assignment by constexpr var
                             {
-                                db->DumpWithLocation(var);
-                                luisa::log_error("unsupportted gloal const eval type: {}", var->getKind());
+                                db->DumpWithLocation(dref);
+                                luisa::log_error("unsupportted gloal const eval type: {}", Decompressed->getKind());
                             }
                         } else {
                             db->DumpWithLocation(dref);
@@ -1039,6 +1043,8 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
             is_kernel = true;
             getKernelSize(Anno, kernelSize.x, kernelSize.y, kernelSize.z);
         }
+        if (isDump(Anno))
+            db->DumpWithLocation(S);
     }
 
     if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
@@ -1243,6 +1249,8 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         for (auto Anno : S->specific_attrs<clang::AnnotateAttr>()) {
             ignore |= isIgnore(Anno);
             ignore |= isBuiltinType(Anno);
+            if (isDump(Anno))
+                db->DumpWithLocation(S);
         }
         if (!ignore)
             db->RecordType(Ty);
