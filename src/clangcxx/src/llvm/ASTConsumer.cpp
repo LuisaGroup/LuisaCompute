@@ -474,7 +474,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                 }
 
-                if (cxxCtor->isImplicit() && cxxCtor->isCopyConstructor()) {
+                if (cxxCtor->isImplicit() && cxxCtor->isCopyOrMoveConstructor()) {
                     fb->assign(lc_args[0], lc_args[1]);
                 } else if (auto callable = db->func_builders[cxxCtor]) {
                     fb->call(luisa::compute::Function(callable.get()), lc_args);
@@ -979,6 +979,8 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
 
             is_ignore |= (Method->isImplicit() && Method->isCopyAssignmentOperator());
             is_ignore |= (Method->isImplicit() && Method->isMoveAssignmentOperator());
+            if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) 
+                is_ignore |= (Ctor->isImplicit() && Ctor->isCopyOrMoveConstructor());
             is_template |= (thisType->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
         } else {
             luisa::log_error("unfound this type [{}] in method [{}]",
