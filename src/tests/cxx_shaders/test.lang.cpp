@@ -53,7 +53,7 @@ struct Template {
 
 template<>
 struct Template<NVIDIA> {
-    explicit Template(NVIDIA v)
+    explicit Template(const NVIDIA& v)
         : nv(v) {}
     void call() {
         nv.f += 1.f;
@@ -61,14 +61,23 @@ struct Template<NVIDIA> {
     NVIDIA nv;
 };
 
-struct TestCtor {
-    explicit TestCtor(int v)
+struct TestCtorStructure {
+    explicit TestCtorStructure(int v)
         : x(-1 /*unary -*/), xx(v) {
     }
     int x;
     int xx;
-    int xxx = +2; /*unary +*/
+    float xxx = +2.f; /*unary +*/
 };
+
+auto TestCtor()
+{
+    // CallInit
+    TestCtorStructure ctor0(5);
+    // CInit
+    auto ctor1 = TestCtorStructure(5);
+    return ctor0.xxx + ctor1.xxx;
+}
 
 /* dtors are not allowed
 struct TestDtor {
@@ -464,8 +473,7 @@ auto TestVector() {
     nvidia.f += TestTemplateSpec();
 
     // ctor
-    TestCtor ctor(nvidia.ix);
-    nvidia.i += ctor.x;
+    nvidia.f += TestCtor();
 
     // control_flows
     float f = nvidia.f += TestBranch();

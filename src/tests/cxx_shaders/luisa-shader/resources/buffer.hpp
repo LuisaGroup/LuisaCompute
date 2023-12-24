@@ -8,8 +8,8 @@ template<typename Type>
 struct [[builtin("buffer")]] Buffer {
     using ElementType = Type;
 
-    [[callop("BUFFER_READ")]] Type load(uint32 loc);
-    [[callop("BUFFER_WRITE")]] void store(uint32 loc, Type value);
+    [[callop("BUFFER_READ")]] const Type& load(uint32 loc);
+    [[callop("BUFFER_WRITE")]] void store(uint32 loc, const Type& value);
     [[ignore]] Buffer() = delete;
     [[ignore]] Buffer(Buffer const &) = delete;
     [[ignore]] Buffer &operator=(Buffer const &) = delete;
@@ -73,7 +73,7 @@ struct [[builtin("buffer")]] Buffer<void> {
     template<typename T>
     [[callop("BYTE_BUFFER_READ")]] T byte_load(uint32 byte_index);
     template<typename T>
-    [[callop("BYTE_BUFFER_WRITE")]] T byte_store(uint32 byte_index, T val);
+    [[callop("BYTE_BUFFER_WRITE")]] T byte_store(uint32 byte_index, const T& val);
     [[ignore]] Buffer() = delete;
     [[ignore]] Buffer(Buffer const &) = delete;
     [[ignore]] Buffer &operator=(Buffer const &) = delete;
