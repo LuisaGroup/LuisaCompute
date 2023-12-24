@@ -383,6 +383,8 @@ struct Complex {
         : i(i) {}
     int i = 5;
     int ix = 25;
+    Array<float, 2> a = Array<float, 2>(1.f, 3.f);
+    float2 f2 = float2(2.f, 4.f);
 };
 
 struct ComplexComplex {
@@ -390,6 +392,7 @@ struct ComplexComplex {
         : c(i) {}
     Complex c;
     float f = 3.f;
+    matrix<3> m = identity<matrix<3>>;
 };
 constexpr auto c_complex = Complex(33);
 constexpr auto c_complexcomplex = ComplexComplex(666);
@@ -403,7 +406,7 @@ auto TestConstexprAssign() {
 
     matrix<3> f33 = identity<matrix<3>>;
     f33 = c_f33;
-    
+
     auto f22 = matrix<2>(c_f33);
 
     Complex complex(22);
