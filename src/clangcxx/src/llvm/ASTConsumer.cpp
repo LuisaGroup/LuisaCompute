@@ -1010,12 +1010,20 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
         if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
             if (Method->isMoveAssignmentOperator()) {
                 db->DumpWithLocation(Method);
-                luisa::log_error("custom move assignment operator is not allowed!");
+                luisa::log_error("error: BL-1.1 custom move assignment operator is not allowed!");
+            }
+            if (Method->isCopyAssignmentOperator()) {
+                db->DumpWithLocation(Method);
+                luisa::log_error("error: BL-1.2 custom copy assignment operator is not allowed!");
             }
             if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
                 if (Ctor->isMoveConstructor() && !Ctor->isImplicit()) {
                     db->DumpWithLocation(Method);
-                    luisa::log_error("custom move constructor is not allowed!");
+                    luisa::log_error("error: BL-1.3 custom move constructor is not allowed!");
+                }
+                if (Ctor->isCopyConstructor() && !Ctor->isImplicit()) {
+                    db->DumpWithLocation(Method);
+                    luisa::log_error("error: BL-1.4 custom copy constructor is not allowed!");
                 }
             }
         }
@@ -1093,7 +1101,20 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                                 local = builder->accel();
                                 break;
                             default:
+                            {
+                                /*
+                                const bool isBuiltinType = param->getType()->isBuiltinType();
+                                auto cxxDecl = param->getType()->getAsCXXRecordDecl();
+                                const bool isLambda = cxxDecl ? cxxDecl->isLambda() : false;
+                                if (!Ty->isReferenceType() && !isBuiltinType && !isLambda)
+                                {
+                                    luisa::log_warning("performance warning: "
+                                        "PWL-1.1, use 'const T&' rather than 'T' to pass non-builtin types.");
+                                    db->DumpWithLocation(param);
+                                }
+                                */
                                 local = LC_ArgOrRef(Ty, builder, lc_type);
+                            }
                                 break;
                         }
                         stack.SetLocal(param, local);

@@ -107,7 +107,7 @@ template<typename T, uint64 N>
 [[binop("MUL")]] vec<T, N> operator*(T, vec<T, N>);
 
 template<typename... T>
-auto make_vector(T... ts) {
+auto make_vector(const T&... ts) {
     return vec<typename element_of<T...>::type, sum_dim_v<T...>>(ts...);
 }
 

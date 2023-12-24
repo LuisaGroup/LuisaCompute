@@ -10,188 +10,188 @@ template<concepts::arithmetic T, concepts::arithmetic U>
 [[expr("bit_cast")]] extern T bit_cast(U v);
 
 template<concepts::bool_family T>
-[[callop("ALL")]] extern bool all(T x);
+[[callop("ALL")]] extern bool all(const T& x);
 
 template<concepts::bool_family T>
-[[callop("ANY")]] extern bool any(T x);
+[[callop("ANY")]] extern bool any(const T& x);
 
 template<concepts::primitive T, concepts::bool_family B>
     requires(same_dim_v<T, B> || is_scalar_v<B>)
-[[callop("SELECT")]] extern T select(T false_v, T true_v, B bool_v);
+[[callop("SELECT")]] extern T select(const T& false_v, const T& true_v, const B& bool_v);
 
 template<concepts::arithmetic T, concepts::arithmetic B>
     requires(same_dim_v<T, B> || is_scalar_v<B>)
-[[callop("CLAMP")]] extern T clamp(T v, B min_v, B max_v);
+[[callop("CLAMP")]] extern T clamp(const T& v, const B& min_v, const B& max_v);
 
 template<concepts::float_family T, concepts::float_family B>
     requires(same_dim_v<T, B> || is_scalar_v<B>)
-[[callop("LERP")]] extern T lerp(T left_v, T right_v, B step);
+[[callop("LERP")]] extern T lerp(const T& left_v, const T& right_v, const B& step);
 
 template<concepts::float_family T, concepts::float_family B>
     requires(same_dim_v<T, B> || is_scalar_v<B>)
-[[callop("SMOOTHSTEP")]] extern T smoothstep(T left_v, B right_v, B step);
+[[callop("SMOOTHSTEP")]] extern T smoothstep(const T& left_v, const B& right_v, const B& step);
 
 template<concepts::float_family T>
-[[callop("SATURATE")]] extern T saturate(T v);
+[[callop("SATURATE")]] extern T saturate(const T& v);
 
 template<concepts::signed_arithmetic T>
-[[callop("ABS")]] extern T abs(T v);
+[[callop("ABS")]] extern T abs(const T& v);
 
 template<concepts::arithmetic T>
-[[callop("MIN")]] extern T min(T a, T b);
+[[callop("MIN")]] extern T min(const T& a, T b);
 
 template<concepts::arithmetic T>
-[[callop("MAX")]] extern T max(T v, T b);
+[[callop("MAX")]] extern T max(const T& v, T b);
 
 template<concepts::uint_family T>
-[[callop("CLZ")]] extern T clz(T v);
+[[callop("CLZ")]] extern T clz(const T& v);
 
 template<concepts::uint_family T>
-[[callop("CTZ")]] extern T ctz(T v);
+[[callop("CTZ")]] extern T ctz(const T& v);
 
 template<concepts::uint_family T>
-[[callop("POPCOUNT")]] extern T popcount(T v);
+[[callop("POPCOUNT")]] extern T popcount(const T& v);
 
 template<concepts::uint_family T>
-[[callop("REVERSE")]] extern T reverse(T v);
+[[callop("REVERSE")]] extern T reverse(const T& v);
 
 template<concepts::float_family T>
-[[callop("ISINF")]] extern vec<bool, vec_dim_v<T>> is_inf(T v);
+[[callop("ISINF")]] extern vec<bool, vec_dim_v<T>> is_inf(const T& v);
 
 template<concepts::float_family T>
-[[callop("ISNAN")]] extern vec<bool, vec_dim_v<T>> is_nan(T v);
+[[callop("ISNAN")]] extern vec<bool, vec_dim_v<T>> is_nan(const T& v);
 
 template<concepts::float_family T>
-[[callop("ACOS")]] extern T acos(T v);
+[[callop("ACOS")]] extern T acos(const T& v);
 
 template<concepts::float_family T>
-[[callop("ACOSH")]] extern T acosh(T v);
+[[callop("ACOSH")]] extern T acosh(const T& v);
 
 template<concepts::float_family T>
-[[callop("ASIN")]] extern T asin(T v);
+[[callop("ASIN")]] extern T asin(const T& v);
 
 template<concepts::float_family T>
-[[callop("ASINH")]] extern T asinh(T v);
+[[callop("ASINH")]] extern T asinh(const T& v);
 
 template<concepts::float_family T>
-[[callop("ATAN")]] extern T atan(T v);
+[[callop("ATAN")]] extern T atan(const T& v);
 
 template<concepts::float_family T>
-[[callop("ATAN2")]] extern T atan2(T v);
+[[callop("ATAN2")]] extern T atan2(const T& v);
 
 template<concepts::float_family T>
-[[callop("ATANH")]] extern T atanh(T v);
+[[callop("ATANH")]] extern T atanh(const T& v);
 
 template<concepts::float_family T>
-[[callop("COS")]] extern T cos(T v);
+[[callop("COS")]] extern T cos(const T& v);
 
 template<concepts::float_family T>
-[[callop("COSH")]] extern T cosh(T v);
+[[callop("COSH")]] extern T cosh(const T& v);
 
 template<concepts::float_family T>
-[[callop("SIN")]] extern T sin(T v);
+[[callop("SIN")]] extern T sin(const T& v);
 
 template<concepts::float_family T>
-[[callop("SINH")]] extern T sinh(T v);
+[[callop("SINH")]] extern T sinh(const T& v);
 
 template<concepts::float_family T>
-[[callop("TAN")]] extern T tan(T v);
+[[callop("TAN")]] extern T tan(const T& v);
 
 template<concepts::float_family T>
-[[callop("TANH")]] extern T tanh(T v);
+[[callop("TANH")]] extern T tanh(const T& v);
 
 template<concepts::float_family T>
-[[callop("EXP")]] extern T exp(T v);
+[[callop("EXP")]] extern T exp(const T& v);
 
 template<concepts::float_family T>
-[[callop("EXP2")]] extern T exp2(T v);
+[[callop("EXP2")]] extern T exp2(const T& v);
 
 template<concepts::float_family T>
-[[callop("EXP10")]] extern T exp10(T v);
+[[callop("EXP10")]] extern T exp10(const T& v);
 
 template<concepts::float_family T>
-[[callop("LOG")]] extern T log(T v);
+[[callop("LOG")]] extern T log(const T& v);
 
 template<concepts::float_family T>
-[[callop("LOG2")]] extern T log2(T v);
+[[callop("LOG2")]] extern T log2(const T& v);
 
 template<concepts::float_family T>
-[[callop("LOG10")]] extern T log10(T v);
+[[callop("LOG10")]] extern T log10(const T& v);
 
 template<concepts::float_family T>
-[[callop("POW")]] extern T pow(T v);
+[[callop("POW")]] extern T pow(const T& v);
 
 template<concepts::float_family T>
-[[callop("SQRT")]] extern T sqrt(T v);
+[[callop("SQRT")]] extern T sqrt(const T& v);
 
 template<concepts::float_family T>
-[[callop("RSQRT")]] extern T rsqrt(T v);
+[[callop("RSQRT")]] extern T rsqrt(const T& v);
 
 template<concepts::float_family T>
-[[callop("CEIL")]] extern T ceil(T v);
+[[callop("CEIL")]] extern T ceil(const T& v);
 
 template<concepts::float_family T>
-[[callop("FLOOR")]] extern T floor(T v);
+[[callop("FLOOR")]] extern T floor(const T& v);
 
 template<concepts::float_family T>
-[[callop("FRACT")]] extern T fract(T v);
+[[callop("FRACT")]] extern T fract(const T& v);
 
 template<concepts::float_family T>
-[[callop("TRUNC")]] extern T trunc(T v);
+[[callop("TRUNC")]] extern T trunc(const T& v);
 
 template<concepts::float_family T>
-[[callop("ROUND")]] extern T round(T v);
+[[callop("ROUND")]] extern T round(const T& v);
 
 template<concepts::float_family T>
-[[callop("FMA")]] extern T fma(T a, T b, T c);
+[[callop("FMA")]] extern T fma(const T& a, const T& b, const T& c);
 
 template<concepts::float_family T>
-[[callop("COPYSIGN")]] extern T copysign(T a, T b);
+[[callop("COPYSIGN")]] extern T copysign(const T& a, T b);
 
 template<concepts::float_vec_family T>
-[[callop("CROSS")]] extern T cross(T a, T b);
+[[callop("CROSS")]] extern T cross(const T& a, const T& b);
 
-[[callop("FACEFORWARD")]] extern float3 faceforward(float3 a, float3 b, float3 c);
-[[callop("FACEFORWARD")]] extern half3 faceforward(half3 a, half3 b, half3 c);
+[[callop("FACEFORWARD")]] extern float3 faceforward(const float3& a, const float3& b, const float3& c);
+[[callop("FACEFORWARD")]] extern half3 faceforward(const half3& a, const half3& b, const half3& c);
 
-[[callop("REFLECT")]] extern float3 reflect(float3 i, float3 n);
-[[callop("REFLECT")]] extern half3 reflect(half3 i, half3 n);
-
-template<concepts::float_vec_family T>
-[[callop("DOT")]] extern scalar_type<T> dot(T a, T b);
+[[callop("REFLECT")]] extern float3 reflect(const float3& i, const float3& n);
+[[callop("REFLECT")]] extern half3 reflect(const half3& i, const half3& n);
 
 template<concepts::float_vec_family T>
-[[callop("LENGTH")]] extern scalar_type<T> length(T v);
+[[callop("DOT")]] extern scalar_type<T> dot(const T& a, const T& b);
 
 template<concepts::float_vec_family T>
-scalar_type<T> distance(T a, T b) { return length(a - b);}
+[[callop("LENGTH")]] extern scalar_type<T> length(const T& v);
 
 template<concepts::float_vec_family T>
-[[callop("LENGTH_SQUARED")]] extern scalar_type<T> length_squared(T v);
+scalar_type<T> distance(const T& a, const T& b) { return length(a - b);}
 
 template<concepts::float_vec_family T>
-[[callop("NORMALIZE")]] extern T normalize(T v);
+[[callop("LENGTH_SQUARED")]] extern scalar_type<T> length_squared(const T& v);
+
+template<concepts::float_vec_family T>
+[[callop("NORMALIZE")]] extern T normalize(const T& v);
 
 template<concepts::arithmetic_vec T>
-[[callop("REDUCE_SUM")]] extern scalar_type<T> reduce_sum(T v);
+[[callop("REDUCE_SUM")]] extern scalar_type<T> reduce_sum(const T& v);
 
 template<concepts::arithmetic_vec T>
-[[callop("REDUCE_PRODUCT")]] extern scalar_type<T> reduce_product(T v);
+[[callop("REDUCE_PRODUCT")]] extern scalar_type<T> reduce_product(const T& v);
 
 template<concepts::arithmetic_vec T>
-[[callop("REDUCE_MIN")]] extern scalar_type<T> reduce_min(T v);
+[[callop("REDUCE_MIN")]] extern scalar_type<T> reduce_min(const T& v);
 
 template<concepts::arithmetic_vec T>
-[[callop("REDUCE_MAX")]] extern scalar_type<T> reduce_max(T v);
+[[callop("REDUCE_MAX")]] extern scalar_type<T> reduce_max(const T& v);
 
 template<concepts::matrix T>
-[[callop("DETERMINANT")]] extern T determinant(T v);
+[[callop("DETERMINANT")]] extern T determinant(const T& v);
 
 template<concepts::matrix T>
-[[callop("TRANSPOSE")]] extern T transpose(T v);
+[[callop("TRANSPOSE")]] extern T transpose(const T& v);
 
 template<concepts::matrix T>
-[[callop("INVERSE")]] extern T inverse(T v);
+[[callop("INVERSE")]] extern T inverse(const T& v);
 
 template<concepts::float_family T>
 [[callop("DDX")]] extern T ddx();

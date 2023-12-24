@@ -5,7 +5,7 @@
 namespace luisa::shader {
 struct Ray {
     Ray() = default;
-    Ray(float3 origin, float3 dir, float t_min = 0.0f, float t_max = 1e30f)
+    Ray(const float3& origin, const float3& dir, float t_min = 0.0f, float t_max = 1e30f)
         : t_min(t_min), t_max(t_max) 
     {
         _origin.set<0>(origin.x, origin.y, origin.z);
@@ -67,7 +67,7 @@ struct TriangleHit {
         return inst != 4294967295u;
     }
     template<concepts::float_family T>
-    T interpolate(T a, T b, T c) {
+    T interpolate(const T& a, const T& b, const T& c) {
         return T(1.0f - bary.x - bary.y) * a + T(bary.x) * b + T(bary.y) * c;
     }
 };
