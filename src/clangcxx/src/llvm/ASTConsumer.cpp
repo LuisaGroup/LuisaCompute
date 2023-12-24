@@ -452,11 +452,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         fbfb.build(funcDecl);
                     }
                 }
-                auto local = fb->local(db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()));
-                SKR_DEFER({ current = local; });
+                auto constructed = fb->local(db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()));
+                SKR_DEFER({ current = constructed; });
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
-                lc_args.emplace_back(local);
+                lc_args.emplace_back(constructed);
                 for (auto arg : cxxCtorCall->arguments()) {
                     if (auto lc_arg = stack->GetExpr(arg))
                         lc_args.emplace_back(lc_arg);
@@ -489,14 +489,15 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 auto &Arguments = TSD->getTemplateArgs();
                                 if (auto EType = Arguments[0].getAsType()->getAs<clang::BuiltinType>()) {
                                     bool defaultInit = (lc_args.size() <= 1);
-                                    auto N = Arguments[1].getAsIntegral().getLimitedValue();
-                                    // clang-format off
+                                    if (!defaultInit) {
+                                        auto N = Arguments[1].getAsIntegral().getLimitedValue();
+                                        // clang-format off
                                         switch (EType->getKind()) {
                 #define CASE_VEC_TYPE(stype, type)                                                                                    \
                     switch (N) {                       \
-                        case 2: { auto lc_type = Type::of<stype##2>(); current = defaultInit ? fb->local(lc_type) : (fb->assign(local, fb->call(lc_type, CallOp::MAKE_##type##2, { lc_args.begin() + 1, lc_args.end() })), local); } break; \
-                        case 3: { auto lc_type = Type::of<stype##3>(); current = defaultInit ? fb->local(lc_type) : (fb->assign(local, fb->call(lc_type, CallOp::MAKE_##type##3, { lc_args.begin() + 1, lc_args.end() })), local); } break; \
-                        case 4: { auto lc_type = Type::of<stype##4>(); current = defaultInit ? fb->local(lc_type) : (fb->assign(local, fb->call(lc_type, CallOp::MAKE_##type##4, { lc_args.begin() + 1, lc_args.end() })), local); } break; \
+                        case 2: { auto lc_type = Type::of<stype##2>(); fb->assign(constructed, fb->call(lc_type, CallOp::MAKE_##type##2, { lc_args.begin() + 1, lc_args.end() })); } break; \
+                        case 3: { auto lc_type = Type::of<stype##3>(); fb->assign(constructed, fb->call(lc_type, CallOp::MAKE_##type##3, { lc_args.begin() + 1, lc_args.end() })); } break; \
+                        case 4: { auto lc_type = Type::of<stype##4>(); fb->assign(constructed, fb->call(lc_type, CallOp::MAKE_##type##4, { lc_args.begin() + 1, lc_args.end() })); } break; \
                         default: {                                                                                             \
                             luisa::log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
                         } break;                                                                                               \
@@ -513,7 +514,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                             } break;
                 #undef CASE_VEC_TYPE
                                         }
-                                    // clang-format on
+                                        // clang-format on
+                                    }
                                 }
                             } else
                                 luisa::log_error("???");
@@ -525,9 +527,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 auto lc_type = Type::matrix(N);
                                 const CallOp MATRIX_LUT[3] = {CallOp::MAKE_FLOAT2X2, CallOp::MAKE_FLOAT3X3, CallOp::MAKE_FLOAT4X4};
                                 if (lc_args.size() <= 1) /*ignore MAKE_MAT with empty args*/
-                                    current = local;
+                                    constructed = constructed;
                                 else
-                                    current = (fb->assign(local, fb->call(lc_type, MATRIX_LUT[N - 2], {lc_args.begin() + 1, lc_args.end()})), local);
+                                    fb->assign(constructed, fb->call(lc_type, MATRIX_LUT[N - 2], {lc_args.begin() + 1, lc_args.end()}));
                             } else
                                 luisa::log_error("???");
                         } else if (builtinName == "array") {
@@ -538,11 +540,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 auto lcElemType = db->FindOrAddType(EType, x->getBeginLoc());
                                 auto lcArrayType = Type::array(lcElemType, N);
                                 if (cxxCtor->isDefaultConstructor())
-                                    current = local;
+                                    constructed = constructed;
                                 else if (cxxCtor->isConvertingConstructor(true))
-                                    current = (fb->assign(local, fb->cast(lcArrayType, CastOp::STATIC, lc_args[1])), local);
+                                    fb->assign(constructed, fb->cast(lcArrayType, CastOp::STATIC, lc_args[1]));
                                 else if (cxxCtor->isCopyOrMoveConstructor())
-                                    current = (fb->assign(local, lc_args[1]), local);
+                                    fb->assign(constructed, lc_args[1]);
                                 else
                                     luisa::log_error("unhandled array constructor: {}", cxxCtor->getNameAsString());
                             }
