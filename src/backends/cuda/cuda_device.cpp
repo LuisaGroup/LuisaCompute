@@ -770,7 +770,7 @@ ShaderCreationInfo CUDADevice::load_shader(luisa::string_view name_in,
         .checksum = 0u,
         .kind = CUDAShaderMetadata::Kind::UNKNOWN,
         .max_register_count = 0u,
-        .block_size = uint3{1u, 1u, 1u},
+        .block_size = make_uint3(0u),
         .argument_types = [arg_types] {
             luisa::vector<luisa::string> types;
             types.reserve(arg_types.size());

@@ -977,7 +977,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
                         auto query = stack->queries.empty() ? nullptr : stack->queries.back();
                         luisa::compute::ScopeStmt *query_scope = nullptr;
-                        auto functionName = calleeDecl->getAsFunction()->getName();
+                        auto functionName = calleeDecl->getAsFunction()->getNameAsString();
                         if (functionName.starts_with("on_surface_candidate"))
                             query_scope = query->on_triangle_candidate();
                         if (functionName.starts_with("on_procedural_candidate"))

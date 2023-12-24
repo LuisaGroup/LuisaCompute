@@ -185,7 +185,7 @@ TypeDatabase::Commenter TypeDatabase::CommentStmt(luisa::shared_ptr<compute::det
                 if (Method->getParent()->isLambda())
                     return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL LAMBDA: {}", Method->getParent()->getName().data()), x->getBeginLoc()); });
                 else
-                    return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL METHOD: {}::{}", Method->getParent()->getName().data(), Method->getName().data()), x->getBeginLoc()); });
+                    return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL METHOD: {}::{}", Method->getParent()->getName().data(), Method->getNameAsString()), x->getBeginLoc()); });
             } else
                 return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL FUNCTION: {}", cxxFunc->getName().data()), x->getBeginLoc()); });
         } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
