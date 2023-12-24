@@ -260,7 +260,7 @@ auto TestSwitch() {
 auto TestVecOp() {
     float2 d0 = float2(1.f, 2.f);
     float2 d1 = float2(2.f, 1.f);
-    d0 = d0 = d0 + d1;
+    d0 = d0 + d1;
     d0 = d0 - d1;
     d0 = d0 * d1;
     d0 = d0 / d1;

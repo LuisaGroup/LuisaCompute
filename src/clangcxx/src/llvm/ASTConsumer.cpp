@@ -132,6 +132,16 @@ void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *e
     expr_map[stmt] = expr;
 }
 
+bool Stack::isCtorExpr(const luisa::compute::Expression * expr)
+{
+    return ctor_exprs.contains(expr);
+}
+
+void Stack::SetExprAsCtor(const luisa::compute::Expression * expr)
+{
+    ctor_exprs.emplace(expr);
+}
+
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     clang::ForStmt *currentCxxForStmt = nullptr;
 
@@ -391,7 +401,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         }
                         if (auto lc_type = db->FindOrAddType(Ty, x->getBeginLoc())) {
                             if (auto lcInit = stack->GetExpr(cxxInit)) {
-                                if (cxxInit->isPRValue() && llvm::isa<clang::CXXConstructExpr>(cxxInit)) {
+                                if (auto isCtorExpr = stack->isCtorExpr(lcInit)) {
                                     stack->SetLocal(varDecl, (const compute::RefExpr *)lcInit);
                                     current = lcInit;
                                 } else {
@@ -453,7 +463,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                 }
                 auto constructed = fb->local(db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()));
-                SKR_DEFER({ current = constructed; });
+                SKR_DEFER({  stack->SetExprAsCtor(constructed); current = constructed; });
                 // args
                 luisa::vector<const luisa::compute::Expression *> lc_args;
                 lc_args.emplace_back(constructed);
@@ -853,7 +863,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             fb->push_scope(query_scope);
 
                         if (auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(calleeDecl);
-                            methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) {
+                            methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) { //TODO
                             fb->assign(lc_args[0], lc_args[1]);
                             current = lc_args[0];
                         } else if (auto func_callable = db->func_builders[calleeDecl]) {
