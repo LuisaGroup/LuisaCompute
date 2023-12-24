@@ -78,7 +78,8 @@ auto TestCtor()
     TestCtorStructure ctor2(ctor1);
     // CInit
     auto cinit0 = TestCtorStructure(5);
-    return ctor0.xxx + ctor1.xxx + ctor2.xxx + cinit0.xxx;
+    auto cinit1 = TestCtorStructure(TestCtorStructure(TestCtorStructure(3)));
+    return ctor0.xxx + ctor1.xxx + ctor2.xxx + cinit0.xxx + cinit1.xxx;
 }
 
 /* dtors are not allowed
@@ -393,11 +394,11 @@ constexpr auto c_complex = Complex(33);
 constexpr auto c_complexcomplex = ComplexComplex(666);
 
 auto TestConstexprAssign() {
+    decay_t<decltype(c_arr)> arr = c_arr;
+    // arr = c_arr;
+
     float3 f3 = c_f3;
     f3 = c_f3;
-
-    // decay_t<decltype(c_arr)> arr = c_arr;
-    // arr = c_arr;
 
     Complex complex(22);
     complex = c_complex;
@@ -405,7 +406,7 @@ auto TestConstexprAssign() {
     ComplexComplex complexcomplex(44);
     complexcomplex = c_complexcomplex;
 
-    return (float)(complexcomplex.c.i + complex.i);
+    return (float)(complexcomplex.c.i + complex.i) + arr[0];
 }
 
 auto TestMatrix() {

@@ -23,6 +23,7 @@ struct [[builtin("matrix")]] matrix<2> {
 #include "ops/mat_ops.inl"
 
 private:
+    // DONT EDIT THIS FIELD LAYOUT
     Array<vec<float, 2>, 2> _v;
 };
 
@@ -49,6 +50,7 @@ struct [[builtin("matrix")]] matrix<3> {
 #include "ops/mat_ops.inl"
 
 private:
+    // DONT EDIT THIS FIELD LAYOUT
     Array<vec<float, 4>, 3> _v;
 };
 
@@ -79,6 +81,7 @@ struct alignas(16) [[builtin("matrix")]] matrix<4> {
 #include "ops/mat_ops.inl"
 
 private:
+    // DONT EDIT THIS FIELD LAYOUT
     Array<vec<float, 4>, 4> _v;
 };
 

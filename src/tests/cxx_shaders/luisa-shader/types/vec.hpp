@@ -32,6 +32,7 @@ struct alignas(8) [[builtin("vec")]] vec<T, 2> {
 
 #include "ops/vec_ops.inl"
 
+    // DONT EDIT THIS FIELD LAYOUT
     union {
         Array<T, 2> _v;
 #include "ops/swizzle2.inl"
@@ -63,6 +64,7 @@ struct alignas(16) [[builtin("vec")]] vec<T, 3> {
 
 #include "ops/vec_ops.inl"
 
+    // DONT EDIT THIS FIELD LAYOUT
     union {
         Array<T, 3> _v;
 #include "ops/swizzle3.inl"
@@ -94,6 +96,7 @@ struct alignas(16) [[builtin("vec")]] vec<T, 4> {
 
 #include "ops/vec_ops.inl"
 
+    // DONT EDIT THIS FIELD LAYOUT
     union {
         Array<T, 4> _v;
 #include "ops/swizzle4.inl"

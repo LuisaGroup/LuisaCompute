@@ -32,6 +32,7 @@ struct [[builtin("array")]] Array {
     [[access]] constexpr Type operator[](uint32 loc) const { return v[loc]; }
     
 private:
+    // DONT EDIT THIS FIELD LAYOUT
     Type v[size];
 };
 

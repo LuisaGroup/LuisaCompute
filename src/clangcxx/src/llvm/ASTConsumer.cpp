@@ -143,27 +143,65 @@ void Stack::SetExprAsCtor(const luisa::compute::Expression *expr) {
 struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
     clang::ForStmt *currentCxxForStmt = nullptr;
 
-    const luisa::compute::Expression *TraverseAPValue(const APValue &APV, clang::RecordDecl *what, clang::Stmt *where) {
-        const auto APK = APV.getKind();
-        switch (APK) {
-            case clang::APValue::ValueKind::Int:
-                return fb->literal(Type::of<int>(), (int)APV.getInt().getLimitedValue());
-            case clang::APValue::ValueKind::Float:
-                return fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
-            case clang::APValue::ValueKind::Struct: {
-                auto N = APV.getStructNumFields();
-                if (auto lcType = db->FindOrAddType(what->getTypeForDecl()->getCanonicalTypeUnqualified(), what->getBeginLoc())) {
-                    // clang-format off
-                    if (lcType->is_array())
-                    {
-                        luisa::log_error("TODO: constexpr array assign!");
-                    }
-                    else if (lcType->is_vector())
-                    {
-                        const APValue *VecInnerField = &APV.getStructField(0).getUnionValue();
-                        auto INNER = VecInnerField->getStructField(0);
-                        auto DIM = INNER.getArraySize();
+    const luisa::compute::Expression *TraverseAPArray(const APValue &APV, const luisa::compute::Type *lcType) {
+        const APValue& INNER = APV.getStructField(0);
+        auto DIM = INNER.getArraySize();
+        // clang-format off
+#define TYPE_CASE_FLOAT(TYPE, COND)\
+    else if (COND) {\
+        auto lcArray = fb->local(lcType);\
+        for (uint32_t i = 0; i < DIM; i++) \
+            fb->assign(\
+                fb->access(Type::of<TYPE>(), lcArray, fb->literal(Type::of<uint32_t>(), i)),\
+                fb->literal(Type::of<TYPE>(), (TYPE)INNER.getArrayInitializedElt(i).getFloat().convertToDouble()));\
+        return lcArray; \
+    }
 
+#define TYPE_CASE_INT(TYPE, COND)\
+    else if (COND) {\
+        auto lcArray = fb->local(lcType);\
+        for (uint32_t i = 0; i < DIM; i++) \
+            fb->assign(\
+                fb->access(Type::of<TYPE>(), lcArray, fb->literal(Type::of<uint32_t>(), i)),\
+                fb->literal(Type::of<TYPE>(), (TYPE)INNER.getArrayInitializedElt(i).getInt().getLimitedValue()));\
+        return lcArray; \
+    }
+
+        auto AS_HALF = lcType->element()->is_float16();
+        auto AS_FLOAT = lcType->element()->is_float32();
+        auto AS_INT16 = lcType->element()->is_int16();
+        auto AS_INT32 = lcType->element()->is_int32();
+        auto AS_INT64 = lcType->element()->is_int64();
+        auto AS_UINT16 = lcType->element()->is_uint16();
+        auto AS_UINT32 = lcType->element()->is_uint32();
+        auto AS_UINT64 = lcType->element()->is_uint64();
+        auto AS_BOOL = lcType->element()->is_bool();
+        if (false);
+        TYPE_CASE_FLOAT(half, AS_HALF)
+        TYPE_CASE_FLOAT(float, AS_FLOAT)
+
+        TYPE_CASE_INT(bool, AS_BOOL)
+
+        TYPE_CASE_INT(short, AS_INT16)
+        TYPE_CASE_INT(int, AS_INT32)
+        TYPE_CASE_INT(slong, AS_INT64)
+
+        TYPE_CASE_INT(ushort, AS_UINT16)
+        TYPE_CASE_INT(uint, AS_UINT32)
+        TYPE_CASE_INT(ulong, AS_UINT64)
+        else
+            luisa::log_error("array not supportted as constexpr detected!!!");
+        // clang-format on
+#undef TYPE_CASE_FLOAT
+#undef TYPE_CASE_INT
+        return nullptr;
+    }
+    
+    const luisa::compute::Expression *TraverseAPVector(const APValue &APV, const luisa::compute::Type *lcType) {
+        const APValue *VecInnerField = &APV.getStructField(0).getUnionValue();
+        auto INNER = VecInnerField->getStructField(0);
+        auto DIM = INNER.getArraySize();
+        // clang-format off
 #define TYPE_CASE_FLOAT(TYPE, COND)\
     else if (DIM == 2 && COND) return fb->literal(lcType, \
             TYPE##2((TYPE)INNER.getArrayInitializedElt(0).getFloat().convertToDouble(),\
@@ -192,35 +230,53 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 (TYPE)INNER.getArrayInitializedElt(2).getInt().getLimitedValue(),\
                 (TYPE)INNER.getArrayInitializedElt(3).getInt().getLimitedValue()));
 
-                        auto AS_HALF = lcType->is_float16_vector();
-                        auto AS_FLOAT = lcType->is_float32_vector();
-                        auto AS_INT16 = lcType->is_int16_vector();
-                        auto AS_INT32 = lcType->is_int32_vector();
-                        auto AS_INT64 = lcType->is_int64_vector();
-                        auto AS_UINT16 = lcType->is_uint16_vector();
-                        auto AS_UINT32 = lcType->is_uint32_vector();
-                        auto AS_UINT64 = lcType->is_uint64_vector();
-                        auto AS_BOOL = lcType->is_bool_vector();
-                        if (false);
-                        TYPE_CASE_FLOAT(half, AS_HALF)
-                        TYPE_CASE_FLOAT(float, AS_FLOAT)
+        auto AS_HALF = lcType->is_float16_vector();
+        auto AS_FLOAT = lcType->is_float32_vector();
+        auto AS_INT16 = lcType->is_int16_vector();
+        auto AS_INT32 = lcType->is_int32_vector();
+        auto AS_INT64 = lcType->is_int64_vector();
+        auto AS_UINT16 = lcType->is_uint16_vector();
+        auto AS_UINT32 = lcType->is_uint32_vector();
+        auto AS_UINT64 = lcType->is_uint64_vector();
+        auto AS_BOOL = lcType->is_bool_vector();
+        if (false);
+        TYPE_CASE_FLOAT(half, AS_HALF)
+        TYPE_CASE_FLOAT(float, AS_FLOAT)
 
-                        TYPE_CASE_INT(bool, AS_BOOL)
+        TYPE_CASE_INT(bool, AS_BOOL)
 
-                        TYPE_CASE_INT(short, AS_INT16)
-                        TYPE_CASE_INT(int, AS_INT32)
-                        TYPE_CASE_INT(slong, AS_INT64)
+        TYPE_CASE_INT(short, AS_INT16)
+        TYPE_CASE_INT(int, AS_INT32)
+        TYPE_CASE_INT(slong, AS_INT64)
 
-                        TYPE_CASE_INT(ushort, AS_UINT16)
-                        TYPE_CASE_INT(uint, AS_UINT32)
-                        TYPE_CASE_INT(ulong, AS_UINT64)
-                        else
-                            luisa::log_error("vec not supportted as constexpr detected!!!");
-                    }
-                    #undef TYPE_CASE_FLOAT
-                    #undef TYPE_CASE_INT
-                    // clang-format on
-                    else {
+        TYPE_CASE_INT(ushort, AS_UINT16)
+        TYPE_CASE_INT(uint, AS_UINT32)
+        TYPE_CASE_INT(ulong, AS_UINT64)
+        else
+            luisa::log_error("vec not supportted as constexpr detected!!!");
+        // clang-format on
+#undef TYPE_CASE_FLOAT
+#undef TYPE_CASE_INT
+        return nullptr;
+    }
+
+    const luisa::compute::Expression *TraverseAPValue(const APValue &APV, clang::RecordDecl *what, clang::Stmt *where) {
+        const auto APK = APV.getKind();
+        switch (APK) {
+            case clang::APValue::ValueKind::Int:
+                return fb->literal(Type::of<int>(), (int)APV.getInt().getLimitedValue());
+            case clang::APValue::ValueKind::Float:
+                return fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
+            case clang::APValue::ValueKind::Struct: {
+                auto N = APV.getStructNumFields();
+                if (auto lcType = db->FindOrAddType(what->getTypeForDecl()->getCanonicalTypeUnqualified(), what->getBeginLoc())) {
+                    if (lcType->is_array()) {
+                        return TraverseAPArray(APV, lcType);
+                    } else if (lcType->is_vector()) {
+                        return TraverseAPVector(APV, lcType);
+                    } else if (lcType->is_matrix()) {
+                        luisa::log_error("TODO: constexpr matrix assign!");
+                    } else {
                         auto constant = fb->local(lcType);
                         auto fields = what->fields();
                         uint32_t i = 0;
@@ -466,8 +522,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 luisa::vector<const luisa::compute::Expression *> lc_args;
                 const compute::RefExpr *constructed = nullptr;
                 SKR_DEFER({  stack->SetExprAsCtor(constructed); current = constructed; });
-                if (!moveCtor)
-                {
+                if (!moveCtor) {
                     constructed = fb->local(db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()));
                     // args
                     lc_args.emplace_back(constructed);
@@ -561,8 +616,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                     constructed = constructed;
                                 else if (cxxCtor->isConvertingConstructor(true))
                                     fb->assign(constructed, fb->cast(lcArrayType, CastOp::STATIC, lc_args[1]));
-                                else if (cxxCtor->isCopyOrMoveConstructor())
+                                else if (cxxCtor->isCopyConstructor())
                                     fb->assign(constructed, lc_args[1]);
+                                else if (cxxCtor->isMoveConstructor())
+                                    luisa::log_error("unexpected move array constructor!");
                                 else
                                     luisa::log_error("unhandled array constructor: {}", cxxCtor->getNameAsString());
                             }
@@ -672,7 +729,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     if (lcExpr->type() != lcType)
                         current = fb->cast(lcType, CastOp::STATIC, lcExpr);
-                    else 
+                    else
                         current = lcExpr;
                 }
             } else if (auto _explicit_cast = llvm::dyn_cast<ExplicitCastExpr>(x)) {
@@ -685,7 +742,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     if (lcExpr->type() != lcType)
                         current = fb->cast(lcType, CastOp::STATIC, lcExpr);
-                    else 
+                    else
                         current = lcExpr;
                 }
             } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
