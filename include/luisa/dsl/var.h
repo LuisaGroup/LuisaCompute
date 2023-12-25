@@ -230,4 +230,50 @@ Var<ulong> RefEnableGetAddress<T>::address() const noexcept {
 
 }// namespace detail
 
+namespace dsl_literals {
+
+#define LUISA_MAKE_DSL_INTEGRAL_LITERAL(suffix, type)                               \
+    [[nodiscard]] inline auto operator"" suffix(unsigned long long v) noexcept {    \
+        return def<type>(static_cast<type>(v));                                     \
+    }                                                                               \
+    [[nodiscard]] inline auto operator"" suffix##2(unsigned long long v) noexcept { \
+        return def<type##2>(luisa::make_##type##2(static_cast<type>(v)));           \
+    }                                                                               \
+    [[nodiscard]] inline auto operator"" suffix##3(unsigned long long v) noexcept { \
+        return def<type##3>(luisa::make_##type##3(static_cast<type>(v)));           \
+    }                                                                               \
+    [[nodiscard]] inline auto operator"" suffix##4(unsigned long long v) noexcept { \
+        return def<type##4>(luisa::make_##type##4(static_cast<type>(v)));           \
+    }
+
+#define LUISA_MAKE_DSL_FLOATING_POINT_LITERAL(suffix, type)                  \
+    [[nodiscard]] inline auto operator"" suffix(long double v) noexcept {    \
+        return def<type>(static_cast<type>(v));                              \
+    }                                                                        \
+    [[nodiscard]] inline auto operator"" suffix##2(long double v) noexcept { \
+        return def<type##2>(luisa::make_##type##2(static_cast<type>(v)));    \
+    }                                                                        \
+    [[nodiscard]] inline auto operator"" suffix##3(long double v) noexcept { \
+        return def<type##3>(luisa::make_##type##3(static_cast<type>(v)));    \
+    }                                                                        \
+    [[nodiscard]] inline auto operator"" suffix##4(long double v) noexcept { \
+        return def<type##4>(luisa::make_##type##4(static_cast<type>(v)));    \
+    }
+
+LUISA_MAKE_DSL_INTEGRAL_LITERAL(_short, short)
+LUISA_MAKE_DSL_INTEGRAL_LITERAL(_ushort, ushort)
+LUISA_MAKE_DSL_INTEGRAL_LITERAL(_int, int)
+LUISA_MAKE_DSL_INTEGRAL_LITERAL(_uint, uint)
+LUISA_MAKE_DSL_INTEGRAL_LITERAL(_slong, slong)
+LUISA_MAKE_DSL_INTEGRAL_LITERAL(_ulong, ulong)
+
+LUISA_MAKE_DSL_FLOATING_POINT_LITERAL(_half, half)
+LUISA_MAKE_DSL_FLOATING_POINT_LITERAL(_float, float)
+LUISA_MAKE_DSL_FLOATING_POINT_LITERAL(_double, double)
+
+#undef LUISA_MAKE_DSL_INTEGRAL_LITERAL
+#undef LUISA_MAKE_DSL_FLOATING_POINT_LITERAL
+
+}// namespace dsl_literals
+
 }// namespace luisa::compute

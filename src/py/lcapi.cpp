@@ -70,8 +70,12 @@ PYBIND11_MODULE(lcapi, m) {
     export_matrix(m);
 
     // util function for uniform encoding
-    m.def("to_bytes", [](LiteralExpr::Value value) {
-        return luisa::visit([](auto x) noexcept { return py::bytes(std::string(reinterpret_cast<char *>(&x), sizeof(x))); }, value);
+    m.def("to_bytes", [](const LiteralExpr::Value::variant_type &value) {
+        return luisa::visit(
+            [](auto x) noexcept {
+                return py::bytes(reinterpret_cast<const char *>(&x), sizeof(x));
+            },
+            value);
     });
     //.def()
 

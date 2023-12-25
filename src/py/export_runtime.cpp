@@ -481,7 +481,7 @@ void export_runtime(py::module &m) {
         .def(
             "create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
                 auto info = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false);
-                RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) { 
+                RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) {
                     if (auto gs = default_stream_data.lock()) {
                         gs->sync();
                     } else {
@@ -675,7 +675,7 @@ void export_runtime(py::module &m) {
         .def("accel", &FunctionBuilder::accel, pyref)
 
         .def(
-            "literal", [](FunctionBuilder &self, const Type *type, LiteralExpr::Value value) {
+            "literal", [](FunctionBuilder &self, const Type *type, const LiteralExpr::Value::variant_type &value) {
                 return luisa::visit(
                     [&self, type]<typename T>(T v) {
                         // we do not allow conversion between vector/matrix/bool types
@@ -711,7 +711,7 @@ void export_runtime(py::module &m) {
                             "Cannot convert literal value {} to type {}.",
                             v, type->description());
                     },
-                    value);
+                    LiteralExpr::Value{value});
             },
             pyref)
         .def("unary", &FunctionBuilder::unary, pyref)
