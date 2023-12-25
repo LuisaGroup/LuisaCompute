@@ -113,5 +113,6 @@
 #define LC_REMOTE_API
 #define LC_GUI_API
 #define LC_BACKEND_API
+#define LC_CLANGCXX_API
 #endif
 

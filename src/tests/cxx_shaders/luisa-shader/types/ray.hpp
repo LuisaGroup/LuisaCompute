@@ -3,7 +3,7 @@
 #include "array.hpp"
 
 namespace luisa::shader {
-struct Ray {
+struct alignas(16) Ray {
     Ray() = default;
     Ray(const float3& origin, const float3& dir, float t_min = 0.0f, float t_max = 1e30f)
         : t_min(t_min), t_max(t_max) 
