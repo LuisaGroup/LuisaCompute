@@ -913,7 +913,20 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->access(lcReturnType, lcArgs[0], lcArgs[1]);
                         }
                     } else if (!exprName.empty()) {
-                        if (exprName == "dispatch_id")
+                        auto lcQuery = stack->queries.empty() ? nullptr : stack->queries.back();
+                        if (exprName == "ray")
+                            current = def<Ray>(fb->call(Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {lcQuery->query()})).expression();
+                        else if (exprName == "tri_hit")
+                            current = def<TriangleHit>(fb->call(Type::of<TriangleHit>(), CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT, {lcQuery->query()})).expression();
+                        else if (exprName == "procedual_hit")
+                            current = def<ProceduralHit>(fb->call(Type::of<ProceduralHit>(), CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT, {lcQuery->query()})).expression();
+                        else if (exprName == "tri_commit")
+                            fb->call( CallOp::RAY_QUERY_COMMIT_TRIANGLE, {lcQuery->query()});
+                        else if (exprName == "procedual_commit")
+                            fb->call( CallOp::RAY_QUERY_COMMIT_PROCEDURAL, {lcQuery->query(), lcArgs[1]});
+                        else if (exprName == "terminate")
+                            fb->call( CallOp::RAY_QUERY_TERMINATE, {lcQuery->query()});
+                        else if (exprName == "dispatch_id")
                             current = fb->dispatch_id();
                         else if (exprName == "block_id")
                             current = fb->block_id();
@@ -930,7 +943,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         else if (exprName == "bit_cast") {
                             auto lcReturnType = db->FindOrAddType(funcDecl->getReturnType(), x->getBeginLoc());
                             current = fb->cast(lcReturnType, luisa::compute::CastOp::BITWISE, lcArgs[0]);
-                        }
+                        } else 
+                            luisa::log_error("ICE: unsupportted expr: {}", exprName);
                     } else if (!callopName.empty()) {
                         auto op = db->FindCallOp(callopName);
                         const bool isHit = (op == CallOp::RAY_QUERY_COMMITTED_HIT);
@@ -1023,7 +1037,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
                         if (query_scope) {
                             fb->pop_scope(query_scope);
-                            fb->clangcxx_rayquery_postprocess(query_scope);
+                            // fb->clangcxx_rayquery_postprocess(query_scope);
                         }
                     }
                 }

@@ -537,11 +537,13 @@ auto TestVector() {
     const auto Origin = float3(0.f, 0.f, 0.f);
     const auto Direction = float3(1.f, 0.f, 0.f);
     accel.query_all(Ray(Origin, Direction))
-        .on_procedural_candidate([&]() {
-            nvidia.f += 1.f;
+        .on_procedural_candidate([&](const ProceduralCandidate& candidate) {
+            nvidia.f += candidate.ray().origin().x;
+            candidate.commit(1.f);
+            candidate.terminate();
         })
-        .on_surface_candidate([&]() {
-            nvidia.f -= 1.f;
+        .on_surface_candidate([&](const SurfaceCandidate& candidate) {
+            nvidia.i -= (int)candidate.hit().inst;
         })
         .trace();
 
