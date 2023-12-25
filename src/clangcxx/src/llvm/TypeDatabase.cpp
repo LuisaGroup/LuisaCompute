@@ -437,7 +437,6 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         }
         auto lcType = Type::structure(alignment, types);
         QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
-        luisa::log_warning("{}", lcType->description());
         registerType(Ty, lcType);
         return lcType;
     }
