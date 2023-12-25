@@ -762,7 +762,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 if (auto _current = stack->GetLocal(dref->getDecl())) {
                     current = _current;
                 } else if (auto Var = dref->getDecl(); Var && llvm::isa<clang::VarDecl>(Var)) {// Value Ref
-                    if (dref->isNonOdrUse() != NonOdrUseReason::NOUR_Unevaluated) {
+                    if (dref->isNonOdrUse() != NonOdrUseReason::NOUR_Unevaluated ||
+                        dref->isNonOdrUse() != NonOdrUseReason::NOUR_Discarded) {
                         if (auto constant = FindOrTraverseAPValue(Var, x))
                             current = constant;
                         else {
@@ -903,8 +904,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->binary(lcReturnType, lcBinop, lcArgs[0], lcArgs[1]);
                     } else if (!unaopName.empty()) {
                         UnaryOp lcUnaop = (unaopName == "PLUS")  ? UnaryOp::PLUS :
-                                           (unaopName == "MINUS") ? UnaryOp::MINUS :
-                                                                    (luisa::log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
+                                          (unaopName == "MINUS") ? UnaryOp::MINUS :
+                                                                   (luisa::log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
                         if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc()))
                             current = fb->unary(lcReturnType, lcUnaop, lcArgs[0]);
                     } else if (isAccess) {
@@ -912,7 +913,20 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->access(lcReturnType, lcArgs[0], lcArgs[1]);
                         }
                     } else if (!exprName.empty()) {
-                        if (exprName == "dispatch_id")
+                        auto lcQuery = stack->queries.empty() ? nullptr : stack->queries.back();
+                        if (exprName == "ray")
+                            current = def<Ray>(fb->call(Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {lcQuery->query()})).expression();
+                        else if (exprName == "tri_hit")
+                            current = def<TriangleHit>(fb->call(Type::of<TriangleHit>(), CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT, {lcQuery->query()})).expression();
+                        else if (exprName == "procedual_hit")
+                            current = def<ProceduralHit>(fb->call(Type::of<ProceduralHit>(), CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT, {lcQuery->query()})).expression();
+                        else if (exprName == "tri_commit")
+                            fb->call( CallOp::RAY_QUERY_COMMIT_TRIANGLE, {lcQuery->query()});
+                        else if (exprName == "procedual_commit")
+                            fb->call( CallOp::RAY_QUERY_COMMIT_PROCEDURAL, {lcQuery->query(), lcArgs[1]});
+                        else if (exprName == "terminate")
+                            fb->call( CallOp::RAY_QUERY_TERMINATE, {lcQuery->query()});
+                        else if (exprName == "dispatch_id")
                             current = fb->dispatch_id();
                         else if (exprName == "block_id")
                             current = fb->block_id();
@@ -929,7 +943,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         else if (exprName == "bit_cast") {
                             auto lcReturnType = db->FindOrAddType(funcDecl->getReturnType(), x->getBeginLoc());
                             current = fb->cast(lcReturnType, luisa::compute::CastOp::BITWISE, lcArgs[0]);
-                        }
+                        } else 
+                            luisa::log_error("ICE: unsupportted expr: {}", exprName);
                     } else if (!callopName.empty()) {
                         auto op = db->FindCallOp(callopName);
                         const bool isHit = (op == CallOp::RAY_QUERY_COMMITTED_HIT);

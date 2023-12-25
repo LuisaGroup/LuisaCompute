@@ -429,7 +429,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         alignment = std::max<size_t>(alignment, S->getMaxAlignment() / 8);
         if (alignment > 16u) {
             DumpWithLocation(S);
-            luisa::log_error("Invalid structure alignment 128 (must be 4, 8, or 16).");
+            luisa::log_error("Invalid structure alignment {} (must be 4, 8, or 16).", alignment);
         }
 
         for (auto ft : types) {
