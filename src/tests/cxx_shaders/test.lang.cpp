@@ -6,6 +6,7 @@ namespace luisa::shader {
 struct Structure {
     int f;
 };
+
 struct NVIDIA {
     int i;
     int ix;

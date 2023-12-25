@@ -762,7 +762,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 if (auto _current = stack->GetLocal(dref->getDecl())) {
                     current = _current;
                 } else if (auto Var = dref->getDecl(); Var && llvm::isa<clang::VarDecl>(Var)) {// Value Ref
-                    if (dref->isNonOdrUse() != NonOdrUseReason::NOUR_Unevaluated) {
+                    if (dref->isNonOdrUse() != NonOdrUseReason::NOUR_Unevaluated ||
+                        dref->isNonOdrUse() != NonOdrUseReason::NOUR_Discarded) {
                         if (auto constant = FindOrTraverseAPValue(Var, x))
                             current = constant;
                         else {
@@ -903,8 +904,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->binary(lcReturnType, lcBinop, lcArgs[0], lcArgs[1]);
                     } else if (!unaopName.empty()) {
                         UnaryOp lcUnaop = (unaopName == "PLUS")  ? UnaryOp::PLUS :
-                                           (unaopName == "MINUS") ? UnaryOp::MINUS :
-                                                                    (luisa::log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
+                                          (unaopName == "MINUS") ? UnaryOp::MINUS :
+                                                                   (luisa::log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
                         if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc()))
                             current = fb->unary(lcReturnType, lcUnaop, lcArgs[0]);
                     } else if (isAccess) {
