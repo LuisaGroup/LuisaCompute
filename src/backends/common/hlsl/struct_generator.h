@@ -20,6 +20,7 @@ private:
     vstd::string structName;
     size_t idx;
     void InitAsStruct(
+        Type const *originType,
         vstd::span<Type const *const> const &vars,
         size_t structIdx,
         Callback const &visitor);
