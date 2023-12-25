@@ -1045,48 +1045,4 @@ const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept
     _captured_external_variables.emplace(expr, internalized);
     return internalized;
 }
-void FunctionBuilder::clangcxx_rayquery_postprocess(ScopeStmt *scope_stmt) {
-    LUISA_ASSERT(scope_stmt->statements().size() == 1 && scope_stmt->statements()[0]->tag() == Statement::Tag::ASSIGN, "Ill statement format.");
-    auto &stmt = const_cast<Statement *&>(scope_stmt->statements()[0]);
-    auto assign_stmt = static_cast<AssignStmt const *>(stmt);
-    auto var = static_cast<RefExpr const *>(assign_stmt->lhs())->variable();
-    auto var_usage = luisa::to_underlying(variable_usage(var.uid()));
-    var_usage &= (~luisa::to_underlying(Usage::WRITE));
-    mark_variable_usage(var.uid(), static_cast<Usage>(var_usage));
-    auto call_expr = static_cast<CallExpr const *>(assign_stmt->rhs());
-    auto call_func = call_expr->custom();
-    auto call_builder = const_cast<FunctionBuilder *>(call_func.builder());
-    auto &call_body = call_builder->_body;
-    for (auto &&callstmt : call_body.statements()) {
-        if (callstmt->tag() != Statement::Tag::EXPR) continue;
-        auto expr_stmt = static_cast<ExprStmt const *>(callstmt);
-        if (expr_stmt->expression()->tag() != Expression::Tag::CALL) continue;
-        for (auto i = _used_custom_callables.begin(); i != _used_custom_callables.end(); ++i) {
-            if (i->get() == call_func.builder()) {
-                if (i != _used_custom_callables.end() - 1) {
-                    *i = std::move(_used_custom_callables.back());
-                }
-                _used_custom_callables.pop_back();
-                break;
-            }
-        }
-        call_func = static_cast<CallExpr const *>(expr_stmt->expression())->custom();
-        call_builder = const_cast<FunctionBuilder *>(call_func.builder());
-        break;
-    }
-    call_builder->_internalizer_arguments.clear();
-    auto args = call_expr->arguments();
-    for (auto &&i : args.subspan(0, 2)) {
-        if (i->tag() != Expression::Tag::REF) [[unlikely]] {
-            continue;
-        }
-        auto var = static_cast<RefExpr const *>(i)->variable();
-        var_usage = luisa::to_underlying(variable_usage(var.uid()));
-        var_usage &= (~luisa::to_underlying(Usage::READ));
-        mark_variable_usage(var.uid(), static_cast<Usage>(var_usage));
-    }
-    auto stmt_ptr = luisa::make_unique<ExprStmt>(call(call_expr->type(), call_func, args.subspan(2)));
-    stmt = stmt_ptr.get();
-    _all_statements.emplace_back(std::move(stmt_ptr));
-}
 }// namespace luisa::compute::detail

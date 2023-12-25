@@ -1022,7 +1022,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
                         if (query_scope) {
                             fb->pop_scope(query_scope);
-                            fb->clangcxx_rayquery_postprocess(query_scope);
+                            // fb->clangcxx_rayquery_postprocess(query_scope);
                         }
                     }
                 }
