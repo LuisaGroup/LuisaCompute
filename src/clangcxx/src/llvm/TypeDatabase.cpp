@@ -321,8 +321,8 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                 auto &Arguments = TSD->getTemplateArgs();
                 clang::Expr::EvalResult Result;
                 auto N = Arguments.get(1).getAsIntegral().getLimitedValue();
-                if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), TSD->getBeginLoc())) {
-                    _type = Type::array(lc_type, N);
+                if (auto lcType = FindOrAddType(Arguments[0].getAsType(), TSD->getBeginLoc())) {
+                    _type = Type::array(lcType, N);
                 } else {
                     luisa::log_error("unfound array element type: {}", Arguments[0].getAsType().getAsString());
                 }
@@ -346,13 +346,13 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         } else if (is_image || is_buffer || is_volume) {
             if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
                 auto &Arguments = TSD->getTemplateArgs();
-                if (auto lc_type = FindOrAddType(Arguments[0].getAsType(), TSD->getBeginLoc())) {
+                if (auto lcType = FindOrAddType(Arguments[0].getAsType(), TSD->getBeginLoc())) {
                     if (is_buffer)
-                        _type = Type::buffer(lc_type);
+                        _type = Type::buffer(lcType);
                     if (is_image)
-                        _type = Type::texture(lc_type, 2);
+                        _type = Type::texture(lcType, 2);
                     if (is_volume)
-                        _type = Type::texture(lc_type, 3);
+                        _type = Type::texture(lcType, 3);
                 } else {
                     luisa::log_error("unfound {} element type: {}",
                                      is_buffer ? "buffer" : is_image ? "image" :
@@ -435,10 +435,10 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         for (auto ft : types) {
             alignment = std::max(alignment, ft->alignment());
         }
-        auto lc_type = Type::structure(alignment, types);
+        auto lcType = Type::structure(alignment, types);
         QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
-        registerType(Ty, lc_type);
-        return lc_type;
+        registerType(Ty, lcType);
+        return lcType;
     }
 }
 
