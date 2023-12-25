@@ -9,6 +9,9 @@ using uint32 = unsigned int;
 using uint = uint32;
 using uint64 = unsigned long long;
 
+template<typename F>
+inline constexpr bool is_function_v = __is_function(F);
+
 template<typename T, typename U>
 inline constexpr bool is_same_v = __is_same_as(T, U);
 
