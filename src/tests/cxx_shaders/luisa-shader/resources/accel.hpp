@@ -1,7 +1,7 @@
 #pragma once
 #include "./../types/matrix.hpp"
 #include "./../types/ray.hpp"
-#include "./../ray_query.hpp"
+#include "./../raytracing/ray_query.hpp"
 
 namespace luisa::shader {
 struct [[builtin("accel")]] Accel {

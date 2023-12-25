@@ -33,7 +33,6 @@ struct Stack {
     void SetExprAsCtor(const luisa::compute::Expression * expr);
 
     luisa::vector<const luisa::compute::Expression *> callers;
-    luisa::vector<class luisa::compute::RayQueryStmt*> queries;
 
 private:
     luisa::unordered_set< const luisa::compute::Expression *> ctor_exprs;

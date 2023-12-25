@@ -54,7 +54,7 @@ struct Template {
 
 template<>
 struct Template<NVIDIA> {
-    explicit Template(const NVIDIA& v)
+    explicit Template(const NVIDIA &v)
         : nv(v) {}
     void call() {
         nv.f += 1.f;
@@ -71,8 +71,7 @@ struct TestCtorStructure {
     float xxx = +2.f; /*unary +*/
 };
 
-auto TestCtor()
-{
+auto TestCtor() {
     // CallInit
     TestCtorStructure ctor0(5);
     auto ctor1(TestCtorStructure(TestCtorStructure(TestCtorStructure(3))));
@@ -536,16 +535,16 @@ auto TestVector() {
     // query
     const auto Origin = float3(0.f, 0.f, 0.f);
     const auto Direction = float3(1.f, 0.f, 0.f);
-    accel.query_all(Ray(Origin, Direction))
-        .on_procedural_candidate([&](const ProceduralCandidate& candidate) {
-            nvidia.f += candidate.ray().origin().x;
-            candidate.commit(1.f);
-            candidate.terminate();
-        })
-        .on_surface_candidate([&](const SurfaceCandidate& candidate) {
-            nvidia.i -= (int)candidate.hit().inst;
-        })
-        .trace();
+    auto query = accel.query_all(Ray(Origin, Direction));
+    while (query.proceed()) {
+        if (query.is_triangle_candidate()) {
+            auto hit = query.triangle_candidate();
+            nvidia.f += Origin.x;
+            nvidia.i -= static_cast<int>(hit.inst);
+            query.commit_procedural(1.f);
+            query.terminate();
+        }
+    }
 
     // member call
     auto n = buffer.load(0);

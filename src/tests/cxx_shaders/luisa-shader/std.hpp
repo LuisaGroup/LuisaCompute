@@ -7,7 +7,7 @@
 #include "resources.hpp"
 
 #include "functions.hpp"
-#include "ray_query.hpp"
+#include "raytracing.hpp"
 
 struct zzSHADER_PRIMITIVES
 {

@@ -1,3 +1,4 @@
 #pragma once
-#include "resource/accel.hpp"
-#include "ray_query.hpp"
+#include "types/ray.hpp"
+#include "resources/accel.hpp"
+#include "raytracing/ray_query.hpp"

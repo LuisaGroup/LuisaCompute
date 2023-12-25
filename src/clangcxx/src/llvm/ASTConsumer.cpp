@@ -913,20 +913,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->access(lcReturnType, lcArgs[0], lcArgs[1]);
                         }
                     } else if (!exprName.empty()) {
-                        auto lcQuery = stack->queries.empty() ? nullptr : stack->queries.back();
-                        if (exprName == "ray")
-                            current = def<Ray>(fb->call(Type::of<Ray>(), CallOp::RAY_QUERY_WORLD_SPACE_RAY, {lcQuery->query()})).expression();
-                        else if (exprName == "tri_hit")
-                            current = def<TriangleHit>(fb->call(Type::of<TriangleHit>(), CallOp::RAY_QUERY_TRIANGLE_CANDIDATE_HIT, {lcQuery->query()})).expression();
-                        else if (exprName == "procedual_hit")
-                            current = def<ProceduralHit>(fb->call(Type::of<ProceduralHit>(), CallOp::RAY_QUERY_PROCEDURAL_CANDIDATE_HIT, {lcQuery->query()})).expression();
-                        else if (exprName == "tri_commit")
-                            fb->call( CallOp::RAY_QUERY_COMMIT_TRIANGLE, {lcQuery->query()});
-                        else if (exprName == "procedual_commit")
-                            fb->call( CallOp::RAY_QUERY_COMMIT_PROCEDURAL, {lcQuery->query(), lcArgs[1]});
-                        else if (exprName == "terminate")
-                            fb->call( CallOp::RAY_QUERY_TERMINATE, {lcQuery->query()});
-                        else if (exprName == "dispatch_id")
+                        if (exprName == "dispatch_id")
                             current = fb->dispatch_id();
                         else if (exprName == "block_id")
                             current = fb->block_id();
@@ -943,47 +930,20 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         else if (exprName == "bit_cast") {
                             auto lcReturnType = db->FindOrAddType(funcDecl->getReturnType(), x->getBeginLoc());
                             current = fb->cast(lcReturnType, luisa::compute::CastOp::BITWISE, lcArgs[0]);
-                        } else 
+                        } else
                             luisa::log_error("ICE: unsupportted expr: {}", exprName);
                     } else if (!callopName.empty()) {
                         auto op = db->FindCallOp(callopName);
-                        const bool isHit = (op == CallOp::RAY_QUERY_COMMITTED_HIT);
-
-                        const bool isQueryAny = (op == CallOp::RAY_TRACING_QUERY_ANY);
-                        const bool isQueryAll = (op == CallOp::RAY_TRACING_QUERY_ALL);
-                        const bool isQuery = isQueryAny || isQueryAll;
-
-                        if (isHit) {
-                            auto _stmt = stack->queries.back();
-                            stack->queries.pop_back();
-                            auto tvar = def<CommittedHit>(fb->call(Type::of<CommittedHit>(), CallOp::RAY_QUERY_COMMITTED_HIT, {_stmt->query()}));
-                            current = tvar.expression();
-                        } else if (isQuery) {
-                            const luisa::compute::Type *rq_type = nullptr;
-                            if (isQueryAny)
-                                rq_type = Type::of<luisa::compute::detail::RayQueryProxy<true>>();
-                            else if (isQueryAll)
-                                rq_type = Type::of<luisa::compute::detail::RayQueryProxy<false>>();
-
-                            auto local = LC_Local(fb, rq_type, Usage::READ);
-                            auto rq_stmt = fb->call(rq_type, op, lcArgs);
-                            fb->assign(local, rq_stmt);
-                            current = local;
-
-                            auto ctrl_stmt = fb->ray_query_(local);
-                            stack->queries.emplace_back(ctrl_stmt);
-                        } else {
-                            if (call->getCallReturnType(*astContext)->isVoidType())
-                                fb->call(op, lcArgs);
-                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
-                                auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
-                                fb->assign(ret_value, fb->call(lcReturnType, op, lcArgs));
-                                current = ret_value;
-                            } else
-                                luisa::log_error(
-                                    "unfound return type: {}",
-                                    call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
-                        }
+                        if (call->getCallReturnType(*astContext)->isVoidType())
+                            fb->call(op, lcArgs);
+                        else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
+                            auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
+                            fb->assign(ret_value, fb->call(lcReturnType, op, lcArgs));
+                            current = ret_value;
+                        } else
+                            luisa::log_error(
+                                "unfound return type: {}",
+                                call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
                     } else {
                         // TODO: REFACTOR THIS
                         auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
@@ -996,16 +956,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 calleeDecl = funcDecl;
                             }
                         }
-
-                        auto query = stack->queries.empty() ? nullptr : stack->queries.back();
-                        luisa::compute::ScopeStmt *query_scope = nullptr;
-                        auto functionName = calleeDecl->getAsFunction()->getNameAsString();
-                        if (functionName.starts_with("on_surface_candidate"))
-                            query_scope = query->on_triangle_candidate();
-                        if (functionName.starts_with("on_procedural_candidate"))
-                            query_scope = query->on_procedural_candidate();
-                        if (query_scope)
-                            fb->push_scope(query_scope);
 
                         if (auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(calleeDecl);
                             methodDecl && (methodDecl->isCopyAssignmentOperator() || methodDecl->isMoveAssignmentOperator())) {//TODO
@@ -1033,11 +983,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         } else {
                             db->DumpWithLocation(calleeDecl);
                             luisa::log_error("unfound function!");
-                        }
-
-                        if (query_scope) {
-                            fb->pop_scope(query_scope);
-                            // fb->clangcxx_rayquery_postprocess(query_scope);
                         }
                     }
                 }
