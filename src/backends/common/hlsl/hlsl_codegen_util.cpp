@@ -1119,16 +1119,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             args[0]->accept(vis);
             str << ".Abort()"sv;
             return;
-        case CallOp::PROCEED:
+        case CallOp::RAY_QUERY_PROCEED:
             args[0]->accept(vis);
             str << ".Proceed()"sv;
             return;
-        case CallOp::IS_TRIANGLE_CANDIDATE:
+        case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE:
             str << '(';
             args[0]->accept(vis);
             str << ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE)"sv;
             return;
-        case CallOp::IS_PROCEDURAL_CANDIDATE:
+        case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE:
             str << '(';
             args[0]->accept(vis);
             str << ".CandidateType()!=CANDIDATE_NON_OPAQUE_TRIANGLE)"sv;

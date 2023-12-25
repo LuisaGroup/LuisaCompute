@@ -1056,9 +1056,9 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::RAY_QUERY_COMMIT_TRIANGLE: _scratch << "ray_query_commit_triangle"; break;
         case CallOp::RAY_QUERY_COMMIT_PROCEDURAL: _scratch << "ray_query_commit_procedural"; break;
         case CallOp::RAY_QUERY_TERMINATE: _scratch << "ray_query_terminate"; break;
-        case CallOp::PROCEED: _scratch << "ray_query_next"; break;
-        case CallOp::IS_TRIANGLE_CANDIDATE: _scratch << "ray_query_is_triangle_candidate"; break;
-        case CallOp::IS_PROCEDURAL_CANDIDATE: _scratch << "!ray_query_is_triangle_candidate"; break;
+        case CallOp::RAY_QUERY_PROCEED: _scratch << "ray_query_next"; break;
+        case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: _scratch << "ray_query_is_triangle_candidate"; break;
+        case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: _scratch << "!ray_query_is_triangle_candidate"; break;
         case CallOp::REDUCE_SUM: _scratch << "lc_reduce_sum"; break;
         case CallOp::REDUCE_PRODUCT: _scratch << "lc_reduce_prod"; break;
         case CallOp::REDUCE_MIN: _scratch << "lc_reduce_min"; break;
