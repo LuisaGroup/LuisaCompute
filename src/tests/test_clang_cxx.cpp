@@ -17,6 +17,7 @@
 
 using namespace luisa;
 using namespace luisa::compute;
+using namespace std::string_view_literals;
 
 static bool kTestRuntime = false;
 static std::string kTestName = "lang";
@@ -47,13 +48,16 @@ int main(int argc, char *argv[]) {
     {
         auto src_relative = "./../../src/tests/cxx_shaders/test." + kTestName + ".cpp";
         auto inc_relative = "./../../src/tests/cxx_shaders";
-        auto shader_path = context.runtime_directory() / src_relative;
-        auto include_path = context.runtime_directory() / inc_relative;
+        auto shader_path = std::filesystem::canonical(context.runtime_directory() / src_relative);
+        auto include_path = std::filesystem::canonical(context.runtime_directory() / inc_relative);
         auto compiler = luisa::clangcxx::Compiler(
             ShaderOption{
                 .compile_only = true,
                 .name = "test.bin"});
-        compiler.create_shader(context, device, shader_path, include_path);
+        compiler.create_shader(context, device, {}, shader_path, include_path);
+        LUISA_INFO("{}", luisa::clangcxx::Compiler::lsp_compile_commands(
+            context, {}, include_path, "test." + kTestName + ".cpp", include_path
+        ));
     }
     if (kTestRuntime) {
         Callable linear_to_srgb = [&](Var<float3> x) noexcept {

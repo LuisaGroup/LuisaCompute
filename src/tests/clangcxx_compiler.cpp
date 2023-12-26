@@ -18,6 +18,7 @@ string to_lower(string_view value) {
     }
     return value_str;
 }
+
 int main(int argc, char *argv[]) {
     log_level_warning();
     //////// Properties
@@ -185,7 +186,9 @@ Argument list:
     if (src_path == dst_path) {
         LUISA_ERROR("Source file and dest file path can not be the same.");
     }
-
+    src_path = std::filesystem::weakly_canonical(src_path);
+    dst_path = std::filesystem::weakly_canonical(dst_path);
+    inc_path = std::filesystem::weakly_canonical(inc_path);
     DeviceConfig config{
         .headless = true};
     Device device = context.create_device(backend, &config);
@@ -195,6 +198,11 @@ Argument list:
             .enable_fast_math = use_optimize,
             .enable_debug_info = !use_optimize,
             .name = luisa::to_string(dst_path)});
-    compiler.create_shader(context, device, src_path, inc_path);
+    luisa::vector<luisa::string_view> defines_vector;
+    defines_vector.reserve(defines.size());
+    for (auto &&i : defines) {
+        defines_vector.emplace_back(i);
+    }
+    compiler.create_shader(context, device, defines_vector, src_path, inc_path);
     return 0;
 }
