@@ -13,8 +13,8 @@ template<typename T>
 std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute::Device *device, compute::ShaderOption option) {
     class SimpleFrontendActionFactory2 : public FrontendActionFactory {
     public:
-        SimpleFrontendActionFactory2(luisa::compute::Device *device, compute::ShaderOption option)
-            : device(device), option(option) {
+        SimpleFrontendActionFactory2(luisa::compute::Device *device, compute::ShaderOption &&option)
+            : device(device), option(std::move(option)) {
         }
 
         std::unique_ptr<clang::FrontendAction> create() override {
@@ -24,7 +24,7 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute:
         luisa::compute::Device *device = nullptr;
         compute::ShaderOption option;
     };
-    return std::unique_ptr<FrontendActionFactory>(new SimpleFrontendActionFactory2(device, option));
+    return std::unique_ptr<FrontendActionFactory>(new SimpleFrontendActionFactory2(device, std::move(option)));
 }
 
 compute::ShaderCreationInfo Compiler::create_shader(

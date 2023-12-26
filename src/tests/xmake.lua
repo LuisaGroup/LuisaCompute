@@ -260,3 +260,12 @@ if get_config("dx_backend") and enable_fsr3 then
         end)
     end)
 end
+
+target("clangcxx_compiler")
+    _config_project({
+        project_kind = "binary"
+    })
+    add_files("clangcxx_compiler.cpp")
+    add_deps("lc-runtime", "lc-vstl", "lc-backends-dummy", "lc-clangcxx")
+    set_pcxxheader("pch.h")
+target_end()

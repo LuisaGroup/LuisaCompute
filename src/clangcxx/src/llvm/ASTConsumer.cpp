@@ -23,9 +23,9 @@ using namespace clang;
 using namespace clang::ast_matchers;
 using namespace luisa::compute;
 
-inline bool FuncIsEmpty(Function func){
-    for(auto&& i : func.body()->statements()){
-        if(i->tag() != Statement::Tag::COMMENT) return false;
+inline bool FuncIsEmpty(Function func) {
+    for (auto &&i : func.body()->statements()) {
+        if (i->tag() != Statement::Tag::COMMENT) return false;
     }
     return true;
 }
@@ -1315,7 +1315,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
 }
 
 ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device, compute::ShaderOption option)
-    : OutputPath(std::move(OutputPath)), device(device), option(option) {
+    : OutputPath(std::move(OutputPath)), device(device), option(std::move(option)) {
 
     db.kernel_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
 
@@ -1343,11 +1343,7 @@ ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device,
 }
 
 ASTConsumer::~ASTConsumer() {
-    device->impl()->create_shader(
-        luisa::compute::ShaderOption{
-            .compile_only = true,
-            .name = "test.bin"},
-        luisa::compute::Function{db.kernel_builder.get()});
+    device->impl()->create_shader(option, luisa::compute::Function{db.kernel_builder.get()});
 }
 
 void ASTConsumer::HandleTranslationUnit(clang::ASTContext &Context) {
