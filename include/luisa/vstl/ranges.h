@@ -408,32 +408,26 @@ public:
     }
 };
 template<typename T, typename E>
+    requires(std::is_trivially_destructible_v<T>)
 class ite_range : public detail::RangeFlag<ite_range<T, E>> {
-    Storage<T> ptr;
+    StackObject<T, false> ptr;
     T b;
     E e;
-    bool begined{false};
-    T *Ptr() { return reinterpret_cast<T *>(&ptr); }
-    T const *Ptr() const { return reinterpret_cast<T const *>(&ptr); }
 
 public:
     ite_range(T &&b, E &&e) : b(std::forward<T>(b)), e(std::forward<E>(e)) {}
-    ~ite_range() {
-        if (begined) { vstd::destruct(Ptr()); }
-    }
     IteRef<ite_range> begin() {
-        if (begined) { vstd::destruct(Ptr()); }
-        new (Ptr()) T(std::forward<T>(b));
+        ptr.create(b);
         return {this};
     }
     bool operator==(IteEndTag) const {
-        return (*Ptr()) == e;
+        return *ptr == e;
     }
     void operator++() {
-        ++(*Ptr());
+        ++(*ptr);
     }
     decltype(auto) operator*() {
-        return **Ptr();
+        return **ptr;
     }
 };
 namespace detail {
