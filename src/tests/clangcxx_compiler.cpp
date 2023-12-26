@@ -5,6 +5,7 @@
 #include <luisa/vstl/common.h>
 #include <luisa/vstl/functional.h>
 #include <luisa/clangcxx/compiler.h>
+#include <luisa/core/thread_pool.h>
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -20,7 +21,7 @@ string to_lower(string_view value) {
 }
 
 int main(int argc, char *argv[]) {
-    log_level_warning();
+    log_level_error();
     //////// Properties
     if (argc <= 1) {
         LUISA_ERROR("Empty argument not allowed.");
@@ -32,7 +33,8 @@ int main(int argc, char *argv[]) {
     luisa::string backend = "dx";
     bool use_optimize = true;
     bool enable_help = false;
-    vstd::HashMap<vstd::string, vstd::function<void(vstd::string_view)>> cmds;
+    bool enable_lsp = false;
+    vstd::HashMap<vstd::string, vstd::function<void(vstd::string_view)>> cmds(16);
     auto invalid_arg = []() {
         LUISA_ERROR("Invalid argument, use --help please.");
     };
@@ -103,6 +105,11 @@ int main(int argc, char *argv[]) {
             }
             defines.emplace(name);
         });
+    cmds.emplace(
+        "lsp"sv,
+        [&](string_view name) {
+            enable_lsp = true;
+        });
     // TODO: define
     for (auto i : vstd::ptr_range(argv + 1, argc - 1)) {
         string arg = i;
@@ -143,23 +150,183 @@ Argument format:
 Argument list:
     --opt: enable or disable optimize, E.g --opt=on, --opt=off, case ignored.
     --backend: backend name, currently support "dx", "cuda", "metal", case ignored.
-    --in: input file, E.g --in=./my_dir/my_shader.cpp
-    --out: output file, E.g --out=./my_dir/my_shader.bin
+    --in: input file or dir, E.g --in=./my_dir/my_shader.cpp
+    --out: output file or dir, E.g --out=./my_dir/my_shader.bin
     --include: include file directory, E.g --include=./shader_dir/
     --define: shader predefines, this can be set multiple times, E.g --define=MY_MACRO
+    --lsp: enable compile_commands.json generation, E.g --lsp
 )"sv;
         std::cout << helplist << '\n';
         return 0;
     }
-    //////// Compile
     if (src_path.empty()) {
         LUISA_ERROR("Input file path not defined.");
     }
-    if (!std::filesystem::is_regular_file(src_path)) {
-        LUISA_ERROR("Source path must be a file.");
+    Context context{argv[0]};
+    if (src_path.is_relative()) {
+        src_path = context.runtime_directory() / src_path;
     }
+    std::error_code code;
+    src_path = std::filesystem::canonical(src_path, code);
+    if (code.value() != 0) {
+        LUISA_ERROR("Invalid source file path");
+    }
+    auto format_path = [&]() {
+        if (inc_path.is_relative()) {
+            inc_path = src_path / inc_path;
+        }
+        if (dst_path.is_relative()) {
+            dst_path = src_path / dst_path;
+        }
+        if (src_path == dst_path) {
+            LUISA_ERROR("Source file and dest file path can not be the same.");
+        }
+        dst_path = std::filesystem::weakly_canonical(dst_path);
+        inc_path = std::filesystem::weakly_canonical(inc_path, code);
+        if (code.value() != 0) {
+            LUISA_ERROR("Invalid include file path");
+        }
+    };
+    auto ite_dir = [&](auto &&ite_dir, auto const &path, auto &&func) -> void {
+        for (auto &i : std::filesystem::directory_iterator(path)) {
+            if (i.is_directory()) {
+                auto path_str = luisa::to_string(i.path().filename());
+                if (path_str[0] == '.') {
+                    continue;
+                }
+                ite_dir(ite_dir, i.path(), func);
+                continue;
+            }
+            func(i.path());
+        }
+    };
+    //////// LSP print
+    if (enable_lsp) {
+        if (!std::filesystem::is_directory(src_path)) {
+            LUISA_ERROR("Source path must be a directory.");
+        }
+        if (dst_path.empty()) {
+            dst_path = "compile_commands.json";
+        } else if (!std::filesystem::is_regular_file(dst_path)) {
+            LUISA_ERROR("Dest path must be a file.");
+        }
+        if (inc_path.empty()) {
+            inc_path = src_path;
+        }
+        format_path();
+
+        luisa::vector<char> result;
+        result.reserve(16384);
+        result.emplace_back('[');
+        auto func = [&](auto const &file_path_ref) {
+            auto file_path = file_path_ref;
+            if (file_path.extension() != ".cpp") return;
+            if (file_path.is_absolute()) {
+                file_path = std::filesystem::relative(file_path, src_path);
+            }
+            luisa::vector<luisa::string_view> defines_vector;
+            defines_vector.reserve(defines.size());
+            for (auto &&i : defines) {
+                defines_vector.emplace_back(i);
+            }
+            luisa::clangcxx::Compiler::lsp_compile_commands(
+                context,
+                defines_vector,
+                src_path,
+                file_path,
+                inc_path,
+                result);
+            result.emplace_back(',');
+        };
+        ite_dir(ite_dir, src_path, func);
+        if (result.size() > 1) {
+            result.pop_back();
+        }
+        result.emplace_back(']');
+        auto dst_path_str = luisa::to_string(dst_path);
+        auto f = fopen(dst_path_str.c_str(), "wb");
+        fwrite(result.data(), result.size(), 1, f);
+        fclose(f);
+        return 0;
+    }
+    //////// Compile all
+    if (std::filesystem::is_directory(src_path)) {
+        if (dst_path.empty()) {
+            dst_path = src_path / "out";
+        } else if (std::filesystem::exists(dst_path) && !std::filesystem::is_directory(dst_path)) {
+            LUISA_ERROR("Dest path must be a directory.");
+        }
+        luisa::vector<std::filesystem::path> paths;
+        auto create_dir = [&](auto &&path) {
+            auto const &parent_path = path.parent_path();
+            if (!std::filesystem::exists(parent_path))
+                std::filesystem::create_directories(parent_path);
+        };
+        auto func = [&](auto const &file_path_ref) {
+            if (file_path_ref.extension() != ".cpp") return;
+            paths.emplace_back(file_path_ref);
+        };
+        ite_dir(ite_dir, src_path, func);
+        if (paths.empty()) return 0;
+        luisa::ThreadPool thread_pool(std::min<uint>(std::thread::hardware_concurrency(), paths.size()));
+        auto add = [&]<typename T>(auto &&result, T c) {
+            if constexpr (std::is_same_v<T, char const *> || std::is_same_v<T, char *>) {
+                vstd::push_back_all(result, span<char const>(c, strlen(c)));
+            } else if constexpr (std::is_same_v<T, char>) {
+                result.emplace_back(c);
+            } else {
+                vstd::push_back_all(result, span<char const>(c.data(), c.size()));
+            }
+        };
+        if (inc_path.empty()) {
+            inc_path = src_path.parent_path();
+        }
+        format_path();
+        auto inc_path_str = luisa::to_string(inc_path);
+        log_level_info();
+        thread_pool.parallel(
+            paths.size(),
+            [&](size_t i) {
+                auto const &src_file_path = paths[i];
+                auto file_path = src_file_path;
+                if (file_path.is_absolute()) {
+                    file_path = std::filesystem::relative(file_path, src_path);
+                }
+                auto out_path = dst_path / file_path;
+                create_dir(out_path);
+                out_path.replace_extension("bin");
+                luisa::vector<char> vec;
+                add(vec, argv[0]);
+                add(vec, ' ');
+                add(vec, "--opt="sv);
+                add(vec, use_optimize ? "on"sv : "off"sv);
+                add(vec, ' ');
+                add(vec, "--backend="sv);
+                add(vec, backend);
+                add(vec, ' ');
+                add(vec, "--in="sv);
+                add(vec, luisa::to_string(src_file_path));
+                add(vec, ' ');
+                add(vec, "--out="sv);
+                add(vec, luisa::to_string(out_path));
+                add(vec, ' ');
+                add(vec, "--include="sv);
+                add(vec, inc_path_str);
+                for (auto &i : defines) {
+                    add(vec, ' ');
+                    add(vec, "--define="sv);
+                    add(vec, i);
+                }
+                vec.emplace_back(0);
+                LUISA_INFO("{}", string_view(vec.data(), vec.size() - 1));
+                system(vec.data());
+            });
+        thread_pool.synchronize();
+        return 0;
+    }
+    //////// Compile
     if (dst_path.empty()) {
-        dst_path = src_path;
+        dst_path = src_path.filename();
         if (dst_path.has_extension() && dst_path.extension() == "bin") {
             dst_path.replace_extension();
             dst_path.replace_extension(luisa::to_string(dst_path.filename()) + string("_out.bin"sv));
@@ -167,28 +334,11 @@ Argument list:
             dst_path.replace_extension("bin");
         }
         // src_path.replace_extension()
-    } else if (!std::filesystem::is_regular_file(dst_path)) {
-        LUISA_ERROR("Dest path must be a file.");
     }
-
-    Context context{argv[0]};
     if (inc_path.empty()) {
         inc_path = src_path.parent_path();
-    } else if (inc_path.is_relative()) {
-        inc_path = context.runtime_directory() / inc_path;
     }
-    if (src_path.is_relative()) {
-        src_path = context.runtime_directory() / src_path;
-    }
-    if (dst_path.is_relative()) {
-        dst_path = context.runtime_directory() / dst_path;
-    }
-    if (src_path == dst_path) {
-        LUISA_ERROR("Source file and dest file path can not be the same.");
-    }
-    src_path = std::filesystem::weakly_canonical(src_path);
-    dst_path = std::filesystem::weakly_canonical(dst_path);
-    inc_path = std::filesystem::weakly_canonical(inc_path);
+    format_path();
     DeviceConfig config{
         .headless = true};
     Device device = context.create_device(backend, &config);

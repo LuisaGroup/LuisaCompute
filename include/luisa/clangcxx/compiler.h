@@ -14,19 +14,21 @@ struct LC_CLANGCXX_API Compiler {
         luisa::span<const luisa::string_view> defines,
         const std::filesystem::path &shader_path,
         const std::filesystem::path &include_path) LUISA_NOEXCEPT;
-    static luisa::string lsp_compile_commands(
+    static void lsp_compile_commands(
         compute::Context const &context,
         luisa::span<const luisa::string_view> defines,
         const std::filesystem::path &shader_dir,
         const std::filesystem::path &shader_relative_dir,
-        const std::filesystem::path &include_path);
+        const std::filesystem::path &include_path,
+        luisa::vector<char> &result);
 private:
     compute::ShaderOption option;
     static luisa::vector<luisa::string> compile_args(
         compute::Context const &context,
         luisa::span<const luisa::string_view> defines,
         const std::filesystem::path &shader_path,
-        const std::filesystem::path &include_path);
+        const std::filesystem::path &include_path,
+        bool is_lsp);
 };
 
 }// namespace luisa::clangcxx

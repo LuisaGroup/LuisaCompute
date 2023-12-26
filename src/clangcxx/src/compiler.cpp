@@ -1,6 +1,7 @@
 #include "llvm/Global.h"
 #include "llvm/FrontendAction.h"
 #include <luisa/vstl/vector.h>
+#include <luisa/vstl/ranges.h>
 
 namespace tooling = clang::tooling;
 
@@ -42,23 +43,35 @@ luisa::vector<luisa::string> Compiler::compile_args(
     compute::Context const &context,
     luisa::span<const luisa::string_view> defines,
     const std::filesystem::path &shader_path,
-    const std::filesystem::path &include_path) {
+    const std::filesystem::path &include_path,
+    bool is_lsp) {
     auto include_arg = "-I" + detail::path_to_string(include_path);
     auto const &output_path = context.runtime_directory();
-    auto output_arg = detail::path_to_string(output_path);
-    output_arg = "--output=" + output_arg;
+    luisa::string output_arg = "--output=";
+    output_arg += detail::path_to_string(output_path);
+
     luisa::string arg_list[] = {
-        "luisa_compiler",
-        std::move(detail::path_to_string(shader_path)),
-        std::move(output_arg),
-        "--",
         "-std=c++20",
         // swizzle uses reference member in union
         "-fms-extensions",
         "-Wno-microsoft-union-member-reference",
         std::move(include_arg)};
     luisa::vector<luisa::string> args_holder;
-    args_holder.reserve(vstd::array_count(arg_list) + defines.size());
+    size_t reserve_size = vstd::array_count(arg_list) + defines.size();
+    if (!is_lsp) {
+        luisa::string compile_arg_list[] = {
+            "luisa_compiler",
+            std::move(detail::path_to_string(shader_path)),
+            std::move(output_arg),
+            "--"};
+        reserve_size += vstd::array_count(compile_arg_list);
+        args_holder.reserve(reserve_size);
+        vstd::push_back_func(args_holder, vstd::array_count(compile_arg_list), [&](size_t i) -> auto && {
+            return std::move(compile_arg_list[i]);
+        });
+    } else {
+        args_holder.reserve(reserve_size);
+    }
     vstd::push_back_func(args_holder, vstd::array_count(arg_list), [&](size_t i) -> auto && {
         return std::move(arg_list[i]);
     });
@@ -77,7 +90,7 @@ compute::ShaderCreationInfo Compiler::create_shader(
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path) LUISA_NOEXCEPT {
 
-    auto args_holder = compile_args(context, defines, shader_path, include_path);
+    auto args_holder = compile_args(context, defines, shader_path, include_path, false);
     luisa::vector<const char *> args;
     args.reserve(args_holder.size());
     for (auto &arg : args_holder) {
@@ -100,30 +113,38 @@ compute::ShaderCreationInfo Compiler::create_shader(
     return compute::ShaderCreationInfo::make_invalid();
 }
 
-luisa::string Compiler::lsp_compile_commands(
+void Compiler::lsp_compile_commands(
     compute::Context const &context,
     luisa::span<const luisa::string_view> defines,
     const std::filesystem::path &shader_dir,
     const std::filesystem::path &shader_relative_dir,
-    const std::filesystem::path &include_path) {
+    const std::filesystem::path &include_path,
+    luisa::vector<char> &result) {
     using namespace std::string_view_literals;
-    auto args_holder = compile_args(context, defines, shader_relative_dir, include_path);
-    luisa::string json;
-    json += R"({"directory":")"sv;
-    json += detail::path_to_string(shader_dir);
-    json += R"(","arguments":[")"sv;
-    json += detail::path_to_string(context.runtime_directory() / "clang.exe"sv);
-    json += "\",";
+    auto args_holder = compile_args(context, defines, shader_relative_dir, include_path, true);
+    auto add = [&]<typename T>(T c) {
+        if constexpr (std::is_same_v<T, char const *>) {
+            vstd::push_back_all(result, span<char const>(c, strlen(c)));
+        } else if constexpr (std::is_same_v<T, char>) {
+            result.emplace_back(c);
+        } else {
+            vstd::push_back_all(result, span<char const>(c.data(), c.size()));
+        }
+    };
+    add(R"({"directory":")"sv);
+    add(detail::path_to_string(shader_dir));
+    add(R"(","arguments":[")"sv);
+    add("clang.exe"sv);
+    add("\","sv);
     for (auto &i : args_holder) {
-        json += "\"";
-        json += i;
-        json += "\",";
+        add('"');
+        add(i);
+        add("\","sv);
     }
-    json.pop_back();
-    json += R"(],"file":")"sv;
-    json += detail::path_to_string(shader_relative_dir);
-    json += "\"}";
-    return json;
+    result.pop_back();
+    add(R"(],"file":")"sv);
+    add(detail::path_to_string(shader_relative_dir));
+    add("\"}");
 }
 
 }// namespace luisa::clangcxx

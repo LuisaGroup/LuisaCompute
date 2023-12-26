@@ -55,9 +55,6 @@ int main(int argc, char *argv[]) {
                 .compile_only = true,
                 .name = "test.bin"});
         compiler.create_shader(context, device, {}, shader_path, include_path);
-        LUISA_INFO("{}", luisa::clangcxx::Compiler::lsp_compile_commands(
-            context, {}, include_path, "test." + kTestName + ".cpp", include_path
-        ));
     }
     if (kTestRuntime) {
         Callable linear_to_srgb = [&](Var<float3> x) noexcept {
