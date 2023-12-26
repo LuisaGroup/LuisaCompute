@@ -9,8 +9,6 @@
 
 namespace luisa::clangcxx {
 
-static constexpr auto kUseComment = true;
-
 using CXXBinOp = clang::BinaryOperator::Opcode;
 using LCBinOp = luisa::compute::BinaryOp;
 using CXXUnaryOp = clang::UnaryOperator::Opcode;

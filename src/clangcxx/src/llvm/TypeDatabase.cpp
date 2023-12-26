@@ -137,7 +137,7 @@ void TypeDatabase::commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionB
 }
 
 TypeDatabase::Commenter TypeDatabase::CommentStmt(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt *x) {
-    if (kUseComment) {
+    if (LC_ENABLE_COMMENT) {
         if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
             return Commenter(
                 [=] {

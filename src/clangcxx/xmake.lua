@@ -11,6 +11,11 @@ target("lc-clangcxx")
     elseif is_plat("macosx") then
         add_frameworks("CoreFoundation")
     end
+    if is_mode("release") then
+        add_defines("LC_ENABLE_COMMENT=0")
+    else
+        add_defines("LC_ENABLE_COMMENT=1")
+    end
     set_pcxxheader("src/pch.h")
     add_headerfiles("../../include/luisa/clangcxx/**.h")
     add_files("src/**.cpp")
@@ -25,4 +30,4 @@ target("lc-clangcxx")
         end
         target:add("links", libs)
     end)
-
+target_end()

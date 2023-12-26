@@ -23,6 +23,13 @@ using namespace clang;
 using namespace clang::ast_matchers;
 using namespace luisa::compute;
 
+inline bool FuncIsEmpty(Function func){
+    for(auto&& i : func.body()->statements()){
+        if(i->tag() != Statement::Tag::COMMENT) return false;
+    }
+    return true;
+}
+
 inline luisa::compute::BinaryOp TranslateBinaryOp(clang::BinaryOperator::Opcode op) {
     switch (op) {
         case CXXBinOp::BO_Add: return LCBinOp::ADD;
@@ -601,7 +608,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 } else if (cxxCtor->isCopyConstructor()) {
                     fb->assign(constructed, lcArgs[1]);
                 } else if (auto callable = db->func_builders[cxxCtor]) {
-                    fb->call(luisa::compute::Function(callable.get()), lcArgs);
+                    luisa::compute::Function func(callable.get());
+                    if (!FuncIsEmpty(func))
+                        fb->call(func, lcArgs);
                 } else if (cxxCtor->getParent()->isLambda()) {
                     // ...IGNORE LAMBDA CTOR...
                 } else {
@@ -962,9 +971,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             fb->assign(lcArgs[0], lcArgs[1]);
                             current = lcArgs[0];
                         } else if (auto func_callable = db->func_builders[calleeDecl]) {
-                            if (call->getCallReturnType(*astContext)->isVoidType())
-                                fb->call(luisa::compute::Function(func_callable.get()), lcArgs);
-                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
+                            if (call->getCallReturnType(*astContext)->isVoidType()) {
+                                luisa::compute::Function func(func_callable.get());
+                                if (!FuncIsEmpty(func))
+                                    fb->call(func, lcArgs);
+                            } else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
                                 auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
                                 fb->assign(ret_value, fb->call(lcReturnType, luisa::compute::Function(func_callable.get()), lcArgs));
                                 current = ret_value;
@@ -972,9 +983,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 luisa::log_error("unfound return type in method/function: {}", call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
                         } else if (auto lambda_callable = db->lambda_builders[calleeDecl]) {
                             luisa::span<const luisa::compute::Expression *> lambda_args = {lcArgs.begin() + 1, lcArgs.end()};
-                            if (call->getCallReturnType(*astContext)->isVoidType())
-                                fb->call(luisa::compute::Function(lambda_callable.get()), lambda_args);
-                            else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
+                            if (call->getCallReturnType(*astContext)->isVoidType()) {
+                                luisa::compute::Function func(lambda_callable.get());
+                                if (!FuncIsEmpty(func))
+                                    fb->call(func, lambda_args);
+                            } else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
                                 auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
                                 fb->assign(ret_value, fb->call(lcReturnType, luisa::compute::Function(lambda_callable.get()), lambda_args));
                                 current = ret_value;
@@ -1151,7 +1164,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
 
                 // comment name
                 luisa::string name;
-                if (kUseComment) {
+                if (LC_ENABLE_COMMENT) {
                     if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S))
                         name = "[Ctor] ";
                     else if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S))
