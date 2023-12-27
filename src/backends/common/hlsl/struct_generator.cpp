@@ -53,6 +53,7 @@ void StructGenerator::ProvideAlignVariable(size_t tarAlign, size_t &alignCount, 
 }
 
 void StructGenerator::InitAsStruct(
+    Type const *originType,
     vstd::span<Type const *const> const &vars,
     size_t structIdx,
     Callback const &visitor) {
@@ -60,9 +61,7 @@ void StructGenerator::InitAsStruct(
     size_t structSize = 0;
     structDesc.reserve(256);
 
-    size_t maxAlign = 4;
     auto Align = [&](size_t tarAlign) {
-        maxAlign = std::max(maxAlign, tarAlign);
         ProvideAlignVariable(tarAlign, alignCount, structSize, structDesc);
     };
     size_t varIdx = 0;
@@ -86,7 +85,7 @@ void StructGenerator::InitAsStruct(
         structDesc << ";\n"sv;
         Align(i->alignment());
     }
-    Align(maxAlign);
+    Align(originType->alignment());
 }
 void StructGenerator::InitAsArray(
     Type const *t,
@@ -98,7 +97,7 @@ void StructGenerator::InitAsArray(
 }
 void StructGenerator::Init(Callback const &visitor) {
     if (structureType->tag() == Type::Tag::STRUCTURE) {
-        InitAsStruct(structureType->members(), idx, visitor);
+        InitAsStruct(structureType, structureType->members(), idx, visitor);
     } else {
         InitAsArray(structureType, idx, visitor);
     }

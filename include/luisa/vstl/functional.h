@@ -21,10 +21,10 @@ public:
     FuncRef() noexcept : _user_data{nullptr}, _func_ptr{nullptr} {}
     template<typename Lambda>
         requires(std::is_invocable_r_v<Ret, Lambda, Args...>)
-    FuncRef(Lambda &lambda) noexcept {
+    FuncRef(Lambda &&lambda) noexcept {
         _user_data = &lambda;
         _func_ptr = [](void *ptr, Args &&...args) noexcept -> Ret {
-            return (*reinterpret_cast<Lambda *>(ptr))(std::forward<Args>(args)...);
+            return (*reinterpret_cast<std::remove_cvref_t<Lambda> *>(ptr))(std::forward<Args>(args)...);
         };
     }
     FuncRef(FuncRef &&) noexcept = default;

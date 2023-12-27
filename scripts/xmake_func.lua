@@ -112,9 +112,6 @@ before_check(function(option)
 	-- checking rust
 	import("lib.detect.find_tool")
 	local rust_cargo = find_tool("cargo") ~= nil
-	if not rust_cargo then
-		utils.warning("Cargo not installed, IR module and CPU backend disabled.")
-	end
 	local enable_ir = option:dep("enable_ir")
 	local cpu_backend = option:dep("cpu_backend")
 	if not enable_ir:enabled() then
