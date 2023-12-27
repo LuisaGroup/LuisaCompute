@@ -218,27 +218,41 @@ Argument list:
         luisa::vector<char> result;
         result.reserve(16384);
         result.emplace_back('[');
+        luisa::vector<std::filesystem::path> paths;
         auto func = [&](auto const &file_path_ref) {
-            auto file_path = file_path_ref;
-            if (file_path.extension() != ".cpp") return;
-            if (file_path.is_absolute()) {
-                file_path = std::filesystem::relative(file_path, src_path);
-            }
-            luisa::vector<luisa::string_view> defines_vector;
-            defines_vector.reserve(defines.size());
-            for (auto &&i : defines) {
-                defines_vector.emplace_back(i);
-            }
-            luisa::clangcxx::Compiler::lsp_compile_commands(
-                context,
-                defines_vector,
-                src_path,
-                file_path,
-                inc_path,
-                result);
-            result.emplace_back(',');
+            // auto file_path = file_path_ref;
+            auto const &ext = file_path_ref.extension();
+            if (ext != ".cpp" && ext != ".h" && ext != ".hpp") return;
+            paths.emplace_back(file_path_ref);
         };
         ite_dir(ite_dir, src_path, func);
+        if (!paths.empty()) {
+            luisa::ThreadPool thread_pool(std::min<uint>(std::thread::hardware_concurrency(), paths.size()));
+            std::mutex mtx;
+            thread_pool.parallel(paths.size(), [&](size_t i) {
+                auto &file_path = paths[i];
+                if (file_path.is_absolute()) {
+                    file_path = std::filesystem::relative(file_path, src_path);
+                }
+                luisa::vector<luisa::string_view> defines_vector;
+                defines_vector.reserve(defines.size());
+                for (auto &&i : defines) {
+                    defines_vector.emplace_back(i);
+                }
+                luisa::vector<char> local_result;
+                luisa::clangcxx::Compiler::lsp_compile_commands(
+                    context,
+                    defines_vector,
+                    src_path,
+                    file_path,
+                    inc_path,
+                    local_result);
+                local_result.emplace_back(',');
+                std::lock_guard lck{mtx};
+                vstd::push_back_all(result, span<char>{local_result});
+            });
+            thread_pool.synchronize();
+        }
         if (result.size() > 1) {
             result.pop_back();
         }

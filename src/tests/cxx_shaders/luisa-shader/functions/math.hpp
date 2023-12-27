@@ -118,8 +118,9 @@ template<concepts::float_family T>
 template<concepts::float_family T>
 [[callop("LOG10")]] extern T log10(const T& v);
 
-template<concepts::float_family T>
-[[callop("POW")]] extern T pow(const T& v);
+template<concepts::float_family T, concepts::float_family B>
+    requires(same_dim_v<T, B> || is_scalar_v<B>)
+[[callop("POW")]] extern T pow(const T& base, const B& rate);
 
 template<concepts::float_family T>
 [[callop("SQRT")]] extern T sqrt(const T& v);
