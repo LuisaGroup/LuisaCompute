@@ -15,6 +15,15 @@ using namespace luisa;
 using namespace luisa::compute;
 namespace luisa::test {
 
+// test frequently used functions
+int test_freq_func() {
+    using namespace doctest;
+    // tan
+    CHECK(tan(0.0f) == 0.0f);
+    CHECK(tan(1.0f) == Approx(1.557407724654902f));
+    return 0;
+}
+
 int test_calc(Device &device) {
     Stream stream = device.create_stream();
     Buffer<float2> vert_buf = device.create_buffer<float2>(10);
@@ -59,4 +68,5 @@ int test_calc(Device &device) {
 
 TEST_SUITE("dsl") {
     LUISA_TEST_CASE_WITH_DEVICE("dsl_calc", luisa::test::test_calc(device) == 0);
+    REQUIRE(test_freq_func() == 0);
 }
