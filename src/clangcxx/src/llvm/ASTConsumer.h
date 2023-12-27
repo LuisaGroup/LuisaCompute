@@ -44,7 +44,8 @@ private:
 struct FunctionBuilderBuilder {
     explicit FunctionBuilderBuilder(TypeDatabase *db, Stack &stack)
         : db(db), stack(stack) {}
-    void build(const clang::FunctionDecl *S);
+    // return kernel dimension, 0 if not kernel
+    uint build(const clang::FunctionDecl *S);
 
 private:
     bool recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack);
@@ -69,7 +70,7 @@ struct GlobalVarHandler : public clang::ast_matchers::MatchFinder::MatchCallback
 struct FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchCallback {
     FunctionDeclStmtHandler() = default;
     void run(const MatchFinder::MatchResult &Result) final;
-
+    uint dimension = 0;
     TypeDatabase *db = nullptr;
 };
 

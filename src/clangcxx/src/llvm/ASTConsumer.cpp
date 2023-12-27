@@ -1050,10 +1050,11 @@ protected:
     clang::Stmt *root = nullptr;
 };// namespace luisa::clangcxx
 
-void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
+uint FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
     bool is_ignore = false;
     bool is_kernel = false;
     uint3 kernelSize;
+    uint kernelDimension = 0;
     bool is_template = S->isTemplateDecl() && !S->isTemplateInstantiation();
     bool is_scope = false;
     bool is_method = false;
@@ -1067,6 +1068,13 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
         is_scope |= isNoignore(Anno);
         if (isKernel(Anno)) {
             is_kernel = true;
+            if (isKernel1D(Anno)) {
+                kernelDimension = 1;
+            } else if (isKernel2D(Anno)) {
+                kernelDimension = 2;
+            } else {
+                kernelDimension = 3;
+            }
             getKernelSize(Anno, kernelSize.x, kernelSize.y, kernelSize.z);
         }
         if (isDump(Anno))
@@ -1253,6 +1261,7 @@ void FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
             luisa::compute::detail::FunctionBuilder::pop(builder.get());
         }
     }
+    return kernelDimension;
 }
 
 bool FunctionBuilderBuilder::recursiveVisit(clang::Stmt *currStmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack) {
@@ -1309,7 +1318,8 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         if (!isLambda && !S->isTemplateInstantiation()) {
             auto stack = Stack();
             FunctionBuilderBuilder bdbd(db, stack);
-            bdbd.build(S);
+            auto dim = bdbd.build(S);
+            if (dim > 0) dimension = dim;
         }
     }
 }
@@ -1351,5 +1361,4 @@ void ASTConsumer::HandleTranslationUnit(clang::ASTContext &Context) {
     db.SetASTContext(&Context);
     Matcher.matchAST(Context);
 }
-
 }// namespace luisa::clangcxx
