@@ -533,7 +533,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                     current = lcVar;
                                 }
                             } else {
-                                luisa::log_error("VarDecl with no rhs! type: [{}]", Ty.getAsString());
+                                auto lcVar = LC_Local(fb, lcType, Usage::WRITE);
+                                stack->SetLocal(varDecl, lcVar);
+                                current = lcVar;
                             }
                         } else
                             luisa::log_error("VarDecl with unfound type: [{}]", Ty.getAsString());

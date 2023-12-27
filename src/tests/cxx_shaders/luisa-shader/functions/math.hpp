@@ -19,9 +19,9 @@ template<concepts::primitive T, concepts::bool_family B>
     requires(same_dim_v<T, B> || is_scalar_v<B>)
 [[callop("SELECT")]] extern T select(const T& false_v, const T& true_v, const B& bool_v);
 
-template<concepts::arithmetic T, concepts::arithmetic B>
-    requires(same_dim_v<T, B> || is_scalar_v<B>)
-[[callop("CLAMP")]] extern T clamp(const T& v, const B& min_v, const B& max_v);
+template<concepts::arithmetic T, concepts::arithmetic A, concepts::arithmetic B>
+    requires((same_dim_v<T, B> || is_scalar_v<B>) && (same_dim_v<T, A> || is_scalar_v<A>))
+[[callop("CLAMP")]] extern T clamp(const T& v, const A& min_v, const B& max_v);
 
 template<concepts::float_family T, concepts::float_family B>
     requires(same_dim_v<T, B> || is_scalar_v<B>)
