@@ -31,6 +31,10 @@ template<concepts::float_family T, concepts::float_family B>
     requires(same_dim_v<T, B> || is_scalar_v<B>)
 [[callop("SMOOTHSTEP")]] extern T smoothstep(const T& left_v, const B& right_v, const B& step);
 
+template<concepts::float_family T, concepts::float_family B>
+    requires(same_dim_v<T, B> || is_scalar_v<B>)
+[[callop("STEP")]] extern T step(const T& left_v, const B& right_v);
+
 template<concepts::float_family T>
 [[callop("SATURATE")]] extern T saturate(const T& v);
 
@@ -77,7 +81,7 @@ template<concepts::float_family T>
 [[callop("ATAN")]] extern T atan(const T& v);
 
 template<concepts::float_family T>
-[[callop("ATAN2")]] extern T atan2(const T& v);
+[[callop("ATAN2")]] extern T atan2(const T& a, const T& b);
 
 template<concepts::float_family T>
 [[callop("ATANH")]] extern T atanh(const T& v);
