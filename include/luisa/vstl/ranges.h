@@ -2,8 +2,24 @@
 
 #include <tuple>
 #include <luisa/vstl/meta_lib.h>
+#ifndef NDEBUG
+#include <luisa/core/logging.h>
+#endif
 
 namespace vstd {
+#ifndef NDEBUG
+#define VSTL_ONESHOT_ITER_DECLVAR bool already_begined{false};
+#define VSTL_ONESHOT_ITER_CHECK                                                                 \
+    do {                                                                                        \
+        if (already_begined) [[unlikely]]                                                       \
+            LUISA_ERROR("This one-shot iterator has already been used, please don't do this."); \
+        already_begined = true;                                                                 \
+    } while (false)
+#else
+#define VSTL_ONESHOT_ITER_DECLVAR
+#define VSTL_ONESHOT_ITER_CHECK ((void)0)
+#endif
+
 template<typename T>
 class IteRef {
     T *ptr;
@@ -11,7 +27,7 @@ class IteRef {
 public:
     IteRef(T *ptr) : ptr(ptr) {}
     decltype(auto) operator*() const {
-        return ptr->operator*();
+        return (ptr->operator*());
     }
     void operator++() {
         ptr->operator++();
@@ -23,110 +39,21 @@ public:
         return ptr->operator==(tag);
     }
 };
-namespace detail {
-template<typename Ite, typename Builder>
-class Combiner;
-template<typename LeftBD, typename RightBD>
-class BuilderCombiner;
-template<typename Ite>
-struct BuilderFlag : public IOperatorNewBase {
-    static constexpr bool vstdRangeBuilder = true;
-    template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-    decltype(auto)
-    operator|(Dst &&dst) &;
-    template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-    decltype(auto)
-    operator|(Dst &&dst) &&;
-};
-template<typename Ite>
-struct RangeFlag : public IOperatorNewBase {
-    static constexpr bool vstdRange = true;
+
+template<typename T>
+class IRange {
+public:
+    virtual ~IRange() = default;
+    virtual IteRef<IRange> begin() = 0;
     IteEndTag end() const { return {}; }
-    template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-    decltype(auto)
-    operator|(Dst &&dst) &;
-    template<typename Dst>
-        requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-    decltype(auto)
-    operator|(Dst &&dst) &&;
+    virtual bool operator==(IteEndTag) const = 0;
+    virtual void operator++() = 0;
+    virtual T operator*() = 0;
 };
-
-template<typename Ite, typename Builder>
-class Combiner : public RangeFlag<Combiner<Ite, Builder>> {
-    Ite ite;
-    Builder builder;
-
-public:
-    Combiner(Ite &&ite, Builder &&builder)
-        : ite(std::forward<Ite>(ite)), builder(std::forward<Builder>(builder)) {}
-    IteRef<Combiner> begin() {
-        builder.begin(ite);
-        return {this};
-    }
-    void operator++() {
-        builder.next(ite);
-    }
-    decltype(auto) operator*() {
-        return builder.value(ite);
-    }
-    bool operator==(IteEndTag) const {
-        return builder.is_end(ite);
-    }
-};
-template<typename T, typename Ite>
-struct BuilderHolder : RangeFlag<BuilderHolder<T, Ite>> {
-    T &t;
-    Ite &ite;
-    BuilderHolder(T &t, Ite &ite)
-        : t(t), ite(ite) {}
-    void begin() {
-        t.begin(ite);
-    }
-    void operator++() {
-        t.next(ite);
-    }
-    decltype(auto) operator*() {
-        return t.value(ite);
-    }
-    bool operator==(IteEndTag) const {
-        return t.is_end(ite);
-    }
-};
-
-template<typename LeftBD, typename RightBD>
-class BuilderCombiner : public BuilderFlag<BuilderCombiner<LeftBD, RightBD>> {
-    LeftBD left;
-    RightBD right;
-
-public:
-    BuilderCombiner(LeftBD &&left, RightBD &&right)
-        : left(std::forward<LeftBD>(left)),
-          right(std::forward<RightBD>(right)) {}
-
-    template<typename Ite>
-    void begin(Ite &&ite) {
-        right.begin(BuilderHolder<LeftBD, Ite &>(left, ite));
-    }
-    template<typename Ite>
-    bool is_end(Ite &&ite) const {
-        return right.is_end(BuilderHolder<LeftBD const, Ite &>(left, ite));
-    }
-    template<typename Ite>
-    void next(Ite &&ite) {
-        right.next(BuilderHolder<LeftBD, Ite &>(left, ite));
-    }
-    template<typename Ite>
-    auto value(Ite &&ite) {
-        return right.value(BuilderHolder<LeftBD, Ite &>(left, ite));
-    }
-};
-
+namespace detail {
 template<typename Tuple, typename Func, size_t i>
 constexpr static decltype(auto) SampleTupleFunc(Tuple &&t, Func &&func) {
-    return func(t.template get<i>());
+    return (func(std::get<i>(t)));
 }
 template<typename Tuple, typename Func, typename Sequencer>
 struct SampleTupleFuncTable;
@@ -134,244 +61,56 @@ template<typename Tuple, typename Func, size_t... i>
 struct SampleTupleFuncTable<Tuple, Func, std::integer_sequence<size_t, i...>> {
     constexpr static auto table = {SampleTupleFunc<Tuple, Func, i>...};
 };
-template<typename Ite>
-template<typename Dst>
-    requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-inline decltype(auto) RangeFlag<Ite>::operator|(Dst &&dst) & {
-    return Combiner<Ite &, Dst>(static_cast<Ite &>(*this), std::forward<Dst>(dst));
-}
-template<typename Ite>
-template<typename Dst>
-    requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-inline decltype(auto) RangeFlag<Ite>::operator|(Dst &&dst) && {
-    return Combiner<Ite, Dst>(static_cast<Ite &&>(*this), std::forward<Dst>(dst));
-}
-template<typename Ite>
-template<typename Dst>
-    requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-inline decltype(auto) BuilderFlag<Ite>::operator|(Dst &&dst) & {
-    return BuilderCombiner<Ite, Dst>(static_cast<Ite &>(*this), std::forward<Dst>(dst));
-}
-template<typename Ite>
-template<typename Dst>
-    requires(std::remove_cvref_t<Dst>::vstdRangeBuilder)
-inline decltype(auto) BuilderFlag<Ite>::operator|(Dst &&dst) && {
-    return BuilderCombiner<Ite, Dst>(static_cast<Ite &&>(*this), std::forward<Dst>(dst));
-}
-}// namespace detail
-template<typename T>
-class IRange : public detail::RangeFlag<IRange<T>> {
-public:
-    virtual ~IRange() = default;
-    virtual IteRef<IRange> begin() = 0;
-    virtual bool operator==(IteEndTag) const = 0;
-    virtual void operator++() = 0;
-    virtual T operator*() = 0;
-};
-namespace detail {
-template<typename Ite>
-class RangeImpl : public IRange<decltype(*std::declval<Ite>())> {
-    using Value = decltype(*std::declval<Ite>());
-    Ite ptr;
 
-public:
-    RangeImpl(Ite &&ptr) : ptr(std::forward<Ite>(ptr)) {}
-    IteRef<IRange<Value>> begin() override {
-        ptr.begin();
-        return {this};
-    }
-    bool operator==(IteEndTag t) const override { return ptr == t; }
-    void operator++() override {
-        ++ptr;
-    }
-    Value operator*() override {
-        return *ptr;
-    }
-    RangeImpl(RangeImpl const &) = delete;
-    RangeImpl(RangeImpl &&) = default;
-};
-template<typename T>
-class IRangePipeline : public detail::BuilderFlag<IRangePipeline<T>> {
-public:
-    virtual ~IRangePipeline() = default;
-    virtual void begin(IRange<T> &range) = 0;
-    virtual bool is_end(IRange<T> &range) const = 0;
-    virtual void next(IRange<T> &range) = 0;
-    virtual T value(IRange<T> &range) = 0;
-};
-template<typename T, typename Ite>
-class IRangePipelineImpl : public IRangePipeline<T> {
-    Ite ite;
-
-public:
-    IRangePipelineImpl(Ite &&ite) : ite(std::forward<Ite>(ite)) {}
-    void begin(IRange<T> &range) override { ite.begin(range); }
-    bool is_end(IRange<T> &range) const override { return ite.is_end(range); }
-    void next(IRange<T> &range) override { ite.next(range); }
-    T value(IRange<T> &range) override { return ite.value(range); }
-};
-class ValueRange : public detail::BuilderFlag<ValueRange> {
-public:
-    template<typename Ite>
-    void begin(Ite &&ite) { ite.begin(); }
-    template<typename Ite>
-    bool is_end(Ite &&ite) const { return ite == IteEndTag{}; }
-    template<typename Ite>
-    void next(Ite &&ite) { ++ite; }
-    template<typename Ite>
-    auto value(Ite &&ite) { return *ite; }
-};
-template<typename FilterFunc>
-class FilterRange : public detail::BuilderFlag<FilterRange<FilterFunc>> {
-private:
-    FilterFunc func;
-    template<typename Ite>
-    void GetNext(Ite &&ite) {
-        while (ite != IteEndTag{}) {
-            if (func(*ite)) {
-                return;
-            }
-            ++ite;
+template<size_t i, typename Tuple>
+static decltype(auto) range_value(Tuple &&elem) {
+    if constexpr (i == 0) {
+        return (*std::get<0>(std::forward<Tuple>(elem)));
+    } else {
+        using Type = std::remove_cvref_t<decltype(std::get<i>(std::forward<Tuple>(elem)))>;
+        if constexpr (Type::is_filter) {
+            return (range_value<i - 1>(std::forward<Tuple>(elem)));
+        } else {
+            return (std::get<i>(std::forward<Tuple>(elem))(range_value<i - 1>(std::forward<Tuple>(elem))));
         }
     }
-
+}
+template<typename ValueType, typename Range>
+class IRangeImpl final : public IRange<ValueType> {
+    Range self;
 public:
-    template<typename Ite>
-    void begin(Ite &&ite) {
-        ite.begin();
-        GetNext(ite);
-    }
-    template<typename Ite>
-    bool is_end(Ite &&ite) const {
-        return ite == IteEndTag{};
-    }
-    template<typename Ite>
-    void next(Ite &&ite) {
-        ++ite;
-        GetNext(ite);
-    }
-    template<typename Ite>
-    decltype(auto) value(Ite &&ite) {
-        return *ite;
-    }
-    FilterRange(FilterFunc &&func)
-        : func(std::forward<FilterFunc>(func)) {
-    }
-};
-template<typename GetValue>
-class TransformRange : public detail::BuilderFlag<TransformRange<GetValue>> {
-    GetValue getValue;
-
-public:
-    template<typename Ite>
-    void begin(Ite &&ite) {
-        ite.begin();
-    }
-    TransformRange(GetValue &&getValueFunc)
-        : getValue(std::forward<GetValue>(getValueFunc)) {}
-    template<typename Ite>
-    bool is_end(Ite &&ite) const {
-        return ite == IteEndTag{};
-    }
-    template<typename Ite>
-    void next(Ite &&ite) {
-        ++ite;
-    }
-    template<typename Ite>
-    decltype(auto) value(Ite &&ite) {
-        return getValue(*ite);
-    }
-};
-class RemoveCVRefRange : public detail::BuilderFlag<RemoveCVRefRange> {
-public:
-    template<typename Ite>
-    void begin(Ite &&ite) { ite.begin(); }
-    template<typename Ite>
-    bool is_end(Ite &&ite) const { return ite == IteEndTag{}; }
-    template<typename Ite>
-    void next(Ite &&ite) { ++ite; }
-    template<typename Ite>
-    decltype(auto) value(Ite &&ite) { return static_cast<std::remove_cvref_t<decltype(*ite)>>(*ite); }
-    RemoveCVRefRange() {}
-};
-template<typename Dst>
-class StaticCastRange : public detail::BuilderFlag<StaticCastRange<Dst>> {
-public:
-    template<typename Ite>
-    void begin(Ite &&ite) { ite.begin(); }
-    template<typename Ite>
-    bool is_end(Ite &&ite) const { return ite == IteEndTag{}; }
-    template<typename Ite>
-    void next(Ite &&ite) { ++ite; }
-    template<typename Ite>
-    Dst value(Ite &&ite) { return static_cast<Dst>(*ite); }
-    StaticCastRange() {}
-};
-template<typename Dst>
-class ReinterpretCastRange : public detail::BuilderFlag<ReinterpretCastRange<Dst>> {
-public:
-    template<typename Ite>
-    void begin(Ite &&ite) { ite.begin(); }
-    template<typename Ite>
-    bool is_end(Ite &&ite) const { return ite == IteEndTag{}; }
-    template<typename Ite>
-    void next(Ite &&ite) { ++ite; }
-    template<typename Ite>
-    Dst value(Ite &&ite) { return reinterpret_cast<Dst>(*ite); }
-    ReinterpretCastRange() {}
-};
-template<typename Dst>
-class ConstCastRange : public detail::BuilderFlag<ConstCastRange<Dst>> {
-public:
-    template<typename Ite>
-    void begin(Ite &&ite) { ite.begin(); }
-    template<typename Ite>
-    bool is_end(Ite &&ite) const { return ite == IteEndTag{}; }
-    template<typename Ite>
-    void next(Ite &&ite) { ++ite; }
-    template<typename Ite>
-    Dst value(Ite &&ite) { return const_cast<Dst>(*ite); }
-    ConstCastRange() {}
-};
-
-template<typename Map>
-class CacheEndRange : public detail::RangeFlag<CacheEndRange<Map>> {
-public:
-    using IteBegin = decltype(std::declval<Map>().begin());
-    using IteEnd = decltype(std::declval<Map>().begin());
-
-private:
-    Map map;
-    optional<IteBegin> ite;
-
-public:
-    CacheEndRange(Map &&map)
-        : map(std::forward<Map>(map)) {
-    }
-    IteRef<CacheEndRange> begin() {
-        ite = map.begin();
+    explicit IRangeImpl(Range &&self)
+        : self(std::forward<Range>(self)) {}
+    ~IRangeImpl() = default;
+    IteRef<IRange<ValueType>> begin() override {
+        self.begin();
         return {this};
     }
-    bool operator==(IteEndTag) const {
-        return (*ite) == map.end();
+    bool operator==(IteEndTag i) const override {
+        return self == i;
     }
-    void operator++() { ++(*ite); }
-    decltype(auto) operator*() {
-        return **ite;
+    void operator++() override {
+        ++self;
+    }
+    ValueType operator*() override {
+        return *self;
     }
 };
 }// namespace detail
-class range : public detail::RangeFlag<range> {
+class range {
     int64 num;
     int64 b;
     int64 e;
     int64 inc;
+    VSTL_ONESHOT_ITER_DECLVAR
 
 public:
     IteRef<range> begin() {
+        VSTL_ONESHOT_ITER_CHECK;
         num = b;
         return {this};
     }
+    IteEndTag end() const { return {}; }
     bool operator==(IteEndTag) const {
         return num == e;
     }
@@ -382,18 +121,27 @@ public:
 
     range(int64 b, int64 e, int64 inc = 1) : b(b), e(e), inc(inc) {}
     range(int64 e) : b(0), e(e), inc(1) {}
+    auto i_range() && {
+        return detail::IRangeImpl<int64, range>{std::move(*this)};
+    }
+    auto i_range() & {
+        return detail::IRangeImpl<int64, range &>{*this};
+    }
 };
 template<typename T>
-class ptr_range : public detail::RangeFlag<ptr_range<T>> {
+class ptr_range {
     T *ptr;
     T *b;
     T *e;
     int64_t inc;
+    VSTL_ONESHOT_ITER_DECLVAR
 
 public:
     ptr_range(T *b, T *e, int64_t inc = 1) : b(b), e(e), inc(inc) {}
     ptr_range(T *b, size_t e, int64_t inc = 1) : b(b), e(b + e), inc(inc) {}
+    IteEndTag end() const { return {}; }
     IteRef<ptr_range> begin() {
+        VSTL_ONESHOT_ITER_CHECK;
         ptr = b;
         return {this};
     }
@@ -406,17 +154,27 @@ public:
     T &operator*() {
         return *ptr;
     }
+    using ValueType = std::remove_cvref_t<decltype(*ptr)>;
+    auto i_range() && {
+        return detail::IRangeImpl<ValueType, ptr_range>{std::move(*this)};
+    }
+    auto i_range() & {
+        return detail::IRangeImpl<ValueType, ptr_range &>{*this};
+    }
 };
 template<typename T, typename E>
     requires(std::is_trivially_destructible_v<T>)
-class ite_range : public detail::RangeFlag<ite_range<T, E>> {
+class ite_range {
     StackObject<T, false> ptr;
     T b;
     E e;
+    VSTL_ONESHOT_ITER_DECLVAR
 
 public:
     ite_range(T &&b, E &&e) : b(std::forward<T>(b)), e(std::forward<E>(e)) {}
+    IteEndTag end() const { return {}; }
     IteRef<ite_range> begin() {
+        VSTL_ONESHOT_ITER_CHECK;
         ptr.create(b);
         return {this};
     }
@@ -427,31 +185,162 @@ public:
         ++(*ptr);
     }
     decltype(auto) operator*() {
-        return **ptr;
+        return (**ptr);
+    }
+    using ValueType = std::remove_cvref_t<decltype(**ptr)>;
+    auto i_range() && {
+        return detail::IRangeImpl<ValueType, ite_range>{std::move(*this)};
+    }
+    auto i_range() & {
+        return detail::IRangeImpl<ValueType, ite_range &>{*this};
     }
 };
-namespace detail {
+template<typename... Args>
+    requires(sizeof...(Args) > 1)
+class range_linker {
+    using ElemType = std::tuple<Args...>;
+    ElemType tp;
+
+    using IterType = decltype(std::get<0>(std::declval<std::tuple<Args...>>()).begin());
+public:
+    using ValueType = std::remove_reference_t<decltype(detail::range_value<(sizeof...(Args) - 1)>(std::declval<ElemType>()))>;
+private:
+    Storage<ValueType> _value_holder;
+    bool begined{false};
+    void dispose() {
+        if constexpr (!std::is_reference_v<ValueType> && !std::is_trivially_destructible_v<ValueType>) {
+            if (begined) {
+                reinterpret_cast<ValueType *>(_value_holder.c)->~ValueType();
+            }
+        }
+    }
+    template<size_t i, typename T>
+    void _next(T &&last_var) {
+        using RetType = decltype(detail::range_value<i>(tp));
+        bool continued{false};
+        auto &&self = std::get<i>(tp);
+        using Type = std::remove_cvref_t<decltype(self)>;
+        while (true) {
+            auto &&last_eval = [&]() -> decltype(auto) {
+                if (continued) {
+                    return (detail::range_value<i - 1>(tp));
+                } else {
+                    return (last_var);
+                }
+            }();
+            if constexpr (Type::is_filter) {
+                continued = !(self(last_eval));
+            } else {
+                continued = false;
+            }
+            if (continued) {
+                ++(std::get<0>(tp));
+            } else {
+                if constexpr (i == sizeof...(Args) - 1) {
+                    dispose();
+                    if constexpr (Type::is_filter) {
+                        new (std::launder(_value_holder.c)) ValueType(std::move(last_eval));
+                    } else {
+                        new (std::launder(_value_holder.c)) ValueType(self(last_eval));
+                    }
+                    begined = true;
+                    ++(std::get<0>(tp));
+                } else {
+                    if constexpr (Type::is_filter) {
+                        _next<i + 1>(last_eval);
+                    } else {
+                        _next<i + 1>(self(last_eval));
+                    }
+                }
+                break;
+            }
+        };
+    }
+public:
+    range_linker(Args &&...args)
+        : tp(std::forward<Args>(args)...) {}
+    auto begin() {
+        if (begined) [[unlikely]]
+#ifndef NDEBUG
+            LUISA_ERROR("This one-shot iterator has already been used, please don't do this.");
+#else
+            std::abort();
+#endif
+        std::get<0>(tp).begin();
+        if (!(std::get<0>(tp) == IteEndTag{})) {
+            _next<1>(*std::get<0>(tp));
+        }
+        return IteRef<range_linker>{this};
+    }
+    range_linker(range_linker const &) = delete;
+    range_linker(range_linker &&) = default;
+    ~range_linker() {
+        dispose();
+    }
+    IteEndTag end() const { return {}; }
+    bool operator==(IteEndTag i) const {
+        return !begined;
+    }
+    auto &&operator*() {
+        return reinterpret_cast<ValueType &>(_value_holder);
+    }
+    void operator++() {
+        if (std::get<0>(tp) == IteEndTag{}) {
+            if constexpr (!std::is_reference_v<ValueType> && !std::is_trivially_destructible_v<ValueType>) {
+                if (begined) {
+                    reinterpret_cast<ValueType &>(_value_holder).~ValueType();
+                }
+            }
+            begined = false;
+            return;
+        }
+        _next<1>(*std::get<0>(tp));
+    }
+    auto i_range() && {
+        return detail::IRangeImpl<ValueType, range_linker>{std::move(*this)};
+    }
+    auto i_range() & {
+        return detail::IRangeImpl<ValueType, range_linker &>{*this};
+    }
+};
+template<typename T>
+class filter_range {
+    T &&_t;
+public:
+    static constexpr bool is_filter = true;
+    filter_range(T &&t) : _t(std::forward<T>(t)) {}
+    bool operator()(auto &&v) const {
+        return _t(v);
+    }
+};
+template<typename T>
+class transform_range {
+    T &&_t;
+public:
+    static constexpr bool is_filter = false;
+    transform_range(T &&t) : _t(std::forward<T>(t)) {}
+    decltype(auto) operator()(auto &&v) const {
+        return (_t(v));
+    }
+};
 template<typename... Ts>
-struct TupleIterator : public detail::RangeFlag<TupleIterator<Ts...>> {
+class tuple_range {
     std::tuple<Ts...> ites;
     size_t index;
     using Sequencer = std::make_index_sequence<sizeof...(Ts)>;
-    template<typename... TTs>
-    TupleIterator(TTs &&...args)
+public:
+    tuple_range(Ts &&...args)
         : ites(std::forward<Ts>(args)...) {}
-    IteRef<TupleIterator> begin() {
+    IteRef<tuple_range> begin() {
         auto &ite = std::get<0>(ites);
         ite.begin();
         index = 0;
         InitIndex();
         return {this};
     }
-    decltype(auto) operator*() {
-        auto func = [&](auto &&ite) {
-            return *ite;
-        };
-        return detail::SampleTupleFuncTable<decltype(ites) &, decltype(func) &, Sequencer>::table.begin()[index](ites, func);
-    }
+    IteEndTag end() const { return {}; }
+    using ValueType = std::remove_cvref_t<decltype(*std::get<0>(ites))>;
+    auto operator*() -> ValueType;
     bool operator==(vstd::IteEndTag) const {
         return index == sizeof...(Ts);
     }
@@ -462,109 +351,43 @@ struct TupleIterator : public detail::RangeFlag<TupleIterator<Ts...>> {
         detail::SampleTupleFuncTable<decltype(ites) &, decltype(func) &, Sequencer>::table.begin()[index](ites, func);
         InitIndex();
     }
-
+    auto i_range() && {
+        return detail::IRangeImpl<ValueType, tuple_range>{std::move(*this)};
+    }
+    auto i_range() & {
+        return detail::IRangeImpl<ValueType, tuple_range &>{*this};
+    }
 private:
-    void InitIndex() {
-        auto func = [&](auto &&ite) {
-            return ite == vstd::IteEndTag{};
-        };
-        auto beginFunc = [&](auto &&ite) {
-            ite.begin();
-        };
-        using FuncType = detail::SampleTupleFuncTable<decltype(ites) &, decltype(func) &, Sequencer>;
-        using BeginFuncType = detail::SampleTupleFuncTable<decltype(ites) &, decltype(beginFunc) &, Sequencer>;
-        while (true) {
-            if (!FuncType::table.begin()[index](ites, func)) {
-                return;
-            }
-            ++index;
-            if (index >= sizeof...(Ts)) return;
-            BeginFuncType::table.begin()[index](ites, beginFunc);
-        }
-    }
+    void InitIndex();
 };
-
-template<typename A, typename B>
-struct PairIterator : public detail::RangeFlag<PairIterator<A, B>> {
-    A a;
-    B b;
-    bool ite;
-    PairIterator(
-        A &&a,
-        B &&b) : a(std::forward<A>(a)), b(std::forward<B>(b)) {}
-    IteRef<PairIterator> begin() {
-        a.begin();
-        if (a == vstd::IteEndTag{}) {
-            b.begin();
-            ite = true;
-        } else {
-            ite = false;
-        }
-        return {this};
-    }
-    decltype(auto) operator*() {
-        if (ite)
-            return *b;
-        else
-            return *a;
-    }
-    bool operator==(vstd::IteEndTag t) const {
-        return ite && b == t;
-    }
-    void operator++() {
-        if (ite) {
-            ++b;
-        } else {
-            ++a;
-            if (a == vstd::IteEndTag{}) {
-                b.begin();
-                ite = true;
-            }
-        }
-    }
-};
-}// namespace detail
-template<typename Func>
-detail::FilterRange<Func> filter_range(Func &&func) {
-    return {std::forward<Func>(func)};
-}
-template<typename GetValue>
-detail::TransformRange<GetValue> transform_range(GetValue &&func) {
-    return {std::forward<GetValue>(func)};
-}
-template<typename T>
-concept RangeMap = requires(T rval) {
-    ++decl_lvalue(rval.begin());
-    requires(std::is_same_v<bool, decltype(rval.begin() == rval.end())>);
-};
-template<RangeMap Map>
-detail::CacheEndRange<Map> cache_end_range(Map &&map) {
-    return {std::forward<Map>(map)};
-}
-template<typename Map>
-    requires(std::remove_cvref_t<Map>::vstdRange)
-detail::RangeImpl<Map> range_impl(Map &&map) {
-    return {std::forward<Map>(map)};
-}
-template<typename Map>
-    requires(std::remove_cvref_t<Map>::vstdRange)
-auto new_range_impl(Map &&map) {
-    return new detail::RangeImpl<Map>{std::forward<Map>(map)};
-}
-
-template<typename Dst, typename Func>
-auto i_range_pipeline_impl(Func &&func) -> detail::IRangePipelineImpl<Dst, Func &&> {
-    return {std::forward<Func &&>(func)};
+template<typename... Ts>
+auto tuple_range<Ts...>::operator*() -> ValueType {
+    auto func = [&](auto &&ite) -> decltype(auto) {
+        return (*ite);
+    };
+    return detail::SampleTupleFuncTable<decltype(ites) &, decltype(func) &, Sequencer>::table.begin()[index](ites, func);
 }
 template<typename... Ts>
-detail::TupleIterator<Ts...> tuple_iterator(Ts &&...ts) {
-    return {std::forward<Ts>(ts)...};
+void tuple_range<Ts...>::InitIndex() {
+    auto func = [&](auto &&ite) {
+        return ite == vstd::IteEndTag{};
+    };
+    auto beginFunc = [&](auto &&ite) {
+        ite.begin();
+    };
+    using FuncType = detail::SampleTupleFuncTable<decltype(ites) &, decltype(func) &, Sequencer>;
+    using BeginFuncType = detail::SampleTupleFuncTable<decltype(ites) &, decltype(beginFunc) &, Sequencer>;
+    while (true) {
+        if (!FuncType::table.begin()[index](ites, func)) {
+            return;
+        }
+        ++index;
+        if (index >= sizeof...(Ts)) return;
+        BeginFuncType::table.begin()[index](ites, beginFunc);
+    }
 }
-inline vstd::detail::ValueRange value_range() { return {}; }
-template<typename A, typename B>
-detail::PairIterator<A, B> pair_iterator(
-    A &&a,
-    B &&b) {
-    return {std::forward<A>(a), std::forward<B>(b)};
-}
+#ifndef NDEBUG
+#undef VSTL_ONESHOT_ITER_DECLVAR
+#undef VSTL_ONESHOT_ITER_CHECK
+#endif
 }// namespace vstd

@@ -2031,10 +2031,10 @@ CodegenResult CodegenUtility::Codegen(
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer);
 
     opt->funcType = CodegenStackData::FuncType::Callable;
-    auto argRange = vstd::range_impl(vstd::cache_end_range(kernel.arguments()) | vstd::value_range());
+    auto argRange = vstd::ite_range(kernel.arguments().begin(), kernel.arguments().end()).i_range();
     uint bind_count = 2;
     if (nonEmptyCbuffer) {
-        GenerateCBuffer({static_cast<vstd::IRange<Variable> *>(&argRange)}, varData, bind_count);
+        GenerateCBuffer({&argRange}, varData, bind_count);
     }
     if (isSpirV) {
         varData << R"(cbuffer CB:register(b1){
@@ -2211,8 +2211,8 @@ uint obj_id:register(b0);
 uint iid:SV_INSTANCEID;
 };
 )"sv;
-    auto vertRange = vstd::range_impl(vstd::cache_end_range(vstd::ite_range(vertFunc.arguments().begin() + 1, vertFunc.arguments().end())) | vstd::value_range());
-    auto pixelRange = vstd::range_impl(vstd::ite_range(pixelFunc.arguments().begin() + 1, pixelFunc.arguments().end()) | vstd::value_range());
+    auto vertRange = vstd::ite_range(vertFunc.arguments().begin() + 1, vertFunc.arguments().end()).i_range();
+    auto pixelRange = vstd::ite_range(pixelFunc.arguments().begin() + 1, pixelFunc.arguments().end()).i_range();
     std::initializer_list<vstd::IRange<Variable> *> funcs = {&vertRange, &pixelRange};
 
     bool nonEmptyCbuffer = IsCBufferNonEmpty(funcs);
