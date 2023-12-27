@@ -102,7 +102,7 @@ void CUDATexCompressExt::_compress(Stream &stream,
         LUISA_CHECK_CUDA(cuMemAllocAsync(&temp, src.size_bytes(), nullptr));
         LUISA_CHECK_CUDA(cuStreamWaitEvent(nullptr, _event, 0u));
         detail::copy_image_to_temp_memory(temp, cuda_texture, src.level(), src.size());
-        detail::compress_image(temp, cuda_buffer->handle() + result.offset(),
+        detail::compress_image(temp, cuda_buffer->device_address() + result.offset(),
                                cuda_texture->storage(), src.size(),
                                cuda_stream->handle(),
                                alpha_importance, target_format);

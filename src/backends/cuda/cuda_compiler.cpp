@@ -45,6 +45,7 @@ luisa::string CUDACompiler::compile(const luisa::string &src, const luisa::strin
 }
 
 size_t CUDACompiler::type_size(const Type *type) noexcept {
+    if (type == nullptr) { return 1u; }
     if (!type->is_custom()) { return type->size(); }
     // TODO: support custom types
     if (type->description() == "LC_IndirectKernelDispatch") {
