@@ -15,7 +15,7 @@ static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function
         auto vertSpan = vertexKernel.arguments();
         auto vertArgs =
             vstd::range_linker{
-                vstd::ite_range(vertSpan.begin() + 1, vertSpan.end()),
+                vstd::make_ite_range(vertSpan.subspan(1)),
                 vstd::transform_range{
                     [&](Variable const &var) {
                         return std::pair<Variable, Usage>{var, vertexKernel.variable_usage(var.uid())};
@@ -23,7 +23,7 @@ static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function
         auto pixelSpan = pixelKernel.arguments();
         auto pixelArgs =
         vstd::range_linker{
-            vstd::ite_range(pixelSpan.begin() + 1, pixelSpan.end()),
+            vstd::make_ite_range(pixelSpan.subspan(1)),
             vstd::transform_range{
                 [&](Variable const &var) {
                     return std::pair<Variable, Usage>{var, pixelKernel.variable_usage(var.uid())};
