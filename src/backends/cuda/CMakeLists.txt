@@ -35,6 +35,7 @@ if (CUDAToolkit_FOUND)
 
     # extensions
     target_sources(luisa-compute-backend-cuda PRIVATE
+            extensions/cuda_pinned_memory.cpp extensions/cuda_pinned_memory.h
             extensions/cuda_dstorage.cpp extensions/cuda_dstorage.h
             extensions/cuda_denoiser.cpp extensions/cuda_denoiser.h)
 

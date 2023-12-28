@@ -12,7 +12,7 @@ int main(int argc, char *argv[]) {
     constexpr uint buffer_size = 32;
     Device device = context.create_device(argv[1]);
     Stream stream = device.create_stream();
-    PinnedMemoryExt *ext = device.extension<PinnedMemoryExt>();
+    auto ext = device.extension<PinnedMemoryExt>();
     // These buffer map memory in host, can directly copy data from host to device, or copy data from device to host.
     Buffer<uint> upload_buffer = ext->allocate_pinned_memory<uint>(
         buffer_size,

@@ -61,7 +61,7 @@ void CUDACommandEncoder::commit(CommandList::CallbackContainer &&user_callbacks)
 
 void CUDACommandEncoder::visit(BufferUploadCommand *command) noexcept {
     auto buffer = reinterpret_cast<const CUDABuffer *>(command->handle());
-    auto address = buffer->handle() + command->offset();
+    auto address = buffer->device_address() + command->offset();
     auto data = command->data();
     auto size = command->size();
     with_upload_buffer(size, [&](auto upload_buffer) noexcept {
@@ -74,7 +74,7 @@ void CUDACommandEncoder::visit(BufferUploadCommand *command) noexcept {
 
 void CUDACommandEncoder::visit(BufferDownloadCommand *command) noexcept {
     auto buffer = reinterpret_cast<const CUDABuffer *>(command->handle());
-    auto address = buffer->handle() + command->offset();
+    auto address = buffer->device_address() + command->offset();
     auto data = command->data();
     auto size = command->size();
     with_download_pool_no_fallback(size, [&](auto download_buffer) noexcept {
@@ -94,9 +94,9 @@ void CUDACommandEncoder::visit(BufferDownloadCommand *command) noexcept {
 }
 
 void CUDACommandEncoder::visit(BufferCopyCommand *command) noexcept {
-    auto src_buffer = reinterpret_cast<const CUDABuffer *>(command->src_handle())->handle() +
+    auto src_buffer = reinterpret_cast<const CUDABuffer *>(command->src_handle())->device_address() +
                       command->src_offset();
-    auto dst_buffer = reinterpret_cast<const CUDABuffer *>(command->dst_handle())->handle() +
+    auto dst_buffer = reinterpret_cast<const CUDABuffer *>(command->dst_handle())->device_address() +
                       command->dst_offset();
     auto size = command->size();
     LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(dst_buffer, src_buffer, size, _stream->handle()));
@@ -137,7 +137,7 @@ void CUDACommandEncoder::visit(BufferToTextureCopyCommand *command) noexcept {
     auto array = mipmap_array->level(command->level());
     auto buffer = reinterpret_cast<const CUDABuffer *>(command->buffer());
     detail::memcpy_buffer_to_texture(
-        buffer->handle(), command->buffer_offset(), buffer->size_bytes(),
+        buffer->device_address(), command->buffer_offset(), buffer->size_bytes(),
         array, command->storage(), command->size(), _stream->handle());
 }
 
@@ -221,7 +221,7 @@ void CUDACommandEncoder::visit(TextureToBufferCopyCommand *command) noexcept {
     copy.srcMemoryType = CU_MEMORYTYPE_ARRAY;
     copy.srcArray = array;
     copy.dstMemoryType = CU_MEMORYTYPE_DEVICE;
-    copy.dstDevice = reinterpret_cast<const CUDABuffer *>(command->buffer())->handle() +
+    copy.dstDevice = reinterpret_cast<const CUDABuffer *>(command->buffer())->device_address() +
                      command->buffer_offset();
     copy.dstPitch = pitch;
     copy.dstHeight = height;
@@ -295,7 +295,7 @@ static void dstorage_copy(const void *input_host_ptr,
         LUISA_ASSERT(dst.offset_bytes < buffer->size_bytes() &&
                          input_size <= buffer->size_bytes() - dst.offset_bytes,
                      "DStorageReadCommand out of range.");
-        auto dst_addr = buffer->handle() + dst.offset_bytes;
+        auto dst_addr = buffer->device_address() + dst.offset_bytes;
         if (dst.size_bytes != input_size) {
             LUISA_WARNING_WITH_LOCATION(
                 "DStorageReadCommand size mismatch: "
@@ -361,7 +361,7 @@ static void dstorage_decompress(DStorageCompression algorithm,
         LUISA_ASSERT(dst.offset_bytes < buffer->size_bytes() &&
                          input_size <= buffer->size_bytes() - dst.offset_bytes,
                      "DStorageReadCommand out of range.");
-        auto dst_addr = buffer->handle() + dst.offset_bytes;
+        auto dst_addr = buffer->device_address() + dst.offset_bytes;
         decompress_to_buffer(input_device_ptr, input_size, dst_addr, dst.size_bytes);
     } else if (luisa::holds_alternative<DSTextureRequest>(output_request)) {
         auto dst = luisa::get<DSTextureRequest>(output_request);

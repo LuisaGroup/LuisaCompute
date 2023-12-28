@@ -64,11 +64,14 @@ template<typename T>
 using func_ptr_t = typename func_ptr<T>::Type;
 
 template<typename T, uint32_t size = 1>
-class Storage {
+struct Storage {
+    using Type = T;
     alignas(T) char c[size * sizeof(T)];
 };
 template<typename T>
-class Storage<T, 0> {};
+struct Storage<T, 0> {
+    using Type = T;
+};
 
 using lockGuard = std::lock_guard<std::mutex>;
 

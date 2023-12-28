@@ -328,17 +328,17 @@ void CUDAShaderOptiX::_launch(CUDACommandEncoder &encoder, ShaderDispatchCommand
         encoder.with_download_pool_no_fallback(buffer->size_bytes(), [&](auto temp) noexcept {
             auto stream = encoder.stream()->handle();
             if (temp) {
-                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(temp->address(), buffer->handle(),
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(temp->address(), buffer->device_address(),
                                                    buffer->size_bytes(), stream));
                 LUISA_CHECK_CUDA(cuMemcpyAsync(reinterpret_cast<CUdeviceptr>(indirect_dispatches_host.data()),
                                                reinterpret_cast<CUdeviceptr>(temp->address()),
                                                buffer->size_bytes(), stream));
             } else {
-                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(indirect_dispatches_host.data(), buffer->handle(),
+                LUISA_CHECK_CUDA(cuMemcpyDtoHAsync(indirect_dispatches_host.data(), buffer->device_address(),
                                                    buffer->size_bytes(), stream));
             }
         });
-        indirect_dispatches_device = reinterpret_cast<const IndirectParameters *>(buffer->handle());
+        indirect_dispatches_device = reinterpret_cast<const IndirectParameters *>(buffer->device_address());
     }
 
     // encode arguments

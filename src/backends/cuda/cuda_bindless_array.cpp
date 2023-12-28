@@ -111,7 +111,7 @@ void CUDABindlessArray::update(CUDACommandEncoder &encoder,
             LUISA_ASSERT(m.buffer.offset_bytes < buffer->size_bytes(),
                          "Offset {} exceeds buffer size {}.",
                          m.buffer.offset_bytes, buffer->size_bytes());
-            auto address = buffer->handle() + m.buffer.offset_bytes;
+            auto address = buffer->device_address() + m.buffer.offset_bytes;
             auto size = buffer->size_bytes() - m.buffer.offset_bytes;
             m.buffer.handle = address;
             m.buffer.offset_bytes = size;// FIXME: reusing this field is a bit hacky
