@@ -207,7 +207,9 @@ public:
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
     inline SelfType &force_create(Args &&...args) & noexcept {
-        if (mInitialized) { destroy(); }
+        if constexpr (!std::is_trivially_destructible_v<T>) {
+            if (mInitialized) { destroy(); }
+        }
         mInitialized = true;
         stackObj.create(std::forward<Args>(args)...);
         return *this;
@@ -321,8 +323,10 @@ public:
         }
     }
     ~StackObject() noexcept {
-        if (mInitialized)
-            stackObj.destroy();
+        if constexpr (!std::is_trivially_destructible_v<T>) {
+            if (mInitialized)
+                stackObj.destroy();
+        }
     }
     T &operator=(SelfType const &value)
 #ifndef VSTL_ONLY_MSVC
