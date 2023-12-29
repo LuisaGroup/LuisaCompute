@@ -47,6 +47,16 @@ trait vec_or_matrix<matrix<N>> : public true_type {
     static constexpr bool is_vec = false;
     static constexpr bool is_matrix = true;
 };
+#ifdef DEBUG
+template<typename T>
+trait is_char {
+    static constexpr bool value = false;
+};
+template<size_t n>
+trait is_char<const char (&)[n]> {
+    static constexpr bool value = true;
+};
+#endif
 }// namespace detail
 
 template<typename T>
@@ -130,7 +140,7 @@ template<typename T>
 concept bool_family = is_bool_family_v<T>;
 
 template<typename T>
-concept bool_vec_family = is_bool_family_v<T>  && is_vec_v<T>;
+concept bool_vec_family = is_bool_family_v<T> && is_vec_v<T>;
 
 template<typename T>
 concept sint_family = is_sint_family_v<T>;
@@ -164,7 +174,10 @@ concept arithmetic_scalar = is_arithmetic_scalar_v<T>;
 
 template<typename T>
 concept primitive = is_arithmetic_v<T> || is_vec_or_matrix_v<T>;
-
+#ifdef DEBUG
+template<typename T>
+concept string_literal = detail::is_char<T>::value;
+#endif
 }// namespace concepts
 
 template<concepts::arithmetic_scalar T>

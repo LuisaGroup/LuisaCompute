@@ -39,11 +39,10 @@ int main(int argc, char *argv[]) {
     }
 
     Context context{argv[0]};
-    // DeviceConfig config{.headless = true};
+    DeviceConfig config{.headless = !kTestRuntime};
     static constexpr uint width = 1920;
     static constexpr uint height = 1080;
-    Device device = context.create_device(kBackend, /*&config*/ nullptr);
-    Stream stream = device.create_stream(StreamTag::GRAPHICS);
+    Device device = context.create_device(kBackend, &config);
     // compile cxx shader
     {
         auto src_relative = "./../../src/tests/cxx_shaders/test." + kTestName + ".cpp";
@@ -54,7 +53,16 @@ int main(int argc, char *argv[]) {
             ShaderOption{
                 .compile_only = true,
                 .name = "test.bin"});
-        compiler.create_shader(context, device, {}, shader_path, include_path);
+        luisa::vector<luisa::string> defines;
+        // Enable debug for printer
+        if (kTestName == "printer") {
+            defines.emplace_back("DEBUG");
+        }
+        auto iter = vstd::range_linker{
+            vstd::make_ite_range(defines),
+            vstd::transform_range{[&](auto &&v) { return luisa::string_view{v}; }}}
+                        .i_range();
+        compiler.create_shader(context, device, iter, shader_path, include_path);
     }
     if (kTestRuntime) {
         Callable linear_to_srgb = [&](Var<float3> x) noexcept {
@@ -63,6 +71,7 @@ int main(int argc, char *argv[]) {
                                    x <= 0.00031308f));
         };
         if (kTestName == "mandelbrot") {
+            Stream stream = device.create_stream(StreamTag::GRAPHICS);
             auto mandelbrot_shader = device.load_shader<2, Image<float>>("test.bin");
             auto texture = device.create_image<float>(PixelStorage::FLOAT4, width, height);
             Window window{"test func", uint2(width, height)};
@@ -92,6 +101,15 @@ int main(int argc, char *argv[]) {
                        << hdr2ldr_shader(texture, ldr_image, 1.0f, true).dispatch(width, height)
                        << swap_chain.present(ldr_image);
             }
+            stream << synchronize();
+        }
+        if (kTestName == "printer") {
+            auto printer_shader = device.load_shader<1>("test.bin");
+            Stream stream = device.create_stream();
+            stream.set_log_callback([&](auto &&f) {
+                LUISA_INFO("device: {}", f);
+            });
+            stream << printer_shader().dispatch(64) << synchronize();
         }
         if (kTestName == "rtx") {
             auto raytracing_shader = device.load_shader<2, Buffer<float4>, Accel, uint32_t>("test.bin");

@@ -3,7 +3,7 @@ target("lc-clangcxx")
         project_kind = "shared"
     })
     add_defines("LC_CLANGCXX_EXPORT_DLL")
-    add_deps("lc-core", "lc-runtime")
+    add_deps("lc-core", "lc-runtime", "lc-vstl")
     if is_plat("windows") then
         add_links("Version", "advapi32", "Shcore", "user32", "shell32", "Ole32", {public = true})
     elseif is_plat("linux") then

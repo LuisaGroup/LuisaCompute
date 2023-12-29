@@ -16,7 +16,6 @@
 #include <luisa/ast/op.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/syntax.h>
-
 namespace luisa::clangcxx {
 
 using namespace clang;
@@ -892,6 +891,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         isAccess |= luisa::clangcxx::isAccess(attr);
                     }
                     // args
+                    luisa::string printer_str;
                     luisa::vector<const luisa::compute::Expression *> lcArgs;
                     if (auto mcall = llvm::dyn_cast<clang::CXXMemberCallExpr>(x)) {
                         auto caller = stack->callers.back();
@@ -902,14 +902,22 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     for (auto arg : call->arguments()) {
                         if (auto lcArg = stack->GetExpr(arg))
                             lcArgs.emplace_back(lcArg);
-                        else {
+                        else if (auto _str_literal = llvm::dyn_cast<clang::StringLiteral>(arg)) {
+                            auto &&str = _str_literal->getString();
+                            printer_str = luisa::string{reinterpret_cast<char const *>(str.bytes_begin()), str.size()};
+                        } else {
                             db->DumpWithLocation(arg);
                             luisa::log_error("unfound arg: {}", arg->getStmtClassName());
                         }
                     }
                     // call
                     auto cxxReturnType = call->getCallReturnType(*astContext);
-                    if (!binopName.empty()) {
+                    if (!printer_str.empty()) {
+                        if (callopName != "device_log") [[unlikely]] {
+                            luisa::log_error("String literal only allowed in device_log.");
+                        }
+                        fb->print_(std::move(printer_str), lcArgs);
+                    } else if (!binopName.empty()) {
                         auto lcBinop = db->FindBinOp(binopName);
                         if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc()))
                             current = fb->binary(lcReturnType, lcBinop, lcArgs[0], lcArgs[1]);
@@ -1015,6 +1023,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             } else if (auto _init_list = llvm::dyn_cast<clang::InitListExpr>(x)) {// TODO
                 db->DumpWithLocation(x);
                 luisa::log_error("InitList is banned! Explicit use constructor instead!");
+            } else if (auto _str_literal = llvm::dyn_cast<clang::StringLiteral>(x)) {
             } else if (auto _control_flow = llvm::dyn_cast<CompoundStmt>(x)) {       // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::IfStmt>(x)) {      // CONTROL FLOW
             } else if (auto _control_flow = llvm::dyn_cast<clang::ContinueStmt>(x)) {// CONTROL FLOW

@@ -41,7 +41,7 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute:
 
 luisa::vector<luisa::string> Compiler::compile_args(
     compute::Context const &context,
-    luisa::span<const luisa::string_view> defines,
+    vstd::IRange<luisa::string_view>& defines,
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path,
     bool is_lsp) {
@@ -57,7 +57,7 @@ luisa::vector<luisa::string> Compiler::compile_args(
         "-Wno-microsoft-union-member-reference",
         std::move(include_arg)};
     luisa::vector<luisa::string> args_holder;
-    size_t reserve_size = vstd::array_count(arg_list) + defines.size();
+    size_t reserve_size = vstd::array_count(arg_list);
     if (!is_lsp) {
         luisa::string compile_arg_list[] = {
             "luisa_compiler",
@@ -75,18 +75,18 @@ luisa::vector<luisa::string> Compiler::compile_args(
     vstd::push_back_func(args_holder, vstd::array_count(arg_list), [&](size_t i) -> auto && {
         return std::move(arg_list[i]);
     });
-    vstd::push_back_func(args_holder, defines.size(), [&](size_t i) {
+    for(auto&& i : defines){
         auto d = luisa::string("-D");
-        d += defines[i];
-        return d;
-    });
+        d += i;
+        args_holder.emplace_back(std::move(d));
+    }
     return args_holder;
 }
 
 compute::ShaderCreationInfo Compiler::create_shader(
     compute::Context const &context,
     luisa::compute::Device &device,
-    luisa::span<const luisa::string_view> defines,
+    vstd::IRange<luisa::string_view>& defines,
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path) LUISA_NOEXCEPT {
 
@@ -115,7 +115,7 @@ compute::ShaderCreationInfo Compiler::create_shader(
 
 void Compiler::lsp_compile_commands(
     compute::Context const &context,
-    luisa::span<const luisa::string_view> defines,
+    vstd::IRange<luisa::string_view>& defines,
     const std::filesystem::path &shader_dir,
     const std::filesystem::path &shader_relative_dir,
     const std::filesystem::path &include_path,

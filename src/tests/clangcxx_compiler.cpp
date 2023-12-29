@@ -234,15 +234,14 @@ Argument list:
                 if (file_path.is_absolute()) {
                     file_path = std::filesystem::relative(file_path, src_path);
                 }
-                luisa::vector<luisa::string_view> defines_vector;
-                defines_vector.reserve(defines.size());
-                for (auto &&i : defines) {
-                    defines_vector.emplace_back(i);
-                }
                 luisa::vector<char> local_result;
+                auto iter = vstd::range_linker{
+                    vstd::make_ite_range(defines),
+                    vstd::transform_range{[&](auto &&v) { return luisa::string_view{v}; }}}
+                                .i_range();
                 luisa::clangcxx::Compiler::lsp_compile_commands(
                     context,
-                    defines_vector,
+                    iter,
                     src_path,
                     file_path,
                     inc_path,
@@ -362,11 +361,10 @@ Argument list:
             .enable_fast_math = use_optimize,
             .enable_debug_info = !use_optimize,
             .name = luisa::to_string(dst_path)});
-    luisa::vector<luisa::string_view> defines_vector;
-    defines_vector.reserve(defines.size());
-    for (auto &&i : defines) {
-        defines_vector.emplace_back(i);
-    }
-    compiler.create_shader(context, device, defines_vector, src_path, inc_path);
+    auto iter = vstd::range_linker{
+        vstd::make_ite_range(defines),
+        vstd::transform_range{[&](auto &&v) { return luisa::string_view{v}; }}}
+                    .i_range();
+    compiler.create_shader(context, device, iter, src_path, inc_path);
     return 0;
 }
