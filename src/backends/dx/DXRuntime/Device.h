@@ -31,6 +31,7 @@ class Device {
 public:
     size_t maxAllocatorCount = 2;
     luisa::BinaryIO const *fileIo = nullptr;
+    luisa::compute::Profiler *profiler = nullptr;
     struct LazyLoadShader {
     public:
         using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *, luisa::BinaryIO const *)>;

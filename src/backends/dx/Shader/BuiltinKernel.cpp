@@ -29,6 +29,7 @@ ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device, luisa::BinaryIO
     };
     return ComputeShader::CompileCompute(
         device->fileIo,
+        device->profiler,
         device,
         {},
         func,
@@ -66,6 +67,7 @@ ComputeShader *BuiltinKernel::LoadBindlessSetKernel(Device *device, luisa::Binar
     };
     return ComputeShader::CompileCompute(
         device->fileIo,
+        device->profiler,
         device,
         {},
         func,
@@ -123,6 +125,7 @@ static ComputeShader *LoadBCKernel(
     fileName << codePath << extName;
     return ComputeShader::CompileCompute(
         device->fileIo,
+        device->profiler,
         device,
         {},
         func,

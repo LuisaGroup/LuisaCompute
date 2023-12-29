@@ -15,6 +15,7 @@ static const bool PRINT_CODE = ([] {
 }// namespace ComputeShaderDetail
 ComputeShader *ComputeShader::LoadPresetCompute(
     BinaryIO const *fileIo,
+    luisa::compute::Profiler *profiler,
     Device *device,
     vstd::span<Type const *const> types,
     vstd::string_view fileName) {
@@ -28,6 +29,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
         CacheType::ByteCode,
         device,
         *fileIo,
+        profiler,
         {},
         typeMD5,
         {},
@@ -45,6 +47,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
 }
 ComputeShader *ComputeShader::CompileCompute(
     BinaryIO const *fileIo,
+    luisa::compute::Profiler *profiler,
     Device *device,
     Function kernel,
     vstd::function<hlsl::CodegenResult()> const &codegen,
@@ -76,12 +79,18 @@ ComputeShader *ComputeShader::CompileCompute(
                 fclose(f);
             }
         }
+        if (profiler) [[unlikely]] {
+            profiler->before_compile_shader_bytecode(fileName);
+        }
         auto compResult = Device::Compiler()->compile_compute(
             str.result.view(),
             true,
             shaderModel,
             enableUnsafeMath,
             false);
+        if (profiler) [[unlikely]] {
+            profiler->after_compile_shader_bytecode(fileName);
+        }
         return compResult.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
@@ -139,6 +148,7 @@ ComputeShader *ComputeShader::CompileCompute(
             cacheType,
             device,
             *fileIo,
+            profiler,
             checkMD5,
             typeMD5,
             std::move(bindings),
@@ -157,6 +167,7 @@ ComputeShader *ComputeShader::CompileCompute(
 }
 void ComputeShader::SaveCompute(
     BinaryIO const *fileIo,
+    luisa::compute::Profiler *profiler,
     Function kernel,
     hlsl::CodegenResult &str,
     uint3 blockSize,
@@ -170,13 +181,31 @@ void ComputeShader::SaveCompute(
         fwrite(str.result.data(), str.result.size(), 1, f);
         fclose(f);
     }
-    if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) return;
+    if (profiler) [[unlikely]] {
+        profiler->before_load_shader_bytecode(fileName);
+    }
+    if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) {
+        if (profiler) [[unlikely]] {
+            profiler->after_load_shader_bytecode(fileName, true);
+        }
+        return;
+    } else {
+        if (profiler) [[unlikely]] {
+            profiler->after_load_shader_bytecode(fileName, false);
+        }
+    }
+    if (profiler) [[unlikely]] {
+        profiler->before_compile_shader_bytecode(fileName);
+    }
     auto compResult = Device::Compiler()->compile_compute(
         str.result.view(),
         true,
         shaderModel,
         enableUnsafeMath,
         false);
+    if (profiler) [[unlikely]] {
+        profiler->after_compile_shader_bytecode(fileName);
+    }
     compResult.multi_visit(
         [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
             auto kernelArgs = ShaderSerializer::SerializeKernel(kernel);
