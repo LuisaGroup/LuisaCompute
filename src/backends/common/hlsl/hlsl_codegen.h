@@ -23,7 +23,7 @@ struct CodegenResult {
     using Properties = vstd::vector<Property>;
     vstd::StringBuilder result;
     Properties properties;
-    vstd::vector<std::pair<vstd::string, Type const*>> printers;
+    vstd::vector<std::pair<vstd::string, Type const *>> printers;
     bool useTex2DBindless;
     bool useTex3DBindless;
     bool useBufferBindless;
@@ -32,7 +32,7 @@ struct CodegenResult {
     CodegenResult() {}
     CodegenResult(
         vstd::StringBuilder &&result,
-        vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
+        vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
         Properties &&properties,
         bool useTex2DBindless,
         bool useTex3DBindless,
@@ -105,7 +105,7 @@ public:
         uint custom_mask,
         bool isSpirV);
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx);
-    uint AddPrinter(vstd::string_view name, Type const* structType);
+    uint AddPrinter(vstd::string_view name, Type const *structType);
     vstd::StringBuilder GetNewTempVarName();
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
@@ -270,6 +270,18 @@ struct PrintValue<bool> {
             str << "false";
     }
 };
+template<>
+struct PrintValue<luisa::byte> {
+    void operator()(bool const &v, vstd::StringBuilder &str) {
+        LUISA_ERROR_WITH_LOCATION("Unsupported type.");
+    }
+};
+template<>
+struct PrintValue<luisa::ubyte> {
+    void operator()(bool const &v, vstd::StringBuilder &str) {
+        LUISA_ERROR_WITH_LOCATION("Unsupported type.");
+    }
+};
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
@@ -305,7 +317,8 @@ struct PrintValue<Vector<EleType, N>> {
             } else if constexpr (std::is_same_v<EleType, ulong>) {
                 varName << "uint64_t";
             } else {
-                static_assert(luisa::always_false_v<T>, "Unsupported type.");
+                // static_assert(luisa::always_false_v<T>, "Unsupported type.");
+                LUISA_ERROR_WITH_LOCATION("Unsupported type. {}", typeid(T).name());
             }
             vstd::to_string(N, varName);
             varName << '(';

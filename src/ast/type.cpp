@@ -494,6 +494,8 @@ bool Type::is_scalar() const noexcept {
         case Tag::FLOAT16:
         case Tag::INT16:
         case Tag::UINT16:
+        case Tag::INT8:
+        case Tag::UINT8:
         case Tag::FLOAT64:
             return true;
         default:
@@ -511,6 +513,8 @@ bool Type::is_arithmetic() const noexcept {
         case Tag::FLOAT16:
         case Tag::INT16:
         case Tag::UINT16:
+        case Tag::INT8:
+        case Tag::UINT8:
             return true;
         default:
             return false;
@@ -561,7 +565,7 @@ const Type *Type::texture(const Type *elem, size_t dimension) noexcept {
 }
 
 const Type *Type::structure(size_t alignment, luisa::span<const Type *> members) noexcept {
-    LUISA_ASSERT(alignment == 4u || alignment == 8u || alignment == 16u,
+    LUISA_ASSERT(alignment == 1 || alignment == 4u || alignment == 8u || alignment == 16u,
                  "Invalid structure alignment {} (must be 4, 8, or 16).",
                  alignment);
     auto desc = luisa::format("struct<{}", alignment);

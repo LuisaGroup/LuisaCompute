@@ -1160,6 +1160,10 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
         case ir::Const::Tag::Bool: return b->literal(Type::of<bool>(), const_.bool_._0);
         case ir::Const::Tag::Int32: return b->literal(Type::of<int>(), const_.int32._0);
         case ir::Const::Tag::Uint32: return b->literal(Type::of<uint>(), const_.uint32._0);
+        case ir::Const::Tag::Int16: return b->literal(Type::of<short>(), const_.int16._0);
+        case ir::Const::Tag::Uint16: return b->literal(Type::of<ushort>(), const_.uint16._0);
+        case ir::Const::Tag::Int8: return b->literal(Type::of<byte>(), const_.int8._0);
+        case ir::Const::Tag::Uint8: return b->literal(Type::of<ubyte>(), const_.uint8._0);
         case ir::Const::Tag::Int64: return b->literal(Type::of<slong>(), const_.int64._0);
         case ir::Const::Tag::Uint64: return b->literal(Type::of<ulong>(), const_.uint64._0);
         case ir::Const::Tag::Float16: return b->literal(Type::of<half>(), luisa::bit_cast<half>(const_.float16._0));
@@ -1186,6 +1190,8 @@ const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {
                 LUISA_IR2AST_DECODE_CONST_VEC(uint)
                 LUISA_IR2AST_DECODE_CONST_VEC(short)
                 LUISA_IR2AST_DECODE_CONST_VEC(ushort)
+                LUISA_IR2AST_DECODE_CONST_VEC(byte)
+                LUISA_IR2AST_DECODE_CONST_VEC(ubyte)
                 LUISA_IR2AST_DECODE_CONST_VEC(slong)
                 LUISA_IR2AST_DECODE_CONST_VEC(ulong)
                 LUISA_IR2AST_DECODE_CONST_VEC(half)
