@@ -357,9 +357,9 @@ Argument list:
     Device device = context.create_device(backend, &config);
     auto compiler = luisa::clangcxx::Compiler(
         ShaderOption{
-            .compile_only = true,
             .enable_fast_math = use_optimize,
             .enable_debug_info = !use_optimize,
+            .compile_only = true,
             .name = luisa::to_string(dst_path)});
     auto iter = vstd::range_linker{
         vstd::make_ite_range(defines),
