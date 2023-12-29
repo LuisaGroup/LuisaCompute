@@ -51,7 +51,7 @@ luisa::vector<luisa::string> Compiler::compile_args(
     output_arg += detail::path_to_string(output_path);
 
     luisa::string arg_list[] = {
-        "-std=c++20",
+        "-std=c++23",
         // swizzle uses reference member in union
         "-fms-extensions",
         "-Wno-microsoft-union-member-reference",

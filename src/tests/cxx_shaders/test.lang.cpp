@@ -377,6 +377,7 @@ static_assert(c_f22.get(1, 1) == 4.f);
 
 constexpr auto c_f33 = matrix<3>(c_f22);
 static_assert(c_f33.get(0, 0) == 1.f);
+static_assert(c_f33[0, 0] == 1.f);
 static_assert(c_f33.get(0, 2) == 0.f);
 
 struct Complex {
@@ -404,6 +405,7 @@ auto TestConstexprAssign() {
 
     float3 f3 = c_f3;
     f3 = c_f3;
+    f3.x = c_f33[0, 2];
 
     matrix<3> f33 = identity<matrix<3>>;
     f33 = c_f33;

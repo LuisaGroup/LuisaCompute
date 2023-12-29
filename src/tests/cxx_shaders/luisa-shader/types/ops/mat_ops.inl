@@ -14,10 +14,15 @@
         return _v[idx];
 }
 
+#if (__cpp_multidimensional_subscript >= 202110L)
+[[nodiscard, noignore]] constexpr T operator[](uint32 row, uint32 col) const noexcept {
+    return access_(row).access_(col);
+}
+#endif
+
 [[nodiscard, noignore]] constexpr T get(uint32 row, uint32 col) const noexcept {
     return access_(row).access_(col);
 }
-
 
 [[unaop("PLUS")]] ThisType operator+() const;
 [[unaop("MINUS")]] ThisType operator-() const;
