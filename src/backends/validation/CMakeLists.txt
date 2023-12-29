@@ -7,21 +7,24 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         dstorage_ext_impl.cpp dstorage_ext_impl.h
         event.h
         mesh.h
-        procedural_primitives.h
         pinned_mem_impl.cpp pinned_mem_impl.h
+        procedural_primitives.h
         range.h
         raster_ext_impl.cpp raster_ext_impl.h
         resource.cpp resource.h
         rw_resource.cpp rw_resource.h
-        sparse_heap.cpp sparse_heap.h
         shader.h
+        sparse_heap.cpp sparse_heap.h
         stream.cpp stream.h
         stream_func.h
         swap_chain.h
         texture.h)
 
 add_library(luisa-compute-validation-layer MODULE ${LUISA_COMPUTE_VALIDATION_SOURCES})
-target_link_libraries(luisa-compute-validation-layer PRIVATE luisa-compute-runtime luisa-compute-gui)
+target_link_libraries(luisa-compute-validation-layer PRIVATE
+        luisa-compute-runtime
+        luisa-compute-gui
+        luisa-compute-vstl)
 target_precompile_headers(luisa-compute-validation-layer PRIVATE pch.h)
 add_dependencies(luisa-compute-backends luisa-compute-validation-layer)
 set_target_properties(luisa-compute-validation-layer PROPERTIES
