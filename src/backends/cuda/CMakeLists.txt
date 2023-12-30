@@ -52,7 +52,7 @@ if (CUDAToolkit_FOUND)
     install(FILES "${CUDA_DEVICE_RUNTIME_LIBRARY}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     # nvrtc
-    if (FALSE AND TARGET CUDA::nvrtc_static AND WIN32) # disabled due to nvrtc codepage bug on Windows
+    if (SKBUILD AND TARGET CUDA::nvrtc_static AND WIN32) # disabled due to nvrtc codepage bug on Windows
         # wrap the static nvrtc library in a shared library to avoid the dependency on the CUDA toolkit
         add_library(luisa-compute-backend-cuda-nvrtc SHARED cuda_nvrtc.cpp)
         target_link_libraries(luisa-compute-backend-cuda-nvrtc PRIVATE CUDA::nvrtc_static)
