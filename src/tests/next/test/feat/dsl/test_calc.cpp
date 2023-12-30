@@ -21,6 +21,8 @@ int test_freq_func() {
     // tan
     CHECK(tan(0.0f) == 0.0f);
     CHECK(tan(1.0f) == Approx(1.557407724654902f));
+    CHECK(tan(3.1415926f) == Approx(0.0f));
+    CHECK(tan(3.1415926f / 4.0f) == Approx(0.999999999999999f));
     return 0;
 }
 
@@ -68,5 +70,7 @@ int test_calc(Device &device) {
 
 TEST_SUITE("dsl") {
     LUISA_TEST_CASE_WITH_DEVICE("dsl_calc", luisa::test::test_calc(device) == 0);
-    REQUIRE(test_freq_func() == 0);
+    TEST_CASE("dsl_freq_func") {
+        REQUIRE(luisa::test::test_freq_func() == 0);
+    }
 }
