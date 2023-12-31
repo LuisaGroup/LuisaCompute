@@ -5,24 +5,20 @@
 
 namespace luisa::clangcxx {
 
-std::unique_ptr<clang::ASTConsumer> FrontendAction::CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef InFile)
-{
-    auto& Output = Global::OutputDir;
-    auto OutputPath = Output.hasArgStr() ? Output.getValue() : "./";
+std::unique_ptr<clang::ASTConsumer> FrontendAction::CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef InFile) {
+    auto &Output = Global::OutputDir;
     auto &PP = CI.getPreprocessor();
     clang::SourceManager &SM = PP.getSourceManager();
     auto &LO = CI.getLangOpts();
     LO.CommentOpts.ParseAllComments = true;
-    return std::make_unique<luisa::clangcxx::ASTConsumer>(std::move(OutputPath), device, option);
+    return std::make_unique<luisa::clangcxx::ASTConsumer>(device, option);
 }
-std::unique_ptr<clang::ASTConsumer> CallLibFrontendAction::CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef InFile)
-{
-    auto& Output = Global::OutputDir;
-    auto OutputPath = Output.hasArgStr() ? Output.getValue() : "./";
+std::unique_ptr<clang::ASTConsumer> CallLibFrontendAction::CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef InFile) {
+    auto &Output = Global::OutputDir;
     auto &PP = CI.getPreprocessor();
     clang::SourceManager &SM = PP.getSourceManager();
     auto &LO = CI.getLangOpts();
     LO.CommentOpts.ParseAllComments = true;
-    return std::make_unique<luisa::clangcxx::ASTCallableConsumer>(std::move(OutputPath));
+    return std::make_unique<luisa::clangcxx::ASTCallableConsumer>(lib);
 }
-}
+}// namespace luisa::clangcxx

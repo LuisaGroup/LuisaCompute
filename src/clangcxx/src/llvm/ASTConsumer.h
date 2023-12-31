@@ -95,17 +95,14 @@ protected:
 
 class ASTConsumer final : public ASTConsumerBase {
 public:
-    explicit ASTConsumer(std::string OutputPath, luisa::compute::Device *device, compute::ShaderOption option);
+    explicit ASTConsumer(luisa::compute::Device *device, compute::ShaderOption option);
     ~ASTConsumer() override;
-    std::string OutputPath;
     const luisa::compute::Device *device = nullptr;
     const compute::ShaderOption option;
 };
 class ASTCallableConsumer final : public ASTConsumerBase {
 public:
-    compute::CallableLibrary call_lib;
-    explicit ASTCallableConsumer(std::string OutputPath);
+    explicit ASTCallableConsumer(compute::CallableLibrary* lib);
     ~ASTCallableConsumer() override;
-    std::string OutputPath;
 };
 }// namespace luisa::clangcxx

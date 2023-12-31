@@ -17,10 +17,6 @@ string path_to_string(std::filesystem::path const &path) {
     return str;
 }
 }// namespace detail
-Compiler::Compiler(const compute::ShaderOption &option)
-    : option(option) {
-}
-
 template<typename T>
 std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute::Device *device, compute::ShaderOption option) {
     class SimpleFrontendActionFactory2 : public FrontendActionFactory {
@@ -40,18 +36,19 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute:
 }
 
 template<typename T>
-std::unique_ptr<FrontendActionFactory> newFrontendActionFactory3() {
+std::unique_ptr<FrontendActionFactory> newFrontendActionFactory3(compute::CallableLibrary *lib) {
     class SimpleFrontendActionFactory3 : public FrontendActionFactory {
     public:
-        SimpleFrontendActionFactory3() {
+        SimpleFrontendActionFactory3(
+            compute::CallableLibrary *lib) : lib(lib) {
         }
 
         std::unique_ptr<clang::FrontendAction> create() override {
-            return std::make_unique<T>();
+            return std::make_unique<T>(lib);
         }
-
+        compute::CallableLibrary *lib;
     };
-    return std::unique_ptr<FrontendActionFactory>(new SimpleFrontendActionFactory3());
+    return std::unique_ptr<FrontendActionFactory>(new SimpleFrontendActionFactory3(lib));
 }
 
 luisa::vector<luisa::string> Compiler::compile_args(
@@ -59,12 +56,8 @@ luisa::vector<luisa::string> Compiler::compile_args(
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path,
-    bool is_lsp) {
+    bool is_lsp) LUISA_NOEXCEPT {
     auto include_arg = "-I" + detail::path_to_string(include_path);
-    auto const &output_path = context.runtime_directory();
-    luisa::string output_arg = "--output=";
-    output_arg += detail::path_to_string(output_path);
-
     luisa::string arg_list[] = {
         "-std=c++23",
         // swizzle uses reference member in union
@@ -77,7 +70,6 @@ luisa::vector<luisa::string> Compiler::compile_args(
         luisa::string compile_arg_list[] = {
             "luisa_compiler",
             std::move(detail::path_to_string(shader_path)),
-            std::move(output_arg),
             "--"};
         reserve_size += vstd::array_count(compile_arg_list);
         args_holder.reserve(reserve_size);
@@ -99,6 +91,7 @@ luisa::vector<luisa::string> Compiler::compile_args(
 }
 
 compute::ShaderCreationInfo Compiler::create_shader(
+    const compute::ShaderOption &option,
     compute::Context const &context,
     luisa::compute::Device &device,
     vstd::IRange<luisa::string_view> &defines,
@@ -121,11 +114,42 @@ compute::ShaderCreationInfo Compiler::create_shader(
     OptionsParser &OptionsParser = ExpectedParser.get();
     tooling::ClangTool Tool(OptionsParser.getCompilations(), OptionsParser.getSourcePathList());
     auto factory = newFrontendActionFactory2<luisa::clangcxx::FrontendAction>(&device, option);
+    // Callable export
+    // auto factory = newFrontendActionFactory3<luisa::clangcxx::CallLibFrontendAction>(option.name);
     auto rc = Tool.run(factory.get());
     if (rc != 0) {
         // ...
     }
     return compute::ShaderCreationInfo::make_invalid();
+}
+compute::CallableLibrary Compiler::export_callables(
+    compute::Context const &context,
+    compute::Device &device,
+    vstd::IRange<luisa::string_view> &defines,
+    const std::filesystem::path &shader_path,
+    const std::filesystem::path &include_path) LUISA_NOEXCEPT {
+    compute::CallableLibrary lib;
+    auto args_holder = compile_args(context, defines, shader_path, include_path, false);
+    luisa::vector<const char *> args;
+    args.reserve(args_holder.size());
+    for (auto &arg : args_holder) {
+        args.push_back(arg.c_str());
+    }
+    int argc = (int)args.size();
+    auto ExpectedParser = OptionsParser::create(argc, args.data(), llvm::cl::ZeroOrMore, Global::ToolCategoryOption);
+    if (!ExpectedParser) {
+        // Fail gracefully for unsupported options.
+        llvm::errs() << ExpectedParser.takeError();
+        return lib;
+    }
+    OptionsParser &OptionsParser = ExpectedParser.get();
+    tooling::ClangTool Tool(OptionsParser.getCompilations(), OptionsParser.getSourcePathList());
+    auto factory = newFrontendActionFactory3<luisa::clangcxx::CallLibFrontendAction>(&lib);
+    auto rc = Tool.run(factory.get());
+    if (rc != 0) {
+        // ...
+    }
+    return lib;
 }
 
 void Compiler::lsp_compile_commands(
@@ -134,7 +158,7 @@ void Compiler::lsp_compile_commands(
     const std::filesystem::path &shader_dir,
     const std::filesystem::path &shader_relative_dir,
     const std::filesystem::path &include_path,
-    luisa::vector<char> &result) {
+    luisa::vector<char> &result) LUISA_NOEXCEPT {
     using namespace std::string_view_literals;
     auto args_holder = compile_args(context, defines, shader_relative_dir, include_path, true);
     auto add = [&]<typename T>(T c) {

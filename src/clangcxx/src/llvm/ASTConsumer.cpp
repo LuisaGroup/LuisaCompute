@@ -1361,37 +1361,15 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
     }
 }
 
-ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device, compute::ShaderOption option)
-    : OutputPath(std::move(OutputPath)), device(device), option(std::move(option)) {
+ASTConsumer::ASTConsumer(luisa::compute::Device *device, compute::ShaderOption option)
+    : device(device), option(std::move(option)) {
 }
-ASTCallableConsumer::ASTCallableConsumer(std::string OutputPath)
-    : OutputPath(std::move(OutputPath)) {
-    HandlerForFuncionDecl.call_lib = &call_lib;
+ASTCallableConsumer::ASTCallableConsumer(compute::CallableLibrary *lib) {
+    HandlerForFuncionDecl.call_lib = lib;
 }
 ASTCallableConsumer::~ASTCallableConsumer() {
-    if (!call_lib.empty()) {
-        auto ser_data = call_lib.serialize();
-        // TODO: output path need file name.
-        if (auto f = fopen(OutputPath.c_str(), "wb")) [[likely]] {
-#ifdef _WIN32
-#define LUISA_FWRITE _fwrite_nolock
-#define LUISA_FCLOSE _fclose_nolock
-#else
-#define LUISA_FWRITE fwrite
-#define LUISA_FCLOSE fclose
-#endif
-            LUISA_FWRITE(ser_data.data(), ser_data.size(), 1, f);
-            LUISA_FCLOSE(f);
-#undef LUISA_FWRITE
-#undef LUISA_FCLOSE
-            LUISA_INFO("Write Serialized callable {} bytes to file: {}", ser_data.size_bytes(), OutputPath);
-        } else {
-            LUISA_ERROR("Write Serialized callable {} bytes to file: {} failed.", ser_data.size_bytes(), OutputPath);
-        }
-    }
 }
 ASTConsumerBase::ASTConsumerBase() {
-
     HandlerForTypeDecl.db = &db;
     Matcher.addMatcher(recordDecl(
                            isDefinition(),

@@ -49,10 +49,6 @@ int main(int argc, char *argv[]) {
         auto inc_relative = "./../../src/tests/cxx_shaders";
         auto shader_path = std::filesystem::canonical(context.runtime_directory() / src_relative);
         auto include_path = std::filesystem::canonical(context.runtime_directory() / inc_relative);
-        auto compiler = luisa::clangcxx::Compiler(
-            ShaderOption{
-                .compile_only = true,
-                .name = "test.bin"});
         luisa::vector<luisa::string> defines;
         // Enable debug for printer
         if (kTestName == "printer") {
@@ -62,7 +58,11 @@ int main(int argc, char *argv[]) {
             vstd::make_ite_range(defines),
             vstd::transform_range{[&](auto &&v) { return luisa::string_view{v}; }}}
                         .i_range();
-        compiler.create_shader(context, device, iter, shader_path, include_path);
+        luisa::clangcxx::Compiler::create_shader(
+            ShaderOption{
+                .compile_only = true,
+                .name = "test.bin"},
+            context, device, iter, shader_path, include_path);
     }
     if (kTestRuntime) {
         Callable linear_to_srgb = [&](Var<float3> x) noexcept {

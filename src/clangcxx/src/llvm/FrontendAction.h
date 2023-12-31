@@ -22,10 +22,10 @@ public:
 };
 class CallLibFrontendAction : public clang::ASTFrontendAction {
 public:
-    CallLibFrontendAction()
-        : clang::ASTFrontendAction() {
+    CallLibFrontendAction(compute::CallableLibrary *lib)
+        : clang::ASTFrontendAction(), lib(lib) {
     }
-
+    compute::CallableLibrary *lib;
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef InFile) final;
 };
 
