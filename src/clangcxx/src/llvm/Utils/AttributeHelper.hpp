@@ -78,6 +78,7 @@ inline static bool isBinop(const clang::AnnotateAttr *Anno) { return isLuisaAttr
 inline static bool isUnaop(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "unaop"); }
 inline static bool isExpr(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "expr"); }
 inline static bool isSwizzle(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "swizzle"); }
+inline static bool isExport(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "export"); }
 
 inline static bool isKernel1D(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "kernel_1d"); }
 inline static bool isKernel2D(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "kernel_2d"); }

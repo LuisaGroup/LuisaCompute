@@ -39,9 +39,24 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory2(luisa::compute:
     return std::unique_ptr<FrontendActionFactory>(new SimpleFrontendActionFactory2(device, std::move(option)));
 }
 
+template<typename T>
+std::unique_ptr<FrontendActionFactory> newFrontendActionFactory3() {
+    class SimpleFrontendActionFactory3 : public FrontendActionFactory {
+    public:
+        SimpleFrontendActionFactory3() {
+        }
+
+        std::unique_ptr<clang::FrontendAction> create() override {
+            return std::make_unique<T>();
+        }
+
+    };
+    return std::unique_ptr<FrontendActionFactory>(new SimpleFrontendActionFactory3());
+}
+
 luisa::vector<luisa::string> Compiler::compile_args(
     compute::Context const &context,
-    vstd::IRange<luisa::string_view>& defines,
+    vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path,
     bool is_lsp) {
@@ -75,7 +90,7 @@ luisa::vector<luisa::string> Compiler::compile_args(
     vstd::push_back_func(args_holder, vstd::array_count(arg_list), [&](size_t i) -> auto && {
         return std::move(arg_list[i]);
     });
-    for(auto&& i : defines){
+    for (auto &&i : defines) {
         auto d = luisa::string("-D");
         d += i;
         args_holder.emplace_back(std::move(d));
@@ -86,7 +101,7 @@ luisa::vector<luisa::string> Compiler::compile_args(
 compute::ShaderCreationInfo Compiler::create_shader(
     compute::Context const &context,
     luisa::compute::Device &device,
-    vstd::IRange<luisa::string_view>& defines,
+    vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path) LUISA_NOEXCEPT {
 
@@ -115,7 +130,7 @@ compute::ShaderCreationInfo Compiler::create_shader(
 
 void Compiler::lsp_compile_commands(
     compute::Context const &context,
-    vstd::IRange<luisa::string_view>& defines,
+    vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_dir,
     const std::filesystem::path &shader_relative_dir,
     const std::filesystem::path &include_path,

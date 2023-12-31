@@ -20,6 +20,7 @@
 #include <luisa/runtime/shader.h>
 
 #include <luisa/ast/op.h>
+#include <luisa/ast/callable_library.h>
 
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>

@@ -98,7 +98,7 @@ inline luisa::compute::UnaryOp TranslateUnaryOp(CXXUnaryOp op) {
     }
 }
 
-inline const luisa::compute::RefExpr *LC_ArgOrRef(clang::QualType qt, luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::compute::Type *lcType) {
+inline const luisa::compute::RefExpr *LC_ArgOrRef(clang::QualType qt, compute::detail::FunctionBuilder *fb, const luisa::compute::Type *lcType) {
     if (qt->isPointerType())
         luisa::log_error("pointer type is not supported: [{}]", qt.getAsString());
     else if (qt->isReferenceType())
@@ -109,7 +109,7 @@ inline const luisa::compute::RefExpr *LC_ArgOrRef(clang::QualType qt, luisa::sha
 }
 
 inline const luisa::compute::RefExpr *LC_Local(
-    luisa::shared_ptr<compute::detail::FunctionBuilder> fb,
+    compute::detail::FunctionBuilder *fb,
     const luisa::compute::Type *lcType,
     compute::Usage usage) {
     auto lcLocal = fb->local(lcType);
@@ -381,7 +381,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             auto cxxCallee = cxxLambda->getLambdaClass()->getLambdaCallOperator();
             Stack newStack = *stack;
             FunctionBuilderBuilder bdbd(db, newStack);
-            bdbd.build(cxxCallee);
+            bdbd.build(cxxCallee, false);
         } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
             auto _ = db->CommentStmt(fb, cxxBranch);
 
@@ -585,7 +585,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     const auto isTemplateInstant = funcDecl->isTemplateInstantiation();
                     if (isTemplateInstant) {
                         FunctionBuilderBuilder fbfb(db, *stack);
-                        fbfb.build(funcDecl);
+                        fbfb.build(funcDecl, false);
                     }
                 }
                 luisa::vector<const luisa::compute::Expression *> lcArgs;
@@ -717,7 +717,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 const auto lcType = db->FindOrAddType(unary->getType(), x->getBeginLoc());
                 if (cxx_op == CXXUnaryOp::UO_Deref) {
                     if (auto _this = llvm::dyn_cast<CXXThisExpr>(unary->getSubExpr()))
-                        current = db->GetFunctionThis(fb.get());
+                        current = db->GetFunctionThis(fb);
                     else
                         luisa::log_error("only support deref 'this'(*this)!");
                 } else if (!IsUnaryAssignOp(cxx_op)) {
@@ -821,7 +821,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 fb->assign(_value, stack->GetExpr(cxxDefaultArg->getExpr()));
                 current = _value;
             } else if (auto t = llvm::dyn_cast<clang::CXXThisExpr>(x)) {
-                current = db->GetFunctionThis(fb.get());
+                current = db->GetFunctionThis(fb);
             } else if (auto cxxMember = llvm::dyn_cast<clang::MemberExpr>(x)) {
                 if (auto bypass = isByPass(cxxMember->getMemberDecl())) {
                     current = stack->GetExpr(cxxMember->getBase());
@@ -971,7 +971,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         if (!db->lambda_builders.contains(calleeDecl) && !db->func_builders.contains(calleeDecl)) {
                             if (isTemplateInstant || isLambda) {
                                 FunctionBuilderBuilder fbfb(db, *stack);
-                                fbfb.build(calleeDecl->getAsFunction());
+                                fbfb.build(calleeDecl->getAsFunction(), false);
                                 calleeDecl = funcDecl;
                             }
                         }
@@ -1049,7 +1049,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         return true;
     }
 
-    ExprTranslator(Stack *stack, TypeDatabase *db, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, clang::Stmt *root)
+    ExprTranslator(Stack *stack, TypeDatabase *db, compute::detail::FunctionBuilder *cur, clang::Stmt *root)
         : stack(stack), db(db), fb(cur), root(root) {
     }
     const luisa::compute::Expression *translated = nullptr;
@@ -1057,15 +1057,16 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 protected:
     Stack *stack = nullptr;
     TypeDatabase *db = nullptr;
-    luisa::shared_ptr<compute::detail::FunctionBuilder> fb = nullptr;
+    compute::detail::FunctionBuilder *fb = nullptr;
     clang::Stmt *root = nullptr;
 };// namespace luisa::clangcxx
 
-uint FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
+auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKernel) -> BuildResult {
+    BuildResult result{
+        .dimension = 0};
     bool is_ignore = false;
     bool is_kernel = false;
     uint3 kernelSize;
-    uint kernelDimension = 0;
     bool is_template = S->isTemplateDecl() && !S->isTemplateInstantiation();
     bool is_scope = false;
     bool is_method = false;
@@ -1080,11 +1081,11 @@ uint FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
         if (isKernel(Anno)) {
             is_kernel = true;
             if (isKernel1D(Anno)) {
-                kernelDimension = 1;
+                result.dimension = 1;
             } else if (isKernel2D(Anno)) {
-                kernelDimension = 2;
+                result.dimension = 2;
             } else {
-                kernelDimension = 3;
+                result.dimension = 3;
             }
             getKernelSize(Anno, kernelSize.x, kernelSize.y, kernelSize.z);
         }
@@ -1161,20 +1162,28 @@ uint FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
             }
         }
 
-        luisa::shared_ptr<compute::detail::FunctionBuilder> builder;
+        luisa::shared_ptr<compute::detail::FunctionBuilder> builder_sharedptr;
         Stmt *body = S->getBody();
         {
-            if (is_kernel)
-                builder = db->kernel_builder;
-            else
-                builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
-
+            if (is_kernel) {
+                if (!allowKernel) [[unlikely]] {
+                    LUISA_ERROR("Kernel definition not allowed in callable export.");
+                }
+                if (db->kernel_builder) [[unlikely]] {
+                    LUISA_ERROR("Kernel can not be redefined.");
+                }
+                db->kernel_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
+                builder_sharedptr = db->kernel_builder;
+            } else
+                builder_sharedptr = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
+            auto builder = builder_sharedptr.get();
+            result.func = luisa::compute::Function{builder};
             if (is_lambda)
-                db->lambda_builders[S] = builder;
+                db->lambda_builders[S] = std::move(builder_sharedptr);
             else
-                db->func_builders[S] = builder;
+                db->func_builders[S] = std::move(builder_sharedptr);
 
-            luisa::compute::detail::FunctionBuilder::push(builder.get());
+            luisa::compute::detail::FunctionBuilder::push(builder);
             builder->push_scope(builder->body());
             {
                 if (is_kernel) {
@@ -1201,7 +1210,7 @@ uint FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                     auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S);
                     if (auto lcType = db->FindOrAddType(methodThisType, Method->getBeginLoc())) {
                         auto this_local = builder->reference(lcType);
-                        db->SetFunctionThis(builder.get(), this_local);
+                        db->SetFunctionThis(builder, this_local);
                     } else {
                         luisa::log_error("???");
                     }
@@ -1249,7 +1258,7 @@ uint FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                 // ctor initializers
                 if (is_method) {
                     if (auto lcType = db->FindOrAddType(methodThisType, S->getBeginLoc())) {
-                        auto this_local = db->GetFunctionThis(builder.get());
+                        auto this_local = db->GetFunctionThis(builder);
                         if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
                             for (auto ctor_init : Ctor->inits()) {
                                 auto init = ctor_init->getInit();
@@ -1269,13 +1278,13 @@ uint FunctionBuilderBuilder::build(const clang::FunctionDecl *S) {
                 recursiveVisit(body, builder, stack);
             }
             builder->pop_scope(builder->body());
-            luisa::compute::detail::FunctionBuilder::pop(builder.get());
+            luisa::compute::detail::FunctionBuilder::pop(builder);
         }
     }
-    return kernelDimension;
+    return result;
 }
 
-bool FunctionBuilderBuilder::recursiveVisit(clang::Stmt *currStmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack) {
+bool FunctionBuilderBuilder::recursiveVisit(clang::Stmt *currStmt, compute::detail::FunctionBuilder *cur, Stack &stack) {
     if (!currStmt)
         return true;
 
@@ -1329,16 +1338,59 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
         if (!isLambda && !S->isTemplateInstantiation()) {
             auto stack = Stack();
             FunctionBuilderBuilder bdbd(db, stack);
-            auto dim = bdbd.build(S);
-            if (dim > 0) dimension = dim;
+            auto result = bdbd.build(S, call_lib == nullptr);
+            const auto is_export_func = [&]() {
+                for (auto attr : S->specific_attrs<clang::AnnotateAttr>()) {
+                    if (isExport(attr)) return true;
+                }
+                return false;
+            }();
+            if (is_export_func) {
+                auto func_name = S->getName();
+                if (!call_lib) [[unlikely]] {
+                    LUISA_WARNING("This is not a ast export compilation. Function {} export attribute ignored.", func_name);
+                } else {
+                    call_lib->add_callable(
+                        luisa::string_view{func_name.data(), func_name.size()},
+                        result.func.shared_builder());
+                    LUISA_INFO("{}", func_name);
+                }
+            }
+            if (result.dimension > 0) dimension = result.dimension;
         }
     }
 }
 
 ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device, compute::ShaderOption option)
     : OutputPath(std::move(OutputPath)), device(device), option(std::move(option)) {
-
-    db.kernel_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
+}
+ASTCallableConsumer::ASTCallableConsumer(std::string OutputPath)
+    : OutputPath(std::move(OutputPath)) {
+    HandlerForFuncionDecl.call_lib = &call_lib;
+}
+ASTCallableConsumer::~ASTCallableConsumer() {
+    if (!call_lib.empty()) {
+        auto ser_data = call_lib.serialize();
+        // TODO: output path need file name.
+        if (auto f = fopen(OutputPath.c_str(), "wb")) [[likely]] {
+#ifdef _WIN32
+#define LUISA_FWRITE _fwrite_nolock
+#define LUISA_FCLOSE _fclose_nolock
+#else
+#define LUISA_FWRITE fwrite
+#define LUISA_FCLOSE fclose
+#endif
+            LUISA_FWRITE(ser_data.data(), ser_data.size(), 1, f);
+            LUISA_FCLOSE(f);
+#undef LUISA_FWRITE
+#undef LUISA_FCLOSE
+            LUISA_INFO("Write Serialized callable {} bytes to file: {}", ser_data.size_bytes(), OutputPath);
+        } else {
+            LUISA_ERROR("Write Serialized callable {} bytes to file: {} failed.", ser_data.size_bytes(), OutputPath);
+        }
+    }
+}
+ASTConsumerBase::ASTConsumerBase() {
 
     HandlerForTypeDecl.db = &db;
     Matcher.addMatcher(recordDecl(
@@ -1360,16 +1412,21 @@ ASTConsumer::ASTConsumer(std::string OutputPath, luisa::compute::Device *device,
                            unless(isExpansionInSystemHeader()))
                            .bind("VarDecl"),
                        &HandlerForGlobalVar);
-    // Matcher.addMatcher(stmt().bind("callExpr"), &HandlerForCallExpr);
 }
 
+ASTConsumerBase::~ASTConsumerBase() {
+}
 ASTConsumer::~ASTConsumer() {
+    if (db.kernel_builder == nullptr) [[unlikely]] {
+        LUISA_ERROR("Kernel not defined.");
+    }
     device->impl()->create_shader(option, luisa::compute::Function{db.kernel_builder.get()});
 }
 
-void ASTConsumer::HandleTranslationUnit(clang::ASTContext &Context) {
+void ASTConsumerBase::HandleTranslationUnit(clang::ASTContext &Context) {
     // 1. collect
     db.SetASTContext(&Context);
     Matcher.matchAST(Context);
 }
+
 }// namespace luisa::clangcxx

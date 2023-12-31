@@ -6,6 +6,7 @@
 #include <luisa/core/stl/variant.h>
 #include <luisa/runtime/device.h>
 #include <luisa/dsl/rtx/ray_query.h>
+#include <luisa/ast/callable_library.h>
 
 #include <clang/AST/Decl.h>
 #include <clang/AST/ASTContext.h>
@@ -20,22 +21,22 @@ class ASTConsumer;
 using MatchFinder = clang::ast_matchers::MatchFinder;
 
 struct Stack {
-    const luisa::compute::RefExpr* GetLocal(const clang::ValueDecl *decl) const;
+    const luisa::compute::RefExpr *GetLocal(const clang::ValueDecl *decl) const;
     void SetLocal(const clang::ValueDecl *decl, const luisa::compute::RefExpr *expr);
 
-    const luisa::compute::Expression* GetExpr(const clang::Stmt *stmt) const;
+    const luisa::compute::Expression *GetExpr(const clang::Stmt *stmt) const;
     void SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *expr);
 
-    const luisa::compute::Expression* GetConstant(const clang::ValueDecl *var) const;
+    const luisa::compute::Expression *GetConstant(const clang::ValueDecl *var) const;
     void SetConstant(const clang::ValueDecl *var, const luisa::compute::Expression *expr);
 
-    bool isCtorExpr(const luisa::compute::Expression * expr);
-    void SetExprAsCtor(const luisa::compute::Expression * expr);
+    bool isCtorExpr(const luisa::compute::Expression *expr);
+    void SetExprAsCtor(const luisa::compute::Expression *expr);
 
     luisa::vector<const luisa::compute::Expression *> callers;
 
 private:
-    luisa::unordered_set< const luisa::compute::Expression *> ctor_exprs;
+    luisa::unordered_set<const luisa::compute::Expression *> ctor_exprs;
     luisa::unordered_map<const clang::Stmt *, const luisa::compute::Expression *> expr_map;
     luisa::unordered_map<const clang::ValueDecl *, const luisa::compute::RefExpr *> locals;
     luisa::unordered_map<const clang::ValueDecl *, const luisa::compute::Expression *> constants;
@@ -45,10 +46,14 @@ struct FunctionBuilderBuilder {
     explicit FunctionBuilderBuilder(TypeDatabase *db, Stack &stack)
         : db(db), stack(stack) {}
     // return kernel dimension, 0 if not kernel
-    uint build(const clang::FunctionDecl *S);
+    struct BuildResult {
+        compute::Function func;
+        uint dimension;
+    };
+    BuildResult build(const clang::FunctionDecl *S, bool allowKernel);
 
 private:
-    bool recursiveVisit(clang::Stmt *stmt, luisa::shared_ptr<compute::detail::FunctionBuilder> cur, Stack &stack);
+    bool recursiveVisit(clang::Stmt *stmt, compute::detail::FunctionBuilder *cur, Stack &stack);
     TypeDatabase *db = nullptr;
     Stack &stack;
 };
@@ -72,25 +77,35 @@ struct FunctionDeclStmtHandler : public clang::ast_matchers::MatchFinder::MatchC
     void run(const MatchFinder::MatchResult &Result) final;
     uint dimension = 0;
     TypeDatabase *db = nullptr;
+    compute::CallableLibrary *call_lib = nullptr;
 };
 
-class ASTConsumer : public clang::ASTConsumer {
+class ASTConsumerBase : public clang::ASTConsumer {
 public:
-    explicit ASTConsumer(std::string OutputPath, luisa::compute::Device *device, compute::ShaderOption option);
-    ~ASTConsumer() override;
+    explicit ASTConsumerBase();
     void HandleTranslationUnit(clang::ASTContext &Context) override;
-
-    std::string OutputPath;
-    const luisa::compute::Device *device = nullptr;
-    const compute::ShaderOption option;
-
-private:
+    virtual ~ASTConsumerBase() override;
+protected:
     TypeDatabase db;
     RecordDeclStmtHandler HandlerForTypeDecl;
     GlobalVarHandler HandlerForGlobalVar;
     FunctionDeclStmtHandler HandlerForFuncionDecl;
-
     clang::ast_matchers::MatchFinder Matcher;
 };
 
+class ASTConsumer final : public ASTConsumerBase {
+public:
+    explicit ASTConsumer(std::string OutputPath, luisa::compute::Device *device, compute::ShaderOption option);
+    ~ASTConsumer() override;
+    std::string OutputPath;
+    const luisa::compute::Device *device = nullptr;
+    const compute::ShaderOption option;
+};
+class ASTCallableConsumer final : public ASTConsumerBase {
+public:
+    compute::CallableLibrary call_lib;
+    explicit ASTCallableConsumer(std::string OutputPath);
+    ~ASTCallableConsumer() override;
+    std::string OutputPath;
+};
 }// namespace luisa::clangcxx

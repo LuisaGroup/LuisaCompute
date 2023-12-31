@@ -129,14 +129,14 @@ void TypeDatabase::DumpWithLocation(const clang::Decl *decl) {
     decl->dump();
 }
 
-void TypeDatabase::commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
+void TypeDatabase::commentSourceLoc(compute::detail::FunctionBuilder* fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
     const auto &SM = astContext->getSourceManager();
     auto RawLocString = loc.printToString(SM);
     luisa::string fmt = prefix + ", at {}";
     fb->comment_(luisa::format(fmt, RawLocString.data()));
 }
 
-TypeDatabase::Commenter TypeDatabase::CommentStmt(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt *x) {
+TypeDatabase::Commenter TypeDatabase::CommentStmt(compute::detail::FunctionBuilder* fb, const clang::Stmt *x) {
     if (LC_ENABLE_COMMENT) {
         if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
             return Commenter(

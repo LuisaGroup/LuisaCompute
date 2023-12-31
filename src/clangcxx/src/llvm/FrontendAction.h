@@ -11,16 +11,22 @@ namespace luisa::clangcxx {
 
 class FrontendAction : public clang::ASTFrontendAction {
 public:
-    FrontendAction(luisa::compute::Device* device, compute::ShaderOption option)
-        : clang::ASTFrontendAction(), device(device), option(option)
-    {
-
+    FrontendAction(luisa::compute::Device *device, compute::ShaderOption option)
+        : clang::ASTFrontendAction(), device(device), option(option) {
     }
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef InFile) final;
-    
-    luisa::compute::Device* device = nullptr;
+
+    luisa::compute::Device *device = nullptr;
     compute::ShaderOption option;
+};
+class CallLibFrontendAction : public clang::ASTFrontendAction {
+public:
+    CallLibFrontendAction()
+        : clang::ASTFrontendAction() {
+    }
+
+    std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &CI, llvm::StringRef InFile) final;
 };
 
 }// namespace luisa::clangcxx

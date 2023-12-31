@@ -32,7 +32,7 @@ protected:
     const luisa::compute::Type *RecordAsBuiltinType(const clang::QualType Ty);
     const luisa::compute::Type *RecordAsStuctureType(const clang::QualType Ty);
 
-    void commentSourceLoc(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const luisa::string &prefix, const clang::SourceLocation &loc);
+    void commentSourceLoc(compute::detail::FunctionBuilder* fb, const luisa::string &prefix, const clang::SourceLocation &loc);
     const luisa::compute::Type *findType(const clang::QualType Ty);
     bool tryEmplaceFieldType(const clang::QualType Ty, const clang::RecordDecl *decl, luisa::vector<const luisa::compute::Type *> &types);
     bool registerType(clang::QualType Ty, const luisa::compute::Type *type);
@@ -56,7 +56,7 @@ public:
         luisa::function<void()> Begin = []() {};
         luisa::function<void()> End = []() {};
     };
-    [[nodiscard]] Commenter CommentStmt(luisa::shared_ptr<compute::detail::FunctionBuilder> fb, const clang::Stmt *stmt);
+    [[nodiscard]] Commenter CommentStmt(compute::detail::FunctionBuilder* fb, const clang::Stmt *stmt);
 };
 
 };
