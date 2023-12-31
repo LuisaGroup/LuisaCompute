@@ -240,7 +240,6 @@ Argument list:
                     vstd::transform_range{[&](auto &&v) { return luisa::string_view{v}; }}}
                                 .i_range();
                 luisa::clangcxx::Compiler::lsp_compile_commands(
-                    context,
                     iter,
                     src_path,
                     file_path,
@@ -365,6 +364,6 @@ Argument list:
             .enable_debug_info = !use_optimize,
             .compile_only = true,
             .name = luisa::to_string(dst_path)},
-        context, device, iter, src_path, inc_path);
+        device, iter, src_path, inc_path);
     return 0;
 }

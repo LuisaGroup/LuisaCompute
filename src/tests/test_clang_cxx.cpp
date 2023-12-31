@@ -62,7 +62,7 @@ int main(int argc, char *argv[]) {
             ShaderOption{
                 .compile_only = true,
                 .name = "test.bin"},
-            context, device, iter, shader_path, include_path);
+            device, iter, shader_path, include_path);
     }
     if (kTestRuntime) {
         Callable linear_to_srgb = [&](Var<float3> x) noexcept {

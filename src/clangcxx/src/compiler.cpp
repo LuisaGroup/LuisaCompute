@@ -52,7 +52,6 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory3(compute::Callab
 }
 
 luisa::vector<luisa::string> Compiler::compile_args(
-    compute::Context const &context,
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path,
@@ -92,13 +91,12 @@ luisa::vector<luisa::string> Compiler::compile_args(
 
 compute::ShaderCreationInfo Compiler::create_shader(
     const compute::ShaderOption &option,
-    compute::Context const &context,
     luisa::compute::Device &device,
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path) LUISA_NOEXCEPT {
 
-    auto args_holder = compile_args(context, defines, shader_path, include_path, false);
+    auto args_holder = compile_args(defines, shader_path, include_path, false);
     luisa::vector<const char *> args;
     args.reserve(args_holder.size());
     for (auto &arg : args_holder) {
@@ -123,13 +121,12 @@ compute::ShaderCreationInfo Compiler::create_shader(
     return compute::ShaderCreationInfo::make_invalid();
 }
 compute::CallableLibrary Compiler::export_callables(
-    compute::Context const &context,
     compute::Device &device,
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
     const std::filesystem::path &include_path) LUISA_NOEXCEPT {
     compute::CallableLibrary lib;
-    auto args_holder = compile_args(context, defines, shader_path, include_path, false);
+    auto args_holder = compile_args(defines, shader_path, include_path, false);
     luisa::vector<const char *> args;
     args.reserve(args_holder.size());
     for (auto &arg : args_holder) {
@@ -153,14 +150,13 @@ compute::CallableLibrary Compiler::export_callables(
 }
 
 void Compiler::lsp_compile_commands(
-    compute::Context const &context,
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_dir,
     const std::filesystem::path &shader_relative_dir,
     const std::filesystem::path &include_path,
     luisa::vector<char> &result) LUISA_NOEXCEPT {
     using namespace std::string_view_literals;
-    auto args_holder = compile_args(context, defines, shader_relative_dir, include_path, true);
+    auto args_holder = compile_args(defines, shader_relative_dir, include_path, true);
     auto add = [&]<typename T>(T c) {
         if constexpr (std::is_same_v<T, char const *>) {
             vstd::push_back_all(result, span<char const>(c, strlen(c)));

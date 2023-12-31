@@ -1,7 +1,6 @@
 #pragma once
 #include <luisa/core/dll_export.h>
 #include <luisa/runtime/device.h>
-#include <luisa/runtime/context.h>
 #include <luisa/vstl/ranges.h>
 #include <luisa/ast/callable_library.h>
 #include <filesystem>
@@ -11,19 +10,16 @@ namespace luisa::clangcxx {
 struct LC_CLANGCXX_API Compiler {
     static compute::ShaderCreationInfo create_shader(
         const compute::ShaderOption &option,
-        compute::Context const &context,
         compute::Device &device,
         vstd::IRange<luisa::string_view>& defines,
         const std::filesystem::path &shader_path,
         const std::filesystem::path &include_path) LUISA_NOEXCEPT;
     static compute::CallableLibrary export_callables(
-        compute::Context const &context,
         compute::Device &device,
         vstd::IRange<luisa::string_view>& defines,
         const std::filesystem::path &shader_path,
         const std::filesystem::path &include_path) LUISA_NOEXCEPT;
     static void lsp_compile_commands(
-        compute::Context const &context,
         vstd::IRange<luisa::string_view>& defines,
         const std::filesystem::path &shader_dir,
         const std::filesystem::path &shader_relative_dir,
@@ -32,8 +28,7 @@ struct LC_CLANGCXX_API Compiler {
 private:
     compute::ShaderOption option;
     static luisa::vector<luisa::string> compile_args(
-        compute::Context const &context,
-        vstd::IRange<luisa::string_view>& defines,
+                vstd::IRange<luisa::string_view>& defines,
         const std::filesystem::path &shader_path,
         const std::filesystem::path &include_path,
         bool is_lsp) LUISA_NOEXCEPT;
