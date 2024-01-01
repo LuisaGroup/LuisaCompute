@@ -338,6 +338,13 @@ public:
         return (_t(v));
     }
 };
+class to_value {
+public:
+    static constexpr bool is_filter = false;
+    auto operator()(auto &&v) const noexcept {
+        return v;
+    }
+};
 template<typename... Ts>
 class tuple_range {
     static_assert(sizeof...(Ts) > 2);
