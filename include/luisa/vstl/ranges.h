@@ -223,40 +223,41 @@ private:
     }
     template<size_t i, typename T>
     void _next(T &&last_var) noexcept {
-        bool continued{false};
         auto &&self = std::get<i>(tp);
         using Type = std::remove_cvref_t<decltype(self)>;
         if constexpr (Type::is_filter) {
-            while (true) {
-                auto &&last_eval = [&]() -> decltype(auto) {
-                    if (continued) {
-                        return (detail::range_value<i - 1>(tp));
+            bool continued{!(self(last_var))};
+            auto finalize_next = [&](auto &&last_eval) {
+                if constexpr (i == sizeof...(Args) - 1) {
+                    dispose();
+                    if constexpr (value_is_ref) {
+                        _value_holder.create(&last_eval);
                     } else {
-                        return std::forward<T>(last_var);
+                        _value_holder.create(std::move(last_eval));
                     }
-                }();
-                continued = !(self(last_eval));
-                if (continued) {
+                    begined = true;
                     ++(std::get<0>(tp));
-                    if (std::get<0>(tp) == IteEndTag{}) {
-                        dispose();
-                        begined = false;
-                        return;
-                    }
                 } else {
-                    if constexpr (i == sizeof...(Args) - 1) {
-                        dispose();
-                        if constexpr (value_is_ref) {
-                            _value_holder.create(&last_eval);
-                        } else {
-                            _value_holder.create(std::move(last_eval));
-                        }
-                        begined = true;
-                        ++(std::get<0>(tp));
-                    } else {
-                        _next<i + 1>(last_eval);
-                    }
-                    break;
+                    _next<i + 1>(last_eval);
+                }
+            };
+            if (!continued) {
+                finalize_next(last_var);
+                return;
+            }
+            while (true) {
+                ++(std::get<0>(tp));
+                if (std::get<0>(tp) == IteEndTag{}) {
+                    dispose();
+                    begined = false;
+                    return;
+                }
+
+                auto &&last_eval = (detail::range_value<i - 1>(tp));
+                continued = !(self(last_eval));
+                if (!continued) {
+                    finalize_next(last_eval);
+                    return;
                 }
             };
         } else {
