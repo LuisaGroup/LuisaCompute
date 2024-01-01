@@ -205,12 +205,17 @@ class range_linker {
     using ElemType = std::tuple<Args...>;
     ElemType tp;
 public:
-    using ValueType = std::remove_reference_t<decltype(detail::range_value<(sizeof...(Args) - 1)>(std::declval<ElemType>()))>;
+    using OriginValueType = decltype(detail::range_value<(sizeof...(Args) - 1)>(std::declval<ElemType>()));
+    constexpr static bool value_is_ref = std::is_reference_v<OriginValueType>;
+    using StorageValueType = SelectType_t<
+        std::add_pointer_t<std::remove_reference_t<OriginValueType>>,
+        OriginValueType,
+        value_is_ref>;
 private:
-    StackObject<ValueType, false> _value_holder;
+    StackObject<StorageValueType, false> _value_holder;
     bool begined{false};
     void dispose() noexcept {
-        if constexpr (!std::is_trivially_destructible_v<ValueType>) {
+        if constexpr (!std::is_trivially_destructible_v<StorageValueType>) {
             if (begined) {
                 _value_holder.destroy();
             }
@@ -241,7 +246,11 @@ private:
                 } else {
                     if constexpr (i == sizeof...(Args) - 1) {
                         dispose();
-                        _value_holder.create(std::move(last_eval));
+                        if constexpr (value_is_ref) {
+                            _value_holder.create(&last_eval);
+                        } else {
+                            _value_holder.create(std::move(last_eval));
+                        }
                         begined = true;
                         ++(std::get<0>(tp));
                     } else {
@@ -253,7 +262,11 @@ private:
         } else {
             if constexpr (i == sizeof...(Args) - 1) {
                 dispose();
-                _value_holder.create(self(std::forward<T>(last_var)));
+                if constexpr (value_is_ref) {
+                    _value_holder.create(&self(std::forward<T>(last_var)));
+                } else {
+                    _value_holder.create(self(std::forward<T>(last_var)));
+                }
                 begined = true;
                 ++(std::get<0>(tp));
             } else {
@@ -283,7 +296,11 @@ public:
         return !begined;
     }
     auto &&operator*() noexcept {
-        return std::move(*_value_holder);
+        if constexpr (value_is_ref) {
+            return std::move(**_value_holder);
+        } else {
+            return std::move(*_value_holder);
+        }
     }
     void operator++() noexcept {
         if (std::get<0>(tp) == IteEndTag{}) {
@@ -294,10 +311,10 @@ public:
         _next<1>(*std::get<0>(tp));
     }
     auto i_range() && noexcept {
-        return detail::IRangeImpl<ValueType, range_linker>{std::move(*this)};
+        return detail::IRangeImpl<OriginValueType, range_linker>{std::move(*this)};
     }
     auto i_range() & noexcept {
-        return detail::IRangeImpl<ValueType, range_linker &>{*this};
+        return detail::IRangeImpl<OriginValueType, range_linker &>{*this};
     }
 };
 template<typename T>
