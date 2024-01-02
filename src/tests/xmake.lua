@@ -163,6 +163,12 @@ end)
 test_proj("test_cuda_dx_interop")
 test_proj("test_dml")
 test_proj("test_manual_ast")
+if  get_config("enable_clangcxx") then
+	test_proj("test_clang_cxx", true, function()
+		add_deps("lc-clangcxx")
+        set_pcxxheader("pch.h")
+	end)
+end
 
 if get_config("cuda_ext_lcub") then
     test_proj("test_cuda_lcub", false, function()
@@ -254,3 +260,12 @@ if get_config("dx_backend") and enable_fsr3 then
         end)
     end)
 end
+
+target("clangcxx_compiler")
+    _config_project({
+        project_kind = "binary"
+    })
+    add_files("clangcxx_compiler.cpp")
+    add_deps("lc-runtime", "lc-vstl", "lc-backends-dummy", "lc-clangcxx")
+    set_pcxxheader("pch.h")
+target_end()

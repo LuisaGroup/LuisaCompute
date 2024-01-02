@@ -363,9 +363,7 @@ void StringStateVisitor::visit(const PrintStmt *stmt) {
     str << "}\n"sv;
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
-#ifndef NDEBUG
     str << "/* " << state->comment() << " */\n";
-#endif
 }
 void StringStateVisitor::visit(const IfStmt *state) {
     str << "if(";
