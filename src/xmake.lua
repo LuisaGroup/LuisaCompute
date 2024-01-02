@@ -32,6 +32,3 @@ end
 if get_config("enable_api") then
 	includes("api")
 end
-if get_config("enable_clangcxx") then
-	includes("clangcxx")
-end

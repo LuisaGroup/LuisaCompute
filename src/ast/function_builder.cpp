@@ -795,13 +795,13 @@ void FunctionBuilder::comment_(luisa::string comment) noexcept {
     _create_and_append_statement<CommentStmt>(std::move(comment));
 }
 
-void FunctionBuilder::print_(luisa::string format,
+void FunctionBuilder::print_(luisa::string_view format,
                              luisa::span<const Expression *const> args) noexcept {
     CallExpr::ArgumentList internalized_args;
     internalized_args.reserve(args.size());
     for (auto arg : args) { internalized_args.emplace_back(_internalize(arg)); }
     _create_and_append_statement<PrintStmt>(
-        std::move(format),
+        luisa::string{format},
         std::move(internalized_args));
     _requires_printing = true;
 }

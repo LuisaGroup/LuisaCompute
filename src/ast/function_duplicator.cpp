@@ -375,7 +375,7 @@ private:
                 luisa::vector<const Expression *> args;
                 args.reserve(s->arguments().size());
                 for (auto arg : s->arguments()) { args.emplace_back(_dup_expr(arg)); }
-                fb->print_(luisa::string{s->format()}, args);
+                fb->print_(s->format(), args);
                 break;
             }
         }

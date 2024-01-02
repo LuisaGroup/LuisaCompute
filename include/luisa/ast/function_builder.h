@@ -394,7 +394,7 @@ public:
     /// Add auto diff statement
     [[nodiscard]] AutoDiffStmt *autodiff_() noexcept;
     /// Add print statement
-    void print_(luisa::string format, luisa::span<const Expression *const> args) noexcept;
+    void print_(luisa::string_view format, luisa::span<const Expression *const> args) noexcept;
 
     // For autodiff use only
     [[nodiscard]] const Statement *pop_stmt() noexcept;

@@ -27,7 +27,7 @@ option("_lc_bin_dir")
 set_default(false)
 set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
-				"metal_backend", "cpu_backend", "enable_tests", "enable_clangcxx", "py_include", "py_linkdir", "py_libs",
+				"metal_backend", "cpu_backend", "enable_tests", "py_include", "py_linkdir", "py_libs",
 				"enable_ir", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_vk_path", "_lc_enable_rust", "_lc_config_public")
 before_check(function(option)
 	local v = import("options", {

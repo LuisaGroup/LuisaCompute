@@ -772,7 +772,7 @@ void export_runtime(py::module &m) {
         .def("autodiff_", &FunctionBuilder::autodiff_, pyref)
         .def(
             "print_", [](FunctionBuilder &self, luisa::string_view format, const luisa::vector<const Expression *> &args) {
-                self.print_(luisa::string{format}, args);
+                self.print_(format, args);
             },
             pyref)
         // .def("meta") // unused

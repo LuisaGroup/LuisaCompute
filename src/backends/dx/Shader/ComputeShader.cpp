@@ -72,7 +72,8 @@ ComputeShader *ComputeShader::CompileCompute(
         }
 
         if (PRINT_CODE) {
-            vstd::string dump_file_name{"hlsl_output.hlsl"};
+            auto md5_str = md5.to_string();
+            auto dump_file_name = vstd::string("hlsl_output_") + md5_str + ".hlsl";
             if (auto f = fopen(dump_file_name.c_str(), "wb")) {
                 fwrite(str.result.data(), str.result.size(), 1, f);
                 fclose(f);
@@ -176,7 +177,7 @@ void ComputeShader::SaveCompute(
     using namespace ComputeShaderDetail;
     vstd::MD5 md5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
     if (PRINT_CODE) {
-        auto f = fopen("hlsl_output.hlsl", "wb");
+        auto f = fopen("hlsl_output.hlsl", "ab");
         fwrite(str.result.data(), str.result.size(), 1, f);
         fclose(f);
     }
