@@ -247,8 +247,13 @@ Argument list:
                     inc_path,
                     local_result);
                 local_result.emplace_back(',');
-                std::lock_guard lck{mtx};
-                vstd::push_back_all(result, span<char>{local_result});
+                size_t idx = [&]() {
+                    std::lock_guard lck{mtx};
+                    auto sz = result.size();
+                    result.push_back_uninitialized(local_result.size());
+                    return sz;
+                }();
+                memcpy(result.data() + idx, local_result.data(), local_result.size());
             });
             thread_pool.synchronize();
         }
