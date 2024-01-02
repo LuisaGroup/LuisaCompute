@@ -1353,7 +1353,6 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
                     call_lib->add_callable(
                         luisa::string_view{func_name.data(), func_name.size()},
                         result.func.shared_builder());
-                    LUISA_INFO("{}", func_name);
                 }
             }
             if (result.dimension > 0) dimension = result.dimension;

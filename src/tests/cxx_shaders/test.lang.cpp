@@ -72,7 +72,7 @@ struct TestCtorStructure {
     float xxx = +2.f; /*unary +*/
 };
 
-auto TestCtor() {
+export auto TestCtor() {
     // CallInit
     TestCtorStructure ctor0(5);
     auto ctor1(TestCtorStructure(TestCtorStructure(TestCtorStructure(3))));
@@ -92,7 +92,7 @@ struct TestDtor {
 };
 */
 
-auto TestBuiltinExprs() {
+export auto TestBuiltinExprs() {
     float3 did = dispatch_id();
     float3 bid = block_id();
     float3 tid = thread_id();
@@ -105,7 +105,7 @@ auto TestBuiltinExprs() {
     return did.x + bid.x + tid.x + ds.x + kid + wlc + wli + _d;
 }
 
-auto TestCast() {
+export auto TestCast() {
     int i = 5;
     const auto fx = bit_cast<float>(i);
     const auto f0 = (float)i;
@@ -114,7 +114,7 @@ auto TestCast() {
     return f0 + f1 + f2;
 }
 
-auto TestBinary() {
+export auto TestBinary() {
     // binary op
     int n = 0 + 2 - 56;
 
@@ -131,7 +131,7 @@ auto TestBinary() {
     return m + x + xx + yy + ww + complex;
 }
 
-auto TestUnary() {
+export auto TestUnary() {
     int n = 0;
     int x = n++;
     int y = n--;
@@ -152,7 +152,7 @@ void bubble_sort(A &arr, Predicate pred) {
             }
 }
 
-auto TestArray() {
+export auto TestArray() {
     // default ctor
     auto a = Array<float, 4>();
     // assign ctor
@@ -181,14 +181,14 @@ auto TestArray() {
     return 2.f;
 }
 
-auto TestTemplate() {
+export auto TestTemplate() {
     int v = 5;
     Template h(v);
     h.call();
     return h;
 }
 
-auto TestTemplateSpec() {
+export auto TestTemplateSpec() {
     NVIDIA nvidia = NVIDIA();
     Template h(nvidia);
     h.call();
@@ -421,7 +421,7 @@ auto TestConstexprAssign() {
     return (float)(complexcomplex.c.i + complex.i) + arr[0];
 }
 
-auto TestMatrix() {
+export auto TestMatrix() {
     auto f22 = matrix<2>(1.f, 2.f, 3.f, 4.f);
     f22 = f22 * f22;
     auto f33 = matrix<3>(f22);
@@ -445,7 +445,7 @@ private:
     Array<T, StackSize> a;
 };
 
-auto TestVector() {
+export auto TestVector() {
     FixedVector<float, 32> fs;
     fs.emplace_back(1.f);
     fs.emplace_back(12.f);

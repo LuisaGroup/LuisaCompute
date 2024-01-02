@@ -20,6 +20,7 @@ using namespace luisa::compute;
 using namespace std::string_view_literals;
 
 static bool kTestRuntime = false;
+static bool kUseExport = false;
 static std::string kTestName = "lang";
 static std::string kBackend = "dx";
 
@@ -27,6 +28,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < argc; i++) {
         auto argV = luisa::string(argv[i]);
         kTestRuntime |= (argV == "--with_runtime");
+        kUseExport |= (argV == "--export");
         auto _ = luisa::string("--test_name=");
         if (argV.starts_with(_)) {
             kTestName = argV.substr(_.size());
@@ -58,11 +60,34 @@ int main(int argc, char *argv[]) {
             vstd::make_ite_range(defines),
             vstd::transform_range{[&](auto &&v) { return luisa::string_view{v}; }}}
                         .i_range();
-        luisa::clangcxx::Compiler::create_shader(
-            ShaderOption{
-                .compile_only = true,
-                .name = "test.bin"},
-            device, iter, shader_path, include_path);
+        if (kUseExport) {
+            auto lib = luisa::clangcxx::Compiler::export_callables(
+                device, iter, shader_path, include_path);
+            luisa::string lib_str;
+            for (auto &&i : lib.callable_map()) {
+                lib_str += i.first;
+                lib_str += ": ";
+                lib_str += i.second->return_type()->description();
+                lib_str += "(";
+                for (auto &&a : i.second->arguments()) {
+                    lib_str += a.type()->description();
+                    lib_str += ", ";
+                }
+                if (!i.second->arguments().empty())
+                    lib_str.erase(lib_str.end() - 2, lib_str.end());
+                lib_str += ")\n";
+            }
+            LUISA_INFO("Export functions: \n{}", lib_str);
+            auto ser_data = lib.serialize();
+            LUISA_INFO("Serialized size: {} bytes", ser_data.size());
+
+        } else {
+            luisa::clangcxx::Compiler::create_shader(
+                ShaderOption{
+                    .compile_only = true,
+                    .name = "test.bin"},
+                device, iter, shader_path, include_path);
+        }
     }
     if (kTestRuntime) {
         Callable linear_to_srgb = [&](Var<float3> x) noexcept {

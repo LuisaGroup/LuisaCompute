@@ -31,7 +31,8 @@ private:
                 vstd::IRange<luisa::string_view>& defines,
         const std::filesystem::path &shader_path,
         const std::filesystem::path &include_path,
-        bool is_lsp) LUISA_NOEXCEPT;
+        bool is_lsp,
+        bool is_export) LUISA_NOEXCEPT;
 };
 
 }// namespace luisa::clangcxx
