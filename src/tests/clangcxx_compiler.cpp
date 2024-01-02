@@ -1,11 +1,12 @@
+#include <iostream>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
-#include <iostream>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/vstl/common.h>
 #include <luisa/vstl/functional.h>
 #include <luisa/clangcxx/compiler.h>
 #include <luisa/core/thread_pool.h>
+#include <luisa/runtime/context.h>
 using namespace luisa;
 using namespace luisa::compute;
 
