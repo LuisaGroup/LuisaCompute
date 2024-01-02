@@ -86,3 +86,10 @@ endif ()
 if (LUISA_COMPUTE_ENABLE_GUI)
     # currently nothing to check
 endif ()
+
+if (LUISA_COMPUTE_ENABLE_CLANG_CXX)
+    find_package(Clang CONFIG QUIET)
+    if (NOT Clang_FOUND)
+        report_feature_not_available(CLANG_CXX "Clang C++")
+    endif ()
+endif ()
