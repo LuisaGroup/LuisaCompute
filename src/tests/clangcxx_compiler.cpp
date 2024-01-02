@@ -208,7 +208,7 @@ Argument list:
         }
         if (dst_path.empty()) {
             dst_path = "compile_commands.json";
-        } else if (!std::filesystem::is_regular_file(dst_path)) {
+        } else if (std::filesystem::exists(dst_path) && !std::filesystem::is_regular_file(dst_path)) {
             LUISA_ERROR("Dest path must be a file.");
         }
         if (inc_path.empty()) {
