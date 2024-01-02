@@ -3,7 +3,7 @@
 #include <luisa/core/binary_io.h>
 namespace lc::hlsl {
 struct CodegenResult;
-}
+}// namespace lc::hlsl
 namespace lc::dx {
 class ShaderSerializer;
 class ComputeShader final : public Shader {
@@ -20,7 +20,7 @@ private:
         vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         vstd::vector<luisa::compute::Argument> &&bindings,
-        vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
+        vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
         ComPtr<ID3D12RootSignature> &&rootSig,
         ComPtr<ID3D12PipelineState> &&pso);
 
@@ -37,6 +37,7 @@ public:
     uint3 BlockSize() const { return blockSize; }
     static ComputeShader *CompileCompute(
         luisa::BinaryIO const *fileIo,
+        luisa::compute::Profiler *profiler,
         Device *device,
         Function kernel,
         vstd::function<hlsl::CodegenResult()> const &codegen,
@@ -49,6 +50,7 @@ public:
         bool enableUnsafeMath);
     static void SaveCompute(
         luisa::BinaryIO const *fileIo,
+        luisa::compute::Profiler *profiler,
         Function kernel,
         hlsl::CodegenResult &codegen,
         uint3 blockSize,
@@ -57,6 +59,7 @@ public:
         bool enableUnsafeMath);
     static ComputeShader *LoadPresetCompute(
         luisa::BinaryIO const *fileIo,
+        luisa::compute::Profiler *profiler,
         Device *device,
         vstd::span<Type const *const> types,
         vstd::string_view fileName);
@@ -66,7 +69,7 @@ public:
         vstd::vector<SavedArgument> &&args,
         vstd::span<std::byte const> binData,
         vstd::vector<luisa::compute::Argument> &&bindings,
-        vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
+        vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
         Device *device);
     ~ComputeShader();
     KILL_COPY_CONSTRUCT(ComputeShader)

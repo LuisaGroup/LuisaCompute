@@ -727,7 +727,8 @@ public:
     void operator()(ushort v) const noexcept { _s << luisa::format("lc_short({})", v); }
     void operator()(slong v) const noexcept { _s << luisa::format("{}ll", v); }
     void operator()(ulong v) const noexcept { _s << luisa::format("{}ull", v); }
-
+    void operator()(byte v) const noexcept { _s << luisa::format("lc_byte({})", v); }
+    void operator()(ubyte v) const noexcept { _s << luisa::format("lc_ubyte({})", v); }
     template<typename T, size_t N>
     void operator()(Vector<T, N> v) const noexcept {
         auto t = Type::of<T>();

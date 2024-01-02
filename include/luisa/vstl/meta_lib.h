@@ -54,6 +54,19 @@ struct TypeOf {
     using Type = T;
 };
 
+template <typename A, typename B, bool v>
+struct SelectType;
+template <typename A, typename B>
+struct SelectType<A, B, false>{
+    using Type = B;
+};
+template <typename A, typename B>
+struct SelectType<A, B, true>{
+    using Type = A;
+};
+template <typename A, typename B, bool v>
+using SelectType_t = typename SelectType<A, B, v>::Type;
+
 template<typename T>
 struct func_ptr;
 template<typename Ret, typename... Args>
@@ -479,15 +492,7 @@ struct MapConstructible<void, Args...> {
     static constexpr bool value = (sizeof...(Args) == 0);
 };
 template<typename T>
-static constexpr decltype(auto) GetVoidType() {
-    if constexpr (std::is_const_v<T>) {
-        return TypeOf<void const>{};
-    } else {
-        return TypeOf<void>{};
-    }
-}
-template<typename T>
-using GetVoidType_t = typename decltype(GetVoidType<std::remove_reference_t<T>>())::Type;
+using GetVoidType_t = SelectType_t<void const, void, std::is_const_v<std::remove_reference_t<T>>>;
 template<typename Func, typename PtrType>
 constexpr static void FuncTable(GetVoidType_t<PtrType> *ptr, GetVoidType_t<Func> *func) {
     if constexpr (std::is_invocable_v<Func, PtrType &&>) {

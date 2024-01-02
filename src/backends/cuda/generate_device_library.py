@@ -806,6 +806,14 @@ template<>
     return lc_ushort(1);
 }
 template<>
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_byte>() noexcept {
+    return lc_byte(1);
+}
+template<>
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_ubyte>() noexcept {
+    return lc_ubyte(1);
+}
+template<>
 [[nodiscard]] __device__ inline constexpr auto lc_one<lc_bool>() noexcept {
     return true;
 }
@@ -906,9 +914,9 @@ public:
                 f"__device__ inline void lc_accumulate_grad({t} *dst, {t} grad) noexcept {{ *dst = *dst + lc_remove_nan(grad); }}",
                 file=file)
         non_differentiable_types = [
+             "lc_short", "lc_ushort", "lc_int", "lc_uint", "lc_long", "lc_ulong", "lc_bool",'lc_byte', 'lc_ubyte',
             'lc_byte2', 'lc_byte3', 'lc_byte4',
-            'lc_ubyte2', 'lc_ubyte3', 'lc_ubyte4',
-            "lc_short", "lc_ushort", "lc_int", "lc_uint", "lc_long", "lc_ulong", "lc_bool",
+            'lc_ubyte2', 'lc_ubyte3', 'lc_ubyte4',           
             "lc_short2", "lc_short3", "lc_short4",
             "lc_ushort2", "lc_ushort3", "lc_ushort4",
             "lc_int2", "lc_int3", "lc_int4",

@@ -47,6 +47,7 @@ public:
         CacheType cacheType,
         Device *device,
         luisa::BinaryIO const &streamFunc,
+        luisa::compute::Profiler* profiler,
         vstd::optional<vstd::MD5> const &checkMD5,
         vstd::MD5 &typeMD5,
         vstd::vector<luisa::compute::Argument> &&bindings,

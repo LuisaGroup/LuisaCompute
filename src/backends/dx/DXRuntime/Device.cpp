@@ -81,6 +81,10 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         useRuntime = !settings->headless;
         maxAllocatorCount = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         fileIo = settings->binary_io;
+        profiler = settings->profiler;
+        if (settings->extension) {
+            deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
+        }
     }
     if (fileIo == nullptr) {
         serVisitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), device.Get());
@@ -103,9 +107,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             info.Revision = desc.Revision;
             return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(&info), sizeof(AdapterInfo)}};
         };
-        if (settings && settings->extension) {
-            deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
-        }
+
         vstd::optional<DirectXDeviceConfigExt::ExternalDevice> extDevice;
         if (deviceSettings) {
             extDevice = deviceSettings->CreateExternalDevice();
@@ -166,7 +168,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
             if (adapter == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to create DirectX device at index {}.", index); }
         }
-        defaultAllocator = vstd::make_unique<GpuAllocator>(this, settings ? settings->memory_profiler : nullptr);
+        defaultAllocator = vstd::make_unique<GpuAllocator>(this, profiler);
         globalHeap = vstd::create_unique(
             new DescriptorHeap(
                 this,
