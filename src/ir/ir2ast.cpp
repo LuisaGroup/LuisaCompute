@@ -1148,7 +1148,7 @@ void IR2AST::_convert_instr_print(const ir::Node *node) noexcept {
     for (auto arg : args) {
         converted_args.push_back(_convert_node(arg));
     }
-    detail::FunctionBuilder::current()->print_(fmt, converted_args);
+    detail::FunctionBuilder::current()->print_(luisa::string{fmt}, converted_args);
 }
 
 const Expression *IR2AST::_convert_constant(const ir::Const &const_) noexcept {

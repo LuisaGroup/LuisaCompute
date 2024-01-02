@@ -1192,7 +1192,8 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
 
                 // comment name
                 luisa::string name;
-                if (LC_ENABLE_COMMENT) {
+#if LC_CLANGCXX_ENABLE_COMMENT
+                {
                     if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S))
                         name = "[Ctor] ";
                     else if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S))
@@ -1202,8 +1203,9 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
                     else
                         name = "[Function] ";
                     name += luisa::string(S->getQualifiedNameAsString());
-                    builder->comment_(name);
+                    builder->comment_(std::move(name));
                 }
+#endif
                 // Stack stack;
                 // this arg
                 if (is_method) {

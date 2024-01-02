@@ -15,9 +15,9 @@ if not is_mode("debug") then
         add_frameworks("CoreFoundation")
     end
     if is_mode("release") then
-        add_defines("LC_ENABLE_COMMENT=0")
+        add_defines("LC_CLANGCXX_ENABLE_COMMENT=0")
     else
-        add_defines("LC_ENABLE_COMMENT=1")
+        add_defines("LC_CLANGCXX_ENABLE_COMMENT=1")
     end
     set_pcxxheader("src/pch.h")
     add_headerfiles("../../include/luisa/clangcxx/**.h")

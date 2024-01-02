@@ -129,15 +129,15 @@ void TypeDatabase::DumpWithLocation(const clang::Decl *decl) {
     decl->dump();
 }
 
-void TypeDatabase::commentSourceLoc(compute::detail::FunctionBuilder* fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
+void TypeDatabase::commentSourceLoc(compute::detail::FunctionBuilder *fb, const luisa::string &prefix, const clang::SourceLocation &loc) {
     const auto &SM = astContext->getSourceManager();
     auto RawLocString = loc.printToString(SM);
     luisa::string fmt = prefix + ", at {}";
     fb->comment_(luisa::format(fmt, RawLocString.data()));
 }
 
-TypeDatabase::Commenter TypeDatabase::CommentStmt(compute::detail::FunctionBuilder* fb, const clang::Stmt *x) {
-    if (LC_ENABLE_COMMENT) {
+TypeDatabase::Commenter TypeDatabase::CommentStmt(compute::detail::FunctionBuilder *fb, const clang::Stmt *x) {
+    if (LC_CLANGCXX_ENABLE_COMMENT) {
         if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
             return Commenter(
                 [=] {
@@ -261,7 +261,8 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
     if (auto decl = GetRecordDeclFromQualType(Ty)) {
         for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
              Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            if (ext_builtin = isBuiltinType(*Anno)) {
+            if (isBuiltinType(*Anno)) {
+                ext_builtin = true;
                 builtin_type_name = getBuiltinTypeName(*Anno);
             }
         }
@@ -271,7 +272,8 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         auto decl = TSD->getSpecializedTemplate()->getTemplatedDecl();
         for (auto Anno = decl->specific_attr_begin<clang::AnnotateAttr>();
              Anno != decl->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
-            if (ext_builtin = isBuiltinType(*Anno)) {
+            if (isBuiltinType(*Anno)) {
+                ext_builtin = true;
                 builtin_type_name = getBuiltinTypeName(*Anno);
             }
         }
