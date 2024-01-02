@@ -4,7 +4,7 @@
 
 namespace luisa::shader {
 
-template<typename Type, uint32 size>
+template<typename Type, uint32 size, uint32 Flags = ArrayFlags::None>
 struct [[builtin("array")]] Array {
     static constexpr uint32 N = size;
 
@@ -35,5 +35,8 @@ private:
     // DONT EDIT THIS FIELD LAYOUT
     Type v[size];
 };
+
+template<typename Type, uint32 size>
+using SharedArray = Array<Type, size, ArrayFlags::Shared>;
 
 }// namespace luisa::shader

@@ -682,7 +682,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 auto EType = Arguments[0].getAsType();
                                 auto N = Arguments[1].getAsIntegral().getLimitedValue();
                                 auto lcElemType = db->FindOrAddType(EType, x->getBeginLoc());
-                                auto lcArrayType = Type::array(lcElemType, N);
+                                const luisa::compute::Type* lcArrayType = Type::array(lcElemType, N);
+                                
+                                auto Flags = Arguments[2].getAsIntegral().getLimitedValue();
+                                if (Flags & 1)
+                                    constructed = fb->shared(lcArrayType);
+                                
                                 if (cxxCtor->isDefaultConstructor())
                                     constructed = constructed;
                                 else if (cxxCtor->isConvertingConstructor(true))
