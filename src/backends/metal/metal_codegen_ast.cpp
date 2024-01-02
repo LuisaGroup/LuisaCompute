@@ -1101,6 +1101,9 @@ void MetalCodegenAST::visit(const CallExpr *expr) noexcept {
         case CallOp::WARP_READ_LANE: _scratch << "lc_warp_read_lane"; break;
         case CallOp::WARP_READ_FIRST_ACTIVE_LANE: _scratch << "lc_warp_read_first_active_lane"; break;
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
+        case CallOp::ADDRESS_OF: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BUFFER_ADDRESS: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_BUFFER_ADDRESS: LUISA_NOT_IMPLEMENTED();
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {

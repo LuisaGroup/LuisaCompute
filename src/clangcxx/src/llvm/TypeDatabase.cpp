@@ -137,75 +137,75 @@ void TypeDatabase::commentSourceLoc(compute::detail::FunctionBuilder *fb, const 
 }
 
 TypeDatabase::Commenter TypeDatabase::CommentStmt(compute::detail::FunctionBuilder *fb, const clang::Stmt *x) {
-    if (LC_CLANGCXX_ENABLE_COMMENT) {
-        if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
-            return Commenter(
-                [=] {
-                    const DeclGroupRef declGroup = cxxDecl->getDeclGroup();
-                    for (auto decl : declGroup) {
-                        if (!decl) continue;
-                        if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
-                            luisa::string what =
-                                luisa::format("VarDecl: {} {}",
-                                              varDecl->getType().getAsString(),
-                                              varDecl->getNameAsString());
-                            commentSourceLoc(fb, what, varDecl->getBeginLoc());
-                        }
+#if LC_CLANGCXX_ENABLE_COMMENT
+    if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
+        return Commenter(
+            [=] {
+                const DeclGroupRef declGroup = cxxDecl->getDeclGroup();
+                for (auto decl : declGroup) {
+                    if (!decl) continue;
+                    if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
+                        luisa::string what =
+                            luisa::format("VarDecl: {} {}",
+                                          varDecl->getType().getAsString(),
+                                          varDecl->getNameAsString());
+                        commentSourceLoc(fb, what, varDecl->getBeginLoc());
                     }
-                });
-        } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
-            return Commenter(
-                [=] { commentSourceLoc(fb, "BEGIN FOR", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "END FOR", x->getBeginLoc()); });
-        } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
-            return Commenter(
-                [=] { commentSourceLoc(fb, "BEGIN IF", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "END IF", x->getBeginLoc()); });
-        } else if (auto cxxSwitch = llvm::dyn_cast<clang::SwitchStmt>(x)) {
-            return Commenter(
-                [=] { commentSourceLoc(fb, "BEGIN SWITCH", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "END SWITCH", x->getBeginLoc()); });
-        } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
-            return Commenter(
-                [=] { commentSourceLoc(fb, "BEGIN WHILE", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "END WHILE", x->getBeginLoc()); });
-        } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
-            return Commenter(
-                [=] { commentSourceLoc(fb, "BEGIN SCOPE", x->getBeginLoc()); },
-                [=] { commentSourceLoc(fb, "END SCOPE", x->getBeginLoc()); });
-        } else if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
-            return Commenter([=] { commentSourceLoc(fb, "RETURN", x->getBeginLoc()); });
-        } else if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
-            return Commenter([=] { commentSourceLoc(fb, "COMPOUND ASSIGN", ca->getBeginLoc()); });
-        } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
-            return Commenter([=] { if(bin->isAssignmentOp()) commentSourceLoc(fb, "ASSIGN", bin->getBeginLoc()); });
-        } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
-            auto cxxFunc = call->getCalleeDecl()->getAsFunction();
-            if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(cxxFunc)) {
-                if (Method->getParent()->isLambda())
-                    return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL LAMBDA: {}", Method->getParent()->getName().data()), x->getBeginLoc()); });
-                else
-                    return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL METHOD: {}::{}", Method->getParent()->getName().data(), Method->getNameAsString()), x->getBeginLoc()); });
-            } else
-                return Commenter([=] { commentSourceLoc(fb, luisa::format("CALL FUNCTION: {}", cxxFunc->getName().data()), x->getBeginLoc()); });
-        } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
-            auto cxxCtorDecl = cxxCtor->getConstructor();
-            return Commenter([=] { commentSourceLoc(fb,
-                                                    luisa::format("CONSTRUCT{}: {}",
-                                                                  cxxCtorDecl->isMoveConstructor() ? "(MOVE)" : "",
-                                                                  cxxCtorDecl->getParent()->getName().data()),
-                                                    x->getBeginLoc()); });
-        } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
-            return Commenter([=] {
-                auto funcDecl = llvm::dyn_cast<FunctionDecl>(cxxDefaultArg->getParam()->getParentFunctionOrMethod());
-                commentSourceLoc(fb,
-                                 luisa::format("DEFAULT ARG: {}::{}",
-                                               funcDecl ? funcDecl->getQualifiedNameAsString() : "unknown-func",
-                                               cxxDefaultArg->getParam()->getName().data()),
-                                 x->getBeginLoc());
+                }
             });
-        }
+    } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
+        return Commenter(
+            [=] { commentSourceLoc(fb, "BEGIN FOR", x->getBeginLoc()); },
+            [=] { commentSourceLoc(fb, "END FOR", x->getBeginLoc()); });
+    } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
+        return Commenter(
+            [=] { commentSourceLoc(fb, "BEGIN IF", x->getBeginLoc()); },
+            [=] { commentSourceLoc(fb, "END IF", x->getBeginLoc()); });
+    } else if (auto cxxSwitch = llvm::dyn_cast<clang::SwitchStmt>(x)) {
+        return Commenter(
+            [=] { commentSourceLoc(fb, "BEGIN SWITCH", x->getBeginLoc()); },
+            [=] { commentSourceLoc(fb, "END SWITCH", x->getBeginLoc()); });
+    } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
+        return Commenter(
+            [=] { commentSourceLoc(fb, "BEGIN WHILE", x->getBeginLoc()); },
+            [=] { commentSourceLoc(fb, "END WHILE", x->getBeginLoc()); });
+    } else if (auto cxxCompound = llvm::dyn_cast<clang::CompoundStmt>(x)) {
+        return Commenter(
+            [=] { commentSourceLoc(fb, "BEGIN SCOPE", x->getBeginLoc()); },
+            [=] { commentSourceLoc(fb, "END SCOPE", x->getBeginLoc()); });
+    } else if (auto ret = llvm::dyn_cast<clang::ReturnStmt>(x)) {
+        return Commenter([=, this] { commentSourceLoc(fb, "RETURN", x->getBeginLoc()); });
+    } else if (auto ca = llvm::dyn_cast<CompoundAssignOperator>(x)) {
+        return Commenter([=, this] { commentSourceLoc(fb, "COMPOUND ASSIGN", ca->getBeginLoc()); });
+    } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
+        return Commenter([=, this] { if(bin->isAssignmentOp()) commentSourceLoc(fb, "ASSIGN", bin->getBeginLoc()); });
+    } else if (auto call = llvm::dyn_cast<clang::CallExpr>(x)) {
+        auto cxxFunc = call->getCalleeDecl()->getAsFunction();
+        if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(cxxFunc)) {
+            if (Method->getParent()->isLambda())
+                return Commenter([=, this] { commentSourceLoc(fb, luisa::format("CALL LAMBDA: {}", Method->getParent()->getName().data()), x->getBeginLoc()); });
+            else
+                return Commenter([=, this] { commentSourceLoc(fb, luisa::format("CALL METHOD: {}::{}", Method->getParent()->getName().data(), Method->getNameAsString()), x->getBeginLoc()); });
+        } else
+            return Commenter([=, this] { commentSourceLoc(fb, luisa::format("CALL FUNCTION: {}", cxxFunc->getName().data()), x->getBeginLoc()); });
+    } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
+        auto cxxCtorDecl = cxxCtor->getConstructor();
+        return Commenter([=, this] { commentSourceLoc(fb,
+                                                luisa::format("CONSTRUCT{}: {}",
+                                                              cxxCtorDecl->isMoveConstructor() ? "(MOVE)" : "",
+                                                              cxxCtorDecl->getParent()->getName().data()),
+                                                x->getBeginLoc()); });
+    } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
+        return Commenter([=, this] {
+            auto funcDecl = llvm::dyn_cast<FunctionDecl>(cxxDefaultArg->getParam()->getParentFunctionOrMethod());
+            commentSourceLoc(fb,
+                             luisa::format("DEFAULT ARG: {}::{}",
+                                           funcDecl ? funcDecl->getQualifiedNameAsString() : "unknown-func",
+                                           cxxDefaultArg->getParam()->getName().data()),
+                             x->getBeginLoc());
+        });
     }
+#endif
     return {[]() {}, []() {}};
 }
 
@@ -239,7 +239,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsPrimitiveType(const clang::Qua
             case (BuiltinType::Kind::Float): _type = Type::of<float>(); break;
             case (BuiltinType::Kind::Double): _type = Type::of<double>(); break;
 
-            default: 
+            default:
             {
                 luisa::log_error("unsupported field primitive type: [{}], kind [{}]",
                     Ty.getAsString(), builtin->getKind());
