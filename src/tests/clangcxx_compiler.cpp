@@ -165,7 +165,7 @@ Argument list:
     }
     Context context{argv[0]};
     if (src_path.is_relative()) {
-        src_path = context.runtime_directory() / src_path;
+        src_path = std::filesystem::current_path() / src_path;
     }
     std::error_code code;
     src_path = std::filesystem::canonical(src_path, code);

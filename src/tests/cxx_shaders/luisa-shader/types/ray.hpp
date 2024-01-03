@@ -44,6 +44,8 @@ struct CommittedHit {
     uint32 prim;
     float2 bary;
     HitType hit_type;
+	float ray_t;
+
     [[nodiscard]] bool miss() const {
         return hit_type == HitTypes::Miss;
     }
