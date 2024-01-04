@@ -174,10 +174,10 @@ Argument list:
     }
     auto format_path = [&]() {
         if (inc_path.is_relative()) {
-            inc_path = src_path / inc_path;
+            inc_path = std::filesystem::current_path() / inc_path;
         }
         if (dst_path.is_relative()) {
-            dst_path = src_path / dst_path;
+            dst_path = std::filesystem::current_path() / dst_path;
         }
         if (src_path == dst_path) {
             LUISA_ERROR("Source file and dest file path can not be the same.");
