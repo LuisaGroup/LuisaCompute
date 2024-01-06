@@ -83,6 +83,8 @@ public:
     explicit IRangeImpl(Range &&self) noexcept
         : self(std::forward<Range>(self)) {}
     ~IRangeImpl() noexcept = default;
+    IRangeImpl(IRangeImpl const&) = delete;
+    IRangeImpl(IRangeImpl &&) noexcept = default;
     IteRef<IRange<ValueType>> begin() noexcept override {
         self.begin();
         return {this};
@@ -337,6 +339,8 @@ public:
     decltype(auto) operator()(auto &&v) const noexcept {
         return (_t(v));
     }
+    transform_range(transform_range const &) = delete;
+    transform_range(transform_range &&) noexcept = default;
 };
 class to_value {
 public:
