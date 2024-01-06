@@ -552,6 +552,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 auto lcRet = stack->GetExpr(cxxRetVal);
                 if (fb->tag() != compute::Function::Tag::KERNEL) {
                     fb->return_(lcRet);
+                } else {
+                    fb->return_();
                 }
             } else if (auto ce = llvm::dyn_cast<clang::ConstantExpr>(x)) {
                 if (auto constant = TraverseAPValue(ce->getAPValueResult(), nullptr, x)) {
@@ -682,12 +684,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 auto EType = Arguments[0].getAsType();
                                 auto N = Arguments[1].getAsIntegral().getLimitedValue();
                                 auto lcElemType = db->FindOrAddType(EType, x->getBeginLoc());
-                                const luisa::compute::Type* lcArrayType = Type::array(lcElemType, N);
-                                
+                                const luisa::compute::Type *lcArrayType = Type::array(lcElemType, N);
+
                                 auto Flags = Arguments[2].getAsIntegral().getLimitedValue();
                                 if (Flags & 1)
                                     constructed = fb->shared(lcArrayType);
-                                
+
                                 if (cxxCtor->isDefaultConstructor())
                                     constructed = constructed;
                                 else if (cxxCtor->isConvertingConstructor(true))
