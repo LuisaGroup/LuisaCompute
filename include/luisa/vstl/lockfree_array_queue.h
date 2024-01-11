@@ -206,7 +206,7 @@ public:
         }
     }
     template<typename... Args>
-    void push(Args &&...args) {
+    T* push(Args &&...args) {
         size_t index = head++;
         if (head - tail > capacity) {
             auto newCapa = (capacity + 1) * 2;
@@ -221,7 +221,13 @@ public:
             arr = newArr;
             capacity = newCapa;
         }
-        new (arr + GetIndex(index, capacity)) T{std::forward<Args>(args)...};
+        return new (arr + GetIndex(index, capacity)) T{std::forward<Args>(args)...};
+    }
+    T* front() {
+        if (head == tail)
+            return nullptr;
+        auto &&value = arr[GetIndex(tail, capacity)];
+        return &value;
     }
     bool pop(T *ptr) {
         vstd::destruct(ptr);
