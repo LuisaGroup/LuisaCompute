@@ -3252,7 +3252,7 @@ inline const char *d3d12_error_name(HRESULT hr) {
 #define ThrowIfFailed(x)                                                          \
     do {                                                                          \
         HRESULT hr_ = (x);                                                        \
-        if (hr_ != S_OK) {                                                        \
+        if (hr_ != S_OK) [[unlikely]] {                                           \
             LUISA_ERROR_WITH_LOCATION("D3D12 call '{}' failed with "              \
                                       "error {} (code = {}).",                    \
                                       #x, d3d12_error_name(hr_), (long long)hr_); \
