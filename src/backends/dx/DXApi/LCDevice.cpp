@@ -303,13 +303,13 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    // Clock clk;
+
     auto code = hlsl::CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, option.native_include, mask, false);
-    // LUISA_VERBOSE("HLSL Codegen: {} ms", clk.toc());
     if (option.compile_only) {
         assert(!option.name.empty());
         ComputeShader::SaveCompute(
             nativeDevice.fileIo,
+            nativeDevice.profiler,
             kernel,
             code,
             kernel.block_size(),
@@ -336,6 +336,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         }
         auto res = ComputeShader::CompileCompute(
             nativeDevice.fileIo,
+            nativeDevice.profiler,
             &nativeDevice,
             kernel,
             [&]() { return std::move(code); },
@@ -358,6 +359,7 @@ ShaderCreationInfo LCDevice::load_shader(
     vstd::span<Type const *const> types) noexcept {
     auto res = ComputeShader::LoadPresetCompute(
         nativeDevice.fileIo,
+        nativeDevice.profiler,
         &nativeDevice,
         types,
         file_name);

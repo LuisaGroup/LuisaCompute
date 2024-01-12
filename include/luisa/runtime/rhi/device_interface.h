@@ -41,22 +41,44 @@ public:
     virtual ~DeviceConfigExt() noexcept = default;
 };
 
-class MemoryProfiler {
+class Profiler {
 public:
     virtual void allocate(
         uint64_t handle,
         uint64_t alignment,
         size_t size,
         luisa::string_view name,
-        luisa::vector<TraceItem> &&stacktrace) = 0;
+        luisa::vector<TraceItem> &&stacktrace) noexcept = 0;
     virtual void free(
-        uint64_t handle) = 0;
+        uint64_t handle) noexcept = 0;
+    virtual void before_load_shader_bytecode(
+        luisa::string_view shader_name) noexcept = 0;
+    virtual void before_load_shader_cache(
+        luisa::string_view shader_name,
+        luisa::string_view cache_file_name) noexcept = 0;
+    virtual void after_load_shader_bytecode(
+        luisa::string_view shader_name,
+        bool matched) noexcept = 0;
+    virtual void after_load_shader_cache(
+        luisa::string_view shader_name,
+        luisa::string_view cache_file_name,
+        bool matched) noexcept = 0;
+    virtual void before_compile_shader_bytecode(
+        luisa::string_view shader_name) noexcept = 0;
+    virtual void after_compile_shader_bytecode(
+        luisa::string_view shader_name) noexcept = 0;
+    virtual void before_compile_shader_cache(
+        luisa::string_view shader_name,
+        luisa::string_view cache_file_name) noexcept = 0;
+    virtual void after_compile_shader_cache(
+        luisa::string_view shader_name,
+        luisa::string_view cache_file_name) noexcept = 0;
 };
 
 struct DeviceConfig {
     mutable luisa::unique_ptr<DeviceConfigExt> extension;
     const BinaryIO *binary_io{nullptr};
-    MemoryProfiler *memory_profiler{nullptr};
+    Profiler *profiler{nullptr};
     size_t device_index{std::numeric_limits<size_t>::max()};
     bool inqueue_buffer_limit{true};
     bool headless{false};
@@ -115,7 +137,7 @@ public:
 
     using StreamLogCallback = luisa::function<void(luisa::string_view)>;
     virtual void set_stream_log_callback(uint64_t stream_handle,
-                                  const StreamLogCallback &callback) noexcept;
+                                         const StreamLogCallback &callback) noexcept;
 
     // swap chain
     [[nodiscard]] virtual SwapchainCreationInfo create_swapchain(

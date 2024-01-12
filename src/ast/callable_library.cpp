@@ -898,14 +898,7 @@ void CallableLibrary::add_callable(luisa::string_view name, luisa::shared_ptr<co
 }
 CallableLibrary::~CallableLibrary() noexcept = default;
 CallableLibrary::CallableLibrary(CallableLibrary &&) noexcept = default;
-luisa::vector<luisa::string_view> CallableLibrary::names() const noexcept {
-    luisa::vector<luisa::string_view> vec;
-    vec.reserve(_callables.size());
-    for (auto &&i : _callables) {
-        vec.emplace_back(i.first);
-    }
-    return vec;
-}
+
 Function CallableLibrary::get_function(luisa::string_view name) const noexcept {
     auto iter = _callables.find(name);
     if (iter == _callables.end()) [[unlikely]] {

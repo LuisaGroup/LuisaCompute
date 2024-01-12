@@ -6,7 +6,7 @@ import shutil
 from subprocess import Popen, call, DEVNULL, check_output
 from typing import List
 
-ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan', 'tests']
+ALL_FEATURES = ['dsl', 'python', 'gui', 'cuda', 'cpu', 'remote', 'dx', 'metal', 'vulkan', 'tests', 'clangcxx']
 ALL_DEPENDENCIES = ['rust', 'ninja', 'xmake', 'cmake']
 ALL_CMAKE_DEPENDENCIES = ['ninja', 'cmake', 'rust']
 ALL_XMAKE_DEPENDENCIES = ['xmake', 'rust']
@@ -360,6 +360,7 @@ def print_help():
     print('          [no-]dx            Enable (disable) DirectX backend')
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
+    print('          [no-]clangcxx      Enable (disable) ClangTooling-based C++ AOT shading language')
     print('          [no-]tests         Enable (disable) tests (requires and will enable the `dsl` feature if set on)')
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')

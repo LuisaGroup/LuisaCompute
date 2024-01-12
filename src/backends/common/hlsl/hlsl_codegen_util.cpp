@@ -1119,6 +1119,20 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             args[0]->accept(vis);
             str << ".Abort()"sv;
             return;
+        case CallOp::RAY_QUERY_PROCEED:
+            args[0]->accept(vis);
+            str << ".Proceed()"sv;
+            return;
+        case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE:
+            str << '(';
+            args[0]->accept(vis);
+            str << ".CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE)"sv;
+            return;
+        case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE:
+            str << '(';
+            args[0]->accept(vis);
+            str << ".CandidateType()!=CANDIDATE_NON_OPAQUE_TRIANGLE)"sv;
+            return;
         case CallOp::ZERO: {
             str << "_zero("sv;
             GetTypeName(*expr->type(), str, Usage::READ, true);
@@ -1846,7 +1860,7 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
         finalResult << "];\n"sv;
     }
 }
-uint CodegenUtility::AddPrinter(vstd::string_view name, Type const* structType){
+uint CodegenUtility::AddPrinter(vstd::string_view name, Type const *structType) {
     auto z = opt->printer.size();
     opt->printer.emplace_back(name, structType);
     return z;

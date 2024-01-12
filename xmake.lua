@@ -95,6 +95,12 @@ set_values(true, false)
 set_default(true)
 set_showmenu(true)
 option_end()
+-- enable clang C++ module
+option("enable_clangcxx")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
 -- enable GUI module
 option("enable_gui")
 set_values(true, false)
