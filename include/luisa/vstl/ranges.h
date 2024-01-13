@@ -83,6 +83,8 @@ public:
     explicit IRangeImpl(Range &&self) noexcept
         : self(std::forward<Range>(self)) {}
     ~IRangeImpl() noexcept = default;
+    IRangeImpl(IRangeImpl const&) = delete;
+    IRangeImpl(IRangeImpl &&) noexcept = default;
     IteRef<IRange<ValueType>> begin() noexcept override {
         self.begin();
         return {this};
@@ -205,12 +207,17 @@ class range_linker {
     using ElemType = std::tuple<Args...>;
     ElemType tp;
 public:
-    using ValueType = std::remove_reference_t<decltype(detail::range_value<(sizeof...(Args) - 1)>(std::declval<ElemType>()))>;
+    using OriginValueType = decltype(detail::range_value<(sizeof...(Args) - 1)>(std::declval<ElemType>()));
+    constexpr static bool value_is_ref = std::is_reference_v<OriginValueType>;
+    using StorageValueType = SelectType_t<
+        std::add_pointer_t<std::remove_reference_t<OriginValueType>>,
+        OriginValueType,
+        value_is_ref>;
 private:
-    StackObject<ValueType, false> _value_holder;
+    StackObject<StorageValueType, false> _value_holder;
     bool begined{false};
     void dispose() noexcept {
-        if constexpr (!std::is_trivially_destructible_v<ValueType>) {
+        if constexpr (!std::is_trivially_destructible_v<StorageValueType>) {
             if (begined) {
                 _value_holder.destroy();
             }
@@ -218,42 +225,51 @@ private:
     }
     template<size_t i, typename T>
     void _next(T &&last_var) noexcept {
-        bool continued{false};
         auto &&self = std::get<i>(tp);
         using Type = std::remove_cvref_t<decltype(self)>;
         if constexpr (Type::is_filter) {
-            while (true) {
-                auto &&last_eval = [&]() -> decltype(auto) {
-                    if (continued) {
-                        return (detail::range_value<i - 1>(tp));
+            bool continued{!(self(last_var))};
+            auto finalize_next = [&](auto &&last_eval) {
+                if constexpr (i == sizeof...(Args) - 1) {
+                    dispose();
+                    if constexpr (value_is_ref) {
+                        _value_holder.create(&last_eval);
                     } else {
-                        return std::forward<T>(last_var);
-                    }
-                }();
-                continued = !(self(last_eval));
-                if (continued) {
-                    ++(std::get<0>(tp));
-                    if (std::get<0>(tp) == IteEndTag{}) {
-                        dispose();
-                        begined = false;
-                        return;
-                    }
-                } else {
-                    if constexpr (i == sizeof...(Args) - 1) {
-                        dispose();
                         _value_holder.create(std::move(last_eval));
-                        begined = true;
-                        ++(std::get<0>(tp));
-                    } else {
-                        _next<i + 1>(last_eval);
                     }
-                    break;
+                    begined = true;
+                    ++(std::get<0>(tp));
+                } else {
+                    _next<i + 1>(last_eval);
+                }
+            };
+            if (!continued) {
+                finalize_next(last_var);
+                return;
+            }
+            while (true) {
+                ++(std::get<0>(tp));
+                if (std::get<0>(tp) == IteEndTag{}) {
+                    dispose();
+                    begined = false;
+                    return;
+                }
+
+                auto &&last_eval = (detail::range_value<i - 1>(tp));
+                continued = !(self(last_eval));
+                if (!continued) {
+                    finalize_next(last_eval);
+                    return;
                 }
             };
         } else {
             if constexpr (i == sizeof...(Args) - 1) {
                 dispose();
-                _value_holder.create(self(std::forward<T>(last_var)));
+                if constexpr (value_is_ref) {
+                    _value_holder.create(&self(std::forward<T>(last_var)));
+                } else {
+                    _value_holder.create(self(std::forward<T>(last_var)));
+                }
                 begined = true;
                 ++(std::get<0>(tp));
             } else {
@@ -283,7 +299,11 @@ public:
         return !begined;
     }
     auto &&operator*() noexcept {
-        return std::move(*_value_holder);
+        if constexpr (value_is_ref) {
+            return std::move(**_value_holder);
+        } else {
+            return std::move(*_value_holder);
+        }
     }
     void operator++() noexcept {
         if (std::get<0>(tp) == IteEndTag{}) {
@@ -294,15 +314,15 @@ public:
         _next<1>(*std::get<0>(tp));
     }
     auto i_range() && noexcept {
-        return detail::IRangeImpl<ValueType, range_linker>{std::move(*this)};
+        return detail::IRangeImpl<OriginValueType, range_linker>{std::move(*this)};
     }
     auto i_range() & noexcept {
-        return detail::IRangeImpl<ValueType, range_linker &>{*this};
+        return detail::IRangeImpl<OriginValueType, range_linker &>{*this};
     }
 };
 template<typename T>
 class filter_range {
-    T &&_t;
+    T _t;
 public:
     static constexpr bool is_filter = true;
     explicit filter_range(T &&t) noexcept : _t(std::forward<T>(t)) {}
@@ -312,16 +332,26 @@ public:
 };
 template<typename T>
 class transform_range {
-    T &&_t;
+    T _t;
 public:
     static constexpr bool is_filter = false;
     explicit transform_range(T &&t) noexcept : _t(std::forward<T>(t)) {}
     decltype(auto) operator()(auto &&v) const noexcept {
         return (_t(v));
     }
+    transform_range(transform_range const &) = delete;
+    transform_range(transform_range &&) noexcept = default;
+};
+class to_value {
+public:
+    static constexpr bool is_filter = false;
+    auto operator()(auto &&v) const noexcept {
+        return v;
+    }
 };
 template<typename... Ts>
 class tuple_range {
+    static_assert(sizeof...(Ts) > 2);
     std::tuple<Ts...> ites;
     size_t index;
     using Sequencer = std::make_index_sequence<sizeof...(Ts)>;
@@ -383,6 +413,96 @@ void tuple_range<Ts...>::InitIndex() noexcept {
         BeginFuncType::table.begin()[index](ites, beginFunc);
     }
 }
+// optimize for pair
+template<typename A, typename B>
+    requires(std::is_same_v<decltype(*(std::declval<A>().begin())), decltype(*(std::declval<B>().begin()))>)
+class tuple_range<A, B> {
+    A a;
+    B b;
+    using IterAType = decltype(std::declval<A>().begin());
+    using IterBType = decltype(std::declval<B>().begin());
+    union {
+        vstd::StackObject<IterAType> a_iter;
+        vstd::StackObject<IterBType> b_iter;
+    };
+    int idx = -1;
+public:
+    tuple_range(A &&_a, B &&_b)
+        : a(std::forward<A>(_a)),
+          b(std::forward<B>(_b)) {
+    }
+    tuple_range(tuple_range const &) = delete;
+    tuple_range(tuple_range &&rhs) noexcept
+        : a(std::move(rhs.a)),
+          b(std::move(rhs.b)),
+          idx(rhs.idx) {
+        switch (idx) {
+            case 0:
+                a_iter.create(std::move(*rhs.a_iter));
+                break;
+            case 1:
+                b_iter.create(std::move(*rhs.b_iter));
+                break;
+        }
+    }
+    vstd::IteRef<tuple_range> begin() noexcept {
+        auto a_begin = a.begin();
+        if (a_begin == a.end()) {
+            b_iter.create(b.begin());
+            idx = 1;
+        } else {
+            a_iter.create(std::move(a_begin));
+            idx = 0;
+        }
+        return {this};
+    }
+    vstd::IteEndTag end() const noexcept { return {}; }
+    bool operator==(vstd::IteEndTag) const noexcept {
+        if (idx != 1) return false;
+        return (*b_iter) == b.end();
+    }
+    void operator++() noexcept {
+        if (idx == 0) {
+            auto &&i = (*a_iter);
+            ++i;
+            if (i == a.end()) {
+                a_iter.destroy();
+                b_iter.create(b.begin());
+                idx = true;
+            }
+        } else {
+            auto &&i = (*b_iter);
+            ++i;
+        }
+    }
+    auto &&operator*() noexcept {
+        if (idx == 0) {
+            return *(*a_iter);
+        } else {
+            return *(*b_iter);
+        }
+    }
+    ~tuple_range() noexcept {
+        if constexpr (!std::is_trivially_destructible_v<IterAType> || !std::is_trivially_destructible_v<IterBType>) {
+            switch (idx) {
+                case 0:
+                    a_iter.destroy();
+                    break;
+                case 1:
+                    b_iter.destroy();
+                    break;
+            }
+        }
+    }
+    using ValueType = std::remove_cvref_t<decltype(*(std::declval<A>().begin()))>;
+    auto i_range() && noexcept {
+        return detail::IRangeImpl<ValueType, tuple_range<A, B>>{std::move(*this)};
+    }
+    auto i_range() & noexcept {
+        return detail::IRangeImpl<ValueType, tuple_range<A, B> &>{*this};
+    }
+};
+
 template<luisa::concepts::iterable T>
 auto make_ite_range(T &&t) noexcept {
     return ite_range<T>{std::forward<T>(t)};

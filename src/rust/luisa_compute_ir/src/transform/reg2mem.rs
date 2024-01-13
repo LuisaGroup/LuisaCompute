@@ -107,7 +107,9 @@ impl Reg2MemImpl {
                     self.transform_recursive(body);
                 }
                 Instruction::Comment(_) => {}
-                Instruction::Print { .. } => {todo!()}
+                Instruction::Print { .. } => {
+                    todo!()
+                }
             }
         }
     }
@@ -247,8 +249,8 @@ impl Reg2MemImpl {
                     let decl_point = builder.insert_point.clone();
                     // insert the store instructions to the end of each incoming block
                     for incoming in incomings.iter() {
-                        builder.set_insert_point(incoming.block.get().last.get().prev);
-                        builder.update(local.clone(), incoming.value.clone());
+                        builder.set_insert_point(incoming.value);
+                        builder.update(local.clone(), incoming.value);
                     }
                     // restore the insert point
                     builder.set_insert_point(decl_point);
