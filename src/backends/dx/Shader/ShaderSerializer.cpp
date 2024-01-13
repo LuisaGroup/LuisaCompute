@@ -156,7 +156,7 @@ ComputeShader *ShaderSerializer::DeSerialize(
     luisa::BinaryIO const &streamFunc,
     luisa::compute::Profiler *profiler,
     vstd::optional<vstd::MD5> const &checkMD5,
-    vstd::MD5 &typeMD5,
+    vstd::optional<vstd::MD5> const &typeMD5,
     vstd::vector<luisa::compute::Argument> &&bindings,
     bool &clearCache) {
     if (profiler) [[unlikely]] {
@@ -192,7 +192,10 @@ ComputeShader *ShaderSerializer::DeSerialize(
         header.codeBytes +
         header.propertyCount * sizeof(hlsl::Property) +
         header.kernelArgCount * sizeof(SavedArgument);
-    typeMD5 = header.typeMD5;
+    if (typeMD5 && (*typeMD5 != header.typeMD5)) [[unlikely]] {
+        LUISA_WARNING("Shader {} arguments unmatch to requirement!", name);
+        return nullptr;
+    }
     vstd::vector<std::byte> binCode;
     binCode.push_back_uninitialized(targetSize);
     vstd::vector<std::byte> psoCode;
@@ -289,7 +292,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     Device *device,
     luisa::BinaryIO const &streamFunc,
     vstd::optional<vstd::MD5> const &ilMd5,
-    vstd::MD5 &typeMD5,
+    vstd::optional<vstd::MD5> const &typeMD5,
     MeshFormat const &meshFormat) {
     using namespace shader_ser;
     auto binStream = ReadBinaryIO(cacheType, &streamFunc, name);
@@ -313,7 +316,10 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         header.pixelCodeBytes +
         header.propertyCount * sizeof(hlsl::Property) +
         header.kernelArgCount * sizeof(SavedArgument);
-    typeMD5 = header.typeMD5;
+    if (typeMD5 && (*typeMD5 != header.typeMD5)) [[unlikely]] {
+        LUISA_WARNING("Shader {} arguments unmatch to requirement!", name);
+        return nullptr;
+    }
     vstd::vector<std::byte> binCode;
     binCode.push_back_uninitialized(targetSize);
     binStream->read({binCode.data(), binCode.size()});
