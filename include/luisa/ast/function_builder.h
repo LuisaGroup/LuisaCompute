@@ -427,6 +427,8 @@ public:
     void push_scope(ScopeStmt *) noexcept;
     /// Pop a scope
     void pop_scope(const ScopeStmt *) noexcept;
+    /// Check if inside the function level scope
+    [[nodiscard]] bool inside_function_scope() const noexcept;
     /// Mark variable uasge
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
     /// Separate arguments and bindings, make command need no bindings info, only work with kernel.

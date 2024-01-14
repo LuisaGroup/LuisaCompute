@@ -149,12 +149,12 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
 }
 
 void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
-    auto init_node = ir::luisa_compute_ir_node_get(node->instruction->local.init);
     if (auto instr = init_node->instruction;
-        (instr->tag == ir::Instruction::Tag::Call &&
-         instr->call._0.tag == ir::Func::Tag::ZeroInitializer) ||
-        (instr->tag == ir::Instruction::Tag::Const &&
-         instr->const_._0.tag == ir::Const::Tag::Zero)) {
+        detail::FunctionBuilder::current()->inside_function_scope() &&
+        ((instr->tag == ir::Instruction::Tag::Call &&
+          instr->call._0.tag == ir::Func::Tag::ZeroInitializer) ||
+         (instr->tag == ir::Instruction::Tag::Const &&
+          instr->const_._0.tag == ir::Const::Tag::Zero))) {
         // variables are always initialized to zero in AST, so we can skip
     } else {
         // otherwise we have to assign the init value to the variable
