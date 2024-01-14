@@ -149,6 +149,7 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
 }
 
 void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
+    auto init_node = ir::luisa_compute_ir_node_get(node->instruction->local.init);
     if (auto instr = init_node->instruction;
         detail::FunctionBuilder::current()->inside_function_scope() &&
         ((instr->tag == ir::Instruction::Tag::Call &&
