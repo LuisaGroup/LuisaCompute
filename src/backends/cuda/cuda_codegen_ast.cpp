@@ -573,6 +573,7 @@ public:
             for (auto &&v : captured_resources) {
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_name(v);
+                _codegen->_scratch << ",\n";
             }
             for (auto &&v : captured_elements) {
                 _codegen->_emit_indent();
