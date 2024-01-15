@@ -100,7 +100,7 @@ public:
             .handle = handle(),
             .operations = SparseTextureUnMapOperation{
                 .start_tile = make_uint3(start_tile, 0u),
-                .tile_count = make_uint3(tile_count, 0u),
+                .tile_count = make_uint3(tile_count, 1u),
                 .mip_level = mip_level}};
     }
 
