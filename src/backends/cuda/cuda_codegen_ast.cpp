@@ -78,7 +78,7 @@ private:
     luisa::unordered_map<const RayQueryStmt *, Function> _ray_query_statements;
     luisa::unordered_map<const RayQueryStmt *, OutlineInfo> _outline_infos;
     luisa::unordered_map<FunctionResource,
-                         luisa::unordered_set<Variable>,
+                         luisa::unique_ptr<luisa::unordered_set<Variable>>,
                          FunctionResourceHash>
         _root_resources;
 
@@ -143,8 +143,11 @@ private:
                 LUISA_ASSERT(root_index < root_resources.size(),
                              "Root resource index {} is out of bound.",
                              root_index);
-                auto &set = _root_resources.try_emplace(FunctionResource{f, v}).first->second;
-                for (auto r : *root_resources[root_index]) { set.emplace(r); }
+                auto set = _root_resources.try_emplace(
+                                              FunctionResource{f, v},
+                                              luisa::make_unique<luisa::unordered_set<Variable>>())
+                               .first->second.get();
+                for (auto r : *root_resources[root_index]) { set->emplace(r); }
                 root_index++;
             }
         }
@@ -166,7 +169,7 @@ private:
                                     auto iter = _root_resources.find(FunctionResource{f, v});
                                     LUISA_ASSERT(iter != _root_resources.cend(),
                                                  "Failed to find root resource.");
-                                    root_resources.emplace_back(&iter->second);
+                                    root_resources.emplace_back(iter->second.get());
                                 }
                             }
                         }
@@ -294,7 +297,7 @@ private:
                                          _root_resources.contains({f, v}),
                                      "Invalid variable.");
                         return !v.is_resource() ||
-                               _root_resources.at({f, v}).size() != 1u;
+                               _root_resources.at({f, v})->size() > 1u;
                     });
 
                 uniquely_identified_resources.reserve(
@@ -417,12 +420,12 @@ private:
             _codegen->_scratch << "\n";
             // obtain the uniquely-identified resources
             for (auto v : uniquely_identified_resources) {
-                auto r = _root_resources.at({f, v});
-                LUISA_ASSERT(r.size() == 1u, "Invalid root resource.");
+                auto r = _root_resources.at({f, v}).get();
+                LUISA_ASSERT(r->size() == 1u, "Invalid root resource.");
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_decl(f, v, false);
                 _codegen->_scratch << " = params.";
-                _codegen->_emit_variable_name(*r.cbegin());
+                _codegen->_emit_variable_name(*r->cbegin());
                 _codegen->_scratch << ";\n";
                 // inform the compiler of the underlying storage if the resource is captured
                 // Note: this is O(n^2) but we should not have that many resources
