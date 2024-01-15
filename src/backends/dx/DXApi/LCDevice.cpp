@@ -298,12 +298,13 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     ShaderCreationInfo info;
     uint mask = 0;
     if (option.enable_fast_math) {
-        mask |= 1;
+        mask |= (1 << 0);
     }
     if (option.enable_debug_info) {
-        mask |= 2;
+        mask |= (1 << 1);
     }
-
+    // use default control flow
+    mask |= (1 << 2);
     auto code = hlsl::CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, option.native_include, mask, false);
     if (option.compile_only) {
         assert(!option.name.empty());
