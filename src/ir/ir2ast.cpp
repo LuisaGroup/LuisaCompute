@@ -107,7 +107,17 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
             case ir::Instruction::Tag::Const: return _convert_constant(node->instruction->const_._0);
             case ir::Instruction::Tag::Call: {
                 auto ret = _convert_instr_call(node);
-                if (node->instruction->call._0.tag == ir::Func::Tag::GetElementPtr) {
+                if (auto t = node->instruction->call._0.tag;
+                    t == ir::Func::Tag::GetElementPtr ||
+                    t == ir::Func::Tag::ZeroInitializer ||
+                    t == ir::Func::Tag::Assume ||
+                    t == ir::Func::Tag::Unreachable ||
+                    t == ir::Func::Tag::ThreadId ||
+                    t == ir::Func::Tag::BlockId ||
+                    t == ir::Func::Tag::WarpSize ||
+                    t == ir::Func::Tag::WarpLaneId ||
+                    t == ir::Func::Tag::DispatchId ||
+                    t == ir::Func::Tag::DispatchSize) {
                     // we should not make a local copy for GEP, as
                     // it might appear in the LHS in assignment.
                     return ret;
@@ -139,14 +149,24 @@ const Expression *IR2AST::_convert_node(const ir::Node *node) noexcept {
 }
 
 void IR2AST::_convert_instr_local(const ir::Node *node) noexcept {
-    auto init = _convert_node(node->instruction->local.init);
-    auto iter = _ctx->node_to_exprs.find(node);
-    LUISA_ASSERT(iter != _ctx->node_to_exprs.end(),
-                 "Local variable not found in node_to_exprs.");
-    auto expr = iter->second;
-
-    // assign the init value to the variable
-    detail::FunctionBuilder::current()->assign(expr, init);
+    auto init_node = ir::luisa_compute_ir_node_get(node->instruction->local.init);
+    if (auto instr = init_node->instruction;
+        detail::FunctionBuilder::current()->inside_function_scope() &&
+        ((instr->tag == ir::Instruction::Tag::Call &&
+          instr->call._0.tag == ir::Func::Tag::ZeroInitializer) ||
+         (instr->tag == ir::Instruction::Tag::Const &&
+          instr->const_._0.tag == ir::Const::Tag::Zero))) {
+        // variables are always initialized to zero in AST, so we can skip
+    } else {
+        // otherwise we have to assign the init value to the variable
+        auto init = _convert_node(node->instruction->local.init);
+        auto iter = _ctx->node_to_exprs.find(node);
+        LUISA_ASSERT(iter != _ctx->node_to_exprs.end(),
+                     "Local variable not found in node_to_exprs.");
+        auto expr = iter->second;
+        // assign the init value to the variable
+        detail::FunctionBuilder::current()->assign(expr, init);
+    }
 }
 
 void IR2AST::_convert_instr_user_data(const ir::Node *_user_data) noexcept {

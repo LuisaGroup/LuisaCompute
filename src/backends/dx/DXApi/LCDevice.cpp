@@ -298,13 +298,14 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     ShaderCreationInfo info;
     uint mask = 0;
     if (option.enable_fast_math) {
-        mask |= 1;
+        mask |= (1 << 0);
     }
     if (option.enable_debug_info) {
-        mask |= 2;
+        mask |= (1 << 1);
     }
-
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, nativeDevice.fileIo, option.native_include, mask, false);
+    // use default control flow
+    mask |= (1 << 2);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false);
     if (option.compile_only) {
         assert(!option.name.empty());
         ComputeShader::SaveCompute(
@@ -501,7 +502,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, nativeDevice.fileIo, option.native_include, mask, false);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, option.native_include, mask, false);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         assert(!option.name.empty());
