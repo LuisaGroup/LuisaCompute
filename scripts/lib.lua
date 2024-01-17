@@ -163,7 +163,7 @@ function char(str)
 end
 function to_byte_array(input, out)
 	if input:size() <= 0 then
-		return
+		return 0
 	end
 	local cut = char(',')
 	local str_ptr
@@ -179,4 +179,5 @@ function to_byte_array(input, out)
 		out:add(tostring(libc.byteof(str_ptr, i))):add_char(cut)
 	end
 	out:erase(1)
+	return str_size
 end

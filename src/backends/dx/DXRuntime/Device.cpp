@@ -39,13 +39,13 @@ void Device::WaitFence(ID3D12Fence *fence, uint64 fenceIndex) {
 }
 ComputeShader *Device::LazyLoadShader::Get(Device *self) {
     if (!shader) {
-        shader = vstd::create_unique(loadFunc(self, self->fileIo));
+        shader = vstd::create_unique(loadFunc(self));
     }
     return shader.get();
 }
 bool Device::LazyLoadShader::Check(Device *self) {
     if (shader) return true;
-    shader = vstd::create_unique(loadFunc(self, self->fileIo));
+    shader = vstd::create_unique(loadFunc(self));
     if (shader) {
         auto afterExit = vstd::scope_exit([&] { shader = nullptr; });
         return true;

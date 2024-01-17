@@ -3,8 +3,8 @@ _config_project({
 	project_kind = "shared",
 	batch_size = 8
 })
-add_deps("lc-runtime", "lc-vstl")
-add_files("**.cpp")
+add_deps("lc-runtime", "lc-vstl", "lc-hlsl-builtin")
+add_files("**.cpp", "../common/hlsl/*.cpp")
 add_headerfiles("**.h", "../common/default_binary_io.h",
 				"../common/hlsl/*.h")
 add_includedirs("./")

@@ -34,7 +34,7 @@ public:
     luisa::compute::Profiler *profiler = nullptr;
     struct LazyLoadShader {
     public:
-        using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *, luisa::BinaryIO const *)>;
+        using LoadFunc = vstd::func_ptr_t<ComputeShader *(Device *)>;
 
     private:
         vstd::unique_ptr<ComputeShader> shader;

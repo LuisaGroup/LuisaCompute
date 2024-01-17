@@ -8,6 +8,7 @@
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
+#include "builtin/hlsl_builtin.hpp"
 static bool shown_buffer_warning = false;
 namespace lc::hlsl {
 static std::atomic_bool rootsig_exceed_warned = false;
@@ -56,32 +57,27 @@ struct SpirVRegisterIndexer : public RegisterIndexer {
         return count;
     }
 };
-vstd::string_view CodegenUtility::ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx) {
-    static DynamicModule dyna_module = DynamicModule::load("lc-hlsl-builtin");
-    auto get_name = vstd::string{"get_"}.append(name);
-    auto get_func = dyna_module.function<char *()>(get_name);
-    get_name += "_size"sv;
-    auto get_size_func = dyna_module.function<int()>(get_name);
-    return {get_func(), static_cast<size_t>(get_size_func())};
+vstd::string_view CodegenUtility::ReadInternalHLSLFile(vstd::string_view name) {
+    return lc_hlsl::get_hlsl_builtin(name);
 }
 namespace detail {
-static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDataPath, vstd::StringBuilder &builder, bool isRaster) {
-    builder << CodegenUtility::ReadInternalHLSLFile("hlsl_header", internalDataPath);
+static size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster) {
+    builder << CodegenUtility::ReadInternalHLSLFile("hlsl_header");
     size_t immutable_size = builder.size();
     if (ops.uses_raytracing()) {
-        builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header");
     }
     if (ops.test(CallOp::DETERMINANT)) {
-        builder << CodegenUtility::ReadInternalHLSLFile("determinant", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("determinant");
     }
     if (ops.test(CallOp::INVERSE)) {
-        builder << CodegenUtility::ReadInternalHLSLFile("inverse", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("inverse");
     }
     if (ops.test(CallOp::INDIRECT_SET_DISPATCH_KERNEL) || ops.test(CallOp::INDIRECT_SET_DISPATCH_COUNT)) {
-        builder << CodegenUtility::ReadInternalHLSLFile("indirect", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("indirect");
     }
     if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE) || ops.test(CallOp::BYTE_BUFFER_SIZE)) {
-        builder << CodegenUtility::ReadInternalHLSLFile("resource_size", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("resource_size");
     }
     bool useBindless = false;
     for (auto i : vstd::range(
@@ -93,7 +89,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
         }
     }
     if (useBindless) {
-        builder << CodegenUtility::ReadInternalHLSLFile("bindless_common", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("bindless_common");
     }
     if (ops.test(CallOp::RAY_TRACING_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_INSTANCE_USER_ID) ||
@@ -102,16 +98,16 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
-        builder << CodegenUtility::ReadInternalHLSLFile("accel_header", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("accel_header");
     }
     if (ops.test(CallOp::COPYSIGN)) {
-        builder << CodegenUtility::ReadInternalHLSLFile("copy_sign", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("copy_sign");
     }
     if (!isRaster && (ops.test(CallOp::DDX) || ops.test(CallOp::DDY))) {
-        builder << CodegenUtility::ReadInternalHLSLFile("compute_quad", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("compute_quad");
     }
     if (ops.uses_autodiff()) {
-        builder << CodegenUtility::ReadInternalHLSLFile("auto_diff", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("auto_diff");
     }
     if (ops.test(CallOp::REDUCE_MAX) ||
         ops.test(CallOp::REDUCE_MIN) ||
@@ -119,7 +115,7 @@ static size_t AddHeader(CallOpSet const &ops, luisa::BinaryIO const *internalDat
         ops.test(CallOp::REDUCE_SUM) ||
         ops.test(CallOp::OUTER_PRODUCT) ||
         ops.test(CallOp::MATRIX_COMPONENT_WISE_MULTIPLICATION)) {
-        builder << CodegenUtility::ReadInternalHLSLFile("reduce", internalDataPath);
+        builder << CodegenUtility::ReadInternalHLSLFile("reduce");
     }
     return immutable_size;
 }
@@ -1720,7 +1716,6 @@ StructuredBuffer<_Args> _Global:register(t0);
 void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &str,
-    luisa::BinaryIO const *internalDataPath,
     bool isSpirV,
     uint &bind_count) {
     uint table_idx = isSpirV ? 2 : 1;
@@ -1742,14 +1737,14 @@ void CodegenUtility::GenerateBindless(
         str << "Texture2D<float4> _BindlessTex[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
-        str << CodegenUtility::ReadInternalHLSLFile("tex2d_bindless", internalDataPath);
+        str << CodegenUtility::ReadInternalHLSLFile("tex2d_bindless");
         bind_count += 1;
     }
     if (opt->useTex3DBindless) {
         str << "Texture3D<float4> _BindlessTex3D[]:register(t0,space"sv << vstd::to_string(table_idx) << ");"sv;
         add_prop(ShaderVariableType::SRVTextureHeap);
         table_idx++;
-        str << CodegenUtility::ReadInternalHLSLFile("tex3d_bindless", internalDataPath);
+        str << CodegenUtility::ReadInternalHLSLFile("tex3d_bindless");
         bind_count += 1;
     }
 }
@@ -1758,7 +1753,6 @@ void CodegenUtility::PreprocessCodegenProperties(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &varData,
     RegisterIndexer &registerCount,
-    luisa::BinaryIO const *internalDataPath,
     bool cbufferNonEmpty,
     bool isRaster, bool isSpirv, uint &bind_count) {
     // 1,0,0
@@ -1795,7 +1789,7 @@ void CodegenUtility::PreprocessCodegenProperties(
                 0,
                 1});
     }
-    GenerateBindless(properties, varData, internalDataPath, isSpirv, bind_count);
+    GenerateBindless(properties, varData, isSpirv, bind_count);
 }
 
 namespace detail {
@@ -2023,7 +2017,7 @@ CodegenUtility::CodegenUtility() {}
 CodegenUtility::~CodegenUtility() {}
 
 CodegenResult CodegenUtility::Codegen(
-    Function kernel, luisa::BinaryIO const *internalDataPath, luisa::string_view native_code, uint custom_mask, bool isSpirV) {
+    Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV) {
     opt = CodegenStackData::Allocate(this);
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
@@ -2038,7 +2032,7 @@ CodegenResult CodegenUtility::Codegen(
     vstd::StringBuilder finalResult;
     opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
-    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), internalDataPath, finalResult, false);
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false);
     finalResult << native_code << "\n//"sv;
     static_cast<void>(vstd::to_string(custom_mask));
     finalResult << '\n';
@@ -2064,7 +2058,7 @@ uint4 dsp_c;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, false, isSpirV, bind_count);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, false, isSpirV, bind_count);
     CodegenProperties(properties, varData, kernel, 0, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, kernel.requires_autodiff());
     finalResult << varData << incrementalFunc << codegenData;
@@ -2089,7 +2083,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     MeshFormat const &meshFormat,
     Function vertFunc,
     Function pixelFunc,
-    luisa::BinaryIO const *internalDataPath,
+
     luisa::string_view native_code,
     uint custom_mask,
     bool isSpirV) {
@@ -2109,7 +2103,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     finalResult.reserve(65500);
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
-    uint64 immutableHeaderSize = detail::AddHeader(opSet, internalDataPath, finalResult, true);
+    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true);
     finalResult << native_code << "\n//"sv;
     static_cast<void>(vstd::to_string(custom_mask));
     finalResult << '\n';
@@ -2248,7 +2242,7 @@ uint iid:SV_INSTANCEID;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, internalDataPath, nonEmptyCbuffer, true, isSpirV, bind_count);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, true, isSpirV, bind_count);
     CodegenProperties(properties, varData, vertFunc, 1, indexer, bind_count);
     CodegenProperties(properties, varData, pixelFunc, 1, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, false);
