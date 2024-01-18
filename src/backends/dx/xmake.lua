@@ -31,4 +31,5 @@ after_build(function(target)
 	end
 end)
 set_pcxxheader("pch.h")
+add_rules("lc-check-winsdk")
 target_end()

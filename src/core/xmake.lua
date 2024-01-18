@@ -44,4 +44,5 @@ on_load(function(target)
 end)
 add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp", "../ext/half/include/half.hpp") -- , "../ext/parallel-hashmap/**.h"
 add_files("**.cpp")
+add_rules("lc-check-winsdk")
 target_end()
