@@ -274,6 +274,12 @@ struct ExprEnableBitwiseCast {
                 Type::of<TrueDest>(),
                 op, src.expression()));
     }
+    template<typename Dest>
+        requires concepts::bitwise_convertible<
+            expr_value_t<T>, expr_value_t<Dest>>
+    [[nodiscard]] auto bitcast() const noexcept {
+        return as();
+    }
 };
 
 /// Enable subscript access
