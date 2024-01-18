@@ -28,11 +28,12 @@
 #define LC_CORE_API __declspec(dllimport)
 #endif
 
-#ifdef LC_VSTL_EXPORT_DLL
-#define LC_VSTL_API __declspec(dllexport)
-#else
-#define LC_VSTL_API __declspec(dllimport)
-#endif
+// #ifdef LC_VSTL_EXPORT_DLL
+// #define LC_VSTL_API __declspec(dllexport)
+// #else
+// #define LC_VSTL_API __declspec(dllimport)
+// #endif
+#define LC_VSTL_API
 
 #ifdef LC_GUI_EXPORT_DLL
 #define LC_GUI_API __declspec(dllexport)
@@ -52,11 +53,12 @@
 #define LC_RUNTIME_API __declspec(dllimport)
 #endif
 
-#ifdef LC_DSL_EXPORT_DLL
-#define LC_DSL_API __declspec(dllexport)
-#else
-#define LC_DSL_API __declspec(dllimport)
-#endif
+// #ifdef LC_DSL_EXPORT_DLL
+// #define LC_DSL_API __declspec(dllexport)
+// #else
+// #define LC_DSL_API __declspec(dllimport)
+// #endif
+#define LC_DSL_API
 
 #ifdef LC_TENSOR_EXPORT_DLL
 #define LC_TENSOR_API __declspec(dllexport)

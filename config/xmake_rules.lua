@@ -27,6 +27,22 @@ on_load(function(target)
 		{
 			public = is_public
 		})
+	if is_plat("windows") then
+		target:add("syslinks", "psapi", "shell32", "user32", "advapi32", "bcrypt", "Ole32", {
+			public = is_public
+		})
+	elseif is_plat("linux") then
+		target:add("syslinks", "pthread", "atomic", "uuid", {
+			public = is_public
+		})
+	else
+		target:add("syslinks", "pthread", {
+			public = is_public
+		})
+		target:add("frameworks", "CoreFoundation", {
+			public = is_public
+		})
+	end
 end)
 rule_end()
 
@@ -42,8 +58,6 @@ on_load(function(target)
 		"SPDLOG_NO_EXCEPTIONS", "SPDLOG_NO_THREAD_ID", "SPDLOG_DISABLE_DEFAULT_LOGGER",
 		"FMT_SHARED", "FMT_CONSTEVAL=constexpr", "FMT_USE_CONSTEXPR=1",
 		"FMT_EXCEPTIONS=0", 
-	--[[mimallo]]
-		"MI_SHARED_LIB",
 	--[[eastl]] 
 		"EA_PRAGMA_ONCE_SUPPORTED",
 		"EASTL_ASSERT_ENABLED=0", "EA_HAVE_CPP11_CONTAINERS", "EA_HAVE_CPP11_ATOMIC", "EA_HAVE_CPP11_CONDITION_VARIABLE",
