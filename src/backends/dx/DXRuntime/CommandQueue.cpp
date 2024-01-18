@@ -32,6 +32,10 @@ CommandQueue::CommandQueue(
         IID_PPV_ARGS(&cmdFence)));
 }
 CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
+    if (maxAllocCount != std::numeric_limits<uint64>::max()) {
+        if (lastFrame > maxAllocCount)
+            Complete(lastFrame - maxAllocCount);
+    }
     auto newPtr = allocatorPool.pop();
     if (newPtr) {
         (*newPtr)->GetBuffer()->UpdateCommandBuffer(device);
