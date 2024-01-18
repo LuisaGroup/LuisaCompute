@@ -28,17 +28,14 @@ on_load(function(target)
 			public = is_public
 		})
 	if is_plat("windows") then
-		target:add("syslinks", "psapi", "shell32", "user32", "advapi32", "bcrypt", "Ole32", {
+		target:add("syslinks", "Ole32", {
 			public = is_public
 		})
 	elseif is_plat("linux") then
-		target:add("syslinks", "pthread", "atomic", "uuid", {
+		target:add("syslinks", "uuid", {
 			public = is_public
 		})
 	else
-		target:add("syslinks", "pthread", {
-			public = is_public
-		})
 		target:add("frameworks", "CoreFoundation", {
 			public = is_public
 		})
@@ -67,7 +64,7 @@ on_load(function(target)
 		"EA_HAVE_CPP11_TYPEINDEX", "EASTL_STD_ITERATOR_CATEGORY_ENABLED", "EASTL_STD_TYPE_TRAITS_AVAILABLE",
 		"EASTL_MOVE_SEMANTICS_ENABLED", "EASTL_VARIADIC_TEMPLATES_ENABLED", "EASTL_VARIABLE_TEMPLATES_ENABLED",
 		"EASTL_INLINE_VARIABLE_ENABLED", "EASTL_HAVE_CPP11_TYPE_TRAITS", "EASTL_INLINE_NAMESPACES_ENABLED",
-		"EASTL_ALLOCATOR_EXPLICIT_ENABLED", "EASTL_USER_DEFINED_ALLOCATOR",
+		"EASTL_ALLOCATOR_EXPLICIT_ENABLED", "EASTL_USER_DEFINED_ALLOCATOR", "EA_DLL",
 	{
 		public = is_public
 	})
