@@ -4,6 +4,7 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/dsl/syntax.h>
 #include <stb/stb_image_write.h>
+#include <EASTL/allocator.h>
 
 using namespace luisa;
 using namespace luisa::compute;
