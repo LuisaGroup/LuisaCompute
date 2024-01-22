@@ -17,6 +17,12 @@ public:
     DeviceInterface *device;
     DxDirectMLExt(DeviceInterface *device);
     ~DxDirectMLExt(){};
-    luisa::unique_ptr<DMLGraph> create_graph(bool half) noexcept override;
+    luisa::unique_ptr<DMLGraph> create_graph(
+        uint32_t batch_size,
+        uint32_t input_elements,
+        uint32_t out_elements,
+        luisa::span<const uint32_t> hidden_layer_elements,
+        luisa::span<const FusedActivation> activations,
+        bool half_precision) noexcept override;
 };
 }// namespace lc::dx
