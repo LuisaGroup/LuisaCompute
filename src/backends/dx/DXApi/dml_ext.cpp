@@ -5,7 +5,6 @@
 #include "DirectMLX.h"
 #include <luisa/backends/ext/dx_custom_cmd.h>
 #include <wrl/client.h>
-#include <Resource/DefaultBuffer.h>
 //#include <wil/result_macros.h>
 using namespace luisa;
 using namespace luisa::compute;
@@ -24,6 +23,7 @@ public:
 static DMLModule _dml_module;
 class DxDMLGraph : public DMLGraph {
 public:
+    DeviceInterface *device_interface;
     ComPtr<IDMLDevice> dmlDevice;
     ComPtr<IDMLCompiledOperator> dmlCompiledOperator;
 
@@ -45,12 +45,14 @@ public:
 
     bool bind = false;
     bool half;
-
-    ComPtr<ID3D12Resource> temporaryBuffer;
-    ComPtr<ID3D12Resource> persistentBuffer;
+    BufferCreationInfo temporaryBuffer{BufferCreationInfo::make_invalid()};
+    BufferCreationInfo persistentBuffer{BufferCreationInfo::make_invalid()};
+    // ComPtr<ID3D12Resource> temporaryBuffer;
+    // ComPtr<ID3D12Resource> persistentBuffer;
     unique_ptr<Command> build() noexcept override;
     unique_ptr<Command> forward(Argument::Buffer input_buffer, Argument::Buffer output_buffer, Argument::Buffer weights_buffer) noexcept override;
     DxDMLGraph(
+        DeviceInterface *device_interface,
         size_t weight,
         size_t output,
         size_t input,
@@ -59,7 +61,8 @@ public:
         luisa::span<uint const> hiddens,
         luisa::span<const FusedActivation> activations,
         bool half)
-        : weight_size(weight * data_size),
+        : device_interface(device_interface),
+          weight_size(weight * data_size),
           output_size(output * data_size * batch_size),
           input_size(input * data_size * batch_size),
           batch_size(batch_size),
@@ -71,7 +74,14 @@ public:
         }
         vstd::push_back_all(this->activations, activations);
     }
-    ~DxDMLGraph() = default;
+    ~DxDMLGraph() {
+        if (temporaryBuffer.valid()) {
+            device_interface->destroy_buffer(temporaryBuffer.handle);
+        }
+        if (persistentBuffer.valid()) {
+            device_interface->destroy_buffer(persistentBuffer.handle);
+        }
+    }
     size_t input_buffer_size_bytes() const noexcept override {
         return input_size;
     }
@@ -130,6 +140,9 @@ static dml::FusedActivation ToDMLActivation(FusedActivation a) {
 }
 
 void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_factory, ID3D12Device *device, ID3D12GraphicsCommandList4 *command_list) const noexcept {
+    if (dmlGraph->dmlDevice) [[unlikely]] {
+        LUISA_ERROR("DML Graph already been built.");
+    }
     const uint input = dmlGraph->input;
     const uint output = dmlGraph->output;
     const uint batch_size = dmlGraph->batch_size;
@@ -243,34 +256,28 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
 
     auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
     if (dmlGraph->temp_res_count != 0) {
-        auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(dmlGraph->temp_res_count, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-        ThrowIfFailed(device->CreateCommittedResource(
-            &heap,
-            D3D12_HEAP_FLAG_NONE,
-            &bufferDesc,
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(dmlGraph->temporaryBuffer.GetAddressOf())));
-
+        dmlGraph->temporaryBuffer = dmlGraph->device_interface->create_buffer(
+            Type::of<void>() /*nullptr*/,
+            dmlGraph->temp_res_count,
+            nullptr);
         if (initializeBindingProperties.TemporaryResourceSize != 0) {
-            DML_BUFFER_BINDING bufferBinding{dmlGraph->temporaryBuffer.Get(), 0, dmlGraph->temp_res_count};
+            DML_BUFFER_BINDING bufferBinding{
+                reinterpret_cast<ID3D12Resource *>(dmlGraph->temporaryBuffer.native_handle),
+                0, dmlGraph->temp_res_count};
             DML_BINDING_DESC bindingDesc{DML_BINDING_TYPE_BUFFER, &bufferBinding};
             initBindingTable->BindTemporaryResource(&bindingDesc);
         }
     }
 
     if (dmlGraph->persist_resource_size != 0) {
-        auto bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(dmlGraph->persist_resource_size);
-        ThrowIfFailed(device->CreateCommittedResource(
-            &heap,
-            D3D12_HEAP_FLAG_NONE,
-            &bufferDesc,
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(dmlGraph->persistentBuffer.GetAddressOf())));
-
+        dmlGraph->persistentBuffer = dmlGraph->device_interface->create_buffer(
+            Type::of<void>() /*nullptr*/,
+            dmlGraph->persist_resource_size,
+            nullptr);
         // The persistent resource should be bound as the output to the IDMLOperatorInitializer.
-        DML_BUFFER_BINDING bufferBinding{dmlGraph->persistentBuffer.Get(), 0, dmlGraph->persist_resource_size};
+        DML_BUFFER_BINDING bufferBinding{
+            reinterpret_cast<ID3D12Resource *>(dmlGraph->persistentBuffer.native_handle),
+            0, dmlGraph->persist_resource_size};
         DML_BINDING_DESC bindingDesc{DML_BINDING_TYPE_BUFFER, &bufferBinding};
         initBindingTable->BindOutputs(1, &bindingDesc);
     }
@@ -318,6 +325,22 @@ public:
         resource_usages.emplace_back(
             w,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        if (dmlGraph->temporaryBuffer.valid()) {
+            resource_usages.emplace_back(
+                Argument::Buffer{
+                    .handle = dmlGraph->temporaryBuffer.handle,
+                    .offset = 0,
+                    .size = dmlGraph->temporaryBuffer.total_size_bytes},
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
+        if (dmlGraph->persistentBuffer.valid()) {
+            resource_usages.emplace_back(
+                Argument::Buffer{
+                    .handle = dmlGraph->persistentBuffer.handle,
+                    .offset = 0,
+                    .size = dmlGraph->persistentBuffer.total_size_bytes},
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
     }
     [[nodiscard]] StreamTag stream_tag() const noexcept override {
         return StreamTag::COMPUTE;
@@ -351,12 +374,12 @@ void DxGraphForwardCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_
         ThrowIfFailed(dmlGraph->dmlBindingTable->Reset(&dmlBindingTableDesc));
 
         if (dmlGraph->temp_res_count != 0) {
-            DML_BUFFER_BINDING bufferBinding{dmlGraph->temporaryBuffer.Get(), 0, dmlGraph->temp_res_count};
+            DML_BUFFER_BINDING bufferBinding{reinterpret_cast<ID3D12Resource *>(dmlGraph->temporaryBuffer.native_handle), 0, dmlGraph->temp_res_count};
             DML_BINDING_DESC bindingDesc{DML_BINDING_TYPE_BUFFER, &bufferBinding};
             dmlGraph->dmlBindingTable->BindTemporaryResource(&bindingDesc);
         }
         if (dmlGraph->persist_resource_size != 0) {
-            DML_BUFFER_BINDING bufferBinding{dmlGraph->persistentBuffer.Get(), 0, dmlGraph->persist_resource_size};
+            DML_BUFFER_BINDING bufferBinding{reinterpret_cast<ID3D12Resource *>(dmlGraph->persistentBuffer.native_handle), 0, dmlGraph->persist_resource_size};
             DML_BINDING_DESC bindingDesc{DML_BINDING_TYPE_BUFFER, &bufferBinding};
             dmlGraph->dmlBindingTable->BindPersistentResource(&bindingDesc);
         }
@@ -384,18 +407,11 @@ void DxGraphForwardCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_
             dmlGraph->dmlBindingTable->BindInputs(inputBindingDescs.size(), inputBindingDescs.data());
         }
         {
-            auto bt = CD3DX12_RESOURCE_BARRIER::UAV(input);
-            command_list->ResourceBarrier(
-                1,
-                &bt);
-        }
-        {
             DML_BUFFER_BINDING outputBufferBinding{output, 0, dmlGraph->output_size};
             DML_BINDING_DESC outputBindingDesc{DML_BINDING_TYPE_BUFFER, &outputBufferBinding};
             dmlGraph->dmlBindingTable->BindOutputs(1, &outputBindingDesc);
         }
     }
-
     ID3D12DescriptorHeap *d3D12DescriptorHeaps[] = {dmlGraph->descriptorHeap.Get()};
     command_list->SetDescriptorHeaps(vstd::array_count(d3D12DescriptorHeaps), d3D12DescriptorHeaps);
 
@@ -425,6 +441,7 @@ luisa::unique_ptr<DMLGraph> lc::dx::DxDirectMLExt::create_graph(
         LUISA_ERROR("Hidden layers' and activations' size mismatch.");
     }
     auto graph = luisa::make_unique<DxDMLGraph>(
+        device,
         weight_size,
         out_elements,
         input_elements,
