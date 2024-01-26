@@ -26,7 +26,7 @@ private:
     uint2 _size;
 
 public:
-    Window(string name, uint width, uint height, bool resizable = false) noexcept;
+    Window(string name, uint width, uint height, bool resizable = false, bool full_screen = false) noexcept;
     Window(string name, uint2 size, bool resizable = false) noexcept
         : Window{std::move(name), size.x, size.y, resizable} {}
     ~Window() noexcept;

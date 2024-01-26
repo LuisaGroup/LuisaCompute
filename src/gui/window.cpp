@@ -32,11 +32,11 @@ struct WindowImpl : public Window::IWindowImpl {
     Window::ScrollCallback _scroll_callback;
     uint64_t window_handle{};
 
-    WindowImpl(uint2 size, char const *name, bool resizable) noexcept {
+    WindowImpl(uint2 size, char const *name, bool resizable, bool full_screen) noexcept {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, resizable);
-        window = glfwCreateWindow(size.x, size.y, name, nullptr, nullptr);
+        window = glfwCreateWindow(size.x, size.y, name, full_screen ? glfwGetPrimaryMonitor() : nullptr, nullptr);
         // TODO: other platform
 #if defined(LUISA_PLATFORM_WINDOWS)
         window_handle = reinterpret_cast<uint64_t>(glfwGetWin32Window(window));
@@ -99,10 +99,10 @@ struct WindowImpl : public Window::IWindowImpl {
 
 }// namespace detail
 
-Window::Window(string name, uint width, uint height, bool resizable) noexcept
+Window::Window(string name, uint width, uint height, bool resizable, bool full_screen) noexcept
     : _size{width, height},
       _name{std::move(name)} {
-    _impl = make_unique<detail::WindowImpl>(_size, _name.c_str(), resizable);
+    _impl = make_unique<detail::WindowImpl>(_size, _name.c_str(), resizable, full_screen);
 }
 
 Window::~Window() noexcept = default;
