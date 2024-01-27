@@ -417,7 +417,7 @@ public:
                test(CallOp::ATOMIC_FETCH_AND) ||
                test(CallOp::ATOMIC_FETCH_OR) ||
                test(CallOp::ATOMIC_FETCH_XOR) ||
-               test(CallOp::ATOMIC_EXCHANGE) ||
+               test(CallOp::ATOMIC_FETCH_MAX) ||
                test(CallOp::ATOMIC_EXCHANGE) ||
                test(CallOp::ATOMIC_COMPARE_EXCHANGE);
     }
