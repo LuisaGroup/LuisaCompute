@@ -10,12 +10,11 @@
 #include <luisa/runtime/context.h>
 #include "../common/hlsl/shader_compiler.h"
 #include "shader_serializer.h"
+#include "default_buffer.h"
+#include "stream.h"
 
 namespace lc::vk {
-static std::mutex gDxcMutex;
-static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
 static constexpr uint k_shader_model = 65u;
-static int32 gDxcRefCount = 0;
 
 using namespace std::string_literals;
 namespace detail {
@@ -31,11 +30,35 @@ static Settings settings{};
 static PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT;
 static PFN_vkDestroyDebugUtilsMessengerEXT vkDestroyDebugUtilsMessengerEXT;
 static VkDebugUtilsMessengerEXT debugUtilsMessenger;
-
+struct AllocCallbacks {
+    VkAllocationCallbacks callbacks;
+    AllocCallbacks() {
+        callbacks.pfnAllocation = [](
+                                      void *pUserData,
+                                      size_t size,
+                                      size_t alignment,
+                                      VkSystemAllocationScope allocationScope) -> void * {
+            return luisa::detail::allocator_allocate(size, alignment);
+        };
+        callbacks.pfnFree = [](void *pUserData,
+                               void *pMemory) {
+            luisa::detail::allocator_deallocate(pMemory, 0);
+        };
+        callbacks.pfnReallocation = [](
+                                        void *pUserData,
+                                        void *pOriginal,
+                                        size_t size,
+                                        size_t alignment,
+                                        VkSystemAllocationScope allocationScope) -> void * {
+            return luisa::detail::allocator_reallocate(pOriginal, size, alignment);
+        };
+    }
+};
+static AllocCallbacks alloc;
 struct InstanceDestructor {
     ~InstanceDestructor() {
         if (vk_instance) {
-            vkDestroyInstance(vk_instance, nullptr);
+            vkDestroyInstance(vk_instance, Device::alloc_callbacks());
         }
     }
 };
@@ -79,7 +102,7 @@ void setupDebugging(VkInstance instance) {
     debugUtilsMessengerCI.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     debugUtilsMessengerCI.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
     debugUtilsMessengerCI.pfnUserCallback = debugUtilsMessengerCallback;
-    VkResult result = vkCreateDebugUtilsMessengerEXT(instance, &debugUtilsMessengerCI, nullptr, &debugUtilsMessenger);
+    VkResult result = vkCreateDebugUtilsMessengerEXT(instance, &debugUtilsMessengerCI, Device::alloc_callbacks(), &debugUtilsMessenger);
     assert(result == VK_SUCCESS);
 }
 vstd::vector<VkExtensionProperties> supported_exts(VkPhysicalDevice physical_device) {
@@ -201,11 +224,14 @@ VkInstance create_instance(bool enableValidation) {
     }
 
     VkInstance instance;
-    VK_CHECK_RESULT(vkCreateInstance(&instanceCreateInfo, nullptr, &instance));
+    VK_CHECK_RESULT(vkCreateInstance(&instanceCreateInfo, Device::alloc_callbacks(), &instance));
     return instance;
 }
 
 }// namespace detail
+VkAllocationCallbacks *Device::alloc_callbacks() {
+    return &detail::alloc.callbacks;
+}
 //////////////// Not implemented area
 ResourceCreationInfo Device::create_mesh(
     const AccelOption &option) noexcept {
@@ -233,8 +259,8 @@ void Device::destroy_accel(uint64_t handle) noexcept {
     LUISA_ERROR("accel not implemented.");
 }
 //////////////// Not implemented area
-Device::Device(Context &&ctx, DeviceConfig const *configs)
-    : DeviceInterface{std::move(ctx)} {
+Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
+    : DeviceInterface{std::move(ctx_arg)} {
     bool headless = false;
     uint device_idx = 0;
     if (configs) {
@@ -255,26 +281,20 @@ Device::Device(Context &&ctx, DeviceConfig const *configs)
                 detail::vk_instance = detail::create_instance(enableValidation);
             }
         }
-        _init_device(device_idx);
+        _init_device(device_idx, true);
     }
     // auto exts = detail::supported_exts(physical_device());
     // for(auto&& i : exts){
     //     LUISA_INFO("{}", i.extensionName);
     // }
     auto ctx_inst = context();
-    {
-        std::lock_guard lck(gDxcMutex);
-        if (gDxcRefCount == 0) {
-            gDxcCompiler.create(ctx.runtime_directory());
-        }
-        gDxcRefCount++;
-    }
+    Context ctx{this->_ctx_impl};
     if (!_binary_io) {
         _default_file_io = vstd::make_unique<DefaultBinaryIO>(std::move(ctx_inst));
         _binary_io = _default_file_io.get();
     }
 }
-void Device::_init_device(uint32_t selectedDevice) {
+void Device::_init_device(uint32_t selectedDevice, bool fallback) {
     VkResult err;
 
     // If requested, we enable the default validation layers for debugging
@@ -294,7 +314,7 @@ void Device::_init_device(uint32_t selectedDevice) {
     // Enumerate devices
     physical_devices.push_back_uninitialized(gpuCount);
     err = vkEnumeratePhysicalDevices(detail::vk_instance, &gpuCount, physical_devices.data());
-    if (err) {
+    if (err) [[unlikely]] {
         LUISA_ERROR("Could not enumerate physical devices : {}", err);
         return;
     }
@@ -303,26 +323,40 @@ void Device::_init_device(uint32_t selectedDevice) {
 
     // Select physical device to be used for the Vulkan example
     // Defaults to the first device unless specified by command line
-
-    auto physicalDevice = physical_devices[selectedDevice];
+    if (!fallback) {
+        for (auto &&i : physical_devices) {
+            vkGetPhysicalDeviceProperties(i, &_device_properties);
+            luisa::string device_name{_device_properties.deviceName};
+            if (device_name.find("GeForce") != luisa::string::npos ||
+                device_name.find("Radeon") != luisa::string::npos ||
+                device_name.find("Arc") != luisa::string::npos) {
+                LUISA_INFO("Select device: {}", device_name);
+                break;
+            }
+            selectedDevice++;
+        }
+    }
+    auto physical_device = physical_devices[selectedDevice];
 
     // Store properties (including limits), features and memory properties of the physical device (so that examples can check against them)
-    vkGetPhysicalDeviceProperties(physicalDevice, &_device_properties);
-    vkGetPhysicalDeviceFeatures(physicalDevice, &_device_features);
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &_device_memory_properties);
+    vkGetPhysicalDeviceFeatures(physical_device, &_device_features);
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &_device_memory_properties);
 
     // Derived examples can override this to set actual features (based on above readings) to enable for logical device creation
 
     // Vulkan device creation
     // This is handled by a separate class that gets a logical device representation
     // and encapsulates functions related to a device
-    _vk_device.create(physicalDevice);
-    _enable_device_exts.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
-    _enable_device_exts.emplace_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
-    _enable_device_exts.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
-    _enable_device_exts.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    _vk_device.create(physical_device);
+    _enable_device_exts.emplace_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+    if (!fallback) {
+        _enable_device_exts.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+        _enable_device_exts.emplace_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+        _enable_device_exts.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+        _enable_device_exts.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    }
 
-    VkPhysicalDeviceDescriptorIndexingFeatures enableBindlessFeatures{
+    VkPhysicalDeviceDescriptorIndexingFeatures enable_bindless_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
         .shaderInputAttachmentArrayDynamicIndexing = VK_TRUE,
         .shaderUniformTexelBufferArrayDynamicIndexing = VK_TRUE,
@@ -335,16 +369,21 @@ void Device::_init_device(uint32_t selectedDevice) {
         .shaderUniformTexelBufferArrayNonUniformIndexing = VK_TRUE,
         .shaderStorageTexelBufferArrayNonUniformIndexing = VK_TRUE,
         .runtimeDescriptorArray = VK_TRUE};
-    VkPhysicalDeviceRayQueryFeaturesKHR enabledRayQueryFeatures{
+    VkPhysicalDeviceRayQueryFeaturesKHR enable_rayquery_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
-        .pNext = &enableBindlessFeatures,
+        .pNext = &enable_bindless_features,
         .rayQuery = VK_TRUE};
     VkPhysicalDeviceAccelerationStructureFeaturesKHR enabledAccelerationStructureFeatures{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
-        .pNext = &enabledRayQueryFeatures,
+        .pNext = &enable_rayquery_features,
         .accelerationStructure = VK_TRUE};
 
-    VK_CHECK_RESULT(_vk_device->createLogicalDevice(_device_features, _enable_device_exts, &enabledAccelerationStructureFeatures));
+    VkPhysicalDeviceTimelineSemaphoreFeatures enable_timeline_feature{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES,
+        .pNext = fallback ? nullptr : &enabledAccelerationStructureFeatures,
+        .timelineSemaphore = VK_TRUE};
+    void *ext_chain = &enable_timeline_feature;
+    VK_CHECK_RESULT(_vk_device->createLogicalDevice(_device_features, _enable_device_exts, ext_chain));
     auto device = _vk_device->logicalDevice;
     // Get a graphics queue from the device
     vkGetDeviceQueue(device, _vk_device->queueFamilyIndices.graphics, 0, &_graphics_queue);
@@ -361,15 +400,21 @@ bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
-    std::lock_guard lck(gDxcMutex);
-    if (--gDxcRefCount == 0) {
-        gDxcCompiler.destroy();
-    }
 }
 void *Device::native_handle() const noexcept { return _vk_device->logicalDevice; }
-BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count) noexcept { return BufferCreationInfo::make_invalid(); }
-BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept { return BufferCreationInfo::make_invalid(); }
-void Device::destroy_buffer(uint64_t handle) noexcept {}
+BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count, void *external_ptr) noexcept {
+    BufferCreationInfo info;
+    info.element_stride = (element == Type::of<void>()) ? 1 : element->size();
+    auto ptr = new DefaultBuffer(this, info.element_stride * elem_count);
+    info.handle = reinterpret_cast<uint64_t>(ptr);
+    info.native_handle = ptr->vk_buffer();
+    info.total_size_bytes = ptr->byte_size();
+    return info;
+}
+BufferCreationInfo Device::create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_ptr) noexcept { return BufferCreationInfo::make_invalid(); }
+void Device::destroy_buffer(uint64_t handle) noexcept {
+    delete reinterpret_cast<DefaultBuffer *>(handle);
+}
 
 // texture
 ResourceCreationInfo Device::create_texture(
@@ -383,9 +428,19 @@ ResourceCreationInfo Device::create_bindless_array(size_t size) noexcept { retur
 void Device::destroy_bindless_array(uint64_t handle) noexcept {}
 
 // stream
-ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept { return ResourceCreationInfo::make_invalid(); }
-void Device::destroy_stream(uint64_t handle) noexcept {}
-void Device::synchronize_stream(uint64_t stream_handle) noexcept {}
+ResourceCreationInfo Device::create_stream(StreamTag stream_tag) noexcept {
+    auto ptr = new Stream(this, stream_tag);
+    ResourceCreationInfo info{
+        .handle = reinterpret_cast<uint64_t>(ptr),
+        .native_handle = ptr->pool()};
+    return info;
+}
+void Device::destroy_stream(uint64_t handle) noexcept {
+    delete reinterpret_cast<Stream *>(handle);
+}
+void Device::synchronize_stream(uint64_t stream_handle) noexcept {
+    reinterpret_cast<Stream *>(stream_handle)->sync();
+}
 void Device::dispatch(
     uint64_t stream_handle, CommandList &&list) noexcept {}
 
@@ -408,7 +463,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         mask |= 2;
     }
     // Clock clk;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, _binary_io, option.native_include, mask, true);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         assert(!option.name.empty());
@@ -481,7 +536,7 @@ void Device::signal_event(uint64_t handle, uint64_t stream_handle, uint64_t fenc
 void Device::wait_event(uint64_t handle, uint64_t stream_handle, uint64_t fence_value) noexcept {}
 void Device::synchronize_event(uint64_t handle, uint64_t fence_value) noexcept {}
 void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {}
-bool Device::is_event_completed(uint64_t handle, uint64_t fence_value) const noexcept {return false;}
+bool Device::is_event_completed(uint64_t handle, uint64_t fence_value) const noexcept { return false; }
 VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
     {
         std::lock_guard lck{detail::instance_mtx};
@@ -516,6 +571,7 @@ VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
     }
 }
 hlsl::ShaderCompiler *Device::Compiler() {
+    static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
     return gDxcCompiler.ptr();
 }
 VkInstance Device::instance() const {

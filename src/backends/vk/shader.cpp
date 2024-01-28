@@ -66,21 +66,21 @@ Shader::Shader(
             .bindingCount = static_cast<uint>(i.size()),
             .pBindings = i.data()};
         auto &r = descriptorSetLayouts.emplace_back();
-        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device->logic_device(), &descriptorLayout, nullptr, &r));
+        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device->logic_device(), &descriptorLayout, Device::alloc_callbacks(), &r));
     }
 
     auto disposer = vstd::scope_exit([&] {
         for (auto &&i : descriptorSetLayouts) {
-            vkDestroyDescriptorSetLayout(device->logic_device(), i, nullptr);
+            vkDestroyDescriptorSetLayout(device->logic_device(), i, Device::alloc_callbacks());
         }
     });
     VkPipelineLayoutCreateInfo pPipelineLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = static_cast<uint>(descriptorSetLayouts.size()),
         .pSetLayouts = descriptorSetLayouts.data()};
-    VK_CHECK_RESULT(vkCreatePipelineLayout(device->logic_device(), &pPipelineLayoutCreateInfo, nullptr, &_pipeline_layout));
+    VK_CHECK_RESULT(vkCreatePipelineLayout(device->logic_device(), &pPipelineLayoutCreateInfo, Device::alloc_callbacks(), &_pipeline_layout));
 }
 Shader::~Shader() {
-    vkDestroyPipelineLayout(device()->logic_device(), _pipeline_layout, nullptr);
+    vkDestroyPipelineLayout(device()->logic_device(), _pipeline_layout, Device::alloc_callbacks());
 }
 }// namespace lc::vk

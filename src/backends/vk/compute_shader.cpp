@@ -23,15 +23,15 @@ ComputeShader::ComputeShader(
         pso_ci.initialDataSize = cache_code.size();
         pso_ci.pInitialData = cache_code.data();
     }
-    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, nullptr, &_pipe_cache));
+    VK_CHECK_RESULT(vkCreatePipelineCache(device->logic_device(), &pso_ci, Device::alloc_callbacks(), &_pipe_cache));
     VkShaderModuleCreateInfo module_create_info{
         .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = spv_code.size_bytes(),
         .pCode = spv_code.data()};
     VkShaderModule shader_module;
-    VK_CHECK_RESULT(vkCreateShaderModule(device->logic_device(), &module_create_info, nullptr, &shader_module));
+    VK_CHECK_RESULT(vkCreateShaderModule(device->logic_device(), &module_create_info, Device::alloc_callbacks(), &shader_module));
     auto dispose_module = vstd::scope_exit([&] {
-        vkDestroyShaderModule(device->logic_device(), shader_module, nullptr);
+        vkDestroyShaderModule(device->logic_device(), shader_module, Device::alloc_callbacks());
     });
     VkComputePipelineCreateInfo pipe_ci{
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
@@ -44,7 +44,7 @@ ComputeShader::ComputeShader(
             .pName = "main"},
         .layout = _pipeline_layout};
 
-    VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), _pipe_cache, 1, &pipe_ci, nullptr, &_pipeline));
+    VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), _pipe_cache, 1, &pipe_ci, Device::alloc_callbacks(), &_pipeline));
 }
 bool ComputeShader::serialize_pso(vstd::vector<std::byte> &result) const {
     auto last_size = result.size();
@@ -57,8 +57,8 @@ bool ComputeShader::serialize_pso(vstd::vector<std::byte> &result) const {
     return true;
 }
 ComputeShader::~ComputeShader() {
-    vkDestroyPipeline(device()->logic_device(), _pipeline, nullptr);
-    vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, nullptr);
+    vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
+    vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
 }
 ComputeShader *ComputeShader::compile(
     BinaryIO const *bin_io,
