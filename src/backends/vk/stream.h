@@ -1,10 +1,14 @@
 #pragma once
 #include "resource.h"
 #include "event.h"
+#include "upload_buffer.h"
+#include "readback_buffer.h"
+#include "default_buffer.h"
 #include <vulkan/vulkan.h>
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/vstl/lockfree_array_queue.h>
+#include <luisa/vstl/stack_allocator.h>
 namespace lc::vk {
 class Event;
 class Stream;
@@ -22,8 +26,35 @@ public:
     void begin();
     void end();
 };
+namespace temp_buffer {
+template<typename Pack>
+class Visitor : public vstd::StackAllocatorVisitor {
+public:
+    Device* device;
+    uint64 allocate(uint64 size) override;
+    void deallocate(uint64 handle) override;
+};
+template<typename T>
+class BufferAllocator {
+    static constexpr size_t kLargeBufferSize = 65536ull;
+    vstd::StackAllocator alloc;
+    vstd::vector<vstd::unique_ptr<T>> largeBuffers;
+
+public:
+    Visitor<T> visitor;
+    BufferView allocate(size_t size);
+    BufferView allocate(size_t size, size_t align);
+    void clear();
+    BufferAllocator(size_t initCapacity);
+    ~BufferAllocator();
+};
+}// namespace temp_buffer
 class Stream : public Resource {
-    struct SignalEvt {
+    struct SyncExt {
+        Event *evt;
+        uint64_t value;
+    };
+    struct NotifyEvt {
         Event *evt;
         uint64_t value;
     };
@@ -31,7 +62,8 @@ class Stream : public Resource {
     using AsyncCmd = vstd::variant<
         Callbacks,
         CommandBuffer,
-        SignalEvt>;
+        SyncExt,
+        NotifyEvt>;
     Event _evt;
     VkCommandPool _pool;
     VkQueue _queue;
@@ -40,6 +72,9 @@ class Stream : public Resource {
     std::condition_variable _cv;
     std::mutex _mtx;
     vstd::LockFreeArrayQueue<AsyncCmd> _exec;
+    temp_buffer::BufferAllocator<UploadBuffer> upload_alloc;
+    temp_buffer::BufferAllocator<DefaultBuffer> default_alloc;
+    temp_buffer::BufferAllocator<ReadbackBuffer> readback_alloc;
 
 public:
     [[nodiscard]] auto queue() const { return _queue; }
@@ -51,8 +86,8 @@ public:
         Callbacks &&callbacks,
         bool inqueue_limit);
     void sync();
-    void signal(Event* event, uint64_t value);
-    void wait(Event* event, uint64_t value);
+    void signal(Event *event, uint64_t value);
+    void wait(Event *event, uint64_t value);
 };
 
 }// namespace lc::vk

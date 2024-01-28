@@ -3,6 +3,7 @@
 #include <luisa/core/logging.h>
 #include "log.h"
 namespace lc::vk {
+static size_t TEMP_SIZE = 1024ull * 1024ull;
 Stream::Stream(Device *device, StreamTag tag)
     : Resource{device},
       _evt(device),
@@ -15,7 +16,9 @@ Stream::Stream(Device *device, StreamTag tag)
                               for (auto &i : t) {
                                   i();
                               }
-                          } else if constexpr (std::is_same_v<T, SignalEvt>) {
+                          } else if constexpr (std::is_same_v<T, SyncExt>) {
+                              t.evt->host_wait(t.value);
+                          } else if constexpr (std::is_same_v<T, NotifyEvt>) {
                               t.evt->notify(t.value);
                           }
                       });
@@ -25,7 +28,10 @@ Stream::Stream(Device *device, StreamTag tag)
                   _cv.wait(lck);
               }
           }
-      }) {
+      }),
+      upload_alloc(TEMP_SIZE),
+      default_alloc(TEMP_SIZE),
+      readback_alloc(TEMP_SIZE) {
     VkCommandPoolCreateInfo pool_ci{
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     switch (tag) {
@@ -47,6 +53,7 @@ Stream::Stream(Device *device, StreamTag tag)
     VK_CHECK_RESULT(vkCreateCommandPool(device->logic_device(), &pool_ci, Device::alloc_callbacks(), &_pool));
 }
 Stream::~Stream() {
+    sync();
     {
         std::lock_guard lck{_mtx};
         _enabled = false;
@@ -72,15 +79,23 @@ void Stream::dispatch(
     if (!cmds.empty()) {
         CommandBuffer cmdbuffer{*this};
         auto cb = cmdbuffer.cmdbuffer();
+        cmdbuffer.begin();
+        cmdbuffer.end();
         _evt.signal(*this, fence, &cb);
-        _exec.push(std::move(cmdbuffer));
-        _exec.push(SignalEvt{
+        _exec.push(SyncExt{
             .evt = &_evt,
             .value = fence});
+        _exec.push(std::move(cmdbuffer));
+    } else {
+        _evt.update_fence(fence);
     }
     if (!callbacks.empty()) {
         _exec.push(std::move(callbacks));
     }
+    _exec.push(NotifyEvt{
+        .evt = &_evt,
+        .value = fence});
+
     _mtx.lock();
     _mtx.unlock();
     _cv.notify_one();
@@ -120,10 +135,57 @@ CommandBuffer::CommandBuffer(CommandBuffer &&rhs)
 }
 void Stream::signal(Event *event, uint64_t value) {
     event->signal(*this, value);
-    _exec.push(SignalEvt{event, value});
+    _exec.push(SyncExt{event, value});
+    _exec.push(NotifyEvt{event, value});
+    _mtx.lock();
+    _mtx.unlock();
+    _cv.notify_one();
 }
 void Stream::wait(Event *event, uint64_t value) {
     event->wait(*this, value);
 }
+namespace temp_buffer {
 
+template<typename Pack>
+uint64 Visitor<Pack>::allocate(uint64 size) {
+    return reinterpret_cast<uint64_t>(new Pack(device, size));
+}
+template<typename Pack>
+void Visitor<Pack>::deallocate(uint64 handle) {
+    delete reinterpret_cast<Pack *>(handle);
+}
+template<typename T>
+void BufferAllocator<T>::clear() {
+    largeBuffers.clear();
+    alloc.dispose();
+}
+template<typename T>
+BufferAllocator<T>::BufferAllocator(size_t initCapacity)
+    : alloc(initCapacity, &visitor) {
+}
+template<typename T>
+BufferAllocator<T>::~BufferAllocator() {
+}
+template<typename T>
+BufferView BufferAllocator<T>::allocate(size_t size) {
+    if (size <= kLargeBufferSize) [[likely]] {
+        auto chunk = alloc.allocate(size);
+        return BufferView(reinterpret_cast<T const *>(chunk.handle), chunk.offset, size);
+    } else {
+        auto &v = largeBuffers.emplace_back(visitor.Create(size));
+        return BufferView(v.get(), 0, size);
+    }
+}
+template<typename T>
+BufferView BufferAllocator<T>::allocate(size_t size, size_t align) {
+    if (size <= kLargeBufferSize) [[likely]] {
+        auto chunk = alloc.allocate(size, align);
+        return BufferView(reinterpret_cast<T const *>(chunk.handle), chunk.offset, size);
+    } else {
+        auto &v = largeBuffers.emplace_back(visitor.Create(size));
+        return BufferView(v.get(), 0, size);
+    }
+}
+
+}// namespace temp_buffer
 }// namespace lc::vk

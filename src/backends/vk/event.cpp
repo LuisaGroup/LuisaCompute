@@ -18,10 +18,16 @@ Event::Event(Device *device)
 
     VK_CHECK_RESULT(vkCreateSemaphore(device->logic_device(), &createInfo, Device::alloc_callbacks(), &_semaphore));
 }
-void Event::signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
+void Event::update_fence(uint64_t value) {
     std::lock_guard lck(eventMtx);
     lastFence = std::max(lastFence, value);
-    VkTimelineSemaphoreSubmitInfo timelineInfo1;
+}
+void Event::signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
+    {
+        std::lock_guard lck(eventMtx);
+        lastFence = std::max(lastFence, value);
+    }
+    VkTimelineSemaphoreSubmitInfo timelineInfo1{};
     timelineInfo1.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
     timelineInfo1.pNext = nullptr;
     timelineInfo1.waitSemaphoreValueCount = 0;
@@ -29,7 +35,7 @@ void Event::signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
     timelineInfo1.signalSemaphoreValueCount = 1;
     timelineInfo1.pSignalSemaphoreValues = &value;
 
-    VkSubmitInfo info1;
+    VkSubmitInfo info1{};
     info1.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     info1.pNext = &timelineInfo1;
     info1.waitSemaphoreCount = 0;
@@ -43,8 +49,7 @@ void Event::signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
     VK_CHECK_RESULT(vkQueueSubmit(stream.queue(), 1, &info1, VK_NULL_HANDLE));
 }
 void Event::wait(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
-    std::lock_guard lck(eventMtx);
-    VkTimelineSemaphoreSubmitInfo timelineInfo1;
+    VkTimelineSemaphoreSubmitInfo timelineInfo1{};
     timelineInfo1.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
     timelineInfo1.pNext = nullptr;
     timelineInfo1.waitSemaphoreValueCount = 1;
@@ -52,10 +57,12 @@ void Event::wait(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
     timelineInfo1.signalSemaphoreValueCount = 0;
     timelineInfo1.pSignalSemaphoreValues = nullptr;
 
-    VkSubmitInfo info1;
+    VkSubmitInfo info1{};
     info1.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     info1.pNext = &timelineInfo1;
     info1.waitSemaphoreCount = 1;
+    VkPipelineStageFlags stage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    info1.pWaitDstStageMask = &stage;
     info1.pWaitSemaphores = &_semaphore;
     info1.signalSemaphoreCount = 0;
     info1.pSignalSemaphores = nullptr;
@@ -64,15 +71,17 @@ void Event::wait(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
     info1.pCommandBuffers = cmdbuffer;
     VK_CHECK_RESULT(vkQueueSubmit(stream.queue(), 1, &info1, VK_NULL_HANDLE));
 }
+void Event::host_wait(uint64_t value) {
+    VkSemaphoreWaitInfo info{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
+        .semaphoreCount = 1,
+        .pSemaphores = &_semaphore,
+        .pValues = &value};
+    VK_CHECK_RESULT(vkWaitSemaphores(device()->logic_device(), &info, std::numeric_limits<uint64_t>::max()));
+}
 void Event::notify(uint64_t value) {
     {
         std::lock_guard lck(eventMtx);
-        VkSemaphoreWaitInfo info{
-            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO,
-            .semaphoreCount = 1,
-            .pSemaphores = &_semaphore,
-            .pValues = &value};
-        VK_CHECK_RESULT(vkWaitSemaphores(device()->logic_device(), &info, std::numeric_limits<uint64_t>::max()));
         finishedEvent = std::max<uint64_t>(finishedEvent, value);
     }
     cv.notify_all();
