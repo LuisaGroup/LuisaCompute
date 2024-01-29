@@ -13,4 +13,5 @@ if is_plat("windows") then
 elseif is_plat("linux") then
     add_defines("VK_USE_PLATFORM_XCB_KHR")
 end
+add_defines("USE_SPIRV")
 target_end()

@@ -13,6 +13,7 @@
 #include "default_buffer.h"
 #include "stream.h"
 #include "event.h"
+#include "texture.h"
 
 namespace lc::vk {
 static constexpr uint k_shader_model = 65u;
@@ -396,11 +397,25 @@ void Device::_init_device(uint32_t selectedDevice, bool fallback) {
     _pso_header.deviceID = _vk_device->properties.deviceID;
     memcpy(_pso_header.pipelineCacheUUID, _vk_device->properties.pipelineCacheUUID, VK_UUID_SIZE);
     _allocator.create(*this);
+    VkDescriptorPoolSize pool_sizes[3];
+    pool_sizes[0].descriptorCount = 65536;
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    pool_sizes[1].descriptorCount = 65536;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    pool_sizes[2].descriptorCount = 65536;
+    pool_sizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    VkDescriptorPoolCreateInfo createInfo{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .maxSets = 65536,
+        .poolSizeCount = vstd::array_count(pool_sizes),
+        .pPoolSizes = pool_sizes};
+    VK_CHECK_RESULT(vkCreateDescriptorPool(logic_device(), &createInfo, Device::alloc_callbacks(), &_desc_pool));
 }
 bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
+    vkDestroyDescriptorPool(logic_device(), _desc_pool, Device::alloc_callbacks());
 }
 void *Device::native_handle() const noexcept { return _vk_device->logicalDevice; }
 BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count, void *external_ptr) noexcept {
@@ -421,8 +436,22 @@ void Device::destroy_buffer(uint64_t handle) noexcept {
 ResourceCreationInfo Device::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels, bool simultaneous_access) noexcept { return ResourceCreationInfo::make_invalid(); }
-void Device::destroy_texture(uint64_t handle) noexcept {}
+    uint mipmap_levels, bool simultaneous_access) noexcept {
+    auto ptr = new Texture(
+        this,
+        dimension,
+        format,
+        uint3(width, height, depth),
+        mipmap_levels,
+        simultaneous_access);
+    ResourceCreationInfo r{
+        .handle = reinterpret_cast<uint64_t>(ptr),
+        .native_handle = ptr->vk_image()};
+    return r;
+}
+void Device::destroy_texture(uint64_t handle) noexcept {
+    delete reinterpret_cast<Texture *>(handle);
+}
 
 // bindless array
 ResourceCreationInfo Device::create_bindless_array(size_t size) noexcept { return ResourceCreationInfo::make_invalid(); }
@@ -499,7 +528,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         SerdeType serde_type;
         if (option.enable_cache) {
             if (option.name.empty()) {
-                str_cache << check_md5.to_string(false) << ".dxil"sv;
+                str_cache << check_md5.to_string(false) << ".spv"sv;
                 file_name = str_cache;
                 serde_type = SerdeType::Cache;
             } else {

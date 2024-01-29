@@ -20,6 +20,7 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     VkQueue _graphics_queue{};
     VkQueue _compute_queue{};
     VkQueue _copy_queue{};
+    VkDescriptorPool _desc_pool;
     VkPipelineCacheHeaderVersionOne _pso_header{};
     vstd::optional<VkAllocator> _allocator;
     BinaryIO const *_binary_io{};
@@ -50,6 +51,7 @@ public:
     auto graphics_queue() const { return _graphics_queue; }
     auto compute_queue() const { return _compute_queue; }
     auto copy_queue() const { return _copy_queue; }
+    auto desc_pool() const { return _desc_pool; }
     // texture
     ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,

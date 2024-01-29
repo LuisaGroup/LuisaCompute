@@ -59,6 +59,5 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     ~CodegenStackData();
     static vstd::unique_ptr<CodegenStackData> Allocate(CodegenUtility *util);
     static void DeAllocate(vstd::unique_ptr<CodegenStackData> &&v);
-    // static bool& ThreadLocalSpirv();
 };
 }// namespace lc::hlsl

@@ -21,6 +21,7 @@ public:
     auto pipeline_layout() const { return _pipeline_layout; }
     virtual bool serialize_pso(vstd::vector<std::byte> &result) const { return false; }
     auto binds() const { return vstd::span<const hlsl::Property>{_binds}; }
+    auto captured() const { return vstd::span<const Argument>{_captured}; }
     Shader(
         Device *device,
         ShaderTag tag,
