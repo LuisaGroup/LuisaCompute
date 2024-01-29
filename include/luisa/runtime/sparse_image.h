@@ -54,7 +54,7 @@ public:
             detail::error_image_invalid_mip_levels(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
-        return ImageView<T>{handle(), _storage, level, mip_size};
+        return ImageView<T>{native_handle(), handle(), _storage, level, mip_size};
     }
     // properties
     [[nodiscard]] auto size() const noexcept {

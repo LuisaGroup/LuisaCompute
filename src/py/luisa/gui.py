@@ -19,7 +19,7 @@ class GUI:
             self.tic = False
 
     def show(self):
-        self.window.present(globalvars.vars.stream, self.tex.handle,
+        self.window.present(globalvars.vars.stream, self.tex.handle, self.tex.native_handle,
                             self.resolution[0], self.resolution[1], 0, self.tex.storage)
         if not self.show_FPS:
             return 0.0
