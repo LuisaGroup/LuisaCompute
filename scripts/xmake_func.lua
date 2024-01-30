@@ -186,24 +186,25 @@ on_config(function(target)
             target:add("syslinks", "c++")
         end
     end
-    if cc == "cl" then
-        target:add("cxflags", "-GL")
-    elseif cc == "clang" or cc == "clangxx" then
-        target:add("cxflags", "-flto=thin")
-    elseif cc == "gcc" or cc == "gxx" then
-        target:add("cxflags", "-flto")
-    end
-    local _, ld = target:tool("ld")
-    if ld == "link" then
-        target:add("ldflags", "-LTCG")
-        target:add("shflags", "-LTCG")
-    elseif ld == "clang" or ld == "clangxx" then
-        target:add("ldflags", "-flto=thin")
-        target:add("shflags", "-flto=thin")
-    elseif ld == "gcc" or ld == "gxx" then
-        target:add("ldflags", "-flto")
-        target:add("shflags", "-flto")
-    end
+    -- disable LTO
+    -- if cc == "cl" then
+    --     target:add("cxflags", "-GL")
+    -- elseif cc == "clang" or cc == "clangxx" then
+    --     target:add("cxflags", "-flto=thin")
+    -- elseif cc == "gcc" or cc == "gxx" then
+    --     target:add("cxflags", "-flto")
+    -- end
+    -- local _, ld = target:tool("ld")
+    -- if ld == "link" then
+    --     target:add("ldflags", "-LTCG")
+    --     target:add("shflags", "-LTCG")
+    -- elseif ld == "clang" or ld == "clangxx" then
+    --     target:add("ldflags", "-flto=thin")
+    --     target:add("shflags", "-flto=thin")
+    -- elseif ld == "gcc" or ld == "gxx" then
+    --     target:add("ldflags", "-flto")
+    --     target:add("shflags", "-flto")
+    -- end
 end)
 on_load(function(target)
     local _get_or = function(name, default_value)
