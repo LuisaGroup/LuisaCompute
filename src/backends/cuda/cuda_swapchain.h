@@ -6,6 +6,10 @@
 #include <luisa/core/stl/memory.h>
 #include <luisa/runtime/rhi/pixel.h>
 
+namespace luisa::compute {
+class VulkanSwapchain;
+}// namespace luisa::compute
+
 namespace luisa::compute::cuda {
 
 class CUDADevice;
@@ -25,6 +29,7 @@ public:
                   uint width, uint height, bool allow_hdr,
                   bool vsync, uint back_buffer_size) noexcept;
     ~CUDASwapchain() noexcept;
+    [[nodiscard]] VulkanSwapchain *native_handle() const noexcept;
     [[nodiscard]] PixelStorage pixel_storage() const noexcept;
     void present(CUDAStream *stream, CUDATexture *image) noexcept;
     void set_name(luisa::string &&name) noexcept;

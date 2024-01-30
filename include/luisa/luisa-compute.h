@@ -16,6 +16,11 @@
 #include <luisa/ast/usage.h>
 #include <luisa/ast/variable.h>
 
+#ifdef LUISA_ENABLE_CLANGCXX
+#include <luisa/clangcxx/ast.h>
+#include <luisa/clangcxx/compiler.h>
+#endif
+
 #include <luisa/core/basic_traits.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/binary_buffer.h>
@@ -47,6 +52,7 @@
 #include <luisa/dsl/atomic.h>
 #include <luisa/dsl/binding_group.h>
 #include <luisa/dsl/builtin.h>
+#include <luisa/dsl/callable_library.h>
 #include <luisa/dsl/constant.h>
 #include <luisa/dsl/dispatch_indirect.h>
 #include <luisa/dsl/expr.h>
@@ -117,6 +123,8 @@
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/runtime/raster/vertex_attribute.h>
 #include <luisa/runtime/raster/viewport.h>
+#include <luisa/runtime/remote/client_interface.h>
+#include <luisa/runtime/remote/server_interface.h>
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/rhi/command_encoder.h>

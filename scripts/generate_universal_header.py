@@ -28,7 +28,7 @@ if __name__ == "__main__":
             header_groups[group] = []
         header_groups[group].append(header)
 
-    optional_modules = ["dsl", "gui", "ir", "rust", "tensor"]
+    optional_modules = ["dsl", "gui", "ir", "rust", "tensor", "clangcxx"]
     with open(f"{base}/luisa-compute.h", "w", encoding="utf8") as f:
         f.write("#pragma once\n\n")
         group_keys = sorted(header_groups.keys())

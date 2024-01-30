@@ -23,6 +23,7 @@ public:
                     bool vsync, uint back_buffer_count,
                     luisa::span<const char *const> required_device_extensions) noexcept;
     ~VulkanSwapchain() noexcept;
+    [[nodiscard]] VkInstance instance() const noexcept;
     [[nodiscard]] VkDevice device() const noexcept;
     [[nodiscard]] VkPhysicalDevice physical_device() const noexcept;
     [[nodiscard]] VkQueue queue() const noexcept;
@@ -35,10 +36,6 @@ public:
     void present(VkSemaphore wait, VkSemaphore signal,
                  VkImageView image, VkImageLayout image_layout) noexcept;
 };
-
-#ifdef LUISA_PLATFORM_APPLE
-void *cocoa_window_content_view(uint64_t window_handle) noexcept;
-#endif
 
 }// namespace luisa::compute
 

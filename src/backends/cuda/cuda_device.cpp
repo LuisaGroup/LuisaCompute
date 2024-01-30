@@ -366,7 +366,7 @@ SwapchainCreationInfo CUDADevice::create_swapchain(uint64_t window_handle, uint6
     });
     SwapchainCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(chain);
-    info.native_handle = chain;
+    info.native_handle = chain->native_handle();
     info.storage = chain->pixel_storage();
     return info;
 #else

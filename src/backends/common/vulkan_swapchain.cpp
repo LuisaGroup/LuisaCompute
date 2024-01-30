@@ -24,7 +24,7 @@
 #endif
 
 #include "vulkan_instance.h"
-#include "vulkan_swapchain.h"
+#include <luisa/backends/common/vulkan_swapchain.h>
 
 namespace luisa::compute {
 
@@ -93,6 +93,10 @@ static const std::array vulkan_swapchain_screen_shader_fragment_bytecode = {
     0x00000012u, 0x00000013u, 0x0000000du, 0x00000011u, 0x0004003du, 0x00000014u, 0x00000017u, 0x00000016u,
     0x00050057u, 0x00000007u, 0x00000018u, 0x00000013u, 0x00000017u, 0x0003003eu, 0x00000009u, 0x00000018u,
     0x000100fdu, 0x00010038u};
+
+#ifdef LUISA_PLATFORM_APPLE
+void *cocoa_window_content_view(uint64_t window_handle) noexcept;
+#endif
 
 class VulkanSwapchain::Impl {
 
@@ -1056,7 +1060,7 @@ public:
         // update current frame index
         _current_frame = (_current_frame + 1u) % _swapchain_images.size();
     }
-
+    [[nodiscard]] auto instance() const noexcept { return _instance->handle(); }
     [[nodiscard]] auto device() const noexcept { return _device; }
     [[nodiscard]] auto swapchain_extent() const noexcept { return _swapchain_extent; }
     [[nodiscard]] auto swapchain_format() const noexcept { return _swapchain_format; }
@@ -1079,6 +1083,7 @@ VulkanSwapchain::VulkanSwapchain(const VulkanDeviceUUID &device_uuid,
                                      required_device_extensions)} {}
 
 VulkanSwapchain::~VulkanSwapchain() noexcept = default;
+VkInstance VulkanSwapchain::instance() const noexcept { _impl->instance(); }
 VkDevice VulkanSwapchain::device() const noexcept { return _impl->device(); }
 VkPhysicalDevice VulkanSwapchain::physical_device() const noexcept { return _impl->physical_device(); }
 VkExtent2D VulkanSwapchain::extent() const noexcept { return _impl->swapchain_extent(); }
@@ -1376,6 +1381,9 @@ public:
             std::memcpy(mapped, pixels->data(), pixels->size_bytes());
         });
     }
+
+    [[nodiscard]] VulkanSwapchain *native_handle() noexcept { return &_base; }
+    [[nodiscard]] const VulkanSwapchain *native_handle() const noexcept { return &_base; }
 };
 
 LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
@@ -1386,12 +1394,18 @@ LUISA_EXPORT_API uint8_t luisa_compute_cpu_swapchain_storage(void *swapchain) no
     return static_cast<uint8_t>(static_cast<VulkanSwapchainForCPU *>(swapchain)->pixel_storage());
 }
 
+LUISA_EXPORT_API void *luisa_compute_cpu_swapchain_native_handle(void *swapchain) noexcept {
+    return static_cast<VulkanSwapchainForCPU *>(swapchain)->native_handle();
+}
+
 LUISA_EXPORT_API void luisa_compute_destroy_cpu_swapchain(void *swapchain) noexcept {
     delete static_cast<VulkanSwapchainForCPU *>(swapchain);
 }
 
 LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present(void *swapchain, const void *pixels, uint64_t size) noexcept {
-    static_cast<VulkanSwapchainForCPU *>(swapchain)->present(luisa::span{static_cast<const std::byte *>(pixels), size});
+    static_cast<VulkanSwapchainForCPU *>(swapchain)->present(
+        luisa::span{static_cast<const std::byte *>(pixels),
+                    static_cast<unsigned long>(size)});
 }
 
 LUISA_EXPORT_API void luisa_compute_cpu_swapchain_present_with_callback(void *swapchain, void *ctx, void (*blit)(void *ctx, void *mapped_pixels)) noexcept {
