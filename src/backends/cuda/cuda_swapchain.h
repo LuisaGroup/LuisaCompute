@@ -29,7 +29,7 @@ public:
                   uint width, uint height, bool allow_hdr,
                   bool vsync, uint back_buffer_size) noexcept;
     ~CUDASwapchain() noexcept;
-    [[nodiscard]] VulkanSwapchain *native_handle() const noexcept;
+    [[nodiscard]] VulkanSwapchain *native_handle() noexcept;
     [[nodiscard]] PixelStorage pixel_storage() const noexcept;
     void present(CUDAStream *stream, CUDATexture *image) noexcept;
     void set_name(luisa::string &&name) noexcept;
