@@ -1083,7 +1083,7 @@ VulkanSwapchain::VulkanSwapchain(const VulkanDeviceUUID &device_uuid,
                                      required_device_extensions)} {}
 
 VulkanSwapchain::~VulkanSwapchain() noexcept = default;
-VkInstance VulkanSwapchain::instance() const noexcept { _impl->instance(); }
+VkInstance VulkanSwapchain::instance() const noexcept { return _impl->instance(); }
 VkDevice VulkanSwapchain::device() const noexcept { return _impl->device(); }
 VkPhysicalDevice VulkanSwapchain::physical_device() const noexcept { return _impl->physical_device(); }
 VkExtent2D VulkanSwapchain::extent() const noexcept { return _impl->swapchain_extent(); }
