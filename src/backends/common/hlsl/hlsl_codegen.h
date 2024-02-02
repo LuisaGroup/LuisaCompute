@@ -47,6 +47,9 @@ class CodegenUtility {
     vstd::unique_ptr<CodegenStackData> opt{};
 
 public:
+#ifdef USE_SPIRV
+    CodegenStackData *StackData() const;
+#endif
     CodegenUtility();
     ~CodegenUtility();
     uint IsBool(Type const &type);
@@ -95,7 +98,7 @@ public:
         uint &bind_count);
     CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV);
     CodegenResult RasterCodegen(
-    MeshFormat const &meshFormat,
+        MeshFormat const &meshFormat,
         Function vertFunc,
         Function pixelFunc,
         luisa::string_view native_code,

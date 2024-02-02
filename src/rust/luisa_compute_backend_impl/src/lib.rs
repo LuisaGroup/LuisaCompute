@@ -31,6 +31,7 @@ pub struct SwapChainForCpuContext {
         back_buffer_size: u32,
     ) -> *mut c_void,
     pub cpu_swapchain_storage: unsafe extern "C" fn(swapchain: *mut c_void) -> u8,
+    pub cpu_swapchain_native_handle: unsafe extern "C" fn(swapchain: *mut c_void) -> *mut c_void,
     pub destroy_cpu_swapchain: unsafe extern "C" fn(swapchain: *mut c_void),
     pub cpu_swapchain_present:
         unsafe extern "C" fn(swapchain: *mut c_void, pixels: *const c_void, size: u64),
@@ -47,12 +48,15 @@ impl SwapChainForCpuContext {
         let destroy_cpu_swapchain = *lib.get(b"luisa_compute_destroy_cpu_swapchain\0")?;
         let cpu_swapchain_present = *lib.get(b"luisa_compute_cpu_swapchain_present\0")?;
         let cpu_swapchain_storage = *lib.get(b"luisa_compute_cpu_swapchain_storage\0")?;
+        let cpu_swapchain_native_handle =
+            *lib.get(b"luisa_compute_cpu_swapchain_native_handle\0")?;
         Ok(Self {
             lib,
             create_cpu_swapchain,
             destroy_cpu_swapchain,
             cpu_swapchain_present,
             cpu_swapchain_storage,
+            cpu_swapchain_native_handle,
         })
     }
 }

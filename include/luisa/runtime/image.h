@@ -109,7 +109,7 @@ public:
             detail::error_image_invalid_mip_levels(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
-        return ImageView<T>{handle(), _storage, level, mip_size};
+        return ImageView<T>{native_handle(), handle(), _storage, level, mip_size};
     }
 
     [[nodiscard]] auto view() const noexcept { return view(0u); }
@@ -139,6 +139,7 @@ template<typename T>
 class ImageView {
 
 private:
+    void *_native_handle;
     uint64_t _handle;
     uint2 _size;
     uint _level;
@@ -155,13 +156,15 @@ private:
     }
 
 public:
-    ImageView(uint64_t handle, PixelStorage storage,
+    ImageView(void *native_handle, uint64_t handle, PixelStorage storage,
               uint level, uint2 size) noexcept
-        : _handle{handle}, _size{size},
+        : _native_handle{native_handle},
+          _handle{handle}, _size{size},
           _level{level}, _storage{storage} {}
 
     ImageView(const Image<T> &image) noexcept : ImageView{image.view(0u)} {}
     // properties
+    [[nodiscard]] auto native_handle() const noexcept { return _native_handle; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {

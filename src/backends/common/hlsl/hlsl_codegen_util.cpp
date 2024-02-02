@@ -122,7 +122,7 @@ static size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool
 }// namespace detail
 // static thread_local vstd::unique_ptr<CodegenStackData> opt;
 #ifdef USE_SPIRV
-CodegenStackData *CodegenUtility::StackData() { return opt.get(); }
+CodegenStackData *CodegenUtility::StackData() const { return opt.get(); }
 #endif
 uint CodegenUtility::IsBool(Type const &type) {
     if (type.tag() == Type::Tag::BOOL) {

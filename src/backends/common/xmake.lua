@@ -9,7 +9,7 @@ if (get_config("cuda_backend") or get_config("cpu_backend")) and get_config("_lc
 	})
 	set_values("vk_public", true)
 	add_rules("lc_vulkan")
-	add_headerfiles("vulkan_swapchain.h", "vulkan_instance.h")
+	add_headerfiles("vulkan_instance.h")
 	add_files("vulkan_swapchain.cpp", "vulkan_instance.cpp")
 	add_deps("lc-core")
 	if is_plat("linux") then

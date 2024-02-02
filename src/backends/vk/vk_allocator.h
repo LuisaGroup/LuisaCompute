@@ -20,7 +20,6 @@ enum class AccessType {
 };
 class VkAllocator {
     VmaAllocator _allocator;
-
 public:
     auto allocator() const { return _allocator; }
     VkAllocator(Device &device);

@@ -1,5 +1,7 @@
 // A Rust implementation of LuisaCompute backend.
 #![allow(non_snake_case)]
+
+use std::ptr::null;
 use std::sync::{atomic::AtomicBool, Arc};
 
 use self::{
@@ -202,7 +204,7 @@ impl Backend for RustBackend {
             api::CreatedSwapchainInfo {
                 resource: api::CreatedResourceInfo {
                     handle: sc_ctx as u64,
-                    native_handle: sc_ctx as *mut std::ffi::c_void,
+                    native_handle: (ctx.cpu_swapchain_native_handle)(sc_ctx),
                 },
                 storage: std::mem::transmute(storage as u32),
             }

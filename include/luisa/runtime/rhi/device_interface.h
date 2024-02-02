@@ -43,6 +43,9 @@ public:
 
 class Profiler {
 public:
+    virtual ~Profiler() noexcept = default;
+
+public:
     virtual void allocate(
         uint64_t handle,
         uint64_t alignment,

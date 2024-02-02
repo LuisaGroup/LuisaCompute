@@ -100,9 +100,9 @@ int main(int argc, char *argv[]) {
     auto w = device.create_buffer<float>(weights.size());
     auto opt = device.create_buffer<float>(outputs.size());
 
-    stream << w.copy_from(weights.data()) << ipt.copy_from(inputs.data());
-    stream << graph->forward(ipt, opt, w);
-    stream << opt.copy_to(outputs.data()) << synchronize();
+    stream << w.copy_from(weights.data()) << ipt.copy_from(inputs.data())
+           << graph->forward(ipt, opt, w)
+           << opt.copy_to(outputs.data()) << synchronize();
     size_t idx = 0;
     for (auto &&i : outputs) {
         LUISA_INFO("Output: {} is: {}", idx, i);
