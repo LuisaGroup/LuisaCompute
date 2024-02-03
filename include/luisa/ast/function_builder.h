@@ -100,14 +100,6 @@ private:
         Variable /* argument */,
         const Expression * /* captured */>
         _internalizer_arguments;
-    luisa::unordered_map<
-        uint,
-        VarAttribute>
-        _var_attributes;
-    luisa::unordered_map<
-        Statement *,
-        Attribute>
-        _stmt_attributes;
     luisa::vector<luisa::shared_ptr<const ExternalFunction>> _used_external_functions;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> _used_custom_callables;
     luisa::vector<Variable> _local_variables;
@@ -246,19 +238,6 @@ public:
     [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return if uses printing.
     [[nodiscard]] bool requires_printing() const noexcept;
-
-    [[nodiscard]] auto const &var_attributes() const noexcept {
-        return _var_attributes;
-    }
-    [[nodiscard]] auto const &stmt_attributes() const noexcept {
-        return _stmt_attributes;
-    }
-    [[nodiscard]] auto &var_attributes() noexcept {
-        return _var_attributes;
-    }
-    [[nodiscard]] auto &stmt_attributes() noexcept {
-        return _stmt_attributes;
-    }
 
     // build primitives
     /// Define a kernel function with given definition
