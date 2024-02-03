@@ -24,12 +24,14 @@ Texture::Texture(
           to_vk_format(format),
           size,
           mip,
-          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | 
-          VK_IMAGE_USAGE_TRANSFER_DST_BIT | 
-          VK_IMAGE_USAGE_SAMPLED_BIT | 
-          VK_IMAGE_USAGE_STORAGE_BIT
-          )),
+          VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+              VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+              VK_IMAGE_USAGE_SAMPLED_BIT |
+              VK_IMAGE_USAGE_STORAGE_BIT)),
+      _format(format),
+      _dimension(dimension),
       _simultaneous_access(simultaneous_access) {
+    _layouts.resize(mip);
 }
 Texture::~Texture() {
     device()->allocator().destroy_image(_img);

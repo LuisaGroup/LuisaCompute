@@ -44,8 +44,9 @@ struct CommandBufferState {
     temp_buffer::BufferAllocator<UploadBuffer> upload_alloc;
     temp_buffer::BufferAllocator<DefaultBuffer> default_alloc;
     temp_buffer::BufferAllocator<ReadbackBuffer> readback_alloc;
+    vstd::vector<VkDescriptorSet> _desc_sets;
     CommandBufferState();
-    void reset();
+    void reset(Device& device);
 };
 class CommandBuffer : public Resource {
     Stream &stream;
