@@ -15,9 +15,11 @@ jobs:
           - { name: clang, version: 14 }
           - { name: clang, version: 15 }
           - { name: clang, version: 16 }
-#          - { name: clang, version: 17 }
+          - { name: clang, version: 17 }
         config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
+    if:
+      github.ref == 'refs/heads/stable' || (compiler.name == 'gcc' && compiler.version == 13) || (compiler.name == 'clang' && compiler.version == 17)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -98,6 +100,8 @@ jobs:
         config: [ release, debug ]
         compiler: [ msvc, clang-cl ]
     name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
+    if:
+      github.ref == 'refs/heads/stable' || os == '2022'
     runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3

@@ -18,6 +18,8 @@ jobs:
           - { name: clang, version: 17 }
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler.name }}-${{ matrix.compiler.version }}
+    if:
+      github.ref == 'refs/heads/stable' || (compiler.name == 'gcc' && compiler.version == 13) || (compiler.name == 'clang' && compiler.version == 17)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -74,7 +76,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos-13 ]
-        compiler: [ homebrew-clang ]
+        compiler: [ homebrew-clang, system-clang ]
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
@@ -111,6 +113,8 @@ jobs:
         config: [ Release, Debug ]
         compiler: [ cl, clang, clang-cl ]
     name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
+    if:
+      github.ref == 'refs/heads/stable' || os == '2022'
     runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
