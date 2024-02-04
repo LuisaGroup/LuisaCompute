@@ -2,11 +2,11 @@ name: build-cmake
 
 on:
   push:
-    branches:
-      - '!stable'
+    branches-ignore:
+      - 'stable'
   pull_request:
-    branches:
-      - '!stable'
+    branches-ignore:
+      - 'stable'
 
 jobs:
   build-linux:
