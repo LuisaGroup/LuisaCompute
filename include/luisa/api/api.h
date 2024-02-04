@@ -29,7 +29,7 @@ LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buf
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_texture_create(
     LCDevice device, LCPixelFormat format,
     uint32_t dim, uint32_t w, uint32_t h, uint32_t d,
-    uint32_t mips, bool allow_simultaneous_access) LUISA_NOEXCEPT;
+    uint32_t mips, bool allow_simultaneous_access, bool allow_raster) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_texture_destroy(LCDevice device, LCTexture texture) LUISA_NOEXCEPT;
 
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_stream_create(LCDevice device, LCStreamTag stream_tag) LUISA_NOEXCEPT;

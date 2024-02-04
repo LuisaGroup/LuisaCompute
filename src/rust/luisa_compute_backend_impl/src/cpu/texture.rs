@@ -35,6 +35,7 @@ impl TextureImpl {
         storage: PixelStorage,
         levels: u8,
         _allow_simultaneous_access: bool,
+        _allow_raster: bool,
     ) -> Self {
         let pixel_size = storage.size();
         let pixel_stride_shift = match pixel_size {

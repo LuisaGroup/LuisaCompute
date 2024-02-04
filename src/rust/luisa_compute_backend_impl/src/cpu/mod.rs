@@ -97,6 +97,7 @@ impl Backend for RustBackend {
         depth: u32,
         mipmap_levels: u32,
         allow_simultaneous_access: bool,
+        allow_raster: bool,
     ) -> luisa_compute_api_types::CreatedResourceInfo {
         let storage = format.storage();
 
@@ -106,6 +107,7 @@ impl Backend for RustBackend {
             storage,
             mipmap_levels as u8,
             allow_simultaneous_access,
+            allow_raster,
         );
         let data = texture.data;
         let ptr = Box::into_raw(Box::new(texture));
