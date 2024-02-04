@@ -19,7 +19,7 @@ jobs:
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler.name }}-${{ matrix.compiler.version }}
     if:
-      github.ref == 'refs/heads/stable' || (compiler.name == 'gcc' && compiler.version == 13) || (compiler.name == 'clang' && compiler.version == 17)
+      github.ref == 'refs/heads/stable' || (matrix.compiler.name == 'gcc' && matrix.compiler.version == 13) || (matrix.compiler.name == 'clang' && matrix.compiler.version == 17)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -114,7 +114,7 @@ jobs:
         compiler: [ cl, clang, clang-cl ]
     name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     if:
-      github.ref == 'refs/heads/stable' || os == '2022'
+      github.ref == 'refs/heads/stable' || matrix.os == '2022'
     runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
