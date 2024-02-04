@@ -184,7 +184,7 @@ ResourceCreationInfo LCDevice::create_texture(
     uint width,
     uint height,
     uint depth,
-    uint mipmap_levels, bool simultaneous_access) noexcept {
+    uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept {
     bool allowUAV = !is_block_compressed(format);
     ResourceCreationInfo info;
     auto res = new RenderTexture(
@@ -197,6 +197,7 @@ ResourceCreationInfo LCDevice::create_texture(
         mipmap_levels,
         allowUAV,
         simultaneous_access,
+        allow_raster_target,
         nativeDevice.defaultAllocator.get());
     info.handle = resource_to_handle(res);
     info.native_handle = res->GetResource();

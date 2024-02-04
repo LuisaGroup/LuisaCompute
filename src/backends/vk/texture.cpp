@@ -8,7 +8,8 @@ Texture::Texture(
     PixelFormat format,
     uint3 size,
     uint mip,
-    bool simultaneous_access)
+    bool simultaneous_access,
+    bool allow_raster_target)
     : Resource(device),
       _img(device->allocator().allocate_image(
           [&]() {

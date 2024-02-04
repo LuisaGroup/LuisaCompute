@@ -287,7 +287,7 @@ PixelFormat TextureBase::ToPixelFormat(GFXFormat format) {
     }
     LUISA_ERROR_WITH_LOCATION("Unreachable.");
 }
-D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(uint3 size, uint mip, bool allowUav, bool allowSimul, bool reserved) const {
+D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(uint3 size, uint mip, bool allowUav, bool allowSimul, bool allowRaster, bool reserved) const {
     D3D12_RESOURCE_DESC texDesc{};
     switch (dimension) {
         case TextureDimension::Cubemap:
@@ -312,14 +312,17 @@ D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(uint3 size, uint mip, bool 
     texDesc.SampleDesc.Count = 1;
     texDesc.SampleDesc.Quality = 0;
     texDesc.Layout = reserved ? D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE : D3D12_TEXTURE_LAYOUT_UNKNOWN;
-    texDesc.Flags = allowUav ? (D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) : D3D12_RESOURCE_FLAG_NONE;
+    texDesc.Flags = allowUav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
+    if (allowRaster) {
+        texDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    }
     if (allowSimul) {
         texDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
     }
     return texDesc;
 }
-D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(bool allowUav, bool allowSimul, bool reserved) const {
-    return GetResourceDescBase(uint3(width, height, depth), mip, allowUav, allowSimul, reserved);
+D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(bool allowUav, bool allowSimul, bool allowRaster, bool reserved) const {
+    return GetResourceDescBase(uint3(width, height, depth), mip, allowUav, allowSimul, allowRaster, reserved);
 }
 uint TextureBase::GetGlobalSRVIndex(uint mipOffset) const {
     LUISA_ERROR("Texture type not support sample!");

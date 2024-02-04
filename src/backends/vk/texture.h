@@ -17,7 +17,8 @@ public:
         compute::PixelFormat format,
         uint3 size,
         uint mip,
-        bool simultaneous_access);
+        bool simultaneous_access,
+        bool allow_raster_target);
     ~Texture();
     auto vk_image() const { return _img.image; }
     auto dimension() const { return _dimension; }
