@@ -29,6 +29,13 @@ class ComputeShader;
 class PipelineLibrary;
 class Device {
 public:
+    enum class GpuType {
+        OTHER,
+        AMD,
+        INTEL,
+        NVIDIA
+    };
+    GpuType gpuType = GpuType::OTHER;
     size_t maxAllocatorCount = 2;
     luisa::BinaryIO const *fileIo = nullptr;
     luisa::compute::Profiler *profiler = nullptr;
