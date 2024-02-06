@@ -31,6 +31,7 @@ private:
                       bool wakeupThread)
             : evt{std::forward<Arg>(arg)}, fence{fence}, wakeupThread{wakeupThread} {}
     };
+    std::atomic_bool enabled = true;
     Device *device;
     GpuAllocator *resourceAllocator;
     D3D12_COMMAND_LIST_TYPE type;
@@ -39,7 +40,6 @@ private:
     std::condition_variable waitCv;
     std::atomic_uint64_t executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
-    bool enabled = true;
     DxPtr<ID3D12CommandQueue> queue;
     Microsoft::WRL::ComPtr<ID3D12Fence> cmdFence;
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
