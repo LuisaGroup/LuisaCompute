@@ -53,13 +53,19 @@ CommandBufferState::CommandBufferState()
       default_alloc(TEMP_SIZE),
       readback_alloc(TEMP_SIZE) {
 }
-void CommandBufferState::reset() {
+void CommandBufferState::reset(Device &device) {
     upload_alloc.clear();
     default_alloc.clear();
     readback_alloc.clear();
+    if (!_desc_sets.empty()) {
+        VK_CHECK_RESULT(
+            vkFreeDescriptorSets(
+                device.logic_device(), device.desc_pool(), _desc_sets.size(), _desc_sets.data()));
+        _desc_sets.clear();
+    }
 }
 void CommandBuffer::reset() {
-    _state.reset();
+    _state->reset(*device());
     VK_CHECK_RESULT(vkResetCommandBuffer(_cmdbuffer, 0));
 }
 
@@ -290,6 +296,111 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 } break;
             }
         }
+    }
+}
+
+vstd::span<VkDescriptorSet> Shader::allocate_desc_set(VkDescriptorPool pool, vstd::vector<VkDescriptorSet> &descs) {
+    VkDescriptorSetAllocateInfo alloc_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = pool,
+        .descriptorSetCount = static_cast<uint>(_desc_set_layout.size()),
+        .pSetLayouts = _desc_set_layout.data()};
+    auto last_size = _desc_set_layout.size();
+    descs.push_back_uninitialized(_desc_set_layout.size());
+    VK_CHECK_RESULT(
+        vkAllocateDescriptorSets(
+            device()->logic_device(),
+            &alloc_info,
+            descs.data() + last_size));
+    return vstd::span<VkDescriptorSet>{descs.data() + last_size, _desc_set_layout.size()};
+}
+void Shader::update_desc_set(
+    VkDescriptorSet set,
+    vstd::vector<VkWriteDescriptorSet> &write_buffer,
+    vstd::vector<VkImageView> &img_view_buffer,
+    vstd::span<vstd::variant<BufferView, TexView>> texs) {
+    write_buffer.clear();
+    write_buffer.reserve(texs.size());
+    uint arg_idx = 0;
+    VkDescriptorBufferInfo buffer_info;
+    VkDescriptorImageInfo image_info;
+    auto make_desc = [&]<typename T>(T const &t) {
+        auto &v = write_buffer.emplace_back();
+        v.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        v.dstSet = set;
+        v.dstBinding = arg_idx;
+        v.dstArrayElement = 1;
+        v.descriptorCount = 1;
+        auto &&b = _binds[arg_idx];
+
+        switch (b.type) {
+            case lc::hlsl::ShaderVariableType::ConstantBuffer:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                break;
+            case lc::hlsl::ShaderVariableType::SRVTextureHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                break;
+            case lc::hlsl::ShaderVariableType::UAVTextureHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                break;
+            case lc::hlsl::ShaderVariableType::SRVBufferHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                break;
+            case lc::hlsl::ShaderVariableType::UAVBufferHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                break;
+            case lc::hlsl::ShaderVariableType::CBVBufferHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                break;
+            case lc::hlsl::ShaderVariableType::SamplerHeap:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+                break;
+            case lc::hlsl::ShaderVariableType::StructuredBuffer:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                break;
+            case lc::hlsl::ShaderVariableType::RWStructuredBuffer:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                break;
+            case lc::hlsl::ShaderVariableType::ConstantValue:
+                v.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                break;
+        }
+        if constexpr (std::is_same_v<T, Argument::Buffer>) {
+            buffer_info.buffer = reinterpret_cast<Buffer *>(t.handle)->vk_buffer();
+            buffer_info.offset = t.offset;
+            buffer_info.range = t.size;
+            v.pBufferInfo = &buffer_info;
+        }
+        if constexpr (std::is_same_v<T, Argument::Texture>) {
+            image_info.sampler = nullptr;
+            auto &img_view = img_view_buffer.emplace_back();
+            auto tex = reinterpret_cast<Texture *>(t.handle);
+            VkImageViewCreateInfo img_view_create_info = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .flags = 0,
+                .image = tex->vk_image(),
+                .viewType = [&]() {
+                    switch (tex->dimension()) {
+                        case 1:
+                            return VK_IMAGE_VIEW_TYPE_1D;
+                        case 2:
+                            return VK_IMAGE_VIEW_TYPE_2D;
+                        case 3:
+                            return VK_IMAGE_VIEW_TYPE_3D;
+                    }
+                }(),
+                .format = Texture::to_vk_format(tex->format()),
+                .subresourceRange = VkImageSubresourceRange{.baseMipLevel = t.level, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1}};
+            VK_CHECK_RESULT(vkCreateImageView(device()->logic_device(), &img_view_create_info, Device::alloc_callbacks(), &img_view));
+            image_info.imageView = img_view;
+            image_info.imageLayout = tex->layout(t.level);
+            v.pImageInfo = &image_info;
+        }
+        arg_idx++;
+    };
+    for (auto i : vstd::range(texs.size())) {
+
+        // v.descriptorType = view.index() ==
     }
 }
 }// namespace lc::vk

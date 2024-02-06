@@ -9,7 +9,6 @@
 #include "shader_property.h"
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/core/logging.h>
-#include <filesystem>
 #include <luisa/core/binary_io.h>
 #include "string_builder.h"
 namespace lc::hlsl {

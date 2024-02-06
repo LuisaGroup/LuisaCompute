@@ -184,7 +184,7 @@ BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element,
 ResourceCreationInfo DxCudaInteropImpl::create_interop_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels, bool simultaneous_access) noexcept {
+    uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept {
     bool allowUAV = !is_block_compressed(format);
     ResourceCreationInfo info{};
     auto res = new RenderTexture(
@@ -197,6 +197,7 @@ ResourceCreationInfo DxCudaInteropImpl::create_interop_texture(
         mipmap_levels,
         allowUAV,
         simultaneous_access,
+        allow_raster_target,
         nullptr,
         true);
     info.handle = reinterpret_cast<uint64>(res);

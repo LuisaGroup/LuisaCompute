@@ -52,7 +52,7 @@ private:
           _size{size} {}
 
     Volume(DeviceInterface *device, PixelStorage storage, uint3 size,
-           uint mip_levels = 1u, bool simultaneous_access = false) noexcept
+           uint mip_levels = 1u, bool simultaneous_access = false, bool allow_raster_target = false) noexcept
         : Volume{device,
                  [&] {
                      if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
@@ -62,7 +62,7 @@ private:
                          pixel_storage_to_format<T>(storage), 3u,
                          size.x, size.y, size.z,
                          detail::max_mip_levels(size, mip_levels),
-                         simultaneous_access);
+                         simultaneous_access, allow_raster_target);
                  }(),
                  storage, size, mip_levels} {}
 

@@ -661,6 +661,7 @@ struct DeviceInterface {
                                           uint32_t,
                                           uint32_t,
                                           uint32_t,
+                                          bool,
                                           bool);
     void *(*native_handle)(Device);
     uint32_t (*compute_warp_size)(Device);

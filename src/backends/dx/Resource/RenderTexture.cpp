@@ -11,11 +11,12 @@ RenderTexture::RenderTexture(
     uint mip,
     bool allowUav,
     bool allowSimul,
+    bool allowRaster,
     GpuAllocator *allocator,
     bool shared_adaptor)
     : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()),
       allocHandle(allocator) {
-    auto texDesc = GetResourceDescBase(allowUav, allowSimul);
+    auto texDesc = GetResourceDescBase(allowUav, allowSimul, allowRaster, false);
     if (!allocator) {
         auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_HEAP_PROPERTIES const *propPtr = &prop;
@@ -29,6 +30,9 @@ RenderTexture::RenderTexture(
     } else {
         ID3D12Heap *heap;
         uint64 offset;
+        if(device->gpuType == Device::GpuType::NVIDIA && allowUav){
+            texDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+        }
         auto allocateInfo = device->device->GetResourceAllocationInfo(
             0, 1, &texDesc);
         auto byteSize = allocateInfo.SizeInBytes;
@@ -39,7 +43,7 @@ RenderTexture::RenderTexture(
             &heap,
             &offset,
             allowUav,
-            0, 
+            0,
             shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE);
         ThrowIfFailed(device->device->CreatePlacedResource(
             heap,

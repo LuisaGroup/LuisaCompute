@@ -174,7 +174,7 @@ public:
     ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels, bool simultaneous_access) noexcept override;
+        uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept override;
     void cuda_buffer(uint64_t dx_buffer, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept override;
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
     uint64_t cuda_event(uint64_t dx_event) noexcept override;

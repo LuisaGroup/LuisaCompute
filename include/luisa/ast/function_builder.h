@@ -6,6 +6,7 @@
 #include <luisa/ast/statement.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/variable.h>
+#include <luisa/ast/attribute.h>
 #include <luisa/ast/expression.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/type_registry.h>

@@ -24,7 +24,7 @@ private:
 public:
     MetalTexture(MTL::Device *device, PixelFormat format, uint dimension,
                  uint width, uint height, uint depth, uint mipmap_levels,
-                 bool allow_simultaneous_access) noexcept;
+                 bool allow_simultaneous_access, bool allow_raster_target) noexcept;
     ~MetalTexture() noexcept;
     [[nodiscard]] MTL::Texture *handle(uint level = 0u) const noexcept;
     [[nodiscard]] Binding binding(uint level = 0u) const noexcept;

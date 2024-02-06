@@ -480,7 +480,7 @@ void export_runtime(py::module &m) {
         })
         .def(
             "create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
-                auto info = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false);
+                auto info = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false, false);
                 RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) {
                     if (auto gs = default_stream_data.lock()) {
                         gs->sync();

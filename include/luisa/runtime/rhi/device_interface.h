@@ -125,7 +125,7 @@ public:
     [[nodiscard]] virtual ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels, bool simultaneous_access) noexcept = 0;
+        uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept = 0;
     virtual void destroy_texture(uint64_t handle) noexcept = 0;
 
     // bindless array

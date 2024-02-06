@@ -436,14 +436,16 @@ void Device::destroy_buffer(uint64_t handle) noexcept {
 ResourceCreationInfo Device::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels, bool simultaneous_access) noexcept {
+    uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept {
+
     auto ptr = new Texture(
         this,
         dimension,
         format,
         uint3(width, height, depth),
         mipmap_levels,
-        simultaneous_access);
+        simultaneous_access,
+        allow_raster_target);
     ResourceCreationInfo r{
         .handle = reinterpret_cast<uint64_t>(ptr),
         .native_handle = ptr->vk_image()};
@@ -583,7 +585,7 @@ void Device::synchronize_event(uint64_t handle, uint64_t fence_value) noexcept {
 }
 void Device::set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept {}
 bool Device::is_event_completed(uint64_t handle, uint64_t fence_value) const noexcept {
-    reinterpret_cast<Event *>(handle)->is_complete(fence_value);
+    return reinterpret_cast<Event *>(handle)->is_complete(fence_value);
 }
 VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
     {

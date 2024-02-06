@@ -35,6 +35,7 @@ class DStorageCommandQueue : public CmdQueueBase{
                       bool wakeupThread)
             : evt{std::forward<Arg>(arg)}, fence{fence}, wakeupThread{wakeupThread} {}
     };
+    std::atomic_bool enabled = true;
     std::mutex mtx;
     std::mutex exec_mtx;
     std::thread thd;
@@ -42,7 +43,6 @@ class DStorageCommandQueue : public CmdQueueBase{
     std::atomic_uint64_t executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
     DSTORAGE_REQUEST_SOURCE_TYPE sourceType;
-    bool enabled = true;
     ComPtr<IDStorageQueue2> queue;
     vstd::SingleThreadArrayQueue<CallbackEvent> executedAllocators;
     void ExecuteThread();
