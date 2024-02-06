@@ -72,6 +72,7 @@ void ServerInterface::execute(luisa::span<const std::byte> data, luisa::vector<s
         case DeviceFunc::AllocSparseTextureHeap: alloc_sparse_texture_heap(ptr, result); break;
         case DeviceFunc::DeAllocSparseTextureHeap: dealloc_sparse_texture_heap(ptr, result); break;
         case DeviceFunc::UpdateSparseResource: update_sparse_resource(ptr, result); break;
+        default: break;
     }
 }
 void ServerInterface::create_buffer_ast(std::byte const *&ptr, luisa::vector<std::byte> &result) noexcept {

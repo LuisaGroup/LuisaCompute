@@ -1239,6 +1239,9 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::SHADER_EXECUTION_REORDER:
             str << "(void)";
             break;
+        default:
+            LUISA_ERROR("Bad op.");
+            break;
     }
     str << '(';
     PrintArgs();

@@ -12,7 +12,7 @@ struct TypeDatabase {
     luisa::compute::CallOp FindCallOp(const luisa::string_view &name);
     luisa::compute::BinaryOp FindBinOp(const luisa::string_view &name);
 
-    [[nodiscard]] void SetASTContext(clang::ASTContext *ctx) { astContext = ctx; }
+    void SetASTContext(clang::ASTContext *ctx) { astContext = ctx; }
     [[nodiscard]] clang::ASTContext *GetASTContext() { return astContext; }
     [[nodiscard]] const clang::ASTContext *GetASTContext() const { return astContext; }
 

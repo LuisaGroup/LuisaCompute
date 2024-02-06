@@ -46,7 +46,7 @@ struct CommandBufferState {
     temp_buffer::BufferAllocator<ReadbackBuffer> readback_alloc;
     vstd::vector<VkDescriptorSet> _desc_sets;
     CommandBufferState();
-    void reset(Device& device);
+    void reset(Device &device);
 };
 class CommandBuffer : public Resource {
     Stream &stream;
@@ -80,8 +80,9 @@ struct ReorderFuncTable {
             case ShaderVariableType::StructuredBuffer:
             case ShaderVariableType::ConstantValue:
                 return Usage::READ;
+            default:
+                return Usage::READ_WRITE;
         }
-        return Usage::READ_WRITE;
     }
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {
     }
@@ -112,7 +113,6 @@ class Stream : public Resource {
     VkCommandPool _pool;
     VkQueue _queue;
     std::atomic_bool _enabled{true};
-    std::thread _thd;
     std::condition_variable _cv;
     std::mutex _mtx;
     vstd::LockFreeArrayQueue<CommandBuffer> _cmdbuffers;
@@ -131,6 +131,8 @@ public:
     void sync();
     void signal(Event *event, uint64_t value);
     void wait(Event *event, uint64_t value);
+private:
+    std::thread _thd;
 };
 
 }// namespace lc::vk

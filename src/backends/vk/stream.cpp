@@ -72,6 +72,7 @@ void CommandBuffer::reset() {
 Stream::Stream(Device *device, StreamTag tag)
     : Resource{device},
       _evt(device),
+      reorder({}),
       _thd([this]() {
           while (_enabled) {
               while (auto p = _exec.pop()) {
@@ -96,8 +97,7 @@ Stream::Stream(Device *device, StreamTag tag)
                   _cv.wait(lck);
               }
           }
-      }),
-      reorder({}) {
+      }) {
     VkCommandPoolCreateInfo pool_ci{
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     switch (tag) {
@@ -259,6 +259,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 } break;
                 case Command::Tag::EBindlessArrayUpdateCommand: {
                 } break;
+                default: break;
             }
         }
         // Execute
@@ -294,6 +295,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 } break;
                 case Command::Tag::EBindlessArrayUpdateCommand: {
                 } break;
+                default: break;
             }
         }
     }
