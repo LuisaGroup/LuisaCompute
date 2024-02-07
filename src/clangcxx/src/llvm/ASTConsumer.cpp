@@ -316,6 +316,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             case clang::APValue::ValueKind::Float:
                 return fb->literal(Type::of<float>(), (float)APV.getFloat().convertToDouble());
             case clang::APValue::ValueKind::Struct: {
+                auto N = APV.getStructNumFields();
                 if (auto lcType = db->FindOrAddType(what->getTypeForDecl()->getCanonicalTypeUnqualified(), what->getBeginLoc())) {
                     if (lcType->is_array()) {
                         return TraverseAPArray(APV, lcType);
@@ -509,6 +510,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     if (auto *varDecl = dyn_cast<clang::VarDecl>(decl)) {
                         auto Ty = varDecl->getType();
                         auto cxxInit = varDecl->getInit();
+                        auto initStyle = varDecl->getInitStyle();
                         const bool isRef = Ty->isReferenceType();
                         const bool isArray = Ty->getAsArrayTypeUnsafe();
                         if (isRef || isArray) {
@@ -581,6 +583,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 // TODO: REFACTOR THIS
                 if (needCustom && !db->func_builders.contains(cxxCtor)) {
                     auto funcDecl = cxxCtor->getAsFunction();
+                    auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
                     const auto isTemplateInstant = funcDecl->isTemplateInstantiation();
                     if (isTemplateInstant) {
                         FunctionBuilderBuilder fbfb(db, *stack);
@@ -669,7 +672,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 auto N = Arguments[0].getAsIntegral().getLimitedValue();
                                 auto lcType = Type::matrix(N);
                                 const CallOp MATRIX_LUT[3] = {CallOp::MAKE_FLOAT2X2, CallOp::MAKE_FLOAT3X3, CallOp::MAKE_FLOAT4X4};
-                                if (lcArgs.size() > 1) /*ignore MAKE_MAT with empty args*/
+                                if (lcArgs.size() > 1)
                                     fb->assign(constructed, fb->call(lcType, MATRIX_LUT[N - 2], {lcArgs.begin() + 1, lcArgs.end()}));
                             } else
                                 luisa::log_error("???");
@@ -685,14 +688,16 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (Flags & 1)
                                     constructed = fb->shared(lcArrayType);
 
-                                if (cxxCtor->isConvertingConstructor(true))
-                                    fb->assign(constructed, fb->cast(lcArrayType, CastOp::STATIC, lcArgs[1]));
-                                else if (cxxCtor->isCopyConstructor())
-                                    fb->assign(constructed, lcArgs[1]);
-                                else if (cxxCtor->isMoveConstructor())
-                                    luisa::log_error("unexpected move array constructor!");
-                                else
-                                    luisa::log_error("unhandled array constructor: {}", cxxCtor->getNameAsString());
+                                if (!cxxCtor->isDefaultConstructor()) {
+                                    if (cxxCtor->isConvertingConstructor(true))
+                                        fb->assign(constructed, fb->cast(lcArrayType, CastOp::STATIC, lcArgs[1]));
+                                    else if (cxxCtor->isCopyConstructor())
+                                        fb->assign(constructed, lcArgs[1]);
+                                    else if (cxxCtor->isMoveConstructor())
+                                        luisa::log_error("unexpected move array constructor!");
+                                    else
+                                        luisa::log_error("unhandled array constructor: {}", cxxCtor->getNameAsString());
+                                }
                             }
                         } else {
                             luisa::log_error("unhandled builtin constructor: {}", cxxCtor->getNameAsString());
@@ -744,7 +749,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = old;
                             break;
                         }
-                        default: break;
                     }
                 }
             } else if (auto bin = llvm::dyn_cast<BinaryOperator>(x)) {
@@ -1299,6 +1303,7 @@ bool FunctionBuilderBuilder::recursiveVisit(clang::Stmt *currStmt, compute::deta
 }
 
 void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
+    auto &kernel_builder = db->kernel_builder;
     if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
         QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
         bool ignore = S->isUnion();
@@ -1314,6 +1319,7 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
 }
 
 void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
+    auto &kernel_builder = db->kernel_builder;
     if (const auto *S = Result.Nodes.getNodeAs<clang::VarDecl>("VarDecl")) {
         bool ignore = false;
         for (auto Anno : S->specific_attrs<clang::AnnotateAttr>())
