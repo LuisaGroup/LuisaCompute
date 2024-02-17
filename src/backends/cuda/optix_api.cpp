@@ -1,4 +1,5 @@
 #include "optix_api.h"
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
 
@@ -107,7 +108,7 @@ namespace luisa::compute::optix {
                 LUISA_WARNING_WITH_LOCATION("find_optix_library(): Multiple versions of "
                                             "{} were found on your system!",
                                             fname);
-                std::sort(g.gl_pathv, g.gl_pathv + g.gl_pathc,
+                luisa::sort(g.gl_pathv, g.gl_pathv + g.gl_pathc,
                           [](const char *a, const char *b) {
                               while (a != nullptr && b != nullptr) {
                                   while (*a == *b && *a != '\0' && !isdigit(*a)) {
