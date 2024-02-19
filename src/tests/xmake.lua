@@ -44,6 +44,9 @@ local function lc_add_app(appname, folder, name)
     end
     if get_config("cuda_backend") then
         add_defines("LUISA_TEST_CUDA_BACKEND")
+        if get_config("cuda_ext_lcub") then
+            add_deps("luisa-compute-cuda-ext-lcub")
+        end
     end
     if get_config("metal_backend") then
         add_defines("LUISA_TEST_METAL_BACKEND")
