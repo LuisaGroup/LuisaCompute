@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/deque.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/fixed_map.h>

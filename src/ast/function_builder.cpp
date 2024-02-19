@@ -481,6 +481,10 @@ void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
     _scope_stack.pop_back();
 }
 
+bool FunctionBuilder::inside_function_scope() const noexcept {
+    return !_scope_stack.empty() && _scope_stack.back() == &_body;
+}
+
 ForStmt *FunctionBuilder::for_(const Expression *var, const Expression *condition, const Expression *update) noexcept {
     var = _internalize(var);
     condition = _internalize(condition);

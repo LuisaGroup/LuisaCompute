@@ -596,6 +596,7 @@ typedef struct LCDeviceInterface {
                                                    uint32_t,
                                                    uint32_t,
                                                    uint32_t,
+                                                   bool,
                                                    bool);
     void *(*native_handle)(struct LCDevice);
     uint32_t (*compute_warp_size)(struct LCDevice);

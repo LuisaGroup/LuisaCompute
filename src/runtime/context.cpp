@@ -4,7 +4,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/core/binary_io.h>
-#include <luisa/vstl/pdqsort.h>
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/stl/unordered_map.h>
 
@@ -137,7 +137,7 @@ public:
                 }
             }
         }
-        pdqsort(installed_backends.begin(), installed_backends.end());
+        luisa::sort(installed_backends.begin(), installed_backends.end());
         installed_backends.erase(
             std::unique(installed_backends.begin(), installed_backends.end()),
             installed_backends.end());

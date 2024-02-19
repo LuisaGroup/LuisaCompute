@@ -87,7 +87,7 @@ void CommandAllocator::ExecuteAndPresent(CommandQueue *queue, ID3D12Fence *fence
         if (vsync) {
             ThrowIfFailed(swapchain->Present(1, 0));
         } else {
-            ThrowIfFailed(swapchain->Present(0, DXGI_PRESENT_ALLOW_TEARING));
+            ThrowIfFailed(swapchain->Present(0, DXGI_PRESENT_ALLOW_TEARING | DXGI_PRESENT_DO_NOT_WAIT));
         }
     };
     ID3D12CommandList *cmdList = cbuffer->CmdList();

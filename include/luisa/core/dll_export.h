@@ -28,10 +28,14 @@
 #define LC_CORE_API __declspec(dllimport)
 #endif
 
+#ifdef LUISA_VSTL_STATIC_LIB
+#define LC_VSTL_API
+#else
 #ifdef LC_VSTL_EXPORT_DLL
 #define LC_VSTL_API __declspec(dllexport)
 #else
 #define LC_VSTL_API __declspec(dllimport)
+#endif
 #endif
 
 #ifdef LC_GUI_EXPORT_DLL
@@ -52,10 +56,14 @@
 #define LC_RUNTIME_API __declspec(dllimport)
 #endif
 
+#ifdef LUISA_DSL_STATIC_LIB
+#define LC_DSL_API
+#else
 #ifdef LC_DSL_EXPORT_DLL
 #define LC_DSL_API __declspec(dllexport)
 #else
 #define LC_DSL_API __declspec(dllimport)
+#endif
 #endif
 
 #ifdef LC_TENSOR_EXPORT_DLL

@@ -22,12 +22,12 @@ static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function
                     }}};
         auto pixelSpan = pixelKernel.arguments();
         auto pixelArgs =
-        vstd::range_linker{
-            vstd::make_ite_range(pixelSpan.subspan(1)),
-            vstd::transform_range{
-                [&](Variable const &var) {
-                    return std::pair<Variable, Usage>{var, pixelKernel.variable_usage(var.uid())};
-                }}};
+            vstd::range_linker{
+                vstd::make_ite_range(pixelSpan.subspan(1)),
+                vstd::transform_range{
+                    [&](Variable const &var) {
+                        return std::pair<Variable, Usage>{var, pixelKernel.variable_usage(var.uid())};
+                    }}};
         auto args = vstd::tuple_range(std::move(vertArgs), std::move(pixelArgs)).i_range();
         return ShaderSerializer::SerializeKernel(args);
     }
@@ -372,10 +372,9 @@ RasterShader *RasterShader::CompileRaster(
 
     if (!fileName.empty()) {
         // auto psoName = Shader::PSOName(device, fileName);
-        vstd::MD5 typeMD5;
         auto result = ShaderSerializer::RasterDeSerialize(
             fileName, cacheType, device, *fileIo, md5,
-            typeMD5, meshFormat);
+            {}, meshFormat);
         if (result) {
             return result;
         }
@@ -438,12 +437,7 @@ RasterShader *RasterShader::LoadRaster(
     const MeshFormat &mesh_format,
     luisa::span<Type const *const> types,
     vstd::string_view fileName) {
-    vstd::MD5 typeMD5;
-    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, CacheType::ByteCode, device, *device->fileIo, {}, typeMD5, mesh_format);
-    if (ptr) {
-        auto md5 = hlsl::CodegenUtility::GetTypeMD5(types);
-        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);
-    }
+    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, CacheType::ByteCode, device, *device->fileIo, {}, hlsl::CodegenUtility::GetTypeMD5(types), mesh_format);
     return ptr;
 }
 ID3D12PipelineState *RasterShader::GetPSO(

@@ -2,6 +2,11 @@ set_xmakever("2.8.1")
 add_rules("mode.release", "mode.debug", "mode.releasedbg")
 -- pre-defined options
 -- enable mimalloc as default allocator: https://github.com/LuisaGroup/mimalloc
+option("enable_custom_malloc")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
 option("enable_mimalloc")
 set_values(true, false)
 set_default(true)

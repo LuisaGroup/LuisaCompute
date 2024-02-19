@@ -41,7 +41,7 @@ public:
         fb->assign(_expression, another._expression);
     }
     Local &operator=(const Local &rhs) noexcept {
-        if (&rhs != this) [[likely]] {
+        if (std::addressof(rhs) != this) [[likely]] {
             if (_size != rhs._size) [[unlikely]] {
                 detail::local_array_error_sizes_missmatch(_size, rhs._size);
             }

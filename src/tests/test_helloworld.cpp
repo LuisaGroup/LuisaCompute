@@ -4,6 +4,7 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/dsl/syntax.h>
 #include <stb/stb_image_write.h>
+#include <EASTL/allocator.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -12,6 +13,7 @@ int main(int argc, char *argv[]) {
     Context context{argv[0]};
     if (argc <= 1) { exit(1); }
     Device device = context.create_device(argv[1]);
+    auto buffer = device.create_buffer<uint>(1024);
     Stream stream = device.create_stream();
     constexpr uint2 resolution = make_uint2(1024, 1024);
     Image<float> image{device.create_image<float>(PixelStorage::BYTE4, resolution)};

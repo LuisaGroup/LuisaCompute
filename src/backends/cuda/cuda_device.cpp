@@ -268,7 +268,7 @@ void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     });
 }
 
-ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access) noexcept {
+ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept {
     auto p = with_handle([=] {
         auto array_format = cuda_array_format(format);
         auto channels = pixel_format_channel_count(format);
@@ -366,7 +366,7 @@ SwapchainCreationInfo CUDADevice::create_swapchain(uint64_t window_handle, uint6
     });
     SwapchainCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(chain);
-    info.native_handle = chain;
+    info.native_handle = chain->native_handle();
     info.storage = chain->pixel_storage();
     return info;
 #else

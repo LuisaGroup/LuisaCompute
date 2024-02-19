@@ -732,6 +732,7 @@ pub struct DeviceInterface {
         u32,
         u32,
         bool,
+        bool,
     ) -> CreatedResourceInfo,
     pub native_handle: unsafe extern "C" fn(Device) -> *mut c_void,
     pub compute_warp_size: unsafe extern "C" fn(Device) -> u32,

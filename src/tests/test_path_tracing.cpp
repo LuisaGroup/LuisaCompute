@@ -18,7 +18,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "common/tiny_obj_loader.h"
 
-#define CLANG_CXX
+// #define CLANG_CXX
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -329,7 +329,11 @@ int main(int argc, char *argv[]) {
     Clock clock;
 
     while (!window.should_close()) {
+#ifdef CLANG_CXX
         cmd_list << raytracing_shader(framebuffer, seed_image, accel, heap, vertex_buffer, materials, resolution)
+#else
+        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
+#endif
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);

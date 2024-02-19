@@ -53,7 +53,7 @@ void ClientInterface::destroy_buffer(uint64_t handle) noexcept {
 ResourceCreationInfo ClientInterface::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
-    uint mipmap_levels, bool simultaneous_access) noexcept {
+    uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept {
 
     ResourceCreationInfo r;
     r.handle = _flag++;
@@ -67,6 +67,7 @@ ResourceCreationInfo ClientInterface::create_texture(
     SerDe::ser_value(depth, _send_bytes);
     SerDe::ser_value(mipmap_levels, _send_bytes);
     SerDe::ser_value(simultaneous_access, _send_bytes);
+    SerDe::ser_value(allow_raster_target, _send_bytes);
     _callback->async_send(std::move(_send_bytes));
     return r;
 }

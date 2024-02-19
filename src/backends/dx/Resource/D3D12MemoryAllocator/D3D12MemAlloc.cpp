@@ -28,7 +28,7 @@
 #include <utility>
 #include <cstdlib>
 #include <cstdint>
-#include <luisa/vstl/pdqsort.h>
+#include <luisa/core/stl/algorithm.h>
 #include <malloc.h>//
 #ifndef _WIN32
 #include <shared_mutex>
@@ -50,7 +50,7 @@
 #endif
 
 #ifndef D3D12MA_SORT
-#define D3D12MA_SORT(beg, end, cmp) pdqsort(beg, end, cmp)
+#define D3D12MA_SORT(beg, end, cmp) luisa::sort(beg, end, cmp)
 #endif
 
 #ifndef D3D12MA_D3D12_HEADERS_ALREADY_INCLUDED

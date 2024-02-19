@@ -22,7 +22,6 @@ ComputeShader *ComputeShader::LoadPresetCompute(
     using namespace ComputeShaderDetail;
     auto psoName = Shader::PSOName(device, fileName);
     bool oldDeleted = false;
-    vstd::MD5 typeMD5;
     auto result = ShaderSerializer::DeSerialize(
         fileName,
         psoName,
@@ -31,14 +30,12 @@ ComputeShader *ComputeShader::LoadPresetCompute(
         *fileIo,
         profiler,
         {},
-        typeMD5,
+        hlsl::CodegenUtility::GetTypeMD5(types),
         {},
         oldDeleted);
     //Cached
 
     if (result) {
-        auto md5 = hlsl::CodegenUtility::GetTypeMD5(types);
-        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);
         if (oldDeleted) {
             result->SavePSO(result->Pso(), psoName, fileIo, device);
         }
@@ -139,7 +136,6 @@ ComputeShader *ComputeShader::CompileCompute(
     if (!fileName.empty()) {
         vstd::string psoName = Shader::PSOName(device, fileName);
         bool oldDeleted = false;
-        vstd::MD5 typeMD5;
         //Cached
         auto result = ShaderSerializer::DeSerialize(
             fileName,
@@ -149,7 +145,7 @@ ComputeShader *ComputeShader::CompileCompute(
             *fileIo,
             profiler,
             checkMD5,
-            typeMD5,
+            {},
             std::move(bindings),
             oldDeleted);
         if (result) {

@@ -100,6 +100,25 @@ class RayQueryAllType:
                                     lcapi.CallOp.RAY_QUERY_WORLD_SPACE_RAY,
                                     [self.expr])
         return Ray, expr
+    @BuiltinFuncBuilder
+    def proceed(self):
+        expr = lcapi.builder().call(to_lctype(bool),
+                                    lcapi.CallOp.RAY_QUERY_PROCEED,
+                                    [self.expr])
+        return bool, expr
+    @BuiltinFuncBuilder
+    def is_triangle_candidate(self):
+        expr = lcapi.builder().call(to_lctype(bool),
+                                    lcapi.CallOp.RAY_QUERY_IS_TRIANGLE_CANDIDATE,
+                                    [self.expr])
+        return bool, expr
+    @BuiltinFuncBuilder
+    def is_procedural_candidate(self):
+        expr = lcapi.builder().call(to_lctype(bool),
+                                    lcapi.CallOp.RAY_QUERY_IS_PROCEDURAL_CANDIDATE,
+                                    [self.expr])
+        return bool, expr
+        
 
 
 rayQueryAllType = RayQueryAllType()

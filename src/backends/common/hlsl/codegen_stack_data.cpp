@@ -42,11 +42,6 @@ void CodegenStackData::Clear() {
     useTex3DBindless = false;
     useBufferBindless = false;
 }
-/*
-static thread_local bool gIsCodegenSpirv = false;
-bool &CodegenStackData::ThreadLocalSpirv() {
-    return gIsCodegenSpirv;
-}*/
 
 vstd::string_view CodegenStackData::CreateStruct(Type const *t) {
     auto iter = internalStruct.find(t);

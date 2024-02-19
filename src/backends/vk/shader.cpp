@@ -20,7 +20,6 @@ Shader::Shader(
                 return VK_SHADER_STAGE_ALL;
         }
     }();
-    vstd::vector<VkDescriptorSetLayout> descriptorSetLayouts;
     vstd::vector<vstd::vector<VkDescriptorSetLayoutBinding>> bindings;
     for (auto &&i : binds) {
         bindings.resize(std::max<size_t>(bindings.size(), i.space_index + 1));
@@ -59,28 +58,31 @@ Shader::Shader(
         vstd::push_back_all(_binds, binds);
     }
 
-    descriptorSetLayouts.reserve(bindings.size());
+    _desc_set_layout.reserve(bindings.size());
     for (auto &&i : bindings) {
         VkDescriptorSetLayoutCreateInfo descriptorLayout{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             .bindingCount = static_cast<uint>(i.size()),
             .pBindings = i.data()};
-        auto &r = descriptorSetLayouts.emplace_back();
-        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device->logic_device(), &descriptorLayout, nullptr, &r));
+        auto &r = _desc_set_layout.emplace_back();
+        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device->logic_device(), &descriptorLayout, Device::alloc_callbacks(), &r));
     }
 
-    auto disposer = vstd::scope_exit([&] {
-        for (auto &&i : descriptorSetLayouts) {
-            vkDestroyDescriptorSetLayout(device->logic_device(), i, nullptr);
-        }
-    });
     VkPipelineLayoutCreateInfo pPipelineLayoutCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-        .setLayoutCount = static_cast<uint>(descriptorSetLayouts.size()),
-        .pSetLayouts = descriptorSetLayouts.data()};
-    VK_CHECK_RESULT(vkCreatePipelineLayout(device->logic_device(), &pPipelineLayoutCreateInfo, nullptr, &_pipeline_layout));
+        .setLayoutCount = static_cast<uint>(_desc_set_layout.size()),
+        .pSetLayouts = _desc_set_layout.data()};
+    VK_CHECK_RESULT(
+        vkCreatePipelineLayout(
+            device->logic_device(),
+            &pPipelineLayoutCreateInfo,
+            Device::alloc_callbacks(),
+            &_pipeline_layout));
 }
 Shader::~Shader() {
-    vkDestroyPipelineLayout(device()->logic_device(), _pipeline_layout, nullptr);
+    for (auto &&i : _desc_set_layout) {
+        vkDestroyDescriptorSetLayout(device()->logic_device(), i, Device::alloc_callbacks());
+    }
+    vkDestroyPipelineLayout(device()->logic_device(), _pipeline_layout, Device::alloc_callbacks());
 }
 }// namespace lc::vk

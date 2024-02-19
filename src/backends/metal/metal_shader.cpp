@@ -286,7 +286,7 @@ void MetalShader::launch(MetalCommandEncoder &encoder,
             compute_encoder->useResource(info.buffer, mtl_usage(Usage::READ_WRITE));
         }
 
-        auto size = argument_offset;
+        auto size = luisa::align(argument_offset, argument_alignment);
         compute_encoder->setBytes(argument_buffer.data(), size, 0u);
 
         for (auto dispatch_size : dispatch_sizes) {

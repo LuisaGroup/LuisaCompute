@@ -20,15 +20,18 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     VkQueue _graphics_queue{};
     VkQueue _compute_queue{};
     VkQueue _copy_queue{};
+    VkDescriptorPool _desc_pool;
     VkPipelineCacheHeaderVersionOne _pso_header{};
     vstd::optional<VkAllocator> _allocator;
     BinaryIO const *_binary_io{};
     vstd::unique_ptr<DefaultBinaryIO> _default_file_io;
-    void _init_device(uint32_t selectedDevice);
+    void _init_device(uint32_t selectedDevice, bool fallback);
 
 public:
     static hlsl::ShaderCompiler *Compiler();
+    static VkAllocationCallbacks *alloc_callbacks();
     VkInstance instance() const;
+    uint compute_warp_size() const noexcept override { return 0; }
     auto &allocator() { return *_allocator; }
     auto physical_device() const { return _vk_device->physicalDevice; }
     auto logic_device() const { return _vk_device->logicalDevice; }
@@ -42,15 +45,18 @@ public:
     Device(Context &&ctx, DeviceConfig const *configs);
     ~Device();
     void *native_handle() const noexcept override;
-    BufferCreationInfo create_buffer(const Type *element, size_t elem_count) noexcept override;
-    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count) noexcept override;
+    BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_ptr) noexcept override;
+    BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_ptr) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-
+    auto graphics_queue() const { return _graphics_queue; }
+    auto compute_queue() const { return _compute_queue; }
+    auto copy_queue() const { return _copy_queue; }
+    auto desc_pool() const { return _desc_pool; }
     // texture
     ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
-        uint mipmap_levels, bool simultaneous_access) noexcept override;
+        uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
 
     // bindless array

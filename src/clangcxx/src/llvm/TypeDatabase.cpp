@@ -191,10 +191,10 @@ TypeDatabase::Commenter TypeDatabase::CommentStmt(compute::detail::FunctionBuild
     } else if (auto cxxCtor = llvm::dyn_cast<CXXConstructExpr>(x)) {
         auto cxxCtorDecl = cxxCtor->getConstructor();
         return Commenter([=, this] { commentSourceLoc(fb,
-                                                luisa::format("CONSTRUCT{}: {}",
-                                                              cxxCtorDecl->isMoveConstructor() ? "(MOVE)" : "",
-                                                              cxxCtorDecl->getParent()->getName().data()),
-                                                x->getBeginLoc()); });
+                                                      luisa::format("CONSTRUCT{}: {}",
+                                                                    cxxCtorDecl->isMoveConstructor() ? "(MOVE)" : "",
+                                                                    cxxCtorDecl->getParent()->getName().data()),
+                                                      x->getBeginLoc()); });
     } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
         return Commenter([=, this] {
             auto funcDecl = llvm::dyn_cast<FunctionDecl>(cxxDefaultArg->getParam()->getParentFunctionOrMethod());
@@ -403,6 +403,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         }
 
         size_t alignment = 4u;
+        luisa::vector<luisa::compute::Attribute> type_attributes;
         luisa::vector<const luisa::compute::Type *> types;
         if (!S->isLambda() && !isSwizzle(S)) {// ignore lambda generated capture fields
             for (auto f = S->field_begin(); f != S->field_end(); f++) {
@@ -415,6 +416,24 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
                 if (auto isArray = Ty->getAsArrayTypeUnsafe()) {
                     DumpWithLocation(f->getFirstDecl());
                     luisa::log_error("Field as C-style array type is not supported: [{}]", Ty.getAsString());
+                }
+                for (auto Anno = f->specific_attr_begin<clang::AnnotateAttr>(); Anno != f->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
+                    if (Anno->getAnnotation() == "luisa-shader") {
+                        type_attributes.resize(types.size());
+                        auto &a = type_attributes.emplace_back();
+                        if (Anno->args_size() >= 1) {
+                            if (auto Literal = llvm::dyn_cast<clang::StringLiteral>((*Anno->args_begin())->IgnoreParenCasts())) {
+                                auto _what = Literal->getString();
+                                a.key = _what;
+                            }
+                        }
+                        if (Anno->args_size() >= 2) {
+                            if (auto Literal = llvm::dyn_cast<clang::StringLiteral>((*(Anno->args_begin() + 1))->IgnoreParenCasts())) {
+                                auto _what = Literal->getString();
+                                a.value = _what;
+                            }
+                        }
+                    }
                 }
 
                 if (!tryEmplaceFieldType(Ty, S, types)) {
@@ -437,7 +456,11 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
         for (auto ft : types) {
             alignment = std::max(alignment, ft->alignment());
         }
-        auto lcType = Type::structure(alignment, types);
+        if (!type_attributes.empty()) {
+            type_attributes.resize(types.size());
+        }
+        auto lcType = Type::structure(alignment, types, type_attributes);
+        LUISA_WARNING("{}", lcType->description());
         QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
         registerType(Ty, lcType);
         return lcType;

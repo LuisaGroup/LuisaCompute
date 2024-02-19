@@ -52,7 +52,7 @@ private:
           _size{size} {}
 
     Volume(DeviceInterface *device, PixelStorage storage, uint3 size,
-           uint mip_levels = 1u, bool simultaneous_access = false) noexcept
+           uint mip_levels = 1u, bool simultaneous_access = false, bool allow_raster_target = false) noexcept
         : Volume{device,
                  [&] {
                      if (size.x == 0 || size.y == 0 || size.z == 0) [[unlikely]] {
@@ -62,7 +62,7 @@ private:
                          pixel_storage_to_format<T>(storage), 3u,
                          size.x, size.y, size.z,
                          detail::max_mip_levels(size, mip_levels),
-                         simultaneous_access);
+                         simultaneous_access, allow_raster_target);
                  }(),
                  storage, size, mip_levels} {}
 
@@ -102,7 +102,7 @@ public:
             detail::error_volume_invalid_mip_levels(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
-        return VolumeView<T>{handle(), _storage, level, mip_size};
+        return VolumeView<T>{native_handle(), handle(), _storage, level, mip_size};
     }
     [[nodiscard]] auto view() const noexcept { return view(0u); }
 
@@ -132,6 +132,7 @@ template<typename T>
 class VolumeView {
 
 private:
+    void *_native_handle;
     uint64_t _handle;
     PixelStorage _storage;
     uint _level;
@@ -148,14 +149,16 @@ private:
     }
 
 public:
-    VolumeView(uint64_t handle, PixelStorage storage,
+    VolumeView(void *native_handle, uint64_t handle, PixelStorage storage,
                uint level, uint3 size) noexcept
-        : _handle{handle}, _storage{storage},
+        : _native_handle{native_handle},
+          _handle{handle}, _storage{storage},
           _level{level}, _size{size} {}
 
     VolumeView(const Volume<T> &volume) noexcept : VolumeView{volume.view(0u)} {}
 
     // properties
+    [[nodiscard]] auto native_handle() const noexcept { return _native_handle; }
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto size() const noexcept { return _size; }
     [[nodiscard]] auto size_bytes() const noexcept {

@@ -2,7 +2,7 @@ local enable_gui = get_config("enable_gui")
 target("stb-image")
 set_basename("lc-ext-stb-image")
 _config_project({
-    project_kind = "shared"
+    project_kind = "static"
 })
 add_headerfiles("../ext/stb/**.h")
 add_files("../ext/stb/stb.c")

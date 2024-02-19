@@ -13,7 +13,8 @@ if (LUISA_COMPUTE_ENABLE_CLANG_CXX)
             OUTPUT_NAME "lc-clangcxx")
     target_compile_definitions(luisa-compute-clangcxx PRIVATE
             LC_CLANGCXX_EXPORT_DLL
-            $<$<CONFIG:Debug>:LC_CLANGCXX_ENABLE_COMMENT=1>)
+            $<$<CONFIG:Debug>:LC_CLANGCXX_ENABLE_COMMENT=1>
+            PUBLIC LUISA_ENABLE_CLANGCXX=1)
     target_include_directories(luisa-compute-clangcxx PRIVATE ${CLANG_INCLUDE_DIRS})
     target_link_libraries(luisa-compute-clangcxx PRIVATE clangTooling)
     if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")

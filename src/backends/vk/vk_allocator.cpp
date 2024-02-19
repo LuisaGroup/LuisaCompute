@@ -54,7 +54,10 @@ AllocatedImage VkAllocator::allocate_image(
             .height = size.y,
             .depth = size.z},
         .mipLevels = mip_level,
-        .usage = usage};
+        .arrayLayers = 1,
+        .samples = VK_SAMPLE_COUNT_1_BIT,
+        .usage = usage,
+        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
     VmaAllocationCreateInfo allocInfo = {
         .flags = VMA_ALLOCATION_CREATE_STRATEGY_BEST_FIT_BIT,
         .usage = VMA_MEMORY_USAGE_AUTO};

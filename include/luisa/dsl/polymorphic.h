@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/dsl/expr_traits.h>
 #include <luisa/dsl/builtin.h>
 #include <luisa/dsl/stmt.h>
@@ -101,7 +102,7 @@ public:
                     t, _impl.size());
             }
         }
-        std::sort(tags.begin(), tags.end());
+        luisa::sort(tags.begin(), tags.end());
         tags.erase(std::unique(tags.begin(), tags.end()), tags.end());
         if (tags.empty()) [[unlikely]] {
             detail::polymorphic_warning_empty_tag_group();
