@@ -11,12 +11,14 @@ static void check(int rc) {
 }// namespace lmdb_detail
 LMDB::LMDB(
     std::filesystem::path db_dir,
-    size_t map_size)
+    size_t map_size) noexcept
     : _path(luisa::to_string(db_dir)),
       _map_size(map_size) {
     using namespace lmdb_detail;
     check(mdb_env_create(&_env));
-    check(mdb_env_set_maxreaders(_env, 1));
+    if (std::thread::hardware_concurrency() > 126) {
+        check(mdb_env_set_maxreaders(_env, std::thread::hardware_concurrency()));
+    }
     check(mdb_env_set_mapsize(_env, _map_size));
     if (!std::filesystem::exists(db_dir)) {
         std::filesystem::create_directories(db_dir);
@@ -28,9 +30,8 @@ LMDB::LMDB(
     check(mdb_dbi_open(txn, nullptr, 0, &*_dbi));
     mdb_txn_abort(txn);
 }
-luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) {
+luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) noexcept {
     using namespace lmdb_detail;
-    std::shared_lock lck{_mtx};
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, MDB_RDONLY, &txn));
     MDB_val key_v{
@@ -44,9 +45,8 @@ luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) {
     }
     return {static_cast<std::byte const *>(value_v.mv_data), value_v.mv_size};
 }
-void LMDB::write(luisa::span<const std::byte> key, luisa::span<std::byte> value) {
+void LMDB::write(luisa::span<const std::byte> key, luisa::span<std::byte> value) noexcept {
     using namespace lmdb_detail;
-    std::lock_guard lck{_mtx};
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
     MDB_val key_v{
@@ -58,9 +58,8 @@ void LMDB::write(luisa::span<const std::byte> key, luisa::span<std::byte> value)
     mdb_put(txn, *_dbi, &key_v, &value_v, 0);
     check(mdb_txn_commit(txn));
 }
-void LMDB::write_all(luisa::vector<LMDBWriteCommand> &&commands) {
+void LMDB::write_all(luisa::vector<LMDBWriteCommand> &&commands) noexcept {
     using namespace lmdb_detail;
-    std::lock_guard lck{_mtx};
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
     for (auto &i : commands) {
@@ -74,16 +73,15 @@ void LMDB::write_all(luisa::vector<LMDBWriteCommand> &&commands) {
     }
     check(mdb_txn_commit(txn));
 }
-LMDB::LMDB(LMDB &&rhs) {
-    std::lock_guard lck0{_mtx};
-    std::lock_guard lck1{rhs._mtx};
-    _path = std::move(rhs._path);
-    _map_size = rhs._map_size;
-    _env = rhs._env;
-    _flag = rhs._flag;
-    _dbi = std::move(rhs._dbi);
+LMDB::LMDB(LMDB &&rhs) noexcept
+    : _path(std::move(rhs._path)),
+      _map_size(rhs._map_size),
+      _env(rhs._env),
+      _dbi(std::move(rhs._dbi)),
+      _flag(rhs._flag) {
+    rhs._env = nullptr;
 }
-void LMDB::_dispose() {
+void LMDB::_dispose() noexcept {
     if (_env) {
         if (_dbi) {
             mdb_dbi_close(_env, *_dbi);
@@ -93,7 +91,7 @@ void LMDB::_dispose() {
         _env = nullptr;
     }
 }
-void LMDB::copy_to(std::filesystem::path path) {
+void LMDB::copy_to(std::filesystem::path path) noexcept {
     using namespace lmdb_detail;
     if (!std::filesystem::exists(path)) {
         std::filesystem::create_directories(path);
@@ -103,9 +101,8 @@ void LMDB::copy_to(std::filesystem::path path) {
     }
     check(mdb_env_copy2(_env, luisa::to_string(path).c_str(), MDB_CP_COMPACT));
 }
-void LMDB::remove(luisa::span<const std::byte> key) {
+void LMDB::remove(luisa::span<const std::byte> key) noexcept {
     using namespace lmdb_detail;
-    std::lock_guard lck{_mtx};
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
     MDB_val key_v{
@@ -114,9 +111,8 @@ void LMDB::remove(luisa::span<const std::byte> key) {
     mdb_del(txn, *_dbi, &key_v, nullptr);
     check(mdb_txn_commit(txn));
 }
-void LMDB::remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) {
+void LMDB::remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) noexcept {
     using namespace lmdb_detail;
-    std::lock_guard lck{_mtx};
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
     for (auto &i : keys) {

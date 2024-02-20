@@ -23,28 +23,27 @@ class LC_VSTL_API LMDB {
     MDB_env *_env{nullptr};
     luisa::optional<uint32_t> _dbi{};
     uint32_t _flag;
-    std::shared_mutex _mtx;
-    void _dispose();
+    void _dispose() noexcept;
 
 public:
     LMDB(
         std::filesystem::path db_dir,
-        // 1T as default
-        size_t map_size = 1024ull * 1024ull * 1024ull * 1024ull);
+        // 64G as default (should be enough for shader?)
+        size_t map_size = 1024ull * 1024ull * 1024ull * 64ull) noexcept;
     LMDB(LMDB const &) = delete;
     LMDB &operator=(LMDB const &) = delete;
-    LMDB(LMDB &&rhs);
-    LMDB &operator=(LMDB &&rhs) {
+    LMDB(LMDB &&rhs) noexcept;
+    LMDB &operator=(LMDB &&rhs) noexcept {
         this->~LMDB();
         new (std::launder(this)) LMDB{std::move(rhs)};
         return *this;
     }
-    luisa::span<const std::byte> read(luisa::span<const std::byte> key);
-    void write(luisa::span<const std::byte> key, luisa::span<std::byte> value);
-    void write_all(luisa::vector<LMDBWriteCommand> &&commands);
-    void remove(luisa::span<const std::byte> key);
-    void remove_all(luisa::vector<luisa::vector<std::byte>> &&keys);
-    void copy_to(std::filesystem::path path);
-    ~LMDB();
+    luisa::span<const std::byte> read(luisa::span<const std::byte> key) noexcept;
+    void write(luisa::span<const std::byte> key, luisa::span<std::byte> value) noexcept;
+    void write_all(luisa::vector<LMDBWriteCommand> &&commands) noexcept;
+    void remove(luisa::span<const std::byte> key) noexcept;
+    void remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) noexcept;
+    void copy_to(std::filesystem::path path) noexcept;
+    ~LMDB() noexcept;
 };
 };// namespace vstd
