@@ -95,19 +95,6 @@ void DefaultBinaryIO::_unlock(MapIndex const &idx, bool is_write) const noexcept
     }
 }
 
-void DefaultBinaryIO::_init_data_lmdb() const noexcept {
-    std::lock_guard lck{_db_mtx};
-    if (!_data_lmdb) [[unlikely]] {
-        _data_lmdb.emplace(_data_dir);
-    }
-}
-void DefaultBinaryIO::_init_cache_lmdb() const noexcept {
-    std::lock_guard lck{_db_mtx};
-    if (!_cache_lmdb) [[unlikely]] {
-        _cache_lmdb.emplace(_cache_dir);
-    }
-}
-
 void DefaultBinaryIO::_write(const luisa::string &file_path, luisa::span<std::byte const> data) const noexcept {
     auto folder = luisa::filesystem::path{file_path}.parent_path();
     std::error_code ec;
@@ -135,7 +122,9 @@ void DefaultBinaryIO::_write(const luisa::string &file_path, luisa::span<std::by
 DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, void *ext) noexcept
     : _ctx(std::move(ctx)),
       _cache_dir{_ctx.create_runtime_subdir(".cache"sv)},
-      _data_dir{_ctx.create_runtime_subdir(".data"sv)} {
+      _data_dir{_ctx.create_runtime_subdir(".data"sv)},
+      _data_lmdb{_data_dir},
+      _cache_lmdb{_cache_dir} {
 }
 
 DefaultBinaryIO::~DefaultBinaryIO() noexcept = default;
@@ -150,15 +139,13 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::str
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_cache(luisa::string_view name) const noexcept {
-    _init_cache_lmdb();
-    auto r = _cache_lmdb->read(
+    auto r = _cache_lmdb.read(
         {reinterpret_cast<std::byte const *>(name.data()), name.size()});
     return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::string_view name) const noexcept {
-    _init_data_lmdb();
-    auto r = _data_lmdb->read(
+    auto r = _data_lmdb.read(
         {reinterpret_cast<std::byte const *>(name.data()), name.size()});
     return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
 }
@@ -175,16 +162,14 @@ luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_vie
 }
 
 luisa::filesystem::path DefaultBinaryIO::write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
-    _init_cache_lmdb();
-    _cache_lmdb->write(
+    _cache_lmdb.write(
         {reinterpret_cast<std::byte const *>(name.data()), name.size()},
         {const_cast<std::byte *>(data.data()), data.size()});
     return _cache_dir / name;
 }
 
 luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
-    _init_data_lmdb();
-    _data_lmdb->write(
+    _data_lmdb.write(
         {reinterpret_cast<std::byte const *>(name.data()), name.size()},
         {const_cast<std::byte *>(data.data()), data.size()});
     return _data_dir / name;

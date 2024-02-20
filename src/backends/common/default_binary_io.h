@@ -23,17 +23,14 @@ class DefaultBinaryIO final : public BinaryIO {
 
 private:
     Context _ctx;
-    mutable luisa::spin_mutex _db_mtx;
     mutable luisa::spin_mutex _global_mtx;
     mutable MutexMap _mutex_map;
     std::filesystem::path _cache_dir;
     std::filesystem::path _data_dir;
-    mutable luisa::optional<vstd::LMDB> _data_lmdb;
-    mutable luisa::optional<vstd::LMDB> _cache_lmdb;
+    mutable vstd::LMDB _data_lmdb;
+    mutable vstd::LMDB _cache_lmdb;
 
 private:
-    void _init_data_lmdb() const noexcept;
-    void _init_cache_lmdb() const noexcept;
     luisa::unique_ptr<BinaryStream> _read(luisa::string const &file_path) const noexcept;
     void _write(luisa::string const &file_path, luisa::span<std::byte const> data) const noexcept;
     MapIndex _lock(luisa::string const &name, bool is_write) const noexcept;
