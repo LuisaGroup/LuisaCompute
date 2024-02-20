@@ -3,7 +3,7 @@ _config_project({
     project_kind = "static",
     batch_size = 4
 })
-add_deps("lc-core")
+add_deps("lc-core", "lmdb")
 set_pcxxheader("pch.h")
 add_headerfiles("../../include/luisa/vstl/**.h")
 add_defines("LUISA_VSTL_STATIC_LIB", {

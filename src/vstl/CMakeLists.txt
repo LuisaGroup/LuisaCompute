@@ -1,5 +1,6 @@
 set(LUISA_COMPUTE_VSTL_SOURCES
         log.cpp
+        lmdb.cpp
         md5.cpp
         stack_allocator.cpp
         string_utility.cpp
