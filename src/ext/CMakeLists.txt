@@ -175,7 +175,6 @@ install(DIRECTORY reproc/reproc++/include/reproc++
         FILES_MATCHING REGEX ".*\\.hpp$")
 # Note: we do not link `reproc` and `reproc++` to `luisa-compute-ext` but
 #       instead to `luisa-compute-core` since this is an OBJECT library.
-
 add_library(luisa-compute-ext-lmdb OBJECT
         liblmdb/mdb.c liblmdb/lmdb.h
         liblmdb/midl.c liblmdb/midl.h)
@@ -183,6 +182,9 @@ target_include_directories(luisa-compute-ext-lmdb PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/liblmdb>)
 if (UNIX AND NOT APPLE)
     target_compile_options(luisa-compute-ext-lmdb PRIVATE "-fPIC")
+endif ()
+if (WIN32)
+    target_compile_options(luisa-compute-ext-lmdb PRIVATE "-UWIN32_LEAN_AND_MEAN")
 endif ()
 set_target_properties(luisa-compute-ext-lmdb PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
