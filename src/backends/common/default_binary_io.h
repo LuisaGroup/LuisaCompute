@@ -1,7 +1,7 @@
 #pragma once
 
 #include <shared_mutex>
-
+#include <luisa/core/spin_mutex.h>
 #include <luisa/core/binary_io.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/vstl/common.h>

@@ -8,7 +8,7 @@ set(LUISA_COMPUTE_VSTL_SOURCES
         vstl.cpp)
 
 add_library(luisa-compute-vstl SHARED ${LUISA_COMPUTE_VSTL_SOURCES})
-target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-core)
+target_link_libraries(luisa-compute-vstl PUBLIC luisa-compute-core luisa-compute-ext-lmdb)
 target_compile_definitions(luisa-compute-vstl PRIVATE LC_VSTL_EXPORT_DLL=1)
 set_target_properties(luisa-compute-vstl PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
