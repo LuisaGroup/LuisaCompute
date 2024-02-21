@@ -75,12 +75,18 @@ public:
         new (std::launder(this)) LMDB{std::move(rhs)};
         return *this;
     }
-    luisa::span<const std::byte> read(luisa::span<const std::byte> key) noexcept;
-    void write(luisa::span<const std::byte> key, luisa::span<const std::byte> value) noexcept;
-    void write_all(luisa::vector<LMDBWriteCommand> &&commands) noexcept;
-    void remove(luisa::span<const std::byte> key) noexcept;
-    void remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) noexcept;
-    void copy_to(std::filesystem::path path) noexcept;
+    [[nodiscard]] luisa::span<const std::byte> read(luisa::span<const std::byte> key) const noexcept;
+    [[nodiscard]] luisa::span<const std::byte> read(luisa::string_view key) const noexcept {
+        return read(luisa::span{reinterpret_cast<std::byte const *>(key.data()), key.size()});
+    }
+    void write(luisa::span<const std::byte> key, luisa::span<const std::byte> value) const noexcept;
+    void write(luisa::string_view key, luisa::span<const std::byte> value) const noexcept {
+        write(luisa::span{reinterpret_cast<std::byte const *>(key.data()), key.size()}, value);
+    }
+    void write_all(luisa::vector<LMDBWriteCommand> &&commands) const noexcept;
+    void remove(luisa::span<const std::byte> key) const noexcept;
+    void remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) const noexcept;
+    void copy_to(std::filesystem::path path) const noexcept;
     ~LMDB() noexcept;
     [[nodiscard]] LMDBIterator begin() const noexcept;
     [[nodiscard]] LMDBIteratorEndTag end() const noexcept { return {}; }

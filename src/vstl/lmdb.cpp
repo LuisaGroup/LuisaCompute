@@ -30,7 +30,7 @@ LMDB::LMDB(
     check(mdb_dbi_open(txn, nullptr, 0, &*_dbi));
     mdb_txn_abort(txn);
 }
-luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) noexcept {
+luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) const noexcept {
     using namespace lmdb_detail;
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, MDB_RDONLY, &txn));
@@ -45,7 +45,7 @@ luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) noexce
     }
     return {static_cast<std::byte const *>(value_v.mv_data), value_v.mv_size};
 }
-void LMDB::write(luisa::span<const std::byte> key, luisa::span<const std::byte> value) noexcept {
+void LMDB::write(luisa::span<const std::byte> key, luisa::span<const std::byte> value) const noexcept {
     using namespace lmdb_detail;
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
@@ -58,7 +58,7 @@ void LMDB::write(luisa::span<const std::byte> key, luisa::span<const std::byte> 
     mdb_put(txn, *_dbi, &key_v, &value_v, 0);
     check(mdb_txn_commit(txn));
 }
-void LMDB::write_all(luisa::vector<LMDBWriteCommand> &&commands) noexcept {
+void LMDB::write_all(luisa::vector<LMDBWriteCommand> &&commands) const noexcept {
     using namespace lmdb_detail;
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
@@ -91,7 +91,7 @@ void LMDB::_dispose() noexcept {
         _env = nullptr;
     }
 }
-void LMDB::copy_to(std::filesystem::path path) noexcept {
+void LMDB::copy_to(std::filesystem::path path) const noexcept {
     using namespace lmdb_detail;
     if (!std::filesystem::exists(path)) {
         std::filesystem::create_directories(path);
@@ -101,7 +101,7 @@ void LMDB::copy_to(std::filesystem::path path) noexcept {
     }
     check(mdb_env_copy2(_env, luisa::to_string(path).c_str(), MDB_CP_COMPACT));
 }
-void LMDB::remove(luisa::span<const std::byte> key) noexcept {
+void LMDB::remove(luisa::span<const std::byte> key) const noexcept {
     using namespace lmdb_detail;
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
@@ -111,7 +111,7 @@ void LMDB::remove(luisa::span<const std::byte> key) noexcept {
     mdb_del(txn, *_dbi, &key_v, nullptr);
     check(mdb_txn_commit(txn));
 }
-void LMDB::remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) noexcept {
+void LMDB::remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) const noexcept {
     using namespace lmdb_detail;
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
