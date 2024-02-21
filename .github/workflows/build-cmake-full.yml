@@ -44,7 +44,7 @@ jobs:
             sudo apt-get -y install libc++-${{ matrix.compiler.version }}-dev libc++abi-${{ matrix.compiler.version }}-dev
           fi
           sudo apt-get update
-          sudo apt-get -y install build-essential cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
+          sudo apt-get -y install build-essential cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev libxkbcommon-dev
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup CUDA"
         run: |
