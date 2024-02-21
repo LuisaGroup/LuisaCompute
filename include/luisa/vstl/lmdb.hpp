@@ -17,6 +17,43 @@ struct LMDBWriteCommand {
     luisa::vector<std::byte> key;
     luisa::vector<std::byte> value;
 };
+
+struct LMDBIteratorEndTag {};
+
+struct LC_VSTL_API LMDBIterator {
+    friend class LMDB;
+    struct Value {
+        luisa::span<const std::byte> key;
+        luisa::span<const std::byte> value;
+    };
+    Value const &operator*() const noexcept {
+        return _value;
+    }
+    void operator++() noexcept;
+    void operator++(int) noexcept {
+        return operator++();
+    }
+    bool operator==(LMDBIteratorEndTag) const noexcept {
+        return _finished;
+    }
+    LMDBIterator(LMDBIterator const &) = delete;
+    LMDBIterator(LMDBIterator &&rhs) noexcept;
+    LMDBIterator &operator=(LMDBIterator const &) = delete;
+    LMDBIterator &operator=(LMDBIterator &&rhs) noexcept {
+        this->~LMDBIterator();
+        new (std::launder(this)) LMDBIterator{std::move(rhs)};
+        return *this;
+    }
+    ~LMDBIterator() noexcept;
+
+private:
+    MDB_txn *_txn;
+    MDB_cursor *_cursor;
+    Value _value;
+    bool _finished{false};
+    LMDBIterator(MDB_env *env, uint32_t dbi) noexcept;
+};
+
 class LC_VSTL_API LMDB {
     luisa::string _path;
     size_t _map_size;
@@ -39,11 +76,13 @@ public:
         return *this;
     }
     luisa::span<const std::byte> read(luisa::span<const std::byte> key) noexcept;
-    void write(luisa::span<const std::byte> key, luisa::span<std::byte> value) noexcept;
+    void write(luisa::span<const std::byte> key, luisa::span<const std::byte> value) noexcept;
     void write_all(luisa::vector<LMDBWriteCommand> &&commands) noexcept;
     void remove(luisa::span<const std::byte> key) noexcept;
     void remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) noexcept;
     void copy_to(std::filesystem::path path) noexcept;
     ~LMDB() noexcept;
+    [[nodiscard]] LMDBIterator begin() const noexcept;
+    [[nodiscard]] LMDBIteratorEndTag end() const noexcept { return {}; }
 };
 };// namespace vstd

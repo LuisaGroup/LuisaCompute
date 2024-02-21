@@ -45,7 +45,7 @@ luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) noexce
     }
     return {static_cast<std::byte const *>(value_v.mv_data), value_v.mv_size};
 }
-void LMDB::write(luisa::span<const std::byte> key, luisa::span<std::byte> value) noexcept {
+void LMDB::write(luisa::span<const std::byte> key, luisa::span<const std::byte> value) noexcept {
     using namespace lmdb_detail;
     MDB_txn *txn;
     check(mdb_txn_begin(_env, nullptr, 0, &txn));
@@ -126,5 +126,48 @@ void LMDB::remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) noexcept {
 LMDB::~LMDB() {
     using namespace lmdb_detail;
     _dispose();
+}
+LMDBIterator LMDB::begin() const noexcept {
+    return LMDBIterator{_env, *_dbi};
+}
+LMDBIterator::LMDBIterator(LMDBIterator &&rhs) noexcept
+    : _txn(rhs._txn),
+      _cursor(rhs._cursor),
+      _value(rhs._value),
+      _finished(rhs._finished) {
+    rhs._txn = nullptr;
+    rhs._cursor = nullptr;
+    rhs._finished = true;
+}
+
+LMDBIterator::~LMDBIterator() noexcept {
+    if (_txn) {
+        mdb_cursor_close(_cursor);
+        mdb_txn_abort(_txn);
+    }
+}
+LMDBIterator::LMDBIterator(MDB_env *env, uint32_t dbi) noexcept {
+    using namespace lmdb_detail;
+    check(mdb_txn_begin(env, nullptr, MDB_RDONLY, &_txn));
+    check(mdb_cursor_open(_txn, dbi, &_cursor));
+    operator++();
+}
+void LMDBIterator::operator++() noexcept {
+    MDB_val key{};
+    MDB_val data{};
+    auto rc = mdb_cursor_get(_cursor, &key, &data, MDB_NEXT);
+    _finished = rc != 0;
+    if (_finished) {
+        mdb_cursor_close(_cursor);
+        mdb_txn_abort(_txn);
+        _txn = nullptr;
+    } else {
+        _value.key = {
+            reinterpret_cast<std::byte const *>(key.mv_data),
+            key.mv_size};
+        _value.value = {
+            reinterpret_cast<std::byte const *>(data.mv_data),
+            data.mv_size};
+    }
 }
 }// namespace vstd

@@ -164,14 +164,14 @@ luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_vie
 luisa::filesystem::path DefaultBinaryIO::write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     _cache_lmdb.write(
         {reinterpret_cast<std::byte const *>(name.data()), name.size()},
-        {const_cast<std::byte *>(data.data()), data.size()});
+        data);
     return _cache_dir / name;
 }
 
 luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     _data_lmdb.write(
         {reinterpret_cast<std::byte const *>(name.data()), name.size()},
-        {const_cast<std::byte *>(data.data()), data.size()});
+        data);
     return _data_dir / name;
 }
 
