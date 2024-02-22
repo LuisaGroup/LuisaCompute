@@ -123,7 +123,7 @@ void LMDB::remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) const noex
     }
     check(mdb_txn_commit(txn));
 }
-LMDB::~LMDB() {
+LMDB::~LMDB() noexcept {
     using namespace lmdb_detail;
     _dispose();
 }
