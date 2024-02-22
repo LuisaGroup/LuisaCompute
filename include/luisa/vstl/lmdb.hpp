@@ -47,9 +47,9 @@ struct LC_VSTL_API LMDBIterator {
     ~LMDBIterator() noexcept;
 
 private:
-    MDB_txn *_txn;
-    MDB_cursor *_cursor;
-    Value _value;
+    MDB_txn *_txn{nullptr};
+    MDB_cursor *_cursor{nullptr};
+    Value _value{};
     bool _finished{false};
     LMDBIterator(MDB_env *env, uint32_t dbi) noexcept;
 };
