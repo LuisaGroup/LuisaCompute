@@ -75,6 +75,7 @@ const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty
     }
 
     auto name = GetNonQualifiedTypeName(Ty, astContext);
+    if (name == "void") return nullptr;
     auto iter = type_map.find(name);
     if (iter != type_map.end()) {
         return iter->second;
@@ -224,6 +225,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsPrimitiveType(const clang::Qua
 
             case (BuiltinType::Kind::Char16): _type = Type::of<char16_t>(); break;
             */
+            case (BuiltinType::Kind::Void): _type = Type::of<void>(); break;
             case (BuiltinType::Kind::Bool): _type = Type::of<bool>(); break;
 
             case (BuiltinType::Kind::UShort): _type = Type::of<uint16_t>(); break;
@@ -356,10 +358,13 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                     if (is_volume)
                         _type = Type::texture(lcType, 3);
                 } else {
-                    luisa::log_error("unfound {} element type: {}",
-                                     is_buffer ? "buffer" : is_image ? "image" :
-                                                                       "volume",
-                                     Arguments[0].getAsType().getAsString());
+                    if (is_buffer) {
+                        _type = Type::of<ByteBuffer>();
+                    } else {
+                        luisa::log_error("unfound {} element type: {}",
+                                         is_image ? "image" : "volume",
+                                         Arguments[0].getAsType().getAsString());
+                    }
                 }
             }
         } else {
@@ -474,10 +479,10 @@ const luisa::compute::Type *TypeDatabase::RecordType(const clang::QualType Qt, b
     // 1. PRIMITIVE
     if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
         _type = RecordAsPrimitiveType(Ty);
-        if (!_type) {
-            luisa::log_error("unsupported field primitive type: [{}], kind [{}]",
-                             Ty.getAsString(), builtin->getKind());
-        }
+        // if (!_type) {
+        //     luisa::log_error("unsupported field primitive type: [{}], kind [{}]",
+        //                      Ty.getAsString(), builtin->getKind());
+        // }
     } else {
         // 2. EMPLACE RECORD
         if (clang::RecordDecl *recordDecl = GetRecordDeclFromQualType(Ty)) {
