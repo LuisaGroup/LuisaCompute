@@ -5,7 +5,7 @@
 #include "default_binary_io.h"
 
 namespace luisa::compute {
-class LMDBBinaryStream : public BinaryStream {
+class LMDBBinaryStream final : public BinaryStream {
     std::byte const *_begin;
     std::byte const *_ptr;
     std::byte const *_end;
@@ -22,6 +22,12 @@ public:
     void read(luisa::span<std::byte> dst) noexcept override {
         memcpy(dst.data(), _ptr, dst.size());
         _ptr += dst.size();
+    }
+    BinaryBlob read(size_t expected_max_size) noexcept override {
+        auto len = std::min(expected_max_size, length());
+        BinaryBlob blob{const_cast<std::byte *>(_ptr), len, nullptr};
+        _ptr += len;
+        return blob;
     }
 };
 
@@ -140,11 +146,13 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_bytecode(luisa::str
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_cache(luisa::string_view name) const noexcept {
     auto r = _cache_lmdb.read(name);
+    if (r.empty()) return {};
     return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
 }
 
 luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::string_view name) const noexcept {
     auto r = _data_lmdb.read(name);
+    if (r.empty()) return {};
     return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
 }
 
@@ -168,5 +176,17 @@ luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_vie
     _data_lmdb.write(name, data);
     return _data_dir / name;
 }
-
+void DefaultBinaryIO::clear_shader_cache() const noexcept {
+    vstd::destruct(&_cache_lmdb);
+    std::error_code ec;
+    for (auto &&dir : std::filesystem::directory_iterator(_cache_dir)) {
+        std::filesystem::remove_all(dir, ec);
+        if (ec) [[unlikely]] {
+            LUISA_ERROR(
+                "Failed to remove dir '{}': {}.",
+                to_string(dir), ec.message());
+        }
+    }
+    new (std::launder(&_cache_lmdb)) vstd::LMDB{_cache_dir};
+}
 }// namespace luisa::compute

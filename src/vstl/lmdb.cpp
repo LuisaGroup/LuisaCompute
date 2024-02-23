@@ -10,7 +10,7 @@ static void check(int rc) {
 }
 }// namespace lmdb_detail
 LMDB::LMDB(
-    std::filesystem::path db_dir,
+    std::filesystem::path const &db_dir,
     size_t map_size) noexcept
     : _path(luisa::to_string(db_dir)),
       _map_size(map_size) {

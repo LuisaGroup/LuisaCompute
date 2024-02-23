@@ -47,11 +47,9 @@ std::pair<vstd::string, Type const *> DeserPrinterSize(BinaryStream *streamer) {
     streamer->read({reinterpret_cast<std::byte *>(&strAndTypeSize), sizeof(strAndTypeSize)});
     std::pair<vstd::string, Type const *> r;
     r.first.resize(strAndTypeSize.first);
-    vstd::vector<char> typeDesc;
-    typeDesc.resize_uninitialized(strAndTypeSize.second);
     streamer->read({reinterpret_cast<std::byte *>(r.first.data()), strAndTypeSize.first});
-    streamer->read({reinterpret_cast<std::byte *>(typeDesc.data()), strAndTypeSize.second});
-    r.second = Type::from(vstd::string_view{typeDesc.data(), typeDesc.size()});
+    BinaryBlob typeDesc = streamer->read(strAndTypeSize.second);
+    r.second = Type::from(vstd::string_view{reinterpret_cast<char const*>(typeDesc.data()), typeDesc.size()});
     return r;
 }
 }// namespace detail
@@ -196,15 +194,11 @@ ComputeShader *ShaderSerializer::DeSerialize(
         LUISA_WARNING("Shader {} arguments unmatch to requirement!", name);
         return nullptr;
     }
-    vstd::vector<std::byte> binCode;
-    binCode.push_back_uninitialized(targetSize);
-    vstd::vector<std::byte> psoCode;
-
-    binStream->read({binCode.data(), binCode.size()});
+    BinaryBlob binCode = binStream->read(targetSize);
+    BinaryBlob psoCode;
     auto psoStream = streamFunc.read_shader_cache(psoName);
     if (psoStream != nullptr && psoStream->length() > 0) {
-        psoCode.push_back_uninitialized(psoStream->length());
-        psoStream->read({psoCode.data(), psoCode.size()});
+        psoCode = psoStream->read(~0ull);
     }
     auto binPtr = binCode.data();
     auto rootSig = DeSerializeRootSig(
@@ -320,9 +314,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         LUISA_WARNING("Shader {} arguments unmatch to requirement!", name);
         return nullptr;
     }
-    vstd::vector<std::byte> binCode;
-    binCode.push_back_uninitialized(targetSize);
-    binStream->read({binCode.data(), binCode.size()});
+    BinaryBlob binCode = binStream->read(targetSize);
     auto binPtr = binCode.data();
     // auto psoDesc = RasterShader::GetState(
     //     elements,
