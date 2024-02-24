@@ -47,8 +47,9 @@ public:
         CacheType cacheType,
         Device *device,
         luisa::BinaryIO const &streamFunc,
+        luisa::compute::Profiler* profiler,
         vstd::optional<vstd::MD5> const &checkMD5,
-        vstd::MD5 &typeMD5,
+        vstd::optional<vstd::MD5> const &typeMD5,
         vstd::vector<luisa::compute::Argument> &&bindings,
         bool &clearCache);
     static RasterShader *RasterDeSerialize(
@@ -57,7 +58,7 @@ public:
         Device *device,
         luisa::BinaryIO const &streamFunc,
         vstd::optional<vstd::MD5> const &ilMd5,
-        vstd::MD5 &typeMD5,
+        vstd::optional<vstd::MD5> const &typeMD5,
         MeshFormat const &meshFormat);
     static bool CheckMD5(
         vstd::string_view fileName,

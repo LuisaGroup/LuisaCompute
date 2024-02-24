@@ -47,17 +47,17 @@ void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noe
         // user wants to force build
         command->request() == AccelBuildRequest::FORCE_BUILD ||
         // buffers changed
-        vertex_buffer->handle() + command->vertex_buffer_offset() != _vertex_buffer ||
+        vertex_buffer->device_address() + command->vertex_buffer_offset() != _vertex_buffer ||
         command->vertex_buffer_size() != _vertex_buffer_size ||
         command->vertex_stride() != _vertex_stride ||
-        triangle_buffer->handle() + command->triangle_buffer_offset() != _triangle_buffer ||
+        triangle_buffer->device_address() + command->triangle_buffer_offset() != _triangle_buffer ||
         command->triangle_buffer_size() != _triangle_buffer_size;
 
     // update buffers
-    _vertex_buffer = vertex_buffer->handle() + command->vertex_buffer_offset();
+    _vertex_buffer = vertex_buffer->device_address() + command->vertex_buffer_offset();
     _vertex_buffer_size = command->vertex_buffer_size();
     _vertex_stride = command->vertex_stride();
-    _triangle_buffer = triangle_buffer->handle() + command->triangle_buffer_offset();
+    _triangle_buffer = triangle_buffer->device_address() + command->triangle_buffer_offset();
     _triangle_buffer_size = command->triangle_buffer_size();
 
     // build or update

@@ -361,10 +361,10 @@ LUISA_EXPORT_API void luisa_compute_buffer_destroy(LCDevice device, LCBuffer buf
 LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_texture_create(LCDevice device,
                                                                     LCPixelFormat format, uint32_t dim,
                                                                     uint32_t w, uint32_t h, uint32_t d,
-                                                                    uint32_t mips, bool allow_simultaneous_access) LUISA_NOEXCEPT {
+                                                                    uint32_t mips, bool allow_simultaneous_access, bool allow_raster) LUISA_NOEXCEPT {
     auto dev = reinterpret_cast<DeviceInterface *>(device._0);
     auto pixel_format = PixelFormat{(uint8_t)to_underlying(format)};
-    auto info = dev->create_texture(pixel_format, dim, w, h, d, mips, allow_simultaneous_access);
+    auto info = dev->create_texture(pixel_format, dim, w, h, d, mips, allow_simultaneous_access, allow_raster);
     return LCCreatedResourceInfo{
         .handle = info.handle,
         .native_handle = info.native_handle,

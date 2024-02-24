@@ -72,6 +72,7 @@ void ServerInterface::execute(luisa::span<const std::byte> data, luisa::vector<s
         case DeviceFunc::AllocSparseTextureHeap: alloc_sparse_texture_heap(ptr, result); break;
         case DeviceFunc::DeAllocSparseTextureHeap: dealloc_sparse_texture_heap(ptr, result); break;
         case DeviceFunc::UpdateSparseResource: update_sparse_resource(ptr, result); break;
+        default: break;
     }
 }
 void ServerInterface::create_buffer_ast(std::byte const *&ptr, luisa::vector<std::byte> &result) noexcept {
@@ -99,12 +100,14 @@ void ServerInterface::create_texture(std::byte const *&ptr, luisa::vector<std::b
     auto depth = SerDe::deser_value<uint>(ptr);
     auto mipmap_levels = SerDe::deser_value<uint>(ptr);
     auto simultaneous_access = SerDe::deser_value<uint>(ptr);
+    auto raster = SerDe::deser_value<uint>(ptr);
     auto res = _impl->create_texture(
         format,
         dimension,
         width, height,
         depth, mipmap_levels,
-        simultaneous_access);
+        simultaneous_access,
+        raster);
     insert_handle(frontend_handle, res.handle);
 }
 void ServerInterface::destroy_texture(std::byte const *&ptr, luisa::vector<std::byte> &result) noexcept {

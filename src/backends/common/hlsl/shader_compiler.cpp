@@ -101,8 +101,7 @@ template<typename Vec>
 static void AddCompileFlags(Vec &args) {
     vstd::push_back_all(
         args,
-        {DXC_ARG_AVOID_FLOW_CONTROL,
-         DXC_ARG_ALL_RESOURCES_BOUND,
+        {DXC_ARG_ALL_RESOURCES_BOUND,
          L"-no-warnings",
          L"-enable-16bit-types",
          DXC_ARG_PACK_MATRIX_ROW_MAJOR,

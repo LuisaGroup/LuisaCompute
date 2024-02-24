@@ -20,6 +20,7 @@ public:
         uint mip,
         bool allowUav,
         bool allowSimul,
+        bool allowRaster,
         GpuAllocator *allocator = nullptr,
         bool shared_adaptor = false);
     ~RenderTexture();

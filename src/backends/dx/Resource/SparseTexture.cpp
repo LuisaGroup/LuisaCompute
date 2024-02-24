@@ -14,8 +14,7 @@ SparseTexture::SparseTexture(
     bool allowUav,
     bool allowSimul)
     : TextureBase(device, width, height, format, dimension, depth, mip, GetInitState()) {
-    auto texDesc = GetResourceDescBase(allowUav, allowSimul, true);
-    texDesc.Flags &= ~D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+    auto texDesc = GetResourceDescBase(allowUav, allowSimul, false, true);
     ThrowIfFailed(device->device->CreateReservedResource(
         &texDesc,
         GetInitState(),

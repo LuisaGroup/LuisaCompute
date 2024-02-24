@@ -39,13 +39,13 @@ void Device::WaitFence(ID3D12Fence *fence, uint64 fenceIndex) {
 }
 ComputeShader *Device::LazyLoadShader::Get(Device *self) {
     if (!shader) {
-        shader = vstd::create_unique(loadFunc(self, self->fileIo));
+        shader = vstd::create_unique(loadFunc(self));
     }
     return shader.get();
 }
 bool Device::LazyLoadShader::Check(Device *self) {
     if (shader) return true;
-    shader = vstd::create_unique(loadFunc(self, self->fileIo));
+    shader = vstd::create_unique(loadFunc(self));
     if (shader) {
         auto afterExit = vstd::scope_exit([&] { shader = nullptr; });
         return true;
@@ -81,6 +81,10 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         useRuntime = !settings->headless;
         maxAllocatorCount = settings->inqueue_buffer_limit ? 2 : std::numeric_limits<size_t>::max();
         fileIo = settings->binary_io;
+        profiler = settings->profiler;
+        if (settings->extension) {
+            deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
+        }
     }
     if (fileIo == nullptr) {
         serVisitor = vstd::make_unique<DefaultBinaryIO>(std::move(ctx), device.Get());
@@ -103,9 +107,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             info.Revision = desc.Revision;
             return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(&info), sizeof(AdapterInfo)}};
         };
-        if (settings && settings->extension) {
-            deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
-        }
+
         vstd::optional<DirectXDeviceConfigExt::ExternalDevice> extDevice;
         if (deviceSettings) {
             extDevice = deviceSettings->CreateExternalDevice();
@@ -133,20 +135,36 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
 #endif
             ThrowIfFailed(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(dxgiFactory.GetAddressOf())));
+            luisa::vector<luisa::string> device_names;
+            backend_device_names(device_names);
+            for (auto &name : device_names) {
+                for (auto &i : name) {
+                    if (i >= 'A' && i <= 'Z') {
+                        i += 'a' - 'A';
+                    }
+                }
+            }
             if (index == std::numeric_limits<size_t>::max()) {
-                luisa::vector<luisa::string> device_names;
-                backend_device_names(device_names);
                 index = 0;
                 for (size_t i = 0; i < device_names.size(); ++i) {
                     luisa::string &device_name = device_names[i];
-                    if (device_name.find("GeForce") != luisa::string::npos ||
-                        device_name.find("Radeon RX") != luisa::string::npos ||
-                        device_name.find("Arc") != luisa::string::npos) {
+                    if (device_name.find("geforce") != luisa::string::npos ||
+                        device_name.find("radeon") != luisa::string::npos ||
+                        device_name.find("arc") != luisa::string::npos) {
                         LUISA_INFO("Select device: {}", device_name);
                         index = i;
                         break;
                     }
                 }
+            }
+            auto &device_name = device_names[index];
+
+            if (device_name.find("nvidia") != luisa::string::npos) {
+                gpuType = GpuType::NVIDIA;
+            } else if (device_name.find("amd") != luisa::string::npos) {
+                gpuType = GpuType::AMD;
+            } else if (device_name.find("intel") != luisa::string::npos) {
+                gpuType = GpuType::INTEL;
             }
             auto capableAdapterIndex = 0u;
             for (auto adapterIndex = 0u; dxgiFactory->EnumAdapters1(adapterIndex, adapter.GetAddressOf()) != DXGI_ERROR_NOT_FOUND; adapterIndex++) {
@@ -155,8 +173,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
                     if (capableAdapterIndex++ == index) {
                         ThrowIfFailed(D3D12CreateDevice(
-                            adapter.Get(), D3D_FEATURE_LEVEL_12_1,
-                            IID_PPV_ARGS(device.GetAddressOf())));
+                            adapter.Get(), D3D_FEATURE_LEVEL_12_1, IID_PPV_ARGS(device.GetAddressOf())));
                         adapterID = GenAdapterGUID(desc);
                         break;
                     }
@@ -166,7 +183,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
             if (adapter == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to create DirectX device at index {}.", index); }
         }
-        defaultAllocator = vstd::make_unique<GpuAllocator>(this, settings ? settings->memory_profiler : nullptr);
+        defaultAllocator = vstd::make_unique<GpuAllocator>(this, profiler);
         globalHeap = vstd::create_unique(
             new DescriptorHeap(
                 this,

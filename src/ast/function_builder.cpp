@@ -481,6 +481,10 @@ void FunctionBuilder::pop_scope(const ScopeStmt *s) noexcept {
     _scope_stack.pop_back();
 }
 
+bool FunctionBuilder::inside_function_scope() const noexcept {
+    return !_scope_stack.empty() && _scope_stack.back() == &_body;
+}
+
 ForStmt *FunctionBuilder::for_(const Expression *var, const Expression *condition, const Expression *update) noexcept {
     var = _internalize(var);
     condition = _internalize(condition);
@@ -795,13 +799,13 @@ void FunctionBuilder::comment_(luisa::string comment) noexcept {
     _create_and_append_statement<CommentStmt>(std::move(comment));
 }
 
-void FunctionBuilder::print_(luisa::string_view format,
+void FunctionBuilder::print_(luisa::string format,
                              luisa::span<const Expression *const> args) noexcept {
     CallExpr::ArgumentList internalized_args;
     internalized_args.reserve(args.size());
     for (auto arg : args) { internalized_args.emplace_back(_internalize(arg)); }
     _create_and_append_statement<PrintStmt>(
-        luisa::string{format},
+        std::move(format),
         std::move(internalized_args));
     _requires_printing = true;
 }

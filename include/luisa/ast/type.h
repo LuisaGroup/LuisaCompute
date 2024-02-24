@@ -4,6 +4,7 @@
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/functional.h>
 #include <luisa/core/concepts.h>
+#include <luisa/ast/attribute.h>
 
 namespace luisa::compute {
 
@@ -346,13 +347,13 @@ public:
     /// Return texture type of type T
     [[nodiscard]] static const Type *texture(const Type *elem, size_t dimension) noexcept;
     /// Return struct type of type T
-    [[nodiscard]] static const Type *structure(luisa::span<const Type *> members) noexcept;
+    [[nodiscard]] static const Type *structure(luisa::span<Type const *const> members, luisa::span<const Attribute> attributes = {}) noexcept;
     /// Return struct type of type T
-    [[nodiscard]] static const Type *structure(size_t alignment, luisa::span<const Type *> members) noexcept;
+    [[nodiscard]] static const Type *structure(size_t alignment, luisa::span<Type const *const> members, luisa::span<const Attribute> attributes = {}) noexcept;
     /// Return struct type of type T
-    [[nodiscard]] static const Type *structure(std::initializer_list<const Type *> members) noexcept;
+    [[nodiscard]] static const Type *structure(std::initializer_list<const Type *> members, luisa::span<const Attribute> attributes = {}) noexcept;
     /// Return struct type of type T
-    [[nodiscard]] static const Type *structure(size_t alignment, std::initializer_list<const Type *> members) noexcept;
+    [[nodiscard]] static const Type *structure(size_t alignment, std::initializer_list<const Type *> members, luisa::span<const Attribute> attributes = {}) noexcept;
 
     /// Return struct type of type T
     template<typename... T>
@@ -414,6 +415,7 @@ public:
     [[nodiscard]] luisa::string_view description() const noexcept;
     [[nodiscard]] uint dimension() const noexcept;
     [[nodiscard]] luisa::span<const Type *const> members() const noexcept;
+    [[nodiscard]] luisa::span<const Attribute> member_attributes() const noexcept;
     [[nodiscard]] const Type *element() const noexcept;
 
     /// Scalar = bool || float || int || uint

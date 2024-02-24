@@ -110,10 +110,10 @@ public:
             compression);
     }
 
-    template<typename SparseImage>
-        requires is_sparse_image_v<SparseImage>
+    template<typename Image>
+        requires is_sparse_image_v<Image> || is_image_v<Image>
     [[nodiscard]] auto copy_to(
-        SparseImage &&image,
+        Image &&image,
         uint2 start_coord, uint2 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
         LUISA_ASSERT(all(start_coord + size <= image.size()), "Out of range.");
@@ -127,10 +127,10 @@ public:
             compression);
     }
 
-    template<typename SparseVolume>
-        requires is_sparse_volume_v<SparseVolume>
+    template<typename Volume>
+        requires is_sparse_volume_v<Volume> || is_volume_v<Volume>
     [[nodiscard]] auto copy_to(
-        SparseVolume &&volume,
+        Volume &&volume,
         uint3 start_coord, uint3 size, uint mip_level,
         DStorageCompression compression = DStorageCompression::None) const noexcept {
         LUISA_ASSERT(all(start_coord + size <= volume.size()), "Out of range.");

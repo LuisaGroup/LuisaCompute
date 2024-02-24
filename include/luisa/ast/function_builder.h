@@ -6,6 +6,7 @@
 #include <luisa/ast/statement.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/variable.h>
+#include <luisa/ast/attribute.h>
 #include <luisa/ast/expression.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/type_registry.h>
@@ -394,7 +395,7 @@ public:
     /// Add auto diff statement
     [[nodiscard]] AutoDiffStmt *autodiff_() noexcept;
     /// Add print statement
-    void print_(luisa::string_view format, luisa::span<const Expression *const> args) noexcept;
+    void print_(luisa::string format, luisa::span<const Expression *const> args) noexcept;
 
     // For autodiff use only
     [[nodiscard]] const Statement *pop_stmt() noexcept;
@@ -427,6 +428,8 @@ public:
     void push_scope(ScopeStmt *) noexcept;
     /// Pop a scope
     void pop_scope(const ScopeStmt *) noexcept;
+    /// Check if inside the function level scope
+    [[nodiscard]] bool inside_function_scope() const noexcept;
     /// Mark variable uasge
     void mark_variable_usage(uint32_t uid, Usage usage) noexcept;
     /// Separate arguments and bindings, make command need no bindings info, only work with kernel.

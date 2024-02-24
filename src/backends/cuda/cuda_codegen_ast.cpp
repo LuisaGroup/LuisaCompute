@@ -1,5 +1,6 @@
 #include <string_view>
 
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/ast/constant_data.h>
@@ -78,7 +79,7 @@ private:
     luisa::unordered_map<const RayQueryStmt *, Function> _ray_query_statements;
     luisa::unordered_map<const RayQueryStmt *, OutlineInfo> _outline_infos;
     luisa::unordered_map<FunctionResource,
-                         luisa::unordered_set<Variable>,
+                         luisa::unique_ptr<luisa::unordered_set<Variable>>,
                          FunctionResourceHash>
         _root_resources;
 
@@ -143,8 +144,11 @@ private:
                 LUISA_ASSERT(root_index < root_resources.size(),
                              "Root resource index {} is out of bound.",
                              root_index);
-                auto &set = _root_resources.try_emplace(FunctionResource{f, v}).first->second;
-                for (auto r : *root_resources[root_index]) { set.emplace(r); }
+                auto set = _root_resources.try_emplace(
+                                              FunctionResource{f, v},
+                                              luisa::make_unique<luisa::unordered_set<Variable>>())
+                               .first->second.get();
+                for (auto r : *root_resources[root_index]) { set->emplace(r); }
                 root_index++;
             }
         }
@@ -166,7 +170,7 @@ private:
                                     auto iter = _root_resources.find(FunctionResource{f, v});
                                     LUISA_ASSERT(iter != _root_resources.cend(),
                                                  "Failed to find root resource.");
-                                    root_resources.emplace_back(&iter->second);
+                                    root_resources.emplace_back(iter->second.get());
                                 }
                             }
                         }
@@ -294,7 +298,7 @@ private:
                                          _root_resources.contains({f, v}),
                                      "Invalid variable.");
                         return !v.is_resource() ||
-                               _root_resources.at({f, v}).size() != 1u;
+                               _root_resources.at({f, v})->size() > 1u;
                     });
 
                 uniquely_identified_resources.reserve(
@@ -384,7 +388,7 @@ private:
         auto rq_index = static_cast<uint>(_outline_infos.size());
         if (!captured_elements.empty() ||
             !captured_resources.empty()) {
-            _codegen->_scratch << "struct alignas(4) LCRayQueryCtx" << rq_index << " {";
+            _codegen->_scratch << "struct LCRayQueryCtx" << rq_index << " {";
             for (auto &&v : captured_resources) {
                 _codegen->_scratch << "\n  ";
                 _codegen->_emit_variable_decl(f, v, false);
@@ -417,12 +421,12 @@ private:
             _codegen->_scratch << "\n";
             // obtain the uniquely-identified resources
             for (auto v : uniquely_identified_resources) {
-                auto r = _root_resources.at({f, v});
-                LUISA_ASSERT(r.size() == 1u, "Invalid root resource.");
+                auto r = _root_resources.at({f, v}).get();
+                LUISA_ASSERT(r->size() == 1u, "Invalid root resource.");
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_decl(f, v, false);
                 _codegen->_scratch << " = params.";
-                _codegen->_emit_variable_name(*r.cbegin());
+                _codegen->_emit_variable_name(*r->cbegin());
                 _codegen->_scratch << ";\n";
                 // inform the compiler of the underlying storage if the resource is captured
                 // Note: this is O(n^2) but we should not have that many resources
@@ -573,6 +577,7 @@ public:
             for (auto &&v : captured_resources) {
                 _codegen->_emit_indent();
                 _codegen->_emit_variable_name(v);
+                _codegen->_scratch << ",\n";
             }
             for (auto &&v : captured_elements) {
                 _codegen->_emit_indent();
@@ -727,7 +732,8 @@ public:
     void operator()(ushort v) const noexcept { _s << luisa::format("lc_short({})", v); }
     void operator()(slong v) const noexcept { _s << luisa::format("{}ll", v); }
     void operator()(ulong v) const noexcept { _s << luisa::format("{}ull", v); }
-
+    void operator()(byte v) const noexcept { _s << luisa::format("lc_byte({})", v); }
+    void operator()(ubyte v) const noexcept { _s << luisa::format("lc_ubyte({})", v); }
     template<typename T, size_t N>
     void operator()(Vector<T, N> v) const noexcept {
         auto t = Type::of<T>();
@@ -1552,7 +1558,7 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     sorted.reserve(types.size());
     std::copy(types.cbegin(), types.cend(),
               std::back_inserter(sorted));
-    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+    luisa::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
         return a->hash() < b->hash();
     });
 
@@ -1606,7 +1612,7 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     sorted.clear();
     sorted.reserve(_print_stmt_types.size());
     for (auto [_, s] : _print_stmt_types) { sorted.emplace_back(s); }
-    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+    luisa::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
         return a->hash() < b->hash();
     });
     sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());

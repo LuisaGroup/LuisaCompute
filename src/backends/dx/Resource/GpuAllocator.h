@@ -6,7 +6,7 @@ class Allocator;
 namespace lc::dx {
 class GpuAllocator : public vstd::IOperatorNewBase {
     D3D12MA::Allocator *allocator = nullptr;
-    luisa::compute::MemoryProfiler *profiler;
+    luisa::compute::Profiler *profiler;
 public:
     enum class Tag : uint8_t {
         None,
@@ -31,7 +31,7 @@ public:
     uint64 CreatePool(D3D12_HEAP_TYPE heap_type);
     void DestroyPool(uint64 pool);
     void Release(uint64 handle);
-    GpuAllocator(Device *device, luisa::compute::MemoryProfiler *profiler);
+    GpuAllocator(Device *device, luisa::compute::Profiler *profiler);
     ~GpuAllocator();
 };
 }// namespace lc::dx

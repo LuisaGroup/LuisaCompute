@@ -7,7 +7,8 @@ class Resource : public vstd::IOperatorNewBase {
 
 public:
     Resource(Resource const &) = delete;
-    Resource(Resource &&) = default;
+    Resource(Resource &&rhs) : _device(rhs._device) { rhs._device = nullptr; }
+    operator bool() const { return _device; }
     Resource(Device *device) : _device{device} {}
     virtual ~Resource() = default;
     auto device() const { return _device; }

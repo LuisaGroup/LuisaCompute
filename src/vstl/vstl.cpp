@@ -1,6 +1,6 @@
 #include <luisa/vstl/vstring.h>
 #include <luisa/vstl/pool.h>
-#include <mutex>
+#include <luisa/core/logging.h>
 #include <luisa/vstl/functional.h>
 #include <luisa/vstl/memory.h>
 #include <luisa/vstl/vector.h>
@@ -28,3 +28,8 @@ VENGINE_UNITY_EXTERN void vengine_memmove(void *dest, void *src, uint64 sz) {
 }
 #endif
 
+namespace vstd::detail{
+LC_VSTL_API void one_shot_range_log_error() noexcept {
+    LUISA_ERROR("This one-shot iterator has already been used, please don't do this.");
+}
+}

@@ -1,3 +1,4 @@
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/core/logging.h>
 #include "metal_device.h"
 #include "metal_command_encoder.h"
@@ -197,7 +198,7 @@ void MetalAccel::_do_build(MetalCommandEncoder &encoder) noexcept {
     // update the resources used by the acceleration structure
     _resources.clear();
     for (auto prim : _primitives) { prim->add_resources(_resources); }
-    std::sort(_resources.begin(), _resources.end());
+    luisa::sort(_resources.begin(), _resources.end());
     _resources.erase(std::unique(_resources.begin(), _resources.end()), _resources.cend());
 
     // do compaction if required

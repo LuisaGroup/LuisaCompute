@@ -19,8 +19,8 @@ protected:
     D3D12_SHADER_RESOURCE_VIEW_DESC GetColorSrvDescBase(uint mipOffset) const;
     uint GetGlobalSRVIndexBase(uint mipOffset, std::mutex &allocMtx, vstd::unordered_map<uint, uint> &srvIdcs) const;
     uint GetGlobalUAVIndexBase(uint mipLevel, std::mutex &allocMtx, vstd::unordered_map<uint, uint> &uavIdcs) const;
-    D3D12_RESOURCE_DESC GetResourceDescBase(bool allowUav, bool allowSimul, bool reserved = false) const;
-    D3D12_RESOURCE_DESC GetResourceDescBase(uint3 size, uint mip, bool allowUav, bool allowSimul, bool reserved = false) const;
+    D3D12_RESOURCE_DESC GetResourceDescBase(bool allowUav, bool allowSimul, bool allowRaster, bool reserved) const;
+    D3D12_RESOURCE_DESC GetResourceDescBase(uint3 size, uint mip, bool allowUav, bool allowSimul, bool allowRaster, bool reserved) const;
 
 public:
     //	vstd::span<std::atomic<D3D12_BARRIER_LAYOUT>> Layouts() const;

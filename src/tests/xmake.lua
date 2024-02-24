@@ -2,7 +2,7 @@ local enable_gui = get_config("enable_gui")
 target("stb-image")
 set_basename("lc-ext-stb-image")
 _config_project({
-    project_kind = "shared"
+    project_kind = "static"
 })
 add_headerfiles("../ext/stb/**.h")
 add_files("../ext/stb/stb.c")
@@ -44,6 +44,9 @@ local function lc_add_app(appname, folder, name)
     end
     if get_config("cuda_backend") then
         add_defines("LUISA_TEST_CUDA_BACKEND")
+        if get_config("cuda_ext_lcub") then
+            add_deps("luisa-compute-cuda-ext-lcub")
+        end
     end
     if get_config("metal_backend") then
         add_defines("LUISA_TEST_METAL_BACKEND")
@@ -163,6 +166,22 @@ end)
 test_proj("test_cuda_dx_interop")
 test_proj("test_dml")
 test_proj("test_manual_ast")
+if not is_mode("debug") then
+    if get_config("enable_clangcxx") then
+        test_proj("test_clang_cxx", true, function()
+            add_deps("lc-clangcxx")
+            set_pcxxheader("pch.h")
+        end)
+        target("clangcxx_compiler")
+        _config_project({
+            project_kind = "binary"
+        })
+        add_files("clangcxx_compiler.cpp")
+        add_deps("lc-runtime", "lc-vstl", "lc-backends-dummy", "lc-clangcxx")
+        set_pcxxheader("pch.h")
+        target_end()
+    end
+end
 
 if get_config("cuda_ext_lcub") then
     test_proj("test_cuda_lcub", false, function()

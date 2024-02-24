@@ -54,7 +54,7 @@ public:
             detail::error_image_invalid_mip_levels(level, _mip_levels);
         }
         auto mip_size = luisa::max(_size >> level, 1u);
-        return ImageView<T>{handle(), _storage, level, mip_size};
+        return ImageView<T>{native_handle(), handle(), _storage, level, mip_size};
     }
     // properties
     [[nodiscard]] auto size() const noexcept {
@@ -100,7 +100,7 @@ public:
             .handle = handle(),
             .operations = SparseTextureUnMapOperation{
                 .start_tile = make_uint3(start_tile, 0u),
-                .tile_count = make_uint3(tile_count, 0u),
+                .tile_count = make_uint3(tile_count, 1u),
                 .mip_level = mip_level}};
     }
 

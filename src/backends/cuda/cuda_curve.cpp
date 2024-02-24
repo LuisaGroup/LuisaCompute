@@ -67,20 +67,20 @@ void CUDACurve::build(CUDACommandEncoder &encoder, CurveBuildCommand *command) n
         // curve basis changed
         basis != _basis ||
         // buffers changed
-        cp_buffer->handle() + command->cp_buffer_offset() != _cp_buffer ||
+        cp_buffer->device_address() + command->cp_buffer_offset() != _cp_buffer ||
         command->cp_count() != _cp_count ||
         command->cp_stride() != _cp_stride ||
-        seg_buffer->handle() + command->seg_buffer_offset() != _seg_buffer ||
+        seg_buffer->device_address() + command->seg_buffer_offset() != _seg_buffer ||
         command->seg_count() != _seg_count;
 
     // update parameters
     _basis = basis;
     _cp_count = cp_count;
     _seg_count = seg_count;
-    _cp_buffer = cp_buffer->handle() + command->cp_buffer_offset();
+    _cp_buffer = cp_buffer->device_address() + command->cp_buffer_offset();
     _cp_stride = cp_stride;
     _radius_buffer = _cp_buffer + sizeof(float) * 3u;
-    _seg_buffer = seg_buffer->handle() + command->seg_buffer_offset();
+    _seg_buffer = seg_buffer->device_address() + command->seg_buffer_offset();
 
     // build or update
     if (requires_build) {

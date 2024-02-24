@@ -116,7 +116,7 @@ struct alignas(16) LCIndirectBuffer {
 
 void lc_indirect_set_dispatch_count(const LCIndirectBuffer buffer, lc_uint count) noexcept {
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(buffer.offset + count, buffer.capacity);
+    lc_check_in_bounds(buffer.offset + count, buffer.capacity + 1u);
 #endif
     buffer.header()->size = count;
 }
@@ -1099,7 +1099,7 @@ template<typename T>
     auto buffer = static_cast<const char *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
+    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index) + 1u);
 #endif
     return *reinterpret_cast<const T *>(buffer + offset);
 }
@@ -1110,7 +1110,7 @@ inline __device__ void lc_bindless_byte_buffer_write(LCBindlessArray array, lc_u
     auto buffer = static_cast<const char *>(array.slots[index].buffer);
     lc_assume(__isGlobal(buffer));
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index));
+    lc_check_in_bounds(offset + sizeof(T), lc_bindless_buffer_size<char>(array, index) + 1u);
 #endif
     *reinterpret_cast<const T *>(buffer + offset) = value;
 }
@@ -1655,9 +1655,9 @@ template<lc_uint flags>
 #ifdef LUISA_ENABLE_OPTIX_CURVE
         auto hit_kind = lc_hit_object_hit_kind();
         auto bary = hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
-                      hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
-                    lc_hit_object_triangle_bary() :
-                    lc_make_float2(lc_hit_object_curve_parameter(), -1.f);
+                            hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
+                        lc_hit_object_triangle_bary() :
+                        lc_make_float2(lc_hit_object_curve_parameter(), -1.f);
 #else
         auto bary = lc_hit_object_triangle_bary();
 #endif
@@ -1762,9 +1762,9 @@ using LCRayQueryAny = LCRayQuery;
         auto hit_kind = lc_hit_object_hit_kind();
 #ifdef LUISA_ENABLE_OPTIX_CURVE
         auto bary = hit_kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
-                        hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
-                    lc_hit_object_triangle_bary() :
-                    lc_make_float2(lc_hit_object_curve_parameter(), -1.f);
+                            hit_kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
+                        lc_hit_object_triangle_bary() :
+                        lc_make_float2(lc_hit_object_curve_parameter(), -1.f);
 #else
         auto bary = lc_hit_object_triangle_bary();
 #endif
@@ -1811,9 +1811,9 @@ inline void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexc
 #ifdef LUISA_ENABLE_OPTIX_CURVE
     auto kind = lc_get_hit_kind();
     auto bary = kind == LC_HIT_KIND_TRIANGLE_FRONT_FACE ||
-                  kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
-                lc_get_bary_coords() :
-                lc_make_float2(lc_get_curve_parameter(), -1.f);
+                        kind == LC_HIT_KIND_TRIANGLE_BACK_FACE ?
+                    lc_get_bary_coords() :
+                    lc_make_float2(lc_get_curve_parameter(), -1.f);
 #else
     auto bary = lc_get_bary_coords();
 #endif
@@ -2314,7 +2314,7 @@ template<typename T>
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer) + 1);
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer) + 1u);
     lc_assert(address % alignof(T) == 0u && "unaligned access");
 #endif
     return *reinterpret_cast<T *>(address);
@@ -2325,7 +2325,7 @@ __device__ inline void lc_byte_buffer_write(LCBuffer<lc_ubyte> buffer, lc_ulong 
     lc_assume(__isGlobal(buffer.ptr));
     auto address = reinterpret_cast<lc_ulong>(buffer.ptr + offset);
 #ifdef LUISA_DEBUG
-    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer) + 1);
+    lc_check_in_bounds(offset + sizeof(T), lc_buffer_size(buffer) + 1u);
     lc_assert(address % alignof(T) == 0u && "unaligned access");
 #endif
     *reinterpret_cast<T *>(address) = value;

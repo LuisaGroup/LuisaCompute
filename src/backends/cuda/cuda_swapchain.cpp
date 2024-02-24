@@ -21,7 +21,7 @@
 #endif
 
 #include "../common/vulkan_instance.h"
-#include "../common/vulkan_swapchain.h"
+#include <luisa/backends/common/vulkan_swapchain.h>
 #include "cuda_device.h"
 #include "cuda_stream.h"
 #include "cuda_texture.h"
@@ -469,6 +469,8 @@ public:
                 required_extensions},
           _size{make_uint2(width, height)} { _initialize(); }
     ~Impl() noexcept { _cleanup(); }
+    [[nodiscard]] auto native_handle() noexcept { return &_base; }
+    [[nodiscard]] auto native_handle() const noexcept { return &_base; }
     [[nodiscard]] auto pixel_storage() const noexcept {
         return _base.is_hdr() ? PixelStorage::HALF4 : PixelStorage::BYTE4;
     }
@@ -537,6 +539,10 @@ CUDASwapchain::~CUDASwapchain() noexcept = default;
 
 PixelStorage CUDASwapchain::pixel_storage() const noexcept {
     return _impl->pixel_storage();
+}
+
+VulkanSwapchain *CUDASwapchain::native_handle() noexcept {
+    return _impl->native_handle();
 }
 
 void CUDASwapchain::present(CUDAStream *stream, CUDATexture *image) noexcept {

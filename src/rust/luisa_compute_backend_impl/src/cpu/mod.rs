@@ -1,5 +1,7 @@
 // A Rust implementation of LuisaCompute backend.
 #![allow(non_snake_case)]
+
+use std::ptr::null;
 use std::sync::{atomic::AtomicBool, Arc};
 
 use self::{
@@ -95,6 +97,7 @@ impl Backend for RustBackend {
         depth: u32,
         mipmap_levels: u32,
         allow_simultaneous_access: bool,
+        allow_raster: bool,
     ) -> luisa_compute_api_types::CreatedResourceInfo {
         let storage = format.storage();
 
@@ -104,6 +107,7 @@ impl Backend for RustBackend {
             storage,
             mipmap_levels as u8,
             allow_simultaneous_access,
+            allow_raster,
         );
         let data = texture.data;
         let ptr = Box::into_raw(Box::new(texture));
@@ -202,7 +206,7 @@ impl Backend for RustBackend {
             api::CreatedSwapchainInfo {
                 resource: api::CreatedResourceInfo {
                     handle: sc_ctx as u64,
-                    native_handle: sc_ctx as *mut std::ffi::c_void,
+                    native_handle: (ctx.cpu_swapchain_native_handle)(sc_ctx),
                 },
                 storage: std::mem::transmute(storage as u32),
             }

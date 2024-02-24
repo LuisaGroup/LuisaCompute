@@ -42,6 +42,7 @@
 
 #include "extensions/cuda_dstorage.h"
 #include "extensions/cuda_denoiser.h"
+#include "extensions/cuda_pinned_memory.h"
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
 #include "extensions/cuda_texture_compression.h"
@@ -225,7 +226,7 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element,
             return new_with_allocator<CUDAIndirectDispatchBuffer>(elem_count);
         });
         info.handle = reinterpret_cast<uint64_t>(buffer);
-        info.native_handle = reinterpret_cast<void *>(buffer->handle());
+        info.native_handle = reinterpret_cast<void *>(buffer->device_address());
         info.element_stride = sizeof(CUDAIndirectDispatchBuffer::Dispatch);
         info.total_size_bytes = buffer->size_bytes();
     } else if (element == Type::of<void>()) {
@@ -236,7 +237,7 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element,
                         new_with_allocator<CUDABuffer>(size);
         });
         info.handle = reinterpret_cast<uint64_t>(buffer);
-        info.native_handle = reinterpret_cast<void *>(buffer->handle());
+        info.native_handle = reinterpret_cast<void *>(buffer->device_address());
     } else {
         info.element_stride = CUDACompiler::type_size(element);
         info.total_size_bytes = info.element_stride * elem_count;
@@ -245,7 +246,7 @@ BufferCreationInfo CUDADevice::create_buffer(const Type *element,
                         new_with_allocator<CUDABuffer>(size);
         });
         info.handle = reinterpret_cast<uint64_t>(buffer);
-        info.native_handle = reinterpret_cast<void *>(buffer->handle());
+        info.native_handle = reinterpret_cast<void *>(buffer->device_address());
     }
     return info;
 }
@@ -267,7 +268,7 @@ void CUDADevice::destroy_buffer(uint64_t handle) noexcept {
     });
 }
 
-ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access) noexcept {
+ResourceCreationInfo CUDADevice::create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept {
     auto p = with_handle([=] {
         auto array_format = cuda_array_format(format);
         auto channels = pixel_format_channel_count(format);
@@ -365,7 +366,7 @@ SwapchainCreationInfo CUDADevice::create_swapchain(uint64_t window_handle, uint6
     });
     SwapchainCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(chain);
-    info.native_handle = chain;
+    info.native_handle = chain->native_handle();
     info.storage = chain->pixel_storage();
     return info;
 #else
@@ -946,6 +947,7 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(Denoiser, _denoiser_ext)
 #endif
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext)
+    LUISA_COMPUTE_CREATE_CUDA_EXTENSION(PinnedMemory, _pinned_memory_ext)
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(TexCompress, _tex_comp_ext)
 #endif

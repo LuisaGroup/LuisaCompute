@@ -480,7 +480,7 @@ void export_runtime(py::module &m) {
         })
         .def(
             "create_texture", [](DeviceInterface &d, PixelFormat format, uint32_t dimension, uint32_t width, uint32_t height, uint32_t depth, uint32_t mipmap_levels) {
-                auto info = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false);
+                auto info = d.create_texture(format, dimension, width, height, depth, mipmap_levels, false, false);
                 RefCounter::current->AddObject(info.handle, {[](DeviceInterface *d, uint64 handle) {
                     if (auto gs = default_stream_data.lock()) {
                         gs->sync();
@@ -772,7 +772,7 @@ void export_runtime(py::module &m) {
         .def("autodiff_", &FunctionBuilder::autodiff_, pyref)
         .def(
             "print_", [](FunctionBuilder &self, luisa::string_view format, const luisa::vector<const Expression *> &args) {
-                self.print_(format, args);
+                self.print_(luisa::string{format}, args);
             },
             pyref)
         // .def("meta") // unused

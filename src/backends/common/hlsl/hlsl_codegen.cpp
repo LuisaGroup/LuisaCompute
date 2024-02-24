@@ -284,7 +284,7 @@ void StringStateVisitor::visit(const ConstantExpr *expr) {
 void StringStateVisitor::visit(const BreakStmt *state) {
 #ifdef USE_SPIRV
     auto stackData = util->StackData();
-    if (!CodegenStackData::ThreadLocalSpirv() || !stackData->tempSwitchExpr)
+    if (!stackData->tempSwitchExpr)
 #endif
         str << "break;\n";
 }
@@ -363,9 +363,7 @@ void StringStateVisitor::visit(const PrintStmt *stmt) {
     str << "}\n"sv;
 }
 void StringStateVisitor::visit(const CommentStmt *state) {
-#ifndef NDEBUG
     str << "/* " << state->comment() << " */\n";
-#endif
 }
 void StringStateVisitor::visit(const IfStmt *state) {
     str << "if(";
@@ -396,96 +394,87 @@ void StringStateVisitor::visit(const ExprStmt *state) {
 }
 void StringStateVisitor::visit(const SwitchStmt *state) {
 #ifdef USE_SPIRV
-    if (CodegenStackData::ThreadLocalSpirv()) {
-        auto stackData = util->StackData();
-        stackData->tempSwitchExpr = state->expression();
-        stackData->tempSwitchCounter = 0;
-        state->body()->accept(*this);
-        stackData->tempSwitchExpr = nullptr;
-    } else
-#endif
+    auto stackData = util->StackData();
+    stackData->tempSwitchExpr = state->expression();
+    stackData->tempSwitchCounter = 0;
+    state->body()->accept(*this);
+    stackData->tempSwitchExpr = nullptr;
+#else
+    str << "switch(";
+    state->expression()->accept(*this);
+    str << ")";
     {
-
-        str << "switch(";
-        state->expression()->accept(*this);
-        str << ")";
-        {
-            Scope scope{this};
-            state->body()->accept(*this);
-        }
+        Scope scope{this};
+        state->body()->accept(*this);
     }
+#endif
 }
 void StringStateVisitor::visit(const SwitchCaseStmt *state) {
 #ifdef USE_SPIRV
-    if (CodegenStackData::ThreadLocalSpirv()) {
-        auto stackData = util->StackData();
-        if (stackData->tempSwitchCounter == 0) {
-            str << "if("sv;
-        } else {
-            str << "else if("sv;
-        }
-        ++stackData->tempSwitchCounter;
-        util->StackData()->tempSwitchExpr->accept(*this);
-        str << "=="sv;
-        state->expression()->accept(*this);
-        str << ')';
-        {
-            Scope scope{this};
-            state->body()->accept(*this);
-        }
-    } else
-#endif
-    {
-        str << "case ";
-        state->expression()->accept(*this);
-        str << ":";
-        {
-            Scope scope{this};
-            state->body()->accept(*this);
-        }
-        if (std::none_of(state->body()->statements().cbegin(),
-                         state->body()->statements().cend(),
-                         [](const auto &stmt) {
-                             return stmt->tag() == Statement::Tag::BREAK;
-                         })) {
-            str << "break;\n";
-        }
+    auto stackData = util->StackData();
+    if (stackData->tempSwitchCounter == 0) {
+        str << "if("sv;
+    } else {
+        str << "else if("sv;
     }
+    ++stackData->tempSwitchCounter;
+    util->StackData()->tempSwitchExpr->accept(*this);
+    str << "=="sv;
+    state->expression()->accept(*this);
+    str << ')';
+    {
+        Scope scope{this};
+        state->body()->accept(*this);
+    }
+#else
+
+    str << "case ";
+    state->expression()->accept(*this);
+    str << ":";
+    {
+        Scope scope{this};
+        state->body()->accept(*this);
+    }
+    if (std::none_of(state->body()->statements().cbegin(),
+                     state->body()->statements().cend(),
+                     [](const auto &stmt) {
+                         return stmt->tag() == Statement::Tag::BREAK;
+                     })) {
+        str << "break;\n";
+    }
+
+#endif
 }
 void StringStateVisitor::visit(const SwitchDefaultStmt *state) {
 #ifdef USE_SPIRV
-    if (CodegenStackData::ThreadLocalSpirv()) {
-        auto stackData = util->StackData();
-        if (stackData->tempSwitchCounter == 0) {
-            {
-                Scope scope{this};
-                state->body()->accept(*this);
-            }
-        } else {
-            str << "else";
-            {
-                Scope scope{this};
-                state->body()->accept(*this);
-            }
-        }
-        ++stackData->tempSwitchCounter;
-
-    } else
-#endif
-    {
-        str << "default:";
+    auto stackData = util->StackData();
+    if (stackData->tempSwitchCounter == 0) {
         {
             Scope scope{this};
             state->body()->accept(*this);
         }
-        if (std::none_of(state->body()->statements().cbegin(),
-                         state->body()->statements().cend(),
-                         [](const auto &stmt) {
-                             return stmt->tag() == Statement::Tag::BREAK;
-                         })) {
-            str << "break;\n";
+    } else {
+        str << "else";
+        {
+            Scope scope{this};
+            state->body()->accept(*this);
         }
     }
+    ++stackData->tempSwitchCounter;
+#else
+    str << "default:";
+    {
+        Scope scope{this};
+        state->body()->accept(*this);
+    }
+    if (std::none_of(state->body()->statements().cbegin(),
+                     state->body()->statements().cend(),
+                     [](const auto &stmt) {
+                         return stmt->tag() == Statement::Tag::BREAK;
+                     })) {
+        str << "break;\n";
+    }
+#endif
 }
 
 void StringStateVisitor::visit(const AssignStmt *state) {

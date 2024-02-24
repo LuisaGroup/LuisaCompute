@@ -1,7 +1,7 @@
 target("glfw")
 set_basename("lc-ext-glfw")
 _config_project({
-    project_kind = "shared"
+    project_kind = "static"
 })
 add_headerfiles("../ext/glfw/include/**.h")
 add_files("../ext/glfw/src/*.c")

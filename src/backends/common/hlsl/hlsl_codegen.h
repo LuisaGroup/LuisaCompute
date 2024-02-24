@@ -9,7 +9,6 @@
 #include "shader_property.h"
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/core/logging.h>
-#include <filesystem>
 #include <luisa/core/binary_io.h>
 #include "string_builder.h"
 namespace lc::hlsl {
@@ -23,7 +22,7 @@ struct CodegenResult {
     using Properties = vstd::vector<Property>;
     vstd::StringBuilder result;
     Properties properties;
-    vstd::vector<std::pair<vstd::string, Type const*>> printers;
+    vstd::vector<std::pair<vstd::string, Type const *>> printers;
     bool useTex2DBindless;
     bool useTex3DBindless;
     bool useBufferBindless;
@@ -32,7 +31,7 @@ struct CodegenResult {
     CodegenResult() {}
     CodegenResult(
         vstd::StringBuilder &&result,
-        vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
+        vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
         Properties &&properties,
         bool useTex2DBindless,
         bool useTex3DBindless,
@@ -47,6 +46,9 @@ class CodegenUtility {
     vstd::unique_ptr<CodegenStackData> opt{};
 
 public:
+#ifdef USE_SPIRV
+    CodegenStackData *StackData() const;
+#endif
     CodegenUtility();
     ~CodegenUtility();
     uint IsBool(Type const &type);
@@ -78,14 +80,12 @@ public:
     void GenerateBindless(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str,
-        luisa::BinaryIO const *internalDataPath,
         bool isSpirV,
         uint &bind_count);
     void PreprocessCodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,
         RegisterIndexer &registerCount,
-        luisa::BinaryIO const *internalDataPath,
         bool cbufferNonEmpty, bool isRaster, bool isSpirv, uint &bind_count);
     void PostprocessCodegenProperties(vstd::StringBuilder &finalResult, bool use_autodiff);
     void CodegenProperties(
@@ -95,17 +95,16 @@ public:
         uint offset,
         RegisterIndexer &registerCount,
         uint &bind_count);
-    CodegenResult Codegen(Function kernel, luisa::BinaryIO const *internalDataPath, luisa::string_view native_code, uint custom_mask, bool isSpirV);
+    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV);
     CodegenResult RasterCodegen(
         MeshFormat const &meshFormat,
         Function vertFunc,
         Function pixelFunc,
-        luisa::BinaryIO const *internalDataPath,
         luisa::string_view native_code,
         uint custom_mask,
         bool isSpirV);
-    static vstd::string_view ReadInternalHLSLFile(vstd::string_view name, luisa::BinaryIO const *ctx);
-    uint AddPrinter(vstd::string_view name, Type const* structType);
+    static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
+    uint AddPrinter(vstd::string_view name, Type const *structType);
     vstd::StringBuilder GetNewTempVarName();
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
@@ -270,6 +269,18 @@ struct PrintValue<bool> {
             str << "false";
     }
 };
+template<>
+struct PrintValue<luisa::byte> {
+    void operator()(bool const &v, vstd::StringBuilder &str) {
+        LUISA_ERROR_WITH_LOCATION("Unsupported type.");
+    }
+};
+template<>
+struct PrintValue<luisa::ubyte> {
+    void operator()(bool const &v, vstd::StringBuilder &str) {
+        LUISA_ERROR_WITH_LOCATION("Unsupported type.");
+    }
+};
 template<typename EleType, uint64 N>
 struct PrintValue<Vector<EleType, N>> {
     using T = Vector<EleType, N>;
@@ -305,7 +316,8 @@ struct PrintValue<Vector<EleType, N>> {
             } else if constexpr (std::is_same_v<EleType, ulong>) {
                 varName << "uint64_t";
             } else {
-                static_assert(luisa::always_false_v<T>, "Unsupported type.");
+                // static_assert(luisa::always_false_v<T>, "Unsupported type.");
+                LUISA_ERROR_WITH_LOCATION("Unsupported type. {}", typeid(T).name());
             }
             vstd::to_string(N, varName);
             varName << '(';

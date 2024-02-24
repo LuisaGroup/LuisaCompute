@@ -35,6 +35,7 @@ if (CUDAToolkit_FOUND)
 
     # extensions
     target_sources(luisa-compute-backend-cuda PRIVATE
+            extensions/cuda_pinned_memory.cpp extensions/cuda_pinned_memory.h
             extensions/cuda_dstorage.cpp extensions/cuda_dstorage.h
             extensions/cuda_denoiser.cpp extensions/cuda_denoiser.h)
 
@@ -51,7 +52,7 @@ if (CUDAToolkit_FOUND)
     install(FILES "${CUDA_DEVICE_RUNTIME_LIBRARY}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     # nvrtc
-    if (FALSE AND TARGET CUDA::nvrtc_static AND WIN32) # disabled due to nvrtc codepage bug on Windows
+    if (SKBUILD AND TARGET CUDA::nvrtc_static AND WIN32) # disabled due to nvrtc codepage bug on Windows
         # wrap the static nvrtc library in a shared library to avoid the dependency on the CUDA toolkit
         add_library(luisa-compute-backend-cuda-nvrtc SHARED cuda_nvrtc.cpp)
         target_link_libraries(luisa-compute-backend-cuda-nvrtc PRIVATE CUDA::nvrtc_static)
@@ -60,7 +61,8 @@ if (CUDAToolkit_FOUND)
                 WINDOWS_EXPORT_ALL_SYMBOLS OFF
                 INTERPROCEDURAL_OPTIMIZATION OFF)
         install(TARGETS luisa-compute-backend-cuda-nvrtc
-                DESTINATION ${CMAKE_INSTALL_BINDIR})
+                LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+                RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
         add_dependencies(luisa-compute-backend-cuda luisa-compute-backend-cuda-nvrtc)
         target_compile_definitions(luisa-compute-backend-cuda PRIVATE
                 LUISA_COMPUTE_STANDALONE_NVRTC_DLL=1)

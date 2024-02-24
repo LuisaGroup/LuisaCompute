@@ -39,11 +39,11 @@ void CUDAProceduralPrimitive::build(CUDACommandEncoder &encoder,
         // user enforced rebuild
         command->request() == AccelBuildRequest::FORCE_BUILD ||
         // buffer changed
-        _aabb_buffer != aabb_buffer->handle() + command->aabb_buffer_offset() ||
+        _aabb_buffer != aabb_buffer->device_address() + command->aabb_buffer_offset() ||
         _aabb_buffer_size != command->aabb_buffer_size();
 
     // update the buffer
-    _aabb_buffer = aabb_buffer->handle() + command->aabb_buffer_offset();
+    _aabb_buffer = aabb_buffer->device_address() + command->aabb_buffer_offset();
     _aabb_buffer_size = command->aabb_buffer_size();
 
     // build or update
@@ -55,4 +55,3 @@ void CUDAProceduralPrimitive::build(CUDACommandEncoder &encoder,
 }
 
 }// namespace luisa::compute::cuda
-

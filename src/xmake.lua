@@ -1,4 +1,5 @@
 enable_mimalloc = get_config("enable_mimalloc")
+enable_custom_malloc = get_config("enable_custom_malloc")
 table.insert(_config_rules, "lc-rename-ext")
 local rename_rule_idx = table.getn(_config_rules)
 includes("ext/EASTL")
@@ -31,4 +32,7 @@ if get_config("enable_ir") then
 end
 if get_config("enable_api") then
 	includes("api")
+end
+if get_config("enable_clangcxx") then
+	includes("clangcxx")
 end

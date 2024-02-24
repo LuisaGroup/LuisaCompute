@@ -7,22 +7,32 @@ namespace luisa::compute::cuda {
 class CUDABufferBase {
 
 private:
-    CUdeviceptr _handle;
-    size_t _size_bytes : 62;
-    size_t _host_memory : 1;
+    void *_host_address{nullptr};
+    CUdeviceptr _device_address;
+    size_t _size_bytes : 63;
     size_t _external_memory : 1;
 
 public:
-    explicit CUDABufferBase(size_t size_bytes) noexcept;
+    enum struct Location {
+        PREFER_DEVICE,
+        FORCE_HOST
+    };
+
+public:
+    explicit CUDABufferBase(size_t size_bytes,
+                            Location loc = Location::PREFER_DEVICE,
+                            int host_alloc_flags = 0) noexcept;
     CUDABufferBase(CUdeviceptr external_ptr, size_t size_bytes) noexcept;
     virtual ~CUDABufferBase() noexcept;
     CUDABufferBase(CUDABufferBase &&) = delete;
     CUDABufferBase(const CUDABufferBase &) = delete;
     CUDABufferBase &operator=(CUDABufferBase &&) = delete;
     CUDABufferBase &operator=(const CUDABufferBase &) = delete;
-    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto device_address() const noexcept { return _device_address; }
+    [[nodiscard]] auto host_address() const noexcept { return _host_address; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size_bytes; }
     [[nodiscard]] virtual bool is_indirect() const noexcept { return false; }
+    [[nodiscard]] auto is_host_memory() const noexcept { return _host_address != nullptr; }
     virtual void set_name(luisa::string &&name) noexcept {
         /* currently do nothing */
     }

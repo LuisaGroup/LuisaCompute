@@ -16,6 +16,7 @@ namespace luisa::compute::cuda {
 class CUDAOldDenoiserExt;
 class CUDADenoiserExt;
 class CUDADStorageExt;
+class CUDAPinnedMemoryExt;
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
 class CUDATexCompressExt;
@@ -104,6 +105,7 @@ private:
     // extensions
     std::mutex _ext_mutex;
     luisa::unique_ptr<CUDADStorageExt> _dstorage_ext;
+    luisa::unique_ptr<CUDAPinnedMemoryExt> _pinned_memory_ext;
 
 #if LUISA_BACKEND_ENABLE_OIDN
     luisa::unique_ptr<CUDADenoiserExt> _denoiser_ext;
@@ -145,7 +147,7 @@ public:
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-    ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access) noexcept override;
+    ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
     ResourceCreationInfo create_bindless_array(size_t size) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;

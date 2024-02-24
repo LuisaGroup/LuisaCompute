@@ -82,6 +82,31 @@ def kernel(pos):
     fov = radians(45.8)
     ray = make_ray(pos, normalize(float3(p * tan(.5 * fov) * float2(aspect, 1.), -1.)), 1e-3, 1e3)
     q = acc.query_all(ray, -1)
+    # REAL rayquery mode: use real rayquery API, but may not be supported by all backends
+        # while(q.proceed()):
+    #     if q.is_triangle_candidate():
+    #         q.commit_triangle()
+    #     else:
+    #         h = q.procedural_candidate()
+    #         aabb = aabb_buffer.read(h.prim)
+    #         origin = (aabb.get_min() + aabb.get_max()) * .5
+    #         candidate_ray = q.world_space_ray()
+    #         ray_origin = candidate_ray.get_origin()
+    #         direction = candidate_ray.get_dir()
+    #         L = origin - ray_origin
+    #         cos_theta = dot(direction, normalize(L))
+    #         if cos_theta > 0.:
+    #             d_oc = length(L)
+    #             tc = d_oc * cos_theta
+    #             d = sqrt(d_oc * d_oc - tc * tc)
+    #             if d <= radius:
+    #                 t1c = sqrt(radius * radius - d * d)
+    #                 dist = tc - t1c
+    #                 if dist <= candidate_ray.t_max:
+    #                     normal = normalize(
+    #                         ray_origin + direction * dist - origin)
+    #                     sphere_color = normal * .5 + .5
+    #                     q.commit_procedural(dist)        
     match q:
         case is_triangle():
             q.commit_triangle()

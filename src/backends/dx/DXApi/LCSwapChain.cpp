@@ -27,7 +27,7 @@ LCSwapChain::LCSwapChain(
     swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     if (!vsync)
-        swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+        swapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
     swapChainDesc.SampleDesc.Count = 1;
     {
         IDXGISwapChain1 *localSwap;
@@ -43,6 +43,7 @@ LCSwapChain::LCSwapChain(
     for (uint32_t n = 0; n < frameCount; n++) {
         ThrowIfFailed(swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n].rt)));
     }
+    swapChain->SetMaximumFrameLatency(backBufferCount);
 }
 LCSwapChain::LCSwapChain(
     PixelStorage &storage,

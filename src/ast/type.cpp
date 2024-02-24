@@ -39,6 +39,7 @@ struct TypeImpl final : public Type {
     uint index{};
     luisa::string description;
     luisa::vector<const Type *> members;
+    luisa::vector<Attribute> member_attributes;
 };
 
 /// Type registry class
@@ -208,6 +209,13 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         }
         desc = desc.substr(1);
     };
+    auto try_match = [&desc](char c) noexcept {
+        if (!desc.starts_with(c)) {
+            return false;
+        }
+        desc = desc.substr(1);
+        return true;
+    };
 
     auto split = [&desc]() noexcept {
         auto balance = 0u;
@@ -326,7 +334,22 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->alignment = read_number();
         while (desc.starts_with(',')) {
             desc = desc.substr(1);
+            if (try_match('[')) {
+                auto attr_key = read_identifier();
+                luisa::string_view attr_value;
+                if (try_match('(')) {
+                    attr_value = read_identifier();
+                    match(')');
+                }
+                match(']');
+                info->member_attributes.resize(info->members.size());
+                info->member_attributes.emplace_back(luisa::string{attr_key}, luisa::string{attr_value});
+            }
+            // TODO: match attribute
             info->members.emplace_back(_decode(split()));
+        }
+        if (!info->member_attributes.empty()) {
+            info->member_attributes.resize(info->members.size());
         }
         match('>');
         info->size = 0u;
@@ -399,11 +422,18 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
 
 }// namespace detail
 
-luisa::span<const Type *const> Type::members() const noexcept {
+luisa::span<Type const *const> Type::members() const noexcept {
     LUISA_ASSERT(is_structure(),
                  "Calling members() on a non-structure type {}.",
                  description());
     return static_cast<const detail::TypeImpl *>(this)->members;
+}
+
+luisa::span<const Attribute> Type::member_attributes() const noexcept {
+    LUISA_ASSERT(is_structure(),
+                 "Calling members() on a non-structure type {}.",
+                 description());
+    return static_cast<const detail::TypeImpl *>(this)->member_attributes;
 }
 
 const Type *Type::element() const noexcept {
@@ -494,6 +524,8 @@ bool Type::is_scalar() const noexcept {
         case Tag::FLOAT16:
         case Tag::INT16:
         case Tag::UINT16:
+        case Tag::INT8:
+        case Tag::UINT8:
         case Tag::FLOAT64:
             return true;
         default:
@@ -511,6 +543,8 @@ bool Type::is_arithmetic() const noexcept {
         case Tag::FLOAT16:
         case Tag::INT16:
         case Tag::UINT16:
+        case Tag::INT8:
+        case Tag::UINT8:
             return true;
         default:
             return false;
@@ -560,40 +594,48 @@ const Type *Type::texture(const Type *elem, size_t dimension) noexcept {
     return from(luisa::format("texture<{},{}>", dimension, elem->description()));
 }
 
-const Type *Type::structure(size_t alignment, luisa::span<const Type *> members) noexcept {
-    LUISA_ASSERT(alignment == 4u || alignment == 8u || alignment == 16u,
+const Type *Type::structure(size_t alignment, luisa::span<Type const *const> members, luisa::span<const Attribute> attributes) noexcept {
+    LUISA_ASSERT(alignment == 1 || alignment == 4u || alignment == 8u || alignment == 16u,
                  "Invalid structure alignment {} (must be 4, 8, or 16).",
                  alignment);
+    LUISA_ASSERT(attributes.empty() || attributes.size() == members.size(),
+                 "Invalid attribute size (must be empty or same as members' size");
     auto desc = luisa::format("struct<{}", alignment);
-    for (auto member : members) {
-        desc.append(",").append(member->description());
+    if (!attributes.empty()) {
+        for (size_t i = 0; i < members.size(); ++i) {
+            desc.append(",");
+            auto &a = attributes[i];
+            if (!a.key.empty()) {
+                desc.append("[").append(a.key);
+                if (!a.value.empty()) {
+                    desc.append("(").append(a.value).append(")");
+                }
+                desc.append("]");
+            }
+            desc.append(members[i]->description());
+        }
+
+    } else {
+        for (auto member : members) {
+            desc.append(",").append(member->description());
+        }
     }
     desc.append(">");
     return from(desc);
 }
 
-const Type *Type::structure(luisa::span<const Type *> members) noexcept {
+const Type *Type::structure(luisa::span<Type const *const> members, luisa::span<const Attribute> attributes) noexcept {
     auto alignment = 4u;
     for (auto m : members) { alignment = std::max<size_t>(m->alignment(), alignment); }
-    return structure(alignment, members);
+    return structure(alignment, members, attributes);
 }
 
-const Type *Type::structure(size_t alignment, std::initializer_list<const Type *> members) noexcept {
-    LUISA_ASSERT(alignment == 4u || alignment == 8u || alignment == 16u,
-                 "Invalid structure alignment {} (must be 4, 8, or 16).",
-                 alignment);
-    auto desc = luisa::format("struct<{}", alignment);
-    for (auto member : members) {
-        desc.append(",").append(member->description());
-    }
-    desc.append(">");
-    return from(desc);
+const Type *Type::structure(size_t alignment, std::initializer_list<const Type *> members, luisa::span<const Attribute> attributes) noexcept {
+    return structure(alignment, luisa::span{members.begin(), members.size()}, attributes);
 }
 
-const Type *Type::structure(std::initializer_list<const Type *> members) noexcept {
-    auto alignment = 4u;
-    for (auto m : members) { alignment = std::max<size_t>(m->alignment(), alignment); }
-    return structure(alignment, members);
+const Type *Type::structure(std::initializer_list<const Type *> members, luisa::span<const Attribute> attributes) noexcept {
+    return structure(luisa::span{members.begin(), members.size()}, attributes);
 }
 
 const Type *Type::custom(luisa::string_view name) noexcept {

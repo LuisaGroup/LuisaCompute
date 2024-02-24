@@ -15,28 +15,27 @@ static const bool PRINT_CODE = ([] {
 }// namespace ComputeShaderDetail
 ComputeShader *ComputeShader::LoadPresetCompute(
     BinaryIO const *fileIo,
+    luisa::compute::Profiler *profiler,
     Device *device,
     vstd::span<Type const *const> types,
     vstd::string_view fileName) {
     using namespace ComputeShaderDetail;
     auto psoName = Shader::PSOName(device, fileName);
     bool oldDeleted = false;
-    vstd::MD5 typeMD5;
     auto result = ShaderSerializer::DeSerialize(
         fileName,
         psoName,
         CacheType::ByteCode,
         device,
         *fileIo,
+        profiler,
         {},
-        typeMD5,
+        hlsl::CodegenUtility::GetTypeMD5(types),
         {},
         oldDeleted);
     //Cached
 
     if (result) {
-        auto md5 = hlsl::CodegenUtility::GetTypeMD5(types);
-        LUISA_ASSERT(md5 == typeMD5, "Shader {} arguments unmatch to requirement!", fileName);
         if (oldDeleted) {
             result->SavePSO(result->Pso(), psoName, fileIo, device);
         }
@@ -45,6 +44,7 @@ ComputeShader *ComputeShader::LoadPresetCompute(
 }
 ComputeShader *ComputeShader::CompileCompute(
     BinaryIO const *fileIo,
+    luisa::compute::Profiler *profiler,
     Device *device,
     Function kernel,
     vstd::function<hlsl::CodegenResult()> const &codegen,
@@ -69,12 +69,14 @@ ComputeShader *ComputeShader::CompileCompute(
         }
 
         if (PRINT_CODE) {
-            auto md5_str = md5.to_string();
-            auto dump_file_name = vstd::string("hlsl_output_") + md5_str + ".hlsl";
+            vstd::string dump_file_name{"hlsl_output.hlsl"};
             if (auto f = fopen(dump_file_name.c_str(), "wb")) {
                 fwrite(str.result.data(), str.result.size(), 1, f);
                 fclose(f);
             }
+        }
+        if (profiler) [[unlikely]] {
+            profiler->before_compile_shader_bytecode(fileName);
         }
         auto compResult = Device::Compiler()->compile_compute(
             str.result.view(),
@@ -82,6 +84,9 @@ ComputeShader *ComputeShader::CompileCompute(
             shaderModel,
             enableUnsafeMath,
             false);
+        if (profiler) [[unlikely]] {
+            profiler->after_compile_shader_bytecode(fileName);
+        }
         return compResult.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
             [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
@@ -131,7 +136,6 @@ ComputeShader *ComputeShader::CompileCompute(
     if (!fileName.empty()) {
         vstd::string psoName = Shader::PSOName(device, fileName);
         bool oldDeleted = false;
-        vstd::MD5 typeMD5;
         //Cached
         auto result = ShaderSerializer::DeSerialize(
             fileName,
@@ -139,8 +143,9 @@ ComputeShader *ComputeShader::CompileCompute(
             cacheType,
             device,
             *fileIo,
+            profiler,
             checkMD5,
-            typeMD5,
+            {},
             std::move(bindings),
             oldDeleted);
         if (result) {
@@ -157,6 +162,7 @@ ComputeShader *ComputeShader::CompileCompute(
 }
 void ComputeShader::SaveCompute(
     BinaryIO const *fileIo,
+    luisa::compute::Profiler *profiler,
     Function kernel,
     hlsl::CodegenResult &str,
     uint3 blockSize,
@@ -166,17 +172,35 @@ void ComputeShader::SaveCompute(
     using namespace ComputeShaderDetail;
     vstd::MD5 md5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
     if (PRINT_CODE) {
-        auto f = fopen("hlsl_output.hlsl", "ab");
+        auto f = fopen("hlsl_output.hlsl", "wb");
         fwrite(str.result.data(), str.result.size(), 1, f);
         fclose(f);
     }
-    if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) return;
+    if (profiler) [[unlikely]] {
+        profiler->before_load_shader_bytecode(fileName);
+    }
+    if (ShaderSerializer::CheckMD5(fileName, md5, *fileIo)) {
+        if (profiler) [[unlikely]] {
+            profiler->after_load_shader_bytecode(fileName, true);
+        }
+        return;
+    } else {
+        if (profiler) [[unlikely]] {
+            profiler->after_load_shader_bytecode(fileName, false);
+        }
+    }
+    if (profiler) [[unlikely]] {
+        profiler->before_compile_shader_bytecode(fileName);
+    }
     auto compResult = Device::Compiler()->compile_compute(
         str.result.view(),
         true,
         shaderModel,
         enableUnsafeMath,
         false);
+    if (profiler) [[unlikely]] {
+        profiler->after_compile_shader_bytecode(fileName);
+    }
     compResult.multi_visit(
         [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
             auto kernelArgs = ShaderSerializer::SerializeKernel(kernel);

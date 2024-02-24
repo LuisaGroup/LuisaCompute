@@ -34,6 +34,7 @@ using namespace half_float::literal;
 using byte = int8_t;
 using ubyte = uint8_t;
 
+
 static_assert(sizeof(half) == 2u && alignof(half) == 2u,
               "half should be 16-bit sized and aligned.");
 
@@ -65,7 +66,9 @@ using is_integral = std::disjunction<
     std::is_same<std::remove_cvref_t<T>, long long>,
     std::is_same<std::remove_cvref_t<T>, unsigned long long>,
     std::is_same<std::remove_cvref_t<T>, short>,
-    std::is_same<std::remove_cvref_t<T>, ushort>>;
+    std::is_same<std::remove_cvref_t<T>, ushort>,
+    std::is_same<std::remove_cvref_t<T>, byte>,
+    std::is_same<std::remove_cvref_t<T>, ubyte>>;
 
 template<typename T>
 constexpr auto is_integral_v = is_integral<T>::value;

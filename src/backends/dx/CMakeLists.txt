@@ -4,7 +4,7 @@ if (WIN32)
     set(LC_BACKEND_DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
     set(LC_BACKEND_DX_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
 
-    file(GLOB_RECURSE LC_BACKEND_DX_SOURCES CONFIGURE_DEPENDS "*.cpp")
+    file(GLOB_RECURSE LC_BACKEND_DX_SOURCES CONFIGURE_DEPENDS "*.cpp" "../common/hlsl/*.cpp")
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCES}
             SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR})
@@ -27,7 +27,7 @@ if (WIN32)
 
     if (TARGET luisa-compute-oidn-ext)
         target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-compute-oidn-ext)
-    endif()
+    endif ()
 
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
     message(FATAL_ERROR "The DirectX backend will not be built on non-Windows platforms.")

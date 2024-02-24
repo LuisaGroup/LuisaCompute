@@ -54,7 +54,7 @@ PixelStorage depth_to_storage(DepthFormat fmt) noexcept {
 }// namespace detail
 
 ImageView<float> DepthBuffer::to_img() noexcept {
-    return {handle(), detail::depth_to_storage(_format), 0u, _size};
+    return {native_handle(), handle(), detail::depth_to_storage(_format), 0u, _size};
 }
 
 }// namespace luisa::compute

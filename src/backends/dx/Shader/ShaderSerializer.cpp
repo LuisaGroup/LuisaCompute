@@ -154,17 +154,31 @@ ComputeShader *ShaderSerializer::DeSerialize(
     CacheType cacheType,
     Device *device,
     luisa::BinaryIO const &streamFunc,
+    luisa::compute::Profiler *profiler,
     vstd::optional<vstd::MD5> const &checkMD5,
-    vstd::MD5 &typeMD5,
+    vstd::optional<vstd::MD5> const &typeMD5,
     vstd::vector<luisa::compute::Argument> &&bindings,
     bool &clearCache) {
+    if (profiler) [[unlikely]] {
+        profiler->before_load_shader_bytecode(name);
+    }
     using namespace shader_ser;
     auto binStream = ReadBinaryIO(cacheType, &streamFunc, name);
-    if (binStream == nullptr || binStream->length() <= sizeof(Header)) return nullptr;
+    if (binStream == nullptr || binStream->length() <= sizeof(Header)) {
+        if (profiler) [[unlikely]] {
+            profiler->after_load_shader_bytecode(name, false);
+        }
+        return nullptr;
+    }
     Header header;
     binStream->read({reinterpret_cast<std::byte *>(&header),
                      sizeof(Header)});
-    if (header.headerVersion != kHeaderVersion || (checkMD5 && header.md5 != *checkMD5)) return nullptr;
+    if (header.headerVersion != kHeaderVersion || (checkMD5 && header.md5 != *checkMD5)) {
+        if (profiler) [[unlikely]] {
+            profiler->after_load_shader_bytecode(name, false);
+        }
+        return nullptr;
+    }
     // TODO: printer
     vstd::vector<std::pair<vstd::string, Type const *>> printers;
     vstd::push_back_func(
@@ -178,7 +192,10 @@ ComputeShader *ShaderSerializer::DeSerialize(
         header.codeBytes +
         header.propertyCount * sizeof(hlsl::Property) +
         header.kernelArgCount * sizeof(SavedArgument);
-    typeMD5 = header.typeMD5;
+    if (typeMD5 && (*typeMD5 != header.typeMD5)) [[unlikely]] {
+        LUISA_WARNING("Shader {} arguments unmatch to requirement!", name);
+        return nullptr;
+    }
     vstd::vector<std::byte> binCode;
     binCode.push_back_uninitialized(targetSize);
     vstd::vector<std::byte> psoCode;
@@ -194,6 +211,10 @@ ComputeShader *ShaderSerializer::DeSerialize(
         device->device,
         {reinterpret_cast<std::byte const *>(binPtr), header.rootSigBytes});
     binPtr += header.rootSigBytes;
+    if (profiler) [[unlikely]] {
+        profiler->after_load_shader_bytecode(name, true);
+        profiler->before_load_shader_cache(name, psoName);
+    }
     // Try pipeline library
     D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc;
     psoDesc.NodeMask = 0;
@@ -212,11 +233,22 @@ ComputeShader *ShaderSerializer::DeSerialize(
         // No PSO
         clearCache = true;
         psoDesc.CachedPSO.pCachedBlob = nullptr;
+        if (profiler) [[unlikely]] {
+            profiler->after_load_shader_cache(name, psoName, false);
+            profiler->before_compile_shader_cache(name, psoName);
+        }
         ThrowIfFailed(createPipe());
+        if (profiler) [[unlikely]] {
+            profiler->after_compile_shader_cache(name, psoName);
+        }
     } else {
         psoDesc.CachedPSO.pCachedBlob = psoCode.data();
         auto psoGenSuccess = createPipe();
         if (psoGenSuccess != S_OK) {
+            if (profiler) [[unlikely]] {
+                profiler->after_load_shader_cache(name, psoName, false);
+                profiler->before_compile_shader_cache(name, psoName);
+            }
             // PSO cache miss(probably driver's version or hardware transformed), discard cache
             clearCache = true;
             LUISA_VERBOSE("{} pipeline cache illegal, discarded.", name);
@@ -224,6 +256,13 @@ ComputeShader *ShaderSerializer::DeSerialize(
                 psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
                 psoDesc.CachedPSO.pCachedBlob = nullptr;
                 ThrowIfFailed(createPipe());
+            }
+            if (profiler) [[unlikely]] {
+                profiler->after_compile_shader_cache(name, psoName);
+            }
+        } else {
+            if (profiler) [[unlikely]] {
+                profiler->after_load_shader_cache(name, psoName, true);
             }
         }
     }
@@ -253,7 +292,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     Device *device,
     luisa::BinaryIO const &streamFunc,
     vstd::optional<vstd::MD5> const &ilMd5,
-    vstd::MD5 &typeMD5,
+    vstd::optional<vstd::MD5> const &typeMD5,
     MeshFormat const &meshFormat) {
     using namespace shader_ser;
     auto binStream = ReadBinaryIO(cacheType, &streamFunc, name);
@@ -277,7 +316,10 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
         header.pixelCodeBytes +
         header.propertyCount * sizeof(hlsl::Property) +
         header.kernelArgCount * sizeof(SavedArgument);
-    typeMD5 = header.typeMD5;
+    if (typeMD5 && (*typeMD5 != header.typeMD5)) [[unlikely]] {
+        LUISA_WARNING("Shader {} arguments unmatch to requirement!", name);
+        return nullptr;
+    }
     vstd::vector<std::byte> binCode;
     binCode.push_back_uninitialized(targetSize);
     binStream->read({binCode.data(), binCode.size()});

@@ -1,6 +1,12 @@
 name: build-xmake
 
-on: [ push, pull_request ]
+on:
+  push:
+    branches-ignore:
+      - 'stable'
+  pull_request:
+    branches-ignore:
+      - 'stable'
 
 jobs:
   build-linux:
@@ -9,13 +15,8 @@ jobs:
       matrix:
         os: [ ubuntu-22.04 ]
         toolchain:
-          - { name: gcc, version: 11 }
-          - { name: gcc, version: 12 }
           - { name: gcc, version: 13 }
-          - { name: clang, version: 14 }
-          - { name: clang, version: 15 }
-          - { name: clang, version: 16 }
-#          - { name: clang, version: 17 }
+          - { name: clang, version: 17 }
         config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
     runs-on: ${{ matrix.os }}
@@ -94,7 +95,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ 2019, 2022 ]
+        os: [ 2022 ]
         config: [ release, debug ]
         compiler: [ msvc, clang-cl ]
     name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}

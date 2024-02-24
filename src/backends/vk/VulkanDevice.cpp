@@ -15,6 +15,7 @@
 #include "VulkanDevice.h"
 #include <luisa/core/logging.h>
 #include "log.h"
+#include "device.h"
 namespace vks {
 /**
 	* Default constructor
@@ -58,11 +59,8 @@ VulkanDevice::VulkanDevice(VkPhysicalDevice physicalDevice) {
 	* @note Frees the logical device
 	*/
 VulkanDevice::~VulkanDevice() {
-    if (commandPool) {
-        vkDestroyCommandPool(logicalDevice, commandPool, nullptr);
-    }
     if (logicalDevice) {
-        vkDestroyDevice(logicalDevice, nullptr);
+        vkDestroyDevice(logicalDevice, lc::vk::Device::alloc_callbacks());
     }
 }
 
@@ -264,159 +262,20 @@ VkResult VulkanDevice::createLogicalDevice(VkPhysicalDeviceFeatures enabledFeatu
 
     this->enabledFeatures = enabledFeatures;
 
-    VkResult result = vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &logicalDevice);
+    VkResult result = vkCreateDevice(physicalDevice, &deviceCreateInfo, lc::vk::Device::alloc_callbacks(), &logicalDevice);
     if (result != VK_SUCCESS) {
         return result;
     }
 
     // Create a default command pool for graphics command buffers
-    commandPool = createCommandPool(queueFamilyIndices.graphics);
 
     return result;
 }
 
-/**
-	* Create a buffer on the device
-	*
-	* @param usageFlags Usage flag bit mask for the buffer (i.e. index, vertex, uniform buffer)
-	* @param memoryPropertyFlags Memory properties for this buffer (i.e. device local, host visible, coherent)
-	* @param size Size of the buffer in byes
-	* @param buffer Pointer to the buffer handle acquired by the function
-	* @param memory Pointer to the memory handle acquired by the function
-	* @param data Pointer to the data that should be copied to the buffer after creation (optional, if not set, no data is copied over)
-	*
-	* @return VK_SUCCESS if buffer handle and memory have been created and (optionally passed) data has been copied
-	*/
-/**
-	* Copy buffer data from src to dst using VkCmdCopyBuffer
-	* 
-	* @param src Pointer to the source buffer to copy from
-	* @param dst Pointer to the destination buffer to copy to
-	* @param queue Pointer
-	* @param copyRegion (Optional) Pointer to a copy region, if NULL, the whole buffer is copied
-	*
-	* @note Source and destination pointers must have the appropriate transfer usage flags set (TRANSFER_SRC / TRANSFER_DST)
-	*/
-void VulkanDevice::copyBuffer(vks::Buffer *src, vks::Buffer *dst, VkQueue queue, VkBufferCopy *copyRegion) {
-    assert(dst->size <= src->size);
-    assert(src->buffer);
-    VkCommandBuffer copyCmd = createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
-    VkBufferCopy bufferCopy{};
-    if (copyRegion == nullptr) {
-        bufferCopy.size = src->size;
-    } else {
-        bufferCopy = *copyRegion;
-    }
-
-    vkCmdCopyBuffer(copyCmd, src->buffer, dst->buffer, 1, &bufferCopy);
-
-    flushCommandBuffer(copyCmd, queue);
-}
-
-/** 
-	* Create a command pool for allocation command buffers from
-	* 
-	* @param queueFamilyIndex Family index of the queue to create the command pool for
-	* @param createFlags (Optional) Command pool creation flags (Defaults to VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT)
-	*
-	* @note Command buffers allocated from the created pool can only be submitted to a queue with the same family index
-	*
-	* @return A handle to the created command buffer
-	*/
-VkCommandPool VulkanDevice::createCommandPool(uint32_t queueFamilyIndex, VkCommandPoolCreateFlags createFlags) {
-    VkCommandPoolCreateInfo cmdPoolInfo = {};
-    cmdPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    cmdPoolInfo.queueFamilyIndex = queueFamilyIndex;
-    cmdPoolInfo.flags = createFlags;
-    VkCommandPool cmdPool;
-    VK_CHECK_RESULT(vkCreateCommandPool(logicalDevice, &cmdPoolInfo, nullptr, &cmdPool));
-    return cmdPool;
-}
-
-/**
-	* Allocate a command buffer from the command pool
-	*
-	* @param level Level of the new command buffer (primary or secondary)
-	* @param pool Command pool from which the command buffer will be allocated
-	* @param (Optional) begin If true, recording on the new command buffer will be started (vkBeginCommandBuffer) (Defaults to false)
-	*
-	* @return A handle to the allocated command buffer
-	*/
-VkCommandBuffer VulkanDevice::createCommandBuffer(VkCommandBufferLevel level, VkCommandPool pool, bool begin) {
-    VkCommandBufferAllocateInfo cmdBufAllocateInfo = vks::initializers::commandBufferAllocateInfo(pool, level, 1);
-    VkCommandBuffer cmdBuffer;
-    VK_CHECK_RESULT(vkAllocateCommandBuffers(logicalDevice, &cmdBufAllocateInfo, &cmdBuffer));
-    // If requested, also start recording for the new command buffer
-    if (begin) {
-        VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
-        VK_CHECK_RESULT(vkBeginCommandBuffer(cmdBuffer, &cmdBufInfo));
-    }
-    return cmdBuffer;
-}
-
-VkCommandBuffer VulkanDevice::createCommandBuffer(VkCommandBufferLevel level, bool begin) {
-    return createCommandBuffer(level, commandPool, begin);
-}
-
-/**
-	* Finish command buffer recording and submit it to a queue
-	*
-	* @param commandBuffer Command buffer to flush
-	* @param queue Queue to submit the command buffer to
-	* @param pool Command pool on which the command buffer has been created
-	* @param free (Optional) Free the command buffer once it has been submitted (Defaults to true)
-	*
-	* @note The queue that the command buffer is submitted to must be from the same family index as the pool it was allocated from
-	* @note Uses a fence to ensure command buffer has finished executing
-	*/
-void VulkanDevice::flushCommandBuffer(VkCommandBuffer commandBuffer, VkQueue queue, VkCommandPool pool, bool free) {
-    if (commandBuffer == VK_NULL_HANDLE) {
-        return;
-    }
-
-    VK_CHECK_RESULT(vkEndCommandBuffer(commandBuffer));
-
-    VkSubmitInfo submitInfo = vks::initializers::submitInfo();
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-    // Create fence to ensure that the command buffer has finished executing
-    VkFenceCreateInfo fenceInfo = vks::initializers::fenceCreateInfo(VK_FLAGS_NONE);
-    VkFence fence;
-    VK_CHECK_RESULT(vkCreateFence(logicalDevice, &fenceInfo, nullptr, &fence));
-    // Submit to the queue
-    VK_CHECK_RESULT(vkQueueSubmit(queue, 1, &submitInfo, fence));
-    // Wait for the fence to signal that command buffer has finished executing
-    VK_CHECK_RESULT(vkWaitForFences(logicalDevice, 1, &fence, VK_TRUE, DEFAULT_FENCE_TIMEOUT));
-    vkDestroyFence(logicalDevice, fence, nullptr);
-    if (free) {
-        vkFreeCommandBuffers(logicalDevice, pool, 1, &commandBuffer);
-    }
-}
-
-void VulkanDevice::flushCommandBuffer(VkCommandBuffer commandBuffer, VkQueue queue, bool free) {
-    return flushCommandBuffer(commandBuffer, queue, commandPool, free);
-}
-
-/**
-	* Check if an extension is supported by the (physical device)
-	*
-	* @param extension Name of the extension to check
-	*
-	* @return True if the extension is supported (present in the list read at device creation time)
-	*/
 bool VulkanDevice::extensionSupported(vstd::string_view extension) {
     return supportedExtensions.find(extension) != supportedExtensions.end();
 }
 
-/**
-	* Select the best-fit depth format for this device from a list of possible depth (and stencil) formats
-	*
-	* @param checkSamplingSupport Check if the format can be sampled from (e.g. for shader reads)
-	*
-	* @return The depth format that best fits for the current device
-	*
-	* @throw Throws an exception if no depth format fits the requirements
-	*/
 VkFormat VulkanDevice::getSupportedDepthFormat(bool checkSamplingSupport) {
     // All depth formats may be optional, so we need to find a suitable depth format to use
     vstd::vector<VkFormat> depthFormats = {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D16_UNORM_S8_UINT, VK_FORMAT_D16_UNORM};

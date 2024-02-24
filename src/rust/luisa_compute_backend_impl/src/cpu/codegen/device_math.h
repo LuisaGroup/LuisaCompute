@@ -3788,6 +3788,14 @@ template<>
     return lc_ushort(1);
 }
 template<>
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_byte>() noexcept {
+    return lc_byte(1);
+}
+template<>
+[[nodiscard]] __device__ inline constexpr auto lc_one<lc_ubyte>() noexcept {
+    return lc_ubyte(1);
+}
+template<>
 [[nodiscard]] __device__ inline constexpr auto lc_one<lc_bool>() noexcept {
     return true;
 }
@@ -3887,12 +3895,6 @@ __device__ inline void lc_accumulate_grad(lc_half *dst, lc_half grad) noexcept {
 __device__ inline void lc_accumulate_grad(lc_half2 *dst, lc_half2 grad) noexcept { *dst = *dst + lc_remove_nan(grad); }
 __device__ inline void lc_accumulate_grad(lc_half3 *dst, lc_half3 grad) noexcept { *dst = *dst + lc_remove_nan(grad); }
 __device__ inline void lc_accumulate_grad(lc_half4 *dst, lc_half4 grad) noexcept { *dst = *dst + lc_remove_nan(grad); }
-__device__ inline void lc_accumulate_grad(lc_byte2 *dst, lc_byte2 grad) noexcept {}
-__device__ inline void lc_accumulate_grad(lc_byte3 *dst, lc_byte3 grad) noexcept {}
-__device__ inline void lc_accumulate_grad(lc_byte4 *dst, lc_byte4 grad) noexcept {}
-__device__ inline void lc_accumulate_grad(lc_ubyte2 *dst, lc_ubyte2 grad) noexcept {}
-__device__ inline void lc_accumulate_grad(lc_ubyte3 *dst, lc_ubyte3 grad) noexcept {}
-__device__ inline void lc_accumulate_grad(lc_ubyte4 *dst, lc_ubyte4 grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_short *dst, lc_short grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_ushort *dst, lc_ushort grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_int *dst, lc_int grad) noexcept {}
@@ -3900,6 +3902,14 @@ __device__ inline void lc_accumulate_grad(lc_uint *dst, lc_uint grad) noexcept {
 __device__ inline void lc_accumulate_grad(lc_long *dst, lc_long grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_ulong *dst, lc_ulong grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_bool *dst, lc_bool grad) noexcept {}
+__device__ inline void lc_accumulate_grad(lc_byte *dst, lc_byte grad) noexcept {}
+__device__ inline void lc_accumulate_grad(lc_ubyte *dst, lc_ubyte grad) noexcept {}
+__device__ inline void lc_accumulate_grad(lc_byte2 *dst, lc_byte2 grad) noexcept {}
+__device__ inline void lc_accumulate_grad(lc_byte3 *dst, lc_byte3 grad) noexcept {}
+__device__ inline void lc_accumulate_grad(lc_byte4 *dst, lc_byte4 grad) noexcept {}
+__device__ inline void lc_accumulate_grad(lc_ubyte2 *dst, lc_ubyte2 grad) noexcept {}
+__device__ inline void lc_accumulate_grad(lc_ubyte3 *dst, lc_ubyte3 grad) noexcept {}
+__device__ inline void lc_accumulate_grad(lc_ubyte4 *dst, lc_ubyte4 grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_short2 *dst, lc_short2 grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_short3 *dst, lc_short3 grad) noexcept {}
 __device__ inline void lc_accumulate_grad(lc_short4 *dst, lc_short4 grad) noexcept {}

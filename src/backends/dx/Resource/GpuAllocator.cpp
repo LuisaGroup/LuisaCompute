@@ -77,7 +77,7 @@ uint64 GpuAllocator::AllocateBufferHeap(
     *heap = alloc->GetHeap();
     *offset = alloc->GetOffset();
     if (profiler) [[unlikely]] {
-        auto desc = luisa::format("Buffer name: \"{}\", heap type: {]}, extra heap-flags: {}, custom pool: {}", name, heapType, extra_flags, custom_pool);
+        auto desc = luisa::format("Buffer name: \"{}\", heap type: {}, extra heap-flags: {}, custom pool: {}", name, heapType, extra_flags, custom_pool);
         auto stacktrace = luisa::backtrace();
         profiler->allocate(reinterpret_cast<uint64_t>(alloc), info.Alignment, info.SizeInBytes, desc, std::move(stacktrace));
     }
@@ -93,7 +93,7 @@ void GpuAllocator::Release(uint64 alloc) {
     }
 }
 GpuAllocator::GpuAllocator(
-    Device *device, luisa::compute::MemoryProfiler *profiler) : profiler(profiler) {
+    Device *device, luisa::compute::Profiler *profiler) : profiler(profiler) {
     using namespace D3D12MA;
     ALLOCATOR_DESC desc;
     desc.Flags = ALLOCATOR_FLAGS::ALLOCATOR_FLAG_DEFAULT_POOLS_NOT_ZEROED;
