@@ -1,7 +1,7 @@
 /**
  * @file test/feat/common/test_device.cpp
  * @author sailing-innocent
- * @date 2023/07/30
+ * @date 2023-07-30
  * @brief the device test suite
 */
 #include "common/config.h"

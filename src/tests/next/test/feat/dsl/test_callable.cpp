@@ -19,15 +19,6 @@ using namespace luisa;
 using namespace luisa::compute;
 
 namespace luisa::test {
-struct CallableTest {
-    float a;
-    float b;
-    float array[16];
-};
-}// namespace luisa::test
-LUISA_STRUCT(luisa::test::CallableTest, a, b, array) {};
-
-namespace luisa::test {
 
 int test_callable(Device &device) {
     log_level_verbose();
