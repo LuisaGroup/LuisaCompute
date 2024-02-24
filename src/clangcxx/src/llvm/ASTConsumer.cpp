@@ -709,11 +709,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
             } else if (auto unary_or_trait = llvm::dyn_cast<UnaryExprOrTypeTraitExpr>(x)) {
                 if (unary_or_trait->getKind() == clang::UETT_SizeOf)
-                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeSize(unary_or_trait->getType()));
-                else if (unary_or_trait->getKind() == clang::UETT_PreferredAlignOf)
-                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeAlign(unary_or_trait->getType()));
-                else if (unary_or_trait->getKind() == clang::UETT_AlignOf)
-                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeAlign(unary_or_trait->getType()));
+                    current = fb->literal(Type::of<uint>(), (uint)(db->GetASTContext()->getTypeSize(unary_or_trait->getArgumentType()) / 8ull));
+                else if (unary_or_trait->getKind() == clang::UETT_PreferredAlignOf || unary_or_trait->getKind() == clang::UETT_AlignOf)
+                    current = fb->literal(Type::of<uint>(), (uint)(db->GetASTContext()->getTypeAlign(unary_or_trait->getArgumentType()) / 8ull));
                 else
                     luisa::log_error("unsupportted UnaryExprOrTypeTraitExpr: {}", unary_or_trait->getStmtClassName());
             } else if (auto unary = llvm::dyn_cast<UnaryOperator>(x)) {

@@ -161,8 +161,8 @@ set(REPROC++ ON CACHE BOOL "" FORCE)
 set(REPROC_MULTITHREADED ON CACHE BOOL "" FORCE)
 add_subdirectory(reproc)
 if (UNIX AND NOT APPLE)
-    target_compile_options(reproc PUBLIC "-fPIC")
-    target_compile_options(reproc++ PUBLIC "-fPIC")
+    target_compile_options(reproc PRIVATE "-fPIC")
+    target_compile_options(reproc++ PRIVATE "-fPIC")
 endif ()
 target_include_directories(luisa-compute-ext INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc/include>
@@ -175,6 +175,21 @@ install(DIRECTORY reproc/reproc++/include/reproc++
         FILES_MATCHING REGEX ".*\\.hpp$")
 # Note: we do not link `reproc` and `reproc++` to `luisa-compute-ext` but
 #       instead to `luisa-compute-core` since this is an OBJECT library.
+add_library(luisa-compute-ext-lmdb OBJECT
+        liblmdb/mdb.c liblmdb/lmdb.h
+        liblmdb/midl.c liblmdb/midl.h)
+target_include_directories(luisa-compute-ext-lmdb PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/liblmdb>)
+if (UNIX AND NOT APPLE)
+    target_compile_options(luisa-compute-ext-lmdb PRIVATE "-fPIC")
+endif ()
+if (WIN32)
+    target_compile_options(luisa-compute-ext-lmdb PRIVATE "-UWIN32_LEAN_AND_MEAN")
+endif ()
+set_target_properties(luisa-compute-ext-lmdb PROPERTIES
+        UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}
+        OUTPUT_NAME lc-ext-lmdb)
+install(TARGETS luisa-compute-ext-lmdb EXPORT LuisaComputeTargets)
 
 if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)

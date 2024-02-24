@@ -140,6 +140,16 @@ public:
         LUISA_WARNING("Failed to write shader bytecode to '{}'.", name);
         return {};
     }
+    void clear_shader_cache() const noexcept override {
+        if (_path.empty()) { return; }
+        auto cache_path = _path / "cache";
+        std::error_code ec;
+        std::filesystem::remove_all(cache_path, ec);
+        if (ec) {
+            LUISA_WARNING("Failed to remove cache directory '{}': {}.",
+                          cache_path.string(), ec.message());
+        }
+    }
     filesystem::path write_shader_cache(luisa::string_view name, luisa::span<const std::byte> data) const noexcept override {
         if (_path.empty()) { return {}; }
         auto cache_path = _path / "cache";
