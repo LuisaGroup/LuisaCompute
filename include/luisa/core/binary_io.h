@@ -78,10 +78,10 @@ class BinaryIO {
 
 public:
     virtual ~BinaryIO() noexcept = default;
+    virtual void clear_shader_cache() const noexcept = 0;
     [[nodiscard]] virtual luisa::unique_ptr<BinaryStream> read_shader_bytecode(luisa::string_view name) const noexcept = 0;
     [[nodiscard]] virtual luisa::unique_ptr<BinaryStream> read_shader_cache(luisa::string_view name) const noexcept = 0;
     [[nodiscard]] virtual luisa::unique_ptr<BinaryStream> read_internal_shader(luisa::string_view name) const noexcept = 0;
-    [[nodiscard]] virtual void clear_shader_cache() const noexcept = 0;
     // returns the path of the written file (if stored on disk, otherwise returns empty path)
     [[nodiscard]] virtual luisa::filesystem::path write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept = 0;
     [[nodiscard]] virtual luisa::filesystem::path write_shader_cache(luisa::string_view name, luisa::span<std::byte const> data) const noexcept = 0;
