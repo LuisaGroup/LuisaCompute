@@ -300,6 +300,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         }
     }
 }
+
 vstd::span<VkDescriptorSet> Shader::allocate_desc_set(VkDescriptorPool pool, vstd::vector<VkDescriptorSet> &descs) {
     VkDescriptorSetAllocateInfo alloc_info{
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
