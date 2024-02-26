@@ -65,6 +65,7 @@ class LC_VSTL_API LMDB {
 public:
     LMDB(
         std::filesystem::path const &db_dir,
+        size_t max_reader = 126ull,
         // 64G as default (should be enough for shader?)
         size_t map_size = 1024ull * 1024ull * 1024ull * 64ull) noexcept;
     LMDB(LMDB const &) = delete;

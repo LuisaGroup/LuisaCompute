@@ -54,16 +54,18 @@ std::unique_ptr<FrontendActionFactory> newFrontendActionFactory3(compute::Callab
 luisa::vector<luisa::string> Compiler::compile_args(
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
-    const std::filesystem::path &include_path,
+    vstd::IRange<luisa::string> &include_paths,
     bool is_lsp,
     bool is_export) LUISA_NOEXCEPT {
-    auto include_arg = "-I" + detail::path_to_string(include_path);
-    luisa::string arg_list[] = {
+    luisa::vector<luisa::string> arg_list = {
         "-std=c++23",
         // swizzle uses reference member in union
         "-fms-extensions",
-        "-Wno-microsoft-union-member-reference",
-        std::move(include_arg)};
+        "-Wno-microsoft-union-member-reference"};
+    for (auto &&i : include_paths) {
+        LUISA_WARNING("{}", i);
+        arg_list.emplace_back(luisa::string{"-I"} + std::move(i));
+    }
     luisa::vector<luisa::string> args_holder;
     if (!is_lsp) {
         luisa::string compile_arg_list[] = {
@@ -74,7 +76,7 @@ luisa::vector<luisa::string> Compiler::compile_args(
             return std::move(compile_arg_list[i]);
         });
     }
-    vstd::push_back_func(args_holder, vstd::array_count(arg_list), [&](size_t i) -> auto && {
+    vstd::push_back_func(args_holder, arg_list.size(), [&](size_t i) -> auto && {
         return std::move(arg_list[i]);
     });
     for (auto &&i : defines) {
@@ -93,9 +95,9 @@ compute::ShaderCreationInfo Compiler::create_shader(
     luisa::compute::Device &device,
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
-    const std::filesystem::path &include_path) LUISA_NOEXCEPT {
+    vstd::IRange<luisa::string> &include_paths) LUISA_NOEXCEPT {
 
-    auto args_holder = compile_args(defines, shader_path, include_path, false, false);
+    auto args_holder = compile_args(defines, shader_path, include_paths, false, false);
     luisa::vector<const char *> args;
     args.reserve(args_holder.size());
     for (auto &arg : args_holder) {
@@ -123,9 +125,9 @@ compute::CallableLibrary Compiler::export_callables(
     compute::Device &device,
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_path,
-    const std::filesystem::path &include_path) LUISA_NOEXCEPT {
+    vstd::IRange<luisa::string> &include_paths) LUISA_NOEXCEPT {
     compute::CallableLibrary lib;
-    auto args_holder = compile_args(defines, shader_path, include_path, false, true);
+    auto args_holder = compile_args(defines, shader_path, include_paths, false, true);
     luisa::vector<const char *> args;
     args.reserve(args_holder.size());
     for (auto &arg : args_holder) {
@@ -152,10 +154,10 @@ void Compiler::lsp_compile_commands(
     vstd::IRange<luisa::string_view> &defines,
     const std::filesystem::path &shader_dir,
     const std::filesystem::path &shader_relative_dir,
-    const std::filesystem::path &include_path,
+    vstd::IRange<luisa::string> &include_paths,
     luisa::vector<char> &result) LUISA_NOEXCEPT {
     using namespace std::string_view_literals;
-    auto args_holder = compile_args(defines, shader_relative_dir, include_path, true, false);
+    auto args_holder = compile_args(defines, shader_relative_dir, include_paths, true, false);
     auto add = [&]<typename T>(T c) {
         if constexpr (std::is_same_v<T, char const *>) {
             vstd::push_back_all(result, span<char const>(c, strlen(c)));

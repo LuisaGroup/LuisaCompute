@@ -60,9 +60,13 @@ int main(int argc, char *argv[]) {
             vstd::make_ite_range(defines),
             vstd::transform_range{[&](auto &&v) { return luisa::string_view{v}; }}}
                         .i_range();
+        auto inc_iter = vstd::range_linker{
+            vstd::make_ite_range(luisa::span{&include_path, 1}),
+            vstd::transform_range{
+                [&](auto &&path) { return luisa::to_string(path); }}}.i_range();
         if (kUseExport) {
             auto lib = luisa::clangcxx::Compiler::export_callables(
-                device, iter, shader_path, include_path);
+                device, iter, shader_path, inc_iter);
             luisa::string lib_str;
             for (auto &&i : lib.callable_map()) {
                 lib_str += i.first;
@@ -86,7 +90,7 @@ int main(int argc, char *argv[]) {
                 ShaderOption{
                     .compile_only = true,
                     .name = "test.bin"},
-                device, iter, shader_path, include_path);
+                device, iter, shader_path, inc_iter);
         }
     }
     if (kTestRuntime) {

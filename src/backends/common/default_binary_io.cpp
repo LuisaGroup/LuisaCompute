@@ -129,8 +129,8 @@ DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, void *ext) noexcept
     : _ctx(std::move(ctx)),
       _cache_dir{_ctx.create_runtime_subdir(".cache"sv)},
       _data_dir{_ctx.create_runtime_subdir(".data"sv)},
-      _data_lmdb{_data_dir},
-      _cache_lmdb{_cache_dir} {
+      _data_lmdb{_data_dir, std::max<size_t>(126ull, std::thread::hardware_concurrency() * 2)},
+      _cache_lmdb{_cache_dir, std::max<size_t>(126ull, std::thread::hardware_concurrency() * 2)} {
 }
 
 DefaultBinaryIO::~DefaultBinaryIO() noexcept = default;
