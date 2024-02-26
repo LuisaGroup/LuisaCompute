@@ -123,8 +123,10 @@ public:
                 if (i == n) {
                     _task_count.fetch_sub(1u);
                 }
-                if (counter->second.fetch_add(dispatched_count) + dispatched_count == n) {
-                    promise.set_value();
+                if (dispatched_count > 0) {
+                    if (counter->second.fetch_add(dispatched_count) + dispatched_count == n) {
+                        promise.set_value();
+                    }
                 }
             },
             n);
