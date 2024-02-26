@@ -172,10 +172,8 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
     expressions.reserve((dmlGraph->hiddens.size() + 1) * 2);
     uint lastDim = input;
     auto &lastOutput = inputLayer;
-    uint numWeights = 0;
     for (uint i = 0; i < dmlGraph->hiddens.size(); i++) {
         auto hidden_dim = dmlGraph->hiddens[i];
-        numWeights += lastDim * hidden_dim;
         UINT matrixSizes[4] = {1, 1, hidden_dim, UINT(lastDim)};
         dml::TensorDesc::Dimensions matrixDimensions = dml::TensorDesc::Dimensions(std::begin(matrixSizes), std::end(matrixSizes));
         auto mdesc = dml::TensorDesc{dataType, matrixDimensions};
@@ -187,7 +185,6 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
         lastOutput = fc;
     }
     {
-        numWeights += lastDim * output;
         UINT matrixSizes[4] = {1, 1, UINT(output), UINT(lastDim)};
         dml::TensorDesc::Dimensions matrixDimensions = dml::TensorDesc::Dimensions(std::begin(matrixSizes), std::end(matrixSizes));
         auto mdesc = dml::TensorDesc{dataType, matrixDimensions};
@@ -254,7 +251,6 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
 
     // Bind and initialize the operator on the GPU.
 
-    auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
     if (dmlGraph->temp_res_count != 0) {
         dmlGraph->temporaryBuffer = dmlGraph->device_interface->create_buffer(
             Type::of<void>() /*nullptr*/,
@@ -298,7 +294,7 @@ void DxGraphBuildCommand::execute(IDXGIAdapter1 *adapter, IDXGIFactory2 *dxgi_fa
 
 class DxGraphForwardCommand final : public DXCustomCmd {
     luisa::vector<ResourceUsage> resource_usages;
-    luisa::span<const ResourceUsage> get_resource_usages() const noexcept {
+    luisa::span<const ResourceUsage> get_resource_usages() const noexcept override {
         return resource_usages;
     }
 public:

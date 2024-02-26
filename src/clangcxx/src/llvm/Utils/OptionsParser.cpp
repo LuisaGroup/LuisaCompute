@@ -50,17 +50,17 @@ const char *const OptionsParser::HelpMessage =
     "\tautomatically removed, but the rest of a relative path must be a\n"
     "\tsuffix of a path in the compile command database.\n"
     "\n";
-static void replaceAll(std::string &str, const std::string &from,
-                       const std::string &to) {
-    if (from.empty())
-        return;
-    size_t start_pos = 0;
-    while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
-        str.replace(start_pos, from.length(), to);
-        start_pos += to.length();// In case 'to' contains 'from', like replacing
-                                 // 'x' with 'yx'
-    }
-}
+// static void replaceAll(std::string &str, const std::string &from,
+//                        const std::string &to) {
+//     if (from.empty())
+//         return;
+//     size_t start_pos = 0;
+//     while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+//         str.replace(start_pos, from.length(), to);
+//         start_pos += to.length();// In case 'to' contains 'from', like replacing
+//                                  // 'x' with 'yx'
+//     }
+// }
 
 llvm::Error OptionsParser::init(int &argc, const char **argv,
                                 llvm::cl::NumOccurrencesFlag OccurrencesFlag,

@@ -183,6 +183,19 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
             if (adapter == nullptr) { LUISA_ERROR_WITH_LOCATION("Failed to create DirectX device at index {}.", index); }
         }
+        {
+            auto adapterIdStream = fileIo->read_shader_cache("dx_adapterid");
+            bool sameAdaptor = false;
+            if (adapterIdStream) {
+                auto blob = adapterIdStream->read(~0ull);
+                sameAdaptor = blob.size() == sizeof(vstd::MD5) && memcmp(blob.data(), &adapterID, sizeof(vstd::MD5)) == 0;
+            }
+            if (!sameAdaptor) {
+                LUISA_INFO("Adapter mismatch, shader cache cleared.");
+                fileIo->clear_shader_cache();
+            }
+            fileIo->write_shader_cache("dx_adapterid", {reinterpret_cast<std::byte const *>(&adapterID), sizeof(vstd::MD5)});
+        }
         defaultAllocator = vstd::make_unique<GpuAllocator>(this, profiler);
         globalHeap = vstd::create_unique(
             new DescriptorHeap(

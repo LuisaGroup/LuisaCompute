@@ -32,14 +32,13 @@ private:
             : evt{std::forward<Arg>(arg)}, fence{fence}, wakeupThread{wakeupThread} {}
     };
     std::atomic_bool enabled = true;
+    std::atomic_uint64_t executedFrame = 0;
+    std::atomic_uint64_t lastFrame = 0;
     Device *device;
     GpuAllocator *resourceAllocator;
     D3D12_COMMAND_LIST_TYPE type;
     std::mutex mtx;
-    std::thread thd;
     std::condition_variable waitCv;
-    std::atomic_uint64_t executedFrame = 0;
-    std::atomic_uint64_t lastFrame = 0;
     DxPtr<ID3D12CommandQueue> queue;
     Microsoft::WRL::ComPtr<ID3D12Fence> cmdFence;
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
@@ -70,5 +69,8 @@ public:
         CommandBuffer &cb);
     KILL_MOVE_CONSTRUCT(CommandQueue)
     KILL_COPY_CONSTRUCT(CommandQueue)
+private:
+    // make sure thread always construct after all members
+    std::thread thd;
 };
 }// namespace lc::dx

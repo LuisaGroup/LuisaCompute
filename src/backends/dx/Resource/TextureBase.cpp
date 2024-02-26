@@ -239,8 +239,11 @@ GFXFormat TextureBase::ToGFXFormat(PixelFormat format) {
             return GFXFormat_R10G10B10A2_UInt;
         case PixelFormat::R11G11B10F:
             return GFXFormat_R11G11B10_Float;
+        default:
+            LUISA_ERROR_WITH_LOCATION("Unreachable.");
+            break;
     }
-    LUISA_ERROR_WITH_LOCATION("Unreachable.");
+    return {};
 }
 PixelFormat TextureBase::ToPixelFormat(GFXFormat format) {
     switch (format) {
@@ -284,8 +287,11 @@ PixelFormat TextureBase::ToPixelFormat(GFXFormat format) {
         case GFXFormat_R10G10B10A2_UNorm: return PixelFormat::R10G10B10A2UNorm;
         case GFXFormat_R10G10B10A2_UInt: return PixelFormat::R10G10B10A2UInt;
         case GFXFormat_R11G11B10_Float: return PixelFormat::R11G11B10F;
+        default:
+            LUISA_ERROR_WITH_LOCATION("Unreachable.");
+            break;
     }
-    LUISA_ERROR_WITH_LOCATION("Unreachable.");
+    return {};
 }
 D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(uint3 size, uint mip, bool allowUav, bool allowSimul, bool allowRaster, bool reserved) const {
     D3D12_RESOURCE_DESC texDesc{};

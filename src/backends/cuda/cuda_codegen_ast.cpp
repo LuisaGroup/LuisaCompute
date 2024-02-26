@@ -1,5 +1,6 @@
 #include <string_view>
 
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/ast/constant_data.h>
@@ -1557,7 +1558,7 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     sorted.reserve(types.size());
     std::copy(types.cbegin(), types.cend(),
               std::back_inserter(sorted));
-    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+    luisa::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
         return a->hash() < b->hash();
     });
 
@@ -1611,7 +1612,7 @@ void CUDACodegenAST::_emit_type_decl(Function kernel) noexcept {
     sorted.clear();
     sorted.reserve(_print_stmt_types.size());
     for (auto [_, s] : _print_stmt_types) { sorted.emplace_back(s); }
-    std::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
+    luisa::sort(sorted.begin(), sorted.end(), [](auto a, auto b) noexcept {
         return a->hash() < b->hash();
     });
     sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());

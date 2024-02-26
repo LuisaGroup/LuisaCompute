@@ -28,7 +28,7 @@ on_load(function(target)
 			public = is_public
 		})
 	if is_plat("windows") then
-		target:add("syslinks", "Ole32", {
+		target:add("syslinks", "Ole32", "Advapi32", {
 			public = is_public
 		})
 	elseif is_plat("linux") then

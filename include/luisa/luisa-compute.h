@@ -180,7 +180,6 @@
 #include <luisa/vstl/md5.h>
 #include <luisa/vstl/memory.h>
 #include <luisa/vstl/meta_lib.h>
-#include <luisa/vstl/pdqsort.h>
 #include <luisa/vstl/pool.h>
 #include <luisa/vstl/ranges.h>
 #include <luisa/vstl/spin_mutex.h>

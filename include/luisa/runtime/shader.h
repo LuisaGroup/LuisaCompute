@@ -233,8 +233,8 @@ public:
                         const ShaderCreationInfo &info,
                         size_t uniform_size) noexcept
         : Resource{device, Tag::SHADER, info},
-          _block_size{info.block_size},
-          _uniform_size{uniform_size} {}
+          _uniform_size{uniform_size},
+          _block_size{info.block_size} {}
     explicit ShaderBase() = default;
     ~ShaderBase() noexcept override {
         if (*this) { device()->destroy_shader(handle()); }

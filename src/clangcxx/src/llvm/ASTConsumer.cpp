@@ -672,9 +672,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 auto N = Arguments[0].getAsIntegral().getLimitedValue();
                                 auto lcType = Type::matrix(N);
                                 const CallOp MATRIX_LUT[3] = {CallOp::MAKE_FLOAT2X2, CallOp::MAKE_FLOAT3X3, CallOp::MAKE_FLOAT4X4};
-                                if (lcArgs.size() <= 1) /*ignore MAKE_MAT with empty args*/
-                                    constructed = constructed;
-                                else
+                                if (lcArgs.size() > 1)
                                     fb->assign(constructed, fb->call(lcType, MATRIX_LUT[N - 2], {lcArgs.begin() + 1, lcArgs.end()}));
                             } else
                                 luisa::log_error("???");
@@ -690,16 +688,16 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (Flags & 1)
                                     constructed = fb->shared(lcArrayType);
 
-                                if (cxxCtor->isDefaultConstructor())
-                                    constructed = constructed;
-                                else if (cxxCtor->isConvertingConstructor(true))
-                                    fb->assign(constructed, fb->cast(lcArrayType, CastOp::STATIC, lcArgs[1]));
-                                else if (cxxCtor->isCopyConstructor())
-                                    fb->assign(constructed, lcArgs[1]);
-                                else if (cxxCtor->isMoveConstructor())
-                                    luisa::log_error("unexpected move array constructor!");
-                                else
-                                    luisa::log_error("unhandled array constructor: {}", cxxCtor->getNameAsString());
+                                if (!cxxCtor->isDefaultConstructor()) {
+                                    if (cxxCtor->isConvertingConstructor(true))
+                                        fb->assign(constructed, fb->cast(lcArrayType, CastOp::STATIC, lcArgs[1]));
+                                    else if (cxxCtor->isCopyConstructor())
+                                        fb->assign(constructed, lcArgs[1]);
+                                    else if (cxxCtor->isMoveConstructor())
+                                        luisa::log_error("unexpected move array constructor!");
+                                    else
+                                        luisa::log_error("unhandled array constructor: {}", cxxCtor->getNameAsString());
+                                }
                             }
                         } else {
                             luisa::log_error("unhandled builtin constructor: {}", cxxCtor->getNameAsString());
@@ -711,11 +709,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 }
             } else if (auto unary_or_trait = llvm::dyn_cast<UnaryExprOrTypeTraitExpr>(x)) {
                 if (unary_or_trait->getKind() == clang::UETT_SizeOf)
-                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeSize(unary_or_trait->getType()));
-                else if (unary_or_trait->getKind() == clang::UETT_PreferredAlignOf)
-                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeAlign(unary_or_trait->getType()));
-                else if (unary_or_trait->getKind() == clang::UETT_AlignOf)
-                    current = fb->literal(Type::of<uint>(), (uint)db->GetASTContext()->getTypeAlign(unary_or_trait->getType()));
+                    current = fb->literal(Type::of<uint>(), (uint)(db->GetASTContext()->getTypeSize(unary_or_trait->getArgumentType()) / 8ull));
+                else if (unary_or_trait->getKind() == clang::UETT_PreferredAlignOf || unary_or_trait->getKind() == clang::UETT_AlignOf)
+                    current = fb->literal(Type::of<uint>(), (uint)(db->GetASTContext()->getTypeAlign(unary_or_trait->getArgumentType()) / 8ull));
                 else
                     luisa::log_error("unsupportted UnaryExprOrTypeTraitExpr: {}", unary_or_trait->getStmtClassName());
             } else if (auto unary = llvm::dyn_cast<UnaryOperator>(x)) {
