@@ -16,9 +16,6 @@
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
 	url = https://github.com/LuisaGroup/pybind11.git
-[submodule "src/ext/corrosion"]
-	path = src/ext/corrosion
-	url = https://github.com/corrosion-rs/corrosion.git
 [submodule "src/ext/magic_enum"]
 	path = src/ext/magic_enum
 	url = https://github.com/Neargye/magic_enum

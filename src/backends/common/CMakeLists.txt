@@ -1,7 +1,7 @@
 # OIDN Denoiser Extension
 if (LUISA_COMPUTE_DOWNLOAD_OIDN)
 
-    set(oidn_DOWNLOAD_VERSION 2.1.0)
+    set(oidn_DOWNLOAD_VERSION 2.2.0)
     set(oidn_BUILD_FROM_SOURCE OFF)
     if (WIN32)
         set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x64.windows.zip")
