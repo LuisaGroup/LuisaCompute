@@ -4,15 +4,11 @@
 namespace luisa {
 
 #ifdef LUISA_PLATFORM_WINDOWS
-#define LUISA_FSEEK _fseeki64_nolock
-#define LUISA_FTELL _ftelli64_nolock
-#define LUISA_FREAD _fread_nolock
-#define LUISA_FCLOSE _fclose_nolock
+#define LUISA_FSEEK _fseeki64
+#define LUISA_FTELL _ftelli64
 #else
 #define LUISA_FSEEK fseeko
 #define LUISA_FTELL ftello
-#define LUISA_FREAD fread
-#define LUISA_FCLOSE fclose
 #endif
 
 namespace detail {
@@ -69,12 +65,12 @@ void BinaryFileStream::read(luisa::span<std::byte> dst) noexcept {
         return;
     }
     auto size = std::min(dst.size(), _length - _pos);
-    LUISA_FREAD(dst.data(), 1, size, _file);
+    fread(dst.data(), 1, size, _file);
     _pos += size;
 }
 
 void BinaryFileStream::close() noexcept {
-    if (_file) [[likely]] { LUISA_FCLOSE(_file); }
+    if (_file) [[likely]] { fclose(_file); }
     _length = 0;
     _pos = 0;
 }
@@ -87,7 +83,5 @@ void BinaryFileStream::set_pos(size_t pos) noexcept {
 
 #undef LUISA_FSEEK
 #undef LUISA_FTELL
-#undef LUISA_FREAD
-#undef LUISA_FCLOSE
 
 }// namespace luisa

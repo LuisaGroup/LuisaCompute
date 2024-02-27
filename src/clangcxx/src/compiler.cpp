@@ -62,8 +62,10 @@ luisa::vector<luisa::string> Compiler::compile_args(
         // swizzle uses reference member in union
         "-fms-extensions",
         "-Wno-microsoft-union-member-reference"};
-    for (auto &&i : include_paths) {
-        LUISA_WARNING("{}", i);
+    for (auto i : include_paths) {
+        for (auto &c : i) {
+            if (c == '\\') c = '/';
+        }
         arg_list.emplace_back(luisa::string{"-I"} + std::move(i));
     }
     luisa::vector<luisa::string> args_holder;
@@ -90,7 +92,7 @@ luisa::vector<luisa::string> Compiler::compile_args(
     return args_holder;
 }
 
-compute::ShaderCreationInfo Compiler::create_shader(
+bool Compiler::create_shader(
     const compute::ShaderOption &option,
     luisa::compute::Device &device,
     vstd::IRange<luisa::string_view> &defines,
@@ -108,7 +110,7 @@ compute::ShaderCreationInfo Compiler::create_shader(
     if (!ExpectedParser) {
         // Fail gracefully for unsupported options.
         llvm::errs() << ExpectedParser.takeError();
-        return compute::ShaderCreationInfo::make_invalid();
+        return false;
     }
     OptionsParser &OptionsParser = ExpectedParser.get();
     tooling::ClangTool Tool(OptionsParser.getCompilations(), OptionsParser.getSourcePathList());
@@ -117,9 +119,9 @@ compute::ShaderCreationInfo Compiler::create_shader(
     // auto factory = newFrontendActionFactory3<luisa::clangcxx::CallLibFrontendAction>(option.name);
     auto rc = Tool.run(factory.get());
     if (rc != 0) {
-        // ...
+        return false;
     }
-    return compute::ShaderCreationInfo::make_invalid();
+    return true;
 }
 compute::CallableLibrary Compiler::export_callables(
     compute::Device &device,

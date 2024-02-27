@@ -8,7 +8,7 @@
 namespace luisa::clangcxx {
 
 struct LC_CLANGCXX_API Compiler {
-    static compute::ShaderCreationInfo create_shader(
+    static bool create_shader(
         const compute::ShaderOption &option,
         compute::Device &device,
         vstd::IRange<luisa::string_view> &defines,

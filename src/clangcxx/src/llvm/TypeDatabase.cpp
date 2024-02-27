@@ -68,9 +68,9 @@ const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty
         loc.dump(GetASTContext()->getSourceManager());
         Ty->dump();
         if (isPointer)
-            luisa::log_error("pointer types are banned!");
+            clangcxx_log_error("pointer types are banned!");
         if (isUnion)
-            luisa::log_error("union types are banned!");
+            clangcxx_log_error("union types are banned!");
         return nullptr;
     }
 
@@ -83,7 +83,7 @@ const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty
         type_map[name] = _type;
         return _type;
     } else {
-        luisa::log_error("unfound type: {}", name);
+        clangcxx_log_error("unfound type: {}", name);
     }
     return nullptr;
 }
@@ -93,7 +93,7 @@ auto TypeDatabase::FindCallOp(const luisa::string_view &name) -> luisa::compute:
     if (iter) {
         return iter.value();
     }
-    luisa::log_error("unfound call op: {}", name);
+    clangcxx_log_error("unfound call op: {}", name);
     return CallOp::ASIN;
 }
 
@@ -102,13 +102,13 @@ auto TypeDatabase::FindBinOp(const luisa::string_view &name) -> luisa::compute::
     if (iter) {
         return iter.value();
     }
-    luisa::log_error("unfound call op: {}", name);
+    clangcxx_log_error("unfound call op: {}", name);
     return luisa::compute::BinaryOp::ADD;
 }
 
 void TypeDatabase::SetFunctionThis(const compute::detail::FunctionBuilder *_this, const compute::RefExpr *fb) {
     if (this_map.contains(_this))
-        luisa::log_error("function builder already has this pointer");
+        clangcxx_log_error("function builder already has this pointer");
     this_map[_this] = fb;
 }
 
@@ -243,7 +243,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsPrimitiveType(const clang::Qua
 
             default:
             {
-                luisa::log_error("unsupported field primitive type: [{}], kind [{}]",
+                clangcxx_log_error("unsupported field primitive type: [{}], kind [{}]",
                     Ty.getAsString(), builtin->getKind());
             }
             break;
@@ -300,7 +300,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         case 3: { _type = Type::of<type##3>(); } break;                                            \
         case 4: { _type = Type::of<type##4>(); } break;                                            \
         default: {                                                                                             \
-            luisa::log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
+            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
         } break;                                                                                               \
     }
                             case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool) } break;
@@ -311,7 +311,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                             case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint) } break;
                             case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double) } break;
                             default: {
-                                luisa::log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
+                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
                             } break;
 #undef CASE_VEC_TYPE
                         }
@@ -328,7 +328,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                 if (auto lcType = FindOrAddType(Arguments[0].getAsType(), TSD->getBeginLoc())) {
                     _type = Type::array(lcType, N);
                 } else {
-                    luisa::log_error("unfound array element type: {}", Arguments[0].getAsType().getAsString());
+                    clangcxx_log_error("unfound array element type: {}", Arguments[0].getAsType().getAsString());
                 }
             }
         } else if (builtin_type_name == "matrix") {
@@ -361,7 +361,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                     if (is_buffer) {
                         _type = Type::of<ByteBuffer>();
                     } else {
-                        luisa::log_error("unfound {} element type: {}",
+                        clangcxx_log_error("unfound {} element type: {}",
                                          is_image ? "image" : "volume",
                                          Arguments[0].getAsType().getAsString());
                     }
@@ -369,12 +369,12 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
             }
         } else {
             Ty.dump();
-            luisa::log_error("ilegal builtin type: {}", luisa::string(builtin_type_name));
+            clangcxx_log_error("ilegal builtin type: {}", luisa::string(builtin_type_name));
         }
 
         if (!_type) {
             Ty.dump();
-            luisa::log_error("unsupported builtin type: {}", luisa::string(builtin_type_name));
+            clangcxx_log_error("unsupported builtin type: {}", luisa::string(builtin_type_name));
         }
     }
     if (_type) {
@@ -416,11 +416,11 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
                 auto Ty = f->getType();
                 if (auto isRef = Ty->isReferenceType()) {
                     DumpWithLocation(f->getFirstDecl());
-                    luisa::log_error("Field as reference type is not supported: [{}]", Ty.getAsString());
+                    clangcxx_log_error("Field as reference type is not supported: [{}]", Ty.getAsString());
                 }
                 if (auto isArray = Ty->getAsArrayTypeUnsafe()) {
                     DumpWithLocation(f->getFirstDecl());
-                    luisa::log_error("Field as C-style array type is not supported: [{}]", Ty.getAsString());
+                    clangcxx_log_error("Field as C-style array type is not supported: [{}]", Ty.getAsString());
                 }
                 for (auto Anno = f->specific_attr_begin<clang::AnnotateAttr>(); Anno != f->specific_attr_end<clang::AnnotateAttr>(); ++Anno) {
                     if (Anno->getAnnotation() == "luisa-shader") {
@@ -443,19 +443,19 @@ const luisa::compute::Type *TypeDatabase::RecordAsStuctureType(const clang::Qual
 
                 if (!tryEmplaceFieldType(Ty, S, types)) {
                     S->dump();
-                    luisa::log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
+                    clangcxx_log_error("unsupported field type [{}] in type [{}]", Ty.getAsString(), S->getNameAsString());
                 }
             }
             if (!is_builtin && S->field_empty()) {
                 Ty->dump();
-                luisa::log_error("empty struct [{}] detected!", Ty.getAsString());
+                clangcxx_log_error("empty struct [{}] detected!", Ty.getAsString());
             }
         }
         // align
         alignment = std::max<size_t>(alignment, S->getMaxAlignment() / 8);
         if (alignment > 16u) {
             DumpWithLocation(S);
-            luisa::log_error("Invalid structure alignment {} (must be 4, 8, or 16).", alignment);
+            clangcxx_log_error("Invalid structure alignment {} (must be 4, 8, or 16).", alignment);
         }
 
         for (auto ft : types) {
@@ -479,7 +479,7 @@ const luisa::compute::Type *TypeDatabase::RecordType(const clang::QualType Qt, b
     if (auto builtin = Ty->getAs<clang::BuiltinType>()) {
         _type = RecordAsPrimitiveType(Ty);
         // if (!_type) {
-        //     luisa::log_error("unsupported field primitive type: [{}], kind [{}]",
+        //     clangcxx_log_error("unsupported field primitive type: [{}], kind [{}]",
         //                      Ty.getAsString(), builtin->getKind());
         // }
     } else {
@@ -498,17 +498,17 @@ const luisa::compute::Type *TypeDatabase::RecordType(const clang::QualType Qt, b
             return nullptr;
         } else {
             Qt->dump();
-            luisa::log_error("unsupported & unresolved type [{}]", Ty.getAsString());
+            clangcxx_log_error("unsupported & unresolved type [{}]", Ty.getAsString());
         }
     }
     if (isRestrict && !_type) {
         if (isSwizzle(GetRecordDeclFromQualType(Qt)))
-            luisa::log_error("swizzle helper type instantiation detected! please use explicit vector types!");
+            clangcxx_log_error("swizzle helper type instantiation detected! please use explicit vector types!");
         else if (auto UnionType = Qt->getAsUnionType()) {
             DumpWithLocation(UnionType->getDecl());
-            luisa::log_error("union is not supportted! [{}]", Ty.getAsString());
+            clangcxx_log_error("union is not supportted! [{}]", Ty.getAsString());
         } else {
-            luisa::log_error("unsupported type: [{}]", Ty.getAsString());
+            clangcxx_log_error("unsupported type: [{}]", Ty.getAsString());
         }
     }
     return _type;

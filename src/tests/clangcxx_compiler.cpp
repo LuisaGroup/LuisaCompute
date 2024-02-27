@@ -10,6 +10,7 @@
 #include <luisa/core/thread_pool.h>
 #include <luisa/runtime/context.h>
 #include <luisa/core/binary_file_stream.h>
+#include <luisa/vstl/v_guid.h>
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -40,6 +41,42 @@ class Preprocessor {
     std::filesystem::path _cache_path;
     luisa::vector<luisa::string_view> _defines;
     luisa::vector<luisa::string> _inc_paths;
+    vstd::spin_mutex _time_mtx;
+    using DBValue = luisa::vector<std::byte>;
+    vstd::HashMap<luisa::string, DBValue> _last_write_times;
+    vstd::spin_mutex _remove_mtx;
+    luisa::vector<luisa::vector<std::byte>> _remove_list;
+    void update_file(luisa::string_view name, std::filesystem::file_time_type time, luisa::span<const std::byte> data) {
+        DBValue vec;
+        vec.reserve(data.size() + sizeof(time));
+        vstd::push_back_all(vec, reinterpret_cast<std::byte const *>(&time), sizeof(time));
+        if (!data.empty()) {
+            vstd::push_back_all(vec, reinterpret_cast<std::byte const *>(data.data()), data.size());
+        }
+        std::lock_guard lck{_time_mtx};
+        auto iter = _last_write_times.try_emplace(name);
+        if (iter.second || (iter.first.value().size() < data.size() + sizeof(time))) {
+            iter.first.value() = std::move(vec);
+        }
+    }
+    bool file_is_new(luisa::string_view name) {
+        luisa::span<const std::byte> db_value;
+        return file_is_new(name, db_value);
+    }
+    bool file_is_new(luisa::string_view name, luisa::span<const std::byte> &db_value) {
+        db_value = db.read(name);
+        auto cur_time = std::filesystem::last_write_time(std::filesystem::path{name});
+        if (db_value.size_bytes() >= sizeof(std::filesystem::file_time_type)) {
+            std::filesystem::file_time_type old_time;
+            memcpy(&old_time, db_value.data(), sizeof(old_time));
+            if (cur_time <= old_time) {
+                return false;
+            }
+        }
+        update_file(name, cur_time, {});
+        return true;
+    }
+
 public:
     Preprocessor(
         std::filesystem::path const &clang_path,
@@ -64,6 +101,66 @@ public:
             _inc_paths.emplace_back(std::move(i));
         }
     }
+    void remove_file(luisa::string_view name) {
+        std::lock_guard lck{_remove_mtx};
+        auto &v = _remove_list.emplace_back();
+        v.push_back_uninitialized(name.size());
+        memcpy(v.data(), name.data(), name.size());
+    }
+    void post_process() {
+        luisa::vector<vstd::LMDBWriteCommand> write_cmds;
+        write_cmds.reserve(_last_write_times.size());
+        for (auto &&i : _last_write_times) {
+            auto &&kv = write_cmds.emplace_back();
+            vstd::push_back_all(kv.key, reinterpret_cast<std::byte const *>(i.first.data()), i.first.size());
+            kv.value = std::move(i.second);
+        }
+        _last_write_times.clear();
+        db.write_all(std::move(write_cmds));
+        db.remove_all(std::move(_remove_list));
+        _remove_list.clear();
+        if (std::filesystem::exists(_cache_path)) {
+            std::error_code ec;
+            std::filesystem::remove_all(_cache_path, ec);
+            if (ec) [[unlikely]] {
+                LUISA_WARNING("Delete temp dir: {} failed: {}", luisa::to_string(_cache_path), ec.message());
+            }
+        }
+    }
+    static luisa::unordered_set<luisa::string> include_dirs(luisa::string_view text) {
+        auto ptr = text.data();
+        auto end = text.data() + text.size();
+        luisa::unordered_set<luisa::string> r;
+#define NEXT_PTR                     \
+    do {                             \
+        ++ptr;                       \
+        if (ptr == end) [[unlikely]] \
+            return r;                \
+    } while (false)
+        for (; ptr != end; ++ptr) {
+            if (*ptr != '#') [[likely]] {
+                continue;
+            }
+            NEXT_PTR;
+            while (*ptr != '"') {
+                NEXT_PTR;
+            }
+            NEXT_PTR;
+            auto path_begin = ptr;
+            while (*ptr != '"') {
+                if (*ptr == '<') [[unlikely]] {
+                    ++ptr;
+                    goto CONTINUE;
+                }
+                NEXT_PTR;
+            }
+            r.emplace(luisa::string{path_begin, ptr});
+        CONTINUE:
+            continue;
+        }
+        return r;
+#undef NEXT_PTR
+    }
     bool require_recompile(
         std::filesystem::path const &src_dir,
         std::filesystem::path const &file_dir) {
@@ -72,76 +169,122 @@ public:
         if (ec) [[unlikely]] {
             LUISA_ERROR("Invalid canonical file path '{}' failed, message: {}", luisa::to_string(file_abs_dir), ec.message());
         }
-        auto last_write_time = std::filesystem::last_write_time(file_abs_dir, ec);
         if (ec) [[unlikely]] {
             LUISA_ERROR("Get file last write time '{}' failed, message: {}", luisa::to_string(_cache_path), ec.message());
         }
-        auto db_key = luisa::to_string(std::filesystem::weakly_canonical(file_dir, ec));
+        auto file_abs_dir_str = luisa::to_string(file_abs_dir);
         if (ec) [[unlikely]] {
             LUISA_ERROR("Invalid canonical file path '{}' failed, message: {}", luisa::to_string(file_dir), ec.message());
         }
-        auto db_value = db.read(db_key);
-        auto preprocess_path = std::filesystem::weakly_canonical(_cache_path / file_dir, ec);
+        vstd::Guid guid{true};
         if (ec) [[unlikely]] {
             LUISA_ERROR("Invalid canonical file path '{}' failed, message: {}", luisa::to_string(_cache_path / file_dir), ec.message());
         }
-        bool result = false;
-        auto out_path_parent = preprocess_path.parent_path();
-        if (!std::filesystem::exists(out_path_parent, ec)) {
-            if (ec) [[unlikely]] {
-                LUISA_ERROR("Cache path exists '{}' failed, message: {}", luisa::to_string(out_path_parent), ec.message());
+        luisa::span<const std::byte> db_value;
+        auto preprocess = [&]<bool check_preprocess = true>() {
+            auto preprocess_path = std::filesystem::weakly_canonical(_cache_path / guid.to_string(false), ec);
+            vstd::MD5 old_md5;
+            if constexpr (check_preprocess) {
+                int64_t lefted_size = db_value.size_bytes() - sizeof(std::filesystem::file_time_type);
+                if (lefted_size >= int64_t(sizeof(vstd::MD5))) {
+                    memcpy(&old_md5, db_value.data() + sizeof(std::filesystem::file_time_type), sizeof(vstd::MD5));
+                }
             }
-            std::filesystem::create_directories(out_path_parent, ec);
-            if (ec) [[unlikely]] {
-                LUISA_ERROR("Create cache path '{}' failed, message: {}", luisa::to_string(out_path_parent), ec.message());
-            }
-            result = true;
-        }
-        vstd::MD5 old_md5;
-        if (db_value.size_bytes() == sizeof(old_md5)) {
-            memcpy(&old_md5, db_value.data(), sizeof(old_md5));
-        } else {
-            result = true;
-        }
-        // precompile
-        {
-            luisa::vector<char> vec;
-            vec.reserve(1024);
-            add(vec, luisa::to_string(_clang_path));
-            add(vec, " --preprocess");
-            for (auto &&i : _inc_paths) {
-                add(vec, " -I"sv);
-                add(vec, i);
-            }
-            for (auto &&i : _defines) {
-                add(vec, " -D"sv);
-                add(vec, i);
-            }
+            {
+                luisa::vector<char> vec;
+                vec.reserve(1024);
+                add(vec, luisa::to_string(_clang_path));
+                add(vec, " --preprocess");
+                for (auto &&i : _inc_paths) {
+                    add(vec, " -I"sv);
+                    add(vec, i);
+                }
+                for (auto &&i : _defines) {
+                    add(vec, " -D"sv);
+                    add(vec, i);
+                }
 
-            add(vec, " -o ");
-            add(vec, luisa::to_string(preprocess_path));
-            add(vec, ' ');
-            add(vec, luisa::to_string(file_abs_dir));
-            vec.push_back(0);
-            auto r = system(vec.data());
-            if (r != 0) {
-                LUISA_ERROR("Preprocess failed at {}", luisa::to_string(file_dir));
+                add(vec, " -o ");
+                add(vec, luisa::to_string(preprocess_path));
+                add(vec, ' ');
+                add(vec, file_abs_dir_str);
+                vec.push_back(0);
+                auto r = system(vec.data());
+                if (r != 0) {
+                    remove_file(file_abs_dir_str);
+                }
             }
+            {
+                luisa::vector<std::byte> vec;
+                {
+                    BinaryFileStream file_stream{luisa::to_string(preprocess_path)};
+                    vec.push_back_uninitialized(file_stream.length());
+                    file_stream.read(vec);
+                }
+                vstd::MD5 md5{{reinterpret_cast<uint8_t const *>(vec.data()), vec.size()}};
+                if constexpr (check_preprocess) {
+                    if (old_md5 == md5) {
+                        return false;
+                    }
+                }
+                auto include_set = include_dirs(luisa::string_view{
+                    reinterpret_cast<char const *>(vec.data()),
+                    vec.size()});
+                vec.clear();
+                auto push = [&]<typename T>(T const &a) {
+                    auto last_size = vec.size();
+                    if constexpr (std::is_trivial_v<T>) {
+                        vec.push_back_uninitialized(sizeof(T));
+                        memcpy(vec.data() + last_size, &a, sizeof(T));
+                    } else if constexpr (std::is_same_v<T, luisa::string_view> || std::is_same_v<T, luisa::string>) {
+                        vec.push_back_uninitialized(a.size());
+                        memcpy(vec.data() + last_size, a.data(), a.size());
+                    } else {
+                        vec.push_back_uninitialized(a.size_bytes());
+                        memcpy(vec.data() + last_size, a.data(), a.size_bytes());
+                    }
+                };
+                push(md5.to_binary());
+                // nlohmann::json js_arr;
+                for (auto &&i : include_set) {
+                    auto path = luisa::to_string(std::filesystem::weakly_canonical(i, ec));
+                    update_file(path, std::filesystem::last_write_time(i), {});
+                    push(path.size());
+                    push(path);
+                }
+                // auto js_str = js_arr.dump();
+                update_file(file_abs_dir_str, std::filesystem::last_write_time(file_abs_dir), vec);
+            }
+            return true;
+        };
+        if (file_is_new(file_abs_dir_str, db_value)) {
+            return preprocess();
         }
-        {
-            BinaryFileStream file_stream{luisa::to_string(preprocess_path)};
-            luisa::vector<std::byte> vec;
-            vec.push_back_uninitialized(file_stream.length());
-            file_stream.read(vec);
-            vstd::MD5 md5{{reinterpret_cast<uint8_t *>(vec.data()), vec.size()}};
-            if (!result && md5 != old_md5) {
-                result = true;
+        // check include files
+        auto header_size = sizeof(std::filesystem::file_time_type) + sizeof(vstd::MD5);
+        int64_t data_size = db_value.size() - header_size;
+        if (data_size > 0) {
+            auto ptr = db_value.data() + header_size;
+            auto end_ptr = db_value.data() + db_value.size();
+            while (ptr < end_ptr) {
+                size_t str_size;
+                memcpy(&str_size, ptr, sizeof(size_t));
+                ptr += sizeof(size_t);
+                if (ptr >= end_ptr) [[unlikely]]
+                    break;
+                luisa::string_view name = {reinterpret_cast<char const *>(ptr), reinterpret_cast<char const *>(ptr + str_size)};
+                ptr += str_size;
+                if (ptr > end_ptr) [[unlikely]] {
+                    LUISA_WARNING("Invalid cache data.");
+                    return preprocess();
+                }
+                if (file_is_new(name)) {
+                    return preprocess();
+                }
             }
-            if (result) {
-                db.write(db_key, {reinterpret_cast<std::byte const *>(&md5), sizeof(md5)});
-            }
+            return preprocess();
         }
-        return result;
+        return false;
     }
 };
 
@@ -494,10 +637,11 @@ Argument list:
                 LUISA_INFO("compiling {}", luisa::to_string(file_path.filename()));
                 auto result = system(vec.data());
                 if (result != 0) {
-                    LUISA_ERROR("Compile {} failed.", luisa::to_string(file_path));
+                    processor.remove_file(luisa::to_string(std::filesystem::weakly_canonical(src_path / file_path)));
                 }
             });
         thread_pool.synchronize();
+        processor.post_process();
         return 0;
     }
     //////// Compile
@@ -523,12 +667,14 @@ Argument list:
         vstd::transform_range{
             [&](auto &&path) { return luisa::to_string(path); }}}
                         .i_range();
-    luisa::clangcxx::Compiler::create_shader(
-        ShaderOption{
-            .enable_fast_math = use_optimize,
-            .enable_debug_info = !use_optimize,
-            .compile_only = true,
-            .name = luisa::to_string(dst_path)},
-        device, iter, src_path, inc_iter);
+    if (!luisa::clangcxx::Compiler::create_shader(
+            ShaderOption{
+                .enable_fast_math = use_optimize,
+                .enable_debug_info = !use_optimize,
+                .compile_only = true,
+                .name = luisa::to_string(dst_path)},
+            device, iter, src_path, inc_iter)) {
+        return 1;
+    }
     return 0;
 }

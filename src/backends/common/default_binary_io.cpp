@@ -108,17 +108,8 @@ void DefaultBinaryIO::_write(const luisa::string &file_path, luisa::span<std::by
     if (ec) { LUISA_WARNING("Create directory {} failed.", folder.string()); }
     auto idx = _lock(file_path, true);
     if (auto f = fopen(file_path.c_str(), "wb")) [[likely]] {
-#ifdef _WIN32
-#define LUISA_FWRITE _fwrite_nolock
-#define LUISA_FCLOSE _fclose_nolock
-#else
-#define LUISA_FWRITE fwrite
-#define LUISA_FCLOSE fclose
-#endif
-        LUISA_FWRITE(data.data(), data.size(), 1, f);
-        LUISA_FCLOSE(f);
-#undef LUISA_FWRITE
-#undef LUISA_FCLOSE
+        fwrite(data.data(), data.size(), 1, f);
+        fclose(f);
     } else {
         LUISA_WARNING("Write file {} failed.", file_path);
     }
