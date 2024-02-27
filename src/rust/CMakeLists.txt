@@ -1,10 +1,13 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
     # set profile based on build type
     set(LUISA_CARGO_PROFILE "$<IF:$<CONFIG:Debug>,dev,release>")
+    set(TMP_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/no-patchelf")
     corrosion_import_crate(
             MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml
             PROFILE ${LUISA_CARGO_PROFILE}
             NO_DEFAULT_FEATURES)
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${TMP_LIBRARY_OUTPUT_DIRECTORY})
 
     # interestly this is equivalent to doting nothing...
     # corrosion_set_env_vars(luisa_compute_ir "LC_RS_GENERATE_BINDINGS=1" "LC_RS_DO_NOT_GENERATE_BINDINGS=0")
@@ -21,25 +24,49 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     function(luisa_compute_rust_fix_rpath target_name)
         set(target luisa_compute_${target_name})
         if (APPLE)
+            set(libname "lib${target}.dylib")
             add_custom_target(${target}-fix-rpath ALL DEPENDS cargo-build_${target}
-                    COMMAND install_name_tool -id "@rpath/lib${target}.dylib"
-                    "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.dylib"
+                    COMMENT "Fixing rpath for ${target}..."
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                      "$<TARGET_FILE_DIR:${target}-shared>/${libname}"
+                      "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
+                    COMMAND install_name_tool -id "@rpath/${libname}"
+                    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
                     COMMAND install_name_tool -add_rpath "@loader_path"
-                    "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.dylib")
-            add_dependencies(luisa-compute-rust-meta ${target}-fix-rpath)
+                    "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}")
         elseif (UNIX)
+            set(libname "lib${target}.so")
             find_program(PATCHELF_EXE patchelf)
             if (PATCHELF_EXE)
-                add_custom_target(${target}-fix-rpath ALL DEPENDS cargo-build_${target}
-                        COMMENT "Fixing rpath for ${target}..."
-                        COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN"
-                        "$<TARGET_FILE_DIR:luisa-compute-core>/lib${target}.so"
-                        VERBATIM)
-                add_dependencies(luisa-compute-rust-meta ${target}-fix-rpath)
+                add_custom_command(OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
+                          COMMENT "Fixing rpath for ${target}..."
+                          COMMAND ${PATCHELF_EXE}
+                            --set-rpath "$ORIGIN"
+                            "$<TARGET_FILE_DIR:${target}-shared>/${libname}"
+                            --output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
+                          VERBATIM)
             else ()
+                add_custom_command(OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
+                          COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                            "$<TARGET_FILE_DIR:${target}-shared>/${libname}"
+                            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
+                          VERBATIM)
                 message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
             endif ()
+        else ()
+            set(libname "${target}.dll")
+            add_custom_command(OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
+                      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "$<TARGET_FILE_DIR:${target}-shared>/${libname}"
+                        "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
+                      VERBATIM)
         endif ()
+        add_custom_target(${target}-patched-phony SOURCES "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}")
+
+        add_library(${target}-patched SHARED IMPORTED GLOBAL)
+        set_target_properties(${target}-patched PROPERTIES IMPORTED_LOCATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}")
+        set_target_properties(${target}-patched PROPERTIES IMPORTED_NO_SONAME TRUE)
+        add_dependencies(${target}-patched ${target}-patched-phony)
     endfunction()
 
     luisa_compute_rust_fix_rpath(backend_impl)
