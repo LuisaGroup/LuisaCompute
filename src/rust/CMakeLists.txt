@@ -14,7 +14,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         list(APPEND LUISA_RUST_FEATURES "remote")
     endif ()
     if (LUISA_RUST_FEATURES)
-        string(JOIN " " LUISA_RUST_FEATURES "${LUISA_RUST_FEATURES}")
+        list(JOIN LUISA_RUST_FEATURES "," LUISA_RUST_FEATURES)
         set(LUISA_RUST_FEATURES "--no-default-features;--features;${LUISA_RUST_FEATURES}")
     else ()
         set(LUISA_RUST_FEATURES "--no-default-features")
@@ -76,6 +76,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # add an imported static target for linking
     add_library(luisa-compute-rust-meta INTERFACE)
+    add_dependencies(luisa-compute-rust-meta luisa-compute-rust-build)
     set_target_properties(luisa-compute-rust-meta PROPERTIES
             INTERFACE_LINK_LIBRARIES "${LUISA_RUST_STATIC_LIB_FILES}"
             INTERFACE_COMPILE_DEFINITIONS "LUISA_ENABLE_RUST")
@@ -137,6 +138,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # add the backend impl target
     add_library(luisa_compute_backend_impl INTERFACE)
+    add_dependencies(luisa_compute_backend_impl luisa-compute-rust-build)
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (WIN32)
             target_link_libraries(luisa_compute_backend_impl INTERFACE "${LUISA_RUST_OUTPUT_DIR}/${lib}.lib")
