@@ -1522,7 +1522,7 @@ impl<'a> FunctionEmitter<'a> {
                 let bits = v.to_bits();
                 writeln!(
                     &mut self.body,
-                    "const lc_half {} = lc_bit_cast<half>(uint16_t(0x{:04x})); // {}",
+                    "const lc_half {} = lc_bit_cast<lc_half>(uint16_t(0x{:04x})); // {}",
                     var, bits, v
                 )
                 .unwrap();
