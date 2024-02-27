@@ -44,6 +44,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                             --set-rpath "$ORIGIN"
                             "$<TARGET_FILE_DIR:${target}-shared>/${libname}"
                             --output "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
+                          DEPENDS ${target}-shared
                           VERBATIM)
             else ()
                 add_custom_command(OUTPUT "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${libname}"
