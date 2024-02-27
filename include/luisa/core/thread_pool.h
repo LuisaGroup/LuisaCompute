@@ -50,16 +50,16 @@ public:
         requires std::is_invocable_v<F>
     auto async(F &&f) noexcept {
         using R = std::invoke_result_t<F>;
-        auto promise = luisa::make_unique<std::promise<R>>(
+        auto promise = std::promise<R>(
             std::allocator_arg, luisa::allocator{});
-        auto future = promise->get_future().share();
+        auto future = promise.get_future().share();
         _task_count.fetch_add(1u);
         _dispatch([promise = std::move(promise), future, f = std::forward<F>(f), this]() mutable noexcept {
             if constexpr (std::same_as<R, void>) {
                 f();
-                promise->set_value();
+                promise.set_value();
             } else {
-                promise->set_value(f());
+                promise.set_value(f());
             }
             _task_count.fetch_sub(1u);
         });
@@ -103,11 +103,11 @@ public:
     template<typename F>
         requires std::is_invocable_v<F, uint>
     auto async_parallel(uint n, F &&f) noexcept {
-        auto promise = luisa::make_unique<std::promise<void>>(
+        auto promise = std::promise<void>(
             std::allocator_arg, luisa::allocator{});
-        auto future = promise->get_future().share();
+        auto future = promise.get_future().share();
         if (n == 0u) {
-            promise->set_value();
+            promise.set_value();
             return future;
         }
         _task_count.fetch_add(1u);
@@ -123,8 +123,10 @@ public:
                 if (i == n) {
                     _task_count.fetch_sub(1u);
                 }
-                if (counter->second.fetch_add(dispatched_count) + dispatched_count == n) {
-                    promise->set_value();
+                if (dispatched_count > 0) {
+                    if (counter->second.fetch_add(dispatched_count) + dispatched_count == n) {
+                        promise.set_value();
+                    }
                 }
             },
             n);
