@@ -41,7 +41,7 @@ impl TypeGenInner {
                 ir::Primitive::Uint32 => "uint32_t".to_string(),
                 ir::Primitive::Int64 => "int64_t".to_string(),
                 ir::Primitive::Uint64 => "uint64_t".to_string(),
-                ir::Primitive::Float16 => "half".to_string(),
+                ir::Primitive::Float16 => "lc_half".to_string(),
                 ir::Primitive::Float32 => "float".to_string(),
                 ir::Primitive::Float64 => "double".to_string(),
                 // crate::ir::Primitive::USize => format!("i{}", std::mem::size_of::<usize>() * 8),
