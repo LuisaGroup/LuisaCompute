@@ -1,8 +1,8 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_RUST_PROFILE "--profile;$<IF:$<CONFIG:Debug>,dev,release>")
     set(LUISA_RUST_MANIFEST "--manifest-path;${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml")
-    set(LUISA_RUST_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust")
-    set(LUISA_RUST_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust/$<IF:$<CONFIG:Debug>,debug,release>")
+    set(LUISA_RUST_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/$<1:rust>") # use generator expr to avoid unexpected directory creation with multi-config generators
+    set(LUISA_RUST_OUTPUT_DIR "${LUISA_RUST_BUILD_DIR}/$<IF:$<CONFIG:Debug>,debug,release>")
     set(LUISA_RUST_ENV "CARGO_TARGET_DIR=${LUISA_RUST_BUILD_DIR}")
 
     # process features
@@ -64,9 +64,15 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     list(TRANSFORM LUISA_RUST_SHARED_LIB_FILES PREPEND "${LUISA_RUST_OUTPUT_DIR}/")
 
     # build Rust libraries
+    set(LUISA_RUST_BUILD_PRODUCTS ${LUISA_RUST_STATIC_LIB_FILES} ${LUISA_RUST_SHARED_LIB_FILES})
+    if (WIN32)
+        foreach (lib ${LUISA_RUST_SHARED_LIBS})
+            list(APPEND LUISA_RUST_BUILD_PRODUCTS "${LUISA_RUST_OUTPUT_DIR}/${lib}.lib")
+        endforeach ()
+    endif ()
     add_custom_command(TARGET luisa-compute-rust-build
             COMMAND ${LUISA_RUST_BUILD_COMMAND}
-            BYPRODUCTS ${LUISA_RUST_STATIC_LIB_FILES} ${LUISA_RUST_SHARED_LIB_FILES}
+            BYPRODUCTS ${LUISA_RUST_BUILD_PRODUCTS}
             COMMENT "Building Rust-dependent libraries..."
             VERBATIM)
 
@@ -84,7 +90,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # copy embree to the output directory and also install it
     if (LUISA_COMPUTE_ENABLE_CPU)
-        add_custom_command(TARGET luisa-compute-rust-build POST_BUILD
+        add_custom_command(TARGET luisa-compute-rust-build
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${LUISA_RUST_OUTPUT_DIR}/embree/"
                 "$<TARGET_FILE_DIR:luisa-compute-core>/"
@@ -97,7 +103,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # copy the DLLs to the output directory and patch the rpath
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
-        add_custom_command(TARGET luisa-compute-rust-build POST_BUILD
+        add_custom_command(TARGET luisa-compute-rust-build
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                 "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
@@ -114,7 +120,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     if (APPLE)
         foreach (lib ${LUISA_RUST_SHARED_LIBS})
-            add_custom_command(TARGET luisa-compute-rust-build POST_BUILD
+            add_custom_command(TARGET luisa-compute-rust-build
                     COMMAND install_name_tool -id "@rpath/${lib}"
                     "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
                     COMMAND install_name_tool -add_rpath "@loader_path"
@@ -125,7 +131,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         find_program(PATCHELF_EXE patchelf)
         if (PATCHELF_EXE)
             foreach (lib ${LUISA_RUST_SHARED_LIBS})
-                add_custom_command(TARGET luisa-compute-rust-build POST_BUILD
+                add_custom_command(TARGET luisa-compute-rust-build
                         COMMENT "Fixing rpath for ${lib}..."
                         COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN"
                         "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
