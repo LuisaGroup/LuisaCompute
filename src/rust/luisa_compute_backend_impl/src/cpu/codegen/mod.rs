@@ -24,7 +24,11 @@ pub fn sha256_short(s: &str) -> String {
     sha256_full(s)[0..17].to_string()
 }
 
-pub fn decode_const_data(data: &[u8], ty: &CArc<Type>, t2s: &impl Fn(&CArc<Type>) -> String) -> String {
+pub fn decode_const_data(
+    data: &[u8],
+    ty: &CArc<Type>,
+    t2s: &impl Fn(&CArc<Type>) -> String,
+) -> String {
     match ty.as_ref() {
         Type::Primitive(p) => match *p {
             Primitive::Bool => {
@@ -298,7 +302,7 @@ pub fn decode_const_data(data: &[u8], ty: &CArc<Type>, t2s: &impl Fn(&CArc<Type>
                         let len = f.size();
                         let data = &data[offset..offset + len];
                         offset += len;
-                        decode_const_data(data, f)
+                        decode_const_data(data, f, t2s)
                     })
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -311,7 +315,7 @@ pub fn decode_const_data(data: &[u8], ty: &CArc<Type>, t2s: &impl Fn(&CArc<Type>
                 "{} ( {} )",
                 t2s(ty),
                 data.chunks(at.element.size())
-                    .map(|data| decode_const_data(data, &at.element))
+                    .map(|data| decode_const_data(data, &at.element, t2s))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -687,15 +691,4 @@ pub fn decode_const_data_v2(data: &[u8], ty: TypeRef) -> String {
             panic!("const data of type {:?} is not supported", ty.description())
         }
     }
-}
-#[no_mangle]
-pub extern "C" fn luisa_compute_decode_const_data(
-    data: *const u8,
-    len: usize,
-    ty: &ir::Type,
-) -> CBoxedSlice<u8> {
-    let data = unsafe { std::slice::from_raw_parts(data, len) };
-    let out = decode_const_data(data, ty);
-    let cstring = CString::new(out).unwrap();
-    CBoxedSlice::new(cstring.as_bytes().to_vec())
 }
