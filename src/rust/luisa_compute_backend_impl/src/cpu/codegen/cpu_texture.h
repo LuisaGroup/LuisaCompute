@@ -679,7 +679,7 @@ lc_bindless_texture_3d(const KernelFnArgs *k_args, const BindlessArray &array, s
     return view.read3d<lc_float4, float>(uvw);
 }
 
-[[nodiscard]] inline lc_float4 lc_bindless_texture2d_size(
+[[nodiscard]] inline lc_uint2 lc_bindless_texture2d_size(
     const KernelFnArgs *k_args,
     const BindlessArray &array, size_t index) noexcept {
     auto &&tex = lc_bindless_texture_2d(k_args, array, index);
