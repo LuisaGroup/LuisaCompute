@@ -679,6 +679,22 @@ lc_bindless_texture_3d(const KernelFnArgs *k_args, const BindlessArray &array, s
     return view.read3d<lc_float4, float>(uvw);
 }
 
+[[nodiscard]] inline lc_float4 lc_bindless_texture2d_size(
+    const KernelFnArgs *k_args,
+    const BindlessArray &array, size_t index) noexcept {
+    auto &&tex = lc_bindless_texture_2d(k_args, array, index);
+    auto view = lc_texture_view(&tex, 0u);
+    return lc_uint2(view.width, view.height);
+}
+
+[[nodiscard]] inline lc_uint3 lc_bindless_texture3d_size(
+    const KernelFnArgs *k_args,
+    const BindlessArray &array, size_t index) noexcept {
+    auto &&tex = lc_bindless_texture_3d(k_args, array, index);
+    auto view = lc_texture_view(&tex, 0u);
+    return lc_uint3(view.width, view.height, view.depth);
+}
+
 [[nodiscard]] inline lc_float4 lc_bindless_texture2d_sample(const KernelFnArgs *k_args,
                                                             const BindlessArray &array, size_t index,
                                                             lc_float2 uv) noexcept {
