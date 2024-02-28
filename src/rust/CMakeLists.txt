@@ -1,6 +1,6 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_RUST_PROFILE "--profile;$<IF:$<CONFIG:Debug>,dev,release>")
-    set(LUISA_RUST_MANIFEST "--manifest-path;${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml")
+    set(LUISA_RUST_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml")
     set(LUISA_RUST_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/$<1:rust>") # use generator expr to avoid unexpected directory creation with multi-config generators
     set(LUISA_RUST_OUTPUT_DIR "${LUISA_RUST_BUILD_DIR}/$<IF:$<CONFIG:Debug>,debug,release>")
     set(LUISA_RUST_ENV "CARGO_TARGET_DIR=${LUISA_RUST_BUILD_DIR}")
@@ -40,14 +40,16 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 "CMAKE=${CMAKE_COMMAND}"
                 "CMAKE_GENERATOR=${CMAKE_GENERATOR}"
                 "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
-        if (UNIX AND SKBUILD) # force building from source for Python binding to avoid dependency issues
-            list(APPEND LUISA_RUST_ENV
-                    "EMBREE_FORCE_BUILD_FROM_SOURCE=1"
-                    "EMBREE_CC=cc"
-                    "EMBREE_CXX=c++")
+        if (UNIX)
+            if (APPLE) # workaround clang linking
+                list(APPEND LUISA_RUST_ENV "EMBREE_CC=cc" "EMBREE_CXX=c++")
+            endif ()
+            if (SKBUILD) # force building from source for Python binding to avoid dependency issues
+                list(APPEND LUISA_RUST_ENV "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
+            endif ()
         endif ()
     endif ()
-    set(LUISA_RUST_BUILD_COMMAND "${CMAKE_COMMAND};-E;env;${LUISA_RUST_ENV};--;${CARGO_EXE};build;${LUISA_RUST_MANIFEST};${LUISA_RUST_PROFILE};${LUISA_RUST_FEATURES}")
+    set(LUISA_RUST_BUILD_COMMAND "${CMAKE_COMMAND};-E;env;${LUISA_RUST_ENV};--;${CARGO_EXE};build;--manifest-path;${LUISA_RUST_MANIFEST};${LUISA_RUST_PROFILE};${LUISA_RUST_FEATURES}")
 
     if (WIN32)
         set(LUISA_RUST_STATIC_LIBS "luisa_compute_ir_static.lib;luisa_compute_api_types.lib")
@@ -60,9 +62,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             set(LUISA_RUST_SHARED_LIBS "libluisa_compute_backend_impl.so")
         endif ()
     endif ()
-
-    add_custom_target(luisa_compute_rust_build)
-    add_dependencies(luisa_compute_rust_build luisa-compute-core)
 
     set(LUISA_RUST_STATIC_LIB_FILES ${LUISA_RUST_STATIC_LIBS})
     list(TRANSFORM LUISA_RUST_STATIC_LIB_FILES PREPEND "${LUISA_RUST_OUTPUT_DIR}/")
@@ -77,8 +76,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         endforeach ()
     endif ()
 
-    add_custom_command(TARGET luisa_compute_rust_build
+    add_custom_target(luisa_compute_rust_build
             COMMAND ${LUISA_RUST_BUILD_COMMAND}
+            DEPENDS luisa-compute-core
+            SOURCES ${LUISA_RUST_MANIFEST}
             BYPRODUCTS ${LUISA_RUST_BUILD_PRODUCTS}
             COMMENT "Building Rust-dependent libraries..."
             VERBATIM)
@@ -89,7 +90,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # add an imported static target for linking
     add_library(luisa-compute-rust-meta INTERFACE)
-    add_dependencies(luisa-compute-rust-meta luisa_compute_rust_build)
     target_link_libraries(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_STATIC_LIB_FILES}>")
     install(TARGETS luisa-compute-rust-meta EXPORT LuisaComputeTargets)
 
@@ -147,7 +147,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # add the backend impl target
     add_library(luisa_compute_backend_impl INTERFACE)
-    add_dependencies(luisa_compute_backend_impl luisa_compute_rust_build)
+    target_link_libraries(luisa_compute_backend_impl INTERFACE luisa-compute-rust-meta)
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (WIN32)
             target_link_libraries(luisa_compute_backend_impl INTERFACE
