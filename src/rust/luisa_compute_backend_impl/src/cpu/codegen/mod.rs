@@ -24,8 +24,8 @@ pub fn sha256_short(s: &str) -> String {
     sha256_full(s)[0..17].to_string()
 }
 
-pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
-    match ty {
+pub fn decode_const_data(data: &[u8], ty: &CArc<Type>, t2s: &impl Fn(&CArc<Type>) -> String) -> String {
+    match ty.as_ref() {
         Type::Primitive(p) => match *p {
             Primitive::Bool => {
                 format!("bool({})", if data[0] == 0 { "false" } else { "true" })
@@ -290,7 +290,8 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
             let fields = s.fields.as_ref();
             let mut offset = 0usize;
             let out = format!(
-                "{{ {} }}",
+                "{} {{ {} }}",
+                t2s(ty),
                 fields
                     .iter()
                     .map(|f| {
@@ -307,7 +308,8 @@ pub fn decode_const_data(data: &[u8], ty: &Type) -> String {
         }
         Type::Array(at) => {
             format!(
-                "{{ {} }}",
+                "{} ( {} )",
+                t2s(ty),
                 data.chunks(at.element.size())
                     .map(|data| decode_const_data(data, &at.element))
                     .collect::<Vec<_>>()

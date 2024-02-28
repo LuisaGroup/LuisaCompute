@@ -1553,7 +1553,9 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = {2};",
                     node_ty_s,
                     var,
-                    decode_const_data(bytes.as_ref(), t)
+                    decode_const_data(bytes.as_ref(), t, &|ty|{
+                        self.type_gen.gen_c_type(ty)
+                    })
                 )
                 .unwrap();
                 // let gen_def = |dst: &mut String, qualifier| {
