@@ -156,13 +156,15 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     # add the backend impl target
     add_library(luisa_compute_backend_impl INTERFACE)
     target_link_libraries(luisa_compute_backend_impl INTERFACE luisa-compute-rust-meta)
+    if (NOT WIN32)
+        target_link_directories(luisa_compute_backend_impl INTERFACE
+                "$<BUILD_INTERFACE:$<TARGET_FILE_DIR:luisa-compute-core>>")
+    endif ()
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (WIN32)
-            target_link_libraries(luisa_compute_backend_impl INTERFACE
-                    "$<BUILD_INTERFACE:${LUISA_RUST_OUTPUT_DIR}/${lib}.lib>")
+            target_link_libraries(luisa_compute_backend_impl INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_OUTPUT_DIR}/${lib}.lib>")
         else ()
-            target_link_libraries(luisa_compute_backend_impl INTERFACE
-                    "$<BUILD_INTERFACE:-L$<TARGET_FILE_DIR:luisa-compute-core>/${lib}>")
+            target_link_libraries(luisa_compute_backend_impl INTERFACE "$<BUILD_INTERFACE:${lib}>")
         endif ()
     endforeach ()
     install(TARGETS luisa_compute_backend_impl EXPORT LuisaComputeTargets)
