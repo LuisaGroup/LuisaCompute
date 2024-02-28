@@ -57,6 +57,9 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         endif ()
     endif ()
 
+    add_custom_target(luisa_compute_rust_build)
+    add_dependencies(luisa_compute_rust_build luisa-compute-core)
+
     set(LUISA_RUST_STATIC_LIB_FILES ${LUISA_RUST_STATIC_LIBS})
     list(TRANSFORM LUISA_RUST_STATIC_LIB_FILES PREPEND "${LUISA_RUST_OUTPUT_DIR}/")
     set(LUISA_RUST_SHARED_LIB_FILES ${LUISA_RUST_SHARED_LIBS})
@@ -69,8 +72,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             list(APPEND LUISA_RUST_BUILD_PRODUCTS "${LUISA_RUST_OUTPUT_DIR}/${lib}.lib")
         endforeach ()
     endif ()
-    add_custom_target(luisa_compute_rust_build
-            DEPENDS luisa-compute-core
+
+    add_custom_command(TARGET luisa_compute_rust_build
             COMMAND ${LUISA_RUST_BUILD_COMMAND}
             BYPRODUCTS ${LUISA_RUST_BUILD_PRODUCTS}
             COMMENT "Building Rust-dependent libraries..."
@@ -82,12 +85,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # add an imported static target for linking
     add_library(luisa-compute-rust-meta INTERFACE)
-    target_link_libraries(luisa-compute-rust-meta INTERFACE "${LUISA_RUST_STATIC_LIB_FILES}")
+    add_dependencies(luisa-compute-rust-meta luisa_compute_rust_build)
+    target_link_libraries(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_STATIC_LIB_FILES}>")
     install(TARGETS luisa-compute-rust-meta EXPORT LuisaComputeTargets)
 
     # copy embree to the output directory and also install it
     if (LUISA_COMPUTE_ENABLE_CPU)
-        add_custom_command(TARGET luisa_compute_rust_build POST_BUILD
+        add_custom_command(TARGET luisa_compute_rust_build
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${LUISA_RUST_OUTPUT_DIR}/embree/"
                 "$<TARGET_FILE_DIR:luisa-compute-core>/"
@@ -100,7 +104,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # copy the DLLs to the output directory and patch the rpath
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
-        add_custom_command(TARGET luisa_compute_rust_build POST_BUILD
+        add_custom_command(TARGET luisa_compute_rust_build
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                 "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
@@ -117,20 +121,18 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     if (APPLE)
         foreach (lib ${LUISA_RUST_SHARED_LIBS})
-            add_custom_command(TARGET luisa_compute_rust_build POST_BUILD
+            add_custom_command(TARGET luisa_compute_rust_build
                     COMMAND install_name_tool -id "@rpath/${lib}" "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
                     COMMAND install_name_tool -add_rpath "@loader_path" "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
-                    BYPRODUCTS "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
                     VERBATIM)
         endforeach ()
     elseif (UNIX)
         find_program(PATCHELF_EXE patchelf)
         if (PATCHELF_EXE)
             foreach (lib ${LUISA_RUST_SHARED_LIBS})
-                add_custom_command(TARGET luisa_compute_rust_build POST_BUILD
+                add_custom_command(TARGET luisa_compute_rust_build
                         COMMENT "Fixing rpath for ${lib}..."
                         COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN" "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
-                        BYPRODUCTS "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
                         VERBATIM)
             endforeach ()
         else ()
@@ -140,11 +142,14 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # add the backend impl target
     add_library(luisa_compute_backend_impl INTERFACE)
+    add_dependencies(luisa_compute_backend_impl luisa_compute_rust_build)
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (WIN32)
-            target_link_libraries(luisa_compute_backend_impl INTERFACE "${LUISA_RUST_OUTPUT_DIR}/${lib}.lib")
+            target_link_libraries(luisa_compute_backend_impl INTERFACE
+                    "$<BUILD_INTERFACE:${LUISA_RUST_OUTPUT_DIR}/${lib}.lib>")
         else ()
-            target_link_libraries(luisa_compute_backend_impl INTERFACE "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}")
+            target_link_libraries(luisa_compute_backend_impl INTERFACE
+                    "$<BUILD_INTERFACE:-L$<TARGET_FILE_DIR:luisa-compute-core>/${lib}>")
         endif ()
     endforeach ()
     install(TARGETS luisa_compute_backend_impl EXPORT LuisaComputeTargets)
