@@ -156,6 +156,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # add an imported static target for linking
     add_library(luisa-compute-rust-meta INTERFACE)
+    add_dependencies(luisa-compute-rust-meta luisa_compute_rust_build)
     target_link_directories(luisa-compute-rust-meta INTERFACE
             "$<BUILD_INTERFACE:$<TARGET_FILE_DIR:luisa-compute-core>>"
             "$<BUILD_INTERFACE:$<TARGET_LINKER_FILE_DIR:luisa-compute-core>>")
