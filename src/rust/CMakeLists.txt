@@ -68,21 +68,22 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_RUST_SHARED_LIB_FILES ${LUISA_RUST_SHARED_LIBS})
     list(TRANSFORM LUISA_RUST_SHARED_LIB_FILES PREPEND "${LUISA_RUST_OUTPUT_DIR}/")
 
-    # build Rust libraries
-    set(LUISA_RUST_BUILD_PRODUCTS ${LUISA_RUST_STATIC_LIB_FILES} ${LUISA_RUST_SHARED_LIB_FILES})
-    if (WIN32)
-        foreach (lib ${LUISA_RUST_SHARED_LIBS})
-            list(APPEND LUISA_RUST_BUILD_PRODUCTS "${LUISA_RUST_OUTPUT_DIR}/${lib}.lib")
-        endforeach ()
-    endif ()
-
     add_custom_target(luisa_compute_rust_build
             COMMAND ${LUISA_RUST_BUILD_COMMAND}
             DEPENDS luisa-compute-core
             SOURCES ${LUISA_RUST_MANIFEST}
             COMMENT "Building Rust-dependent libraries..."
-            BYPRODUCTS ${LUISA_STATIC_LIB_FILES}
+            BYPRODUCTS ${LUISA_STATIC_LIB_FILES} ${LUISA_SHARED_LIB_FILES}
             VERBATIM)
+
+    # copy the static libraries to the output directory
+    foreach (lib ${LUISA_RUST_STATIC_LIBS})
+        add_custom_command(TARGET luisa_compute_rust_build
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                "$<TARGET_LINKER_FILE_DIR:luisa-compute-core>/${lib}"
+                VERBATIM)
+    endforeach ()
 
     # install the static libraries
     install(FILES ${LUISA_RUST_STATIC_LIB_FILES}
@@ -143,25 +144,30 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     endif ()
 
     # workaround dependencies
+    set(LUISA_RUST_BUILD_PRODUCTS ${LUISA_RUST_STATIC_LIBS} ${LUISA_RUST_SHARED_LIBS})
+    if (WIN32)
+        foreach (lib ${LUISA_RUST_SHARED_LIBS})
+            list(APPEND LUISA_RUST_BUILD_PRODUCTS "${lib}.lib")
+        endforeach ()
+    endif ()
     add_custom_command(TARGET luisa_compute_rust_build POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E true
             BYPRODUCTS ${LUISA_RUST_BUILD_PRODUCTS})
 
     # add an imported static target for linking
     add_library(luisa-compute-rust-meta INTERFACE)
-    target_link_libraries(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_STATIC_LIB_FILES}>")
+    target_link_directories(luisa-compute-rust-meta INTERFACE
+            "$<BUILD_INTERFACE:$<TARGET_FILE_DIR:luisa-compute-core>>"
+            "$<BUILD_INTERFACE:$<TARGET_LINKER_FILE_DIR:luisa-compute-core>>")
+    target_link_libraries(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_STATIC_LIBS}>")
     install(TARGETS luisa-compute-rust-meta EXPORT LuisaComputeTargets)
 
     # add the backend impl target
     add_library(luisa_compute_backend_impl INTERFACE)
     target_link_libraries(luisa_compute_backend_impl INTERFACE luisa-compute-rust-meta)
-    if (NOT WIN32)
-        target_link_directories(luisa_compute_backend_impl INTERFACE
-                "$<BUILD_INTERFACE:$<TARGET_FILE_DIR:luisa-compute-core>>")
-    endif ()
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (WIN32)
-            target_link_libraries(luisa_compute_backend_impl INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_OUTPUT_DIR}/${lib}.lib>")
+            target_link_libraries(luisa_compute_backend_impl INTERFACE "$<BUILD_INTERFACE:${lib}.lib>")
         else ()
             target_link_libraries(luisa_compute_backend_impl INTERFACE "$<BUILD_INTERFACE:${lib}>")
         endif ()
