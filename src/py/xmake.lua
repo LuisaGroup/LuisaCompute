@@ -38,10 +38,5 @@ add_cxflags("/bigobj", {
 add_headerfiles("*.h")
 add_files("*.cpp")
 add_deps("lc-runtime", "lc-gui")
-after_build(function(target)
-	if is_plat("windows") then
-		local bdPath = target:targetdir()
-		os.cp(path.join(bdPath, "lcapi.dll"), path.join(bdPath, "lcapi.pyd"))
-	end
-end)
+set_extension(".pyd")
 target_end()
