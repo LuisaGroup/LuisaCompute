@@ -35,12 +35,16 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             endif ()
             list(APPEND LUISA_RUST_ENV "EMBREE_ZIP_FILE=${LUISA_COMPUTE_EMBREE_ZIP_PATH}")
         endif ()
-        list(APPEND LUISA_RUST_ENV "EMBREE_DLL_OUT_DIR=${LUISA_RUST_OUTPUT_DIR}/embree")
-        list(APPEND LUISA_RUST_ENV "CMAKE=${CMAKE_COMMAND}")
-        list(APPEND LUISA_RUST_ENV "CMAKE_GENERATOR=${CMAKE_GENERATOR}")
-        list(APPEND LUISA_RUST_ENV "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
+        list(APPEND LUISA_RUST_ENV
+                "EMBREE_DLL_OUT_DIR=${LUISA_RUST_OUTPUT_DIR}/embree"
+                "CMAKE=${CMAKE_COMMAND}"
+                "CMAKE_GENERATOR=${CMAKE_GENERATOR}"
+                "CMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}")
         if (UNIX AND SKBUILD) # force building from source for Python binding to avoid dependency issues
-            list(APPEND LUISA_RUST_ENV "EMBREE_FORCE_BUILD_FROM_SOURCE=1")
+            list(APPEND LUISA_RUST_ENV
+                    "EMBREE_FORCE_BUILD_FROM_SOURCE=1"
+                    "EMBREE_CC=cc"
+                    "EMBREE_CXX=c++")
         endif ()
     endif ()
     set(LUISA_RUST_BUILD_COMMAND "${CMAKE_COMMAND};-E;env;${LUISA_RUST_ENV};--;${CARGO_EXE};build;${LUISA_RUST_MANIFEST};${LUISA_RUST_PROFILE};${LUISA_RUST_FEATURES}")
