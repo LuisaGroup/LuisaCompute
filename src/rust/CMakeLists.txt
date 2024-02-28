@@ -76,10 +76,9 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         endforeach ()
     endif ()
 
-    add_custom_target(luisa_compute_rust_build ALL
+    add_custom_target(luisa_compute_rust_build
             COMMAND ${LUISA_RUST_BUILD_COMMAND}
             DEPENDS luisa-compute-core
-            SOURCES ${LUISA_RUST_MANIFEST}
             COMMENT "Building Rust-dependent libraries..."
             VERBATIM)
 
