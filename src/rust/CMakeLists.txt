@@ -78,11 +78,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     add_custom_target(luisa_compute_rust_build
             COMMAND ${LUISA_RUST_BUILD_COMMAND}
-            COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/dummy
             DEPENDS luisa-compute-core
             SOURCES ${LUISA_RUST_MANIFEST}
             COMMENT "Building Rust-dependent libraries..."
-            BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/dummy
+            BYPRODUCTS ${LUISA_STATIC_LIB_FILES}
             VERBATIM)
 
     # install the static libraries
