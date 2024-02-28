@@ -112,8 +112,9 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         install(FILES "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/")
         if (WIN32)
-            install(FILES "${LUISA_RUST_OUTPUT_DIR}/${lib}.pdb"
-                    DESTINATION "${CMAKE_INSTALL_BINDIR}/")
+            string(REPLACE ".dll" ".pdb" pdb ${lib})
+            install(FILES "${LUISA_RUST_OUTPUT_DIR}/${pdb}"
+                    DESTINATION "${CMAKE_INSTALL_LIBDIR}/")
             install(FILES "${LUISA_RUST_OUTPUT_DIR}/${lib}.lib"
                     DESTINATION "${CMAKE_INSTALL_LIBDIR}/")
         endif ()
