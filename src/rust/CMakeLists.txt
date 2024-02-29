@@ -68,22 +68,30 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_RUST_SHARED_LIB_FILES ${LUISA_RUST_SHARED_LIBS})
     list(TRANSFORM LUISA_RUST_SHARED_LIB_FILES PREPEND "${LUISA_RUST_OUTPUT_DIR}/")
 
-    add_custom_target(luisa_compute_rust_build
-            COMMAND ${LUISA_RUST_BUILD_COMMAND}
-            COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/dummy"
-            DEPENDS luisa-compute-core
-            SOURCES ${LUISA_RUST_MANIFEST}
-            COMMENT "Building Rust-dependent libraries..."
-            BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/dummy"
-            VERBATIM)
+    set(LUISA_RUST_LIB_FILES ${LUISA_RUST_STATIC_LIB_FILES})
+    list(APPEND LUISA_RUST_LIB_FILES ${LUISA_RUST_SHARED_LIB_FILES})
+    # final path of rust libs
+    set(LUISA_RUST_RESULT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+
+    add_custom_command(OUTPUT ${LUISA_RUST_LIB_FILES}
+        COMMAND ${LUISA_RUST_BUILD_COMMAND}
+        DEPENDS ${LUISA_RUST_MANIFEST}
+        COMMENT "Building Rust-dependent libraries..."
+        VERBATIM
+    )
+
+    add_custom_target(luisa_compute_rust_build)
 
     # copy the static libraries to the output directory
     foreach (lib ${LUISA_RUST_STATIC_LIBS})
-        add_custom_command(TARGET luisa_compute_rust_build
+        add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                "$<TARGET_LINKER_FILE_DIR:luisa-compute-core>/${lib}"
+                "${LUISA_RUST_RESULT_DIR}/${lib}"
+                DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                 VERBATIM)
+        add_custom_target(${lib} DEPENDS "${LUISA_RUST_RESULT_DIR}/${lib}")
+        add_dependencies(luisa_compute_rust_build ${lib})
     endforeach ()
 
     # install the static libraries
@@ -92,12 +100,19 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # copy embree to the output directory and also install it
     if (LUISA_COMPUTE_ENABLE_CPU)
-        add_custom_command(TARGET luisa_compute_rust_build
+        add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/embree/dummy"
                 COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${LUISA_RUST_OUTPUT_DIR}/embree/"
-                "$<TARGET_FILE_DIR:luisa-compute-core>/"
+                "${LUISA_RUST_RESULT_DIR}/"
+                COMMAND ${CMAKE_COMMAND} -E touch
+                "${LUISA_RUST_RESULT_DIR}/dummy"
+                # if LUISA_RUST_LIB_FILES is rebuilt, then it should be rebuilt too, it's incorrect.
+                # TODO: use embree file as DEPENDS
+                DEPENDS "${LUISA_RUST_LIB_FILES}"
                 COMMENT "Copying embree to the output directory..."
                 VERBATIM)
+        add_custom_target(luisa_compute_rust_build_embree DEPENDS "${LUISA_RUST_RESULT_DIR}/embree/dummy")
+        add_dependencies(luisa_compute_rust_build luisa_compute_rust_build_embree)
         install(DIRECTORY "${LUISA_RUST_OUTPUT_DIR}/embree/"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/"
                 FILES_MATCHING REGEX ".*\\.(dll|so|dylib)(\\.[0-9]+)?$")
@@ -105,14 +120,48 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     # copy the DLLs to the output directory and patch the rpath
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
-        add_custom_command(TARGET luisa_compute_rust_build
-                COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to $<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
-                SOURCES "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
-                VERBATIM)
-        install(FILES "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
+        if (APPLE)
+            add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                    "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    COMMAND install_name_tool -id "@rpath/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    COMMAND install_name_tool -add_rpath "@loader_path" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                    VERBATIM)
+        elseif (UNIX)
+            if (PATCHELF_EXE)
+                add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                        "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                        VERBATIM)
+            else ()
+                add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                        "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                        VERBATIM)
+                message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
+            endif ()
+        else ()
+            add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                    "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                    VERBATIM)
+        endif ()
+        add_custom_target(luisa_compute_rust_build_${lib} DEPENDS "${LUISA_RUST_RESULT_DIR}/${lib}")
+        add_dependencies(luisa_compute_rust_build luisa_compute_rust_build_${lib})
+        install(FILES "${LUISA_RUST_RESULT_DIR}/${lib}"
                 DESTINATION "${CMAKE_INSTALL_BINDIR}/")
         if (WIN32)
             string(REPLACE ".dll" ".pdb" pdb ${lib})
@@ -123,27 +172,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         endif ()
     endforeach ()
 
-    if (APPLE)
-        foreach (lib ${LUISA_RUST_SHARED_LIBS})
-            add_custom_command(TARGET luisa_compute_rust_build
-                    COMMAND install_name_tool -id "@rpath/${lib}" "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
-                    COMMAND install_name_tool -add_rpath "@loader_path" "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
-                    VERBATIM)
-        endforeach ()
-    elseif (UNIX)
-        find_program(PATCHELF_EXE patchelf)
-        if (PATCHELF_EXE)
-            foreach (lib ${LUISA_RUST_SHARED_LIBS})
-                add_custom_command(TARGET luisa_compute_rust_build
-                        COMMENT "Fixing rpath for ${lib}..."
-                        COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN" "$<TARGET_FILE_DIR:luisa-compute-core>/${lib}"
-                        VERBATIM)
-            endforeach ()
-        else ()
-            message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
-        endif ()
-    endif ()
-
     # workaround dependencies
     set(LUISA_RUST_BUILD_PRODUCTS ${LUISA_RUST_STATIC_LIBS} ${LUISA_RUST_SHARED_LIBS})
     if (WIN32)
@@ -151,16 +179,14 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             list(APPEND LUISA_RUST_BUILD_PRODUCTS "${lib}.lib")
         endforeach ()
     endif ()
-    add_custom_command(TARGET luisa_compute_rust_build POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E true
-            BYPRODUCTS ${LUISA_RUST_BUILD_PRODUCTS})
 
     # add an imported static target for linking
     add_library(luisa-compute-rust-meta INTERFACE)
     add_dependencies(luisa-compute-rust-meta luisa_compute_rust_build)
     target_link_directories(luisa-compute-rust-meta INTERFACE
             "$<BUILD_INTERFACE:$<TARGET_FILE_DIR:luisa-compute-core>>"
-            "$<BUILD_INTERFACE:$<TARGET_LINKER_FILE_DIR:luisa-compute-core>>")
+            "$<BUILD_INTERFACE:$<TARGET_LINKER_FILE_DIR:luisa-compute-core>>"
+            "$<BUILD_INTERFACE:${LUISA_RUST_RESULT_DIR}>")
     target_link_libraries(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_STATIC_LIBS}>")
     install(TARGETS luisa-compute-rust-meta EXPORT LuisaComputeTargets)
 
