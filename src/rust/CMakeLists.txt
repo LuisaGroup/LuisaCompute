@@ -73,10 +73,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_RUST_RESULT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
     add_custom_command(OUTPUT ${LUISA_RUST_LIB_FILES}
-        COMMAND ${LUISA_RUST_BUILD_COMMAND}
-        DEPENDS ${LUISA_RUST_MANIFEST}
-        COMMENT "Building Rust-dependent libraries..."
-        VERBATIM
+            COMMAND ${LUISA_RUST_BUILD_COMMAND}
+            DEPENDS ${LUISA_RUST_MANIFEST}
+            COMMENT "Building Rust-dependent libraries..."
+            VERBATIM
     )
 
     add_custom_target(luisa_compute_rust_build)
@@ -92,6 +92,30 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         add_custom_target(${lib} DEPENDS "${LUISA_RUST_RESULT_DIR}/${lib}")
         add_dependencies(luisa_compute_rust_build ${lib})
     endforeach ()
+
+    # copy the linker libraries to the output directory on Windows
+    if (WIN32)
+        foreach (lib ${LUISA_RUST_SHARED_LIBS})
+            set(linker_file "${lib}.lib")
+            add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${linker_file}"
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${LUISA_RUST_OUTPUT_DIR}/${linker_file}"
+                    "${LUISA_RUST_RESULT_DIR}/${linker_file}"
+                    DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${linker_file}"
+                    VERBATIM)
+            add_custom_target(${linker_file} DEPENDS "${LUISA_RUST_RESULT_DIR}/${linker_file}")
+            add_dependencies(luisa_compute_rust_build ${linker_file})
+            string(REPLACE ".dll" ".pdb" pdb_file ${lib})
+            add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${pdb_file}"
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${LUISA_RUST_OUTPUT_DIR}/${pdb_file}"
+                    "${LUISA_RUST_RESULT_DIR}/${pdb_file}"
+                    DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${pdb_file}"
+                    VERBATIM)
+            add_custom_target(${pdb_file} DEPENDS "${LUISA_RUST_RESULT_DIR}/${pdb_file}")
+            add_dependencies(luisa_compute_rust_build ${pdb_file})
+        endforeach ()
+    endif ()
 
     # install the static libraries
     install(FILES ${LUISA_RUST_STATIC_LIB_FILES}
@@ -156,23 +180,6 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                     "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                     "${LUISA_RUST_RESULT_DIR}/${lib}"
                     DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                    VERBATIM)
-            # copy the .pdb and .lib files
-            set(linker_file "${lib}.lib")
-            string(REPLACE ".dll" ".pdb" pdb_file ${lib})
-            add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${pdb_file}"
-                    COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${pdb_file} to ${LUISA_RUST_RESULT_DIR}/${pdb_file}"
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${LUISA_RUST_OUTPUT_DIR}/${pdb_file}"
-                    "${LUISA_RUST_RESULT_DIR}/${pdb_file}"
-                    DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${pdb_file}"
-                    VERBATIM)
-            add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${linker_file}"
-                    COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${linker_file} to ${LUISA_RUST_RESULT_DIR}/${linker_file}"
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${LUISA_RUST_OUTPUT_DIR}/${linker_file}"
-                    "${LUISA_RUST_RESULT_DIR}/${linker_file}"
-                    DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${linker_file}"
                     VERBATIM)
         endif ()
         add_custom_target(luisa_compute_rust_build_${lib} DEPENDS "${LUISA_RUST_RESULT_DIR}/${lib}")
