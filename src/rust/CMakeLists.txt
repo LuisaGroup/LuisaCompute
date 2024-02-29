@@ -68,8 +68,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_RUST_SHARED_LIB_FILES ${LUISA_RUST_SHARED_LIBS})
     list(TRANSFORM LUISA_RUST_SHARED_LIB_FILES PREPEND "${LUISA_RUST_OUTPUT_DIR}/")
 
-    set(LUISA_RUST_LIB_FILES ${LUISA_RUST_STATIC_LIB_FILES})
-    list(APPEND LUISA_RUST_LIB_FILES ${LUISA_RUST_SHARED_LIB_FILES})
+    set(LUISA_RUST_LIB_FILES ${LUISA_RUST_STATIC_LIB_FILES} ${LUISA_RUST_SHARED_LIB_FILES})
     # final path of rust libs
     set(LUISA_RUST_RESULT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
@@ -150,9 +149,9 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                         VERBATIM)
                 message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
             endif ()
-        else ()
+        else () # WIN32
             add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
-                    COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
+                    COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib}"
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                     "${LUISA_RUST_RESULT_DIR}/${lib}"
@@ -183,10 +182,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     # add an imported static target for linking
     add_library(luisa-compute-rust-meta INTERFACE)
     add_dependencies(luisa-compute-rust-meta luisa_compute_rust_build)
-    target_link_directories(luisa-compute-rust-meta INTERFACE
-            "$<BUILD_INTERFACE:$<TARGET_FILE_DIR:luisa-compute-core>>"
-            "$<BUILD_INTERFACE:$<TARGET_LINKER_FILE_DIR:luisa-compute-core>>"
-            "$<BUILD_INTERFACE:${LUISA_RUST_RESULT_DIR}>")
+    target_link_directories(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_RESULT_DIR}>")
     target_link_libraries(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_STATIC_LIBS}>")
     install(TARGETS luisa-compute-rust-meta EXPORT LuisaComputeTargets)
 
@@ -195,7 +191,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     target_link_libraries(luisa_compute_backend_impl INTERFACE luisa-compute-rust-meta)
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (WIN32)
-            target_link_libraries(luisa_compute_backend_impl INTERFACE "$<BUILD_INTERFACE:${lib}.lib>")
+            target_link_libraries(luisa_compute_backend_impl INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_OUTPUT_DIR}/${lib}.lib>")
         else ()
             target_link_libraries(luisa_compute_backend_impl INTERFACE "$<BUILD_INTERFACE:${lib}>")
         endif ()
