@@ -99,6 +99,7 @@ void DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle, uint64_t *cuda_pt
         LUISA_ERROR("Failed to create shared handle");
     }
 
+
     CUDA_EXTERNAL_MEMORY_HANDLE_DESC externalMemoryHandleDesc{};
     externalMemoryHandleDesc.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE;
     externalMemoryHandleDesc.handle.win32.handle = sharedHandle;
@@ -207,5 +208,14 @@ ResourceCreationInfo DxCudaInteropImpl::create_interop_texture(
 DeviceInterface *DxCudaInteropImpl::device() {
     return &_device;
 }
+
+	CUcontext cuContext;
+	CUdevice cuDevice;
+	DxCudaInteropImpl::DxCudaInteropImpl(LCDevice& device) noexcept : _device{device}
+	{
+		cuInit(0);
+		cuDeviceGet(&cuDevice, 0); // Get handle to device 0
+		cuCtxCreate(&cuContext, 0, cuDevice); // Create context
+	}
 }// namespace lc::dx
 #endif

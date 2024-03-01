@@ -169,7 +169,7 @@ class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
     LCDevice &_device;
 
 public:
-    DxCudaInteropImpl(LCDevice &device) noexcept : _device{device} {}
+    DxCudaInteropImpl(LCDevice &device) noexcept;
     BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
     ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
