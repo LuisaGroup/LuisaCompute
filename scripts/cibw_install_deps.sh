@@ -7,7 +7,7 @@ cat /etc/os-release
 dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
 dnf update -y
 dnf install -y vulkan-devel libuuid-devel libXinerama-devel libXcursor-devel libXi-devel libXrandr-devel libxkbcommon-devel wayland-devel
-dnf install -y patchelf.x86_64
+dnf install -y patchelf
 
 # install rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
