@@ -4,7 +4,7 @@
 cat /etc/os-release
 
 # install vulkan and other dependencies
-dnf install -y vulkan-devel libuuid-devel libXinerama-devel libXcursor-devel libXi-devel libXrandr-devel libxkbcommon-devel wayland-devel
+dnf install -y vulkan-devel libuuid-devel libXinerama-devel libXcursor-devel libXi-devel libXrandr-devel libxkbcommon-devel wayland-devel patchelf
 
 # install rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
