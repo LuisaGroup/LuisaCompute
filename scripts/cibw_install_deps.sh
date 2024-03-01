@@ -6,10 +6,7 @@ cat /etc/os-release
 # install vulkan and other dependencies
 dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
 dnf update -y
-dnf install -y vulkan-devel libuuid-devel libXinerama-devel libXcursor-devel libXi-devel libXrandr-devel libxkbcommon-devel wayland-devel
-dnf install -y patchelf
-
-which patchelf
+dnf install -y vulkan-devel libuuid-devel libXinerama-devel libXcursor-devel libXi-devel libXrandr-devel libxkbcommon-devel wayland-devel patchelf
 
 # install rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y

@@ -123,6 +123,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 FILES_MATCHING REGEX ".*\\.(dll|so|dylib)(\\.[0-9]+)?$")
     endif ()
 
+    if (UNIX AND NOT APPLE)
+        find_program(PATCHELF_EXE patchelf)
+    endif ()
+
     # copy the DLLs to the output directory and patch the rpath
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (APPLE)
@@ -131,8 +135,8 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                     "${LUISA_RUST_RESULT_DIR}/${lib}"
-                    COMMAND install_name_tool -id "@rpath/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
-                    COMMAND install_name_tool -add_rpath "@loader_path" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    COMMAND ${INSTALL_NAME_TOOL_EXE} -id "@rpath/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    COMMAND ${INSTALL_NAME_TOOL_EXE} -add_rpath "@loader_path" "${LUISA_RUST_RESULT_DIR}/${lib}"
                     DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                     VERBATIM)
             add_custom_target(luisa_compute_rust_build_${lib} DEPENDS
