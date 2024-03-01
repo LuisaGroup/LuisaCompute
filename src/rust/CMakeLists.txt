@@ -123,40 +123,45 @@ if (LUISA_COMPUTE_ENABLE_RUST)
                 FILES_MATCHING REGEX ".*\\.(dll|so|dylib)(\\.[0-9]+)?$")
     endif ()
 
-    if (UNIX AND NOT APPLE)
+    if (APPLE)
+        find_program(INSTALL_NAME_TOOL_EXE install_name_tool)
+    elseif (UNIX)
         find_program(PATCHELF_EXE patchelf)
     endif ()
 
     # copy the DLLs to the output directory and patch the rpath
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (APPLE)
+            if (INSTALL_NAME_TOOL_EXE)
             add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
                     COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                    "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LUISA_RUST_OUTPUT_DIR}/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
                     COMMAND ${INSTALL_NAME_TOOL_EXE} -id "@rpath/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
                     COMMAND ${INSTALL_NAME_TOOL_EXE} -add_rpath "@loader_path" "${LUISA_RUST_RESULT_DIR}/${lib}"
                     DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                     VERBATIM)
+            else ()
+                add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LUISA_RUST_OUTPUT_DIR}/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                        VERBATIM)
+                message(WARNING "Cannot find install_name_tool. The Rust backend may not work correctly.")
+            endif ()
             add_custom_target(luisa_compute_rust_build_${lib} DEPENDS
                     "${LUISA_RUST_RESULT_DIR}/${lib}")
         elseif (UNIX)
             if (PATCHELF_EXE)
                 add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
                         COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                        "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LUISA_RUST_OUTPUT_DIR}/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
                         COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN" "${LUISA_RUST_RESULT_DIR}/${lib}"
                         DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                         VERBATIM)
             else ()
                 add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
-                        COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
-                        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                        "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LUISA_RUST_OUTPUT_DIR}/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
                         DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                         VERBATIM)
                 message(WARNING "Cannot find patchelf. The Rust backend may not work correctly.")
@@ -166,9 +171,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
         else () # WIN32
             add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
                     COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib}"
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                    "${LUISA_RUST_RESULT_DIR}/${lib}"
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LUISA_RUST_OUTPUT_DIR}/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
                     DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
                     VERBATIM)
             add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}.lib"
