@@ -1,11 +1,18 @@
 // clang-format off
 using ElementType = T;
 
-[[nodiscard, access]] constexpr T access_(uint32 idx) const noexcept {
+[[nodiscard, access]] constexpr T const &access_(uint32 idx) const noexcept {
     return _v[idx];
 }
 
-[[nodiscard, access]] constexpr T operator[](uint32 idx) const noexcept {
+[[nodiscard, access]] constexpr T const &operator[](uint32 idx) const noexcept {
+    return _v[idx];
+}
+[[nodiscard, access]] constexpr T &access_(uint32 idx) noexcept {
+    return _v[idx];
+}
+
+[[nodiscard, access]] constexpr T &operator[](uint32 idx) noexcept {
     return _v[idx];
 }
 

@@ -20,12 +20,12 @@ template<typename T, typename U>
 
 template<uint64 dim, typename T, typename... Ts>
 [[ignore]] consteval uint64 sum_dim() {
-    constexpr auto new_dim = dim + vec_dim_v<T>;
-    if constexpr (sizeof...(Ts) == 0) {
-        return new_dim;
-    } else {
-        return sum_dim<new_dim, Ts...>();
-    }
+	constexpr auto new_dim = dim + vec_dim_v<T>;
+	if constexpr (sizeof...(Ts) == 0) {
+		return new_dim;
+	} else {
+		return sum_dim<new_dim, Ts...>();
+	}
 }
 
 template<typename... T>
@@ -34,19 +34,19 @@ static constexpr auto sum_dim_v = sum_dim<0ull, T...>();
 namespace detail {
 template<uint64 N, typename T, typename... Ts>
 trait element_of {
-    using type = typename element_of<N - 1, Ts...>::type;
-    static_assert(__is_same_as(type, scalar_type<T>), "!!!");
+	using type = typename element_of<N - 1, Ts...>::type;
+	static_assert(__is_same_as(type, scalar_type<T>), "!!!");
 };
 
 template<typename T, typename... Ts>
 trait element_of<1, T, Ts...> {
-    using type = scalar_type<T>;
+	using type = scalar_type<T>;
 };
 }// namespace detail
 
 template<typename... Ts>
 trait element_of {
-    using type = typename detail::element_of<sizeof...(Ts), Ts...>::type;
+	using type = typename detail::element_of<sizeof...(Ts), Ts...>::type;
 };
 
 }// namespace luisa::shader

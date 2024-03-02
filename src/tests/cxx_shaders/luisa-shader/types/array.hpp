@@ -108,7 +108,7 @@ struct [[builtin("array")]] Array<uint32, size, ArrayFlags::Shared> {
 
 private:
     // DONT EDIT THIS FIELD LAYOUT
-    int32 v[size];
+    uint32 v[size];
 };
 template<typename Type, uint32 size>
 using SharedArray = Array<Type, size, ArrayFlags::Shared>;
