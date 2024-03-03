@@ -263,11 +263,16 @@ class ASTVisitor:
             node.expr = varinfo.expr
             node.is_arg = varinfo.is_arg
             node.lr = 'l'
+        elif node.id in ctx().default_arg_values:
+            default_val = ctx().default_arg_values[node.id]
+            node.dtype = dtype_of(default_val)
+            node.expr = lcapi.builder().literal(to_lctype(node.dtype), default_val)
+            node.lr = 'r'
         else:
             val = ctx().closure_variable.get(node.id)
             if val is None:
                 if not allow_none:
-                    raise NameError(f"undeclared idenfitier '{node.id}'")
+                    raise NameError(f"undeclared identifier '{node.id}'")
                 node.dtype = None
                 return
             node.dtype, node.expr, node.lr = build.captured_expr(val)
