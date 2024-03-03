@@ -9,11 +9,6 @@ set_showmenu(false)
 set_default(false)
 option_end()
 
-option("_lc_vk_path")
-set_default(false)
-set_showmenu(false)
-option_end()
-
 option("_lc_config_public")
 set_default(false)
 set_showmenu(false)
@@ -27,7 +22,7 @@ set_default(false)
 set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
     "metal_backend", "cpu_backend", "enable_tests", "enable_custom_malloc", "enable_clangcxx", "py_include", "py_linkdir", "py_libs",
-    "enable_ir", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_vk_path", "_lc_enable_rust",
+    "enable_ir", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_enable_rust",
     "_lc_config_public")
 before_check(function(option)
     local v = import("options", {
@@ -138,41 +133,9 @@ before_check(function(option)
             end
         end
     end
-
-    -- checking vulkan
-    local vk_path = os.getenv("VULKAN_SDK")
-    if not vk_path then
-        vk_path = os.getenv("VK_SDK_PATH")
-        local vk_backend = option:dep("vk_backend")
-        if vk_backend:enabled() then
-            vk_backend:enable(false, {
-                force = true
-            })
-            if vk_backend:enabled() then
-                utils.error("VK backend not supported in this platform, force disabled.")
-            end
-        end
-    else
-        option:dep("_lc_vk_path"):set_value(vk_path)
-    end
-    -- TODO: cpu backend and rust config
 end)
 option_end()
-
-rule("lc_vulkan")
-on_load(function(target)
-    local vk_path = get_config("_lc_vk_path")
-    if is_plat("linux", "macosx") then
-        target:add("linkdirs", path.join(vk_path, "lib"))
-        target:add("links", "vulkan")
-        target:add("includedirs", path.join(vk_path, "include"))
-    else
-        target:add("linkdirs", path.join(vk_path, "Lib"))
-        target:add("links", "vulkan-1")
-        target:add("includedirs", path.join(vk_path, "Include"))
-    end
-end)
-rule_end()
+add_requires("vulkansdk", {system = true})
 rule("lc_basic_settings")
 on_config(function(target)
     local _, cc = target:tool("cxx")
@@ -357,7 +320,6 @@ on_config(function(target)
     end
 end)
 rule_end()
-
 rule("build_cargo")
 set_extensions(".toml")
 on_buildcmd_file(function(target, batchcmds, sourcefile, opt)

@@ -9,7 +9,7 @@ target("lc-backend-cuda")
 	})
 	if get_config("_lc_vk_path") then
 		add_defines("LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN")
-		add_rules("lc_vulkan")
+		add_packages("vulkansdk")
 		add_deps("lc-vulkan-swapchain")
 	end
 	add_deps("lc-runtime")
