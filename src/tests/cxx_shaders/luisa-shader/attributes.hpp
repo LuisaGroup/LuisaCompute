@@ -1,5 +1,4 @@
 #pragma once
-#include "defines.hpp"
 
 #ifdef _EXPORT
 #define export [[clang::annotate("luisa-shader", "export")]]
@@ -23,5 +22,6 @@
 #define binop(name) clang::annotate("luisa-shader", "binop", (name))
 #define callop(name) clang::annotate("luisa-shader", "callop", (name))
 #define expr(name) clang::annotate("luisa-shader", "expr", (name))
+
 
 #define trait struct [[ignore]]

@@ -22,20 +22,25 @@ if (NOT DEFINED CARGO_HOME)
     endif ()
 endif ()
 
-find_program(CARGO_EXE cargo NO_CACHE HINTS "${CARGO_HOME}" PATH_SUFFIXES "bin")
-if (CARGO_EXE)
+if (NOT DEFINED LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_COMPUTE_ENABLE_RUST ON)
-else ()
-    set(LUISA_COMPUTE_ENABLE_RUST OFF)
 endif ()
 
-if (NOT LUISA_COMPUTE_ENABLE_RUST)
-    message(FATAL_ERROR "\nRust is required for future releases. \n\
+if (LUISA_COMPUTE_ENABLE_RUST OR LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
+    find_program(CARGO_EXE cargo NO_CACHE HINTS "${CARGO_HOME}" PATH_SUFFIXES "bin")
+    if (CARGO_EXE)
+        set(LUISA_COMPUTE_ENABLE_RUST ON)
+    else ()
+        set(LUISA_COMPUTE_ENABLE_RUST OFF)
+    endif ()
+    if (LUISA_COMPUTE_ENABLE_RUST)
+        message(STATUS "Enable Rust support (toolchain found at ${CARGO_EXE})")
+    else ()
+        message(WARNING "\nRust-dependent features are enabled but the Rust toolchain is not found on your system. \n\
     To install Rust, run `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` on unix environment\n\
-    or download and run the installer from https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe on windows environment.\n\
-    please set LUISA_COMPUTE_DISABLE_RUST_OVERRIDE to ON to acknowledge this")
+    or download and run the installer from https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe on windows environment.\n")
+    endif ()
 endif ()
-
 
 function(report_feature_not_available option_name feature_name)
     if (LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)
@@ -72,8 +77,8 @@ if (LUISA_COMPUTE_ENABLE_VULKAN)
     endif ()
 endif ()
 
-if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
-    if (NOT LUISA_COMPUTE_ENABLE_RUST)
+if (NOT LUISA_COMPUTE_ENABLE_RUST)
+    if (LUISA_COMPUTE_ENABLE_CPU OR LUISA_COMPUTE_ENABLE_REMOTE)
         report_feature_not_available(CPU "CPU backend")
         report_feature_not_available(REMOTE "Remote backend")
     endif ()

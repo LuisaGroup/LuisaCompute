@@ -37,10 +37,31 @@ DefaultBuffer::DefaultBuffer(
         _is_heap_resource = false;
     }
 }
+
+void DefaultBuffer::Evict() const {
+    if (!_evict.exchange(true)) {
+        ID3D12Pageable *ptr;
+        if (allocHandle.allocator) {
+            ptr = allocHandle.allocator->GetHeap(allocHandle.allocateHandle);
+        } else {
+            ptr = allocHandle.resource.Get();
+        }
+        device->device->Evict(1, &ptr);
+    }
+}
+void DefaultBuffer::Resident(vstd::vector<ID3D12Pageable *> &vec) const {
+    if (_evict.exchange(false)) {
+        if (allocHandle.allocator) {
+            vec.emplace_back(allocHandle.allocator->GetHeap(allocHandle.allocateHandle));
+        } else {
+            vec.emplace_back(allocHandle.resource.Get());
+        }
+    }
+}
 DefaultBuffer::DefaultBuffer(
     Device *device,
     uint64 byteSize,
-    ID3D12Resource* resource,
+    ID3D12Resource *resource,
     D3D12_RESOURCE_STATES initState)
     : Buffer(device),
       allocHandle(nullptr),

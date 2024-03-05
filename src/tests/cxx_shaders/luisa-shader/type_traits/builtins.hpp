@@ -19,7 +19,7 @@ template <typename T, typename Arg>
 inline constexpr bool is_assignable_v = __is_assignable(T, Arg);
 
 template <typename T, template <typename...> typename Template>
-inline constexpr bool is_specialization_v = false; // true if and only if T is a specialization of Template
+inline constexpr bool is_specialization_v = false; // true if && only if T is a specialization of Template
 
 template <template <typename...> typename Template, typename... Args>
 inline constexpr bool is_specialization_v<Template<Args...>, Template> = true;
@@ -84,9 +84,9 @@ namespace luisa::shader {
 
 struct [[builtin("half")]] half {
     [[ignore]] half() = default;
-    [[ignore]] explicit half(float);
-    [[ignore]] explicit half(uint32);
-    [[ignore]] explicit half(int32);
+    [[ignore]] half(float);
+    [[ignore]] half(uint32);
+    [[ignore]] half(int32);
 private:
     short v;
 };

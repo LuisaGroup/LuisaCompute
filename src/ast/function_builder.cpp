@@ -292,6 +292,9 @@ const RefExpr *FunctionBuilder::local(const Type *type) noexcept {
 }
 
 const RefExpr *FunctionBuilder::shared(const Type *type) noexcept {
+    if (type->is_structure() && !type->member_attributes().empty()) [[unlikely]] {
+        LUISA_ERROR("Shared variable can not be structure type with custom attributes");
+    }
     Variable sv{type, Variable::Tag::SHARED, _next_variable_uid()};
     _shared_variables.emplace_back(sv);
     return _ref(sv);

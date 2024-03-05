@@ -198,6 +198,6 @@ endif ()
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
 
 # for rust bindings
-if (LUISA_COMPUTE_ENABLE_RUST)
-    add_subdirectory(corrosion)
-endif ()
+# if (LUISA_COMPUTE_ENABLE_RUST)
+#     add_subdirectory(corrosion)
+# endif ()

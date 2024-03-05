@@ -83,11 +83,17 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew install --overwrite python@3.12
-          brew install --overwrite llvm molten-vk
+          brew install --overwrite llvm
       - name: "Setup XMake"
         uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: latest
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.204.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
       - name: "Configure and Build"
         run: |
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then

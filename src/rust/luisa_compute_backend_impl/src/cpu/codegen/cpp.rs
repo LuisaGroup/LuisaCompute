@@ -41,7 +41,7 @@ impl TypeGenInner {
                 ir::Primitive::Uint32 => "uint32_t".to_string(),
                 ir::Primitive::Int64 => "int64_t".to_string(),
                 ir::Primitive::Uint64 => "uint64_t".to_string(),
-                ir::Primitive::Float16 => "half".to_string(),
+                ir::Primitive::Float16 => "lc_half".to_string(),
                 ir::Primitive::Float32 => "float".to_string(),
                 ir::Primitive::Float64 => "double".to_string(),
                 // crate::ir::Primitive::USize => format!("i{}", std::mem::size_of::<usize>() * 8),
@@ -1522,7 +1522,7 @@ impl<'a> FunctionEmitter<'a> {
                 let bits = v.to_bits();
                 writeln!(
                     &mut self.body,
-                    "const lc_half {} = lc_bit_cast<half>(uint16_t(0x{:04x})); // {}",
+                    "const lc_half {} = lc_bit_cast<lc_half>(uint16_t(0x{:04x})); // {}",
                     var, bits, v
                 )
                 .unwrap();
@@ -1553,7 +1553,9 @@ impl<'a> FunctionEmitter<'a> {
                     "const {0} {1} = {2};",
                     node_ty_s,
                     var,
-                    decode_const_data(bytes.as_ref(), t)
+                    decode_const_data(bytes.as_ref(), t, &|ty|{
+                        self.type_gen.gen_c_type(ty)
+                    })
                 )
                 .unwrap();
                 // let gen_def = |dst: &mut String, qualifier| {

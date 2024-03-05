@@ -53,13 +53,13 @@ public:
         return _instance_count;
     }
     void emplace_back_handle(uint64_t mesh_handle,
-                              float4x4 const &transform,
-                              uint8_t visibility_mask,
-                              bool opaque,
-                              uint user_id) noexcept;
+                             float4x4 const &transform,
+                             uint8_t visibility_mask,
+                             bool opaque,
+                             uint user_id) noexcept;
     void set_handle(size_t index, uint64_t mesh_handle,
-                     float4x4 const &transform,
-                     uint8_t visibility_mask, bool opaque, uint user_id) noexcept;
+                    float4x4 const &transform,
+                    uint8_t visibility_mask, bool opaque, uint user_id) noexcept;
     void set_prim_handle(size_t index, uint64_t prim_handle) noexcept;
 
     // host interfaces
@@ -85,8 +85,8 @@ public:
                       uint8_t visibility_mask = 0xffu,
                       uint user_id = 0) noexcept {
         emplace_back_handle(prim.handle(), transform, visibility_mask,
-                             false /* procedural geometry is always non-opaque */,
-                             user_id);
+                            false /* procedural geometry is always non-opaque */,
+                            user_id);
     }
 
     void emplace_back(uint64_t mesh_handle,
@@ -145,6 +145,12 @@ public:
     [[nodiscard]] auto operator->() const noexcept {
         _check_is_valid();
         return reinterpret_cast<const detail::AccelExprProxy *>(this);
+    }
+    void evict() const noexcept {
+        device()->evict_accel(handle());
+    }
+    void resident() const noexcept {
+        device()->resident_accel(handle());
     }
 };
 

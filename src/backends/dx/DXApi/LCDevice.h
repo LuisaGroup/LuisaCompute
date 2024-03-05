@@ -35,12 +35,16 @@ public:
     // buffer
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
+    void resident_buffer(uint64_t handle) noexcept override;
+    void evict_buffer(uint64_t handle) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     // texture
     ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept override;
+    void resident_texture(uint64_t handle) noexcept override;
+    void evict_texture(uint64_t handle) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
 
     // bindless array
@@ -72,11 +76,13 @@ public:
     void synchronize_event(uint64_t handle, uint64_t fence) noexcept override;
     // accel
     ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;
-
+    void resident_mesh(uint64_t handle) noexcept override;
+    void evict_mesh(uint64_t handle) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
 
     ResourceCreationInfo create_accel(const AccelOption &option) noexcept override;
-
+    void resident_accel(uint64_t handle) noexcept override;
+    void evict_accel(uint64_t handle) noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
     // swap chain
     SwapchainCreationInfo create_swapchain(
@@ -91,12 +97,18 @@ public:
     void present_display_in_stream(uint64_t stream_handle, uint64_t swapchain_handle, uint64_t image_handle) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_procedural_primitive(
         const AccelOption &option) noexcept override;
+    void resident_procedural_primitive(uint64_t handle) noexcept override;
+    void evict_procedural_primitive(uint64_t handle) noexcept override;
     void destroy_procedural_primitive(uint64_t handle) noexcept override;
     DeviceExtension *extension(string_view name) noexcept override;
     void set_name(luisa::compute::Resource::Tag resource_tag, uint64_t resource_handle, luisa::string_view name) noexcept override;
     ResourceCreationInfo allocate_sparse_buffer_heap(size_t byte_size) noexcept override;
+    void resident_sparse_buffer_heap(uint64_t handle) noexcept override;
+    void evict_sparse_buffer_heap(uint64_t handle) noexcept override;
     void deallocate_sparse_buffer_heap(uint64_t handle) noexcept override;
     ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept override;
+    void resident_sparse_texture_heap(uint64_t handle) noexcept override;
+    void evict_sparse_texture_heap(uint64_t handle) noexcept override;
     void deallocate_sparse_texture_heap(uint64_t handle) noexcept override;
     [[nodiscard]] SparseBufferCreationInfo create_sparse_buffer(const Type *element, size_t elem_count) noexcept override;
     void destroy_sparse_buffer(uint64_t handle) noexcept override;

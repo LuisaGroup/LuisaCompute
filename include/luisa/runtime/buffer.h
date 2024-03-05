@@ -152,6 +152,12 @@ public:
         _check_is_valid();
         return reinterpret_cast<const detail::BufferExprProxy<Buffer<T>> *>(this);
     }
+    void evict() const noexcept {
+        device()->evict_buffer(handle());
+    }
+    void resident() const noexcept {
+        device()->resident_buffer(handle());
+    }
 };
 
 // BufferView represents a reference to a Buffer. Use a BufferView that referenced to a destructed Buffer is an undefined behavior.

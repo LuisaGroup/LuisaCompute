@@ -1,5 +1,4 @@
 #pragma once
-#include "../defines.hpp"
 #include "../type_traits.hpp"
 
 namespace luisa::shader {

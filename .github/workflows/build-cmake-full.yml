@@ -44,7 +44,7 @@ jobs:
             sudo apt-get -y install libc++-${{ matrix.compiler.version }}-dev libc++abi-${{ matrix.compiler.version }}-dev
           fi
           sudo apt-get update
-          sudo apt-get -y install build-essential cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev libxkbcommon-dev
+          sudo apt-get -y install build-essential cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev libxkbcommon-dev patchelf
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup CUDA"
         run: |
@@ -73,7 +73,9 @@ jobs:
           cmake --build build
       - name: "Install"
         run: |
-          sudo cmake --install build --prefix dist -v
+          if [ "${{ matrix.config }}" = "Release" ]; then
+            sudo cmake --install build --prefix dist -v
+          fi
 
   build-macos:
     strategy:
@@ -91,7 +93,7 @@ jobs:
       - name: "Install Dependencies"
         run: |
           brew install --overwrite python@3.12
-          brew install --overwrite cmake ninja llvm sccache glfw molten-vk
+          brew install --overwrite cmake ninja llvm sccache
       - name: "Setup Vulkan SDK"
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:

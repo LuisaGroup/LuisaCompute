@@ -82,5 +82,13 @@ public:
         CommandBufferBuilder &builder,
         BufferView const &scratchBuffer);
     ~BottomAccel();
+    void Evict() const override {
+        if (accelBuffer)
+            accelBuffer->Evict();
+    }
+    void Resident(vstd::vector<ID3D12Pageable *> &vec) const override {
+        if (accelBuffer)
+            accelBuffer->Resident(vec);
+    }
 };
 }// namespace lc::dx

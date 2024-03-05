@@ -2,7 +2,20 @@
 #include "Utils/AttributeHelper.hpp"
 
 namespace luisa::clangcxx {
-
+template<typename... Args>
+[[noreturn]] LUISA_FORCE_INLINE void clangcxx_log_error(Args &&...args) noexcept {
+    auto error_message = luisa::format(std::forward<Args>(args)...);
+    auto trace = luisa::backtrace();
+    for (auto i = 0u; i < trace.size(); i++) {
+        auto &&t = trace[i];
+        using namespace std::string_view_literals;
+        error_message.append(luisa::format(
+            FMT_STRING("\n    {:>2} [0x{:012x}]: {} :: {} + {}"sv),
+            i, t.address, t.module, t.symbol, t.offset));
+    }
+    luisa::detail::default_logger().error("{}", error_message);
+    exit(1);
+}
 struct TypeDatabase {
     TypeDatabase();
     ~TypeDatabase();

@@ -678,7 +678,7 @@ public:
     explicit CustomCommand() noexcept
         : Command{Command::Tag::ECustomCommand} {}
     [[nodiscard]] virtual uint64_t uuid() const noexcept = 0;
-    ~CustomCommand() noexcept override = default;
+    virtual ~CustomCommand() noexcept override = default;
     LUISA_MAKE_COMMAND_COMMON_ACCEPT()
 };
 
@@ -700,7 +700,7 @@ public:
 
 public:
     explicit CustomDispatchCommand() noexcept = default;
-    ~CustomDispatchCommand() noexcept override = default;
+    virtual ~CustomDispatchCommand() noexcept override = default;
 
     virtual void traverse_arguments(ArgumentVisitor &visitor) const noexcept = 0;
 
