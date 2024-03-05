@@ -5,4 +5,4 @@ Hover:
 Index:
   Background: Build
 CompileFlags:
-  Remove: [-f*, -m*]
+  Remove: [-f*, -m*, -Yu*, -FI*]

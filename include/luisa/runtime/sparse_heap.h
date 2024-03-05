@@ -20,6 +20,8 @@ public:
         return *this;
     }
     SparseBufferHeap &operator=(SparseBufferHeap const &) noexcept = delete;
+    void evict() const noexcept;
+    void resident() const noexcept;
 };
 
 class LC_RUNTIME_API SparseTextureHeap : public Resource {
@@ -41,6 +43,8 @@ public:
         return *this;
     }
     SparseTextureHeap &operator=(SparseTextureHeap const &) noexcept = delete;
+    void evict() const noexcept;
+    void resident() const noexcept;
 };
 
 }// namespace luisa::compute

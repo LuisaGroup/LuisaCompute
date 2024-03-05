@@ -43,6 +43,12 @@ public:
         _check_is_valid();
         return _aabb_buffer_size;
     }
+    void evict() const noexcept {
+        device()->evict_procedural_primitive(handle());
+    }
+    void resident() const noexcept {
+        device()->resident_procedural_primitive(handle());
+    }
 };
 
 template<typename AABBBuffer>

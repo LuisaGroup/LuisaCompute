@@ -54,12 +54,13 @@ D3D12_RESOURCE_STATES ResourceStateTracker::GetState(Resource const *res) const 
     }
     return res->GetInitState();
 }
-ResourceStateTracker::ResourceStateTracker() {}
+ResourceStateTracker::ResourceStateTracker(ID3D12Device *device) : device(device) {}
 ResourceStateTracker::~ResourceStateTracker() = default;
 void ResourceStateTracker::RecordState(
     Resource const *resource,
     D3D12_RESOURCE_STATES state,
     bool lock) {
+    resource->Resident(residentPages);
     bool isWrite = detail::IsWriteState(state);
     auto ite = stateMap.try_emplace(
         resource,
@@ -143,9 +144,11 @@ void ResourceStateTracker::RestoreStateMap() {
     }
     stateMap.clear();
 }
-
-void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
-    ExecuteStateMap();
+void ResourceStateTracker::Dispatch(CommandBufferBuilder const &cmdBuffer) {
+    if (!residentPages.empty()) {
+        device->MakeResident(residentPages.size(), residentPages.data());
+        residentPages.clear();
+    }
     if (!states.empty()) {
         cmdBuffer.GetCB()->CmdList()->ResourceBarrier(
             states.size(),
@@ -153,19 +156,19 @@ void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
         states.clear();
     }
 }
+void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
+    ExecuteStateMap();
+    Dispatch(cmdBuffer);
+}
 void ResourceStateTracker::RestoreState(CommandBufferBuilder const &cmdBuffer) {
     RestoreStateMap();
-    if (!states.empty()) {
-        cmdBuffer.GetCB()->CmdList()->ResourceBarrier(
-            states.size(),
-            states.data());
-        states.clear();
-    }
+    Dispatch(cmdBuffer);
     writeStateMap.clear();
     fenceCount = 1;
 }
 
 void ResourceStateTracker::MarkWritable(Resource const *res, bool writable) {
+    res->Resident(residentPages);
     if (writable) {
         writeStateMap.emplace(res);
     } else {
@@ -219,4 +222,3 @@ D3D12_RESOURCE_STATES ResourceStateTracker::ReadState(ResourceReadUsage usage, R
     LUISA_ERROR_WITH_LOCATION("Unreachable.");
 }
 }// namespace lc::dx
-

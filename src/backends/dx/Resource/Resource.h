@@ -44,6 +44,8 @@ public:
         : device(device) {}
     Resource(Resource &&) = default;
     Resource(Resource const &) = delete;
+    virtual void Evict() const {}
+    virtual void Resident(vstd::vector<ID3D12Pageable *> &vec) const {}
     virtual Tag GetTag() const = 0;
     virtual ~Resource() = default;
     virtual ID3D12Resource *GetResource() const { return nullptr; }

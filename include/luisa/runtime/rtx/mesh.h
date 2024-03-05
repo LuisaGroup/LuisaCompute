@@ -86,6 +86,12 @@ public:
         _check_is_valid();
         return _triangle_count;
     }
+    void evict() const noexcept {
+        device()->evict_mesh(handle());
+    }
+    void resident() const noexcept {
+        device()->resident_mesh(handle());
+    }
 };
 
 template<typename VBuffer, typename TBuffer>

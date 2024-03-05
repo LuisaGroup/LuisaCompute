@@ -22,4 +22,16 @@ SparseBufferHeap Device::allocate_sparse_buffer_heap(size_t byte_size) noexcept 
 SparseTextureHeap Device::allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept {
     return SparseTextureHeap{_impl.get(), byte_size, is_compressed_type};
 }
+void SparseBufferHeap::evict() const noexcept {
+    device()->evict_sparse_buffer_heap(handle());
+}
+void SparseBufferHeap::resident() const noexcept {
+    device()->resident_sparse_buffer_heap(handle());
+}
+void SparseTextureHeap::evict() const noexcept {
+    device()->evict_sparse_texture_heap(handle());
+}
+void SparseTextureHeap::resident() const noexcept {
+    device()->resident_sparse_texture_heap(handle());
+}
 }// namespace luisa::compute

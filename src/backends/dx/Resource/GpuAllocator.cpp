@@ -25,6 +25,11 @@ GpuAllocator::~GpuAllocator() {
     if (allocator)
         allocator->Release();
 }
+ID3D12Heap *GpuAllocator::GetHeap(uint64 allocateHandle) {
+    using namespace D3D12MA;
+    return reinterpret_cast<Allocation *>(allocateHandle)->GetHeap();
+}
+
 uint64 GpuAllocator::AllocateTextureHeap(
     Device *device,
     vstd::string_view name,

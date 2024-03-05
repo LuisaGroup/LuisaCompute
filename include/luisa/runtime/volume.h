@@ -124,6 +124,12 @@ public:
         _check_is_valid();
         return reinterpret_cast<const detail::VolumeExprProxy<Volume<T>> *>(this);
     }
+    void evict() const noexcept {
+        device()->evict_texture(handle());
+    }
+    void resident() const noexcept {
+        device()->resident_texture(handle());
+    }
 };
 
 // A VolumeView is a reference to a Volume without ownership

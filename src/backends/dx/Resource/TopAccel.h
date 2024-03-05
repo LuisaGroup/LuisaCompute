@@ -4,6 +4,7 @@
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/device.h>
 #include <Resource/Resource.h>
+#include <Resource/DefaultBuffer.h>
 using namespace luisa::compute;
 namespace lc::dx {
 class DefaultBuffer;
@@ -73,5 +74,18 @@ public:
     bool CheckAccel(
         CommandBufferBuilder &builder);
     ~TopAccel();
+    void Evict() const override {
+        if (accelBuffer)
+            accelBuffer->Evict();
+        if (instBuffer)
+            instBuffer->Evict();
+
+    }
+    void Resident(vstd::vector<ID3D12Pageable *> &vec) const override {
+        if (accelBuffer)
+            accelBuffer->Resident(vec);
+        if (instBuffer)
+            instBuffer->Resident(vec);
+    }
 };
 }// namespace lc::dx

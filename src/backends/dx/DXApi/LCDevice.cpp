@@ -175,6 +175,20 @@ BufferCreationInfo LCDevice::create_buffer(const Type *element,
     info.native_handle = res->GetResource();
     return info;
 }
+struct ResidentPages {
+    vstd::vector<ID3D12Pageable *> vec;
+};
+thread_local ResidentPages residentPages;
+void LCDevice::resident_buffer(uint64_t handle) noexcept {
+    reinterpret_cast<Buffer *>(handle)->Resident(residentPages.vec);
+    if (!residentPages.vec.empty()) {
+        nativeDevice.device->MakeResident(residentPages.vec.size(), residentPages.vec.data());
+        residentPages.vec.clear();
+    }
+}
+void LCDevice::evict_buffer(uint64 handle) noexcept {
+    reinterpret_cast<Buffer *>(handle)->Evict();
+}
 void LCDevice::destroy_buffer(uint64 handle) noexcept {
     delete reinterpret_cast<Buffer *>(handle);
 }
@@ -206,6 +220,16 @@ ResourceCreationInfo LCDevice::create_texture(
 //string LCDevice::cache_name(string_view file_name) const noexcept {
 //    return Shader::PSOName(&nativeDevice, file_name);
 //}
+void LCDevice::resident_texture(uint64_t handle) noexcept {
+    reinterpret_cast<TextureBase *>(handle)->Resident(residentPages.vec);
+    if (!residentPages.vec.empty()) {
+        nativeDevice.device->MakeResident(residentPages.vec.size(), residentPages.vec.data());
+        residentPages.vec.clear();
+    }
+}
+void LCDevice::evict_texture(uint64 handle) noexcept {
+    reinterpret_cast<TextureBase *>(handle)->Evict();
+}
 void LCDevice::destroy_texture(uint64 handle) noexcept {
     delete reinterpret_cast<TextureBase *>(handle);
 }
@@ -424,6 +448,22 @@ void LCDevice::synchronize_event(uint64 handle, uint64_t fence) noexcept {
 ResourceCreationInfo LCDevice::create_procedural_primitive(const AccelOption &option) noexcept {
     return create_mesh(option);
 }
+void LCDevice::resident_mesh(uint64_t handle) noexcept {
+    reinterpret_cast<BottomAccel *>(handle)->Resident(residentPages.vec);
+    if (!residentPages.vec.empty()) {
+        nativeDevice.device->MakeResident(residentPages.vec.size(), residentPages.vec.data());
+        residentPages.vec.clear();
+    }
+}
+void LCDevice::evict_mesh(uint64 handle) noexcept {
+    reinterpret_cast<BottomAccel *>(handle)->Evict();
+}
+void LCDevice::resident_procedural_primitive(uint64_t handle) noexcept {
+    resident_mesh(handle);
+}
+void LCDevice::evict_procedural_primitive(uint64 handle) noexcept {
+    evict_mesh(handle);
+}
 void LCDevice::destroy_procedural_primitive(uint64 handle) noexcept {
     destroy_mesh(handle);
 }
@@ -447,6 +487,17 @@ ResourceCreationInfo LCDevice::create_accel(const AccelOption &option) noexcept 
     info.native_handle = nullptr;
     return info;
 }
+void LCDevice::resident_accel(uint64_t handle) noexcept {
+    reinterpret_cast<TopAccel *>(handle)->Resident(residentPages.vec);
+    if (!residentPages.vec.empty()) {
+        nativeDevice.device->MakeResident(residentPages.vec.size(), residentPages.vec.data());
+        residentPages.vec.clear();
+    }
+}
+void LCDevice::evict_accel(uint64 handle) noexcept {
+    reinterpret_cast<TopAccel *>(handle)->Evict();
+}
+
 void LCDevice::destroy_accel(uint64 handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
 }
@@ -794,6 +845,19 @@ ResourceCreationInfo LCDevice::allocate_sparse_buffer_heap(size_t byte_size) noe
     r.native_handle = heap->heap;
     return r;
 }
+void LCDevice::resident_sparse_buffer_heap(uint64_t handle) noexcept {
+    auto heap = reinterpret_cast<SparseHeap *>(handle);
+    ID3D12Pageable *page = heap->heap;
+    nativeDevice.device->MakeResident(1, &page);
+}
+void LCDevice::evict_sparse_buffer_heap(uint64_t handle) noexcept {
+    auto heap = reinterpret_cast<SparseHeap *>(handle);
+    ID3D12Pageable *page = heap->heap;
+    nativeDevice.device->Evict(1, &page);
+}
+void LCDevice::resident_sparse_texture_heap(uint64_t handle) noexcept { resident_sparse_buffer_heap(handle); }
+void LCDevice::evict_sparse_texture_heap(uint64_t handle) noexcept { evict_sparse_buffer_heap(handle); }
+
 void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(handle);
     nativeDevice.defaultAllocator->Release(heap->allocation);
@@ -810,9 +874,7 @@ ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size, bo
 }
 
 void LCDevice::deallocate_sparse_texture_heap(uint64_t handle) noexcept {
-    auto heap = reinterpret_cast<SparseHeap *>(handle);
-    nativeDevice.defaultAllocator->Release(heap->allocation);
-    vengine_free(heap);
+    deallocate_sparse_buffer_heap(handle);
 }
 uint LCDevice::compute_warp_size() const noexcept {
     return nativeDevice.waveSize();

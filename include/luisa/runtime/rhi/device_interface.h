@@ -119,6 +119,8 @@ public:
     [[nodiscard]] virtual BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element,
                                                            size_t elem_count,
                                                            void *external_memory /* nullptr if now imported from external memory */) noexcept = 0;
+    virtual void resident_buffer(uint64_t handle) noexcept {}
+    virtual void evict_buffer(uint64_t handle) noexcept {}
     virtual void destroy_buffer(uint64_t handle) noexcept = 0;
 
     // texture
@@ -126,6 +128,8 @@ public:
         PixelFormat format, uint dimension,
         uint width, uint height, uint depth,
         uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept = 0;
+    virtual void resident_texture(uint64_t handle) noexcept {}
+    virtual void evict_texture(uint64_t handle) noexcept {}
     virtual void destroy_texture(uint64_t handle) noexcept = 0;
 
     // bindless array
@@ -172,15 +176,23 @@ public:
 
     // accel
     [[nodiscard]] virtual ResourceCreationInfo create_mesh(const AccelOption &option) noexcept = 0;
+    virtual void resident_mesh(uint64_t handle) noexcept {}
+    virtual void evict_mesh(uint64_t handle) noexcept {}
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
     [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept = 0;
+    virtual void resident_procedural_primitive(uint64_t handle) noexcept {}
+    virtual void evict_procedural_primitive(uint64_t handle) noexcept {}
     virtual void destroy_procedural_primitive(uint64_t handle) noexcept = 0;
 
     [[nodiscard]] virtual ResourceCreationInfo create_curve(const AccelOption &option) noexcept;
+    virtual void resident_curve(uint64_t handle) noexcept {}
+    virtual void evict_curve(uint64_t handle) noexcept {}
     virtual void destroy_curve(uint64_t handle) noexcept;
 
     [[nodiscard]] virtual ResourceCreationInfo create_accel(const AccelOption &option) noexcept = 0;
+    virtual void resident_accel(uint64_t handle) noexcept {}
+    virtual void evict_accel(uint64_t handle) noexcept {}
     virtual void destroy_accel(uint64_t handle) noexcept = 0;
 
     // query
@@ -193,6 +205,8 @@ public:
         return SparseBufferCreationInfo::make_invalid();
     }
     [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_buffer_heap(size_t byte_size) noexcept { return ResourceCreationInfo::make_invalid(); }
+    virtual void resident_sparse_buffer_heap(uint64_t handle) noexcept {}
+    virtual void evict_sparse_buffer_heap(uint64_t handle) noexcept {}
     virtual void deallocate_sparse_buffer_heap(uint64_t handle) noexcept {}
     virtual void update_sparse_resources(
         uint64_t stream_handle,
@@ -201,6 +215,8 @@ public:
 
     // sparse texture
     [[nodiscard]] virtual ResourceCreationInfo allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept { return ResourceCreationInfo::make_invalid(); }
+    virtual void resident_sparse_texture_heap(uint64_t handle) noexcept {}
+    virtual void evict_sparse_texture_heap(uint64_t handle) noexcept {}
     virtual void deallocate_sparse_texture_heap(uint64_t handle) noexcept {}
     [[nodiscard]] virtual SparseTextureCreationInfo create_sparse_texture(
         PixelFormat format, uint dimension,
