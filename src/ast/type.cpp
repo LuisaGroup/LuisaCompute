@@ -320,8 +320,9 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         match(',');
         info->dimension = read_number();
         match('>');
-        if (info->members.back()->is_buffer() ||
-            info->members.back()->is_texture()) [[unlikely]] {
+        auto m = info->members.back();
+        if (m->is_buffer() ||
+            m->is_texture()) [[unlikely]] {
             LUISA_ERROR_WITH_LOCATION(
                 "Arrays are not allowed to "
                 "hold buffers or images.");
@@ -376,10 +377,15 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         match('<');
         auto m = info->members.emplace_back(_decode(split()));
         match('>');
-        if (m && (m->is_buffer() || m->is_texture())) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION(
-                "Buffers are not allowed to "
-                "hold buffers or images.");
+        if (m) {
+            if (m->is_buffer() || m->is_texture()) [[unlikely]]
+                LUISA_ERROR_WITH_LOCATION(
+                    "Buffers are not allowed to "
+                    "hold buffers or images.");
+            if (m->is_structure() && !m->member_attributes().empty())
+                LUISA_ERROR_WITH_LOCATION(
+                    "Buffers are not allowed to "
+                    "hold structure with attributes.");
         }
         info->alignment = 8u;
         info->size = 8u;
@@ -582,6 +588,7 @@ const Type *Type::matrix(size_t n) noexcept {
 
 const Type *Type::buffer(const Type *elem) noexcept {
     LUISA_ASSERT(!elem->is_buffer() && !elem->is_texture(), "Buffer cannot hold buffers or images.");
+    LUISA_ASSERT(!elem->is_structure() || elem->member_attributes().empty(), "Buffer cannot hold structure with custom attributes.");
     return from(luisa::format("buffer<{}>", elem->description()));
 }
 
