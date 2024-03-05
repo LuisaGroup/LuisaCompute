@@ -286,9 +286,6 @@ const LiteralExpr *FunctionBuilder::literal(const Type *type, LiteralExpr::Value
 }
 
 const RefExpr *FunctionBuilder::local(const Type *type) noexcept {
-    if (type->is_structure() && !type->member_attributes().empty()) [[unlikely]] {
-        LUISA_ERROR("Local variable can not be structure type with custom attributes");
-    }
     Variable v{type, Variable::Tag::LOCAL, _next_variable_uid()};
     _local_variables.emplace_back(v);
     return _ref(v);
