@@ -39,4 +39,29 @@ cudaError_t DeviceSelect::Unique(void* d_temp_storage, size_t& temp_storage_byte
 {
     return ::cub::DeviceSelect::Unique(d_temp_storage, temp_storage_bytes, d_in, d_out, d_num_selected_out, num_items, stream);
 }
+
+cudaError_t DeviceSelect::Unique(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_in, uint32_t*  d_out, uint32_t*  d_num_selected_out, int  num_items, cudaStream_t stream)
+{
+    return ::cub::DeviceSelect::Unique(d_temp_storage, temp_storage_bytes, d_in, d_out, d_num_selected_out, num_items, stream);
+}
+
+cudaError_t DeviceSelect::Unique(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_in, int64_t*  d_out, int64_t*  d_num_selected_out, int  num_items, cudaStream_t stream)
+{
+    return ::cub::DeviceSelect::Unique(d_temp_storage, temp_storage_bytes, d_in, d_out, d_num_selected_out, num_items, stream);
+}
+
+cudaError_t DeviceSelect::Unique(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_in, uint64_t*  d_out, uint64_t*  d_num_selected_out, int  num_items, cudaStream_t stream)
+{
+    return ::cub::DeviceSelect::Unique(d_temp_storage, temp_storage_bytes, d_in, d_out, d_num_selected_out, num_items, stream);
+}
+
+cudaError_t DeviceSelect::Unique(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_in, float*  d_out, float*  d_num_selected_out, int  num_items, cudaStream_t stream)
+{
+    return ::cub::DeviceSelect::Unique(d_temp_storage, temp_storage_bytes, d_in, d_out, d_num_selected_out, num_items, stream);
+}
+
+cudaError_t DeviceSelect::Unique(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_in, double*  d_out, double*  d_num_selected_out, int  num_items, cudaStream_t stream)
+{
+    return ::cub::DeviceSelect::Unique(d_temp_storage, temp_storage_bytes, d_in, d_out, d_num_selected_out, num_items, stream);
+}
 }

@@ -41,7 +41,7 @@ Unique = Func("Unique", Ret(),
                     Arg("int", "num_items")
                 ])
 Unique.set_template(dcub)
-DeviceSelect.add_funcs([ Unique.instantiate([("$I$", id_type)])])
+DeviceSelect.add_funcs([ Unique.instantiate([("$I$", v)]) for v in value_types ])
 
 DeviceSelect.write(src_ext=".cu", folder="../private/dcub/")
 
@@ -85,6 +85,6 @@ Unique = Func("Unique", Ret(),
                     ar.clone("int", "num_items")
                 ])
 Unique.set_template(lcub)
-DeviceSelect.add_funcs([ Unique.instantiate([("$I$", id_type)])])
+DeviceSelect.add_funcs([ Unique.instantiate([("$I$", v)]) for v in value_types ])
 
 DeviceSelect.write(folder="../")
