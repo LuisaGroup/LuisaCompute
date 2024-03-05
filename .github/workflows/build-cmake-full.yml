@@ -119,8 +119,6 @@ jobs:
         config: [ Release, Debug ]
         compiler: [ cl, clang, clang-cl ]
     name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
-    if:
-      github.ref == 'refs/heads/stable' || matrix.os == '2022'
     runs-on: windows-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
