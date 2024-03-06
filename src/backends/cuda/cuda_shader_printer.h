@@ -2,6 +2,7 @@
 
 #include <cuda.h>
 #include <luisa/ast/type.h>
+#include <luisa/runtime/rhi/device_interface.h>
 
 namespace luisa::compute {
 class ShaderPrintFormatter;

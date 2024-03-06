@@ -37,7 +37,7 @@ luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) const 
         .mv_size = key.size_bytes(),
         .mv_data = const_cast<std::byte *>(key.data())};
     MDB_val value_v;
-    uint r = mdb_get(txn, *_dbi, &key_v, &value_v);
+    uint32_t r = mdb_get(txn, *_dbi, &key_v, &value_v);
     mdb_txn_abort(txn);
     if (r == MDB_NOTFOUND) {
         return {};

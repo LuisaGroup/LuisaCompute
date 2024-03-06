@@ -8,6 +8,7 @@
 
 #include <luisa/core/stl.h>
 #include <luisa/core/spin_mutex.h>
+#include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/command_list.h>
 #include "cuda_callback_context.h"
 #include "cuda_host_buffer_pool.h"
