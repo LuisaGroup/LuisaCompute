@@ -9,21 +9,12 @@ set_showmenu(false)
 set_default(false)
 option_end()
 
-option("_lc_config_public")
-set_default(false)
-set_showmenu(false)
-before_check(function(option)
-    option:set_value(path.absolute(path.join(os.projectdir(), "scripts")) ~= path.absolute(os.scriptdir()))
-end)
-option_end()
-
 option("_lc_bin_dir")
 set_default(false)
 set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
     "metal_backend", "cpu_backend", "enable_tests", "enable_custom_malloc", "enable_clangcxx", "py_include", "py_linkdir", "py_libs",
-    "enable_ir", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_enable_rust",
-    "_lc_config_public")
+    "enable_ir", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_enable_rust")
 before_check(function(option)
     local v = import("options", {
         try = true,
@@ -177,9 +168,10 @@ on_load(function(target)
         end
         return v
     end
-    local config_is_public = get_config("_lc_config_public") or false
-    local project_kind = _get_or("project_kind", "phony")
-    target:set("kind", project_kind)
+    local project_kind = _get_or("project_kind", nil)
+    if project_kind then
+        target:set("kind", project_kind)        
+    end
     if not is_plat("windows") then
         if project_kind == "static" then
             target:add("cxflags", "-fPIC", {
@@ -196,13 +188,9 @@ on_load(function(target)
     local c_standard = target:values("c_standard")
     local cxx_standard = target:values("cxx_standard")
     if type(c_standard) == "string" and type(cxx_standard) == "string" then
-        target:set("languages", c_standard, cxx_standard, {
-            public = config_is_public
-        })
+        target:set("languages", c_standard, cxx_standard)
     else
-        target:set("languages", "clatest", "cxx20", {
-            public = config_is_public
-        })
+        target:set("languages", "clatest", "cxx20")
     end
 
     local enable_exception = _get_or("enable_exception", nil)
@@ -213,75 +201,46 @@ on_load(function(target)
     end
 
     if is_mode("debug") then
-        target:set("runtimes", "MDd", {
-            public = config_is_public
-        })
-        target:set("optimize", "none", {
-            public = config_is_public
-        })
-        target:set("warnings", "none", {
-            public = config_is_public
-        })
+        target:set("runtimes", "MDd")
+        target:set("optimize", "none")
+        target:set("warnings", "none")
         target:add("cxflags", "/GS", "/Gd", {
-            tools = {"clang_cl", "cl"},
-            public = config_is_public
+            tools = {"clang_cl", "cl"}
         })
     elseif is_mode("releasedbg") then
-        target:set("runtimes", "MD", {
-            public = config_is_public
-        })
-        target:set("optimize", "none", {
-            public = config_is_public
-        })
-        target:set("warnings", "none", {
-            public = config_is_public
-        })
+        target:set("runtimes", "MD")
+        target:set("optimize", "none")
+        target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
-            tools = {"clang_cl", "cl"},
-            public = config_is_public
+            tools = {"clang_cl", "cl"}
         })
     else
-        target:set("runtimes", "MD", {
-            public = config_is_public
-        })
-        target:set("optimize", "aggressive", {
-            public = config_is_public
-        })
-        target:set("warnings", "none", {
-            public = config_is_public
-        })
+        target:set("runtimes", "MD")
+        target:set("optimize", "aggressive")
+        target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
-            tools = {"clang_cl", "cl"},
-            public = config_is_public
+            tools = {"clang_cl", "cl"}
         })
     end
     target:add("cxflags", "/Zc:preprocessor", {
-        tools = "cl",
-        public = config_is_public
+        tools = "cl"
     });
     if _get_or("use_simd", false) then
         if is_arch("arm64") then
-            target:add("vectorexts", "neon", {
-                public = config_is_public
-            })
+            target:add("vectorexts", "neon")
         else
-            target:add("vectorexts", "avx", "avx2", {
-                public = config_is_public
-            })
+            target:add("vectorexts", "avx", "avx2")
         end
     end
     if _get_or("no_rtti", false) then
         target:add("cxflags", "/GR-", {
-            tools = {"clang_cl", "cl"},
-            public = config_is_public
+            tools = {"clang_cl", "cl"}
         })
         target:add("cxflags", "-fno-rtti", "-fno-rtti-data", {
-            tools = {"clang"},
-            public = config_is_public
+            tools = {"clang"}
         })
         target:add("cxflags", "-fno-rtti", {
-            tools = {"gcc"},
-            public = config_is_public
+            tools = {"gcc"}
         })
     end
 end)

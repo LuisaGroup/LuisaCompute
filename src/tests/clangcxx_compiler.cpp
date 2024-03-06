@@ -11,6 +11,7 @@
 #include <luisa/runtime/context.h>
 #include <luisa/core/binary_file_stream.h>
 #include <luisa/vstl/v_guid.h>
+#include <luisa/vstl/spin_mutex.h>
 using namespace luisa;
 using namespace luisa::compute;
 
