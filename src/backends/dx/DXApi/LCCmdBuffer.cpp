@@ -935,7 +935,6 @@ LCCmdBuffer::LCCmdBuffer(
     GpuAllocator *resourceAllocator,
     D3D12_COMMAND_LIST_TYPE type)
     : CmdQueueBase{device, CmdQueueTag::MainCmd},
-      tracker(device->device.Get()),
       reorder({}),
       queue(
           device,

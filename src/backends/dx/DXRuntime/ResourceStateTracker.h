@@ -15,7 +15,6 @@ enum class ResourceReadUsage : uint16_t {
 };
 class ResourceStateTracker : public vstd::IOperatorNewBase {
 private:
-    ID3D12Device *device;
     struct State {
         uint64 fence;
         D3D12_RESOURCE_STATES lastState;
@@ -26,7 +25,6 @@ private:
     vstd::unordered_map<Resource const *, State> stateMap;
     vstd::unordered_set<Resource const *> writeStateMap;
     vstd::vector<D3D12_RESOURCE_BARRIER> states;
-    vstd::vector<ID3D12Pageable *> residentPages;
     void ExecuteStateMap();
     void RestoreStateMap();
     void Dispatch(CommandBufferBuilder const &builder);
@@ -39,7 +37,7 @@ public:
     D3D12_RESOURCE_STATES ReadState(ResourceReadUsage usage, Resource const *res = nullptr) const;
     void ClearFence() { fenceCount++; }
     vstd::unordered_set<Resource const *> const &WriteStateMap() const { return writeStateMap; }
-    ResourceStateTracker(ID3D12Device *device);
+    ResourceStateTracker() = default;
     ~ResourceStateTracker();
     void RecordState(
         Resource const *resource,
