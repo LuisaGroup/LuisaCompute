@@ -2,6 +2,7 @@
 
 #include <luisa/ast/ast2json.h>
 #include <luisa/ast/atomic_ref_node.h>
+#include <luisa/ast/attribute.h>
 #include <luisa/ast/callable_library.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/expression.h>
@@ -175,6 +176,7 @@
 #include <luisa/vstl/functional.h>
 #include <luisa/vstl/hash.h>
 #include <luisa/vstl/hash_map.h>
+#include <luisa/vstl/lmdb.hpp>
 #include <luisa/vstl/lockfree_array_queue.h>
 #include <luisa/vstl/log.h>
 #include <luisa/vstl/md5.h>
