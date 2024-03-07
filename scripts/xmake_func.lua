@@ -13,76 +13,86 @@ option("_lc_bin_dir")
 set_default(false)
 set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
-    "metal_backend", "cpu_backend", "enable_tests", "enable_custom_malloc", "enable_clangcxx", "py_include", "py_linkdir", "py_libs",
-    "enable_ir", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py", "_lc_enable_rust")
+    "metal_backend", "cpu_backend", "enable_tests", "enable_custom_malloc", "enable_clangcxx", "py_include",
+    "py_linkdir", "py_libs", "cuda_ext_lcub", "enable_ir", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py",
+    "_lc_enable_rust")
 before_check(function(option)
-    local v = import("options", {
-        try = true,
-        anonymous = true
-    })
-    if v then
-        local opt = v.get_options
-        if type(opt) == "function" then
-            local map = opt()
-            for k, v in pairs(map) do
-                if v ~= nil then
-                    option:dep(k):enable(v)
+    if path.absolute(path.join(os.projectdir(), "scripts")) == path.absolute(os.scriptdir()) then
+        local v = import("options", {
+            try = true,
+            anonymous = true
+        })
+        if v then
+            local opt = v.get_options
+            if type(opt) == "function" then
+                local map = opt()
+                for k, v in pairs(map) do
+                    if v ~= nil then
+                        option:dep(k):enable(v)
+                    end
                 end
             end
         end
-    end
 
-    local enable_tests = option:dep("enable_tests")
-    if enable_tests:enabled() then
-        option:dep("enable_dsl"):enable(true, {
-            force = true
-        })
-    end
-    -- checking python
-    local enable_py = option:dep("_lc_enable_py")
-    local function non_empty_str(s)
-        return type(s) == "string" and s:len() > 0
-    end
-    if non_empty_str(option:dep("py_include"):enabled()) then
-        enable_py:enable(true)
-    end
-    local is_win = is_plat("windows")
-    -- checking dx
-    local dx_backend = option:dep("dx_backend")
-    if dx_backend:enabled() and not is_win then
-        dx_backend:enable(false, {
-            force = true
-        })
-        if dx_backend:enabled() then
-            utils.error("DX backend not supported in this platform, force disabled.")
+        local enable_tests = option:dep("enable_tests")
+        if enable_tests:enabled() then
+            option:dep("enable_dsl"):enable(true, {
+                force = true
+            })
         end
-    end
-    -- checking metal
-    local metal_backend = option:dep("metal_backend")
-    if metal_backend:enabled() and not is_plat("macosx") then
-        metal_backend:enable(false, {
-            force = true
-        })
-        if metal_backend:enabled() then
-            utils.error("Metal backend not supported in this platform, force disabled.")
+        -- checking python
+        local enable_py = option:dep("_lc_enable_py")
+        local function non_empty_str(s)
+            return type(s) == "string" and s:len() > 0
         end
-    end
-    -- checking cuda
-    local cuda_backend = option:dep("cuda_backend")
-    if cuda_backend:enabled() and not (is_win or is_plat("linux")) then
-        cuda_backend:enable(false, {
-            force = true
-        })
-        if cuda_backend:enabled() then
-            utils.error("CUDA backend not supported in this platform, force disabled.")
+        if non_empty_str(option:dep("py_include"):enabled()) then
+            enable_py:enable(true)
         end
-    end
-    if enable_py:enabled() then
-        option:dep("enable_gui"):enable(true, {
-            force = true
-        })
-    end
-    if path.absolute(path.join(os.projectdir(), "scripts")) == path.absolute(os.scriptdir()) then
+        local is_win = is_plat("windows")
+        -- checking dx
+        local dx_backend = option:dep("dx_backend")
+        if dx_backend:enabled() and not is_win then
+            dx_backend:enable(false, {
+                force = true
+            })
+            if dx_backend:enabled() then
+                utils.error("DX backend not supported in this platform, force disabled.")
+            end
+        end
+        -- checking metal
+        local metal_backend = option:dep("metal_backend")
+        if metal_backend:enabled() and not is_plat("macosx") then
+            metal_backend:enable(false, {
+                force = true
+            })
+            if metal_backend:enabled() then
+                utils.error("Metal backend not supported in this platform, force disabled.")
+            end
+        end
+        -- checking cuda
+        local cuda_ext_lcub = option:dep("cuda_ext_lcub")
+        local cuda_backend = option:dep("cuda_backend")
+        if cuda_backend:enabled() and not (is_win or is_plat("linux")) then
+            cuda_backend:enable(false, {
+                force = true
+            })
+            if cuda_backend:enabled() then
+                utils.error("CUDA backend not supported in this platform, force disabled.")
+            end
+        end
+        if cuda_ext_lcub:enabled() and not cuda_backend:enabled() then
+            cuda_ext_lcub:enable(false, {
+                force = true
+            })
+            if cuda_ext_lcub:enabled() then
+                utils.error("CUDA lcub extension not supported when cuda is disabled")
+            end
+        end
+        if enable_py:enabled() then
+            option:dep("enable_gui"):enable(true, {
+                force = true
+            })
+        end
         local bin_dir = option:dep("bin_dir"):enabled()
         if is_mode("debug") then
             bin_dir = path.join(bin_dir, "debug")
@@ -96,8 +106,6 @@ before_check(function(option)
         option:set_value(false)
     end
     -- checking rust
-    import("lib.detect.find_tool")
-    local rust_cargo = find_tool("cargo") ~= nil
     local enable_ir = option:dep("enable_ir")
     local cpu_backend = option:dep("cpu_backend")
     if not enable_ir:enabled() then
@@ -106,6 +114,8 @@ before_check(function(option)
             force = true
         })
     else
+        import("lib.detect.find_tool")
+        local rust_cargo = find_tool("cargo") ~= nil
         option:dep("_lc_enable_rust"):set_value(rust_cargo)
         if not rust_cargo then
             enable_ir:enable(false)
@@ -126,7 +136,9 @@ before_check(function(option)
     end
 end)
 option_end()
-add_requires("vulkansdk", {system = true})
+add_requires("vulkansdk", {
+    system = true
+})
 rule("lc_basic_settings")
 on_config(function(target)
     local _, cc = target:tool("cxx")
@@ -170,7 +182,7 @@ on_load(function(target)
     end
     local project_kind = _get_or("project_kind", nil)
     if project_kind then
-        target:set("kind", project_kind)        
+        target:set("kind", project_kind)
     end
     if not is_plat("windows") then
         if project_kind == "static" then

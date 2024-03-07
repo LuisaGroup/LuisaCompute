@@ -120,8 +120,8 @@ option_end()
 -- pre-defined options end
 
 -- try options.lua
-if os.exists("scripts/options.lua") then
-	includes("scripts/options.lua")	
+if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) and os.exists("scripts/options.lua") then
+	includes("scripts/options.lua")
 end
 if lc_toolchain then
 	for k, v in pairs(lc_toolchain) do
