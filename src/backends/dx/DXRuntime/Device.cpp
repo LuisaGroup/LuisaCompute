@@ -196,7 +196,8 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
             fileIo->write_shader_cache("dx_adapterid", {reinterpret_cast<std::byte const *>(&adapterID), sizeof(vstd::MD5)});
         }
-        defaultAllocator = vstd::make_unique<GpuAllocator>(this, profiler);
+        // Disable allocator 
+        // defaultAllocator = vstd::make_unique<GpuAllocator>(this, profiler);
         globalHeap = vstd::create_unique(
             new DescriptorHeap(
                 this,

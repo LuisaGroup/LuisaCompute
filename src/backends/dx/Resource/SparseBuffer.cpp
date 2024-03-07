@@ -62,12 +62,12 @@ void SparseBuffer::AllocateTile(ID3D12CommandQueue *queue, uint coord, uint size
     }
     D3D12_TILE_REGION_SIZE tileSize{
         .NumTiles = size};
-    uint tileOffset = heap->offset / D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    uint tileOffset = 0;
     queue->UpdateTileMappings(
         resource.Get(), 1,
         &tileCoord,
         &tileSize,
-        heap->heap,
+        heap->heap.Get(),
         1,
         vstd::get_rval_ptr(D3D12_TILE_RANGE_FLAG_NONE),
         &tileOffset,

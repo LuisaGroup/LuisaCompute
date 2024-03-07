@@ -28,11 +28,9 @@ class LC_RUNTIME_API SparseTextureHeap : public Resource {
 
 private:
     friend class Device;
-    bool _is_compressed_type{};
-    explicit SparseTextureHeap(DeviceInterface *device, size_t byte_size, bool is_compressed_type) noexcept;
+    explicit SparseTextureHeap(DeviceInterface *device, size_t byte_size) noexcept;
 
 public:
-    [[nodiscard]] auto is_compressed_type() const noexcept { return _is_compressed_type; }
     SparseTextureHeap() noexcept = default;
     ~SparseTextureHeap() noexcept override;
     using Resource::operator bool;

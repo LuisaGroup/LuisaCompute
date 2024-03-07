@@ -82,12 +82,12 @@ void SparseTexture::AllocateTile(ID3D12CommandQueue *queue, uint3 coord, uint3 s
         .Height = static_cast<uint16_t>(size.y),
         .Depth = static_cast<uint16_t>(size.z)};
     uint rangeTileCount = tileSize.NumTiles;
-    uint offsetTile = heap->offset / D3D12_TILED_RESOURCE_TILE_SIZE_IN_BYTES;
+    uint offsetTile = 0;
     queue->UpdateTileMappings(
         resource.Get(), 1,
         &tileCoord,
         &tileSize,
-        heap->heap, 1,
+        heap->heap.Get(), 1,
         vstd::get_rval_ptr(D3D12_TILE_RANGE_FLAG_NONE),
         &offsetTile,
         &rangeTileCount,
