@@ -714,7 +714,6 @@ public:
         }
     }
     void operator()(half v) const noexcept {
-        LUISA_NOT_IMPLEMENTED();
         if (luisa::isnan(v)) [[unlikely]] { LUISA_ERROR_WITH_LOCATION("Encountered with NaN."); }
         _s << luisa::format("lc_half({})", static_cast<float>(v));
     }
