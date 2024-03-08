@@ -30,7 +30,7 @@ RenderTexture::RenderTexture(
     } else {
         ID3D12Heap *heap;
         uint64 offset;
-        if (device->gpuType == Device::GpuType::NVIDIA && allowUav) {
+        if(device->gpuType == Device::GpuType::NVIDIA && allowUav){
             texDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         }
         auto allocateInfo = device->device->GetResourceAllocationInfo(
@@ -78,26 +78,6 @@ RenderTexture::~RenderTexture() {
     }
     for (auto &&i : srvIdcs) {
         globalHeap.ReturnIndex(i.second);
-    }
-}
-void RenderTexture::Evict() const {
-    if (!_evict.exchange(true)) {
-        ID3D12Pageable *ptr;
-        if (allocHandle.allocator) {
-            ptr = allocHandle.allocator->GetHeap(allocHandle.allocateHandle);
-        } else {
-            ptr = allocHandle.resource.Get();
-        }
-        device->device->Evict(1, &ptr);
-    }
-}
-void RenderTexture::Resident(vstd::vector<ID3D12Pageable *> &vec) const {
-    if (_evict.exchange(false)) {
-        if (allocHandle.allocator) {
-            vec.emplace_back(allocHandle.allocator->GetHeap(allocHandle.allocateHandle));
-        } else {
-            vec.emplace_back(allocHandle.resource.Get());
-        }
     }
 }
 }// namespace lc::dx

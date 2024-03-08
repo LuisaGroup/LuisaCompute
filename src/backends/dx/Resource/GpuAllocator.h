@@ -12,7 +12,6 @@ public:
         None,
         GpuAllocator
     };
-    ID3D12Heap* GetHeap(uint64 allocateHandle);
     uint64 AllocateBufferHeap(
         Device *device,
         vstd::string_view name,

@@ -43,22 +43,7 @@ public:
     BufferCreationInfo create_buffer(const Type *element, size_t elem_count, void *external_memory) noexcept override;
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
-    void resident_buffer(uint64_t handle) noexcept override { _native->resident_buffer(handle); }
-    void evict_buffer(uint64_t handle) noexcept override { _native->evict_buffer(handle); }
-    void resident_texture(uint64_t handle) noexcept override { _native->resident_texture(handle); }
-    void evict_texture(uint64_t handle) noexcept override { _native->evict_texture(handle); }
-    void resident_accel(uint64_t handle) noexcept override { _native->resident_accel(handle); }
-    void evict_accel(uint64_t handle) noexcept override { _native->evict_accel(handle); }
-    void resident_mesh(uint64_t handle) noexcept override { _native->resident_mesh(handle); }
-    void evict_mesh(uint64_t handle) noexcept override { _native->evict_mesh(handle); }
-    void resident_procedural_primitive(uint64_t handle) noexcept override { _native->resident_procedural_primitive(handle); }
-    void evict_procedural_primitive(uint64_t handle) noexcept override { _native->evict_procedural_primitive(handle); }
-    void resident_curve(uint64_t handle) noexcept override { _native->resident_curve(handle); }
-    void evict_curve(uint64_t handle) noexcept override { _native->evict_curve(handle); }
-    void resident_sparse_texture_heap(uint64_t handle) noexcept override { _native->resident_sparse_texture_heap(handle); }
-    void evict_sparse_texture_heap(uint64_t handle) noexcept override { _native->evict_sparse_texture_heap(handle); }
-    void resident_sparse_buffer_heap(uint64_t handle) noexcept override { _native->resident_sparse_buffer_heap(handle); }
-    void evict_sparse_buffer_heap(uint64_t handle) noexcept override { _native->evict_sparse_buffer_heap(handle); }
+
     // texture
     ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,

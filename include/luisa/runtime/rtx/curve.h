@@ -77,12 +77,6 @@ public:
 
 public:
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
-    void evict() const noexcept {
-        device()->evict_curve(handle());
-    }
-    void resident() const noexcept {
-        device()->resident_curve(handle());
-    }
 };
 
 template<typename CPBuffer, typename SegmentBuffer>

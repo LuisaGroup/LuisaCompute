@@ -131,12 +131,6 @@ public:
         _check_is_valid();
         return reinterpret_cast<const detail::ImageExprProxy<Image<T>> *>(this);
     }
-    void evict() const noexcept {
-        device()->evict_texture(handle());
-    }
-    void resident() const noexcept {
-        device()->resident_texture(handle());
-    }
 };
 
 // An ImageView is a reference to an Image without ownership

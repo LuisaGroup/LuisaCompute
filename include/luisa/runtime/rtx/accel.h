@@ -146,12 +146,6 @@ public:
         _check_is_valid();
         return reinterpret_cast<const detail::AccelExprProxy *>(this);
     }
-    void evict() const noexcept {
-        device()->evict_accel(handle());
-    }
-    void resident() const noexcept {
-        device()->resident_accel(handle());
-    }
 };
 
 }// namespace luisa::compute

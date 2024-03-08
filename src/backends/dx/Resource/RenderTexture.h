@@ -8,7 +8,6 @@ private:
     mutable vstd::unordered_map<uint, uint> uavIdcs;
     mutable vstd::unordered_map<uint, uint> srvIdcs;
     mutable std::mutex allocMtx;
-    mutable std::atomic_bool _evict = false;
 
 public:
     RenderTexture(
@@ -37,7 +36,5 @@ public:
     Tag GetTag() const override { return Tag::RenderTexture; }
     uint GetGlobalSRVIndex(uint mipOffset = 0) const override;
     uint GetGlobalUAVIndex(uint mipLevel) const override;
-    void Evict() const override;
-    void Resident(vstd::vector<ID3D12Pageable *> &vec) const override;
 };
 }// namespace lc::dx
