@@ -22,7 +22,7 @@ RenderTexture::RenderTexture(
         D3D12_HEAP_PROPERTIES const *propPtr = &prop;
         ThrowIfFailed(device->device->CreateCommittedResource(
             propPtr,
-            (shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE) | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+            shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE,
             &texDesc,
             GetInitState(),
             nullptr,

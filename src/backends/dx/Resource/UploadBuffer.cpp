@@ -24,7 +24,7 @@ UploadBuffer::UploadBuffer(
         auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize);
         ThrowIfFailed(device->device->CreateCommittedResource(
             &prop,
-            D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+            D3D12_HEAP_FLAG_NONE,
             &buffer,
             D3D12_RESOURCE_STATE_GENERIC_READ,
             nullptr,

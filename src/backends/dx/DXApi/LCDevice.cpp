@@ -838,30 +838,21 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, const ir:
 }
 ResourceCreationInfo LCDevice::allocate_sparse_buffer_heap(size_t byte_size) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
-    D3D12_HEAP_DESC desc{
-        .SizeInBytes = byte_size,
-        .Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
-        .Properties = D3D12_HEAP_PROPERTIES{
-            .Type = D3D12_HEAP_TYPE_DEFAULT},
-        .Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED};
-    ThrowIfFailed(nativeDevice.device->CreateHeap(
-        &desc,
-        IID_PPV_ARGS(&heap->heap)));
-
+    heap->allocation = nativeDevice.defaultAllocator->AllocateBufferHeap(&nativeDevice, "sparse buffer heap", byte_size, D3D12_HEAP_TYPE_DEFAULT, &heap->heap, &heap->offset);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);
-    r.native_handle = heap->heap.Get();
+    r.native_handle = heap->heap;
     return r;
 }
 void LCDevice::resident_sparse_buffer_heap(uint64_t handle) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(handle);
-    ID3D12Pageable *page = heap->heap.Get();
+    ID3D12Pageable *page = heap->heap;
     nativeDevice.device->MakeResident(1, &page);
 }
 void LCDevice::evict_sparse_buffer_heap(uint64_t handle) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(handle);
-    ID3D12Pageable *page = heap->heap.Get();
+    ID3D12Pageable *page = heap->heap;
     nativeDevice.device->Evict(1, &page);
 }
 void LCDevice::resident_sparse_texture_heap(uint64_t handle) noexcept { resident_sparse_buffer_heap(handle); }
@@ -869,23 +860,16 @@ void LCDevice::evict_sparse_texture_heap(uint64_t handle) noexcept { evict_spars
 
 void LCDevice::deallocate_sparse_buffer_heap(uint64_t handle) noexcept {
     auto heap = reinterpret_cast<SparseHeap *>(handle);
-    vengine_delete(heap);
+    nativeDevice.defaultAllocator->Release(heap->allocation);
+    vengine_free(heap);
 }
-ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size) noexcept {
-    auto heap = vengine_new<SparseHeap>();
-    D3D12_HEAP_DESC desc{
-        .SizeInBytes = byte_size,
-        .Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT,
-        .Properties = D3D12_HEAP_PROPERTIES{
-            .Type = D3D12_HEAP_TYPE_DEFAULT},
-        .Flags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES | D3D12_HEAP_FLAG_CREATE_NOT_ZEROED};
-    ThrowIfFailed(nativeDevice.device->CreateHeap(
-        &desc,
-        IID_PPV_ARGS(&heap->heap)));
+ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size, bool is_compressed_type) noexcept {
+    auto heap = reinterpret_cast<SparseHeap *>(vengine_malloc(sizeof(SparseHeap)));
+    heap->allocation = nativeDevice.defaultAllocator->AllocateTextureHeap(&nativeDevice, "sparse texture heap", byte_size, &heap->heap, &heap->offset, !is_compressed_type);
     heap->size_bytes = byte_size;
     ResourceCreationInfo r;
     r.handle = reinterpret_cast<uint64>(heap);
-    r.native_handle = heap->heap.Get();
+    r.native_handle = heap->heap;
     return r;
 }
 

@@ -37,6 +37,9 @@ LC_RUNTIME_API void check_sparse_tex3d_unmap(uint3 size, uint3 tile_size, uint3 
     auto total_tile = size / tile_size;
     LUISA_ASSERT(!any(start_tile >= total_tile), "Map Tile ({}, {}, {}) out of tile range({}, {}, {})", start_tile.x, start_tile.y, start_tile.z, total_tile.x, total_tile.y, total_tile.z);
 }
+LC_RUNTIME_API void check_tex_heap_match(PixelStorage storage, SparseTextureHeap const &heap) {
+    LUISA_ASSERT(is_block_compressed(storage) == heap.is_compressed_type(), "Pixel type and texture-heap type not match.");
+}
 
 }// namespace detail
 

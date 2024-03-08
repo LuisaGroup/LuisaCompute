@@ -60,7 +60,7 @@ DepthBuffer::DepthBuffer(
         D3D12_HEAP_PROPERTIES const *propPtr = &prop;
         ThrowIfFailed(device->device->CreateCommittedResource(
             propPtr,
-            D3D12_HEAP_FLAG_CREATE_NOT_ZEROED,
+            D3D12_HEAP_FLAG_NONE,
             &texDesc,
             GetInitState(),
             nullptr,
