@@ -5,10 +5,10 @@
 namespace luisa::compute {
 
 struct Viewport {
-    float2 start;
-    float2 size;
-    Viewport(float2 start, float2 size) : start(start), size(size) {}
-    Viewport(float start_x, float start_y, float size_x, float size_y) : start(float2(start_x, start_y)), size(float2(size_x, size_y)) {}
+    uint2 start;
+    uint2 size;
+    Viewport(uint2 start, uint2 size) : start(start), size(size) {}
+    Viewport(uint start_x, uint start_y, uint size_x, uint size_y) : start(uint2(start_x, start_y)), size(uint2(size_x, size_y)) {}
 };
 
 }// namespace luisa::compute

@@ -686,16 +686,14 @@ public:
 class CustomDispatchCommand : public CustomCommand {
 
 public:
-    using ResourceHandle = luisa::variant<
-        Argument::Buffer,
-        Argument::Texture,
-        Argument::BindlessArray,
-        Argument::Accel>;
 
     class ArgumentVisitor {
     public:
         ~ArgumentVisitor() noexcept = default;
-        virtual void visit(const ResourceHandle &resource, Usage usage) noexcept = 0;
+        virtual void visit(const Argument::Buffer &, Usage usage) noexcept = 0;
+        virtual void visit(const Argument::Texture &, Usage usage) noexcept = 0;
+        virtual void visit(const Argument::BindlessArray &, Usage usage) noexcept = 0;
+        virtual void visit(const Argument::Accel &, Usage usage) noexcept = 0;
     };
 
 public:
@@ -713,7 +711,16 @@ public:
 
         public:
             explicit Adapter(F &f) noexcept : _f{f} {}
-            void visit(const CustomDispatchCommand::ResourceHandle &resource, Usage usage) noexcept override {
+            void visit(const Argument::Buffer &resource, Usage usage) noexcept override {
+                _f(resource, usage);
+            }
+            void visit(const Argument::Texture &resource, Usage usage) noexcept override {
+                _f(resource, usage);
+            }
+            void visit(const Argument::BindlessArray &resource, Usage usage) noexcept override {
+                _f(resource, usage);
+            }
+            void visit(const Argument::Accel &resource, Usage usage) noexcept override {
                 _f(resource, usage);
             }
         };

@@ -2119,7 +2119,7 @@ CodegenResult CodegenUtility::RasterCodegen(
             if (v2pType->is_vector() && v2pType->dimension() == 3) [[unlikely]] {
                 LUISA_ERROR("Vector3 in vertex-to-pixel struct is not allowed.");
             }
-            GetTypeName(*i, codegenData, Usage::READ, false);
+            GetTypeName(*i, codegenData, Usage::READ);
             codegenData << " v"sv << vstd::to_string(memberIdx);
             if (memberIdx == 0) {
                 codegenData << ":SV_POSITION;\n"sv;

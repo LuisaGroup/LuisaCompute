@@ -3,11 +3,10 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/runtime/raster/depth_buffer.h>
-#include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/backends/ext/raster_ext_interface.h>
 
 namespace luisa::compute {
 
-class RasterMesh;
 class Accel;
 class BindlessArray;
 
@@ -43,110 +42,88 @@ static constexpr bool LegalDst() noexcept {
 }
 
 }// namespace detail
-
-class LC_RUNTIME_API RasterShaderInvoke {
-
-private:
-    RasterDispatchCmdEncoder _command;
-    luisa::span<const Function::Binding> _bindings;
-
+namespace detail {
+LC_RUNTIME_API void rastershader_check_vertex_func(Function func) noexcept;
+LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
+class RasterInvokeBase {
 public:
-    explicit RasterShaderInvoke(
-        size_t arg_size,
-        size_t uniform_size,
-        uint64_t handle,
-        luisa::span<const Function::Binding> bindings) noexcept
-        : _command{handle, arg_size, uniform_size, bindings} {
-    }
-    RasterShaderInvoke(RasterShaderInvoke &&) noexcept = default;
-    RasterShaderInvoke(const RasterShaderInvoke &) noexcept = delete;
-    RasterShaderInvoke &operator=(RasterShaderInvoke &&) noexcept = default;
-    RasterShaderInvoke &operator=(const RasterShaderInvoke &) noexcept = delete;
+    ShaderDispatchCmdEncoder encoder;
+    RasterInvokeBase() noexcept = default;
+    explicit RasterInvokeBase(uint64_t handle, size_t arg_count, size_t uniform_size) noexcept
+        : encoder{handle, arg_count, uniform_size} {}
+
+    RasterInvokeBase(RasterInvokeBase &&) noexcept = default;
+    RasterInvokeBase(const RasterInvokeBase &) noexcept = delete;
+    RasterInvokeBase &operator=(RasterInvokeBase &&) noexcept = default;
+    RasterInvokeBase &operator=(const RasterInvokeBase &) noexcept = delete;
 
     template<typename T>
-    RasterShaderInvoke &operator<<(BufferView<T> buffer) noexcept {
-        _command.encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
+    RasterInvokeBase &operator<<(BufferView<T> buffer) noexcept {
+        encoder.encode_buffer(buffer.handle(), buffer.offset_bytes(), buffer.size_bytes());
         return *this;
     }
 
     template<typename T>
-    RasterShaderInvoke &operator<<(ImageView<T> image) noexcept {
-        _command.encode_texture(image.handle(), image.level());
+    RasterInvokeBase &operator<<(ImageView<T> image) noexcept {
+        encoder.encode_texture(image.handle(), image.level());
         return *this;
     }
 
     template<typename T>
-    RasterShaderInvoke &operator<<(VolumeView<T> volume) noexcept {
-        _command.encode_texture(volume.handle(), volume.level());
+    RasterInvokeBase &operator<<(VolumeView<T> volume) noexcept {
+        encoder.encode_texture(volume.handle(), volume.level());
         return *this;
     }
 
     template<typename T>
-    RasterShaderInvoke &operator<<(const Buffer<T> &buffer) noexcept {
+    RasterInvokeBase &operator<<(const Buffer<T> &buffer) noexcept {
+        buffer._check_is_valid();
         return *this << buffer.view();
     }
 
+    RasterInvokeBase &operator<<(const ByteBuffer &buffer) noexcept;
+
     template<typename T>
-    RasterShaderInvoke &operator<<(const Image<T> &image) noexcept {
+    RasterInvokeBase &operator<<(const Image<T> &image) noexcept {
+        image._check_is_valid();
         return *this << image.view();
     }
 
     template<typename T>
-    RasterShaderInvoke &operator<<(const Volume<T> &volume) noexcept {
+    RasterInvokeBase &operator<<(const Volume<T> &volume) noexcept {
+        volume._check_is_valid();
         return *this << volume.view();
     }
 
     template<typename T>
-    RasterShaderInvoke &operator<<(T data) noexcept {
-        _command.encode_uniform(&data, sizeof(T));
+    RasterInvokeBase &operator<<(T data) noexcept {
+        encoder.encode_uniform(&data, sizeof(T));
         return *this;
     }
 
-    // see definition in rtx/accel.cpp
-    RasterShaderInvoke &operator<<(const Accel &accel) noexcept;
-    // see definition in runtime/bindless_array.cpp
-    RasterShaderInvoke &operator<<(const BindlessArray &array) noexcept;
-#ifndef NDEBUG
-    MeshFormat const *_mesh_format;
-    void check_scene(luisa::vector<RasterMesh> const &scene) noexcept;
-#endif
-    template<typename... Rtv>
-        requires(sizeof...(Rtv) == 0 || detail::LegalDst<Rtv...>())
-    [[nodiscard]] auto draw(luisa::vector<RasterMesh> &&scene, Viewport viewport, const RasterState &raster_state, DepthBuffer const *dsv, Rtv const &...rtv) && noexcept {
-        if (dsv) {
-            _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{dsv->handle(), 0});
-        } else {
-            _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{invalid_resource_handle, 0});
-        }
-        if constexpr (sizeof...(Rtv) > 0) {
-            auto tex_args = {detail::PixelDst<std::remove_cvref_t<Rtv>>::get(rtv)...};
-            _command.set_rtv_texs(tex_args);
-        }
-#ifndef NDEBUG
-        check_scene(scene);
-#endif
-        _command.set_scene(std::move(scene));
-        _command.set_viewport(viewport);
-        _command.set_raster_state(raster_state);
-        return std::move(_command).build();
+    RasterInvokeBase &operator<<(const Accel &accel) noexcept {
+        ShaderInvokeBase::encode(encoder, accel);
+        return *this;
+    }
+
+    RasterInvokeBase &operator<<(const BindlessArray &array) noexcept {
+        ShaderInvokeBase::encode(encoder, array);
+        return *this;
+    }
+
+    RasterInvokeBase &operator<<(const IndirectDispatchBuffer &dispatch_buffer) noexcept {
+        ShaderInvokeBase::encode(encoder, dispatch_buffer);
+        return *this;
     }
 };
-
-namespace detail {
-LC_RUNTIME_API void rastershader_check_rtv_format(luisa::span<const PixelFormat> rtv_format) noexcept;
-LC_RUNTIME_API void rastershader_check_vertex_func(Function func) noexcept;
-LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
 }// namespace detail
 
-// TODO: @Maxwell fix this please
 template<typename... Args>
 class RasterShader : public Resource {
-
+    friend class RasterExt;
 private:
     friend class Device;
     RasterExt *_raster_ext{};
-    luisa::vector<Function::Binding> _bindings;
-    size_t _uniform_size{};
 #ifndef NDEBUG
     MeshFormat _mesh_format;
 #endif
@@ -170,9 +147,7 @@ private:
                   vert,
                   pixel,
                   option)),
-                  _raster_ext{raster_ext},
-         _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
-                detail::shader_argument_types<Args...>())}
+                  _raster_ext{raster_ext}
 #ifndef NDEBUG
         ,_mesh_format(mesh_format)
 #endif
@@ -181,22 +156,13 @@ private:
             detail::rastershader_check_vertex_func(vert);
             detail::rastershader_check_pixel_func(pixel);
 #endif
-            auto vert_bindings = vert.bound_arguments().subspan(1);
-            auto pixel_bindings = pixel.bound_arguments().subspan(1);
-            _bindings.reserve(vert_bindings.size() + pixel_bindings.size());
-            for(auto&& i : vert_bindings){
-                _bindings.emplace_back(i);
-            }
-            for(auto&& i : pixel_bindings){
-                _bindings.emplace_back(i);
-            }
         }
     // AOT Shader
     RasterShader(
         DeviceInterface *device,
         RasterExt* raster_ext,
         const MeshFormat &mesh_format,
-        string_view file_path)noexcept
+        luisa::string_view file_path)noexcept
         : Resource(
               device,
               Tag::RASTER_SHADER,
@@ -205,9 +171,7 @@ private:
                 mesh_format,
                 detail::shader_argument_types<Args...>(),
                 file_path)),
-            _raster_ext{raster_ext},
-            _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
-                detail::shader_argument_types<Args...>())}
+            _raster_ext{raster_ext}
 #ifndef NDEBUG
         ,_mesh_format(mesh_format)
 #endif
@@ -228,28 +192,8 @@ public:
         if (*this) { _raster_ext->destroy_raster_shader(handle()); }
     }
     using Resource::operator bool;
-    [[nodiscard]] auto operator()(detail::prototype_to_shader_invocation_t<Args>... args) const noexcept {
-        size_t arg_size;
-        if (_bindings.empty()) {
-            arg_size = (0u + ... + detail::shader_argument_encode_count<Args>::value);
-        } else {
-            arg_size = _bindings.size();
-        }
-        RasterShaderInvoke invoke(
-            arg_size,
-            _uniform_size,
-            handle(),
-            _bindings);
-#ifndef NDEBUG
-        invoke._mesh_format = &_mesh_format;
-#endif
-        return std::move((invoke << ... << args));
-    }
-    void warm_up(luisa::span<PixelFormat const> render_target_formats, DepthFormat depth_format, const RasterState &state) const noexcept {
-#ifndef NDEBUG
-        detail::rastershader_check_rtv_format(render_target_formats);
-#endif
-        _raster_ext->warm_up_pipeline_cache(handle(), render_target_formats, depth_format, state);
+    static size_t uniform_size() noexcept {
+        return ShaderDispatchCmdEncoder::compute_uniform_size(detail::shader_argument_types<Args...>());
     }
 };
 

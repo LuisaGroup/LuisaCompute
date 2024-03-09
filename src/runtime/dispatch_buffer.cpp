@@ -13,14 +13,11 @@ IndirectDispatchBuffer::~IndirectDispatchBuffer() noexcept {
 }
 
 namespace detail {
-
-ShaderInvokeBase &ShaderInvokeBase::operator<<(const IndirectDispatchBuffer &buffer) noexcept {
+void ShaderInvokeBase::encode(ShaderDispatchCmdEncoder &encoder, const IndirectDispatchBuffer &buffer) noexcept {
     buffer._check_is_valid();
-    _encoder.encode_buffer(buffer.handle(), 0u, buffer.capacity());
-    return *this;
+    encoder.encode_buffer(buffer.handle(), 0u, buffer.capacity());
 }
 
 }// namespace detail
 
 }// namespace luisa::compute
-

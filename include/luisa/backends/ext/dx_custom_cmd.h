@@ -15,7 +15,11 @@ class LCCmdVisitor;
 namespace luisa::compute {
 
 class DXCustomCmd : public CustomDispatchCommand {
-
+    using ResourceHandle = luisa::variant<
+        Argument::Buffer,
+        Argument::Texture,
+        Argument::BindlessArray,
+        Argument::Accel>;
 public:
     struct ResourceUsage {
         ResourceHandle resource;
@@ -69,7 +73,10 @@ public:
     void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
         auto usages = get_resource_usages();
         for (auto &&[handle, state] : usages) {
-            visitor.visit(handle, resource_state_to_usage(state));
+            luisa::visit([&](auto &&v) {
+                visitor.visit(v, resource_state_to_usage(state));
+            },
+                         handle);
         }
     }
     DXCustomCmd() noexcept = default;

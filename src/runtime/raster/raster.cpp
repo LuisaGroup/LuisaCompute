@@ -5,20 +5,9 @@
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/core/logging.h>
+#include <luisa/backends/ext/raster_cmd.h>
 
 namespace luisa::compute {
-
-// see definition in rtx/accel.cpp
-RasterShaderInvoke &RasterShaderInvoke::operator<<(const Accel &accel) noexcept {
-    _command.encode_accel(accel.handle());
-    return *this;
-}
-
-// see definition in runtime/bindless_array.cpp
-RasterShaderInvoke &RasterShaderInvoke::operator<<(const BindlessArray &array) noexcept {
-    _command.encode_bindless_array(array.handle());
-    return *this;
-}
 
 #ifndef NDEBUG
 void RasterShaderInvoke::check_scene(luisa::vector<RasterMesh> const &scene) noexcept {
@@ -91,5 +80,19 @@ void rastershader_check_rtv_format(luisa::span<const PixelFormat> rtv_format) no
 }
 }// namespace detail
 #endif
+RasterScene::~RasterScene() noexcept {
+    if (!_modifications.empty()) [[unlikely]] {
+        LUISA_WARNING_WITH_LOCATION(
+            "Raster-Scene #{} destroyed with {} uncommitted modifications. "
+            "Did you forget to call build()?",
+            this->handle(), _modifications.size());
+    }
+}
 
+RasterScene::RasterScene(RasterScene &&rhs) noexcept
+    : _render_formats{std::move(rhs._render_formats)},
+      _depth_format{rhs._depth_format},
+      _modifications{std::move(rhs._modifications)},
+      _instance_count{rhs._instance_count} {
+}
 }// namespace luisa::compute
