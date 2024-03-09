@@ -57,10 +57,10 @@ void RasterShader::GetMeshFormatState(
         "NORMAL",
         "TANGENT",
         "COLOR",
-        "UV",
-        "UV",
-        "UV",
-        "UV"};
+        "TEXCOORD",
+        "TEXCOORD",
+        "TEXCOORD",
+        "TEXCOORD"};
     static auto SemanticIndex = {0u, 0u, 0u, 0u, 0u, 1u, 2u, 3u};
     vstd::fixed_vector<uint, 4> offsets(meshFormat.vertex_stream_count());
     memset(offsets.data(), 0, offsets.size_bytes());

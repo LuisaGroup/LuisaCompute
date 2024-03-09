@@ -37,6 +37,8 @@ struct TypeDatabase {
 
     // luisa::unordered_map<luisa::string, const luisa::compute::RefExpr *> globals;
     luisa::shared_ptr<compute::detail::FunctionBuilder> kernel_builder;
+    luisa::shared_ptr<compute::detail::FunctionBuilder> vertex_builder;
+    luisa::shared_ptr<compute::detail::FunctionBuilder> pixel_builder;
     luisa::unordered_map<const clang::Decl *, luisa::shared_ptr<compute::detail::FunctionBuilder>> func_builders;
     luisa::unordered_map<const clang::Decl *, luisa::shared_ptr<compute::detail::FunctionBuilder>> lambda_builders;
 

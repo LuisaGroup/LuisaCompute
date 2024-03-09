@@ -16,6 +16,7 @@
 #include <luisa/ast/op.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/syntax.h>
+#include <luisa/backends/ext/raster_ext.hpp>
 namespace luisa::clangcxx {
 using namespace clang;
 using namespace clang::ast_matchers;
@@ -1068,6 +1069,8 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
         .dimension = 0};
     bool is_ignore = false;
     bool is_kernel = false;
+    bool is_vertex = false;
+    bool is_pixel = false;
     uint3 kernelSize;
     bool is_template = S->isTemplateDecl() && !S->isTemplateInstantiation();
     bool is_scope = false;
@@ -1090,6 +1093,10 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
                 result.dimension = 3;
             }
             getKernelSize(Anno, kernelSize.x, kernelSize.y, kernelSize.z);
+        } else if (isVertex(Anno)) {
+            is_vertex = true;
+        } else if (isPixel(Anno)) {
+            is_pixel = true;
         }
         if (isDump(Anno))
             db->DumpWithLocation(S);
@@ -1110,7 +1117,7 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
             is_template |= (thisType->getTypeForDecl()->getTypeClass() == clang::Type::InjectedClassName);
         } else {
             clangcxx_log_error("unfound this type [{}] in method [{}]",
-                             Method->getParent()->getNameAsString(), S->getNameAsString());
+                               Method->getParent()->getNameAsString(), S->getNameAsString());
         }
         is_method = !is_lambda;
         methodThisType = Method->getParent()->getTypeForDecl()->getCanonicalTypeUnqualified();
@@ -1176,6 +1183,24 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
                 }
                 db->kernel_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::KERNEL);
                 builder_sharedptr = db->kernel_builder;
+            } else if (is_vertex) {
+                if (!allowKernel) [[unlikely]] {
+                    clangcxx_log_error("Vertex definition not allowed in callable export.");
+                }
+                if (db->vertex_builder) [[unlikely]] {
+                    clangcxx_log_error("Kernel can not be redefined.");
+                }
+                db->vertex_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::RASTER_STAGE);
+                builder_sharedptr = db->vertex_builder;
+            } else if (is_pixel) {
+                if (!allowKernel) [[unlikely]] {
+                    clangcxx_log_error("Pixel definition not allowed in callable export.");
+                }
+                if (db->pixel_builder) [[unlikely]] {
+                    clangcxx_log_error("Kernel can not be redefined.");
+                }
+                db->pixel_builder = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::RASTER_STAGE);
+                builder_sharedptr = db->pixel_builder;
             } else
                 builder_sharedptr = luisa::make_shared<luisa::compute::detail::FunctionBuilder>(luisa::compute::Function::Tag::CALLABLE);
             auto builder = builder_sharedptr.get();
@@ -1300,7 +1325,6 @@ bool FunctionBuilderBuilder::recursiveVisit(clang::Stmt *currStmt, compute::deta
 }
 
 void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
-    auto &kernel_builder = db->kernel_builder;
     if (const auto *S = Result.Nodes.getNodeAs<clang::RecordDecl>("RecordDecl")) {
         QualType Ty = S->getTypeForDecl()->getCanonicalTypeInternal();
         bool ignore = S->isUnion();
@@ -1316,7 +1340,6 @@ void RecordDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
 }
 
 void GlobalVarHandler::run(const MatchFinder::MatchResult &Result) {
-    auto &kernel_builder = db->kernel_builder;
     if (const auto *S = Result.Nodes.getNodeAs<clang::VarDecl>("VarDecl")) {
         bool ignore = false;
         for (auto Anno : S->specific_attrs<clang::AnnotateAttr>())
@@ -1399,9 +1422,14 @@ ASTConsumerBase::~ASTConsumerBase() {
 }
 ASTConsumer::~ASTConsumer() {
     if (db.kernel_builder == nullptr) [[unlikely]] {
-        clangcxx_log_error("Kernel not defined.");
+        if (db.vertex_builder && db.pixel_builder) {
+
+        } else {
+            clangcxx_log_error("Kernel not defined.");
+        }
+    } else {
+        device->impl()->create_shader(option, luisa::compute::Function{db.kernel_builder.get()});
     }
-    device->impl()->create_shader(option, luisa::compute::Function{db.kernel_builder.get()});
 }
 
 void ASTConsumerBase::HandleTranslationUnit(clang::ASTContext &Context) {
