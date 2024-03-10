@@ -945,6 +945,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->dispatch_size();
                         else if (exprName == "kernel_id")
                             current = fb->kernel_id();
+                        else if (exprName == "object_id")
+                            current = fb->object_id();
                         else if (exprName == "warp_lane_count")
                             current = fb->warp_lane_count();
                         else if (exprName == "warp_lane_id")

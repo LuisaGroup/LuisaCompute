@@ -217,7 +217,7 @@ int main(int argc, char *argv[]) {
                 Type::of<float4x4>(),
                 Type::of<float3>()
             };
-            auto shader = device.load_raster_shader<float4x4, float3>("test.bin");
+            auto shader = device.load_raster_shader<float, float>("test.bin");
         }
     }
     return 0;

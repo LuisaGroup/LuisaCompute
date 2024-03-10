@@ -357,9 +357,6 @@ public:
             case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE):
                 visit(static_cast<DrawRasterSceneCommand const *>(cmd));
                 break;
-            case to_underlying(CustomCommandUUID::RASTER_BUILD_SCENE):
-                visit(static_cast<BuildRasterSceneCommand const *>(cmd));
-                break;
             case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<DXCustomCmd const *>(cmd));
                 break;
@@ -367,41 +364,40 @@ public:
                 LUISA_ERROR("Custom command not supported by this queue.");
         }
     }
-    void visit(const BuildRasterSceneCommand *cmd) noexcept {
-    }
+    
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
-    //     auto cs = reinterpret_cast<RasterShader *>(cmd->handle());
-    //     size_t beforeSize = argBuffer->size();
-    //     auto rtvs = cmd->rtv_texs();
-    //     auto dsv = cmd->dsv_tex();
-    //     DecodeCmd(cmd->arguments(), Visitor{this, cs->Args().data(), *cmd});
-    //     UniformAlign(16);
-    //     size_t afterSize = argBuffer->size();
-    //     argVecs->emplace_back(beforeSize, afterSize - beforeSize);
+        auto cs = reinterpret_cast<RasterShader *>(cmd->handle());
+        size_t beforeSize = argBuffer->size();
+        auto rtvs = cmd->rtv_texs();
+        auto dsv = cmd->dsv_tex();
+        DecodeCmd(cmd->arguments(), Visitor{this, cs->Args().data(), *cmd});
+        UniformAlign(16);
+        size_t afterSize = argBuffer->size();
+        argVecs->emplace_back(beforeSize, afterSize - beforeSize);
 
-    //     for (auto &&mesh : cmd->scene()) {
-    //         for (auto &&v : mesh.vertex_buffers()) {
-    //             stateTracker->RecordState(
-    //                 reinterpret_cast<Buffer *>(v.handle()),
-    //                 stateTracker->ReadState(ResourceReadUsage::VertexBufferForGraphics));
-    //         }
-    //         auto &&i = mesh.index();
-    //         if (i.index() == 0) {
-    //             stateTracker->RecordState(
-    //                 reinterpret_cast<Buffer *>(luisa::get<0>(i).handle()),
-    //                 stateTracker->ReadState(ResourceReadUsage::IndexBufferForGraphics));
-    //         }
-    //     }
-    //     for (auto &&i : rtvs) {
-    //         stateTracker->RecordState(
-    //             reinterpret_cast<TextureBase *>(i.handle),
-    //             D3D12_RESOURCE_STATE_RENDER_TARGET);
-    //     }
-    //     if (dsv.handle != ~0ull) {
-    //         stateTracker->RecordState(
-    //             reinterpret_cast<TextureBase *>(dsv.handle),
-    //             D3D12_RESOURCE_STATE_DEPTH_WRITE);
-    //     }
+        for (auto &&mesh : cmd->scene()) {
+            for (auto &&v : mesh.vertex_buffers()) {
+                stateTracker->RecordState(
+                    reinterpret_cast<Buffer *>(v.handle()),
+                    stateTracker->ReadState(ResourceReadUsage::VertexBufferForGraphics));
+            }
+            auto &&i = mesh.index();
+            if (i.index() == 0) {
+                stateTracker->RecordState(
+                    reinterpret_cast<Buffer *>(luisa::get<0>(i).handle()),
+                    stateTracker->ReadState(ResourceReadUsage::IndexBufferForGraphics));
+            }
+        }
+        for (auto &&i : rtvs) {
+            stateTracker->RecordState(
+                reinterpret_cast<TextureBase *>(i.handle),
+                D3D12_RESOURCE_STATE_RENDER_TARGET);
+        }
+        if (dsv.handle != ~0ull) {
+            stateTracker->RecordState(
+                reinterpret_cast<TextureBase *>(dsv.handle),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        }
     }
 };
 class LCCmdVisitor : public CommandVisitor {
@@ -807,132 +803,130 @@ public:
                 LUISA_ERROR("Custom command not supported by this queue.");
         }
     }
-    void visit(const BuildRasterSceneCommand *cmd) noexcept {
-    }
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
-        // bindProps->clear();
-        // auto cmdList = bd->GetCB()->CmdList();
-        // auto rtvs = cmd->rtv_texs();
-        // auto dsv = cmd->dsv_tex();
-        // DepthFormat dsvFormat{DepthFormat::None};
-        // // TODO:Set render target
-        // // Set viewport
-        // auto alloc = bd->GetCB()->GetAlloc();
-        // {
-        //     D3D12_VIEWPORT view;
-        //     auto &&viewport = cmd->viewport();
-        //     view.MinDepth = 0;
-        //     view.MaxDepth = 1;
-        //     view.TopLeftX = viewport.start.x;
-        //     view.TopLeftY = viewport.start.y;
-        //     view.Width = viewport.size.x;
-        //     view.Height = viewport.size.y;
-        //     cmdList->RSSetViewports(1, &view);
-        //     RECT rect{
-        //         .left = static_cast<int>(view.TopLeftX + 0.4999f),
-        //         .top = static_cast<int>(view.TopLeftY + 0.4999f),
-        //         .right = static_cast<int>(view.TopLeftX + view.Width + 0.4999f),
-        //         .bottom = static_cast<int>(view.TopLeftY + view.Height + 0.4999f)};
-        //     cmdList->RSSetScissorRects(1, &rect);
-        // }
-        // GFXFormat rtvFormats[8];
-        // {
+        bindProps->clear();
+        auto cmdList = bd->GetCB()->CmdList();
+        auto rtvs = cmd->rtv_texs();
+        auto dsv = cmd->dsv_tex();
+        DepthFormat dsvFormat{DepthFormat::None};
+        // TODO:Set render target
+        // Set viewport
+        auto alloc = bd->GetCB()->GetAlloc();
+        {
+            D3D12_VIEWPORT view;
+            auto &&viewport = cmd->viewport();
+            view.MinDepth = 0;
+            view.MaxDepth = 1;
+            view.TopLeftX = viewport.start.x;
+            view.TopLeftY = viewport.start.y;
+            view.Width = viewport.size.x;
+            view.Height = viewport.size.y;
+            cmdList->RSSetViewports(1, &view);
+            RECT rect{
+                .left = static_cast<int>(view.TopLeftX + 0.4999f),
+                .top = static_cast<int>(view.TopLeftY + 0.4999f),
+                .right = static_cast<int>(view.TopLeftX + view.Width + 0.4999f),
+                .bottom = static_cast<int>(view.TopLeftY + view.Height + 0.4999f)};
+            cmdList->RSSetScissorRects(1, &rect);
+        }
+        GFXFormat rtvFormats[8];
+        {
 
-        //     D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle;
-        //     D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle;
-        //     D3D12_CPU_DESCRIPTOR_HANDLE *dsvHandlePtr = nullptr;
-        //     if (!rtvs.empty()) {
-        //         auto chunk = alloc->rtvAllocator.allocate(rtvs.size());
-        //         auto descHeap = reinterpret_cast<DescriptorHeap *>(chunk.handle);
-        //         rtvHandle = descHeap->hCPU(chunk.offset);
-        //         for (auto i : vstd::range(rtvs.size())) {
-        //             auto &&rtv = rtvs[i];
-        //             auto tex = reinterpret_cast<TextureBase *>(rtv.handle);
-        //             rtvFormats[i] = tex->Format();
-        //             D3D12_RENDER_TARGET_VIEW_DESC viewDesc{
-        //                 .Format = static_cast<DXGI_FORMAT>(rtvFormats[i]),
-        //                 .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D};
-        //             viewDesc.Texture2D = {
-        //                 .MipSlice = rtv.level,
-        //                 .PlaneSlice = 0};
-        //             descHeap->CreateRTV(tex->GetResource(), viewDesc, chunk.offset + i);
-        //         }
-        //     }
-        //     if (dsv.handle != ~0ull) {
-        //         dsvHandlePtr = &dsvHandle;
-        //         auto chunk = alloc->dsvAllocator.allocate(1);
-        //         auto descHeap = reinterpret_cast<DescriptorHeap *>(chunk.handle);
-        //         dsvHandle = descHeap->hCPU(chunk.offset);
-        //         auto tex = reinterpret_cast<TextureBase *>(dsv.handle);
-        //         D3D12_DEPTH_STENCIL_VIEW_DESC viewDesc{
-        //             .Format = static_cast<DXGI_FORMAT>(tex->Format()),
-        //             .ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D,
-        //             .Flags = D3D12_DSV_FLAG_NONE};
-        //         viewDesc.Texture2D.MipSlice = 0;
-        //         device->device->CreateDepthStencilView(tex->GetResource(), &viewDesc, dsvHandle);
-        //     }
-        //     cmdList->OMSetRenderTargets(rtvs.size(), &rtvHandle, true, dsvHandlePtr);
-        // }
-        // auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
-        // auto rasterState = cmd->raster_state();
-        // auto pso = shader->GetPSO({rtvFormats, rtvs.size()}, dsvFormat, rasterState);
-        // auto &&tempBuffer = *bufferVec;
-        // bufferVec++;
-        // bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
-        // if (tempBuffer.second > 0) {
-        //     bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
-        // }
-        // DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
-        // vstd::push_back_func(*bindProps, shader->BindlessCount(), [&] { return globalHeapView; });
-        // DecodeCmd(cmd->arguments(), Visitor{this, shader->Args().data()});
-        // bd->SetRasterShader(shader, pso, *bindProps);
-        // cmdList->IASetPrimitiveTopology([&] {
-        //     switch (rasterState.topology) {
-        //         case TopologyType::Line:
-        //             return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
-        //         case TopologyType::Point:
-        //             return D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
-        //         default:
-        //             return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        //     }
-        // }());
-        // auto &&meshes = cmd->scene();
-        // auto propCount = shader->Properties().size();
-        // for (auto idx : vstd::range(meshes.size())) {
-        //     auto &&mesh = meshes[idx];
-        //     cmdList->SetGraphicsRoot32BitConstant(propCount, mesh.object_id(), 0);
-        //     vbv->clear();
-        //     auto src = mesh.vertex_buffers();
-        //     vstd::push_back_func(
-        //         *vbv,
-        //         src.size(),
-        //         [&](size_t i) {
-        //             auto &e = src[i];
-        //             auto bf = reinterpret_cast<Buffer *>(e.handle());
-        //             return D3D12_VERTEX_BUFFER_VIEW{
-        //                 .BufferLocation = bf->GetAddress() + e.offset(),
-        //                 .SizeInBytes = static_cast<uint>(e.size()),
-        //                 .StrideInBytes = static_cast<uint>(e.stride())};
-        //         });
-        //     cmdList->IASetVertexBuffers(0, vbv->size(), vbv->data());
-        //     auto const &i = mesh.index();
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle;
+            D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle;
+            D3D12_CPU_DESCRIPTOR_HANDLE *dsvHandlePtr = nullptr;
+            if (!rtvs.empty()) {
+                auto chunk = alloc->rtvAllocator.allocate(rtvs.size());
+                auto descHeap = reinterpret_cast<DescriptorHeap *>(chunk.handle);
+                rtvHandle = descHeap->hCPU(chunk.offset);
+                for (auto i : vstd::range(rtvs.size())) {
+                    auto &&rtv = rtvs[i];
+                    auto tex = reinterpret_cast<TextureBase *>(rtv.handle);
+                    rtvFormats[i] = tex->Format();
+                    D3D12_RENDER_TARGET_VIEW_DESC viewDesc{
+                        .Format = static_cast<DXGI_FORMAT>(rtvFormats[i]),
+                        .ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D};
+                    viewDesc.Texture2D = {
+                        .MipSlice = rtv.level,
+                        .PlaneSlice = 0};
+                    descHeap->CreateRTV(tex->GetResource(), viewDesc, chunk.offset + i);
+                }
+            }
+            if (dsv.handle != ~0ull) {
+                dsvHandlePtr = &dsvHandle;
+                auto chunk = alloc->dsvAllocator.allocate(1);
+                auto descHeap = reinterpret_cast<DescriptorHeap *>(chunk.handle);
+                dsvHandle = descHeap->hCPU(chunk.offset);
+                auto tex = reinterpret_cast<TextureBase *>(dsv.handle);
+                D3D12_DEPTH_STENCIL_VIEW_DESC viewDesc{
+                    .Format = static_cast<DXGI_FORMAT>(tex->Format()),
+                    .ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D,
+                    .Flags = D3D12_DSV_FLAG_NONE};
+                viewDesc.Texture2D.MipSlice = 0;
+                device->device->CreateDepthStencilView(tex->GetResource(), &viewDesc, dsvHandle);
+            }
+            cmdList->OMSetRenderTargets(rtvs.size(), &rtvHandle, true, dsvHandlePtr);
+        }
+        auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
+        auto rasterState = cmd->raster_state();
+        auto pso = shader->GetPSO({rtvFormats, rtvs.size()}, cmd->mesh_format(), dsvFormat, rasterState);
+        auto &&tempBuffer = *bufferVec;
+        bufferVec++;
+        bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
+        if (tempBuffer.second > 0) {
+            bindProps->emplace_back(BufferView(argBuffer.buffer, argBuffer.offset + tempBuffer.first, tempBuffer.second));
+        }
+        DescriptorHeapView globalHeapView(DescriptorHeapView(device->globalHeap.get()));
+        vstd::push_back_func(*bindProps, shader->BindlessCount(), [&] { return globalHeapView; });
+        DecodeCmd(cmd->arguments(), Visitor{this, shader->Args().data()});
+        bd->SetRasterShader(shader, pso, *bindProps);
+        cmdList->IASetPrimitiveTopology([&] {
+            switch (rasterState.topology) {
+                case TopologyType::Line:
+                    return D3D_PRIMITIVE_TOPOLOGY_LINELIST;
+                case TopologyType::Point:
+                    return D3D_PRIMITIVE_TOPOLOGY_POINTLIST;
+                default:
+                    return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+            }
+        }());
+        auto &&meshes = cmd->scene();
+        auto propCount = shader->Properties().size();
+        for (auto idx : vstd::range(meshes.size())) {
+            auto &&mesh = meshes[idx];
+            cmdList->SetGraphicsRoot32BitConstant(propCount, mesh.object_id(), 0);
+            vbv->clear();
+            auto src = mesh.vertex_buffers();
+            vstd::push_back_func(
+                *vbv,
+                src.size(),
+                [&](size_t i) {
+                    auto &e = src[i];
+                    auto bf = reinterpret_cast<Buffer *>(e.handle());
+                    return D3D12_VERTEX_BUFFER_VIEW{
+                        .BufferLocation = bf->GetAddress() + e.offset(),
+                        .SizeInBytes = static_cast<uint>(e.size()),
+                        .StrideInBytes = static_cast<uint>(e.stride())};
+                });
+            cmdList->IASetVertexBuffers(0, vbv->size(), vbv->data());
+            auto const &i = mesh.index();
 
-        //     luisa::visit(
-        //         [&]<typename T>(T const &i) {
-        //             if constexpr (std::is_same_v<T, uint>) {
-        //                 cmdList->DrawInstanced(i, mesh.instance_count(), 0, 0);
-        //             } else {
-        //                 auto bf = reinterpret_cast<Buffer *>(i.handle());
-        //                 D3D12_INDEX_BUFFER_VIEW idx{
-        //                     .BufferLocation = bf->GetAddress() + i.offset_bytes(),
-        //                     .SizeInBytes = static_cast<uint>(i.size_bytes()),
-        //                     .Format = DXGI_FORMAT_R32_UINT};
-        //                 cmdList->IASetIndexBuffer(&idx);
-        //                 cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, 0, 0);
-        //             }
-        //         },
-        //         i);
-        // }
+            luisa::visit(
+                [&]<typename T>(T const &i) {
+                    if constexpr (std::is_same_v<T, uint>) {
+                        cmdList->DrawInstanced(i, mesh.instance_count(), 0, 0);
+                    } else {
+                        auto bf = reinterpret_cast<Buffer *>(i.handle());
+                        D3D12_INDEX_BUFFER_VIEW idx{
+                            .BufferLocation = bf->GetAddress() + i.offset_bytes(),
+                            .SizeInBytes = static_cast<uint>(i.size_bytes()),
+                            .Format = DXGI_FORMAT_R32_UINT};
+                        cmdList->IASetIndexBuffer(&idx);
+                        cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, 0, 0);
+                    }
+                },
+                i);
+        }
     }
 };
 

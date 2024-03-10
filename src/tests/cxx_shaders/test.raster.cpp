@@ -9,22 +9,22 @@ struct Appdata {
 };
 struct v2p {
     [[POSITION]] float4 position;
-    float3 color;
+    float2 uv;
+    float4 color;
 };
-[[VERTEX_SHADER]] v2p vert(Appdata data, float4x4 mvp) {
-    v2p p;
-    p.position = mvp * float4(data.positon, 1.f);
-    p.color = (mvp * float4(data.norm, 0.f)).xyz;
-    return p;
+[[VERTEX_SHADER]] v2p vert(Appdata data, float time) {
+    v2p o;
+    o.position = float4(data.positon, 1.f);
+    if (data.vert_id >= 3) {
+        o.position.y += sin(time) * 0.1f;
+        o.color = float4(0.3f, 0.6f, 0.7f, 1.0f);
+    } else {
+        o.color = float4(0.7f, 0.6f, 0.3f, 1.0f);
+    }
+    o.uv = float2(0.5);
+    return o;
 }
 
-struct Output {
-    float4 v0;
-    float4 v1;
-};
-[[PIXEL_SHADER]] Output frag(v2p i, float3 color) {
-    Output o;
-    o.v0 = float4(color, 1.f);
-    o.v1 = float4(i.color, 1.f);
-    return o;
+[[PIXEL_SHADER]] float4 frag(v2p i, float time) {
+    return i.color;
 }

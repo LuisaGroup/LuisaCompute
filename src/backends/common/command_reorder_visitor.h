@@ -26,14 +26,6 @@ public:
         return ptr;
     }
 };
-struct PseudoUsageFunc {
-    void operator()(luisa::variant<
-                        Argument::Buffer,
-                        Argument::Texture,
-                        Argument::BindlessArray,
-                        Argument::Accel>,
-                    Usage);
-};
 template<typename T>
 /*
 struct ReorderFuncTable{
@@ -43,26 +35,17 @@ struct ReorderFuncTable{
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {}
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {}
     luisa::span<const Argument> shader_bindings(uint64_t handle) const noexcept {}
-    void traverse_arguments(
-        CustomDispatchCommand const* cmd,
-        void(luisa::variant<
-            Argument::Buffer,
-            Argument::Texture,
-            Argument::BindlessArray,
-            Argument::Accel>, Usage) func
-    )
 }
 */
 
 concept ReorderFuncTable =
     requires(const T t, uint64_t uint64_v, size_t size_v, luisa::span<const BindlessArrayUpdateCommand::Modification> modification,
-             CustomDispatchCommand const *cmd, PseudoUsageFunc usage_func) {
+             CustomDispatchCommand const *cmd) {
         requires(std::is_same_v<bool, decltype(t.is_res_in_bindless(uint64_v, uint64_v))>);
         requires(std::is_same_v<Usage, decltype(t.get_usage(uint64_v, size_v))>);
         t.update_bindless(uint64_v, modification);
         t.lock_bindless(uint64_v);
         t.unlock_bindless(uint64_v);
-        t.traverse_arguments(cmd, usage_func);
         requires(std::is_same_v<luisa::span<const Argument>, decltype(t.shader_bindings(uint64_v))>);
     };
 
@@ -568,7 +551,6 @@ private:
     }
 
     FuncTable _func_table;
-    template<bool use_backend>
     void visit(const CustomDispatchCommand *command) noexcept {
         _dispatch_read_handle.clear();
         _dispatch_write_handle.clear();
@@ -621,11 +603,7 @@ private:
                     false);
             }
         };
-        if constexpr (use_backend) {
-            _func_table.traverse_arguments(command, f);
-        } else {
             command->traverse_arguments(f);
-        }
 
         for (auto &&i : _dispatch_read_handle) {
             set_read_layer(i.second, i.first, _dispatch_layer);
@@ -852,19 +830,54 @@ public:
                 Range(command->aabb_buffer_offset(), command->aabb_buffer_size())));
     }
 
+    void visit(const DrawRasterSceneCommand *command) noexcept {
+        auto set_tex_dsl = [&](ShaderDispatchCommandBase::Argument::Texture const &a) {
+            add_dispatch_handle(
+                a.handle,
+                ResourceType::Texture_Buffer,
+                Range(a.level),
+                true);
+        };
+        visit<false>(command, command, command->handle(), [&] {
+            auto &&rtv = command->rtv_texs();
+            auto &&dsv = command->dsv_tex();
+            for (auto &&i : rtv) {
+                set_tex_dsl(i);
+            }
+            if (dsv.handle != ~0ull) {
+                set_tex_dsl(dsv);
+            }
+            for (auto &&mesh : command->scene()) {
+                for (auto &&v : mesh.vertex_buffers()) {
+                    add_dispatch_handle(
+                        v.handle(),
+                        ResourceType::Texture_Buffer,
+                        Range(v.offset(), v.size()),
+                        false);
+                }
+                auto &&i = mesh.index();
+                if (i.index() == 0) {
+                    auto idx = luisa::get<0>(i);
+                    add_dispatch_handle(
+                        idx.handle(),
+                        ResourceType::Texture_Buffer,
+                        Range(idx.offset_bytes(), idx.size_bytes()),
+                        false);
+                }
+            }
+        });
+    }
+
     void visit(const CustomCommand *command) noexcept override {
         switch (command->uuid()) {
             case to_underlying(CustomCommandUUID::RASTER_CLEAR_DEPTH):
                 visit(static_cast<ClearDepthCommand const *>(command));
                 break;
             case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE):
-                visit<true>(static_cast<CustomDispatchCommand const *>(command));
+                visit(static_cast<DrawRasterSceneCommand const *>(command));
                 break;
             case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
-                visit<false>(static_cast<CustomDispatchCommand const *>(command));
-                break;
-            case to_underlying(CustomCommandUUID::RASTER_BUILD_SCENE):
-                // No need to mark yet.
+                visit(static_cast<CustomDispatchCommand const *>(command));
                 break;
             default:
                 LUISA_ERROR("Custom command not supported by reorder.");

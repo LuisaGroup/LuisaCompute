@@ -218,9 +218,6 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             //         i._index_buffer);
             // }
         } break;
-        case to_underlying(CustomCommandUUID::RASTER_BUILD_SCENE): {
-
-        } break;
         case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
             auto c = static_cast<DStorageReadCommand *>(cmd);
             auto check_range = [&](uint64_t handle, Range range) -> vstd::optional<std::pair<Range, Range>> {

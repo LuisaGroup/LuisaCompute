@@ -3,12 +3,6 @@
 #include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/runtime/raster/raster_state.h>
 namespace luisa::compute {
-struct VertexBufferView {
-    uint64_t handle;
-    uint64_t offset;
-    uint64_t size;
-    uint64_t stride;
-};
 enum class IndexFormat {
     UInt16,
     UInt32

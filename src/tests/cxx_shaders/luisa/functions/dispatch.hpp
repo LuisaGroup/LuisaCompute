@@ -10,6 +10,7 @@ namespace luisa::shader {
 [[expr("thread_id")]] extern uint3 thread_id();
 [[expr("dispatch_size")]] extern uint3 dispatch_size();
 [[expr("kernel_id")]] extern uint32 kernel_id();
+[[expr("object_id")]] extern uint32 object_id();
 
 [[callop("SYNCHRONIZE_BLOCK")]] extern void sync_block();
 

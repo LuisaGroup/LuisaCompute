@@ -22,19 +22,4 @@ void rastershader_check_rtv_format(luisa::span<const PixelFormat> rtv_format) no
 }
 }// namespace detail
 #endif
-RasterScene::~RasterScene() noexcept {
-    if (!_modifications.empty()) [[unlikely]] {
-        LUISA_WARNING_WITH_LOCATION(
-            "Raster-Scene #{} destroyed with {} uncommitted modifications. "
-            "Did you forget to call build()?",
-            this->handle(), _modifications.size());
-    }
-}
-
-RasterScene::RasterScene(RasterScene &&rhs) noexcept
-    : _render_formats{std::move(rhs._render_formats)},
-      _depth_format{rhs._depth_format},
-      _modifications{std::move(rhs._modifications)},
-      _instance_count{rhs._instance_count} {
-}
 }// namespace luisa::compute

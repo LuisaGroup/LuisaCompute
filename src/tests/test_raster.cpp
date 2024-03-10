@@ -13,6 +13,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/swapchain.h>
+#include <luisa/backends/ext/raster_ext.hpp>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -47,79 +48,77 @@ int main(int argc, char *argv[]) {
     // RasterStageKernel pixel = [&](Var<v2p> i, Float time) {
     //     return i.color;
     // };
-    // Kernel2D clear_kernel = [](ImageFloat image) noexcept {
-    //     image.write(dispatch_id().xy(), make_float4(0.1f));
-    // };
+    Kernel2D clear_kernel = [](ImageFloat image) noexcept {
+        image.write(dispatch_id().xy(), make_float4(0.1f));
+    };
     // RasterKernel<decltype(vert), decltype(pixel)> kernel{vert, pixel};
-    // Context context{argv[0]};
-    // if (argc <= 1) {
-    //     LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
-    //     exit(1);
-    // }
-    // Device device = context.create_device(argv[1], nullptr);
-    // auto clear_shader = device.compile(clear_kernel);
-    // MeshFormat mesh_format;
-    // VertexAttribute attributes[] = {
-    //     {VertexAttributeType::Position, VertexElementFormat::XYZW32Float},
-    //     {VertexAttributeType::Normal, VertexElementFormat::XYZW32Float},
-    //     {VertexAttributeType::Tangent, VertexElementFormat::XYZW32Float},
-    //     {VertexAttributeType::UV0, VertexElementFormat::XY32Float},
-    //     {VertexAttributeType::Color, VertexElementFormat::XY32Float},
-    // };
-    // mesh_format.emplace_vertex_stream(attributes);
-    // static constexpr uint width = 1024;
-    // static constexpr uint height = 1024;
-    // Stream stream = device.create_stream(StreamTag::GRAPHICS);
-    // Window window{"Test raster", width, height};
-    // Swapchain swap_chain{device.create_swapchain(
-    //     window.native_handle(),
-    //     stream,
-    //     make_uint2(width, height),
-    //     true, false, 2)};
-    // Image<float> out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
-    // PixelFormat img_format = out_img.format();
-    // DepthBuffer depth_buffer = device.create_depth_buffer(DepthFormat::D32, uint2(width, height));
-    // auto shader = device.compile(
-    //     kernel,
-    //     mesh_format);
-    // Vertex vertices[6];
-    // vertices[0].pos = {-0.5f, 0.5f, 0.5f};
-    // vertices[1].pos = {0.5f, 0.5f, 0.5f};
-    // vertices[2].pos = {0.0f, -0.5f, 0.5f};
+    Context context{argv[0]};
+    if (argc <= 1) {
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
+        exit(1);
+    }
+    Device device = context.create_device(argv[1], nullptr);
+    auto clear_shader = device.compile(clear_kernel);
+    MeshFormat mesh_format;
+    VertexAttribute attributes[] = {
+        {VertexAttributeType::Position, VertexElementFormat::XYZW32Float},
+        {VertexAttributeType::Normal, VertexElementFormat::XYZW32Float},
+        {VertexAttributeType::Tangent, VertexElementFormat::XYZW32Float},
+        {VertexAttributeType::UV0, VertexElementFormat::XY32Float},
+        {VertexAttributeType::Color, VertexElementFormat::XY32Float},
+    };
+    mesh_format.emplace_vertex_stream(attributes);
+    static constexpr uint width = 1024;
+    static constexpr uint height = 1024;
+    Stream stream = device.create_stream(StreamTag::GRAPHICS);
+    Window window{"Test raster", width, height};
+    Swapchain swap_chain{device.create_swapchain(
+        window.native_handle(),
+        stream,
+        make_uint2(width, height),
+        true, false, 2)};
+    Image<float> out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
+    PixelFormat img_format = out_img.format();
+    DepthBuffer depth_buffer = device.create_depth_buffer(DepthFormat::D32, uint2(width, height));
+    auto shader = device.load_raster_shader<float, float>("test.bin");
+    Vertex vertices[6];
+    vertices[0].pos = {-0.5f, 0.5f, 0.5f};
+    vertices[1].pos = {0.5f, 0.5f, 0.5f};
+    vertices[2].pos = {0.0f, -0.5f, 0.5f};
 
-    // vertices[3].pos = {-0.7f, 0.5f, 0.2f};
-    // vertices[4].pos = {0.5f, 0.2f, 0.8f};
-    // vertices[5].pos = {0.2f, -0.5f, 0.3f};
+    vertices[3].pos = {-0.7f, 0.5f, 0.2f};
+    vertices[4].pos = {0.5f, 0.2f, 0.8f};
+    vertices[5].pos = {0.2f, -0.5f, 0.3f};
 
-    // Buffer<Vertex> vert_buffer = device.create_buffer<Vertex>(6);
-    // Buffer<uint> idx_buffer = device.create_buffer<uint>(6);
-    // uint indices[6] = {
-    //     0, 1, 2, 3, 4, 5};
-    // stream << vert_buffer.copy_from(vertices)
-    //        << idx_buffer.copy_from(indices);
-    // VertexBufferView vert_buffer_view{vert_buffer};
-    // Clock clock;
-    // clock.tic();
-    // luisa::vector<RasterMesh> meshes;
-    // RasterState state{
-    //     .cull_mode = CullMode::None,
-    //     .depth_state = DepthState{
-    //         .enable_depth = true,
-    //         .comparison = Comparison::Less,
-    //         .write = true},
-    //     .conservative = true};
-    // while (!window.should_close()) {
-    //     float time = clock.toc() / 1000.0f;
-    //     // add triangle mesh
-    //     meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 0);
-    //     stream
-    //         // clear depth buffer
-    //         << clear_shader(out_img).dispatch(width, height)
-    //         << depth_buffer.clear(1.0)
-    //         << shader(time, time * 5).draw(std::move(meshes), Viewport{0.f, 0.f, float(width), float(height)}, state, &depth_buffer, out_img)
-    //         << swap_chain.present(out_img);
-    //     window.poll_events();
-    // }
-    // stream << synchronize();
+    Buffer<Vertex> vert_buffer = device.create_buffer<Vertex>(6);
+    Buffer<uint> idx_buffer = device.create_buffer<uint>(6);
+    uint indices[6] = {
+        0, 1, 2, 3, 4, 5};
+    stream << vert_buffer.copy_from(vertices)
+           << idx_buffer.copy_from(indices);
+    VertexBufferView vert_buffer_view{vert_buffer};
+    Clock clock;
+    clock.tic();
+    luisa::vector<RasterMesh> meshes;
+    RasterState state{
+        .cull_mode = CullMode::None,
+        .depth_state = DepthState{
+            .enable_depth = true,
+            .comparison = Comparison::Less,
+            .write = true},
+        .conservative = true};
+    while (!window.should_close()) {
+        float time = clock.toc() / 1000.0f;
+        // add triangle mesh
+        meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 0);
+        stream
+            // clear depth buffer
+            << clear_shader(out_img).dispatch(width, height)
+            << depth_buffer.clear(1.0)
+            << shader(time, time * 5).draw(std::move(meshes), mesh_format, Viewport{0, 0, width, height}, state, &depth_buffer, out_img)
+            << swap_chain.present(out_img);
+        window.poll_events();
+    }
+    stream << synchronize();
     return 0;
 }
