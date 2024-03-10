@@ -416,7 +416,7 @@ void export_runtime(py::module &m) {
             }
             return 0;
         })
-        .def("save_raster_shader", [](DeviceInterface &self, ManagedMeshFormat const &fmt, Function vertex, Function pixel, luisa::string_view str) {
+        .def("save_raster_shader", [](DeviceInterface &self,  Function vertex, Function pixel, luisa::string_view str) {
             ShaderOption option;
             option.compile_only = true;
             if (!output_path.empty()) {
@@ -426,11 +426,11 @@ void export_runtime(py::module &m) {
                 option.name = str;
             }
             static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
-                                  ->create_raster_shader(fmt.format, vertex, pixel, option));
+                                  ->create_raster_shader(vertex, pixel, option));
         })
-        .def("save_raster_shader_async", [](DeviceInterface &self, ManagedMeshFormat const &fmt, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
+        .def("save_raster_shader_async", [](DeviceInterface &self, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.create();
-            futures.emplace_back(thread_pool->async([fmt, str = luisa::string{str}, vertex, pixel, &self]() {
+            futures.emplace_back(thread_pool->async([str = luisa::string{str}, vertex, pixel, &self]() {
                 ShaderOption option;
                 option.compile_only = true;
                 if (!output_path.empty()) {
@@ -440,7 +440,7 @@ void export_runtime(py::module &m) {
                     option.name = str;
                 }
                 static_cast<void>(static_cast<RasterExt *>(self.extension(RasterExt::name))
-                                      ->create_raster_shader(fmt.format, vertex->function(), pixel->function(), option));
+                                      ->create_raster_shader(vertex->function(), pixel->function(), option));
             }));
         })
         .def("destroy_shader", [](DeviceInterface &self, uint64_t handle) {

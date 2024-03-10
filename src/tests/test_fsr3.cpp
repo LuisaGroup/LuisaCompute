@@ -112,7 +112,10 @@ public:
     void ReadbackDX12Device(
         ID3D12Device *device,
         IDXGIAdapter1 *adapter,
-        IDXGIFactory2 *factory) noexcept override {
+        IDXGIFactory2 *factory,
+        DirectXAllocator const*allocator,
+        ID3D12DescriptorHeap *shaderDescriptor,
+        ID3D12DescriptorHeap *samplerDescriptor) noexcept override {
         this->factory = factory;
     }
 };

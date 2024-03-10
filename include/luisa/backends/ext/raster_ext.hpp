@@ -19,7 +19,7 @@ void Device::compile_to(
     const ShaderOption &option) noexcept {
     _check_no_implicit_binding(kernel.vert(), serialization_path);
     _check_no_implicit_binding(kernel.pixel(), serialization_path);
-    extension<RasterExt>()->create_raster_shader(mesh_format, kernel.vert(), kernel.pixel(), serialization_path, option);
+    extension<RasterExt>()->create_raster_shader(kernel.vert(), kernel.pixel(), serialization_path, option);
 }
 
 template<typename... Args>

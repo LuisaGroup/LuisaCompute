@@ -8,9 +8,29 @@
 #include <Shader/ComputeShader.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
-#include <luisa/backends/ext/dx_config_ext.h>
 
 namespace lc::dx {
+DirectXHeap DXAllocatorImpl::AllocateBufferHeap(
+    luisa::string_view name,
+    uint64_t targetSizeInBytes,
+    D3D12_HEAP_TYPE heapType,
+    D3D12_HEAP_FLAGS extraFlags) const noexcept {
+    DirectXHeap heap;
+    heap.handle = device->defaultAllocator->AllocateBufferHeap(device, name, targetSizeInBytes, heapType, &heap.heap, &heap.offset, extraFlags);
+    return heap;
+}
+DirectXHeap DXAllocatorImpl::AllocateTextureHeap(
+    vstd::string_view name,
+    size_t sizeBytes,
+    bool isRenderTexture,
+    D3D12_HEAP_FLAGS extraFlags) const noexcept {
+    DirectXHeap heap;
+    heap.handle = device->defaultAllocator->AllocateTextureHeap(device, name, sizeBytes, &heap.heap, &heap.offset, extraFlags);
+    return heap;
+}
+void DXAllocatorImpl::DeAllocateHeap(uint64_t handle) const noexcept {
+    device->defaultAllocator->Release(handle);
+}
 static std::mutex gDxcMutex;
 static vstd::optional<hlsl::ShaderCompiler> gDxcCompiler;
 static int32 gDxcRefCount = 0;
@@ -197,6 +217,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             fileIo->write_shader_cache("dx_adapterid", {reinterpret_cast<std::byte const *>(&adapterID), sizeof(vstd::MD5)});
         }
         defaultAllocator = vstd::make_unique<GpuAllocator>(this, profiler);
+        allocatorInterface.device = this;
         globalHeap = vstd::create_unique(
             new DescriptorHeap(
                 this,
@@ -219,7 +240,10 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             deviceSettings->ReadbackDX12Device(
                 device,
                 adapter,
-                dxgiFactory);
+                dxgiFactory,
+                &allocatorInterface,
+                globalHeap->GetHeap(),
+                samplerHeap->GetHeap());
         }
     }
 }

@@ -14,6 +14,8 @@
 #include <luisa/runtime/swapchain.h>
 
 #include <luisa/clangcxx/compiler.h>
+#include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/runtime/raster/raster_shader.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -208,6 +210,14 @@ int main(int argc, char *argv[]) {
 
             LUISA_INFO("Time: {} ms", time);
             stbi_write_png("test_rtx.png", width, height, 4, pixels.data(), 0);
+        }
+        if(kTestName == "raster"){
+            auto raster_ext = device.extension<RasterExt>();
+            auto types = {
+                Type::of<float4x4>(),
+                Type::of<float3>()
+            };
+            auto shader = device.load_raster_shader<float4x4, float3>("test.bin");
         }
     }
     return 0;

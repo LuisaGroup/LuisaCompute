@@ -7,7 +7,25 @@
 #include <luisa/runtime/rhi/device_interface.h>
 
 namespace luisa::compute {
-
+struct DirectXHeap {
+    uint64_t handle;
+    ID3D12Heap *heap;
+    size_t offset;
+};
+class DirectXAllocator {
+public:
+    [[nodiscard]] virtual DirectXHeap AllocateBufferHeap(
+        luisa::string_view name,
+        uint64_t sizeBytes,
+        D3D12_HEAP_TYPE heapType,
+        D3D12_HEAP_FLAGS extraFlags) const noexcept = 0;
+    [[nodiscard]] virtual DirectXHeap AllocateTextureHeap(
+        vstd::string_view name,
+        size_t sizeBytes,
+        bool isRenderTexture,
+        D3D12_HEAP_FLAGS extraFlags) const noexcept = 0;
+    [[nodiscard]] virtual void DeAllocateHeap(uint64_t handle) const noexcept = 0;
+};
 struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNewBase {
 
     struct ExternalDevice {
@@ -17,11 +35,14 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNe
     };
 
     virtual vstd::optional<ExternalDevice> CreateExternalDevice() noexcept { return {}; }
-
+    // Called during create_device
     virtual void ReadbackDX12Device(
         ID3D12Device *device,
         IDXGIAdapter1 *adapter,
-        IDXGIFactory2 *factory) noexcept {}
+        IDXGIFactory2 *factory,
+        DirectXAllocator const*allocator,
+        ID3D12DescriptorHeap *shaderDescriptor,
+        ID3D12DescriptorHeap *samplerDescriptor) noexcept {}
 
     // plugin resources
     virtual ID3D12CommandQueue *CreateQueue(D3D12_COMMAND_LIST_TYPE type) noexcept { return nullptr; }

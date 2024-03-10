@@ -36,7 +36,6 @@ static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function
 RasterShader::RasterShader(
     Device *device,
     vstd::MD5 md5,
-    MeshFormat const &meshFormat,
     vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
     ComPtr<ID3D12RootSignature> &&rootSig,
@@ -45,7 +44,6 @@ RasterShader::RasterShader(
     vstd::vector<std::byte> &&pixelBinData)
     : Shader(std::move(prop), std::move(args), std::move(rootSig), std::move(printers)), device(device), md5{md5},
       vertBinData{std::move(vertBinData)}, pixelBinData{std::move(pixelBinData)} {
-    GetMeshFormatState(elements, meshFormat);
 }
 void RasterShader::GetMeshFormatState(
     vstd::vector<D3D12_INPUT_ELEMENT_DESC> &inputLayout,
@@ -125,14 +123,12 @@ RasterShader::RasterShader(
     vstd::MD5 md5,
     vstd::vector<hlsl::Property> &&prop,
     vstd::vector<SavedArgument> &&args,
-    MeshFormat const &meshFormat,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     vstd::vector<std::byte> &&vertBinData,
     vstd::vector<std::byte> &&pixelBinData)
     : Shader(std::move(prop), std::move(args), device->device.Get(), std::move(printers), true),
       device(device), md5{md5},
       vertBinData{std::move(vertBinData)}, pixelBinData{std::move(pixelBinData)} {
-    GetMeshFormatState(elements, meshFormat);
 }
 RasterShader::~RasterShader() {}
 D3D12_GRAPHICS_PIPELINE_STATE_DESC RasterShader::GetState(
@@ -311,7 +307,6 @@ RasterShader *RasterShader::CompileRaster(
     vstd::function<hlsl::CodegenResult()> const &codegen,
     vstd::MD5 const &md5,
     uint shaderModel,
-    MeshFormat const &meshFormat,
     vstd::string_view fileName,
     CacheType cacheType,
     bool enableUnsafeMath) {
@@ -322,7 +317,7 @@ RasterShader *RasterShader::CompileRaster(
         if (str.useTex2DBindless) bdlsBufferCount++;
         if (str.useTex3DBindless) bdlsBufferCount++;
         if constexpr (RasterShaderDetail::PRINT_CODE) {
-            auto f = fopen("hlsl_output.hlsl", "ab");
+            auto f = fopen("hlsl_output.hlsl", "wb");
             fwrite(str.result.data(), str.result.size(), 1, f);
             fclose(f);
         }
@@ -362,7 +357,6 @@ RasterShader *RasterShader::CompileRaster(
             md5,
             std::move(str.properties),
             std::move(kernelArgs),
-            meshFormat,
             std::move(str.printers),
             std::move(vertBin),
             std::move(pixelBin));
@@ -374,7 +368,7 @@ RasterShader *RasterShader::CompileRaster(
         // auto psoName = Shader::PSOName(device, fileName);
         auto result = ShaderSerializer::RasterDeSerialize(
             fileName, cacheType, device, *fileIo, md5,
-            {}, meshFormat);
+            {});
         if (result) {
             return result;
         }
@@ -434,14 +428,14 @@ void RasterShader::SaveRaster(
 RasterShader *RasterShader::LoadRaster(
     BinaryIO const *fileIo,
     Device *device,
-    const MeshFormat &mesh_format,
     luisa::span<Type const *const> types,
     vstd::string_view fileName) {
-    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, CacheType::ByteCode, device, *device->fileIo, {}, hlsl::CodegenUtility::GetTypeMD5(types), mesh_format);
+    auto ptr = ShaderSerializer::RasterDeSerialize(fileName, CacheType::ByteCode, device, *device->fileIo, {}, hlsl::CodegenUtility::GetTypeMD5(types));
     return ptr;
 }
 ID3D12PipelineState *RasterShader::GetPSO(
     vstd::span<GFXFormat const> rtvFormats,
+    MeshFormat const &meshFormat,
     DepthFormat dsvFormat,
     RasterState const &rasterState) {
     std::pair<PSOMap::Index, bool> idx;
@@ -457,69 +451,69 @@ ID3D12PipelineState *RasterShader::GetPSO(
         idx = psoMap.try_emplace(psoState);
     }
     auto &v = idx.first.value();
-    return [&]() {
-        std::lock_guard lck{v.mtx};
-        if (!idx.second) return v.pso.Get();
-        vstd::vector<std::byte> md5Bytes;
-        auto push = [&]<typename T>(T const &t) {
-            auto sz = md5Bytes.size();
-            md5Bytes.push_back_uninitialized(sizeof(T));
-            memcpy(md5Bytes.data() + sz, &t, sizeof(T));
-        };
-        auto pushArray = [&]<typename T>(T const *ptr, size_t size) {
-            auto sz = md5Bytes.size();
-            auto byteSize = size * sizeof(T);
-            md5Bytes.push_back_uninitialized(byteSize);
-            memcpy(md5Bytes.data() + sz, ptr, byteSize);
-        };
-        pushArray(psoState.rtvFormats.data(), psoState.rtvFormats.size());
-        push(psoState.dsvFormat);
-        push(psoState.rasterState);
-        push(this->md5);
-        auto psoDesc = GetState(
-            elements,
-            psoState.rasterState,
-            rtvFormats,
-            dsvFormat);
-        psoDesc.pRootSignature = this->rootSig.Get();
-        psoDesc.VS = {vertBinData.data(), vertBinData.size()};
-        psoDesc.PS = {pixelBinData.data(), pixelBinData.size()};
-        auto psoMD5 = vstd::MD5{vstd::span<const uint8_t>{reinterpret_cast<uint8_t const *>(md5Bytes.data()), md5Bytes.size()}};
-        auto psoName = psoMD5.to_string(false);
-        auto psoStream = device->fileIo->read_shader_cache(psoName);
-        auto createPipe = [&] {
-            return device->device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(v.pso.GetAddressOf()));
-        };
-        // use PSO cache
-        bool newPso = false;
-        if (psoStream != nullptr && psoStream->length() > 0) {
-            vstd::vector<std::byte> psoCode;
-            psoCode.push_back_uninitialized(psoStream->length());
-            psoStream->read({psoCode.data(), psoCode.size()});
-            psoDesc.CachedPSO = {
-                .pCachedBlob = psoCode.data(),
-                .CachedBlobSizeInBytes = psoCode.size()};
-            auto psoGenSuccess = createPipe();
-            if (psoGenSuccess != S_OK) {
-                newPso = true;
-                // PSO cache miss(probably driver's version or hardware transformed), discard cache
-                LUISA_VERBOSE("{} pipeline cache illegal, discarded.", psoName);
-                if (v.pso == nullptr) {
-                    psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
-                    psoDesc.CachedPSO.pCachedBlob = nullptr;
-                    ThrowIfFailed(createPipe());
-                }
-            }
-        } else {
+    std::lock_guard lck{v.mtx};
+    if (!idx.second) return v.pso.Get();
+    vstd::vector<D3D12_INPUT_ELEMENT_DESC> elements;
+    GetMeshFormatState(elements, meshFormat);
+    vstd::vector<std::byte> md5Bytes;
+    auto push = [&]<typename T>(T const &t) {
+        auto sz = md5Bytes.size();
+        md5Bytes.push_back_uninitialized(sizeof(T));
+        memcpy(md5Bytes.data() + sz, &t, sizeof(T));
+    };
+    auto pushArray = [&]<typename T>(T const *ptr, size_t size) {
+        auto sz = md5Bytes.size();
+        auto byteSize = size * sizeof(T);
+        md5Bytes.push_back_uninitialized(byteSize);
+        memcpy(md5Bytes.data() + sz, ptr, byteSize);
+    };
+    pushArray(psoState.rtvFormats.data(), psoState.rtvFormats.size());
+    push(psoState.dsvFormat);
+    push(psoState.rasterState);
+    push(this->md5);
+    auto psoDesc = GetState(
+        elements,
+        psoState.rasterState,
+        rtvFormats,
+        dsvFormat);
+    psoDesc.pRootSignature = this->rootSig.Get();
+    psoDesc.VS = {vertBinData.data(), vertBinData.size()};
+    psoDesc.PS = {pixelBinData.data(), pixelBinData.size()};
+    auto psoMD5 = vstd::MD5{vstd::span<const uint8_t>{reinterpret_cast<uint8_t const *>(md5Bytes.data()), md5Bytes.size()}};
+    auto psoName = psoMD5.to_string(false);
+    auto psoStream = device->fileIo->read_shader_cache(psoName);
+    auto createPipe = [&] {
+        return device->device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(v.pso.GetAddressOf()));
+    };
+    // use PSO cache
+    bool newPso = false;
+    if (psoStream != nullptr && psoStream->length() > 0) {
+        vstd::vector<std::byte> psoCode;
+        psoCode.push_back_uninitialized(psoStream->length());
+        psoStream->read({psoCode.data(), psoCode.size()});
+        psoDesc.CachedPSO = {
+            .pCachedBlob = psoCode.data(),
+            .CachedBlobSizeInBytes = psoCode.size()};
+        auto psoGenSuccess = createPipe();
+        if (psoGenSuccess != S_OK) {
             newPso = true;
-            psoDesc.CachedPSO.pCachedBlob = nullptr;
-            ThrowIfFailed(createPipe());
+            // PSO cache miss(probably driver's version or hardware transformed), discard cache
+            LUISA_VERBOSE("{} pipeline cache illegal, discarded.", psoName);
+            if (v.pso == nullptr) {
+                psoDesc.CachedPSO.CachedBlobSizeInBytes = 0;
+                psoDesc.CachedPSO.pCachedBlob = nullptr;
+                ThrowIfFailed(createPipe());
+            }
         }
-        if (newPso) {
-            SavePSO(v.pso.Get(), psoName, device->fileIo, device);
-        }
-        return v.pso.Get();
-    }();
+    } else {
+        newPso = true;
+        psoDesc.CachedPSO.pCachedBlob = nullptr;
+        ThrowIfFailed(createPipe());
+    }
+    if (newPso) {
+        SavePSO(v.pso.Get(), psoName, device->fileIo, device);
+    }
+    return v.pso.Get();
 }
 // Prepared for indirect
 // ID3D12CommandSignature *RasterShader::CmdSig(size_t vertexCount, bool index) {

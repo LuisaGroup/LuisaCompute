@@ -286,8 +286,7 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     Device *device,
     luisa::BinaryIO const &streamFunc,
     vstd::optional<vstd::MD5> const &ilMd5,
-    vstd::optional<vstd::MD5> const &typeMD5,
-    MeshFormat const &meshFormat) {
+    vstd::optional<vstd::MD5> const &typeMD5) {
     using namespace shader_ser;
     auto binStream = ReadBinaryIO(cacheType, &streamFunc, name);
     if (binStream == nullptr || binStream->length() <= sizeof(RasterHeader)) return nullptr;
@@ -379,7 +378,6 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     auto s = new RasterShader(
         device,
         header.md5,
-        meshFormat,
         std::move(properties),
         std::move(kernelArgs),
         std::move(rootSig),

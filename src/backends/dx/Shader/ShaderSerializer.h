@@ -58,8 +58,7 @@ public:
         Device *device,
         luisa::BinaryIO const &streamFunc,
         vstd::optional<vstd::MD5> const &ilMd5,
-        vstd::optional<vstd::MD5> const &typeMD5,
-        MeshFormat const &meshFormat);
+        vstd::optional<vstd::MD5> const &typeMD5);
     static bool CheckMD5(
         vstd::string_view fileName,
         vstd::MD5 const &checkMD5,

@@ -1510,9 +1510,9 @@ void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, b
     vstd::StringBuilder retName;
     auto retType = vert.return_type();
     GetTypeName(*retType, retName, Usage::READ);
-    result << retName << " vert("sv;
+    result << retName << " main("sv;
     GetTypeName(*args[0].type(), result, Usage::NONE);
-    result << "){\n"sv;
+    result << " vv){\n"sv;
     if (cBufferNonEmpty) {
         result << "_Args a = _Global[0];\n"sv;
     }
@@ -2149,8 +2149,8 @@ uint obj_id:register(b0);
         if (appdataAttris.size() != appdataMems.size()) [[unlikely]] {
             LUISA_ERROR("Mesh-to-vertex structure must have attributes.");
         }
-        opt->internalStruct.try_emplace(appdataType, "appdata");
-        codegenData << "struct appdata{\n"sv;
+        opt->internalStruct.try_emplace(appdataType, "_mesh");
+        codegenData << "struct _mesh{\n"sv;
         for (auto i : vstd::range(appdataAttris.size())) {
             auto member = appdataMems[i];
             auto &attr = appdataAttris[i];
@@ -2175,17 +2175,14 @@ uint obj_id:register(b0);
                 << iter->second.first
                 << ";\n"sv;
         }
-        codegenData << "}\n";
+        codegenData << "};\n";
     } else {
         LUISA_ERROR("Mesh-to-vertex must be a structure");
     }
 
     auto vertRange = vstd::make_ite_range(vert_args.subspan(1)).i_range();
     auto pixelRange = vstd::make_ite_range(pixelFunc.arguments().subspan(1)).i_range();
-    auto fullVertRange = vstd::make_ite_range(vert_args).i_range();
-    auto fullPixelRange = vstd::make_ite_range(pixelFunc.arguments()).i_range();
     std::initializer_list<vstd::IRange<Variable> *> funcs = {&vertRange, &pixelRange};
-    std::initializer_list<vstd::IRange<Variable> *> md5Funcs = {&fullVertRange, &fullPixelRange};
 
     bool nonEmptyCbuffer = IsCBufferNonEmpty(funcs);
     opt->appdataId = vert_args[0].uid();
@@ -2226,6 +2223,6 @@ uint obj_id:register(b0);
         opt->useTex3DBindless,
         opt->useBufferBindless,
         immutableHeaderSize,
-        GetTypeMD5(md5Funcs)};
+        GetTypeMD5(funcs)};
 }
 }// namespace lc::hlsl

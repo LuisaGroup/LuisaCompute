@@ -146,21 +146,13 @@ class DxRasterExt final : public RasterExt, public vstd::IOperatorNewBase {
 public:
     DxRasterExt(Device &nativeDevice) noexcept : nativeDevice{nativeDevice} {}
     ResourceCreationInfo create_raster_shader(
-        const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         const ShaderOption &cache_option) noexcept override;
     [[nodiscard]] ResourceCreationInfo load_raster_shader(
-        const MeshFormat &mesh_format,
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept override;
     void destroy_raster_shader(uint64_t handle) noexcept override;
-    void warm_up_pipeline_cache(
-        uint64_t shader_handle,
-        luisa::span<PixelFormat const> render_target_formats,
-        DepthFormat depth_format,
-        const RasterState &state) noexcept override;
-
     ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };

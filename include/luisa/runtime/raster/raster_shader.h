@@ -43,8 +43,6 @@ static constexpr bool LegalDst() noexcept {
 
 }// namespace detail
 namespace detail {
-LC_RUNTIME_API void rastershader_check_vertex_func(Function func) noexcept;
-LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
 class RasterInvokeBase {
 public:
     ShaderDispatchCmdEncoder encoder;
@@ -124,15 +122,11 @@ class RasterShader : public Resource {
 private:
     friend class Device;
     RasterExt *_raster_ext{};
-#ifndef NDEBUG
-    MeshFormat _mesh_format;
-#endif
     // JIT Shader
     // clang-format off
 
     RasterShader(DeviceInterface *device,
                  RasterExt* raster_ext,
-                 const MeshFormat &mesh_format,
                  Function vert,
                  Function pixel,
                  const ShaderOption &option)noexcept
@@ -140,41 +134,25 @@ private:
               device,
               Tag::RASTER_SHADER,
               raster_ext->create_raster_shader(
-                  mesh_format,
-//                  raster_state,
-//                  rtv_format,
-//                  dsv_format,
                   vert,
                   pixel,
                   option)),
                   _raster_ext{raster_ext}
-#ifndef NDEBUG
-        ,_mesh_format(mesh_format)
-#endif
         {
-#ifndef NDEBUG
-            detail::rastershader_check_vertex_func(vert);
-            detail::rastershader_check_pixel_func(pixel);
-#endif
         }
     // AOT Shader
     RasterShader(
         DeviceInterface *device,
         RasterExt* raster_ext,
-        const MeshFormat &mesh_format,
         luisa::string_view file_path)noexcept
         : Resource(
               device,
               Tag::RASTER_SHADER,
               // TODO
               raster_ext->load_raster_shader(
-                mesh_format,
                 detail::shader_argument_types<Args...>(),
                 file_path)),
             _raster_ext{raster_ext}
-#ifndef NDEBUG
-        ,_mesh_format(mesh_format)
-#endif
         {
         }
     // clang-format on

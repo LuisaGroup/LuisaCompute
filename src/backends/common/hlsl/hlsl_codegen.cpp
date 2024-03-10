@@ -138,7 +138,7 @@ void StringStateVisitor::visit(const MemberExpr *expr) {
 
         if (t->is_vector() && t->dimension() == 3) {
             auto self_type = expr->self()->type();
-            if (!(self_type->is_structure() && !self_type->member_attributes().empty() && !self_type->member_attributes()[expr->member_index()].key.empty())) [[likely]] {
+            if (!(self_type->is_structure() && !self_type->member_attributes().empty())) [[likely]] {
                 str << ".v"sv;
             }
         }

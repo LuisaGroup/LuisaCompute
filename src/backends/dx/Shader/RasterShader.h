@@ -50,11 +50,9 @@ private:
     vstd::MD5 md5;
     vstd::vector<std::byte> vertBinData;
     vstd::vector<std::byte> pixelBinData;
-    vstd::vector<D3D12_INPUT_ELEMENT_DESC> elements;
     RasterShader(
         Device *device,
         vstd::MD5 md5,
-        MeshFormat const &meshFormat,
         vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
         ComPtr<ID3D12RootSignature> &&rootSig,
@@ -64,7 +62,7 @@ private:
     std::mutex psoMtx;
     struct PsoValue {
         ComPtr<ID3D12PipelineState> pso{};
-        std::mutex mtx;
+        vstd::spin_mutex mtx;
     };
     using PSOMap = vstd::HashMap<RasterPSOState, PsoValue, RasterPSOStateHash, RasterPSOStateEqual>;
     PSOMap psoMap;
@@ -89,6 +87,7 @@ public:
     // ID3D12CommandSignature *CmdSig(size_t vertexCount, bool index);
     ID3D12PipelineState *GetPSO(
         vstd::span<GFXFormat const> rtvFormats,
+        MeshFormat const &meshFormat,
         DepthFormat dsvFormat,
         RasterState const &rasterState);
     Tag GetTag() const noexcept override { return Tag::RasterShader; }
@@ -108,7 +107,6 @@ public:
         vstd::MD5 md5,
         vstd::vector<hlsl::Property> &&prop,
         vstd::vector<SavedArgument> &&args,
-        MeshFormat const &meshFormat,
         vstd::vector<std::pair<vstd::string, Type const*>>&& printers,
         vstd::vector<std::byte> &&vertBinData,
         vstd::vector<std::byte> &&pixelBinData);
@@ -123,7 +121,6 @@ public:
         vstd::function<hlsl::CodegenResult()> const &codegen,
         vstd::MD5 const &md5,
         uint shaderModel,
-        MeshFormat const &meshFormat,
         vstd::string_view fileName,
         CacheType cacheType,
         bool enableUnsafeMath);
@@ -140,7 +137,6 @@ public:
     static RasterShader *LoadRaster(
         luisa::BinaryIO const *fileIo,
         Device *device,
-        MeshFormat const &meshFormat,
         luisa::span<Type const *const> types,
         vstd::string_view fileName);
 };
