@@ -29,7 +29,7 @@ class DescriptorHeap;
 class ComputeShader;
 class PipelineLibrary;
 class Device;
-class DXAllocatorImpl : public luisa::compute::DirectXAllocator {
+class DXAllocatorImpl : public luisa::compute::DirectXFuncTable {
 public:
     Device *device;
     luisa::compute::DirectXHeap AllocateBufferHeap(

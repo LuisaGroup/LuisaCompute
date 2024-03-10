@@ -20,14 +20,6 @@ static vstd::unique_ptr<ShaderCompilerModule> dxc_module;
         LUISA_ASSERT(hr_ == S_OK, "bad HRESULT."); \
     }
 #endif
-DxcByteBlob::DxcByteBlob(ComPtr<IDxcBlob> &&b)
-    : blob(std::move(b)) {}
-std::byte *DxcByteBlob::data() const {
-    return reinterpret_cast<std::byte *>(blob->GetBufferPointer());
-}
-size_t DxcByteBlob::size() const {
-    return blob->GetBufferSize();
-}
 static vstd::wstring GetSM(uint shaderModel) {
     vstd::string smStr;
     smStr << vstd::to_string(shaderModel / 10) << '_' << vstd::to_string(shaderModel % 10);
@@ -87,7 +79,7 @@ CompileResult ShaderCompiler::compile(
     if (status == 0) {
         ComPtr<IDxcBlob> resultBlob;
         LC_DXC_THROW_IF_FAILED(compileResult->GetResult(resultBlob.GetAddressOf()));
-        return vstd::create_unique(new DxcByteBlob(std::move(resultBlob)));
+        return resultBlob;
     } else {
         ComPtr<IDxcBlobEncoding> errBuffer;
         LC_DXC_THROW_IF_FAILED(compileResult->GetErrorBuffer(errBuffer.GetAddressOf()));

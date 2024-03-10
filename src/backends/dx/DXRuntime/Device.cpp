@@ -128,7 +128,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             return vstd::MD5{vstd::span<uint8_t const>{reinterpret_cast<uint8_t const *>(&info), sizeof(AdapterInfo)}};
         };
 
-        vstd::optional<DirectXDeviceConfigExt::ExternalDevice> extDevice;
+        luisa::optional<DirectXDeviceConfigExt::ExternalDevice> extDevice;
         if (deviceSettings) {
             extDevice = deviceSettings->CreateExternalDevice();
         }
@@ -242,6 +242,8 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 adapter,
                 dxgiFactory,
                 &allocatorInterface,
+                fileIo,
+                gDxcCompiler->compiler(),
                 globalHeap->GetHeap(),
                 samplerHeap->GetHeap());
         }

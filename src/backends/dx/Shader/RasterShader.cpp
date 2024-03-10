@@ -335,14 +335,14 @@ RasterShader *RasterShader::CompileRaster(
             return nullptr;
         }
         auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);
-        auto GetVector = [&](hlsl::DxcByteBlob const &blob) {
+        auto GetVector = [&](ComPtr<IDxcBlob> &blob) {
             vstd::vector<std::byte> vec;
-            vec.push_back_uninitialized(blob.size());
-            memcpy(vec.data(), blob.data(), blob.size());
+            vec.push_back_uninitialized(blob->GetBufferSize());
+            memcpy(vec.data(), blob->GetBufferPointer(), blob->GetBufferSize());
             return vec;
         };
-        auto vertBin = GetVector(*compResult.vertex.get<0>());
-        auto pixelBin = GetVector(*compResult.pixel.get<0>());
+        auto vertBin = GetVector(compResult.vertex.get<0>());
+        auto pixelBin = GetVector(compResult.pixel.get<0>());
 
         if (writeCache) {
             auto serData = ShaderSerializer::RasterSerialize(
@@ -409,11 +409,13 @@ void RasterShader::SaveRaster(
         return;
     }
     auto kernelArgs = RasterShaderDetail::GetKernelArgs(vertexKernel, pixelKernel);
-    auto GetSpan = [&](hlsl::DxcByteBlob const &blob) {
-        return vstd::span<std::byte const>{blob.data(), blob.size()};
+    auto GetSpan = [&](ComPtr<IDxcBlob> &blob) {
+        return vstd::span{
+            reinterpret_cast<std::byte const*>(blob->GetBufferPointer()),
+            blob->GetBufferSize()};
     };
-    auto vertBin = GetSpan(*compResult.vertex.get<0>());
-    auto pixelBin = GetSpan(*compResult.pixel.get<0>());
+    auto vertBin = GetSpan(compResult.vertex.get<0>());
+    auto pixelBin = GetSpan(compResult.pixel.get<0>());
     uint bdlsBufferCount = 0;
     if (str.useBufferBindless) bdlsBufferCount++;
     if (str.useTex2DBindless) bdlsBufferCount++;

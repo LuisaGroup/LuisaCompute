@@ -341,12 +341,11 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
                     auto n = vstd::to_string(ele->dimension());
                     str << "_WrappedFloat"sv << n << 'x' << n;
                 } else {
-                    vstd::StringBuilder typeName;
                     if (ele->is_vector() && ele->dimension() == 3) {
-                        GetTypeName(*ele->element(), typeName, usage);
-                        typeName << '4';
+                        GetTypeName(*ele->element(), str, usage);
+                        str << '4';
                     } else {
-                        GetTypeName(*ele, typeName, usage);
+                        GetTypeName(*ele, str, usage);
                     }
                 }
                 str << '>';

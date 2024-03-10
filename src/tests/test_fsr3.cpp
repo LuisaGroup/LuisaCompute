@@ -113,7 +113,9 @@ public:
         ID3D12Device *device,
         IDXGIAdapter1 *adapter,
         IDXGIFactory2 *factory,
-        DirectXAllocator const*allocator,
+        DirectXAllocator const *allocator,
+        luisa::BinaryIO const *shaderIo,
+        IDxcCompiler3 *shaderCompiler,
         ID3D12DescriptorHeap *shaderDescriptor,
         ID3D12DescriptorHeap *samplerDescriptor) noexcept override {
         this->factory = factory;

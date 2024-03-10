@@ -3,16 +3,16 @@
 #include <luisa/runtime/context.h>
 #include <d3d12.h>
 #include <dxgi1_2.h>
-#include <luisa/vstl/common.h>
 #include <luisa/runtime/rhi/device_interface.h>
 
+struct IDxcCompiler3;
 namespace luisa::compute {
 struct DirectXHeap {
     uint64_t handle;
     ID3D12Heap *heap;
     size_t offset;
 };
-class DirectXAllocator {
+class DirectXFuncTable {
 public:
     [[nodiscard]] virtual DirectXHeap AllocateBufferHeap(
         luisa::string_view name,
@@ -20,13 +20,13 @@ public:
         D3D12_HEAP_TYPE heapType,
         D3D12_HEAP_FLAGS extraFlags) const noexcept = 0;
     [[nodiscard]] virtual DirectXHeap AllocateTextureHeap(
-        vstd::string_view name,
+        luisa::string_view name,
         size_t sizeBytes,
         bool isRenderTexture,
         D3D12_HEAP_FLAGS extraFlags) const noexcept = 0;
-    [[nodiscard]] virtual void DeAllocateHeap(uint64_t handle) const noexcept = 0;
+    virtual void DeAllocateHeap(uint64_t handle) const noexcept = 0;
 };
-struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNewBase {
+struct DirectXDeviceConfigExt : public DeviceConfigExt {
 
     struct ExternalDevice {
         ID3D12Device *device;
@@ -34,13 +34,15 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt, public vstd::IOperatorNe
         IDXGIFactory2 *factory;
     };
 
-    virtual vstd::optional<ExternalDevice> CreateExternalDevice() noexcept { return {}; }
+    virtual luisa::optional<ExternalDevice> CreateExternalDevice() noexcept { return {}; }
     // Called during create_device
     virtual void ReadbackDX12Device(
         ID3D12Device *device,
         IDXGIAdapter1 *adapter,
         IDXGIFactory2 *factory,
-        DirectXAllocator const*allocator,
+        DirectXFuncTable const *allocator,
+        luisa::BinaryIO const *shaderIo,
+        IDxcCompiler3 *shaderCompiler,
         ID3D12DescriptorHeap *shaderDescriptor,
         ID3D12DescriptorHeap *samplerDescriptor) noexcept {}
 

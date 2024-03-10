@@ -8,18 +8,8 @@
 
 namespace lc::hlsl {
 using Microsoft::WRL::ComPtr;
-class DxcByteBlob final : public vstd::IOperatorNewBase {
-private:
-    ComPtr<IDxcBlob> blob;
-
-public:
-    DxcByteBlob(Microsoft::WRL::ComPtr<IDxcBlob> &&b);
-    std::byte *data() const;
-    size_t size() const;
-};
-
 using CompileResult = vstd::variant<
-    vstd::unique_ptr<DxcByteBlob>,
+    ComPtr<IDxcBlob>,
     vstd::string>;
 struct RasterBin {
     CompileResult vertex;
@@ -29,12 +19,12 @@ class ShaderCompiler final : public vstd::IOperatorNewBase {
 private:
     std::mutex moduleInstantiateMtx;
     std::filesystem::path path;
+public:
     CompileResult compile(
         vstd::string_view code,
         vstd::span<LPCWSTR> args);
     IDxcCompiler3 *compiler();
 
-public:
     ShaderCompiler(std::filesystem::path const &path);
     ~ShaderCompiler();
     CompileResult compile_compute(

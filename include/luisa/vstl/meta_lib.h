@@ -650,7 +650,7 @@ private:
     void m_dispose() {
         if constexpr (detail::AnyMap<std::is_trivially_destructible, true>::template Run<AA...>()) {
             auto disposeFunc = [&]<typename T>(T &value) {
-                vstd::destruct(&value);
+                vstd::destruct(std::addressof(value));
             };
             visit(disposeFunc);
         }
