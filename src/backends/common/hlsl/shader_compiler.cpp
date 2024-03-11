@@ -2,15 +2,20 @@
 #include <luisa/core/dynamic_module.h>
 #include <luisa/vstl/string_utility.h>
 #include <luisa/core/logging.h>
+#include <luisa/vstl/spin_mutex.h>
 namespace lc::hlsl {
 class ShaderCompilerModule : public vstd::IOperatorNewBase {
 public:
     luisa::DynamicModule dxil;
     luisa::DynamicModule dxcCompiler;
     IDxcCompiler3 *comp;
+    IDxcLibrary *library;
+    IDxcUtils *utils;
+
     ShaderCompilerModule(std::filesystem::path const &path);
     ~ShaderCompilerModule();
 };
+vstd::spin_mutex moduleInstantiateMtx;
 static vstd::unique_ptr<ShaderCompilerModule> dxc_module;
 
 #ifndef LC_DXC_THROW_IF_FAILED
@@ -31,10 +36,13 @@ static vstd::wstring GetSM(uint shaderModel) {
     return wstr;
 }
 IDxcCompiler3 *ShaderCompiler::compiler() {
-    std::lock_guard lck{moduleInstantiateMtx};
-    if (dxc_module) return dxc_module->comp;
-    dxc_module = vstd::make_unique<ShaderCompilerModule>(path);
     return dxc_module->comp;
+}
+IDxcUtils *ShaderCompiler::utils() {
+    return dxc_module->utils;
+}
+IDxcLibrary *ShaderCompiler::library() {
+    return dxc_module->library;
 }
 ShaderCompiler::~ShaderCompiler() {
 }
@@ -52,13 +60,19 @@ ShaderCompilerModule::ShaderCompilerModule(std::filesystem::path const &path)
     (const IID &, const IID &, LPVOID *) =
         reinterpret_cast<HRESULT(WINAPI *)(const IID &, const IID &, LPVOID *)>(voidPtr);
     DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&comp));
+    DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&library));
+    DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
 }
 ShaderCompilerModule::~ShaderCompilerModule() {
     // TODO: directx-compiler may crash here
-    // comp->Release();
+    utils->Release();
+    library->Release();
+    comp->Release();
 }
-ShaderCompiler::ShaderCompiler(std::filesystem::path const &path)
-    : path(path) {}
+ShaderCompiler::ShaderCompiler(std::filesystem::path const &path) {
+    std::lock_guard lck{moduleInstantiateMtx};
+    dxc_module = vstd::make_unique<ShaderCompilerModule>(path);
+}
 CompileResult ShaderCompiler::compile(
     vstd::string_view code,
     vstd::span<LPCWSTR> args) {

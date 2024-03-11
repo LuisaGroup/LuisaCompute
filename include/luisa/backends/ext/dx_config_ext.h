@@ -1,11 +1,16 @@
 #pragma once
 
 #include <luisa/runtime/context.h>
+#ifdef byte
+#undef byte
+#endif
 #include <d3d12.h>
 #include <dxgi1_2.h>
 #include <luisa/runtime/rhi/device_interface.h>
 
 struct IDxcCompiler3;
+struct IDxcLibrary;
+struct IDxcUtils;
 namespace luisa::compute {
 struct DirectXHeap {
     uint64_t handle;
@@ -40,9 +45,11 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
         ID3D12Device *device,
         IDXGIAdapter1 *adapter,
         IDXGIFactory2 *factory,
-        DirectXFuncTable const *allocator,
+        DirectXFuncTable const *funcTable,
         luisa::BinaryIO const *shaderIo,
-        IDxcCompiler3 *shaderCompiler,
+        IDxcCompiler3 *dxcCompiler,
+        IDxcLibrary* dxcLibrary,
+        IDxcUtils *dxcUtils,
         ID3D12DescriptorHeap *shaderDescriptor,
         ID3D12DescriptorHeap *samplerDescriptor) noexcept {}
 
@@ -61,7 +68,10 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
         ID3D12CommandQueue *queue,
         ID3D12Fence *fence, uint64_t fenceIndex) noexcept { return false; }
 
-    ~DirectXDeviceConfigExt() noexcept override = default;
+    virtual ~DirectXDeviceConfigExt() noexcept override = default;
 };
 
 }// namespace luisa::compute
+#ifdef byte
+#undef byte
+#endif

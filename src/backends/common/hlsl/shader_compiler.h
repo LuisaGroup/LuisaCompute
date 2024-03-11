@@ -16,14 +16,13 @@ struct RasterBin {
     CompileResult pixel;
 };
 class ShaderCompiler final : public vstd::IOperatorNewBase {
-private:
-    std::mutex moduleInstantiateMtx;
-    std::filesystem::path path;
 public:
     CompileResult compile(
         vstd::string_view code,
         vstd::span<LPCWSTR> args);
     IDxcCompiler3 *compiler();
+    IDxcUtils *utils();
+    IDxcLibrary *library();
 
     ShaderCompiler(std::filesystem::path const &path);
     ~ShaderCompiler();

@@ -453,7 +453,7 @@ decltype(auto) get_lvalue(T &&data) {
 template<typename T>
 T *get_rval_ptr(T &&v) {
     static_assert(!std::is_lvalue_reference_v<T>, "only rvalue allowed!");
-    return &v;
+    return std::addressof(v);
 }
 template<typename T>
 decltype(auto) get_const_lvalue(T &&data) {
@@ -553,7 +553,7 @@ static Ret VisitorRet(
                 Eval,
                 std::remove_reference_t<Func>,
                 Types>...};
-    return table.begin()[id](ptr, &func, std::forward<Eval>(ret));
+    return table.begin()[id](ptr, std::addressof(func), std::forward<Eval>(ret));
 }
 template<size_t idx, VE_SUB_TEMPLATE Judger, typename Tar, typename T, typename... Args>
 static constexpr size_t IndexOfFunc() {

@@ -115,7 +115,9 @@ public:
         IDXGIFactory2 *factory,
         DirectXAllocator const *allocator,
         luisa::BinaryIO const *shaderIo,
-        IDxcCompiler3 *shaderCompiler,
+        IDxcCompiler3 *dxcCompiler,
+        IDxcLibrary *dxcLibrary,
+        IDxcUtils *dxcUtils,
         ID3D12DescriptorHeap *shaderDescriptor,
         ID3D12DescriptorHeap *samplerDescriptor) noexcept override {
         this->factory = factory;

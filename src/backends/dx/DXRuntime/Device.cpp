@@ -244,6 +244,8 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 &allocatorInterface,
                 fileIo,
                 gDxcCompiler->compiler(),
+                gDxcCompiler->library(),
+                gDxcCompiler->utils(),
                 globalHeap->GetHeap(),
                 samplerHeap->GetHeap());
         }
