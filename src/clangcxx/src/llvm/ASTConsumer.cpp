@@ -383,21 +383,32 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             FunctionBuilderBuilder bdbd(db, newStack);
             bdbd.build(cxxCallee, false);
         } else if (auto cxxBranch = llvm::dyn_cast<clang::IfStmt>(x)) {
+            // cxxBranch->getConditionVariable()->getEvaluatedStmt()->Value
             auto _ = db->CommentStmt(fb, cxxBranch);
 
             auto cxxCond = cxxBranch->getCond();
-            TraverseStmt(cxxCond);
+            auto ifConstVar = cxxCond->getIntegerConstantExpr(*db->GetASTContext());
+            if (ifConstVar) {
+                if (ifConstVar->getExtValue() != 0) {
+                    if (cxxBranch->getThen())
+                        TraverseStmt(cxxBranch->getThen());
+                } else {
+                    if (cxxBranch->getElse())
+                        TraverseStmt(cxxBranch->getElse());
+                }
+            } else {
+                TraverseStmt(cxxCond);
+                auto lcIf = fb->if_(stack->GetExpr(cxxCond));
+                fb->push_scope(lcIf->true_branch());
+                if (cxxBranch->getThen())
+                    TraverseStmt(cxxBranch->getThen());
+                fb->pop_scope(lcIf->true_branch());
 
-            auto lcIf = fb->if_(stack->GetExpr(cxxCond));
-            fb->push_scope(lcIf->true_branch());
-            if (cxxBranch->getThen())
-                TraverseStmt(cxxBranch->getThen());
-            fb->pop_scope(lcIf->true_branch());
-
-            fb->push_scope(lcIf->false_branch());
-            if (cxxBranch->getElse())
-                TraverseStmt(cxxBranch->getElse());
-            fb->pop_scope(lcIf->false_branch());
+                fb->push_scope(lcIf->false_branch());
+                if (cxxBranch->getElse())
+                    TraverseStmt(cxxBranch->getElse());
+                fb->pop_scope(lcIf->false_branch());
+            }
         } else if (auto cxxSwitch = llvm::dyn_cast<clang::SwitchStmt>(x)) {
             auto _ = db->CommentStmt(fb, cxxSwitch);
 
@@ -440,23 +451,35 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             fb->break_();
         } else if (auto cxxWhile = llvm::dyn_cast<clang::WhileStmt>(x)) {
             auto _ = db->CommentStmt(fb, cxxWhile);
-
-            auto lcWhile = fb->loop_();
-            // while (cond)
-            fb->push_scope(lcWhile->body());
-            {
-                auto cxxCond = cxxWhile->getCond();
-                TraverseStmt(cxxCond);
-                auto lcCondIf = fb->if_(stack->GetExpr(cxxCond));
-                // break
-                fb->push_scope(lcCondIf->false_branch());
-                fb->break_();
-                fb->pop_scope(lcCondIf->false_branch());
-                // body
-                auto cxxBody = cxxWhile->getBody();
-                TraverseStmt(cxxBody);
+            auto cxxCond = cxxWhile->getCond();
+            auto ifConstVar = cxxCond->getIntegerConstantExpr(*db->GetASTContext());
+            if (ifConstVar) {
+                if (ifConstVar->getExtValue() != 0) {
+                    auto lcWhile = fb->loop_();
+                    fb->push_scope(lcWhile->body());
+                    {
+                        // body
+                        auto cxxBody = cxxWhile->getBody();
+                        TraverseStmt(cxxBody);
+                    }
+                    fb->pop_scope(lcWhile->body());
+                }
+            } else {
+                auto lcWhile = fb->loop_();
+                fb->push_scope(lcWhile->body());
+                {
+                    TraverseStmt(cxxCond);
+                    auto lcCondIf = fb->if_(stack->GetExpr(cxxCond));
+                    // break
+                    fb->push_scope(lcCondIf->false_branch());
+                    fb->break_();
+                    fb->pop_scope(lcCondIf->false_branch());
+                    // body
+                    auto cxxBody = cxxWhile->getBody();
+                    TraverseStmt(cxxBody);
+                }
+                fb->pop_scope(lcWhile->body());
             }
-            fb->pop_scope(lcWhile->body());
         } else if (auto cxxFor = llvm::dyn_cast<clang::ForStmt>(x)) {
             auto _ = db->CommentStmt(fb, cxxFor);
 

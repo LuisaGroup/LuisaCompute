@@ -1,5 +1,5 @@
-#include "luisa-shader/std.hpp"
-#include "luisa-shader/resources/bindless_array.hpp"
+#include "luisa/std.hpp"
+#include "luisa/resources/bindless_array.hpp"
 
 using namespace luisa::shader;
 

@@ -11,10 +11,10 @@ struct v2p {
     [[POSITION]] float4 position;
     float2 uv;
     float4 color;
+    v2p(float4 position) : position(position) {}
 };
 [[VERTEX_SHADER]] v2p vert(Appdata data, float time) {
-    v2p o;
-    o.position = float4(data.positon, 1.f);
+    v2p o{float4(data.positon, 1.f)};
     if (data.vert_id >= 3) {
         o.position.y += sin(time) * 0.1f;
         o.color = float4(0.3f, 0.6f, 0.7f, 1.0f);
