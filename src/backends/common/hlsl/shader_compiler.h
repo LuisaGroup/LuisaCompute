@@ -7,6 +7,17 @@
 #include <luisa/core/platform.h>
 
 namespace lc::hlsl {
+class ShaderCompilerModule : public vstd::IOperatorNewBase {
+public:
+    luisa::DynamicModule dxil;
+    luisa::DynamicModule dxcCompiler;
+    IDxcCompiler3 *comp;
+    IDxcLibrary *library;
+    IDxcUtils *utils;
+
+    ShaderCompilerModule(std::filesystem::path const &path);
+    ~ShaderCompilerModule();
+};
 using Microsoft::WRL::ComPtr;
 using CompileResult = vstd::variant<
     ComPtr<IDxcBlob>,
@@ -16,6 +27,7 @@ struct RasterBin {
     CompileResult pixel;
 };
 class ShaderCompiler final : public vstd::IOperatorNewBase {
+    ShaderCompilerModule compiler_module;
 public:
     CompileResult compile(
         vstd::string_view code,
