@@ -6,6 +6,1230 @@
 namespace luisa::compute::cuda::lcub{
 // DOC:  https://nvlabs.github.io/cub/structcub_1_1_device_radix_sort.html
 
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairs(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairs(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairs(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairs(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint32_t>  d_keys_in, BufferView<uint32_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<int64_t>  d_keys_in, BufferView<int64_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<uint64_t>  d_keys_in, BufferView<uint64_t>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<float>  d_keys_in, BufferView<float>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<int32_t>  d_values_in, BufferView<int32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<uint32_t>  d_values_in, BufferView<uint32_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<int64_t>  d_values_in, BufferView<int64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<uint64_t>  d_values_in, BufferView<uint64_t>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<float>  d_values_in, BufferView<float>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
+void DeviceRadixSort::SortPairsDescending(size_t &temp_storage_size, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    inner(temp_storage_size, [&](size_t& temp_storage_bytes) {
+    return dcub::DeviceRadixSort::SortPairsDescending(nullptr, raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), nullptr);
+    });
+}
+
+DeviceRadixSort::UCommand DeviceRadixSort::SortPairsDescending(BufferView<int> d_temp_storage, BufferView<double>  d_keys_in, BufferView<double>  d_keys_out, BufferView<double>  d_values_in, BufferView<double>  d_values_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
+    using namespace details;
+    return luisa::make_unique<luisa::compute::cuda::CudaLCubCommand>([=](cudaStream_t stream) {
+        inner(d_temp_storage, [&](size_t& temp_storage_bytes) {
+            return dcub::DeviceRadixSort::SortPairsDescending(raw(d_temp_storage), raw(temp_storage_bytes), raw(d_keys_in), raw(d_keys_out), raw(d_values_in), raw(d_values_out), raw(num_items), raw(begin_bit), raw(end_bit), raw(stream));
+        });
+    });
+}
+
+
 void DeviceRadixSort::SortKeys(size_t &temp_storage_size, BufferView<int32_t>  d_keys_in, BufferView<int32_t>  d_keys_out, int  num_items, int  begin_bit, int  end_bit) noexcept {
     using namespace details;
     inner(temp_storage_size, [&](size_t& temp_storage_bytes) {

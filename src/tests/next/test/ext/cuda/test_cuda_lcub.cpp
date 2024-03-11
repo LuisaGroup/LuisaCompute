@@ -2,8 +2,8 @@
 /**
  * @file src/tests/next/tset/ext/dx/test_dml.cpp
  * @author sailing-innocent, on MuGdxy's previous work on 7/26/2023.
- * @date 2023/11/03
- * @brief the directML test suite
+ * @date 2023-11-03
+ * @brief the CUDA LCUB test
 */
 
 #include "common/config.h"

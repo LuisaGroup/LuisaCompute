@@ -11,7 +11,7 @@ dcub = dcub_template.template(website)
 DeviceRadixSort = Class(class_name)
 DeviceRadixSort.set_template(dcub)
 
-key_value_types = itertools.product(value_types, value_types)
+key_value_types = list(itertools.product(value_types, value_types))
 
 # template<typename KeyT , typename ValueT , typename NumItemsT >
 # static CUB_RUNTIME_FUNCTION
@@ -37,8 +37,12 @@ TEMP.set_template(dcub)
 SortPairs = TEMP.rename("SortPairs")
 SortPairsDescending = TEMP.rename("SortPairsDescending")
 
-DeviceRadixSort.add_funcs([ SortPairs.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types])
+sortpairs_inst = [ SortPairs.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types]
+
+DeviceRadixSort.add_funcs(sortpairs_inst)
 DeviceRadixSort.add_funcs([ SortPairsDescending.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types])
+
+
 
 # template<typename KeyT , typename NumItemsT >
 # static CUB_RUNTIME_FUNCTION
@@ -63,6 +67,13 @@ DeviceRadixSort.add_funcs([ SortKeysDescending.instantiate([("$I$", k) for k in 
 
 DeviceRadixSort.write(src_ext=".cu", folder="../private/dcub/")
 
+
+#
+#
+# GENERATE HEADER FILES
+#
+#
+
 lcub = lcub_template.template(website)
 DeviceRadixSort = Class(class_name)
 DeviceRadixSort.set_template(lcub)
@@ -86,7 +97,6 @@ SortPairsDescending = TEMP.rename("SortPairsDescending")
 
 DeviceRadixSort.add_funcs([ SortPairs.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types])
 DeviceRadixSort.add_funcs([ SortPairsDescending.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types])
-
 
 TEMP = Func("", Ret(), 
             [
