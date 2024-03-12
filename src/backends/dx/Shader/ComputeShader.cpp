@@ -10,8 +10,7 @@ static const bool PRINT_CODE = ([] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
     if (env == nullptr) {
-        LUISA_ERROR("fuck");
-    return false;
+        return false;
     }
     return std::string_view{env} == "1";
 })();
