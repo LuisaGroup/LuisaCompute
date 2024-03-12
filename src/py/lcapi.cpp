@@ -195,16 +195,6 @@ PYBIND11_MODULE(lcapi, m) {
         .value("REPEAT", Sampler::Address::REPEAT)
         .value("MIRROR", Sampler::Address::MIRROR)
         .value("ZERO", Sampler::Address::ZERO);
-    py::enum_<VertexElementFormat>(m, "VertexElementFormat")
-        .value("XYZW8UNorm", VertexElementFormat::XYZW8UNorm)
-        .value("XY16UNorm", VertexElementFormat::XY16UNorm)
-        .value("XYZW16UNorm", VertexElementFormat::XYZW16UNorm)
-        .value("XY16Float", VertexElementFormat::XY16Float)
-        .value("XYZW16Float", VertexElementFormat::XYZW16Float)
-        .value("X32Float", VertexElementFormat::X32Float)
-        .value("XY32Float", VertexElementFormat::XY32Float)
-        .value("XYZ32Float", VertexElementFormat::XYZ32Float)
-        .value("XYZW32Float", VertexElementFormat::XYZW32Float);
     py::enum_<VertexAttributeType>(m, "VertexAttributeType")
         .value("Position", VertexAttributeType::Position)
         .value("Normal", VertexAttributeType::Normal)

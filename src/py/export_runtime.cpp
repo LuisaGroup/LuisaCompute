@@ -189,15 +189,15 @@ public:
 };
 
 void export_runtime(py::module &m) {
-    py::class_<ManagedMeshFormat>(m, "MeshFormat")
-        .def(py::init<>())
-        .def("add_attribute", [](ManagedMeshFormat &fmt, VertexAttributeType type, VertexElementFormat format) {
-            fmt.attributes.emplace_back(VertexAttribute{.type = type, .format = format});
-        })
-        .def("add_stream", [](ManagedMeshFormat &fmt) {
-            fmt.format.emplace_vertex_stream(fmt.attributes);
-            fmt.attributes.clear();
-        });
+    // py::class_<ManagedMeshFormat>(m, "MeshFormat")
+    //     .def(py::init<>())
+    //     .def("add_attribute", [](ManagedMeshFormat &fmt, VertexAttributeType type, VertexElementFormat format) {
+    //         fmt.attributes.emplace_back(VertexAttribute{.type = type, .format = format});
+    //     })
+    //     .def("add_stream", [](ManagedMeshFormat &fmt) {
+    //         fmt.format.emplace_vertex_stream(fmt.attributes);
+    //         fmt.attributes.clear();
+    //     });
     py::class_<ResourceCreationInfo>(m, "ResourceCreationInfo")
         .def(py::init<>())
         .def("handle", [](ResourceCreationInfo &self) { return self.handle; })

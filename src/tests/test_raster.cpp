@@ -61,11 +61,11 @@ int main(int argc, char *argv[]) {
     auto clear_shader = device.compile(clear_kernel);
     MeshFormat mesh_format;
     VertexAttribute attributes[] = {
-        {VertexAttributeType::Position, VertexElementFormat::XYZW32Float},
-        {VertexAttributeType::Normal, VertexElementFormat::XYZW32Float},
-        {VertexAttributeType::Tangent, VertexElementFormat::XYZW32Float},
-        {VertexAttributeType::UV0, VertexElementFormat::XY32Float},
-        {VertexAttributeType::Color, VertexElementFormat::XY32Float},
+        {VertexAttributeType::Position, PixelFormat::RGBA32F},
+        {VertexAttributeType::Normal, PixelFormat::RGBA32F},
+        {VertexAttributeType::Tangent, PixelFormat::RGBA32F},
+        {VertexAttributeType::UV0, PixelFormat::RG32F},
+        {VertexAttributeType::Color, PixelFormat::RG32F},
     };
     mesh_format.emplace_vertex_stream(attributes);
     static constexpr uint width = 1024;

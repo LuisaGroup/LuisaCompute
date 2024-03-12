@@ -66,46 +66,7 @@ void RasterShader::GetMeshFormatState(
         auto vec = meshFormat.attributes(i);
         for (auto &&attr : vec) {
             size_t size;
-            DXGI_FORMAT format;
-            switch (attr.format) {
-                case VertexElementFormat::XYZW8UNorm:
-                    size = 4;
-                    format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                    break;
-                case VertexElementFormat::XY16UNorm:
-                    size = 4;
-                    format = DXGI_FORMAT_R16G16_UNORM;
-                    break;
-                case VertexElementFormat::XYZW16UNorm:
-                    size = 8;
-                    format = DXGI_FORMAT_R16G16B16A16_UNORM;
-                    break;
-
-                case VertexElementFormat::XY16Float:
-                    size = 4;
-                    format = DXGI_FORMAT_R16G16_FLOAT;
-                    break;
-                case VertexElementFormat::XYZW16Float:
-                    size = 8;
-                    format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-                    break;
-                case VertexElementFormat::X32Float:
-                    size = 4;
-                    format = DXGI_FORMAT_R32_FLOAT;
-                    break;
-                case VertexElementFormat::XY32Float:
-                    size = 8;
-                    format = DXGI_FORMAT_R32G32_FLOAT;
-                    break;
-                case VertexElementFormat::XYZ32Float:
-                    size = 12;
-                    format = DXGI_FORMAT_R32G32B32_FLOAT;
-                    break;
-                case VertexElementFormat::XYZW32Float:
-                    size = 16;
-                    format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-                    break;
-            }
+            auto format = static_cast<DXGI_FORMAT>(TextureBase::ToGFXFormat(attr.format));
             auto &offset = offsets[i];
             inputLayout.emplace_back(D3D12_INPUT_ELEMENT_DESC{
                 .SemanticName = SemanticName.begin()[static_cast<uint>(attr.type)],

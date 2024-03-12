@@ -30,6 +30,10 @@ _config_project({
 })
 add_headerfiles("../ext/imgui/*.h", "../ext/imgui/backends/*.h")
 add_files("../ext/imgui/*.cpp", "../ext/imgui/backends/imgui_impl_glfw.cpp")
+if get_config("dx_backend") then
+    add_files("../ext/imgui/backends/imgui_impl_dx12.cpp", "../ext/imgui/backends/imgui_impl_win32.cpp")
+    add_syslinks("D3D12", "dxgi", {public = true})
+end
 add_includedirs("../ext/imgui", "../ext/imgui/backends", {
     public = true
 })
@@ -48,6 +52,6 @@ add_files("*.cpp")
 add_defines("LC_GUI_EXPORT_DLL", "GLFW_DLL")
 add_deps("glfw", "lc-runtime", "imgui")
 if is_plat("windows") then
-    add_defines("IMGUI_API=__declspec(dllimport)")
+    add_defines("IMGUI_API=__declspec(dllimport)", {public = true})
 end
 target_end()

@@ -124,4 +124,5 @@ int main(int argc, char *argv[]) {
 
         window.render_frame();
     }
+    stream.synchronize();
 }
