@@ -375,13 +375,17 @@ public:
     ~Impl() noexcept {
         _stream.synchronize();
         _with_context([] {
+            // to inform ImGui that the renderer is shutdown
+            auto &io = ImGui::GetIO();
+            io.BackendRendererName = nullptr;
+            io.BackendRendererUserData = nullptr;
+            io.BackendFlags &= ~(ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasViewports);
             ImGui_ImplGlfw_Shutdown();
         });
         ImGui::DestroyContext(_context);
-        LUISA_ASSERT(_platform_swapchains.empty() &&
-                         _platform_framebuffers.empty(),
-                     "Some ImGui windows are not destroyed.");
         _stream.synchronize();
+        _platform_swapchains.clear();
+        _platform_framebuffers.clear();
         _main_swapchain = {};
         _main_framebuffer = {};
         glfwDestroyWindow(_main_window);
