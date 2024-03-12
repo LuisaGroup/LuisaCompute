@@ -40,9 +40,8 @@ on_load(function(target)
     if is_plat("windows") then
         target:add("defines", "_CRT_SECURE_NO_WARNINGS")
     end
-    target:add("deps", "eastl", "spdlog")
+    target:add("deps", "eastl", "spdlog", "lc-check-winsdk")
 end)
 add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp", "../ext/half/include/half.hpp") -- , "../ext/parallel-hashmap/**.h"
 add_files("**.cpp")
-add_rules("lc-check-winsdk")
 target_end()

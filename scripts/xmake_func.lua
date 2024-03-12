@@ -264,12 +264,17 @@ on_load(function(target)
 end)
 rule_end()
 
-rule("lc-check-winsdk")
+target("lc-check-winsdk")
+set_kind("phony")
 on_config(function(target)
     if not is_plat("windows") then
         return
     end
-    local sdk_version = target:toolchain(get_config("toolchain")):runenvs().WindowsSDKVersion
+    local toolchain = get_config("toolchain")
+    if not toolchain then
+        toolchain = "msvc"
+    end
+    local sdk_version = target:toolchain(toolchain):runenvs().WindowsSDKVersion
     local legal_sdk = false
     if sdk_version then
         local lib = import("lib")
@@ -290,7 +295,7 @@ on_config(function(target)
         os.raise("Illegal windows SDK version, requires 10.0.22000.0 or later")
     end
 end)
-rule_end()
+target_end()
 rule("build_cargo")
 set_extensions(".toml")
 on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
