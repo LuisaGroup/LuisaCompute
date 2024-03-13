@@ -15,11 +15,13 @@ struct v2p {
 };
 [[VERTEX_SHADER]] v2p vert(Appdata data, float time) {
     v2p o{float4(data.positon, 1.f)};
-    if (data.vert_id >= 3) {
+    if (object_id() == 114514) {
         o.position.y += sin(time) * 0.1f;
         o.color = float4(0.3f, 0.6f, 0.7f, 1.0f);
-    } else {
+    } else if (object_id() == 1919810) {
         o.color = float4(0.7f, 0.6f, 0.3f, 1.0f);
+    } else {
+        o.color = float4();
     }
     o.uv = float2(0.5);
     return o;

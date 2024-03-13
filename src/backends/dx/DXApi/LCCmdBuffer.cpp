@@ -922,7 +922,7 @@ public:
                             .SizeInBytes = static_cast<uint>(i.size_bytes()),
                             .Format = DXGI_FORMAT_R32_UINT};
                         cmdList->IASetIndexBuffer(&idx);
-                        cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, 0, 0);
+                        cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, mesh.vertex_offset(), 0);
                     }
                 },
                 i);

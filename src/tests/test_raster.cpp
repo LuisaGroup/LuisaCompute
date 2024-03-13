@@ -14,7 +14,6 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/backends/ext/raster_ext.hpp>
-
 using namespace luisa;
 using namespace luisa::compute;
 struct v2p {
@@ -91,9 +90,9 @@ int main(int argc, char *argv[]) {
     vertices[5].pos = {0.2f, -0.5f, 0.3f};
 
     Buffer<Vertex> vert_buffer = device.create_buffer<Vertex>(6);
-    Buffer<uint> idx_buffer = device.create_buffer<uint>(6);
-    uint indices[6] = {
-        0, 1, 2, 3, 4, 5};
+    Buffer<uint> idx_buffer = device.create_buffer<uint>(3);
+    uint indices[3] = {
+        0, 1, 2};
     stream << vert_buffer.copy_from(vertices)
            << idx_buffer.copy_from(indices);
     VertexBufferView vert_buffer_view{vert_buffer};
@@ -110,7 +109,8 @@ int main(int argc, char *argv[]) {
     while (!window.should_close()) {
         float time = clock.toc() / 1000.0f;
         // add triangle mesh
-        meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 0);
+        meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 114514);
+        meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 1919810, 3);
         stream
             // clear depth buffer
             << clear_shader(out_img).dispatch(width, height)
