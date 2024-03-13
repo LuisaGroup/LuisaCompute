@@ -15,7 +15,7 @@ Flagged = Func("Flagged", Ret(),
                     Arg("const $T$*", "d_in"),
                     Arg("const $I$*", "d_flags"),
                     Arg("$T$*", "d_out"),
-                    Arg("$I$*", "d_num_selected_out"),
+                    Arg("std::size_t*", "d_num_selected_out"),
                     Arg("int", "num_items")
                 ])
 Flagged.set_template(dcub)
@@ -37,11 +37,11 @@ Unique = Func("Unique", Ret(),
                 [ 
                     Arg("const $I$*", "d_in"),
                     Arg("$I$*", "d_out"),
-                    Arg("$I$*", "d_num_selected_out"),
+                    Arg("std::size_t*", "d_num_selected_out"),
                     Arg("int", "num_items")
                 ])
 Unique.set_template(dcub)
-DeviceSelect.add_funcs([ Unique.instantiate([("$I$", id_type)])])
+DeviceSelect.add_funcs([ Unique.instantiate([("$I$", v)]) for v in value_types ])
 
 DeviceSelect.write(src_ext=".cu", folder="../private/dcub/")
 
@@ -59,7 +59,7 @@ Flagged = Func("Flagged", Ret(),
                     ar.clone("BufferView<$T$>", "d_in"),
                     ar.clone("BufferView<$I$>", "d_flags"),
                     ar.clone("BufferView<$T$>", "d_out"),
-                    ar.clone("BufferView<$I$>", "d_num_selected_out"),
+                    ar.clone("BufferView<std::size_t>", "d_num_selected_out"),
                     ar.clone("int", "num_items")
                 ])
 Flagged.set_template(lcub)
@@ -81,10 +81,10 @@ Unique = Func("Unique", Ret(),
                 [ 
                     ar.clone("BufferView<$I$>", "d_in"),
                     ar.clone("BufferView<$I$>", "d_out"),
-                    ar.clone("BufferView<$I$>", "d_num_selected_out"),
+                    ar.clone("BufferView<std::size_t>", "d_num_selected_out"),
                     ar.clone("int", "num_items")
                 ])
 Unique.set_template(lcub)
-DeviceSelect.add_funcs([ Unique.instantiate([("$I$", id_type)])])
+DeviceSelect.add_funcs([ Unique.instantiate([("$I$", v)]) for v in value_types ])
 
 DeviceSelect.write(folder="../")

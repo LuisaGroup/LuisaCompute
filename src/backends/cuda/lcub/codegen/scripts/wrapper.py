@@ -168,7 +168,7 @@ class Func:
                         ("$RETURN_CAST$", self.ret.cast)
                     ])
     
-    def instantiate(self, type_pairs:list[(str,str)]):
+    def instantiate(self, type_pairs:list[tuple[str,str]]):
         # deep copy itself to a new func
         new_func = copy.deepcopy(self)
         new_func.name = Util.Replace(new_func.name, type_pairs)
