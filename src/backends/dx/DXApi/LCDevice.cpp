@@ -305,7 +305,9 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         mask |= (1 << 1);
     }
     // use default control flow
+    constexpr uint compiler_version = 202403u; // dxc version at march 2024
     mask |= (1 << 2);
+    mask |= compiler_version << 3u;
     auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false);
     if (option.compile_only) {
         assert(!option.name.empty());
