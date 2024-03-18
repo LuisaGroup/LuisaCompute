@@ -65,9 +65,10 @@ void RasterShader::GetMeshFormatState(
     for (auto i : vstd::range(meshFormat.vertex_stream_count())) {
         auto vec = meshFormat.attributes(i);
         for (auto &&attr : vec) {
-            size_t size;
+            size_t size = pixel_format_size(attr.format, uint3(1,1,1));
             auto format = static_cast<DXGI_FORMAT>(TextureBase::ToGFXFormat(attr.format));
             auto &offset = offsets[i];
+            offset = CalcAlign(offset, pixel_format_align(attr.format));
             inputLayout.emplace_back(D3D12_INPUT_ELEMENT_DESC{
                 .SemanticName = SemanticName.begin()[static_cast<uint>(attr.type)],
                 .SemanticIndex = SemanticIndex.begin()[static_cast<uint>(attr.type)],

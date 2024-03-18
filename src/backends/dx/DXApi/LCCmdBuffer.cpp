@@ -914,7 +914,7 @@ public:
             luisa::visit(
                 [&]<typename T>(T const &i) {
                     if constexpr (std::is_same_v<T, uint>) {
-                        cmdList->DrawInstanced(i, mesh.instance_count(), 0, 0);
+                        cmdList->DrawInstanced(i, mesh.instance_count(), mesh.vertex_offset(), 0);
                     } else {
                         auto bf = reinterpret_cast<Buffer *>(i.handle());
                         D3D12_INDEX_BUFFER_VIEW idx{

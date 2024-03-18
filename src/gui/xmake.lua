@@ -40,6 +40,7 @@ add_includedirs("../ext/imgui", "../ext/imgui/backends", {
 if is_plat("windows") then
     add_defines("IMGUI_API=__declspec(dllexport)")
 end
+add_defines("ImDrawIdx=unsigned int", {public = true})
 add_deps("glfw", "lc-dsl")
 target_end()
 

@@ -78,10 +78,12 @@ public:
         luisa::span<VertexBufferView const> vertex_buffers,
         uint vertex_count,
         uint instance_count,
-        uint object_id) noexcept
+        uint object_id,
+        int vertex_offset = 0) noexcept
         : _index_buffer(vertex_count),
           _instance_count(instance_count),
-          _object_id(object_id) {
+          _object_id(object_id),
+          _vertex_offset(vertex_offset) {
         _vertex_buffers.push_back_uninitialized(vertex_buffers.size());
         std::memcpy(_vertex_buffers.data(), vertex_buffers.data(), vertex_buffers.size_bytes());
     }

@@ -24,9 +24,12 @@ on_load(function(target)
 		path.join(lc_dir,"src/ext/EASTL/include"), path.join(lc_dir,"src/ext/EASTL/packages/EABase/include/Common"),
 		--[[lc-core]]
 		path.join(lc_dir,"include"), path.join(lc_dir,"src/ext/xxHash"), path.join(lc_dir,"src/ext/magic_enum/include"),
+		--[[imgui]]
+		path.join(lc_dir, "src/ext/imgui"), path.join(lc_dir, "src/ext/imgui/backends"),
 		{
 			public = is_public
-		})
+		}
+	)
 	if is_plat("windows") then
 		target:add("syslinks", "Ole32", "Advapi32", {
 			public = is_public
@@ -66,8 +69,13 @@ on_load(function(target)
 		"EASTL_INLINE_VARIABLE_ENABLED", "EASTL_HAVE_CPP11_TYPE_TRAITS", "EASTL_INLINE_NAMESPACES_ENABLED",
 		"EASTL_ALLOCATOR_EXPLICIT_ENABLED", "EASTL_USER_DEFINED_ALLOCATOR", "EA_DLL",
 		"LUISA_VSTL_STATIC_LIB", "LUISA_DSL_STATIC_LIB",
+	--[[imgui]]
+		"ImDrawIdx=unsigned int", "IMGUI_API=__declspec(dllimport)",
 	{
 		public = is_public
 	})
+	if is_plat("windows") then
+		target:add("defines", "IMGUI_API=__declspec(dllimport)", {public = is_public})
+	end
 end)
 rule_end()

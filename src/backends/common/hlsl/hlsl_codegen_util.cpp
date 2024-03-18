@@ -1990,6 +1990,7 @@ CodegenUtility::CodegenUtility() {
     attributes.try_emplace("position", "POSITION", nullptr);
     attributes.try_emplace("normal", "NORMAL", nullptr);
     attributes.try_emplace("tangent", "TANGENT", nullptr);
+    attributes.try_emplace("color", "COLOR", nullptr);
     attributes.try_emplace("uv0", "TEXCOORD0", nullptr);
     attributes.try_emplace("uv1", "TEXCOORD1", nullptr);
     attributes.try_emplace("uv2", "TEXCOORD2", nullptr);
