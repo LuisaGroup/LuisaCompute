@@ -5,7 +5,7 @@
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/functional.h>
 #include <luisa/gui/input.h>
-
+struct GLFWwindow;
 namespace luisa::compute {
 
 class LC_GUI_API Window {
@@ -35,6 +35,7 @@ public:
     Window &operator=(Window &&) noexcept = default;
     Window &operator=(const Window &) noexcept = delete;
 
+    [[nodiscard]] GLFWwindow *window() const noexcept;
     [[nodiscard]] uint64_t native_handle() const noexcept;
     [[nodiscard]] bool should_close() const noexcept;
     void set_should_close(bool should_close = true) noexcept;
@@ -53,4 +54,3 @@ public:
 };
 
 }// namespace luisa::compute
-

@@ -107,6 +107,10 @@ Window::Window(string name, uint width, uint height, bool resizable, bool full_s
 
 Window::~Window() noexcept = default;
 
+GLFWwindow *Window::window() const noexcept {
+    return static_cast<detail::WindowImpl *>(_impl.get())->window;
+}
+
 uint64_t Window::native_handle() const noexcept {
     return static_cast<detail::WindowImpl *>(_impl.get())->window_handle;
 }
@@ -157,4 +161,3 @@ bool Window::is_mouse_button_down(MouseButton mb) const noexcept {
 }
 
 }// namespace luisa::compute
-
