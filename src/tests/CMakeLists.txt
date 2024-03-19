@@ -190,7 +190,7 @@ if (LUISA_COMPUTE_TEST_QT_INTEROP)
             find_package(Qt5 COMPONENTS Widgets Core Gui QUIET CONFIG)
         endif ()
 
-        if (Qt6_FOUND OR Qt5_FOUND)
+        if ((Qt6_FOUND OR Qt5_FOUND) AND TARGET Qt::Widgets AND TARGET Qt::Core AND TARGET Qt::Gui)
             message(STATUS "Found Qt")
             luisa_compute_add_executable(test_swapchain_qt test_swapchain_qt.cpp)
             target_link_libraries(test_swapchain_qt PRIVATE Qt::Widgets Qt::Core Qt::Gui)
