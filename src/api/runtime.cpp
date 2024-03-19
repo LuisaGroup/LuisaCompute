@@ -779,6 +779,7 @@ LUISA_EXPORT_API LCDeviceInterface luisa_compute_device_interface_create(LCConte
     LCDeviceInterface interface{};
     auto device = luisa_compute_device_create(ctx, name, config);
     interface.device = device;
+    interface.native_handle = luisa_compute_device_native_handle;
     interface.destroy_device = luisa_compute_device_interface_destroy;
     interface.create_buffer = luisa_compute_buffer_create;
     interface.destroy_buffer = luisa_compute_buffer_destroy;
