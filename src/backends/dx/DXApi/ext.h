@@ -161,6 +161,10 @@ public:
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
 #ifdef LCDX_ENABLE_CUDA
+
+// see implementation in cuda_interop.cpp
+[[nodiscard]] int getCudaDeviceForD3D12Device(ID3D12Device *d3d12Device) noexcept;
+
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
 
     CUcontext cuContext{};

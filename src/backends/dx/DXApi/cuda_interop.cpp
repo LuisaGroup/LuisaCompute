@@ -20,6 +20,7 @@
             const char *err_string = nullptr;            \
             cuGetErrorName(ec, &err_name);               \
             cuGetErrorString(ec, &err_string);           \
+            if (!err_string) { err_string = "unknown"; } \
             LUISA_ERROR_WITH_LOCATION(                   \
                 "{}: {}", err_name, err_string);         \
         }                                                \
@@ -278,7 +279,15 @@ DeviceInterface *DxCudaInteropImpl::device() {
     return &_device;
 }
 
-int getCudaDeviceForD3D12Device(ID3D12Device *d3d12Device) {
+static void initialize_cuda() noexcept {
+    static std::once_flag flag;
+    std::call_once(flag, [] {
+        LUISA_CHECK_CUDA(cuInit(0));
+    });
+}
+
+[[nodiscard]] int getCudaDeviceForD3D12Device(ID3D12Device *d3d12Device) noexcept {
+    initialize_cuda();
     LUID d3d12Luid = d3d12Device->GetAdapterLuid();
     int cudaDeviceCount = 0;
     LUISA_CHECK_CUDA(cuDeviceGetCount(&cudaDeviceCount));
@@ -296,7 +305,6 @@ int getCudaDeviceForD3D12Device(ID3D12Device *d3d12Device) {
 }
 
 DxCudaInteropImpl::DxCudaInteropImpl(LCDevice &device) noexcept : _device{device} {
-    LUISA_CHECK_CUDA(cuInit(0));
     auto d3d12_device = device.nativeDevice.device.Get();
     auto cuda_device = getCudaDeviceForD3D12Device(d3d12_device);
     LUISA_CHECK_CUDA(cuDeviceGet(&cuDevice, cuda_device));
