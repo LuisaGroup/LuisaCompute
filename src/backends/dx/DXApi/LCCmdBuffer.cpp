@@ -452,7 +452,8 @@ public:
             cmd->texture_offset(),
             cmd->size(),
             cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
+            CommandBufferBuilder::BufferTextureCopy::BufferToTexture,
+            true);
     }
 
     struct Visitor {
@@ -643,7 +644,8 @@ public:
             cmd->offset(),
             cmd->size(),
             cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
+            CommandBufferBuilder::BufferTextureCopy::BufferToTexture,
+            false);
     }
     void visit(const ClearDepthCommand *cmd) noexcept {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
@@ -706,7 +708,8 @@ public:
             cmd->offset(),
             cmd->size(),
             cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
+            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer,
+            false);
     }
     void visit(const TextureCopyCommand *cmd) noexcept override {
         auto src = reinterpret_cast<TextureBase *>(cmd->src_handle());
@@ -728,7 +731,8 @@ public:
             cmd->texture_offset(),
             cmd->size(),
             cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
+            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer,
+            true);
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
