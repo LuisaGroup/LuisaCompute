@@ -180,4 +180,5 @@ void DefaultBinaryIO::clear_shader_cache() const noexcept {
     }
     new (std::launder(&_cache_lmdb)) vstd::LMDB{_cache_dir};
 }
+
 }// namespace luisa::compute

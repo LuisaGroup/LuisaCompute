@@ -10,6 +10,10 @@
 #include <luisa/core/dynamic_module.h>
 #include <dstorage/dstorage.h>
 #include "../d3dx12.h"
+#ifdef LCDX_ENABLE_CUDA
+#include <cuda.h>
+#endif
+
 using Microsoft::WRL::ComPtr;
 
 namespace lc::dx {
@@ -157,11 +161,19 @@ public:
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
 #ifdef LCDX_ENABLE_CUDA
+
+// see implementation in cuda_interop.cpp
+[[nodiscard]] int getCudaDeviceForD3D12Device(ID3D12Device *d3d12Device) noexcept;
+
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
+
+    CUcontext cuContext{};
+    CUdevice cuDevice{};
     LCDevice &_device;
 
 public:
     DxCudaInteropImpl(LCDevice &device) noexcept;
+    ~DxCudaInteropImpl() noexcept override;
     BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
     ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
