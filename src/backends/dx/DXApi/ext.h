@@ -169,8 +169,12 @@ public:
         uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept override;
     void cuda_buffer(uint64_t dx_buffer, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept override;
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
-    uint64_t cuda_event(uint64_t dx_event) noexcept override;
-    virtual DeviceInterface *device() override;
+    uint64_t cuda_event(uint64_t dx_event_handle) noexcept override;
+    void destroy_cuda_event(uint64_t cuda_event_handle) noexcept override;
+    void cuda_signal(DeviceInterface *device, uint64_t stream_handle, uint64_t event_handle, uint64_t fence) noexcept override;
+    void cuda_wait(DeviceInterface *device, uint64_t stream_handle, uint64_t event_handle, uint64_t fence) noexcept override;
+    ResourceCreationInfo create_interop_event() noexcept override;
+    DeviceInterface *device() override;
     void unmap(void *cuda_ptr, void *cuda_handle) noexcept override;
 };
 #endif

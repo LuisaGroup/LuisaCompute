@@ -2,11 +2,11 @@
 #include <DXRuntime/CommandQueue.h>
 #include <DXRuntime/DStorageCommandQueue.h>
 namespace lc::dx {
-LCEvent::LCEvent(Device *device)
+LCEvent::LCEvent(Device *device, bool shared)
     : Resource(device) {
     ThrowIfFailed(device->device->CreateFence(
         0,
-        D3D12_FENCE_FLAG_NONE,
+        shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE,
         IID_PPV_ARGS(&fence)));
 }
 LCEvent::~LCEvent() {

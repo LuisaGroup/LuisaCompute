@@ -18,9 +18,13 @@ Event Device::create_event() noexcept {
     return _create<Event>();
 }
 
+Event::Event(DeviceInterface *device, const ResourceCreationInfo &info) noexcept
+    : Resource{device, Tag::EVENT, info},
+      _fence{0u} {
+}
+
 Event::Event(DeviceInterface *device) noexcept
-    : Resource{device, Tag::EVENT, device->create_event()},
-      _fence{0u} {}
+    : Event{device, device->create_event()} {}
 
 Event::Event(Event &&rhs) noexcept
     : Resource{std::move(rhs)},
@@ -58,8 +62,12 @@ TimelineEvent Device::create_timeline_event() noexcept {
     return _create<TimelineEvent>();
 }
 
+TimelineEvent::TimelineEvent(DeviceInterface *device, const ResourceCreationInfo &info) noexcept
+    : Resource{device, Tag::EVENT, info} {
+}
+
 TimelineEvent::TimelineEvent(DeviceInterface *device) noexcept
-    : Resource{device, Tag::EVENT, device->create_event()} {}
+    : TimelineEvent{device, device->create_event()} {}
 
 TimelineEvent::~TimelineEvent() noexcept {
     if (*this) { device()->destroy_event(handle()); }

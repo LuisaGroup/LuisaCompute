@@ -27,8 +27,10 @@ public:
 
 private:
     friend class Device;
+    friend class DxCudaInterop;
     mutable std::atomic_uint64_t _fence;
     explicit Event(DeviceInterface *device) noexcept;
+    explicit Event(DeviceInterface *device, const ResourceCreationInfo &info) noexcept;
 
 public:
     Event() noexcept = default;
@@ -59,6 +61,8 @@ public:
 
 private:
     friend class Device;
+    friend class DxCudaInterop;
+    explicit TimelineEvent(DeviceInterface *device, const ResourceCreationInfo &info) noexcept;
     explicit TimelineEvent(DeviceInterface *device) noexcept;
 
 public:

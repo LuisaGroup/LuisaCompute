@@ -11,6 +11,7 @@
 #include <luisa/runtime/dispatch_buffer.h>
 #include <Shader/ComputeShader.h>
 #include "TypeCheck.h"
+#include "../../cuda/cuda_stream.h"
 
 #define LUISA_CHECK_CUDA(...)                            \
     do {                                                 \
@@ -95,10 +96,9 @@ void DxCudaInteropImpl::cuda_buffer(uint64_t dx_buffer_handle, uint64_t *cuda_pt
     HANDLE sharedHandle;
 
     //In order to make this work, the buffers now uses committed resource instead of placed
-    if (!SUCCEEDED(_device.nativeDevice.device->CreateSharedHandle(dxBuffer->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle))) {
-        LUISA_ERROR("Failed to create shared handle");
+    if (!SUCCEEDED(_device.nativeDevice.device->CreateSharedHandle(dxBuffer->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle))) [[unlikely]] {
+        LUISA_ERROR("Failed to create shared handle.");
     }
-
 
     CUDA_EXTERNAL_MEMORY_HANDLE_DESC externalMemoryHandleDesc{};
     externalMemoryHandleDesc.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE;
@@ -120,7 +120,9 @@ uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture_handle) noexcept {
     auto allocateInfo = _device.nativeDevice.device->GetResourceAllocationInfo(0, 1, vstd::get_rval_ptr(dxTex->GetResource()->GetDesc()));
     WindowsSecurityAttributes windowsSecurityAttributes;
     HANDLE sharedHandle;
-    _device.nativeDevice.device->CreateSharedHandle(dxTex->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
+    if (!SUCCEEDED(_device.nativeDevice.device->CreateSharedHandle(dxTex->GetResource(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle))) [[unlikely]] {
+        LUISA_ERROR("Failed to create shared handle.");
+    }
 
     CUDA_EXTERNAL_MEMORY_HANDLE_DESC externalMemoryHandleDesc{};
     externalMemoryHandleDesc.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE;
@@ -131,18 +133,53 @@ uint64_t DxCudaInteropImpl::cuda_texture(uint64_t dx_texture_handle) noexcept {
     LUISA_CHECK_CUDA(cuImportExternalMemory(&externalMemory, &externalMemoryHandleDesc));
     return reinterpret_cast<uint64_t>(externalMemory);
 }
+ResourceCreationInfo DxCudaInteropImpl::create_interop_event() noexcept {
+    ResourceCreationInfo info;
+    auto res = new LCEvent(&_device.nativeDevice, true);
+    info.handle = resource_to_handle(res);
+    info.native_handle = res->Fence();
+    return info;
+}
+void DxCudaInteropImpl::destroy_cuda_event(uint64_t cuda_event_handle) noexcept {
+    auto evt = reinterpret_cast<CUexternalSemaphore>(cuda_event_handle);
+    LUISA_CHECK_CUDA(cuDestroyExternalSemaphore(evt));
+}
 uint64_t DxCudaInteropImpl::cuda_event(uint64_t dx_event_handle) noexcept {
-    auto dxEvent = reinterpret_cast<LCEvent const *>(dx_event_handle);
     CUDA_EXTERNAL_SEMAPHORE_HANDLE_DESC externalSemaphoreHandleDesc{};
+    auto dxEvent = reinterpret_cast<LCEvent *>(dx_event_handle);
     WindowsSecurityAttributes windowsSecurityAttributes;
     HANDLE sharedHandle;
     externalSemaphoreHandleDesc.type = CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE;
-    _device.nativeDevice.device->CreateSharedHandle(dxEvent->Fence(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle);
+    if (!SUCCEEDED(_device.nativeDevice.device->CreateSharedHandle(dxEvent->Fence(), &windowsSecurityAttributes, GENERIC_ALL, nullptr, &sharedHandle)))
+        [[unlikely]] {
+        LUISA_ERROR("Failed to create shared handle.");
+    }
     externalSemaphoreHandleDesc.handle.win32.handle = (void *)sharedHandle;
+    externalSemaphoreHandleDesc.handle.win32.name = nullptr;
     externalSemaphoreHandleDesc.flags = 0;
     CUexternalSemaphore externalSemaphre{};
     LUISA_CHECK_CUDA(cuImportExternalSemaphore(&externalSemaphre, &externalSemaphoreHandleDesc));
     return reinterpret_cast<uint64_t>(externalSemaphre);
+}
+void DxCudaInteropImpl::cuda_signal(DeviceInterface *device, uint64_t stream_handle, uint64_t event_handle, uint64_t fence) noexcept {
+    CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS params{};
+    params.params.fence.value = fence;
+    auto cuda_evt = reinterpret_cast<CUexternalSemaphore>(event_handle);
+    auto stream = reinterpret_cast<luisa::compute::cuda::CUDAStream *>(stream_handle);
+    auto handle = stream->handle();
+    LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(
+        &cuda_evt, &params, 1,
+        handle));
+}
+void DxCudaInteropImpl::cuda_wait(DeviceInterface *device, uint64_t stream_handle, uint64_t event_handle, uint64_t fence) noexcept {
+    CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS params{};
+    params.params.fence.value = fence;
+    auto cuda_evt = reinterpret_cast<CUexternalSemaphore>(event_handle);
+    auto stream = reinterpret_cast<luisa::compute::cuda::CUDAStream *>(stream_handle);
+    auto handle = stream->handle();
+    LUISA_CHECK_CUDA(cuWaitExternalSemaphoresAsync(
+        &cuda_evt, &params, 1,
+        handle));
 }
 BufferCreationInfo DxCudaInteropImpl::create_interop_buffer(const Type *element, size_t elem_count) noexcept {
     BufferCreationInfo info{};
@@ -209,13 +246,12 @@ DeviceInterface *DxCudaInteropImpl::device() {
     return &_device;
 }
 
-	CUcontext cuContext;
-	CUdevice cuDevice;
-	DxCudaInteropImpl::DxCudaInteropImpl(LCDevice& device) noexcept : _device{device}
-	{
-		cuInit(0);
-		cuDeviceGet(&cuDevice, 0); // Get handle to device 0
-		cuCtxCreate(&cuContext, 0, cuDevice); // Create context
-	}
+CUcontext cuContext;
+CUdevice cuDevice;
+DxCudaInteropImpl::DxCudaInteropImpl(LCDevice &device) noexcept : _device{device} {
+    cuInit(0);
+    cuDeviceGet(&cuDevice, 0);           // Get handle to device 0
+    cuCtxCreate(&cuContext, 0, cuDevice);// Create context
+}
 }// namespace lc::dx
 #endif
