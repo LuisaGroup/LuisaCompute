@@ -681,10 +681,11 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     }
 
     // multithreaded compilation
-    if (_compiler->nvrtc_version() >= 120100 &&
-        _handle.driver_version() >= 12030) {
-        nvrtc_options.emplace_back("-split-compile=0");
-    }
+    // TODO: the flag seems not working any more
+    // if (_compiler->nvrtc_version() >= 120100 &&
+    //     _handle.driver_version() >= 12030) {
+    //     nvrtc_options.emplace_back("-split-compile=0");
+    // }
 
     if (option.enable_debug_info) {
         nvrtc_options.emplace_back("-lineinfo");

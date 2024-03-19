@@ -26,7 +26,7 @@ public:
         void operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept;
     };
 
-protected:
+public:// Don't protect it. The oidn ext is using these interfaces.
     [[nodiscard]] virtual BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept = 0;
     [[nodiscard]] virtual ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
@@ -40,7 +40,7 @@ public:
     virtual void cuda_buffer(uint64_t dx_buffer_handle, uint64_t *cuda_ptr, uint64_t *cuda_handle /*CUexternalMemory* */) noexcept = 0;
     [[nodiscard]] virtual /*CUexternalMemory* */ uint64_t cuda_texture(uint64_t dx_texture_handle) noexcept = 0;
     [[nodiscard]] virtual /*CUexternalSemaphore* */ uint64_t cuda_event(uint64_t dx_event_handle) noexcept = 0;
-    virtual void destroy_cuda_event(uint64_t cuda_event_handle/*CUexternalSemaphore* */ ) noexcept = 0;
+    virtual void destroy_cuda_event(uint64_t cuda_event_handle /*CUexternalSemaphore* */) noexcept = 0;
     virtual void unmap(void *cuda_ptr, void *cuda_handle) = 0;
     virtual DeviceInterface *device() = 0;
     template<typename T>
