@@ -85,7 +85,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             COMMENT "Building Rust-dependent libraries..."
             VERBATIM)
 
-    add_custom_target(luisa_compute_rust_build)
+    add_custom_target(luisa_compute_rust_build ALL)
 
     # copy the static libraries to the output directory
     foreach (lib ${LUISA_RUST_STATIC_LIBS})
@@ -133,13 +133,13 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     foreach (lib ${LUISA_RUST_SHARED_LIBS})
         if (APPLE)
             if (INSTALL_NAME_TOOL_EXE)
-            add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
-                    COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LUISA_RUST_OUTPUT_DIR}/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
-                    COMMAND ${INSTALL_NAME_TOOL_EXE} -id "@rpath/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
-                    COMMAND ${INSTALL_NAME_TOOL_EXE} -add_rpath "@loader_path" "${LUISA_RUST_RESULT_DIR}/${lib}"
-                    DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
-                    VERBATIM)
+                add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib} and patch it"
+                        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${LUISA_RUST_OUTPUT_DIR}/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMAND ${INSTALL_NAME_TOOL_EXE} -id "@rpath/${lib}" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        COMMAND ${INSTALL_NAME_TOOL_EXE} -add_rpath "@loader_path" "${LUISA_RUST_RESULT_DIR}/${lib}"
+                        DEPENDS "${LUISA_RUST_OUTPUT_DIR}/${lib}"
+                        VERBATIM)
             else ()
                 add_custom_command(OUTPUT "${LUISA_RUST_RESULT_DIR}/${lib}"
                         COMMENT "Copying ${LUISA_RUST_OUTPUT_DIR}/${lib} to ${LUISA_RUST_RESULT_DIR}/${lib}"
@@ -211,6 +211,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     add_dependencies(luisa-compute-rust-meta luisa_compute_rust_build)
     target_link_directories(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_RESULT_DIR}>")
     target_link_libraries(luisa-compute-rust-meta INTERFACE "$<BUILD_INTERFACE:${LUISA_RUST_STATIC_LIBS}>")
+    if (WIN32)
+        target_link_libraries(luisa-compute-rust-meta INTERFACE
+                Ws2_32 Advapi32 Bcrypt Userenv ntdll Synchronization)
+    endif ()
     install(TARGETS luisa-compute-rust-meta EXPORT LuisaComputeTargets)
 
     # add the backend impl target
