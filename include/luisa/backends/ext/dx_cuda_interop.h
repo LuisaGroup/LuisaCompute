@@ -9,22 +9,69 @@
 #include <luisa/core/logging.h>
 #endif
 namespace luisa::compute {
+class DxCudaInterop;
+namespace dx_cuda_interop {
+struct Signal {
+    DxCudaInterop *ext;
+    uint64_t handle;
+    uint64_t fence;
+    void operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept;
+};
+struct Wait {
+    DxCudaInterop *ext;
+    uint64_t handle;
+    uint64_t fence;
+    void operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept;
+};
+}// namespace dx_cuda_interop
+class DxCudaTimelineEvent final {
+    DxCudaInterop *_ext;
+
+public:
+    TimelineEvent dx_event;
+
+private:
+    uint64_t _cuda_event;
+
+public:
+    [[nodiscard]] auto cuda_event() const noexcept { return _cuda_event; }
+    DxCudaTimelineEvent() noexcept : _cuda_event{invalid_resource_handle} {}
+    DxCudaTimelineEvent(DxCudaInterop *ext) noexcept;
+    ~DxCudaTimelineEvent() noexcept;
+    operator bool() const noexcept {
+        return _cuda_event != invalid_resource_handle;
+    }
+    DxCudaTimelineEvent(DxCudaTimelineEvent const &) = delete;
+    DxCudaTimelineEvent(DxCudaTimelineEvent &&rhs) noexcept
+        : _ext{rhs._ext},
+          dx_event{std::move(rhs.dx_event)},
+          _cuda_event{rhs._cuda_event} {
+        rhs._cuda_event = invalid_resource_handle;
+        rhs._ext = nullptr;
+    }
+    DxCudaTimelineEvent &operator=(DxCudaTimelineEvent const &) = delete;
+    DxCudaTimelineEvent &operator=(DxCudaTimelineEvent &&rhs) noexcept {
+        this->~DxCudaTimelineEvent();
+        new (std::launder(this)) DxCudaTimelineEvent{std::move(rhs)};
+        return *this;
+    }
+    [[nodiscard]] auto signal(uint64_t fence) noexcept {
+        return dx_cuda_interop::Signal{
+            .ext = _ext,
+            .handle = _cuda_event,
+            .fence = fence};
+    }
+    [[nodiscard]] auto wait(uint64_t fence) noexcept {
+        return dx_cuda_interop::Wait{
+            .ext = _ext,
+            .handle = _cuda_event,
+            .fence = fence};
+    }
+};
 class DxCudaInterop : public DeviceExtension {
+    friend class DxCudaTimelineEvent;
 public:
     static constexpr luisa::string_view name = "DxCudaInterop";
-
-    struct Signal {
-        DxCudaInterop *ext;
-        uint64_t handle;
-        uint64_t fence;
-        void operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept;
-    };
-    struct Wait {
-        DxCudaInterop *ext;
-        uint64_t handle;
-        uint64_t fence;
-        void operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept;
-    };
 
 public:// Don't protect it. The oidn ext is using these interfaces.
     [[nodiscard]] virtual BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept = 0;
@@ -83,32 +130,44 @@ public:
             size,
             mip_levels};
     }
-    [[nodiscard]] inline auto create_event() {
-        return Event{
-            device(),
-            create_interop_event()};
+
+    virtual ~DxCudaInterop() noexcept = default;
+    [[nodiscard]] inline auto create_timeline_event() noexcept {
+        return DxCudaTimelineEvent{this};
     }
-    [[nodiscard]] inline auto create_timeline_event() {
+
+private:
+    [[nodiscard]] inline auto _create_timeline_event() noexcept {
         return TimelineEvent{
             device(),
             create_interop_event()};
     }
-    virtual ~DxCudaInterop() = default;
 };
-inline void DxCudaInterop::Signal::operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept {
+inline void dx_cuda_interop::Signal::operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept {
     if (device != ext->device()) {
         ext->cuda_signal(device, stream_handle, handle, fence);
     } else {
         device->signal_event(handle, stream_handle, fence);
     }
 }
-inline void DxCudaInterop::Wait::operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept {
+inline void dx_cuda_interop::Wait::operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept {
     if (device != ext->device()) {
         ext->cuda_wait(device, stream_handle, handle, fence);
     } else {
         device->wait_event(handle, stream_handle, fence);
     }
 }
-LUISA_MARK_STREAM_EVENT_TYPE(DxCudaInterop::Signal)
-LUISA_MARK_STREAM_EVENT_TYPE(DxCudaInterop::Wait)
+LUISA_MARK_STREAM_EVENT_TYPE(dx_cuda_interop::Signal)
+LUISA_MARK_STREAM_EVENT_TYPE(dx_cuda_interop::Wait)
+
+inline DxCudaTimelineEvent::DxCudaTimelineEvent(DxCudaInterop *ext) noexcept
+    : _ext{ext},
+      dx_event{ext->_create_timeline_event()},
+      _cuda_event{ext->cuda_event(dx_event.handle())} {
+}
+inline DxCudaTimelineEvent::~DxCudaTimelineEvent() noexcept {
+    if (*this) {
+        _ext->destroy_cuda_event(_cuda_event);
+    }
+}
 }// namespace luisa::compute
