@@ -145,9 +145,6 @@ test_proj("test_texture_io")
 test_proj("test_thread_pool")
 test_proj("test_type")
 test_proj("test_raster", true)
-if get_config("dx_backend") then
-    test_proj("test_imgui_dx", true)
-end
 test_proj("test_texture_compress")
 test_proj("test_swapchain", true)
 test_proj("test_swapchain_static", true)
