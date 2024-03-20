@@ -411,35 +411,39 @@ private:
     }
 
     void _create_swapchain(uint width, uint height, uint back_buffers,
-                           bool allow_hdr, bool vsync) noexcept {
+                           bool is_recreation, bool allow_hdr, bool vsync) noexcept {
 
         auto support = _query_swapchain_support(_physical_device);
         if (support.capabilities.maxImageCount == 0u) { support.capabilities.maxImageCount = back_buffers; }
-        back_buffers = std::clamp(back_buffers, support.capabilities.minImageCount, support.capabilities.maxImageCount);
-
-        _swapchain_format = [&formats = support.formats, allow_hdr] {
-            for (auto f : formats) {
-                LUISA_VERBOSE_WITH_LOCATION(
-                    "Supported swapchain format: "
-                    "colorspace = {}, format = {}",
-                    luisa::to_string(f.colorSpace),
-                    luisa::to_string(f.format));
-            }
-            if (allow_hdr) {
-                for (auto format : formats) {
-                    if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) { return format; }
+        if (!is_recreation) {// only allow change back buffer count and swapchain format on first creation
+            back_buffers = std::clamp(
+                back_buffers,
+                support.capabilities.minImageCount,
+                support.capabilities.maxImageCount);
+            _swapchain_format = [&formats = support.formats, allow_hdr] {
+                for (auto f : formats) {
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "Supported swapchain format: "
+                        "colorspace = {}, format = {}",
+                        luisa::to_string(f.colorSpace),
+                        luisa::to_string(f.format));
                 }
-            }
-            for (auto format : formats) {
-                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
-                    (format.format == VK_FORMAT_R8G8B8A8_SRGB ||
-                     format.format == VK_FORMAT_B8G8R8A8_SRGB)) { return format; }
-            }
-            for (auto format : formats) {
-                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { return format; }
-            }
-            return formats.front();
-        }();
+                if (allow_hdr) {
+                    for (auto format : formats) {
+                        if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) { return format; }
+                    }
+                }
+                for (auto format : formats) {
+                    if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
+                        (format.format == VK_FORMAT_R8G8B8A8_SRGB ||
+                         format.format == VK_FORMAT_B8G8R8A8_SRGB)) { return format; }
+                }
+                for (auto format : formats) {
+                    if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { return format; }
+                }
+                return formats.front();
+            }();
+        }
 
         _swapchain_extent = [&capabilities = support.capabilities, width, height] {
             if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() &&
@@ -914,7 +918,6 @@ private:
 
 private:
     uint2 _requested_size{};
-    uint _requested_back_buffers{0u};
     bool _requested_hdr{false};
     bool _requested_vsync{false};
 
@@ -929,10 +932,11 @@ private:
     }
 
     void _recreate_swapchain() noexcept {
+        auto back_buffers = _swapchain_framebuffers.size();
         vkDeviceWaitIdle(_device);
         _destroy_swapchain();
         _create_swapchain(_requested_size.x, _requested_size.y,
-                          _requested_back_buffers,
+                          back_buffers, true,
                           _requested_hdr, _requested_vsync);
         _create_framebuffers();
     }
@@ -946,12 +950,11 @@ public:
          luisa::span<const char *const> required_device_extensions) noexcept
         : _instance{VulkanInstance::retain()},
           _requested_size{width, height},
-          _requested_back_buffers{back_buffer_count},
           _requested_hdr{allow_hdr},
           _requested_vsync{vsync} {
         _create_surface(window_handle);
         _create_device(device_uuid, required_device_extensions, allow_hdr);
-        _create_swapchain(width, height, back_buffer_count, allow_hdr, vsync);
+        _create_swapchain(width, height, back_buffer_count, false, allow_hdr, vsync);
         _create_render_pass();
         _create_descriptor_set_layout();
         _create_pipeline();

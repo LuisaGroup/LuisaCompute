@@ -414,8 +414,8 @@ private:
             VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT);
 #endif
 
-        LUISA_CHECK_CUDA(cuImportExternalSemaphore(
-            &ext_semaphore, &cuda_ext_semaphore_handle_desc));
+        LUISA_CHECK_CUDA(cuImportExternalSemaphore(&ext_semaphore, &cuda_ext_semaphore_handle_desc));
+        LUISA_ASSERT(ext_semaphore != nullptr, "Failed to import external semaphore.");
     }
 
 private:
@@ -477,7 +477,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 
     void present(CUstream stream, CUarray image) noexcept {
-
+        LUISA_ASSERT(_current_frame < _semaphores.size(), "Invalid frame index.");
         auto name = [this] {
             std::scoped_lock lock{_name_mutex};
             return _name;
@@ -506,8 +506,8 @@ public:
         // signal that the frame is ready
         if (!name.empty()) { nvtxRangePushA(luisa::format("signal", name).c_str()); }
         CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signal_params{};
-        LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(
-            &_cuda_ext_semaphores[_current_frame], &signal_params, 1, stream));
+        auto current_semaphore = _cuda_ext_semaphores[_current_frame];
+        LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(&current_semaphore, &signal_params, 1, stream));
         if (!name.empty()) { nvtxRangePop(); }
 
         // present
