@@ -56,8 +56,8 @@ template<typename... Args>
         auto &&t = trace[i];
         using namespace std::string_view_literals;
         error_message.append(luisa::format(
-            FMT_STRING("\n    {:>2} [0x{:012x}]: {} :: {} + {}"sv),
-            i, t.address, t.module, t.symbol, t.offset));
+            FMT_STRING("\n    {:>2} {}"sv),
+            i, luisa::to_string(t)));
     }
     detail::default_logger().error("{}", error_message);
     std::abort();

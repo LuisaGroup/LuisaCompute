@@ -8,6 +8,10 @@
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
               "illegal pointer and integer sizes.");
 
+#if defined(LUISA_PLATFORM_UNIX) && !defined(LUISA_PLATFORM_APPLE)
+#include <regex>
+#endif
+
 #if defined(LUISA_PLATFORM_WINDOWS)
 
 #ifndef UNICODE
@@ -248,12 +252,52 @@ luisa::vector<TraceItem> backtrace() noexcept {
     luisa::vector<TraceItem> trace_info;
     trace_info.reserve(count - 1u);
     for (auto i = 1 /* skip current frame */; i < count; i++) {
+        TraceItem item{};
+#ifdef LUISA_PLATFORM_APPLE
         std::istringstream iss{info[i]};
         auto index = 0;
         char plus = '+';
-        TraceItem item{};
         iss >> index >> item.module >> std::hex >> item.address >> item.symbol >> plus >> std::dec >> item.offset;
         item.symbol = demangle(item.symbol.c_str());
+#else
+        if (std::string_view raw_item{info[i]}; !raw_item.empty()) {
+            // the returned string is in the format of "binary_name(function_name+offset) [address]"
+            // parse address
+            auto right_bracket = raw_item.rfind(']');
+            auto left_bracket = raw_item.rfind("[0x");
+            if (right_bracket == std::string::npos ||
+                left_bracket == std::string::npos ||
+                right_bracket < left_bracket + 3) {
+                continue;
+            }
+            left_bracket += 3;
+            auto address = raw_item.substr(left_bracket, right_bracket - left_bracket);
+            // parse function name and offset
+            raw_item = raw_item.substr(0, left_bracket - 3);
+            auto right_parenthesis = raw_item.rfind(')');
+            auto left_parenthesis = raw_item.rfind('(');
+            if (right_parenthesis == std::string::npos ||
+                left_parenthesis == std::string::npos ||
+                right_parenthesis < left_parenthesis) {
+                continue;
+            }
+            auto function_and_offset = raw_item.substr(left_parenthesis + 1, right_parenthesis - left_parenthesis - 1);
+            auto plus = function_and_offset.rfind("+0x");
+            if (plus == std::string::npos) {
+                continue;
+            }
+            plus += 3;
+            auto offset = function_and_offset.substr(plus);
+            auto function = function_and_offset.substr(0, plus - 3);
+            // the remaining string is the binary name
+            auto binary_name = raw_item.substr(0, left_parenthesis);
+            // construct the trace item
+            item.module = binary_name;
+            item.address = std::strtoull(address.data(), nullptr, 16);
+            item.symbol = function.empty() ? "unknown" : demangle(luisa::string{function}.c_str());
+            item.offset = std::strtoull(offset.data(), nullptr, 16);
+        }
+#endif
         trace_info.emplace_back(std::move(item));
     }
     free(info);
@@ -285,3 +329,12 @@ luisa::string cpu_name() noexcept {
 
 #endif
 
+// common functions
+namespace luisa {
+luisa::string to_string(const TraceItem &item) noexcept {
+    using namespace std::string_view_literals;
+    return luisa::format(
+        FMT_STRING("[0x{:012x}]: {} :: {} + {}"sv),
+        item.address, item.module, item.symbol, item.offset);
+}
+}// namespace luisa

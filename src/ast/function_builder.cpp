@@ -932,9 +932,29 @@ const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept
                      "Cannot internalize expression with no type.");
         return expr;
     }
+    // Note: we support "variable leaking" into caller to help graph-style
+    //  shading system implementation but this can be dangerous. So we also
+    //  print a warning message with stacktrace for users to check twice.
     if (_tag != Function::Tag::CALLABLE) {
         // must be a leak from a callable, so postpone
         // the fix until the kernel is encoded
+        LUISA_ASSERT(expr->tag() == Expression::Tag::REF,
+                     "Leaked expression should be a reference.");
+#ifdef NDEBUG// release build, relax the check
+        LUISA_VERBOSE_WITH_LOCATION(
+            "Leaking expression from callable to kernel. "
+            "This might cause unexpected behavior. Please check.");
+#else
+        auto bt = luisa::backtrace();
+        auto message = luisa::format(
+            "Leaking expression from callable to kernel. "
+            "This might cause unexpected behavior. Please check. [{}:{}]",
+            __FILE__, __LINE__);
+        for (auto &&frame : bt) {
+            message.append("\n    ").append(luisa::to_string(frame));
+        }
+        LUISA_WARNING("{}", message);
+#endif
         return expr;
     }
     // check if already internalized
