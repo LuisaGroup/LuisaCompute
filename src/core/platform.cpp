@@ -8,10 +8,6 @@
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
               "illegal pointer and integer sizes.");
 
-#if defined(LUISA_PLATFORM_UNIX) && !defined(LUISA_PLATFORM_APPLE)
-#include <regex>
-#endif
-
 #if defined(LUISA_PLATFORM_WINDOWS)
 
 #ifndef UNICODE
