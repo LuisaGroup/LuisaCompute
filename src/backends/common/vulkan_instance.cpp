@@ -8,6 +8,9 @@
 #elif defined(LUISA_PLATFORM_UNIX)
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
+#if LUISA_ENABLE_WAYLAND
+#include <vulkan/vulkan_wayland.h>
+#endif
 #else
 #error "Unsupported platform"
 #endif
@@ -97,8 +100,6 @@ VulkanInstance::VulkanInstance() noexcept {
     VkInstanceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     create_info.pApplicationInfo = &app_info;
-    create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-    create_info.ppEnabledExtensionNames = extensions.data();
 
 #ifdef LUISA_PLATFORM_APPLE
 #define ENUMERATE_PORTABILITY_BIT (0x01)
@@ -120,7 +121,36 @@ VulkanInstance::VulkanInstance() noexcept {
         create_info.pNext = &debug_create_info;
     }
 #endif
+
+#if LUISA_ENABLE_WAYLAND
+    auto supports_wayland = [] {
+        auto extension_count = 0u;
+        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
+        luisa::vector<VkExtensionProperties> available_extensions(extension_count);
+        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, available_extensions.data());
+        return std::any_of(available_extensions.cbegin(), available_extensions.cend(),
+                           [](auto available) noexcept {
+                               return std::string_view{available.extensionName} == VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+                           });
+    }();
+    if (supports_wayland) {
+        extensions.emplace_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+    }
+
+    create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+    create_info.ppEnabledExtensionNames = extensions.data();
+    if (vkCreateInstance(&create_info, nullptr, &_instance) != VK_SUCCESS) {
+        LUISA_VERBOSE_WITH_LOCATION("Failed to create vulkan instance with wayland surface.");
+        extensions.pop_back();
+        create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+        create_info.ppEnabledExtensionNames = extensions.data();
+        LUISA_CHECK_VULKAN(vkCreateInstance(&create_info, nullptr, &_instance));
+    }
+#else
+    create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+    create_info.ppEnabledExtensionNames = extensions.data();
     LUISA_CHECK_VULKAN(vkCreateInstance(&create_info, nullptr, &_instance));
+#endif
 
 #ifndef NDEBUG
     if (supports_validation) {

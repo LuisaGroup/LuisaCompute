@@ -19,11 +19,18 @@
 #elif defined(LUISA_PLATFORM_UNIX)
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
+#if LUISA_ENABLE_WAYLAND
+#include <dlfcn.h>
+#include <vulkan/vulkan_wayland.h>
+#include <wayland-client.h>
+#endif
 #else
 #error "Unsupported platform"
 #endif
 
 #include "vulkan_instance.h"
+#include "spdlog/fmt/bundled/chrono.h"
+
 #include <luisa/backends/common/vulkan_swapchain.h>
 
 namespace luisa::compute {
@@ -170,7 +177,7 @@ private:
             vkGetPhysicalDeviceSurfacePresentModesKHR(device, _surface, &present_mode_count, details.present_modes.data());
         }
         return details;
-    };
+    }
 
     void _create_surface(uint64_t window_handle) noexcept {
 #if defined(LUISA_PLATFORM_WINDOWS)
@@ -185,11 +192,26 @@ private:
         create_info.pView = cocoa_window_content_view(window_handle);
         LUISA_CHECK_VULKAN(vkCreateMacOSSurfaceMVK(_instance->handle(), &create_info, nullptr, &_surface));
 #else
-        VkXlibSurfaceCreateInfoKHR create_info{};
-        create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-        create_info.dpy = XOpenDisplay(nullptr);
-        create_info.window = static_cast<Window>(window_handle);
-        LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
+        auto create_surface_xlib = [&] {
+            VkXlibSurfaceCreateInfoKHR create_info{};
+            create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+            create_info.dpy = XOpenDisplay(nullptr);
+            create_info.window = static_cast<Window>(window_handle);
+            LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
+        };
+#if LUISA_ENABLE_WAYLAND
+        if (window_handle & 0xffff'ffff'0000'0000ull) {// 64-bit pointer, so likely wayland
+            VkWaylandSurfaceCreateInfoKHR create_info_wl{};
+            create_info_wl.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+            create_info_wl.display = wl_display_connect(nullptr);
+            create_info_wl.surface = reinterpret_cast<wl_surface *>(window_handle);
+            LUISA_CHECK_VULKAN(vkCreateWaylandSurfaceKHR(_instance->handle(), &create_info_wl, nullptr, &_surface));
+        } else {// X uses 32-bit IDs
+            create_surface_xlib();
+        }
+#else
+        create_surface_xlib();
+#endif
 #endif
     }
 

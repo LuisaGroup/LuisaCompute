@@ -43,6 +43,10 @@ endif ()
 option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build (which might accelerate the compilation but could break VS Code's clangd indexing)" OFF)
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
+if (UNIX AND NOT APPLE)
+    option(LUISA_COMPUTE_ENABLE_WAYLAND "Enable Wayland support in GUI and Vulkan swapchains" OFF)
+endif ()
+
 # validate the options
 include(scripts/validate_options.cmake)
 
@@ -100,6 +104,10 @@ target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
     target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_IR=1)
+endif ()
+
+if (UNIX AND NOT APPLE AND LUISA_COMPUTE_ENABLE_WAYLAND)
+    target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_WAYLAND=1)
 endif ()
 
 # add platform macros

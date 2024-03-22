@@ -130,6 +130,14 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
                     PUBLIC "-framework QuartzCore" "-framework AppKit")
         endif ()
 
+        # wayland support
+        if (UNIX AND NOT APPLE AND LUISA_COMPUTE_ENABLE_WAYLAND)
+            find_package(PkgConfig REQUIRED)
+            pkg_check_modules(Wayland REQUIRED wayland-client)
+            target_include_directories(luisa-compute-vulkan-swapchain PRIVATE ${Wayland_INCLUDE_DIRS})
+            target_link_libraries(luisa-compute-vulkan-swapchain PRIVATE ${Wayland_LIBRARIES})
+        endif ()
+
         set_target_properties(luisa-compute-vulkan-swapchain PROPERTIES
                 OUTPUT_NAME lc-vulkan-swapchain)
         install(TARGETS luisa-compute-vulkan-swapchain EXPORT LuisaComputeTargets

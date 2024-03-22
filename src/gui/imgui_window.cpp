@@ -6,6 +6,9 @@
 #elif defined(LUISA_PLATFORM_APPLE)
 #define GLFW_EXPOSE_NATIVE_COCOA
 #else
+#if LUISA_ENABLE_WAYLAND
+#define GLFW_EXPOSE_NATIVE_WAYLAND
+#endif
 #define GLFW_EXPOSE_NATIVE_X11// TODO: other window compositors
 #endif
 
@@ -62,6 +65,11 @@ namespace luisa::compute::detail {
 #elif defined(LUISA_PLATFORM_APPLE)
     return reinterpret_cast<uint64_t>(glfwGetCocoaWindow(window));
 #else
+#if LUISA_ENABLE_WAYLAND
+    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+        return reinterpret_cast<uint64_t>(glfwGetWaylandWindow(window));
+    }
+#endif
     return reinterpret_cast<uint64_t>(glfwGetX11Window(window));
 #endif
 }
@@ -232,7 +240,7 @@ public:
         std::call_once(once_flag, [] {
             glfwSetErrorCallback([](int error, const char *description) noexcept {
                 if (error != GLFW_NO_ERROR) [[likely]] {
-                    LUISA_ERROR("GLFW Error (code = 0x{:08x}): {}.", error, description);
+                    LUISA_WARNING("GLFW Error (code = 0x{:08x}): {}.", error, description);
                 }
             });
             if (!glfwInit()) [[unlikely]] {
