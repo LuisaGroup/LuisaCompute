@@ -23,8 +23,8 @@ namespace marl {
 //      printf("hello ");
 //  }
 //
-#define lcfiber_defer(x) \
-    auto LUISA_MARL_CONCAT(defer_, __LINE__) = marl::make_finally([&]() noexcept { x; })
+#define luisa_fiber_defer(...) \
+    auto LUISA_MARL_CONCAT(defer_, __LINE__) = marl::make_finally([&]() noexcept { __VA_ARGS__; })
 }// namespace marl
 
 namespace luisa::fiber {
@@ -34,8 +34,8 @@ public:
     scheduler() noexcept
         : internal(internal_t::Config::allCores()) {
     }
-    scheduler(uint32_t thread_count) noexcept
-        : internal(internal_t::Config().setWorkerThreadCount(thread_count)) {
+    explicit scheduler(uint32_t thread_count) noexcept
+        : internal(internal_t::Config().setWorkerThreadCount(static_cast<int>(thread_count))) {
     }
     void bind() noexcept { internal.bind(); }
     void unbind() noexcept { internal.unbind(); }
@@ -77,7 +77,7 @@ template<class F>
 void schedule(F &&lambda, event *event, const char *name = nullptr) noexcept {
     if (event) {
         marl::schedule([event = *event, lambda = std::forward<F>(lambda)]() mutable noexcept {
-            lcfiber_defer({ event.signal(); });
+            luisa_fiber_defer(event.signal());
             lambda();
         });
     } else {
