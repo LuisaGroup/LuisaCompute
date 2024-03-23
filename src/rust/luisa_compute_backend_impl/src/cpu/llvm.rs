@@ -418,7 +418,10 @@ fn find_clang() -> Option<String> {
         try_exists(r"C:\Program Files\LLVM\bin\clang++.exe")
     } else if cfg!(target_os = "linux") {
         for version in 14..=MAX_LLVM_VERSION {
-            let path = format!("/usr/bin/clang++-{}", version);
+            // clang++ is a symbolic link to clang, so we only need to find clang
+            // and clang++ is not created by Manjaro
+            // let path = format!("/usr/bin/clang++-{}", version);
+            let path = format!("/usr/bin/clang-{}", version);
             if let Some(path) = try_exists(&path) {
                 return Some(path);
             }
@@ -437,6 +440,10 @@ fn find_llvm() -> Option<String> {
     } else if cfg!(target_os = "linux") {
         for version in 14..=MAX_LLVM_VERSION {
             let path = format!("/usr/lib/llvm-{}/lib/libLLVM.so", version);
+            if let Some(path) = try_exists(&path) {
+                return Some(path);
+            }
+            let path = format!("/usr/lib/libLLVM-{}.so", version);
             if let Some(path) = try_exists(&path) {
                 return Some(path);
             }
