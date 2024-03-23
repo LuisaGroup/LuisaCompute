@@ -74,6 +74,19 @@ namespace luisa::compute::detail {
 #endif
 }
 
+[[nodiscard]] inline auto glfw_display_native_handle() noexcept -> uint64_t {
+#if defined(LUISA_PLATFORM_WINDOWS) || defined(LUISA_PLATFORM_APPLE)
+    return 0ull;
+#else
+#if LUISA_ENABLE_WAYLAND
+    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+        return reinterpret_cast<uint64_t>(glfwGetWaylandDisplay());
+    }
+#endif
+    return reinterpret_cast<uint64_t>(glfwGetX11Display());
+#endif
+}
+
 struct alignas(16u) GUIVertex {
     float px;
     float py;
@@ -186,9 +199,16 @@ private:
             fb = {};
         }
         if (any(size != 0u)) {
-            auto native_handle = detail::glfw_window_native_handle(window);
-            sc = _device.create_swapchain(native_handle, _stream, size, _config.hdr,
-                                          _config.vsync, _config.back_buffers);
+            auto native_display = detail::glfw_display_native_handle();
+            auto native_window = detail::glfw_window_native_handle(window);
+            auto sc_options = SwapchainOption{
+                .display = native_display,
+                .window = native_window,
+                .size = size,
+                .wants_hdr = _config.hdr,
+                .wants_vsync = _config.vsync,
+                .back_buffer_count = _config.back_buffers};
+            sc = _device.create_swapchain(_stream, sc_options);
             fb = _device.create_image<float>(sc.backend_storage(), size);
         }
     }

@@ -26,7 +26,6 @@ namespace luisa::compute {
 namespace detail {
 
 struct WindowImpl : public Window::IWindowImpl {
-
     GLFWwindow *window;
     Window::MouseButtonCallback _mouse_button_callback;
     Window::CursorPositionCallback _cursor_position_callback;
@@ -106,6 +105,18 @@ struct WindowImpl : public Window::IWindowImpl {
         glfwDestroyWindow(window);
         glfwTerminate();
     }
+    [[nodiscard]] uint64_t native_display() const noexcept {
+#if defined(LUISA_PLATFORM_WINDOWS) || defined(LUISA_PLATFORM_APPLE)
+        return 0ull;
+#else
+#if LUISA_ENABLE_WAYLAND
+        if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+            return reinterpret_cast<uint64_t>(glfwGetWaylandDisplay());
+        }
+#endif
+        return reinterpret_cast<uint64_t>(glfwGetX11Display());
+#endif
+    }
 };
 
 }// namespace detail
@@ -124,6 +135,10 @@ GLFWwindow *Window::window() const noexcept {
 
 uint64_t Window::native_handle() const noexcept {
     return static_cast<detail::WindowImpl *>(_impl.get())->window_handle;
+}
+
+uint64_t Window::native_display_handle() const noexcept {
+    return static_cast<detail::WindowImpl *>(_impl.get())->native_display();
 }
 
 bool Window::should_close() const noexcept {

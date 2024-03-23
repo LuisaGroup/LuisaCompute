@@ -10,6 +10,7 @@ use api::PixelFormat;
 use libc::{c_char, c_void};
 
 use luisa_compute_api_types as api;
+use luisa_compute_api_types::SwapchainOption;
 use luisa_compute_ir::{
     ir::{self, KernelModule},
     CArc,
@@ -178,13 +179,8 @@ pub trait Backend: Sync + Send {
     );
     fn create_swapchain(
         &self,
-        window_handle: u64,
+        option: &SwapchainOption,
         stream_handle: api::Stream,
-        width: u32,
-        height: u32,
-        allow_hdr: bool,
-        vsync: bool,
-        back_buffer_size: u32,
     ) -> api::CreatedSwapchainInfo;
     fn destroy_swapchain(&self, swap_chain: api::Swapchain);
     fn present_display_in_stream(
@@ -462,24 +458,11 @@ extern "C" fn query<B: Backend>(
 
 extern "C" fn create_swapchain<B: Backend>(
     backend: api::Device,
-    window_handle: u64,
+    option: &api::SwapchainOption,
     stream_handle: api::Stream,
-    width: u32,
-    height: u32,
-    allow_hdr: bool,
-    vsync: bool,
-    back_buffer_size: u32,
 ) -> api::CreatedSwapchainInfo {
     let backend: &B = get_backend(backend);
-    backend.create_swapchain(
-        window_handle,
-        stream_handle,
-        width,
-        height,
-        allow_hdr,
-        vsync,
-        back_buffer_size,
-    )
+    backend.create_swapchain(option, stream_handle)
 }
 
 extern "C" fn present_display_in_stream<B: Backend>(

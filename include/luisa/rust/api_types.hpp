@@ -596,6 +596,16 @@ struct ShaderOption {
 
 using DispatchCallback = void(*)(uint8_t*);
 
+struct SwapchainOption {
+    uint64_t display;
+    uint64_t window;
+    uint32_t width;
+    uint32_t height;
+    bool wants_hdr;
+    bool wants_vsync;
+    uint32_t back_buffer_count;
+};
+
 struct PinnedMemoryOption {
     bool write_combined;
 };
@@ -672,14 +682,7 @@ struct DeviceInterface {
     void (*destroy_stream)(Device, Stream);
     void (*synchronize_stream)(Device, Stream);
     void (*dispatch)(Device, Stream, CommandList, DispatchCallback, uint8_t*);
-    CreatedSwapchainInfo (*create_swapchain)(Device,
-                                             uint64_t,
-                                             Stream,
-                                             uint32_t,
-                                             uint32_t,
-                                             bool,
-                                             bool,
-                                             uint32_t);
+    CreatedSwapchainInfo (*create_swapchain)(Device, const SwapchainOption*, Stream);
     void (*present_display_in_stream)(Device, Stream, Swapchain, Texture);
     void (*destroy_swapchain)(Device, Swapchain);
     CreatedShaderInfo (*create_shader)(Device, KernelModule, const ShaderOption*);

@@ -149,26 +149,10 @@ impl Backend for ProxyBackend {
     #[inline]
     fn create_swapchain(
         &self,
-        window_handle: u64,
+        option: &api::SwapchainOption,
         stream_handle: api::Stream,
-        width: u32,
-        height: u32,
-        allow_hdr: bool,
-        vsync: bool,
-        back_buffer_size: u32,
     ) -> api::CreatedSwapchainInfo {
-        catch_abort!({
-            (self.device.create_swapchain)(
-                self.device.device,
-                window_handle,
-                stream_handle,
-                width,
-                height,
-                allow_hdr,
-                vsync,
-                back_buffer_size,
-            )
-        })
+        catch_abort!({ (self.device.create_swapchain)(self.device.device, option, stream_handle,) })
     }
     #[inline]
     fn destroy_swapchain(&self, swap_chain: api::Swapchain) {

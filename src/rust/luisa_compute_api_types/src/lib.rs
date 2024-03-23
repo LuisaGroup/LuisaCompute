@@ -1,18 +1,23 @@
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use std::ffi::{c_char, c_void};
+
 pub const INVALID_RESOURCE_HANDLE: u64 = u64::MAX;
+
 pub type DispatchCallback = extern "C" fn(*mut u8);
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct CreatedResourceInfo {
     pub handle: u64,
     pub native_handle: *mut c_void,
 }
+
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct CreatedResourceInfoRemote {
     pub handle: u64,
 }
+
 impl CreatedResourceInfo {
     pub const INVALID: Self = Self {
         handle: INVALID_RESOURCE_HANDLE,
@@ -23,6 +28,7 @@ impl CreatedResourceInfo {
         self.handle != INVALID_RESOURCE_HANDLE
     }
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct CreatedBufferInfoRemote {
@@ -30,12 +36,14 @@ pub struct CreatedBufferInfoRemote {
     pub element_stride: usize,
     pub total_size_bytes: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct CreatedSwapchainInfoRemote {
     pub resource: CreatedResourceInfoRemote,
     pub storage: PixelStorage,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct CreatedBufferInfo {
@@ -43,6 +51,7 @@ pub struct CreatedBufferInfo {
     pub element_stride: usize,
     pub total_size_bytes: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct CreatedSwapchainInfo {
@@ -56,8 +65,11 @@ pub struct CreatedShaderInfo {
     pub resource: CreatedResourceInfo,
     pub block_size: [u32; 3],
 }
+
 unsafe impl Send for CreatedShaderInfo {}
+
 unsafe impl Sync for CreatedShaderInfo {}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct ShaderOption {
@@ -70,8 +82,11 @@ pub struct ShaderOption {
     pub name: *const std::ffi::c_char,
     pub native_include: *const std::ffi::c_char,
 }
+
 unsafe impl Send for ShaderOption {}
+
 unsafe impl Sync for ShaderOption {}
+
 impl Default for ShaderOption {
     fn default() -> Self {
         Self {
@@ -86,6 +101,23 @@ impl Default for ShaderOption {
         }
     }
 }
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
+pub struct SwapchainOption {
+    pub display: u64,
+    pub window: u64,
+    pub width: u32,
+    pub height: u32,
+    pub wants_hdr: bool,
+    pub wants_vsync: bool,
+    pub back_buffer_count: u32,
+}
+
+unsafe impl Send for SwapchainOption {}
+
+unsafe impl Sync for SwapchainOption {}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Buffer(pub u64);
@@ -129,6 +161,7 @@ pub struct Curve(pub u64);
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct ProceduralPrimitive(pub u64);
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct Accel(pub u64);
@@ -167,6 +200,7 @@ pub enum CurveBasis {
     CatmullRom = 2,
     Bezier = 3,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Serialize, Deserialize)]
 pub struct AccelOption {
@@ -174,6 +208,7 @@ pub struct AccelOption {
     pub allow_compaction: bool,
     pub allow_update: bool,
 }
+
 impl Default for AccelOption {
     fn default() -> Self {
         Self {
@@ -205,6 +240,7 @@ pub enum MeshType {
     Mesh,
     ProceduralPrimitive,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct AccelBuildModification {
@@ -326,6 +362,7 @@ pub enum PixelFormat {
     BC6HUF16,
     BC7UNorm,
 }
+
 impl PixelFormat {
     pub fn storage(&self) -> PixelStorage {
         match self {
@@ -395,16 +432,19 @@ pub struct Sampler {
     pub filter: SamplerFilter,
     pub address: SamplerAddress,
 }
+
 impl Default for SamplerFilter {
     fn default() -> Self {
         SamplerFilter::Point
     }
 }
+
 impl Default for SamplerAddress {
     fn default() -> Self {
         SamplerAddress::Edge
     }
 }
+
 impl Sampler {
     pub fn encode(&self) -> u8 {
         (self.filter as u8) | ((self.address as u8) << 2)
@@ -550,6 +590,7 @@ pub struct TextureCopyCommand {
     pub src_level: u32,
     pub dst_level: u32,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct ShaderDispatchCommand {
@@ -573,6 +614,7 @@ pub struct MeshBuildCommand {
     pub index_buffer_size: usize,
     pub index_stride: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct CurveBuildCommand {
@@ -587,6 +629,7 @@ pub struct CurveBuildCommand {
     pub seg_buffer: Buffer,
     pub seg_buffer_offset: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct ProceduralPrimitiveBuildCommand {
@@ -596,6 +639,7 @@ pub struct ProceduralPrimitiveBuildCommand {
     pub aabb_buffer_offset: usize,
     pub aabb_count: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct AccelBuildCommand {
@@ -606,6 +650,7 @@ pub struct AccelBuildCommand {
     pub modifications_count: usize,
     pub update_instance_buffer_only: bool,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum BindlessArrayUpdateOperation {
@@ -613,6 +658,7 @@ pub enum BindlessArrayUpdateOperation {
     Emplace,
     Remove,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BindlessArrayUpdateBuffer {
@@ -620,6 +666,7 @@ pub struct BindlessArrayUpdateBuffer {
     pub handle: Buffer,
     pub offset: usize,
 }
+
 impl Default for BindlessArrayUpdateBuffer {
     fn default() -> Self {
         Self {
@@ -629,6 +676,7 @@ impl Default for BindlessArrayUpdateBuffer {
         }
     }
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BindlessArrayUpdateTexture {
@@ -636,6 +684,7 @@ pub struct BindlessArrayUpdateTexture {
     pub handle: Texture,
     pub sampler: Sampler,
 }
+
 impl Default for BindlessArrayUpdateTexture {
     fn default() -> Self {
         Self {
@@ -645,6 +694,7 @@ impl Default for BindlessArrayUpdateTexture {
         }
     }
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash, Default)]
 pub struct BindlessArrayUpdateModification {
@@ -653,6 +703,7 @@ pub struct BindlessArrayUpdateModification {
     pub tex2d: BindlessArrayUpdateTexture,
     pub tex3d: BindlessArrayUpdateTexture,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub struct BindlessArrayUpdateCommand {
@@ -660,6 +711,7 @@ pub struct BindlessArrayUpdateCommand {
     pub modifications: *const BindlessArrayUpdateModification,
     pub modifications_count: usize,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Hash)]
 pub enum Command {
@@ -697,6 +749,7 @@ pub enum StreamTag {
     Compute,
     Copy,
 }
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct LoggerMessage {
@@ -704,6 +757,7 @@ pub struct LoggerMessage {
     pub level: *const c_char,
     pub message: *const c_char,
 }
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct LibInterface {
@@ -715,6 +769,7 @@ pub struct LibInterface {
         unsafe extern "C" fn(Context, *const c_char, *const c_char) -> DeviceInterface,
     pub free_string: unsafe extern "C" fn(*mut c_char),
 }
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct DeviceInterface {
@@ -743,16 +798,8 @@ pub struct DeviceInterface {
     pub destroy_stream: unsafe extern "C" fn(Device, Stream),
     pub synchronize_stream: unsafe extern "C" fn(Device, Stream),
     pub dispatch: unsafe extern "C" fn(Device, Stream, CommandList, DispatchCallback, *mut u8),
-    pub create_swapchain: unsafe extern "C" fn(
-        Device,
-        u64,
-        Stream,
-        u32,
-        u32,
-        bool,
-        bool,
-        u32,
-    ) -> CreatedSwapchainInfo,
+    pub create_swapchain:
+        unsafe extern "C" fn(Device, &SwapchainOption, Stream) -> CreatedSwapchainInfo,
     pub present_display_in_stream: unsafe extern "C" fn(Device, Stream, Swapchain, Texture),
     pub destroy_swapchain: unsafe extern "C" fn(Device, Swapchain),
     pub create_shader:
@@ -777,18 +824,21 @@ pub struct DeviceInterface {
     pub pinned_memory_ext: unsafe extern "C" fn(Device) -> PinnedMemoryExt,
     pub denoiser_ext: unsafe extern "C" fn(Device) -> DenoiserExt,
 }
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct StringView {
     pub data: *const c_char,
     pub size: usize,
 }
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct StringViewMut {
     pub data: *mut c_char,
     pub size: usize,
 }
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct BinaryIo {
@@ -821,6 +871,7 @@ pub struct BinaryIo {
         out_path: StringViewMut,
     ),
 }
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct ByteStream {
@@ -830,11 +881,13 @@ pub struct ByteStream {
     pub pos: unsafe extern "C" fn(*mut ByteStream) -> usize,
     pub read: unsafe extern "C" fn(*mut ByteStream, *mut u8, usize) -> usize,
 }
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct PinnedMemoryOption {
     pub write_combined: bool,
 }
+
 impl Default for PinnedMemoryOption {
     fn default() -> Self {
         Self {
@@ -842,6 +895,7 @@ impl Default for PinnedMemoryOption {
         }
     }
 }
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct PinnedMemoryExt {
@@ -855,6 +909,7 @@ pub struct PinnedMemoryExt {
     ),
     pub allocate_pinned_memory: unsafe extern "C" fn(*mut PinnedMemoryExt, usize, *mut c_void),
 }
+
 pub mod denoiser_ext {
     #[repr(C)]
     #[derive(Copy, Clone, PartialEq, Eq)]
@@ -863,6 +918,7 @@ pub mod denoiser_ext {
         LdrLinear,
         LdrSrgb,
     }
+
     #[repr(C)]
     #[derive(Copy, Clone, PartialEq, Eq)]
     pub enum PrefilterMode {
@@ -870,6 +926,7 @@ pub mod denoiser_ext {
         Fast,
         Accurate,
     }
+
     #[repr(C)]
     #[derive(Copy, Clone, PartialEq, Eq)]
     pub enum FilterQuality {
@@ -877,6 +934,7 @@ pub mod denoiser_ext {
         Fast,
         Accurate,
     }
+
     #[repr(C)]
     #[derive(Copy, Clone, PartialEq, Eq)]
     pub enum ImageFormat {
@@ -889,6 +947,7 @@ pub mod denoiser_ext {
         Half3,
         Half4,
     }
+
     impl ImageFormat {
         #[inline]
         pub const fn size(&self) -> usize {
@@ -904,6 +963,7 @@ pub mod denoiser_ext {
             }
         }
     }
+
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct Image {
@@ -917,6 +977,7 @@ pub mod denoiser_ext {
         pub color_space: ImageColorSpace,
         pub input_scale: f32,
     }
+
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct Feature {
@@ -924,6 +985,7 @@ pub mod denoiser_ext {
         pub name_len: usize,
         pub image: Image,
     }
+
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct DenoiserInput {
@@ -938,11 +1000,13 @@ pub mod denoiser_ext {
         pub width: u32,
         pub height: u32,
     }
+
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct Denoiser {
         _unused: [u8; 0],
     }
+
     #[repr(C)]
     #[derive(Copy, Clone)]
     pub struct DenoiserExt {
@@ -952,11 +1016,14 @@ pub mod denoiser_ext {
         pub execute: unsafe extern "C" fn(*const DenoiserExt, *mut Denoiser, bool),
         pub destroy: unsafe extern "C" fn(*const DenoiserExt, *mut Denoiser),
     }
+
     impl DenoiserExt {
         pub fn valid(&self) -> bool {
             self.data != std::ptr::null_mut()
         }
     }
 }
+
 pub use denoiser_ext::DenoiserExt;
+
 pub fn __dummy() {}

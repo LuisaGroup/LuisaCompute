@@ -181,13 +181,8 @@ impl Backend for RustBackend {
 
     fn create_swapchain(
         &self,
-        window_handle: u64,
+        o: &api::SwapchainOption,
         _stream_handle: api::Stream,
-        width: u32,
-        height: u32,
-        allow_hdr: bool,
-        vsync: bool,
-        back_buffer_size: u32,
     ) -> api::CreatedSwapchainInfo {
         let ctx = self.swapchain_context.read();
         let ctx = ctx
@@ -195,12 +190,13 @@ impl Backend for RustBackend {
             .unwrap_or_else(|| panic_abort!("swapchain context is not initialized"));
         unsafe {
             let sc_ctx = (ctx.create_cpu_swapchain)(
-                window_handle,
-                width,
-                height,
-                allow_hdr,
-                vsync,
-                back_buffer_size,
+                o.display,
+                o.window,
+                o.width,
+                o.height,
+                o.wants_hdr,
+                o.wants_vsync,
+                o.back_buffer_count,
             );
             let storage = (ctx.cpu_swapchain_storage)(sc_ctx);
             api::CreatedSwapchainInfo {

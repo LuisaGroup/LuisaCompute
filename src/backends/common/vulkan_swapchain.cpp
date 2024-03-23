@@ -179,7 +179,7 @@ private:
         return details;
     }
 
-    void _create_surface(uint64_t window_handle) noexcept {
+    void _create_surface(uint64_t display_handle, uint64_t window_handle) noexcept {
 #if defined(LUISA_PLATFORM_WINDOWS)
         VkWin32SurfaceCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
@@ -195,7 +195,7 @@ private:
         auto create_surface_xlib = [&] {
             VkXlibSurfaceCreateInfoKHR create_info{};
             create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-            create_info.dpy = XOpenDisplay(nullptr);
+            create_info.dpy = display_handle ? reinterpret_cast<Display *>(display_handle) : XOpenDisplay(nullptr);
             create_info.window = static_cast<Window>(window_handle);
             LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
         };
@@ -203,7 +203,7 @@ private:
         if (window_handle & 0xffff'ffff'0000'0000ull) {// 64-bit pointer, so likely wayland
             VkWaylandSurfaceCreateInfoKHR create_info_wl{};
             create_info_wl.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
-            create_info_wl.display = wl_display_connect(nullptr);
+            create_info_wl.display = display_handle ? reinterpret_cast<wl_display *>(display_handle) : wl_display_connect(nullptr);
             create_info_wl.surface = reinterpret_cast<wl_surface *>(window_handle);
             LUISA_CHECK_VULKAN(vkCreateWaylandSurfaceKHR(_instance->handle(), &create_info_wl, nullptr, &_surface));
         } else {// X uses 32-bit IDs
@@ -965,6 +965,7 @@ private:
 
 public:
     Impl(VulkanDeviceUUID device_uuid,
+         uint64_t display_handle,
          uint64_t window_handle,
          uint width, uint height,
          bool allow_hdr, bool vsync,
@@ -974,7 +975,7 @@ public:
           _requested_size{width, height},
           _requested_hdr{allow_hdr},
           _requested_vsync{vsync} {
-        _create_surface(window_handle);
+        _create_surface(display_handle, window_handle);
         _create_device(device_uuid, required_device_extensions, allow_hdr);
         _create_swapchain(width, height, back_buffer_count, false, allow_hdr, vsync);
         _create_render_pass();
@@ -1097,12 +1098,13 @@ public:
 };
 
 VulkanSwapchain::VulkanSwapchain(const VulkanDeviceUUID &device_uuid,
+                                 uint64_t display_handle,
                                  uint64_t window_handle,
                                  uint width, uint height,
                                  bool allow_hdr, bool vsync,
                                  uint back_buffer_count,
                                  luisa::span<const char *const> required_device_extensions) noexcept
-    : _impl{luisa::make_unique<Impl>(device_uuid, window_handle,
+    : _impl{luisa::make_unique<Impl>(device_uuid, display_handle, window_handle,
                                      width, height, allow_hdr,
                                      vsync, back_buffer_count,
                                      required_device_extensions)} {}
@@ -1325,9 +1327,10 @@ private:
     }
 
 public:
-    VulkanSwapchainForCPU(uint64_t window_handle, uint width, uint height,
+    VulkanSwapchainForCPU(uint64_t display_handle, uint64_t window_handle, uint width, uint height,
                           bool allow_hdr, bool vsync, uint back_buffer_count) noexcept
         : _base{VulkanDeviceUUID{/* any */},
+                display_handle,
                 window_handle,
                 width,
                 height,
@@ -1411,8 +1414,10 @@ public:
     [[nodiscard]] const VulkanSwapchain *native_handle() const noexcept { return &_base; }
 };
 
-LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
-    return new VulkanSwapchainForCPU{window_handle, width, height, allow_hdr, vsync, back_buffer_count};
+LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t display_handle, uint64_t window_handle,
+                                                          uint width, uint height, bool allow_hdr, bool vsync,
+                                                          uint back_buffer_count) noexcept {
+    return new VulkanSwapchainForCPU{display_handle, window_handle, width, height, allow_hdr, vsync, back_buffer_count};
 }
 
 LUISA_EXPORT_API uint8_t luisa_compute_cpu_swapchain_storage(void *swapchain) noexcept {
