@@ -152,10 +152,7 @@ luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
 add_subdirectory(marl)
 set_target_properties(marl PROPERTIES OUTPUT_NAME lc-ext-marl)
 target_link_libraries(luisa-compute-ext INTERFACE marl)
-install(DIRECTORY marl/include/marl
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
-        FILES_MATCHING REGEX ".*\\.h$")
-install(TARGETS marl EXPORT LuisaComputeTargets)
+luisa_compute_install_extension(marl INCLUDE marl/include/marl)
 
 # reproc
 set(REPROC_DEVELOP OFF CACHE BOOL "" FORCE)
