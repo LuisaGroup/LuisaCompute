@@ -50,12 +50,14 @@ public:
         auto handle = GetHandle();
         LUISA_ASSERT(handle != nullptr, "Window handle is null.");
 
+        auto display_handle = static_cast<uint64_t>(0u);
 #ifdef __WXGTK__
         auto window = gtk_widget_get_window(handle);
         LUISA_ASSERT(window != nullptr, "Window is null.");
         auto window_handle = 0ull;
         if (GDK_IS_X11_WINDOW(window)) {
             window_handle = gdk_x11_window_get_xid(window);
+            display_handle = reinterpret_cast<uint64_t>(gdk_x11_get_default_xdisplay());
         } else {
             LUISA_ERROR_WITH_LOCATION(
                 "Unknown window type: {}",
@@ -67,8 +69,15 @@ public:
 
         _swapchain = luisa::make_unique<Swapchain>(
             _device.create_swapchain(
-                window_handle, _stream, resolution, false, false, 3));
-
+                _stream,
+                SwapchainOption{
+                    .display = display_handle,
+                    .window = static_cast<uint64_t>(window_handle),
+                    .size = make_uint2(resolution),
+                    .wants_hdr = false,
+                    .wants_vsync = false,
+                    .back_buffer_count = 3,
+                }));
         SetSize(GetParent()->GetClientSize());
         Center();
     }

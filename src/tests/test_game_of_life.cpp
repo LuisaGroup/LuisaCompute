@@ -72,7 +72,13 @@ int main(int argc, char *argv[]) {
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     std::mt19937 rng{std::random_device{}()};
     Window window{"Game of Life", width * 4u, height * 4u};
-    Swapchain swap_chain = device.create_swapchain(window.native_handle(), stream, window.size());
+    Swapchain swap_chain = device.create_swapchain(
+        stream,
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = window.size(),
+        });
     Image<float> display = device.create_image<float>(swap_chain.backend_storage(), window.size());
 
     // reset

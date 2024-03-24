@@ -115,13 +115,22 @@ void export_gui(py::module &m) {
                 w.cursur_pos.x = std::clamp(w.cursur_pos.x, 0.0f, 1.0f);
                 w.cursur_pos.y = std::clamp(w.cursur_pos.y, 0.0f, 1.0f);
             });
-            w.chain = device.device.create_swapchain(w.window->native_handle(), stream.stream(), {width, height}, false, vsync, 2);
+            w.chain = device.device.create_swapchain(
+                stream.stream(),
+                SwapchainOption{
+                    .display = w.window->native_display(),
+                    .window = w.window->native_handle(),
+                    .size = make_uint2(width, height),
+                    .wants_hdr = false,
+                    .wants_vsync = vsync,
+                    .back_buffer_count = 2,
+                });
             PyWindow::swapchains.emplace(&w.chain);
         })
         .def("should_close", [](PyWindow &w) {
             return w.window->should_close();
         })
-        .def("present", [](PyWindow &w, PyStream &stream, uint64_t handle, void* native_handle, uint width, uint height, uint level, PixelStorage storage) {
+        .def("present", [](PyWindow &w, PyStream &stream, uint64_t handle, void *native_handle, uint width, uint height, uint level, PixelStorage storage) {
             LUISA_ASSERT(level == 0u, "Only level 0 is supported.");
             ImageView<float> view{native_handle, handle, storage, level, make_uint2(width, height)};
             stream.execute();

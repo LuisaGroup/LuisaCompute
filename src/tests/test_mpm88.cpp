@@ -48,11 +48,16 @@ int main(int argc, char *argv[]) {
     Buffer<float> grid_m = device.create_buffer<float>(n_grid * n_grid);
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"MPM88", resolution, resolution};
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        make_uint2(resolution),
-        false, false, 2)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = make_uint2(resolution),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Image<float> display = device.create_image<float>(swap_chain.backend_storage(), make_uint2(resolution));
 
     auto index = [](UInt2 xy) noexcept {

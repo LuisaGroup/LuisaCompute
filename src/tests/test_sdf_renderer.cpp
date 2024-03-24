@@ -196,11 +196,16 @@ int main(int argc, char *argv[]) {
 #if ENABLE_DISPLAY
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"SDF Renderer", width, height};
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        make_uint2(width, height),
-        false, false, 2)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = make_uint2(width, height),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     static constexpr uint interval = 4u;
     static constexpr uint total_spp = 16384u;
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), width, height);

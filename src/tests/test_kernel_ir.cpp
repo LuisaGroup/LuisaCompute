@@ -52,9 +52,15 @@ int main(int argc, char *argv[]) {
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Display", width, height};
     auto swap_chain{device.create_swapchain(
-        window.native_handle(), stream,
-        make_uint2(width, height),
-        false, false, 2)};
+        stream,
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = make_uint2(width, height),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        })};
 
     while (!window.should_close()) {
         stream << render(image).dispatch(width, height)
@@ -64,4 +70,3 @@ int main(int argc, char *argv[]) {
 
     stream << synchronize();
 }
-

@@ -137,7 +137,7 @@ uint64_t Window::native_handle() const noexcept {
     return static_cast<detail::WindowImpl *>(_impl.get())->window_handle;
 }
 
-uint64_t Window::native_display_handle() const noexcept {
+uint64_t Window::native_display() const noexcept {
     return static_cast<detail::WindowImpl *>(_impl.get())->native_display();
 }
 

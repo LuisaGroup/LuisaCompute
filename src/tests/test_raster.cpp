@@ -71,11 +71,16 @@ int main(int argc, char *argv[]) {
     static constexpr uint height = 1024;
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Test raster", width, height};
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        make_uint2(width, height),
-        true, false, 2)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = make_uint2(width, height),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Image<float> out_img = device.create_image<float>(swap_chain.backend_storage(), width, height);
     PixelFormat img_format = out_img.format();
     DepthBuffer depth_buffer = device.create_depth_buffer(DepthFormat::D32, uint2(width, height));

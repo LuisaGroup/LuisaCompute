@@ -371,11 +371,16 @@ int main(int argc, char *argv[]) {
     FPVCameraController camera_controller{camera, 1.f, 20.f, .5f};
     Window window{"path tracing", resolution};
 
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        resolution,
-        false, false, 3)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
 
     double last_time = 0.0;

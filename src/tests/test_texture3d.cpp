@@ -322,8 +322,15 @@ int main(int argc, char *argv[]) {
 
     Window window{"Display", resolution};
     Swapchain swapchain = device.create_swapchain(
-        window.native_handle(), stream,
-        resolution, false, true, 3u);
+        stream,
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Image<float> accum = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     Image<float> display = device.create_image<float>(swapchain.backend_storage(), resolution);
     bool dirty = true;

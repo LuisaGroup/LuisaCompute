@@ -353,11 +353,16 @@ int main(int argc, char *argv[]) {
     window.set_mouse_callback([&compare_x](MouseButton, Action a, float2 p) noexcept {
         compare_x = static_cast<uint>(std::clamp(p.x, 0.f, static_cast<float>(resolution.x)));
     });
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        resolution,
-        false, false, 3)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     double last_time = 0.0;
     uint frame_count = 0u;

@@ -47,7 +47,7 @@ int main(int argc, char *argv[]) {
     Swapchain swap_chain{device.create_swapchain(
         graphics_stream,
         SwapchainOption{
-            .display = window.native_display_handle(),
+            .display = window.native_display(),
             .window = window.native_handle(),
             .size = resolution,
             .wants_hdr = false,

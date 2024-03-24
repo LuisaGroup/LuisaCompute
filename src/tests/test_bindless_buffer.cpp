@@ -42,7 +42,15 @@ int main(int argc, char *argv[]) {
     Window window{"Display", resolution};
 
     Swapchain swapchain = device.create_swapchain(
-        window.native_handle(), stream, resolution, false);
+        stream,
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Clock clk;
     while (!window.should_close()) {
         stream << s(static_cast<float>(clk.toc() * .05f))

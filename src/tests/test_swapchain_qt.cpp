@@ -85,8 +85,15 @@ int main(int argc, char *argv[]) {
     });
 
     auto swapchain = device.create_swapchain(
-        canvas.winId(), stream,
-        resolution, false, false, 3);
+        stream,
+        SwapchainOption{
+            .display = 0u,
+            .window = static_cast<uint64_t>(canvas.winId()),
+            .size = make_uint2(width, height),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
 
     window.show();
 
@@ -105,4 +112,3 @@ int main(int argc, char *argv[]) {
     stream << synchronize();
     QApplication::quit();
 }
-

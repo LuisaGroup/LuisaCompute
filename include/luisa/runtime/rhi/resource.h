@@ -52,7 +52,7 @@ struct SwapchainOption {
     uint2 size;
     bool wants_hdr = false;
     bool wants_vsync = true;
-    uint back_buffer_count = 1;
+    uint back_buffer_count = 2;
 };
 
 struct SwapchainCreationInfo : public ResourceCreationInfo {
