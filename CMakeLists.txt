@@ -45,7 +45,7 @@ option(LUISA_COMPUTE_ENABLE_UNITY_BUILD "Enable unity build (which might acceler
 option(LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES "Check dependencies of backends (and disable the unsatisfied ones instead of reporting a configuration error)" ON)
 
 if (UNIX AND NOT APPLE)
-    option(LUISA_COMPUTE_ENABLE_WAYLAND "Enable Wayland support in GUI and Vulkan swapchains" ON)
+    option(LUISA_COMPUTE_ENABLE_WAYLAND "Enable Wayland support in GUI and Vulkan swapchains" OFF)
 endif ()
 
 # validate the options
