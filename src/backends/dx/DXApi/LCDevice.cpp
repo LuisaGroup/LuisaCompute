@@ -452,14 +452,7 @@ ResourceCreationInfo LCDevice::create_accel(const AccelOption &option) noexcept 
 void LCDevice::destroy_accel(uint64 handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
 }
-SwapchainCreationInfo LCDevice::create_swapchain(
-    uint64 window_handle,
-    uint64 stream_handle,
-    uint width,
-    uint height,
-    bool allow_hdr,
-    bool vsync,
-    uint back_buffer_size) noexcept {
+SwapchainCreationInfo LCDevice::create_swapchain(const SwapchainOption &option, uint64_t stream_handle) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("swapchain not allowed in Direct-Storage.");
@@ -469,12 +462,12 @@ SwapchainCreationInfo LCDevice::create_swapchain(
         &nativeDevice,
         &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue,
         nativeDevice.defaultAllocator.get(),
-        reinterpret_cast<HWND>(window_handle),
-        width,
-        height,
-        allow_hdr,
-        vsync,
-        back_buffer_size);
+        reinterpret_cast<HWND>(option.window),
+        option.size.x,
+        option.size.y,
+        option.wants_hdr,
+        option.wants_vsync,
+        option.back_buffer_count);
     info.handle = resource_to_handle(res);
     info.native_handle = res->swapChain.Get();
     info.storage = allow_hdr ? PixelStorage::HALF4 : PixelStorage::BYTE4;
