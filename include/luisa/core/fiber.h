@@ -92,16 +92,26 @@ template<class F>
     });
     return evt;
 }
-
+namespace detail {
+template<typename T>
+struct NonMovableAtomic {
+    std::atomic<T> value;
+    NonMovableAtomic() noexcept = default;
+    NonMovableAtomic(T &&t) noexcept : value{std::move(t)} {}
+    NonMovableAtomic(NonMovableAtomic const &) = delete;
+    NonMovableAtomic(NonMovableAtomic &&rhs) noexcept
+        : value{rhs.value.load()} {
+    }
+};
+}// namespace detail
 template<class F>
     requires(std::is_invocable_v<F, uint32_t>)
 [[nodiscard]] auto async_parallel(uint32_t job_count, F &&lambda) noexcept {
     auto thread_count = std::min<uint32_t>(job_count, marl::Scheduler::get()->config().workerThread.count);
     counter evt{thread_count};
-    auto counter = luisa::make_unique<std::atomic<uint32_t>>(0);
-    luisa::SharedFunction<void()> func{[counter = std::move(counter), job_count, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
+    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
         uint32_t i = 0u;
-        while ((i = counter->fetch_add(1u)) < job_count) { lambda(i); }
+        while ((i = counter.value.fetch_add(1u)) < job_count) { lambda(i); }
         evt.decrement();
     }};
     for (uint32_t i = 0; i < thread_count; ++i) {
@@ -115,10 +125,9 @@ template<class F>
 void parallel(uint32_t job_count, F &&lambda) noexcept {
     auto thread_count = std::min<uint32_t>(job_count, marl::Scheduler::get()->config().workerThread.count);
     counter evt{thread_count};
-    auto counter = luisa::make_unique<std::atomic<uint32_t>>(0);
-    luisa::SharedFunction<void()> func{[counter = std::move(counter), job_count, &evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
+    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, &evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
         uint32_t i = 0u;
-        while ((i = counter->fetch_add(1u)) < job_count) { lambda(i); }
+        while ((i = counter.value.fetch_add(1u)) < job_count) { lambda(i); }
         evt.decrement();
     }};
     for (uint32_t i = 0; i < thread_count; ++i) {
