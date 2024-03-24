@@ -28,6 +28,8 @@ public:
         bool vsync{false};
         bool hdr{false};
         bool ssaa{false};
+        bool docking{true};
+        bool multi_viewport{true};
         uint back_buffers{2};
 
         [[nodiscard]] static Config make_default() noexcept { return {}; }

@@ -284,12 +284,19 @@ public:
         // TODO: install user GLFW callbacks?
 
         // imgui config
-        _with_context([this] {
+        _with_context([this, &config] {
             auto &io = ImGui::GetIO();
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;// Enable Keyboard Controls
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
-            io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;    // Enable Docking
-            io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;  // Enable Multi-Viewport / Platform Windows
+
+            if (config.docking) {
+                io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;// Enable Docking
+            }
+
+            // Wayland does not support querying for window position so multi-viewport is disabled
+            if (config.multi_viewport) {
+                io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;// Enable Multi-Viewport / Platform Windows
+            }
 
             // styles
             ImGui::StyleColorsDark();
