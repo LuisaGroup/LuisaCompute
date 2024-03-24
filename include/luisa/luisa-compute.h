@@ -32,6 +32,7 @@
 #include <luisa/core/constants.h>
 #include <luisa/core/dll_export.h>
 #include <luisa/core/dynamic_module.h>
+#include <luisa/core/fiber.h>
 #include <luisa/core/first_fit.h>
 #include <luisa/core/forget.h>
 #include <luisa/core/intrin.h>
@@ -45,7 +46,6 @@
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl.h>
 #include <luisa/core/string_scratch.h>
-#include <luisa/core/thread_pool.h>
 #include <luisa/core/thread_safety.h>
 
 #ifdef LUISA_ENABLE_DSL

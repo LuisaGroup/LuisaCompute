@@ -7,7 +7,7 @@
 #include <luisa/vstl/lmdb.hpp>
 #include <luisa/vstl/md5.h>
 #include <luisa/clangcxx/compiler.h>
-#include <luisa/core/thread_pool.h>
+#include <luisa/core/fiber.h>
 #include <luisa/runtime/context.h>
 #include <luisa/core/binary_file_stream.h>
 #include <luisa/vstl/v_guid.h>
@@ -505,9 +505,9 @@ Argument list:
         };
         ite_dir(ite_dir, src_path, func);
         if (!paths.empty()) {
-            luisa::ThreadPool thread_pool(std::min<uint>(std::thread::hardware_concurrency(), paths.size()));
+            luisa::fiber::scheduler thread_pool(std::min<uint>(std::thread::hardware_concurrency(), paths.size()));
             std::mutex mtx;
-            thread_pool.parallel(paths.size(), [&](size_t i) {
+            luisa::fiber::parallel(paths.size(), [&](size_t i) {
                 auto &file_path = paths[i];
                 if (file_path.is_absolute()) {
                     file_path = std::filesystem::relative(file_path, src_path);
@@ -537,7 +537,6 @@ Argument list:
                 }();
                 memcpy(result.data() + idx, local_result.data(), local_result.size());
             });
-            thread_pool.synchronize();
         }
         if (result.size() > 1) {
             result.pop_back();
@@ -568,7 +567,7 @@ Argument list:
         };
         ite_dir(ite_dir, src_path, func);
         if (paths.empty()) return 0;
-        luisa::ThreadPool thread_pool(std::min<uint>(std::thread::hardware_concurrency(), paths.size()));
+        luisa::fiber::scheduler thread_pool(std::min<uint>(std::thread::hardware_concurrency(), paths.size()));
 
         format_path();
         log_level_info();
@@ -598,7 +597,7 @@ Argument list:
             std::filesystem::path{"./.cache/.obj"},
             iter,
             inc_iter};
-        thread_pool.parallel(
+        luisa::fiber::parallel(
             paths.size(),
             [&](size_t i) {
                 auto const &src_file_path = paths[i];
@@ -641,7 +640,6 @@ Argument list:
                     processor.remove_file(luisa::to_string(std::filesystem::weakly_canonical(src_path / file_path)));
                 }
             });
-        thread_pool.synchronize();
         processor.post_process();
         return 0;
     }

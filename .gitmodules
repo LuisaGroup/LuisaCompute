@@ -26,3 +26,6 @@
 [submodule "src/ext/reproc"]
 	path = src/ext/reproc
 	url = https://github.com/LuisaGroup/reproc.git
+[submodule "src/ext/marl"]
+	path = src/ext/marl
+	url = https://github.com/LuisaGroup/marl.git

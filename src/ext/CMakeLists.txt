@@ -139,6 +139,9 @@ set_target_properties(EASTL PROPERTIES
 target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 luisa_compute_install_extension(EASTL INCLUDE EASTL/include/EASTL)
 luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
+target_compile_features(EASTL PUBLIC cxx_std_20)
+# silence deprecation warnings from EASTL for now (we will fix them when the upstream does)
+target_compile_definitions(EASTL PUBLIC EASTL_DEPRECATIONS_FOR_2024_APRIL=EA_DISABLED)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
         CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15.0)
     target_compile_options(EASTL PUBLIC -Wno-deprecated-builtins)
@@ -148,6 +151,12 @@ add_library(half INTERFACE)
 target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/half/include>)
 target_link_libraries(luisa-compute-ext INTERFACE half)
 luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
+
+add_subdirectory(marl)
+set_target_properties(marl PROPERTIES OUTPUT_NAME lc-ext-marl)
+target_link_libraries(marl PUBLIC EASTL)
+target_link_libraries(luisa-compute-ext INTERFACE marl)
+luisa_compute_install_extension(marl INCLUDE marl/include/marl)
 
 # reproc
 set(REPROC_DEVELOP OFF CACHE BOOL "" FORCE)
