@@ -470,7 +470,7 @@ SwapchainCreationInfo LCDevice::create_swapchain(const SwapchainOption &option, 
         option.back_buffer_count);
     info.handle = resource_to_handle(res);
     info.native_handle = res->swapChain.Get();
-    info.storage = allow_hdr ? PixelStorage::HALF4 : PixelStorage::BYTE4;
+    info.storage = option.wants_hdr ? PixelStorage::HALF4 : PixelStorage::BYTE4;
     return info;
 }
 void LCDevice::destroy_swap_chain(uint64 handle) noexcept {
