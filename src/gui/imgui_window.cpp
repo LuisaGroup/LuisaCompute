@@ -294,7 +294,7 @@ public:
             }
 
             // Wayland does not support querying for window position so multi-viewport is disabled
-            if (config.multi_viewport) {
+            if (config.multi_viewport && glfwGetPlatform() != GLFW_PLATFORM_WAYLAND) {
                 io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;// Enable Multi-Viewport / Platform Windows
             }
 
