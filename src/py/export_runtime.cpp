@@ -12,7 +12,7 @@
 #include "managed_device.h"
 #include "managed_accel.h"
 #include "managed_bindless.h"
-#include <luisa/core/thread_pool.h>
+#include <luisa/core/fiber.h>
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/ast/atomic_ref_node.h>
 #include <luisa/core/logging.h>
@@ -37,8 +37,8 @@ public:
     MeshFormat format;
     luisa::vector<VertexAttribute> attributes;
 };
-static vstd::vector<std::shared_future<void>> futures;
-static vstd::optional<ThreadPool> thread_pool;
+static vstd::vector<luisa::fiber::event> futures;
+static vstd::optional<luisa::fiber::scheduler> thread_pool;
 PYBIND11_DECLARE_HOLDER_TYPE(T, luisa::shared_ptr<T>)
 ManagedDevice::ManagedDevice(Device &&device) noexcept : device(std::move(device)) {
     valid = true;
@@ -349,23 +349,24 @@ void export_runtime(py::module &m) {
         })
         .def("save_shader_async", [](DeviceInterface &self, luisa::shared_ptr<FunctionBuilder> const &builder, luisa::string_view str) {
             thread_pool.create();
-            futures.emplace_back(thread_pool->async([str = luisa::string{str}, builder, &self]() {
-                luisa::string_view str_view;
-                luisa::string dst_path_str;
-                if (!output_path.empty()) {
-                    auto dst_path = output_path / std::filesystem::path{str};
-                    dst_path_str = to_string(dst_path);
-                    str_view = dst_path_str;
-                } else {
-                    str_view = str;
-                }
-                ShaderOption option{
-                    .enable_fast_math = true,
-                    .enable_debug_info = false,
-                    .compile_only = true,
-                    .name = luisa::string{str_view}};
-                auto useless = self.create_shader(option, builder->function());
-            }));
+            futures.emplace_back(
+                luisa::fiber::async([str = luisa::string{str}, builder, &self]() {
+                    luisa::string_view str_view;
+                    luisa::string dst_path_str;
+                    if (!output_path.empty()) {
+                        auto dst_path = output_path / std::filesystem::path{str};
+                        dst_path_str = to_string(dst_path);
+                        str_view = dst_path_str;
+                    } else {
+                        str_view = str;
+                    }
+                    ShaderOption option{
+                        .enable_fast_math = true,
+                        .enable_debug_info = false,
+                        .compile_only = true,
+                        .name = luisa::string{str_view}};
+                    auto useless = self.create_shader(option, builder->function());
+                }));
         })
         /*
         0: legal shader
@@ -416,7 +417,7 @@ void export_runtime(py::module &m) {
             }
             return 0;
         })
-        .def("save_raster_shader", [](DeviceInterface &self,  Function vertex, Function pixel, luisa::string_view str) {
+        .def("save_raster_shader", [](DeviceInterface &self, Function vertex, Function pixel, luisa::string_view str) {
             ShaderOption option;
             option.compile_only = true;
             if (!output_path.empty()) {
@@ -430,7 +431,7 @@ void export_runtime(py::module &m) {
         })
         .def("save_raster_shader_async", [](DeviceInterface &self, luisa::shared_ptr<FunctionBuilder> const &vertex, luisa::shared_ptr<FunctionBuilder> const &pixel, luisa::string_view str) {
             thread_pool.create();
-            futures.emplace_back(thread_pool->async([str = luisa::string{str}, vertex, pixel, &self]() {
+            futures.emplace_back(luisa::fiber::async([str = luisa::string{str}, vertex, pixel, &self]() {
                 ShaderOption option;
                 option.compile_only = true;
                 if (!output_path.empty()) {
