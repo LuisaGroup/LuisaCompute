@@ -462,11 +462,16 @@ int photon_mapping(Device &device) {
     uint frame_count = 0;
 
     Window window{"Display", resolution.x, resolution.y};
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        resolution,
-        false, false, 2)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     Clock clk;
     while (!window.should_close()) {

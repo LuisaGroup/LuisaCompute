@@ -273,11 +273,16 @@ int path_tracer(Device &device, luisa::string filename = "path_tracer.png") {
              << make_sampler_shader(seed_image).dispatch(resolution);
 
     Window window{"path tracing", resolution};
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        resolution,
-        false, false, 3)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
