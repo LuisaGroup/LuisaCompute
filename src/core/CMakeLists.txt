@@ -12,7 +12,6 @@ set(LUISA_COMPUTE_CORE_SOURCES
         logging.cpp
         platform.cpp
         pool.cpp
-        thread_pool.cpp
         string_scratch.cpp)
 
 find_package(Threads REQUIRED)

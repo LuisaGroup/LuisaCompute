@@ -1,8 +1,10 @@
 #pragma once
+
 #include <marl/event.h>
 #include <marl/waitgroup.h>
 #include <marl/finally.h>
 #include <luisa/core/shared_function.h>
+
 namespace marl {
 
 #define LUISA_MARL_CONCAT_(a, b) a##b
@@ -28,7 +30,9 @@ namespace marl {
 }// namespace marl
 
 namespace luisa::fiber {
+
 class scheduler {
+
 public:
     using internal_t = marl::Scheduler;
     scheduler() noexcept
@@ -39,7 +43,7 @@ public:
         : internal(internal_t::Config().setWorkerThreadCount(static_cast<int>(thread_count))) {
         internal.bind();
     }
-    scheduler(scheduler const&) = delete;
+    scheduler(scheduler const &) = delete;
     scheduler(scheduler &&) = delete;
     ~scheduler() noexcept {
         internal.unbind();
@@ -47,6 +51,7 @@ public:
 private:
     internal_t internal;
 };
+
 class counter {
 public:
     using internal_t = marl::WaitGroup;
@@ -76,16 +81,18 @@ private:
 };
 
 inline void *current_fiber() noexcept { return marl::Scheduler::Fiber::current(); }
+
 template<class F>
     requires(std::is_invocable_v<F>)
-[[nodiscard]] auto async(F&& lambda) noexcept {
+[[nodiscard]] auto async(F &&lambda) noexcept {
     event evt;
-    marl::schedule([evt, lambda = std::forward<F>(lambda)](){
+    marl::schedule([evt, lambda = std::forward<F>(lambda)] {
         lambda();
         evt.signal();
     });
     return evt;
 }
+
 template<class F>
     requires(std::is_invocable_v<F, uint32_t>)
 [[nodiscard]] auto async_parallel(uint32_t job_count, F &&lambda) noexcept {
@@ -102,6 +109,7 @@ template<class F>
     }
     return evt;
 }
+
 template<class F>
     requires(std::is_invocable_v<F, uint32_t>)
 void parallel(uint32_t job_count, F &&lambda) noexcept {
@@ -118,4 +126,5 @@ void parallel(uint32_t job_count, F &&lambda) noexcept {
     }
     evt.wait();
 }
+
 }// namespace luisa::fiber

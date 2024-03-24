@@ -139,6 +139,7 @@ set_target_properties(EASTL PROPERTIES
 target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 luisa_compute_install_extension(EASTL INCLUDE EASTL/include/EASTL)
 luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
+target_compile_features(EASTL PUBLIC cxx_std_20)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
         CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15.0)
     target_compile_options(EASTL PUBLIC -Wno-deprecated-builtins)
@@ -151,6 +152,7 @@ luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
 
 add_subdirectory(marl)
 set_target_properties(marl PROPERTIES OUTPUT_NAME lc-ext-marl)
+target_link_libraries(marl PUBLIC EASTL)
 target_link_libraries(luisa-compute-ext INTERFACE marl)
 luisa_compute_install_extension(marl INCLUDE marl/include/marl)
 
