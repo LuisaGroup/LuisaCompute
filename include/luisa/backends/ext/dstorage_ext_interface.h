@@ -11,6 +11,10 @@ namespace luisa::compute {
 class Stream;
 class DStorageFile;
 
+#ifdef None
+#undef None
+#endif
+
 enum class DStorageCompression : uint {
     None,
     GDeflate,
