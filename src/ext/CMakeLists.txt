@@ -140,6 +140,8 @@ target_link_libraries(luisa-compute-ext INTERFACE EASTL)
 luisa_compute_install_extension(EASTL INCLUDE EASTL/include/EASTL)
 luisa_compute_install_extension(EABase INCLUDE EASTL/packages/EABase/include/Common/EABase)
 target_compile_features(EASTL PUBLIC cxx_std_20)
+# silence deprecation warnings from EASTL for now (we will fix them when the upstream does)
+target_compile_definitions(EASTL PUBLIC EASTL_DEPRECATIONS_FOR_2024_APRIL=333-)
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND
         CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15.0)
     target_compile_options(EASTL PUBLIC -Wno-deprecated-builtins)
