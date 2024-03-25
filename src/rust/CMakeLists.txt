@@ -4,7 +4,7 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             CONFIGURE_DEPENDS
             "luisa_*/*.rs"
             "luisa_*/*.h"
-    "luisa_*/*.toml")
+            "luisa_*/*.toml")
     file(GLOB LUISA_RUST_TOP_LEVEL_SOURCES
             "*.toml"
             "*.rs")
