@@ -8,6 +8,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         binary_buffer.cpp
         binary_file_stream.cpp
         dynamic_module.cpp
+        fiber.cpp
         first_fit.cpp
         logging.cpp
         platform.cpp
