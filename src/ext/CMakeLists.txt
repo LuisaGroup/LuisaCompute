@@ -152,12 +152,6 @@ target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOUR
 target_link_libraries(luisa-compute-ext INTERFACE half)
 luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
 
-add_subdirectory(marl)
-set_target_properties(marl PROPERTIES OUTPUT_NAME lc-ext-marl)
-target_link_libraries(marl PUBLIC EASTL)
-target_link_libraries(luisa-compute-ext INTERFACE marl)
-luisa_compute_install_extension(marl INCLUDE marl/include/marl)
-
 # reproc
 set(REPROC_DEVELOP OFF CACHE BOOL "" FORCE)
 set(REPROC_TEST OFF CACHE BOOL "" FORCE)
@@ -206,6 +200,13 @@ install(TARGETS luisa-compute-ext-lmdb EXPORT LuisaComputeTargets)
 if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)
 endif ()
+
+set(BUILD_SHARED_LIBS OFF) # Maxwell has exploded marl with shared libraries
+add_subdirectory(marl)
+set_target_properties(marl PROPERTIES OUTPUT_NAME lc-ext-marl)
+target_link_libraries(marl PUBLIC EASTL)
+target_link_libraries(luisa-compute-ext INTERFACE marl)
+luisa_compute_install_extension(marl INCLUDE marl/include/marl)
 
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
 

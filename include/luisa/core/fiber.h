@@ -91,7 +91,7 @@ class future {
 public:
     future() noexcept : _future{sizeof(T)} {}
     [[nodiscard]] T &wait() noexcept {
-        return *reinterpret_cast<T *>(_future.wait());
+        return *static_cast<T *>(_future.wait());
     }
     template<typename... Args>
         requires(std::is_constructible_v<T, Args && ...>)
@@ -104,7 +104,7 @@ public:
                 reinterpret_cast<T *>(ptr)->~T();
             });
     }
-    [[nodiscard]] bool test() const noexcept { _future.test(); }
+    [[nodiscard]] bool test() const noexcept { return _future.test(); }
     void clear() const noexcept { _future.clear(); }
 private:
     detail::typeless_future _future;
