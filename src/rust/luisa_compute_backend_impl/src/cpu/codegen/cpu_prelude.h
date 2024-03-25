@@ -12,16 +12,16 @@ inline int __clz(unsigned int x) {
 inline int __ctz(unsigned int x) {
     return __builtin_ctz(x);
 }
-inline int __clz(unsigned long long x) {
+inline int __clzll(unsigned long long x) {
     return __builtin_clzll(x);
 }
-inline int __ctz(unsigned long long x) {
+inline int __ctzll(unsigned long long x) {
     return __builtin_ctzll(x);
 }
 inline int __ffs(unsigned int x) {
     return __builtin_ffs(x);
 }
-inline int __ffs(unsigned long long x) {
+inline int __ffsll(unsigned long long x) {
     return __builtin_ffsll(x);
 }
 inline int __popc(unsigned int x) {
@@ -30,10 +30,10 @@ inline int __popc(unsigned int x) {
 inline int __brev(unsigned int x) {
     return __builtin_bswap32(x);
 }
-inline int __popc(unsigned long long x) {
+inline int __popcll(unsigned long long x) {
     return __builtin_popcountll(x);
 }
-inline int __brev(unsigned long long x) {
+inline int __brevll(unsigned long long x) {
     return __builtin_bswap64(x);
 }
 
