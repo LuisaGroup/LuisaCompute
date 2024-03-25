@@ -104,14 +104,7 @@ public:
         Range read_range;
         Range write_range;
         Map views;
-        bool give_up_subrange() const {
-            // max value can not be zero, so use this as flag
-            return read_range.max == 0;
-        }
-        void set_giveup() {
-            read_range.max = 0;
-        }
-        static constexpr uint GIVEUP_SIZE = 32;
+        static constexpr uint GIVEUP_SIZE = 16;
 
     public:
         RangeHandle(
@@ -125,79 +118,74 @@ public:
             int64_t layer = -1;
             if (!range.collide(write_range))
                 return layer;
-            if (give_up_subrange()) {
-                return max_view.write_layer;
-            } else {
-                for (auto &&r : views) {
-                    if (r.first.collide(range)) {
-                        layer = std::max<int64_t>(layer, r.second.write_layer);
-                        if (layer >= max_view.write_layer) {
-                            return layer;
-                        }
+            for (auto &&r : views) {
+                if (r.first.collide(range)) {
+                    layer = std::max<int64_t>(layer, r.second.write_layer);
+                    if (layer >= max_view.write_layer) {
+                        return layer;
                     }
                 }
-                return layer;
             }
+            return layer;
         }
         auto get_max_read_layer(Range const &range) {
             int64_t layer = -1;
             if (!range.collide(read_range))
                 return layer;
-            if (give_up_subrange()) {
-                return max_view.read_layer;
-            } else {
-                for (auto &&r : views) {
-                    if (r.first.collide(range)) {
-                        layer = std::max<int64_t>(layer, r.second.read_layer);
-                        if (layer >= max_view.read_layer) {
-                            return layer;
-                        }
+            for (auto &&r : views) {
+                if (r.first.collide(range)) {
+                    layer = std::max<int64_t>(layer, r.second.read_layer);
+                    if (layer >= max_view.read_layer) {
+                        return layer;
                     }
                 }
-                return layer;
             }
+            return layer;
         }
+        void clear_views() {
+            views.clear();
+            auto ite = views.try_emplace(read_range);
+            auto &value = ite.first.value();
+            value.read_layer = max_view.read_layer;
+            value.write_layer = max_view.write_layer;
+        };
         void emplace_read_layer(Range const &range, int64_t layer) {
             read_range.min = std::min(read_range.min, range.min);
             read_range.max = std::max(read_range.max, range.max);
-            if (!give_up_subrange()) {
-                if (views.size() >= GIVEUP_SIZE) {
-                    set_giveup();
+            max_view.read_layer = std::max(layer, max_view.read_layer);
+            if (views.size() >= GIVEUP_SIZE) {
+                clear_views();
+            } else {
+                auto ite = views.try_emplace(range);
+                auto &read_layer = ite.first.value().read_layer;
+                if (ite.second) {
+                    read_layer = layer;
                 } else {
-                    auto ite = views.try_emplace(range);
-                    auto &read_layer = ite.first.value().read_layer;
-                    if (ite.second) {
-                        read_layer = layer;
-                    } else {
-                        read_layer = std::max<int64_t>(read_layer, layer);
-                    }
+                    read_layer = std::max<int64_t>(read_layer, layer);
                 }
             }
-            max_view.read_layer = std::max(layer, max_view.read_layer);
         }
         void emplace_write_layer(Range const &range, int64_t layer) {
             read_range.min = std::min(read_range.min, range.min);
             read_range.max = std::max(read_range.max, range.max);
             write_range.min = std::min(write_range.min, range.min);
             write_range.max = std::max(write_range.max, range.max);
-            if (!give_up_subrange()) {
-                if (views.size() >= GIVEUP_SIZE) {
-                    set_giveup();
-                } else {
-                    auto ite = views.try_emplace(range);
-                    auto &read_layer = ite.first.value().read_layer;
-                    auto &write_layer = ite.first.value().write_layer;
-                    if (ite.second) {
-                        read_layer = layer;
-                        write_layer = layer;
-                    } else {
-                        read_layer = std::max<int64_t>(read_layer, layer);
-                        write_layer = std::max<int64_t>(write_layer, layer);
-                    }
-                }
-            }
             max_view.read_layer = std::max(layer, max_view.read_layer);
             max_view.write_layer = std::max(layer, max_view.write_layer);
+            if (views.size() >= GIVEUP_SIZE) {
+                clear_views();
+            } else {
+                auto ite = views.try_emplace(range);
+                auto &read_layer = ite.first.value().read_layer;
+                auto &write_layer = ite.first.value().write_layer;
+                if (ite.second) {
+                    read_layer = layer;
+                    write_layer = layer;
+                } else {
+                    read_layer = std::max<int64_t>(read_layer, layer);
+                    write_layer = std::max<int64_t>(write_layer, layer);
+                }
+            }
         }
     };
     struct NoRangeHandle : public ResourceHandle {

@@ -37,7 +37,7 @@ on_load(function(target)
         target:add("defines", "_CRT_SECURE_NO_WARNINGS")
     end
     target:add("deps", "eastl", "spdlog", "lc-check-winsdk")
-    local marl_path = path.join(os.projectdir(), "src/ext/marl")
+    local marl_path = path.join(os.scriptdir(), "../ext/marl")
     if os.exists(marl_path) then
         target:add("defines", "MARL_DLL", {public = true})
         target:add("defines", "MARL_BUILDING_DLL")
