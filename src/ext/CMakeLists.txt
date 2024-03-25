@@ -201,7 +201,7 @@ if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)
 endif ()
 
-set(BUILD_SHARED_LIBS OFF) # Maxwell has exploded marl with shared libraries
+# FIXME: Maxwell has exploded marl with shared libraries on Windows + Clang
 add_subdirectory(marl)
 set_target_properties(marl PROPERTIES OUTPUT_NAME lc-ext-marl)
 target_link_libraries(marl PUBLIC EASTL)
