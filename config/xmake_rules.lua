@@ -30,6 +30,12 @@ on_load(function(target)
 			public = is_public
 		}
 	)
+	local marl_include = path.join(lc_dir,"src/ext/marl/include")
+	if os.exists(marl_include) then
+		target:add("includedirs", marl_include, {
+			public = is_public
+		})
+	end
 	if is_plat("windows") then
 		target:add("syslinks", "Ole32", "Advapi32", {
 			public = is_public
@@ -71,6 +77,8 @@ on_load(function(target)
 		"LUISA_VSTL_STATIC_LIB", "LUISA_DSL_STATIC_LIB",
 	--[[imgui]]
 		"ImDrawIdx=unsigned int", "IMGUI_API=__declspec(dllimport)",
+	--[[marl]]
+		"MARL_DLL",
 	{
 		public = is_public
 	})

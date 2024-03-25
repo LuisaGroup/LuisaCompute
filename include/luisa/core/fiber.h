@@ -61,6 +61,11 @@ using future = marl::Future<T>;
 inline uint32_t worker_thread_count() {
     return marl::Scheduler::get()->config().workerThread.count;
 }
+template<class F>
+    requires(std::is_invocable_v<F>)
+void schedule(F &&f) noexcept {
+    marl::schedule(std::forward<F>(f));
+}
 
 template<class F>
     requires(std::is_invocable_v<F>)
