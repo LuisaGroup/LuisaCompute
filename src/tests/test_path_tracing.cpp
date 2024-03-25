@@ -136,7 +136,7 @@ int main(int argc, char *argv[]) {
         UInt state = tea(p.x, p.y);
         seed_image.write(p, make_uint4(state));
     };
-    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
+    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 1u;
 #ifndef CLANG_CXX
     Callable lcg = [](UInt &state) noexcept {
         constexpr uint lcg_a = 1664525u;

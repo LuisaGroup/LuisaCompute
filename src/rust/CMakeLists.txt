@@ -1,4 +1,11 @@
 if (LUISA_COMPUTE_ENABLE_RUST)
+
+    file(GLOB_RECURSE LUISA_RUST_SOURCES
+            CONFIGURE_DEPENDS
+            "./*.toml"
+            "luisa_*/*.rs"
+            "luisa_*/*.h")
+
     set(LUISA_RUST_PROFILE "--profile;$<IF:$<CONFIG:Debug>,dev,release>")
     set(LUISA_RUST_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml")
     set(LUISA_RUST_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/$<1:rust>") # use generator expr to avoid unexpected directory creation with multi-config generators
@@ -81,11 +88,12 @@ if (LUISA_COMPUTE_ENABLE_RUST)
 
     add_custom_command(OUTPUT ${LUISA_RUST_LIB_FILES}
             COMMAND ${LUISA_RUST_BUILD_COMMAND}
-            DEPENDS ${LUISA_RUST_MANIFEST}
+            DEPENDS ${LUISA_RUST_SOURCES}
             COMMENT "Building Rust-dependent libraries..."
             VERBATIM)
 
-    add_custom_target(luisa_compute_rust_build ALL)
+    add_custom_target(luisa_compute_rust_build ALL
+            DEPENDS ${LUISA_RUST_LIB_FILES})
 
     # copy the static libraries to the output directory
     foreach (lib ${LUISA_RUST_STATIC_LIBS})
