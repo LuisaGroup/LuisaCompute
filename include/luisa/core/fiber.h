@@ -1,9 +1,12 @@
 #pragma once
 
 #include <marl/event.h>
+#include <marl/future.h>
 #include <marl/waitgroup.h>
 #include <marl/finally.h>
+#include <luisa/core/dll_export.h>
 #include <luisa/core/shared_function.h>
+#include <luisa/core/stl/functional.h>
 
 namespace marl {
 
@@ -31,62 +34,89 @@ namespace marl {
 
 namespace luisa::fiber {
 
-class scheduler {
+class LC_CORE_API scheduler {
 
 public:
     using internal_t = marl::Scheduler;
-    scheduler() noexcept
-        : internal(internal_t::Config::allCores()) {
-        internal.bind();
-    }
-    explicit scheduler(uint32_t thread_count) noexcept
-        : internal(internal_t::Config().setWorkerThreadCount(static_cast<int>(thread_count))) {
-        internal.bind();
-    }
+    scheduler() noexcept;
+    explicit scheduler(uint32_t thread_count) noexcept;
     scheduler(scheduler const &) = delete;
     scheduler(scheduler &&) = delete;
-    ~scheduler() noexcept {
-        internal.unbind();
-    }
+    ~scheduler() noexcept;
 private:
     internal_t internal;
 };
 
-class counter {
+class LC_CORE_API counter {
 public:
     using internal_t = marl::WaitGroup;
-    counter(uint32_t init_count = 0) noexcept : internal(init_count) {}
-    void wait() const noexcept { internal.wait(); }
-    void add(const uint32_t x) const noexcept { internal.add(x); }
-    auto decrement() const noexcept { return internal.done(); }
+    counter(uint32_t init_count = 0) noexcept;
+    void wait() const noexcept;
+    void add(const uint32_t x) const noexcept;
+    [[nodiscard]] bool decrement() const noexcept;
 private:
-    counter(internal_t &&other) noexcept : internal(std::move(other)) {}
+    counter(internal_t &&other) noexcept;
     internal_t internal;
 };
 
-class event {
+class LC_CORE_API event {
 public:
     using internal_t = marl::Event;
-    event() noexcept : internal(marl::Event::Mode::Manual) {}
+    event() noexcept;
 
-    void wait() const noexcept {
-        internal.wait();
-    }
-    void signal() const noexcept { internal.signal(); }
-    [[nodiscard]] auto test() const noexcept { return internal.test(); }
-    void clear() const noexcept { internal.clear(); }
+    void wait() const noexcept;
+    void signal() const noexcept;
+    [[nodiscard]] bool test() const noexcept;
+    void clear() const noexcept;
 private:
-    event(internal_t &&other) noexcept : internal(std::move(other)) {}
+    event(internal_t &&other) noexcept;
     internal_t internal;
 };
+namespace detail {
+class LC_CORE_API typeless_future {
+public:
+    using internal_t = marl::Future;
+    typeless_future(size_t mem_size) noexcept;
 
-inline void *current_fiber() noexcept { return marl::Scheduler::Fiber::current(); }
+    [[nodiscard]] void *wait() const noexcept;
+    void signal(eastl::move_only_function<void(void *)> const &new_ctor, void (*new_dtor)(void *)) const noexcept;
+    [[nodiscard]] bool test() const noexcept;
+    void clear() const noexcept;
+private:
+    internal_t internal;
+};
+}// namespace detail
+template<typename T>
+class future {
+public:
+    future() noexcept : _future{sizeof(T)} {}
+    [[nodiscard]] T &wait() noexcept {
+        return *reinterpret_cast<T *>(_future.wait());
+    }
+    template<typename... Args>
+        requires(std::is_constructible_v<T, Args && ...>)
+    void signal(Args &&...args) {
+        _future.signal(
+            [&](void *ptr) mutable noexcept {
+                new (ptr) T{std::forward<Args>(args)...};
+            },
+            [](void *ptr) noexcept {
+                reinterpret_cast<T *>(ptr)->~T();
+            });
+    }
+    [[nodiscard]] bool test() const noexcept { _future.test(); }
+    void clear() const noexcept { _future.clear(); }
+private:
+    detail::typeless_future _future;
+};
+LC_CORE_API void schedule(luisa::function<void()> &&func);
+LC_CORE_API uint32_t worker_thread_count();
 
 template<class F>
     requires(std::is_invocable_v<F>)
 [[nodiscard]] auto async(F &&lambda) noexcept {
     event evt;
-    marl::schedule([evt, lambda = std::forward<F>(lambda)] {
+    schedule([evt, lambda = std::forward<F>(lambda)] {
         lambda();
         evt.signal();
     });
@@ -107,7 +137,7 @@ struct NonMovableAtomic {
 template<class F>
     requires(std::is_invocable_v<F, uint32_t>)
 [[nodiscard]] auto async_parallel(uint32_t job_count, F &&lambda) noexcept {
-    auto thread_count = std::min<uint32_t>(job_count, marl::Scheduler::get()->config().workerThread.count);
+    auto thread_count = std::min<uint32_t>(job_count, worker_thread_count());
     counter evt{thread_count};
     luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
         uint32_t i = 0u;
@@ -115,7 +145,7 @@ template<class F>
         evt.decrement();
     }};
     for (uint32_t i = 0; i < thread_count; ++i) {
-        marl::schedule(func);
+        schedule(func);
     }
     return evt;
 }
@@ -123,7 +153,7 @@ template<class F>
 template<class F>
     requires(std::is_invocable_v<F, uint32_t>)
 void parallel(uint32_t job_count, F &&lambda) noexcept {
-    auto thread_count = std::min<uint32_t>(job_count, marl::Scheduler::get()->config().workerThread.count);
+    auto thread_count = std::min<uint32_t>(job_count, worker_thread_count());
     counter evt{thread_count};
     luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, &evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
         uint32_t i = 0u;
@@ -131,7 +161,7 @@ void parallel(uint32_t job_count, F &&lambda) noexcept {
         evt.decrement();
     }};
     for (uint32_t i = 0; i < thread_count; ++i) {
-        marl::schedule(func);
+        schedule(func);
     }
     evt.wait();
 }
