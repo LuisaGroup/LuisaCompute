@@ -181,6 +181,29 @@ install(DIRECTORY reproc/reproc++/include/reproc++
         FILES_MATCHING REGEX ".*\\.hpp$")
 # Note: we do not link `reproc` and `reproc++` to `luisa-compute-ext` but
 #       instead to `luisa-compute-core` since this is an OBJECT library.
+
+add_library(luisa-compute-ext-marl-interface INTERFACE)
+target_include_directories(luisa-compute-ext-marl-interface INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/marl/include>)
+target_compile_definitions(luisa-compute-ext-marl-interface INTERFACE MARL_DLL=1)
+target_link_libraries(luisa-compute-ext INTERFACE luisa-compute-ext-marl-interface)
+luisa_compute_install_extension(luisa-compute-ext-marl-interface INCLUDE marl/include/marl)
+
+file(GLOB LUISA_COMPUTE_MARL_HEADERS CONFIGURE_DEPENDS marl/include/marl/*.h)
+file(GLOB LUISA_COMPUTE_MARL_C_SOURCES CONFIGURE_DEPENDS marl/src/*.c)
+file(GLOB LUISA_COMPUTE_MARL_ASM_SOURCES CONFIGURE_DEPENDS marl/src/*.S)
+file(GLOB LUISA_COMPUTE_MARL_CXX_SOURCES CONFIGURE_DEPENDS marl/src/*.cpp)
+# remove the manual unity build file "build.marl.cpp" and let CMake handle it
+list(FILTER LUISA_COMPUTE_MARL_CXX_SOURCES EXCLUDE REGEX ".*build.marl.cpp$")
+add_library(luisa-compute-ext-marl OBJECT ${LUISA_COMPUTE_MARL_HEADERS} ${LUISA_COMPUTE_MARL_CXX_SOURCES})
+target_compile_definitions(luisa-compute-ext-marl PRIVATE MARL_BUILDING_DLL=1)
+target_link_libraries(luisa-compute-ext-marl PRIVATE EASTL luisa-compute-ext-marl-interface)
+set_target_properties(luisa-compute-ext-marl PROPERTIES UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD})
+if (NOT WIN32)
+    target_sources(luisa-compute-ext-marl PRIVATE ${LUISA_COMPUTE_MARL_C_SOURCES} ${LUISA_COMPUTE_MARL_ASM_SOURCES})
+endif ()
+install(TARGETS luisa-compute-ext-marl EXPORT LuisaComputeTargets)
+
 add_library(luisa-compute-ext-lmdb OBJECT
         liblmdb/mdb.c liblmdb/lmdb.h
         liblmdb/midl.c liblmdb/midl.h)

@@ -6,10 +6,10 @@ if (LUISA_COMPUTE_ENABLE_RUST)
             "luisa_*/*.h"
             "luisa_*/*.toml")
     file(GLOB LUISA_RUST_TOP_LEVEL_SOURCES
+            CONFIGURE_DEPENDS
             "*.toml"
             "*.rs")
     list(APPEND LUISA_RUST_SOURCES ${LUISA_RUST_TOP_LEVEL_SOURCES})
-    message(STATUS "LUISA_RUST_SOURCES: ${LUISA_RUST_SOURCES}")
 
     set(LUISA_RUST_PROFILE "--profile;$<IF:$<CONFIG:Debug>,dev,release>")
     set(LUISA_RUST_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml")
