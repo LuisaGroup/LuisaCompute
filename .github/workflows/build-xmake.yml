@@ -59,7 +59,7 @@ jobs:
           xmake-version: latest
       - name: "Configure and Build"
         run: |
-          xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
+          xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           xmake
 
   build-macos:
@@ -94,7 +94,7 @@ jobs:
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
             export PATH=/usr/local/opt/llvm/bin:$PATH
           fi
-          xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --mm=clang --mxx=clang++ --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
+          xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --mm=clang --mxx=clang++ --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           xmake
 
   build-windows:
@@ -125,5 +125,5 @@ jobs:
       - name: "Configure and Build"
         shell: powershell
         run: |
-          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false
+          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           xmake

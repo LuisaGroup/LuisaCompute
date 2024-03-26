@@ -41,20 +41,13 @@ on_load(function(target)
     if os.exists(marl_path) then
         target:add("defines", "MARL_DLL", {public = true})
         target:add("defines", "MARL_BUILDING_DLL")
-        target:add("files", path.join(marl_path, "src/*.c"))
+        target:add("files", path.join(marl_path, "src/*.c"), path.join(marl_path, "src/build.marl.cpp"))
         if not is_plat("windows") then
             target:add("files", path.join(marl_path, "src/*.S"))
         end
         target:add("includedirs", path.join(marl_path, "include"), {
             public = true
         })
-        local src_path = path.join(marl_path, "src")
-        for _, filepath in ipairs(os.files(path.join(src_path, "*.cpp"))) do
-            local file_name = path.filename(filepath)
-            if not (file_name:find("_bench") or file_name:find("_test")) then
-                target:add("files", filepath)
-            end
-        end
     end
 end)
 add_headerfiles("../../include/luisa/core/**.h", "../ext/xxHash/**.h", "../ext/magic_enum/include/**.hpp",

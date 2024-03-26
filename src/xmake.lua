@@ -11,7 +11,10 @@ local function optional_includes(paths)
 end
 optional_includes({"ext/EASTL", "ext/spdlog", "ext/reproc", "ext/liblmdb"})
 table.remove(_config_rules, rename_rule_idx)
-includes("core", "vstl", "ast", "runtime", "osl")
+includes("core", "vstl", "ast", "runtime")
+if get_config("enable_osl") then
+    includes("osl")
+end
 if get_config("enable_dsl") then
     includes("dsl")
 end

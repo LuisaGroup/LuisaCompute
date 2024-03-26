@@ -25,8 +25,8 @@ target_link_libraries(luisa-compute-core
         Threads::Threads
         ${CMAKE_DL_LIBS}
         $<$<PLATFORM_ID:Windows>:dbghelp>
-        marl
         PRIVATE
+        luisa-compute-ext-marl
         reproc reproc++)
 
 set_target_properties(luisa-compute-core PROPERTIES

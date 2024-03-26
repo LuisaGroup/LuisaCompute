@@ -14,7 +14,7 @@ set_default(false)
 set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
     "metal_backend", "cpu_backend", "enable_tests", "enable_custom_malloc", "enable_clangcxx", "py_include",
-    "py_linkdir", "py_libs", "cuda_ext_lcub", "enable_ir", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py",
+    "py_linkdir", "py_libs", "cuda_ext_lcub", "enable_ir", "enable_osl", "enable_api", "enable_dsl", "enable_gui", "bin_dir", "_lc_enable_py",
     "_lc_enable_rust")
 before_check(function(option)
     if path.absolute(path.join(os.projectdir(), "scripts")) == path.absolute(os.scriptdir()) then
@@ -270,11 +270,12 @@ on_config(function(target)
     if not is_plat("windows") then
         return
     end
-    local toolchain = get_config("toolchain")
-    if not toolchain then
-        toolchain = "msvc"
+    local toolchain = "msvc"
+    local toolchain_settings = target:toolchain(toolchain)
+    if toolchain_settings == nil then
+        return
     end
-    local sdk_version = target:toolchain(toolchain):runenvs().WindowsSDKVersion
+    local sdk_version = toolchain_settings:runenvs().WindowsSDKVersion
     local legal_sdk = false
     if sdk_version then
         local lib = import("lib")
