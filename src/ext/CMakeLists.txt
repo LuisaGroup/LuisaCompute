@@ -201,13 +201,6 @@ if (SKBUILD OR LUISA_COMPUTE_FORCE_PYTHON_BINDINGS)
     add_subdirectory(pybind11)
 endif ()
 
-# FIXME: Maxwell has exploded marl with shared libraries on Windows + Clang
-set(MARL_BUILD_OBJECT ON CACHE BOOL "" FORCE)
-set(MARL_INSTALL OFF CACHE BOOL "" FORCE)
-add_subdirectory(marl)
-target_link_libraries(marl PUBLIC EASTL)
-luisa_compute_install_extension(marl INCLUDE marl/include/marl)
-
 install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
 
 # for rust bindings

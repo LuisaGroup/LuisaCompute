@@ -270,11 +270,12 @@ on_config(function(target)
     if not is_plat("windows") then
         return
     end
-    local toolchain = get_config("toolchain")
-    if not toolchain then
-        toolchain = "msvc"
+    local toolchain = "msvc"
+    local toolchain_settings = target:toolchain(toolchain)
+    if toolchain_settings == nil then
+        return
     end
-    local sdk_version = target:toolchain(toolchain):runenvs().WindowsSDKVersion
+    local sdk_version = toolchain_settings:runenvs().WindowsSDKVersion
     local legal_sdk = false
     if sdk_version then
         local lib = import("lib")
