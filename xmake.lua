@@ -88,6 +88,12 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+-- enable osl
+option("enable_osl")
+set_values(true, false)
+set_default(true)
+set_showmenu(true)
+option_end()
 -- enable c-language api module for cross-language bindings module
 option("enable_api")
 set_values(true, false)
