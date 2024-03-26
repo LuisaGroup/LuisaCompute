@@ -203,6 +203,9 @@ if (NOT WIN32)
     enable_language(ASM)
     target_sources(luisa-compute-ext-marl PRIVATE ${LUISA_COMPUTE_MARL_C_SOURCES} ${LUISA_COMPUTE_MARL_ASM_SOURCES})
 endif ()
+if (UNIX AND NOT APPLE)
+    target_compile_options(luisa-compute-ext-marl PRIVATE "-fPIC")
+endif ()
 install(TARGETS luisa-compute-ext-marl EXPORT LuisaComputeTargets)
 
 add_library(luisa-compute-ext-lmdb OBJECT
