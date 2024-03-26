@@ -18,6 +18,8 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "common/tiny_obj_loader.h"
 
+// #define CLANG_CXX
+
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -100,7 +102,7 @@ int main(int argc, char *argv[]) {
            << accel.build()
            << synchronize();
 
-    Constant materials{
+    float3 mats[] = {
         make_float3(0.725f, 0.710f, 0.680f),// floor
         make_float3(0.725f, 0.710f, 0.680f),// ceiling
         make_float3(0.725f, 0.710f, 0.680f),// back wall
@@ -110,6 +112,8 @@ int main(int argc, char *argv[]) {
         make_float3(0.725f, 0.710f, 0.680f),// tall box
         make_float3(0.000f, 0.000f, 0.000f),// light
     };
+    auto materials = device.create_buffer<float3>(8);
+    stream << materials.copy_from(mats);
 
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
         return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -132,136 +136,7 @@ int main(int argc, char *argv[]) {
         UInt state = tea(p.x, p.y);
         seed_image.write(p, make_uint4(state));
     };
-
-    Callable lcg = [](UInt &state) noexcept {
-        constexpr uint lcg_a = 1664525u;
-        constexpr uint lcg_c = 1013904223u;
-        state = lcg_a * state + lcg_c;
-        return cast<float>(state & 0x00ffffffu) *
-               (1.0f / static_cast<float>(0x01000000u));
-    };
-
-    Callable make_onb = [](const Float3 &normal) noexcept {
-        Float3 binormal = normalize(ite(
-            abs(normal.x) > abs(normal.z),
-            make_float3(-normal.y, normal.x, 0.0f),
-            make_float3(0.0f, -normal.z, normal.y)));
-        Float3 tangent = normalize(cross(binormal, normal));
-        return def<Onb>(tangent, binormal, normal);
-    };
-
-    Callable generate_ray = [](Float2 p) noexcept {
-        static constexpr float fov = radians(27.8f);
-        static constexpr float3 origin = make_float3(-0.01f, 0.995f, 5.0f);
-        Float3 pixel = origin + make_float3(p * tan(0.5f * fov), -1.0f);
-        Float3 direction = normalize(pixel - origin);
-        return make_ray(origin, direction);
-    };
-
-    Callable cosine_sample_hemisphere = [](Float2 u) noexcept {
-        Float r = sqrt(u.x);
-        Float phi = 2.0f * constants::pi * u.y;
-        return make_float3(r * cos(phi), r * sin(phi), sqrt(1.0f - u.x));
-    };
-
-    Callable balanced_heuristic = [](Float pdf_a, Float pdf_b) noexcept {
-        return pdf_a / max(pdf_a + pdf_b, 1e-4f);
-    };
-
     auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
-
-    Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
-        set_block_size(16u, 16u, 1u);
-        UInt2 coord = dispatch_id().xy();
-        Float frame_size = min(resolution.x, resolution.y).cast<float>();
-        UInt state = seed_image.read(coord).x;
-        Float rx = lcg(state);
-        Float ry = lcg(state);
-        Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
-        Float3 radiance = def(make_float3(0.0f));
-        $for (i, spp_per_dispatch) {
-            Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
-            Float3 beta = def(make_float3(1.0f));
-            Float pdf_bsdf = def(0.0f);
-            constexpr float3 light_position = make_float3(-0.24f, 1.98f, 0.16f);
-            constexpr float3 light_u = make_float3(-0.24f, 1.98f, -0.22f) - light_position;
-            constexpr float3 light_v = make_float3(0.23f, 1.98f, 0.16f) - light_position;
-            constexpr float3 light_emission = make_float3(17.0f, 12.0f, 4.0f);
-            Float light_area = length(cross(light_u, light_v));
-            Float3 light_normal = normalize(cross(light_u, light_v));
-            $for (depth, 10u) {
-                // trace
-                Var<TriangleHit> hit = accel.intersect(ray, {});
-                reorder_shader_execution();
-                $if (hit->miss()) { $break; };
-                Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
-                Float3 p0 = vertex_buffer->read(triangle.i0);
-                Float3 p1 = vertex_buffer->read(triangle.i1);
-                Float3 p2 = vertex_buffer->read(triangle.i2);
-                Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
-                Float3 n = normalize(cross(p1 - p0, p2 - p0));
-                Float cos_wo = dot(-ray->direction(), n);
-                $if (cos_wo < 1e-4f) { $break; };
-
-                // hit light
-                $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
-                    $if (depth == 0u) {
-                        radiance += light_emission;
-                    }
-                    $else {
-                        Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
-                        Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
-                        radiance += mis_weight * beta * light_emission;
-                    };
-                    $break;
-                };
-
-                // sample light
-                Float ux_light = lcg(state);
-                Float uy_light = lcg(state);
-                Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
-                Float3 pp = offset_ray_origin(p, n);
-                Float3 pp_light = offset_ray_origin(p_light, light_normal);
-                Float d_light = distance(pp, pp_light);
-                Float3 wi_light = normalize(pp_light - pp);
-                Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
-                Bool occluded = accel.intersect_any(shadow_ray, {});
-                Float cos_wi_light = dot(wi_light, n);
-                Float cos_light = -dot(light_normal, wi_light);
-                Float3 albedo = materials.read(hit.inst);
-                $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
-                    Float pdf_light = (d_light * d_light) / (light_area * cos_light);
-                    Float pdf_bsdf = cos_wi_light * inv_pi;
-                    Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                    Float3 bsdf = albedo * inv_pi * cos_wi_light;
-                    radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
-                };
-
-                // sample BSDF
-                Var<Onb> onb = make_onb(n);
-                Float ux = lcg(state);
-                Float uy = lcg(state);
-                Float3 wi_local = cosine_sample_hemisphere(make_float2(ux, uy));
-                Float cos_wi = abs(wi_local.z);
-                Float3 new_direction = onb->to_world(wi_local);
-                ray = make_ray(pp, new_direction);
-                pdf_bsdf = cos_wi * inv_pi;
-                beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
-
-                // rr
-                Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
-                $if (l == 0.0f) { $break; };
-                Float q = max(l, 0.05f);
-                Float r = lcg(state);
-                $if (r >= q) { $break; };
-                beta *= 1.0f / q;
-            };
-        };
-        radiance /= static_cast<float>(spp_per_dispatch);
-        seed_image.write(coord, make_uint4(state));
-        $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
-    };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
         UInt2 p = dispatch_id().xy();
@@ -297,7 +172,7 @@ int main(int argc, char *argv[]) {
     auto clear_shader = device.compile(clear_kernel, o);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
     auto accumulate_shader = device.compile(accumulate_kernel, o);
-    auto raytracing_shader = device.compile(raytracing_kernel, ShaderOption{.name = "path_tracing"});
+    auto raytracing_shader = device.load_shader<2, Image<float>, Image<uint>, Accel, BindlessArray, Buffer<float3>, Buffer<float3>, uint2>("test.bin");
     auto make_sampler_shader = device.compile(make_sampler_kernel, o);
 
     static constexpr uint2 resolution = make_uint2(1024u);
@@ -326,7 +201,7 @@ int main(int argc, char *argv[]) {
     Clock clock;
 
     while (!window.should_close()) {
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
+        cmd_list << raytracing_shader(framebuffer, seed_image, accel, heap, vertex_buffer, materials, resolution)
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);

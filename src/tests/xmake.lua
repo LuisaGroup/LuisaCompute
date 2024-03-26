@@ -168,6 +168,10 @@ if not is_mode("debug") then
             add_deps("lc-clangcxx")
             set_pcxxheader("pch.h")
         end)
+        test_proj("test_path_tracing_clangcxx", true, function()
+            add_deps("lc-clangcxx")
+            set_pcxxheader("pch.h")
+        end)
         target("clangcxx_compiler")
         _config_project({
             project_kind = "binary"

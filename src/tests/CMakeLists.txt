@@ -95,6 +95,7 @@ luisa_compute_add_executable(test_pinned_mem test_pinned_mem.cpp)
 if (LUISA_COMPUTE_ENABLE_CLANG_CXX)
     luisa_compute_add_executable(clangcxx_compiler clangcxx_compiler.cpp)
     luisa_compute_add_executable(test_clang_cxx test_clang_cxx.cpp)
+    luisa_compute_add_executable(test_path_tracing_clangcxx test_path_tracing_clangcxx.cpp)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_GUI)
