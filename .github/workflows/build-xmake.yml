@@ -101,11 +101,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ 2022 ]
         config: [ release, debug ]
         compiler: [ msvc, clang-cl ]
-    name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
-    runs-on: windows-${{ matrix.os }}
+    name: windows / ${{ matrix.config }} / ${{ matrix.compiler }}
+    runs-on: [self-hosted, windows, x64]
     steps:
       - uses: actions/checkout@v3
         with:
