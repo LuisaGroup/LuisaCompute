@@ -270,9 +270,14 @@ on_config(function(target)
     if not is_plat("windows") then
         return
     end
-    local toolchain = "msvc"
+    local toolchain = get_config("toolchain")
+    if not toolchain then
+        utils.warning("Toolchain not found, win-sdk check gave up.")
+        return
+    end
     local toolchain_settings = target:toolchain(toolchain)
-    if toolchain_settings == nil then
+    if not toolchain_settings then
+        utils.warning("Toolchain settings not found, win-sdk check gave up.")
         return
     end
     local sdk_version = toolchain_settings:runenvs().WindowsSDKVersion
