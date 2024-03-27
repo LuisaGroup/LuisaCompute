@@ -38,7 +38,7 @@ on_load(function(target)
     end
     target:add("deps", "eastl", "spdlog", "lc-check-winsdk")
     local marl_path = path.join(os.scriptdir(), "../ext/marl")
-    if os.exists(marl_path) then
+    if (not get_config("external_marl")) and (os.exists(marl_path)) then
         target:add("defines", "MARL_DLL", {public = true})
         target:add("defines", "MARL_BUILDING_DLL")
         target:add("files", path.join(marl_path, "src/*.c"), path.join(marl_path, "src/build.marl.cpp"))
