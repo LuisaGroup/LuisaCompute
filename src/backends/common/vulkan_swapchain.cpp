@@ -1,8 +1,5 @@
 #include <array>
 #include <algorithm>
-
-#include <vulkan/vulkan.h>
-
 #include <luisa/core/platform.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/string.h>
@@ -10,24 +7,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/runtime/rhi/pixel.h>
-
-#if defined(LUISA_PLATFORM_WINDOWS)
-#include <windows.h>
-#include <vulkan/vulkan_win32.h>
-#elif defined(LUISA_PLATFORM_APPLE)
-#include <vulkan/vulkan_macos.h>
-#elif defined(LUISA_PLATFORM_UNIX)
-#include <X11/Xlib.h>
-#include <vulkan/vulkan_xlib.h>
-#if LUISA_ENABLE_WAYLAND
-#include <dlfcn.h>
-#include <vulkan/vulkan_wayland.h>
-#include <wayland-client.h>
-#endif
-#else
-#error "Unsupported platform"
-#endif
-
+#include "volk_include.h"
 #include "vulkan_instance.h"
 #include "spdlog/fmt/bundled/chrono.h"
 

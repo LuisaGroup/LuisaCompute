@@ -8,9 +8,7 @@ target("lc-backend-cuda")
 		batch_size = 4
 	})
 	add_defines("LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN")
-	add_packages("vulkansdk")
-	add_deps("lc-vulkan-swapchain")
-	add_deps("lc-runtime")
+	add_deps("lc-vulkan-swapchain", "lc-runtime", "volk")
 	if get_config("enable_ir") then
 		add_deps("lc-ir")
 	end

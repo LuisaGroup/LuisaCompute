@@ -2,14 +2,7 @@ enable_mimalloc = get_config("enable_mimalloc")
 enable_custom_malloc = get_config("enable_custom_malloc")
 table.insert(_config_rules, "lc-rename-ext")
 local rename_rule_idx = table.getn(_config_rules)
-local function optional_includes(paths)
-    for i, v in ipairs(paths) do
-        if os.exists(v) then
-            includes(v)
-        end
-    end
-end
-optional_includes({"ext/EASTL", "ext/spdlog", "ext/reproc", "ext/liblmdb"})
+includes("ext/EASTL", "ext/spdlog", "ext/reproc", "ext/liblmdb", "ext/volk")
 table.remove(_config_rules, rename_rule_idx)
 includes("core", "vstl", "ast", "runtime")
 if get_config("enable_osl") then

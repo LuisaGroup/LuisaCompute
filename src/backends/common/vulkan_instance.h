@@ -3,7 +3,11 @@
 #include <cstdlib>
 #include <cstring>
 
-#include <vulkan/vulkan_core.h>
+// #include <vulkan/vulkan_core.h>
+#ifndef VK_NO_PROTOTYPES
+#define VK_NO_PROTOTYPES 1
+#endif
+#include "volk_include.h"
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
@@ -38,7 +42,7 @@ struct VulkanDeviceUUID {
 
 static_assert(sizeof(VulkanDeviceUUID) == 16u);
 
-class LC_BACKEND_API VulkanInstance {
+class VulkanInstance {
 
 private:
     VkInstance _instance{nullptr};

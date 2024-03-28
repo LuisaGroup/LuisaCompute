@@ -136,9 +136,6 @@ before_check(function(option)
     end
 end)
 option_end()
-add_requires("vulkansdk", {
-    system = true
-})
 rule("lc_basic_settings")
 on_config(function(target)
     local _, cc = target:tool("cxx")

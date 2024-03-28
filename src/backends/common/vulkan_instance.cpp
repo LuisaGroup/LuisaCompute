@@ -1,4 +1,4 @@
-#include <vulkan/vulkan.h>
+#include "vulkan_instance.h"
 
 #if defined(LUISA_PLATFORM_WINDOWS)
 #include <windows.h>
@@ -20,7 +20,6 @@
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/logging.h>
 
-#include "vulkan_instance.h"
 
 namespace luisa::compute {
 
@@ -51,7 +50,7 @@ static VkBool32 vulkan_validation_callback(VkDebugUtilsMessageSeverityFlagBitsEX
 }// namespace detail
 
 VulkanInstance::VulkanInstance() noexcept {
-
+    LUISA_CHECK_VULKAN(volkInitialize());
     luisa::vector<const char *> extensions;
     extensions.reserve(4u);
     extensions.emplace_back(VK_KHR_SURFACE_EXTENSION_NAME);
@@ -151,6 +150,7 @@ VulkanInstance::VulkanInstance() noexcept {
     create_info.ppEnabledExtensionNames = extensions.data();
     LUISA_CHECK_VULKAN(vkCreateInstance(&create_info, nullptr, &_instance));
 #endif
+    volkLoadInstance(_instance);
 
 #ifndef NDEBUG
     if (supports_validation) {

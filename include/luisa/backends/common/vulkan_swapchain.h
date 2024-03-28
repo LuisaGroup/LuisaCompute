@@ -9,7 +9,7 @@ namespace luisa::compute {
 
 struct VulkanDeviceUUID;
 
-class LC_BACKEND_API VulkanSwapchain {
+class VulkanSwapchain {
 
 public:
     class Impl;

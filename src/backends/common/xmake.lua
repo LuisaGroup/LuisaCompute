@@ -3,17 +3,15 @@ if get_config("vk_backend") or get_config("dx_backend") then
 end
 if (get_config("cuda_backend") or get_config("cpu_backend")) then
     target("lc-vulkan-swapchain")
-    add_packages("vulkansdk")
     _config_project({
-        project_kind = "shared"
+        project_kind = "static"
     })
     set_values("vk_public", true)
     add_headerfiles("vulkan_instance.h")
-    add_files("vulkan_swapchain.cpp", "vulkan_instance.cpp")
-    add_deps("lc-core")
+    add_files("vulkan_swapchain.cpp", "vulkan_instance.cpp", "volk_build.c")
+    add_deps("lc-core", "volk")
     if is_plat("linux") then
-        add_syslinks("xcb", "X11")
+        add_syslinks("xcb", "X11", {public = true})
     end
-    add_defines("LC_BACKEND_EXPORT_DLL")
     target_end()
 end
