@@ -275,6 +275,9 @@ on_config(function(target)
         utils.warning("Toolchain not found, win-sdk check gave up.")
         return
     end
+    if toolchain == "llvm" then
+        return
+    end
     local toolchain_settings = target:toolchain(toolchain)
     if not toolchain_settings then
         utils.warning("Toolchain settings not found, win-sdk check gave up.")

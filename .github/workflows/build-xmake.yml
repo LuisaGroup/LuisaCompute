@@ -102,9 +102,9 @@ jobs:
       fail-fast: false
       matrix:
         config: [ release, debug ]
-        compiler: [ msvc, clang-cl ]
+        compiler: [ msvc, clang-cl, llvm ]
     name: windows / ${{ matrix.config }} / ${{ matrix.compiler }}
-    runs-on: [self-hosted, windows, x64]
+    runs-on: [ self-hosted, windows, x64 ]
     steps:
       - uses: actions/checkout@v3
         with:
@@ -112,5 +112,10 @@ jobs:
       - name: "Configure and Build"
         shell: powershell
         run: |
-          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+          if "${{ matrix.compiler }}" == "llvm" (
+            xmake f -p windows -a x64 --toolchain=llvm --sdk=D:/LLVM -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+          )
+          else (
+            xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+          )
           xmake
