@@ -7,10 +7,8 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/runtime/rhi/pixel.h>
-#include "volk_include.h"
-#include "vulkan_instance.h"
-#include "spdlog/fmt/bundled/chrono.h"
 
+#include "vulkan_instance.h"
 #include <luisa/backends/common/vulkan_swapchain.h>
 
 namespace luisa::compute {

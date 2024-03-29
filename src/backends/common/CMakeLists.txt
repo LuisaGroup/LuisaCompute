@@ -104,7 +104,6 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
 
     if (Vulkan_FOUND AND X11_DEPENDENCY_SATISFIED)
         set(LUISA_COMPUTE_VULKAN_SWAPCHAIN_SOURCES
-                volk_include.h
                 vulkan_instance.cpp vulkan_instance.h
                 vulkan_swapchain.cpp)
 
@@ -115,25 +114,20 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
                     moltenvk_surface.mm)
         endif ()
 
-        add_library(luisa-compute-vulkan-swapchain STATIC
+        add_library(luisa-compute-vulkan-swapchain OBJECT
                 ${LUISA_COMPUTE_VULKAN_SWAPCHAIN_SOURCES})
+        target_link_libraries(luisa-compute-vulkan-swapchain
+                PUBLIC
+                luisa-compute-runtime
+                Vulkan::Vulkan
+                ${X11_LIBRARIES})
+        target_compile_definitions(luisa-compute-vulkan-swapchain
+                PUBLIC
+                LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN=1)
 
         if (UNIX AND NOT APPLE)
             target_compile_options(luisa-compute-vulkan-swapchain PRIVATE "-fPIC")
         endif ()
-        target_link_libraries(luisa-compute-vulkan-swapchain
-                PUBLIC
-                luisa-compute-runtime
-                luisa-compute-ext-volk-interface
-                Vulkan::Vulkan
-                PRIVATE
-                luisa-compute-ext-volk
-                ${X11_LIBRARIES})
-
-        target_compile_definitions(luisa-compute-vulkan-swapchain
-                PUBLIC
-                LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN=1
-                VK_NO_PROTOTYPES=1)
 
         if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             target_link_libraries(luisa-compute-vulkan-swapchain
