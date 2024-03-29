@@ -2,5 +2,16 @@
 #define VK_NO_PROTOTYPES 1
 #endif
 
-#include <vulkan/vulkan.h>
-#include <volk.c>
+#if defined(LUISA_PLATFORM_WINDOWS)
+#define VK_USE_PLATFORM_WIN32_KHR
+#elif defined(LUISA_PLATFORM_APPLE)
+#define VK_USE_PLATFORM_MACOS_MVK
+#else
+#define VK_USE_PLATFORM_XLIB_KHR
+#if LUISA_ENABLE_WAYLAND
+#define VK_USE_PLATFORM_WAYLAND_KHR
+#endif
+#endif
+
+#define VOLK_IMPLEMENTATION
+#include <volk.h>
