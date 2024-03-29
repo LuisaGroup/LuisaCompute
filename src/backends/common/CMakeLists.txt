@@ -118,7 +118,7 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
         add_library(luisa-compute-vulkan-swapchain STATIC
                 ${LUISA_COMPUTE_VULKAN_SWAPCHAIN_SOURCES})
         if (UNIX AND NOT APPLE)
-            target_compile_options(luisa-compute-vulkan PRIVATE "-fPIC")
+            target_compile_options(luisa-compute-vulkan-swapchain PRIVATE "-fPIC")
         endif ()
 
         target_link_libraries(luisa-compute-vulkan-swapchain PUBLIC
