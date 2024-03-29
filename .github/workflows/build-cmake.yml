@@ -36,7 +36,7 @@ jobs:
             export LUISA_FLAGS="-stdlib=libc++"
           fi
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
-          cmake --build build
+          cmake --build build -j 8
       - name: "Install"
         run: |
           if [ "${{ matrix.config }}" = "Release" ]; then
