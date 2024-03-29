@@ -318,7 +318,7 @@ int main(int argc, char *argv[]) {
             .size = make_uint2(resolution),
             .wants_hdr = false,
             .wants_vsync = false,
-            .back_buffer_count = 2,
+            .back_buffer_count = 8,
         });
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     double last_time = 0.0;

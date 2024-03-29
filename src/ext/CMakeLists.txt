@@ -152,6 +152,16 @@ target_include_directories(half INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOUR
 target_link_libraries(luisa-compute-ext INTERFACE half)
 luisa_compute_install_extension(half HEADER_FILES half/include/half.hpp)
 
+add_library(luisa-compute-ext-volk-interface INTERFACE)
+target_include_directories(luisa-compute-ext-volk-interface INTERFACE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/volk>)
+target_compile_definitions(luisa-compute-ext-volk-interface INTERFACE VK_NO_PROTOTYPES=1)
+luisa_compute_install_extension(luisa-compute-ext-volk-interface)
+
+add_library(luisa-compute-ext-volk OBJECT volk/volk.c volk/volk.h)
+target_link_libraries(luisa-compute-ext-volk PRIVATE luisa-compute-ext-volk-interface)
+luisa_compute_install_extension(luisa-compute-ext-volk)
+
 # reproc
 set(REPROC_DEVELOP OFF CACHE BOOL "" FORCE)
 set(REPROC_TEST OFF CACHE BOOL "" FORCE)
