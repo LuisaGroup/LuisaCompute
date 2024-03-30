@@ -106,29 +106,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ 2019, 2022 ]
         config: [ release, debug ]
-        compiler: [ msvc, clang-cl ]
-    name: windows-${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
-    runs-on: windows-${{ matrix.os }}
+        compiler: [ msvc, clang-cl, llvm ]
+    name: windows / ${{ matrix.config }} / ${{ matrix.compiler }}
+    runs-on: [ self-hosted, windows, x64 ]
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-      - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.11
-      - name: "Setup Vulkan SDK"
-        uses: humbletim/setup-vulkan-sdk@v1.2.0
-        with:
-          vulkan-query-version: 1.3.204.0
-          vulkan-components: Vulkan-Headers, Vulkan-Loader
-          vulkan-use-cache: true
-      - name: "Setup XMake"
-        uses: xmake-io/github-action-setup-xmake@v1
-        with:
-          xmake-version: latest
       - name: "Configure and Build"
-        shell: powershell
+        shell: cmd
         run: |
-          xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+          if "${{ matrix.compiler }}" == "llvm" (
+            xmake f -p windows -a x64 --toolchain=llvm --sdk=D:/LLVM -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+          ) else (
+            xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+          )
           xmake
