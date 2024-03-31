@@ -1,12 +1,6 @@
 name: build-cmake
 
-on:
-  push:
-    branches-ignore:
-      - 'stable'
-  pull_request:
-    branches-ignore:
-      - 'stable'
+on: [ push, pull_request ]
 
 jobs:
   build-linux:
