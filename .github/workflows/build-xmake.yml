@@ -74,7 +74,7 @@ jobs:
         shell: cmd
         run: |
           if "${{ matrix.compiler }}" == "llvm" (
-            xmake f -p windows -a x64 --toolchain=llvm --sdk=D:/LLVM -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+            xmake f -p windows -a x64 --toolchain=llvm --sdk=C:/Program Files/LLVM -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           ) else (
             xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           )
