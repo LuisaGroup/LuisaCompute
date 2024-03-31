@@ -25,9 +25,10 @@ on_load(function(target)
 				public = true
 			})
 		elseif is_plat("linux") then
-			target:add("links", path.join(lib_path, "libluisa_compute_ir_static"), {
+			target:add("links", path.join(lib_path, "libluisa_compute_ir_static.a"), {
 				public = true
 			})
+			target:add("rpathdirs", lib_path)
 		else
 			target:add("links", path.join(lib_path, "libluisa_compute_ir_static"), {
 				public = true
