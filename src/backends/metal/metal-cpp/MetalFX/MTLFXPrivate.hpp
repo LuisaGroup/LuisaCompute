@@ -243,7 +243,7 @@ namespace MTLFX
             _MTLFX_PRIVATE_DEF_SEL( setInputContentPropertiesEnabled_,
                                     "setInputContentPropertiesEnabled:" );
             _MTLFX_PRIVATE_DEF_SEL( setInputContentWidth_,
-                                    "setInputContentWidth_:" );
+                                    "setInputContentWidth:" );
             _MTLFX_PRIVATE_DEF_SEL( setInputHeight_,
                                     "setInputHeight:" );
             _MTLFX_PRIVATE_DEF_SEL( setInputWidth_,
@@ -272,6 +272,10 @@ namespace MTLFX
                                     "setPreExposure:" );
             _MTLFX_PRIVATE_DEF_SEL( setReset_,
                                     "setReset:" );
+            _MTLFX_PRIVATE_DEF_SEL( supportedInputContentMaxScaleForDevice_,
+                                    "supportedInputContentMaxScaleForDevice:" );
+            _MTLFX_PRIVATE_DEF_SEL( supportedInputContentMinScaleForDevice_,
+                                    "supportedInputContentMinScaleForDevice:" );
             _MTLFX_PRIVATE_DEF_SEL( supportsDevice_,
                                     "supportsDevice:" );
         } // Selector

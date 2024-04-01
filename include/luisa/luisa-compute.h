@@ -46,6 +46,7 @@
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl.h>
 #include <luisa/core/string_scratch.h>
+#include <luisa/core/subprocess.h>
 #include <luisa/core/thread_safety.h>
 
 #ifdef LUISA_ENABLE_DSL
