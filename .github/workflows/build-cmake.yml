@@ -1,12 +1,6 @@
 name: build-cmake
 
-on:
-  push:
-    branches-ignore:
-      - 'stable'
-  pull_request:
-    branches-ignore:
-      - 'stable'
+on: [ push, pull_request ]
 
 jobs:
   build-linux:
@@ -36,7 +30,7 @@ jobs:
             export LUISA_FLAGS="-stdlib=libc++"
           fi
           cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
-          cmake --build build
+          cmake --build build -j 8
       - name: "Install"
         run: |
           if [ "${{ matrix.config }}" = "Release" ]; then
@@ -97,11 +91,7 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          if "${{ matrix.os }}" == "2019" (
-            call "C:\Program Files (x86)\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
-          ) else (
-            call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
-          )
+          call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
           cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
           cmake --build build
       - name: "Install"

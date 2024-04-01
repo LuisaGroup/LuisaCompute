@@ -1,12 +1,6 @@
 name: build-xmake
 
-on:
-  push:
-    branches-ignore:
-      - 'stable'
-  pull_request:
-    branches-ignore:
-      - 'stable'
+on: [ push, pull_request ]
 
 jobs:
   build-linux:
@@ -27,7 +21,7 @@ jobs:
       - name: "Configure and Build"
         run: |
           xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
-          xmake
+          xmake --jobs=8
 
   build-macos:
     strategy:
@@ -80,7 +74,7 @@ jobs:
         shell: cmd
         run: |
           if "${{ matrix.compiler }}" == "llvm" (
-            xmake f -p windows -a x64 --toolchain=llvm --sdk=D:/LLVM -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+            xmake f -p windows -a x64 --toolchain=llvm --sdk="C:/Program Files/LLVM" -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           ) else (
             xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           )
