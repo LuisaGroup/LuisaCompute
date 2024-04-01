@@ -1,6 +1,12 @@
 name: build-wheels
 
-on: [ push, pull_request ]
+on:
+  push:
+    branches:
+      - 'stable'
+  pull_request:
+    branches:
+      - 'stable'
 
 env:
   CIBW_ARCHS: auto64
@@ -56,7 +62,7 @@ jobs:
 
   build-windows:
     name: windows-2022
-    runs-on: [self-hosted, windows, x64]
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v3
         with:
