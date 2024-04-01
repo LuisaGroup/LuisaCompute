@@ -61,8 +61,8 @@ _MTL_ENUM(NS::UInteger, StoreAction) {
 
 _MTL_OPTIONS(NS::UInteger, StoreActionOptions) {
     StoreActionOptionNone = 0,
-    StoreActionOptionValidMask = 1,
     StoreActionOptionCustomSamplePositions = 1,
+    StoreActionOptionValidMask = 1,
 };
 
 class RenderPassAttachmentDescriptor : public NS::Copying<RenderPassAttachmentDescriptor>

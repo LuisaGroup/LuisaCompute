@@ -56,17 +56,17 @@ _MTL_ENUM(NS::UInteger, HazardTrackingMode) {
 };
 
 _MTL_OPTIONS(NS::UInteger, ResourceOptions) {
-    ResourceStorageModeShared = 0,
-    ResourceHazardTrackingModeDefault = 0,
     ResourceCPUCacheModeDefaultCache = 0,
-    ResourceOptionCPUCacheModeDefault = 0,
     ResourceCPUCacheModeWriteCombined = 1,
-    ResourceOptionCPUCacheModeWriteCombined = 1,
+    ResourceStorageModeShared = 0,
     ResourceStorageModeManaged = 16,
     ResourceStorageModePrivate = 32,
     ResourceStorageModeMemoryless = 48,
+    ResourceHazardTrackingModeDefault = 0,
     ResourceHazardTrackingModeUntracked = 256,
     ResourceHazardTrackingModeTracked = 512,
+    ResourceOptionCPUCacheModeDefault = 0,
+    ResourceOptionCPUCacheModeWriteCombined = 1,
 };
 
 class Resource : public NS::Referencing<Resource>

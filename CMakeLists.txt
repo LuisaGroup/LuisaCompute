@@ -97,7 +97,8 @@ install(FILES README.md LICENSE
 
 # include
 file(GLOB_RECURSE LUISA_COMPUTE_HEADERS CONFIGURE_DEPENDS
-        "include/luisa/*.h" "include/luisa/*.hpp")
+        "include/luisa/*.h"
+        "include/luisa/*.hpp")
 add_library(luisa-compute-include INTERFACE ${LUISA_COMPUTE_HEADERS})
 target_include_directories(luisa-compute-include INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
