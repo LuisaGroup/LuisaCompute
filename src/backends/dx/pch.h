@@ -14,6 +14,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/string.h>
+#include <luisa/core/dynamic_module.h>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/image.h>
