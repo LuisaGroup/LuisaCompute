@@ -6,7 +6,6 @@
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/vstl/common.h>
 #include <luisa/runtime/context.h>
-#include <luisa/core/dynamic_module.h>
 #include <luisa/vstl/lmdb.hpp>
 
 namespace luisa::compute {
