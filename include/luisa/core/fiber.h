@@ -119,7 +119,7 @@ template<class F>
 void parallel(uint32_t job_count, F &&lambda) noexcept {
     auto thread_count = std::min<uint32_t>(job_count, worker_thread_count());
     counter evt{thread_count};
-    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, &evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
+    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
         uint32_t i = 0u;
         while ((i = counter.value.fetch_add(1u)) < job_count) { lambda(i); }
         evt.done();
