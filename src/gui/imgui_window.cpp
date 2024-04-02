@@ -487,7 +487,10 @@ private:
         auto width = 0, height = 0;
         io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
         // TODO: mipmaps?
-        _font_texture = _device.create_image<float>(PixelStorage::BYTE4, width, height, 1);
+        if (!_font_texture || any(_font_texture.size() != make_uint2(width, height))) {
+            if (_font_texture) { _stream << synchronize(); }
+            _font_texture = _device.create_image<float>(PixelStorage::BYTE4, width, height, 1);
+        }
         _stream << _font_texture.copy_from(pixels);
         auto tex_id = register_texture(_font_texture, Sampler::linear_point_edge());
         io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(tex_id));
@@ -678,7 +681,7 @@ public:
         ImGui::SetCurrentContext(_context);
         // ImGui checks if the font texture is created in
         // ImGui::NewFrame() so we have to create it here
-        if (!_font_texture) { _create_font_texture(); }
+        if (!ImGui::GetIO().Fonts->IsBuilt() || !_font_texture) { _create_font_texture(); }
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
     }
