@@ -29,7 +29,7 @@ private:
                          ShaderDispatchCommand *command) const noexcept = 0;
 
 public:
-    static void _patch_ptx_version(luisa::string &ptx) noexcept;
+    static void _patch_ptx_version(luisa::vector<std::byte> &ptx) noexcept;
 
 public:
     CUDAShader(luisa::unique_ptr<CUDAShaderPrinter> printer,

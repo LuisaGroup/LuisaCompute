@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.23...3.26)
-cmake_policy(VERSION 3.23)
+cmake_minimum_required(VERSION 3.26...3.29)
+cmake_policy(VERSION 3.26)
 
 set(CMAKE_POLICY_DEFAULT_CMP0042 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0048 NEW)

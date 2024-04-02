@@ -428,14 +428,15 @@ parse_shader_metadata(luisa::string_view data,
 }
 
 template<bool allow_update_expected_metadata>
-[[nodiscard]] inline luisa::string load_shader_ptx(BinaryStream *metadata_stream,
-                                                   BinaryStream *ptx_stream,
-                                                   luisa::string_view name,
-                                                   bool warn_not_found,
-                                                   std::conditional_t<allow_update_expected_metadata,
-                                                                      CUDAShaderMetadata,
-                                                                      const CUDAShaderMetadata> &
-                                                       expected_metadata) noexcept {
+[[nodiscard]] inline luisa::vector<std::byte> load_shader_ptx(
+    BinaryStream *metadata_stream,
+    BinaryStream *ptx_stream,
+    luisa::string_view name,
+    bool warn_not_found,
+    std::conditional_t<allow_update_expected_metadata,
+                       CUDAShaderMetadata,
+                       const CUDAShaderMetadata> &expected_metadata) noexcept {
+
     // check if the stream is valid
     if (ptx_stream == nullptr || ptx_stream->length() == 0u ||
         metadata_stream == nullptr || metadata_stream->length() == 0u) {
@@ -460,7 +461,7 @@ template<bool allow_update_expected_metadata>
         meta_data.size() * sizeof(char)});
 
     // read ptx
-    luisa::string ptx_data;
+    luisa::vector<std::byte> ptx_data;
     ptx_data.resize(ptx_stream->length());
     ptx_stream->read(luisa::span{
         reinterpret_cast<std::byte *>(ptx_data.data()),
@@ -644,19 +645,19 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
     auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
     auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
-    luisa::vector<const char *> nvrtc_options{
+    luisa::vector<const char *> nvrtc_options {
         sm_option.c_str(),
-        nvrtc_version_option.c_str(),
-        optix_version_option.c_str(),
-        "--std=c++17",
-        "-default-device",
-        "-restrict",
-        "-extra-device-vectorization",
-        "-dw",
-        "-w",
-        "-ewp",
+            nvrtc_version_option.c_str(),
+            optix_version_option.c_str(),
+            "--std=c++17",
+            "-default-device",
+            "-restrict",
+            "-extra-device-vectorization",
+            "-dw",
+            "-w",
+            "-ewp",
 #if !defined(NDEBUG) && LUISA_CUDA_KERNEL_DEBUG
-        "-DLUISA_DEBUG=1",
+            "-DLUISA_DEBUG=1",
 #endif
     };
 

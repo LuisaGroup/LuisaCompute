@@ -34,6 +34,8 @@ struct TraceItem {
 [[nodiscard]] LC_CORE_API LUISA_NEVER_INLINE luisa::vector<TraceItem> backtrace() noexcept;
 [[nodiscard]] LC_CORE_API luisa::string cpu_name() noexcept;
 
+[[nodiscard]] LC_CORE_API luisa::string current_executable_path() noexcept;
+
 }// namespace luisa
 
 #endif
