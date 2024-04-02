@@ -1,4 +1,8 @@
 #pragma once
+
+#ifndef LUISA_COMPUTE_CUDA_BACKEND_PCH_H
+#define LUISA_COMPUTE_CUDA_BACKEND_PCH_H
+
 #include <luisa/core/logging.h>
 #include <luisa/core/basic_traits.h>
 #include <luisa/core/basic_types.h>
@@ -12,4 +16,6 @@
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/dispatch_buffer.h>
-#include "cuda.h"
+#include <cuda.h>
+
+#endif

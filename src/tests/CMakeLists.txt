@@ -10,6 +10,7 @@ function(luisa_compute_test_suite name)
     file(GLOB_RECURSE test_${name}_source next/test/${name}/**.cpp)
     luisa_compute_add_executable(test_${name} ${test_common_source} ${test_${name}_source})
     target_include_directories(test_${name} PRIVATE ./)
+    target_precompile_headers(test_${name} PRIVATE pch.h)
 endfunction()
 
 luisa_compute_test_suite(feat)

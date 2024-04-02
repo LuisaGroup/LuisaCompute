@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef LUISA_COMPUTE_DX_BACKEND_PCH_H
+#define LUISA_COMPUTE_DX_BACKEND_PCH_H
+
 #include <dxgi1_6.h>
 #include <Windows.h>
 #include <d3dx12.h>
@@ -18,3 +21,5 @@
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/vstl/common.h>
 #include <luisa/vstl/functional.h>
+
+#endif

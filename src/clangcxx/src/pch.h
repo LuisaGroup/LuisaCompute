@@ -1,4 +1,8 @@
 #pragma once
+
+#ifndef LUISA_COMPUTE_CLANGCXX_PCH_H
+#define LUISA_COMPUTE_CLANGCXX_PCH_H
+
 #include <luisa/vstl/common.h>
 
 #include <luisa/core/dll_export.h>
@@ -46,3 +50,5 @@
 
 #include <utility>
 #include <iostream>
+
+#endif
