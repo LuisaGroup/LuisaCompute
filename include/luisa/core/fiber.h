@@ -54,7 +54,29 @@ private:
     internal_t internal;
 };
 using counter = marl::WaitGroup;
-using event = marl::Event;
+struct event {
+private:
+    marl::Event _evt;
+public:
+    using Mode = marl::Event::Mode;
+    event(Mode mode = Mode::Manual, bool init_state = false) noexcept
+        : _evt{mode, init_state} {}
+    void signal() const noexcept {
+        _evt.signal();
+    }
+    void clear() const noexcept {
+        _evt.clear();
+    }
+    void wait() const noexcept {
+        _evt.wait();
+    }
+    [[nodiscard]] auto test() const noexcept {
+        return _evt.test();
+    }
+    [[nodiscard]] auto is_signalled() const noexcept {
+        return _evt.isSignalled();
+    }
+};
 template<typename T>
 using future = marl::Future<T>;
 
@@ -119,7 +141,7 @@ template<class F>
 void parallel(uint32_t job_count, F &&lambda) noexcept {
     auto thread_count = std::min<uint32_t>(job_count, worker_thread_count());
     counter evt{thread_count};
-    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, &evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
+    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
         uint32_t i = 0u;
         while ((i = counter.value.fetch_add(1u)) < job_count) { lambda(i); }
         evt.done();

@@ -36,7 +36,7 @@ on_load(function(target)
     if is_plat("windows") then
         target:add("defines", "_CRT_SECURE_NO_WARNINGS")
     end
-    target:add("deps", "eastl", "spdlog", "lc-check-winsdk")
+    target:add("deps", "eastl", "spdlog", "lc-check-winsdk", "reproc")
     local marl_path = path.join(os.scriptdir(), "../ext/marl")
     if (not get_config("external_marl")) and (os.exists(marl_path)) then
         target:add("defines", "MARL_DLL", {public = true})
