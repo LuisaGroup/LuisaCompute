@@ -170,11 +170,18 @@ if (UNIX AND NOT APPLE)
     target_compile_options(reproc PRIVATE "-fPIC")
     target_compile_options(reproc++ PRIVATE "-fPIC")
 endif ()
-target_include_directories(luisa-compute-ext INTERFACE
+add_library(reproc-interface INTERFACE)
+target_compile_definitions(reproc-interface INTERFACE REPROC_SHARED REPROCXX_SHARED)
+target_include_directories(reproc-interface INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc/include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc++/include>)
+target_link_libraries(luisa-compute-ext INTERFACE reproc-interface)
+install(TARGETS reproc-interface EXPORT LuisaComputeTargets)
+
 target_compile_definitions(reproc PRIVATE REPROC_BUILDING PUBLIC REPROC_SHARED)
 target_compile_definitions(reproc++ PRIVATE REPROCXX_BUILDING PUBLIC REPROCXX_SHARED)
+target_link_libraries(reproc PUBLIC reproc-interface)
+target_link_libraries(reproc++ PUBLIC reproc-interface)
 
 install(DIRECTORY reproc/reproc/include/reproc
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
