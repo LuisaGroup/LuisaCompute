@@ -92,7 +92,7 @@ jobs:
           submodules: recursive
       - name: "Install Rust"
         run: |
-          wget https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe
+          curl -O https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe
           .\rustup-init.exe -vy
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
