@@ -90,10 +90,6 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-      - name: "Install Rust"
-        run: |
-          curl -O https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe
-          .\rustup-init.exe -vy
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
