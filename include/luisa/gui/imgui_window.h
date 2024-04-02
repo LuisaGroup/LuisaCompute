@@ -101,7 +101,7 @@ public:
     }
 
     template<typename F>
-    void wtih_frame(F &&f) noexcept {
+    void with_frame(F &&f) noexcept {
         prepare_frame();
         luisa::invoke(std::forward<F>(f));
         render_frame();
