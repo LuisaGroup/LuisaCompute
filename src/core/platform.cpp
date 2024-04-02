@@ -3,6 +3,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/platform.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
 
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
@@ -168,6 +169,19 @@ luisa::string cpu_name() noexcept {
     return reinterpret_cast<const char *>(brand);
 }
 
+luisa::string current_executable_path() noexcept {
+    constexpr auto max_path_length = std::max<size_t>(MAX_PATH, 4096);
+    std::filesystem::path::value_type path[max_path_length] = {};
+    auto nchar = GetModuleFileNameW(nullptr, path, max_path_length);
+    if (nchar == 0 ||
+        (nchar == MAX_PATH &&
+         ((GetLastError() == ERROR_INSUFFICIENT_BUFFER) ||
+          (path[MAX_PATH - 1] != 0)))) {
+        LUISA_ERROR_WITH_LOCATION("Failed to get current executable path.");
+    }
+    return luisa::to_string(std::filesystem::canonical(path));
+}
+
 }// namespace luisa
 
 #elif defined(LUISA_PLATFORM_UNIX)
@@ -176,6 +190,10 @@ luisa::string cpu_name() noexcept {
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <cxxabi.h>
+
+#ifdef LUISA_PLATFORM_APPLE
+#include <libproc.h>// to get current executable path
+#endif
 
 #ifdef LUISA_ARCH_ARM64
 #include <sys/types.h>
@@ -318,6 +336,32 @@ luisa::string cpu_name() noexcept {
     __get_cpuid(0x80000003u, brand + 0x4u, brand + 0x5u, brand + 0x6u, brand + 0x7u);
     __get_cpuid(0x80000004u, brand + 0x8u, brand + 0x9u, brand + 0xau, brand + 0xbu);
     return reinterpret_cast<const char *>(brand);
+}
+#endif
+
+#ifdef LUISA_PLATFORM_APPLE
+luisa::string current_executable_path() noexcept {
+    char pathbuf[PROC_PIDPATHINFO_MAXSIZE] = {};
+    auto pid = getpid();
+    if (auto size = proc_pidpath(pid, pathbuf, sizeof(pathbuf)); size > 0) {
+        luisa::string_view path{pathbuf, static_cast<size_t>(size)};
+        return luisa::to_string(std::filesystem::canonical(path));
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Failed to get current executable path (PID = {}): {}.",
+        pid, strerror(errno));
+}
+#else
+luisa::string current_executable_path() noexcept {
+    char pathbuf[PATH_MAX] = {};
+    for (auto p : {"/proc/self/exe", "/proc/curproc/file", "/proc/self/path/a.out"}) {
+        if (auto size = readlink(p, pathbuf, sizeof(pathbuf)); size > 0) {
+            luisa::string_view path{pathbuf, static_cast<size_t>(size)};
+            return luisa::to_string(std::filesystem::canonical(path));
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Failed to get current executable path.");
 }
 #endif
 

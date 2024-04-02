@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <reproc/reproc.h>
 #include <reproc++/reproc.hpp>
 
 namespace luisa {

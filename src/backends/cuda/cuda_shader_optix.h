@@ -44,7 +44,7 @@ private:
     void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 
 public:
-    CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::string ptx,
+    CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<std::byte> ptx,
                     const char *entry, const CUDAShaderMetadata &metadata,
                     luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderOptiX() noexcept override;

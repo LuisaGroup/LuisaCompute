@@ -22,7 +22,7 @@ private:
     void _launch(CUDACommandEncoder &encoder, ShaderDispatchCommand *command) const noexcept override;
 
 public:
-    CUDAShaderNative(CUDADevice *device, luisa::string ptx,
+    CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> ptx,
                      const char *entry, const CUDAShaderMetadata &metadata,
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
