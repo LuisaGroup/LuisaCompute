@@ -52,10 +52,7 @@ if (CUDAToolkit_FOUND)
     install(FILES "${CUDA_DEVICE_RUNTIME_LIBRARY}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     # nvrtc standalone compiler
-    add_executable(luisa-cuda-nvrtc-standalone-compiler
-            # NOTE: nvrtc somehow links to some C++ standard library symbols so we need to provide a dummy C++ source file
-            cuda_nvrtc_compiler.c
-            cuda_nvrtc_dummy.cpp)
+    add_executable(luisa-cuda-nvrtc-standalone-compiler cuda_nvrtc_compiler.cpp)
     target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE CUDA::nvrtc_static)
     set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES OUTPUT_NAME "luisa_nvrtc")
     add_dependencies(luisa-compute-backend-cuda luisa-cuda-nvrtc-standalone-compiler)
