@@ -173,6 +173,9 @@ endif ()
 target_include_directories(luisa-compute-ext INTERFACE
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc/include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/reproc/reproc++/include>)
+target_compile_definitions(reproc PRIVATE REPROC_BUILDING PUBLIC REPROC_SHARED)
+target_compile_definitions(reproc++ PRIVATE REPROCXX_BUILDING PUBLIC REPROCXX_SHARED)
+
 install(DIRECTORY reproc/reproc/include/reproc
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa/ext
         FILES_MATCHING REGEX ".*\\.h$")
