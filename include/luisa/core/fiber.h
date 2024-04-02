@@ -54,7 +54,29 @@ private:
     internal_t internal;
 };
 using counter = marl::WaitGroup;
-using event = marl::Event;
+struct event {
+private:
+    marl::Event _evt;
+public:
+    using Mode = marl::Event::Mode;
+    event(Mode mode = Mode::Manual, bool init_state = false) noexcept
+        : _evt{mode, init_state} {}
+    void signal() const noexcept {
+        _evt.signal();
+    }
+    void clear() const noexcept {
+        _evt.clear();
+    }
+    void wait() const noexcept {
+        _evt.wait();
+    }
+    [[nodiscard]] auto test() const noexcept {
+        return _evt.test();
+    }
+    [[nodiscard]] auto is_signalled() const noexcept {
+        return _evt.isSignalled();
+    }
+};
 template<typename T>
 using future = marl::Future<T>;
 
