@@ -83,10 +83,10 @@ _config_project({
     runtime = "MT"
 })
 if is_plat("windows") then
-    add_syslinks("Ws2_32")
+    add_syslinks("Ws2_32", "User32")
 end
 set_basename("luisa_nvrtc")
 add_deps("lc-cuda-base")
-add_links("nvrtc_static", "nvrtc-builtins_static", "nvptxcompiler_static", "User32")
+add_links("nvrtc_static", "nvrtc-builtins_static", "nvptxcompiler_static")
 add_files("cuda_nvrtc_compiler.cpp")
 target_end()
