@@ -57,17 +57,27 @@ if (CUDAToolkit_FOUND)
     set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES
             OUTPUT_NAME "luisa_nvrtc"
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+            ENABLE_EXPORTS OFF
+            C_VISIBILITY_PRESET hidden
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN ON
             INTERPROCEDURAL_OPTIMIZATION OFF
             INTERPROCEDURAL_OPTIMIZATION_DEBUG OFF
             INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF
             INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL OFF
-            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO OFF
-            C_VISIBILITY_PRESET hidden
-            CXX_VISIBILITY_PRESET hidden
-            VISIBILITY_INLINES_HIDDEN ON)
+            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO OFF)
     if (UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_link_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
         target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
+    endif ()
+    if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # disable exceptions and RTTI
+        if (CMAKE_CXX_COMPILER_FRONTEND_VARIANT MATCHES "MSVC")
+            target_compile_definitions(luisa-cuda-nvrtc-standalone-compiler PRIVATE _HAS_EXCEPTIONS=0)
+            target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE /EHs-c /GR-)
+        else ()
+            target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -fno-exceptions -fno-rtti)
+        endif ()
     endif ()
     add_dependencies(luisa-compute-backend-cuda luisa-cuda-nvrtc-standalone-compiler)
     install(TARGETS luisa-cuda-nvrtc-standalone-compiler RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -146,7 +156,7 @@ if (CUDAToolkit_FOUND)
         endforeach ()
 
         if (NOT NVTT_DIR)
-            message(WARNING "NVTT not found! Please install NVTT from https://developer.nvidia.com/nvidia-texture-tools-exporter and set the CMake NVTT_DIR variable to the folder containing nvtt*.dll (e.g. C:\\Program Files\\NVIDIA Corporation\\NVIDIA Texture Tools).")
+            message(WARNING "NVTT not found! Please install NVTT from https://developer.nvidia.com/nvidia-texture-tools-exporter and set the CMake NVTT_DIR variable to the folder containing nvtt*.dll (e.g. C:\\Program Files\\NVIDIA Corporation\\NVIDIA Texture Tools) .")
         endif ()
     endif ()
 
@@ -189,7 +199,7 @@ if (CUDAToolkit_FOUND)
         # parse the NVTT shared library name to get the version number
         if (WIN32) # nvtt*.dll
             if (NVTT_LIB) # necessary on Windows
-                string(REGEX MATCH "nvtt([0-9]+).dll" _NVTT_SL_VERSION "${_NVTT_SL}")
+                string(REGEX MATCH "nvtt ([0-9]+) .dll" _NVTT_SL_VERSION "${_NVTT_SL}")
                 if (NOT _NVTT_SL_VERSION OR _NVTT_SL_VERSION LESS 30200)
                     message(WARNING "Unable to parse the NVTT shared library name to get the version number! NVTT shared library name was ${_NVTT_SL}")
                 else ()
@@ -199,7 +209,7 @@ if (CUDAToolkit_FOUND)
                 endif ()
             endif ()
         else () # libnvtt.so.*
-            string(REGEX MATCH "libnvtt.so.([0-9]+)" _NVTT_SL_VERSION "${_NVTT_SL}")
+            string(REGEX MATCH "libnvtt.so. ([0-9]+) " _NVTT_SL_VERSION " ${_NVTT_SL}")
             if (NOT _NVTT_SL_VERSION OR _NVTT_SL_VERSION LESS 30200)
                 message(WARNING "Unable to parse the NVTT shared library name to get the version number! NVTT shared library name was ${_NVTT_SL}")
             else ()
@@ -209,7 +219,7 @@ if (CUDAToolkit_FOUND)
             endif ()
         endif ()
         if (NVTT_INCLUDE_DIR AND NVTT_VERSION AND NVTT_RUNTIME_LIB AND NVTT_LINKER_LIB)
-            message(STATUS "Found NVTT ${NVTT_VERSION}\n   NVTT_INCLUDE_DIR: ${NVTT_INCLUDE_DIR}\n   NVTT_RUNTIME_LIB: ${NVTT_RUNTIME_LIB}\n   NVTT_LINKER_LIB: ${NVTT_LINKER_LIB}")
+            message(STATUS "Found NVTT ${NVTT_VERSION}\n NVTT_INCLUDE_DIR: ${NVTT_INCLUDE_DIR}\n NVTT_RUNTIME_LIB: ${NVTT_RUNTIME_LIB}\n NVTT_LINKER_LIB: ${NVTT_LINKER_LIB}")
             target_compile_definitions(luisa-compute-backend-cuda PRIVATE LUISA_COMPUTE_ENABLE_NVTT=1)
             target_include_directories(luisa-compute-backend-cuda PRIVATE ${NVTT_INCLUDE_DIR})
             target_link_libraries(luisa-compute-backend-cuda PRIVATE "${NVTT_LINKER_LIB}")
