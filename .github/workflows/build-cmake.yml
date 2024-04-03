@@ -99,7 +99,14 @@ jobs:
         run: |
           call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
           cmake --version
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${{ matrix.compiler }} -D CMAKE_CXX_COMPILER=${{ matrix.compiler }}
+          IF "${{ matrix.compiler }}" == "clang" (
+            set CC=clang
+            set CXX=clang++
+          ) ELSE (
+            set CC=${{ matrix.compiler }}
+            set CXX=${{ matrix.compiler }}
+          )
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }}
           cmake --build build -v
       - name: "Install"
         run: |
