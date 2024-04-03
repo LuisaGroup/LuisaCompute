@@ -210,21 +210,21 @@ on_load(function(target)
     end
 
     if is_mode("debug") then
-        target:set("runtimes", "MDd")
+        target:set("runtimes", _get_or("runtime", "MDd"))
         target:set("optimize", "none")
         target:set("warnings", "none")
         target:add("cxflags", "/GS", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     elseif is_mode("releasedbg") then
-        target:set("runtimes", "MD")
+        target:set("runtimes", _get_or("runtime", "MD"))
         target:set("optimize", "none")
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     else
-        target:set("runtimes", "MD")
+        target:set("runtimes", _get_or("runtime", "MD"))
         target:set("optimize", "aggressive")
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
