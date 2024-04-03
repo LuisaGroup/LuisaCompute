@@ -60,7 +60,8 @@ if (CUDAToolkit_FOUND)
             ${NVRTC_IMPORTED_LIB} ${NVRTC_BUILTINS_IMPORTED_LIB} ${NVPTXCOMPILER_IMPORTED_LIB})
     set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES
             OUTPUT_NAME "luisa_nvrtc"
-            MSVC_RUNTIME_LIBRARY "MultiThreaded")
+            MSVC_RUNTIME_LIBRARY "MultiThreaded"
+            CXX_STANDARD 20)
     if (UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_link_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
         target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
