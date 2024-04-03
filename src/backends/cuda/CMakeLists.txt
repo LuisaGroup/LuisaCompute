@@ -53,31 +53,18 @@ if (CUDAToolkit_FOUND)
 
     # nvrtc standalone compiler
     add_executable(luisa-cuda-nvrtc-standalone-compiler cuda_nvrtc_compiler.cpp)
-    target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE CUDA::nvrtc_static)
-    set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES
-            OUTPUT_NAME "luisa_nvrtc"
-            MSVC_RUNTIME_LIBRARY "MultiThreadedDLL"
-            ENABLE_EXPORTS OFF
-            C_VISIBILITY_PRESET hidden
-            CXX_VISIBILITY_PRESET hidden
-            VISIBILITY_INLINES_HIDDEN ON
-            INTERPROCEDURAL_OPTIMIZATION OFF
-            INTERPROCEDURAL_OPTIMIZATION_DEBUG OFF
-            INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF
-            INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL OFF
-            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO OFF)
+    get_target_property(NVRTC_IMPORTED_LIB CUDA::nvrtc_static IMPORTED_LOCATION)
+    get_target_property(NVRTC_BUILTINS_IMPORTED_LIB CUDA::nvrtc_builtins_static IMPORTED_LOCATION)
+    get_target_property(NVPTXCOMPILER_IMPORTED_LIB CUDA::nvptxcompiler_static IMPORTED_LOCATION)
+    target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE
+            ${NVRTC_IMPORTED_LIB} ${NVRTC_BUILTINS_IMPORTED_LIB} ${NVPTXCOMPILER_IMPORTED_LIB})
+    set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES OUTPUT_NAME "luisa_nvrtc")
     if (UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_link_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
         target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
     endif ()
-    if (WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        # disable exceptions and RTTI
-        if (CMAKE_CXX_COMPILER_FRONTEND_VARIANT MATCHES "MSVC")
-            target_compile_definitions(luisa-cuda-nvrtc-standalone-compiler PRIVATE _HAS_EXCEPTIONS=0)
-            target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE /EHs-c /GR-)
-        else ()
-            target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -fno-exceptions -fno-rtti)
-        endif ()
+    if (WIN32)
+        target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE Ws2_32)
     endif ()
     add_dependencies(luisa-compute-backend-cuda luisa-cuda-nvrtc-standalone-compiler)
     install(TARGETS luisa-cuda-nvrtc-standalone-compiler RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
