@@ -6,7 +6,7 @@ set_kind("phony")
 on_load(function(target)
     import("detect.sdks.find_cuda")
 	import("cuda_sdkdir")
-    local cuda = find_cuda(cuda_sdkdir(nil, find_file))
+    local cuda = find_cuda(cuda_sdkdir())
     if cuda then
         local function set(key, value)
             if type(value) == "string" then
@@ -57,13 +57,13 @@ set_pcxxheader("pch.h")
 add_headerfiles("*.h", "../common/default_binary_io.h")
 add_files("*.cpp|cuda_texture_compression.cpp") -- TODO: support NVTT with XMake
 add_files("extensions/cuda_denoiser.cpp", "extensions/cuda_dstorage.cpp", "extensions/cuda_pinned_memory.cpp")
-add_links("cuda", "nvrtc")
+add_links("cuda")
 
 after_build(function(target)
     import("lib.detect.find_file")
     import("detect.sdks.find_cuda")
 	import("cuda_sdkdir")
-    local cuda = find_cuda(cuda_sdkdir(nil, find_file))
+    local cuda = find_cuda(cuda_sdkdir())
     if cuda then
         local linkdirs = cuda["linkdirs"]
         local bin_dir = target:targetdir()
@@ -79,10 +79,14 @@ target_end()
 
 target("lc-nvrtc")
 _config_project({
-    project_kind = "binary"
+    project_kind = "binary",
+    runtime = "MT"
 })
+if is_plat("windows") then
+    add_syslinks("Ws2_32")
+end
 set_basename("luisa_nvrtc")
 add_deps("lc-cuda-base")
-add_links("nvrtc")
+add_links("nvrtc_static", "nvrtc-builtins_static", "nvptxcompiler_static", "User32")
 add_files("cuda_nvrtc_compiler.cpp")
 target_end()
