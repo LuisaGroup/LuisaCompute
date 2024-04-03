@@ -8,7 +8,7 @@ on_load(function(target)
         return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
     end
     target:add("includedirs", rela("../../include"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"),
-        rela("../ext/half/include"), {
+        rela("../ext/half/include"), rela("../ext/reproc/reproc/include"), rela("../ext/reproc/reproc++/include"), {
             public = true
         })
     if is_plat("windows") then
@@ -36,7 +36,7 @@ on_load(function(target)
     if is_plat("windows") then
         target:add("defines", "_CRT_SECURE_NO_WARNINGS")
     end
-    target:add("deps", "eastl", "spdlog", "lc-check-winsdk", "reproc")
+    target:add("deps", "eastl", "spdlog", "lc-check-winsdk")
     local marl_path = path.join(os.scriptdir(), "../ext/marl")
     if (not get_config("external_marl")) and (os.exists(marl_path)) then
         target:add("defines", "MARL_DLL", {public = true})
