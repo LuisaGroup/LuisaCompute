@@ -13,7 +13,7 @@ jobs:
           - { name: clang, version: 17 }
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler.name }}-${{ matrix.compiler.version }}
-    runs-on: [ self-hosted, x64, linux]
+    runs-on: [ self-hosted, x64, linux ]
     steps:
       - uses: actions/checkout@v3
         with:
@@ -85,7 +85,7 @@ jobs:
         config: [ Release, Debug ]
         compiler: [ cl, clang, clang-cl ]
     name: windows / ${{ matrix.config }} / ${{ matrix.compiler }}
-    runs-on: [self-hosted, windows, x64]
+    runs-on: [ self-hosted, windows, x64 ]
     steps:
       - uses: actions/checkout@v3
         with:
@@ -97,7 +97,9 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
+          IF "%{ matrix.compiler }" == "cl" (
+            call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
+          )
           cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
           cmake --build build
       - name: "Install"
