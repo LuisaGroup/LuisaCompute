@@ -31,7 +31,7 @@ jobs:
         compiler: [ homebrew-clang, system-clang ]
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
-    runs-on: ${{ matrix.os }}
+    runs-on: [ self-hosted, macos, arm64 ]
     steps:
       - uses: actions/checkout@v3
         with:
