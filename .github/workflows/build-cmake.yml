@@ -97,7 +97,7 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          IF "%{ matrix.compiler }" == "cl" (
+          IF "${{ matrix.compiler }}" == "cl" (
             call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
           )
           cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
