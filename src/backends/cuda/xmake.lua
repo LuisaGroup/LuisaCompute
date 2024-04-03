@@ -57,7 +57,7 @@ set_pcxxheader("pch.h")
 add_headerfiles("*.h", "../common/default_binary_io.h")
 add_files("*.cpp|cuda_texture_compression.cpp") -- TODO: support NVTT with XMake
 add_files("extensions/cuda_denoiser.cpp", "extensions/cuda_dstorage.cpp", "extensions/cuda_pinned_memory.cpp")
-add_links("cuda")
+add_links("cuda", "nvrtc")
 
 after_build(function(target)
     import("lib.detect.find_file")
