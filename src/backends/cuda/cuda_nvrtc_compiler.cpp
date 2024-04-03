@@ -4,9 +4,37 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <nvrtc.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// ReSharper disable CppEnforceTypeAliasCodeStyle
+// ReSharper disable CppInconsistentNaming
+typedef unsigned int nvrtcResult;
+typedef struct _nvrtcProgram *nvrtcProgram;
+extern nvrtcResult nvrtcVersion(int *major, int *minor);
+extern const char *nvrtcGetErrorString(nvrtcResult result);
+extern nvrtcResult nvrtcCreateProgram(nvrtcProgram *prog,
+                                      const char *src,
+                                      const char *name,
+                                      int numHeaders,
+                                      const char *const *headers,
+                                      const char *const *includeNames);
+extern nvrtcResult nvrtcDestroyProgram(nvrtcProgram *prog);
+extern nvrtcResult nvrtcCompileProgram(nvrtcProgram prog,
+                                       int numOptions, const char *const *options);
+extern nvrtcResult nvrtcGetProgramLogSize(nvrtcProgram prog, size_t *logSizeRet);
+extern nvrtcResult nvrtcGetProgramLog(nvrtcProgram prog, char *log);
+extern nvrtcResult nvrtcGetOptiXIRSize(nvrtcProgram prog, size_t *optixirSizeRet);
+extern nvrtcResult nvrtcGetOptiXIR(nvrtcProgram prog, char *optixir);
+extern nvrtcResult nvrtcGetPTXSize(nvrtcProgram prog, size_t *ptxSizeRet);
+extern nvrtcResult nvrtcGetPTX(nvrtcProgram prog, char *ptx);
+// ReSharper restore CppInconsistentNaming
+// ReSharper restore CppEnforceTypeAliasCodeStyle
 
 static void report_error(const char *fmt, ...) {
     va_list args;
@@ -19,7 +47,7 @@ static void report_error(const char *fmt, ...) {
 #define LUISA_CHECK_NVRTC(...)                     \
     do {                                           \
         nvrtcResult ec = __VA_ARGS__;              \
-        if (ec != NVRTC_SUCCESS) {                 \
+        if (ec != 0) {                             \
             report_error("NVRTC error: %s\n",      \
                          nvrtcGetErrorString(ec)); \
         }                                          \
@@ -116,3 +144,7 @@ int main(int argc, char *argv[]) {
     free(buffer.data);
     return 0;
 }
+
+#ifdef __cplusplus
+}
+#endif
