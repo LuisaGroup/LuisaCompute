@@ -73,7 +73,7 @@ jobs:
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
-          version: 1.10.2
+          version: 1.11.1
       - name: "Build Wheels"
         shell: cmd
         run: |
