@@ -56,7 +56,7 @@ if (CUDAToolkit_FOUND)
     target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE CUDA::nvrtc_static)
     set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES
             OUTPUT_NAME "luisa_nvrtc"
-            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+            MSVC_RUNTIME_LIBRARY "MultiThreadedDLL"
             ENABLE_EXPORTS OFF
             C_VISIBILITY_PRESET hidden
             CXX_VISIBILITY_PRESET hidden
@@ -199,7 +199,7 @@ if (CUDAToolkit_FOUND)
         # parse the NVTT shared library name to get the version number
         if (WIN32) # nvtt*.dll
             if (NVTT_LIB) # necessary on Windows
-                string(REGEX MATCH "nvtt ([0-9]+) .dll" _NVTT_SL_VERSION "${_NVTT_SL}")
+                string(REGEX MATCH "nvtt([0-9]+).dll" _NVTT_SL_VERSION "${_NVTT_SL}")
                 if (NOT _NVTT_SL_VERSION OR _NVTT_SL_VERSION LESS 30200)
                     message(WARNING "Unable to parse the NVTT shared library name to get the version number! NVTT shared library name was ${_NVTT_SL}")
                 else ()
@@ -209,7 +209,7 @@ if (CUDAToolkit_FOUND)
                 endif ()
             endif ()
         else () # libnvtt.so.*
-            string(REGEX MATCH "libnvtt.so. ([0-9]+) " _NVTT_SL_VERSION " ${_NVTT_SL}")
+            string(REGEX MATCH "libnvtt.so.([0-9]+)" _NVTT_SL_VERSION "${_NVTT_SL}")
             if (NOT _NVTT_SL_VERSION OR _NVTT_SL_VERSION LESS 30200)
                 message(WARNING "Unable to parse the NVTT shared library name to get the version number! NVTT shared library name was ${_NVTT_SL}")
             else ()
