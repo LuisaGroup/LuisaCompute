@@ -99,6 +99,7 @@ jobs:
         run: |
           call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
           cmake --version
+          ninja --version
           IF "${{ matrix.compiler }}" == "clang" (
             set CC=clang
             set CXX=clang++
