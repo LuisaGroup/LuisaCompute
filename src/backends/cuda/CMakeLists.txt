@@ -54,7 +54,14 @@ if (CUDAToolkit_FOUND)
     # nvrtc standalone compiler
     add_executable(luisa-cuda-nvrtc-standalone-compiler cuda_nvrtc_compiler.cpp)
     target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE CUDA::nvrtc_static)
-    set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES OUTPUT_NAME "luisa_nvrtc")
+    set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES
+            OUTPUT_NAME "luisa_nvrtc"
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+            INTERPROCEDURAL_OPTIMIZATION OFF
+            INTERPROCEDURAL_OPTIMIZATION_DEBUG OFF
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE OFF
+            INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL OFF
+            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO OFF)
     if (UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
     endif ()
@@ -130,7 +137,7 @@ if (CUDAToolkit_FOUND)
             file(GLOB _DLL_POSSIBILITIES "${_PATH}/nvtt*.dll" "${_PATH}/libnvtt.so.*")
             if (_DLL_POSSIBILITIES) # If this folder contains a DLL matching the NVTT DLL pattern
                 set(NVTT_DIR "${_PATH}")
-                break()
+                break ()
             endif ()
         endforeach ()
 
