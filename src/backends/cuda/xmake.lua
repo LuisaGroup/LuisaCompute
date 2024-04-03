@@ -5,7 +5,7 @@ target("lc-cuda-base")
 set_kind("phony")
 on_load(function(target)
     import("detect.sdks.find_cuda")
-	import("cuda_sdkdir")
+    import("cuda_sdkdir")
     local cuda = find_cuda(cuda_sdkdir())
     if cuda then
         local function set(key, value)
@@ -55,14 +55,22 @@ end
 
 set_pcxxheader("pch.h")
 add_headerfiles("*.h", "../common/default_binary_io.h")
-add_files("*.cpp|cuda_texture_compression.cpp") -- TODO: support NVTT with XMake
+on_load(function(target)
+    local src_path = os.scriptdir()
+    for _, filepath in ipairs(os.files(path.join(src_path, "*.cpp"))) do
+        local file_name = path.filename(filepath)
+        if file_name ~= "cuda_nvrtc_compiler.cpp" then
+            target:add("files", filepath)
+        end
+    end
+end)
 add_files("extensions/cuda_denoiser.cpp", "extensions/cuda_dstorage.cpp", "extensions/cuda_pinned_memory.cpp")
-add_links("cuda", "nvrtc")
+add_links("cuda")
 
 after_build(function(target)
     import("lib.detect.find_file")
     import("detect.sdks.find_cuda")
-	import("cuda_sdkdir")
+    import("cuda_sdkdir")
     local cuda = find_cuda(cuda_sdkdir())
     if cuda then
         local linkdirs = cuda["linkdirs"]
