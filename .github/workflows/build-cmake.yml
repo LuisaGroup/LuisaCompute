@@ -98,8 +98,9 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvars64.bat"
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER:FILEPATH=${{ matrix.compiler }}.exe -D CMAKE_CXX_COMPILER:FILEPATH=${{ matrix.compiler }}.exe
-          cmake --build build
+          cmake --version
+          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${{ matrix.compiler }} -D CMAKE_CXX_COMPILER=${{ matrix.compiler }}
+          cmake --build build -v
       - name: "Install"
         run: |
           cmake --install build --prefix dist -v
