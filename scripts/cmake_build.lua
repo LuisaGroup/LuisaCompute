@@ -51,17 +51,18 @@ local function build(args)
     elseif os.is_host('linux') then
         compiler = args['compiler'] or 'gcc'
         version = args['version'] or '13'
+        local cc, cxx, flags
         if compiler == 'gcc' then
-            os.setenv('LUISA_CC', 'gcc-' .. version)
-            os.setenv('LUISA_CXX', 'g++-' .. version)
-            os.setenv('LUISA_FLAGS', '')
+            cc = 'gcc-' .. version
+            cxx = 'g++-' .. version
+            flags = '""'
         elseif compiler == "clang" then
-            os.setenv('LUISA_CC', 'clang-' .. version)
-            os.setenv('LUISA_CXX', 'clang++-' .. version)
-            os.setenv('LUISA_FLAGS', '-stdlib=libc++')
+            cc = 'clang-' .. version
+            cxx = 'clang++-' .. version
+            flags = '"-stdlib=libc++"'
         end
         os.exec('cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=' .. config ..
-                    ' -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"')
+                    ' -D CMAKE_C_COMPILER=' .. cc .. ' -D CMAKE_CXX_COMPILER=' .. cxx .. ' -D CMAKE_CXX_FLAGS=' .. flags)
     elseif os.is_host('macosx') then
         compiler = args['compiler'] or 'homebrew-clang'
         if compiler == 'homebrew-clang' then
