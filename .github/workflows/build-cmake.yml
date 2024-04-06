@@ -97,7 +97,7 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvarsall.bat"
+          call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvarsall.bat x64"
           cmake --version
           ninja --version
           IF "${{ matrix.compiler }}" == "clang" (
