@@ -14,7 +14,7 @@ local function find_msvc()
     end
     if not key then
         target:set_enabled(false)
-        utils.error("Can not find Visual Studio. lcub disabled.")
+        utils.error("Can not find Visual Studio.")
         return
     end
     local vcvarsall = tool[key]["vcvarsall"]
@@ -28,7 +28,7 @@ local function find_msvc()
     end
     if not vs_dict then
         target:set_enabled(false)
-        utils.error("Can not find Visual Studio. lcub disabled.")
+        utils.error("Can not find Visual Studio.")
         return
     end
     os.setenv("PATH", vs_dict["PATH"])
