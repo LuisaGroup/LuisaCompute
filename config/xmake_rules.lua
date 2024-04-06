@@ -12,9 +12,6 @@ on_load(function(target)
 		return
 	end
 	target:add("includedirs", 
-		--[[reproc]]
-		path.join(lc_dir,"src/ext/reproc/reproc/include"),
-		path.join(lc_dir,"src/ext/reproc/reproc++/include"),
 		--[[pybind11]]
 		path.join(lc_dir,"src/ext/pybind11/include"),
 		--[[spdlog]]

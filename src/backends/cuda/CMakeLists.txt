@@ -41,7 +41,8 @@ if (CUDAToolkit_FOUND)
 
     target_link_libraries(luisa-compute-backend-cuda PRIVATE
             CUDA::cuda_driver
-            luisa-compute-vulkan-swapchain)
+            luisa-compute-vulkan-swapchain
+            reproc reproc++)
     target_precompile_headers(luisa-compute-backend-cuda PRIVATE pch.h)
 
     find_library(CUDA_DEVICE_RUNTIME_LIBRARY cudadevrt ${CUDAToolkit_LIBRARY_DIR})
