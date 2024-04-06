@@ -26,8 +26,7 @@ target_link_libraries(luisa-compute-core
         ${CMAKE_DL_LIBS}
         $<$<PLATFORM_ID:Windows>:dbghelp>
         PRIVATE
-        luisa-compute-ext-marl
-        reproc reproc++)
+        luisa-compute-ext-marl)
 
 set_target_properties(luisa-compute-core PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}

@@ -8,7 +8,7 @@ on_load(function(target)
         return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
     end
     target:add("includedirs", rela("../../include"), rela("../ext/xxHash/"), rela("../ext/magic_enum/include"),
-        rela("../ext/half/include"), rela("../ext/reproc/reproc/include"), rela("../ext/reproc/reproc++/include"), {
+        rela("../ext/half/include"), {
             public = true
         })
     if is_plat("windows") then

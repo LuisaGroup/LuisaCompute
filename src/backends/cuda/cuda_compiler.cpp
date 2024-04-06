@@ -1,6 +1,6 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/binary_io.h>
-#include <luisa/core/subprocess.h>
+#include "../common/subprocess.h"
 #include "cuda_error.h"
 #include "cuda_device.h"
 #include "optix_api.h"
