@@ -39,9 +39,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [ x86_64, arm64 ]
-    name: "macos-13-${{ matrix.arch }}"
-    runs-on: [ macos-13, "${{ matrix.arch }}" ]
+        runner:
+          - { os: macos-14, arch: x64 }
+          - { os: macos, arch: self-hosted }
+    name: "${{ matrix.runner.os }}-${{ matrix.runner.arch }}"
+    runs-on: [ "${{ matrix.runner.os }}", "${{ matrix.runner.arch }}" ]
     steps:
       - uses: actions/checkout@v3
         with:
