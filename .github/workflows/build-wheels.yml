@@ -14,8 +14,8 @@ env:
 
 jobs:
   build-linux:
-    name: ubuntu
-    runs-on: [ self-hosted, x64, linux ]
+    name: ubuntu-22.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
         with:
@@ -27,7 +27,6 @@ jobs:
           CIBW_BEFORE_ALL: "./scripts/cibw_install_deps.sh"
           CIBW_REPAIR_WHEEL_COMMAND: "auditwheel show {wheel} && auditwheel repair -w {dest_dir} {wheel} --exclude libcuda.so.1 --exclude libvulkan.so.1"
         run: |
-          apt install -y python3 python3-pip python3-venv
           python -m pip install -U cibuildwheel
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
@@ -39,18 +38,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner:
-          - { os: macos-13, arch: x86_64 }
-          - { os: macos, arch: self-hosted }
-    name: "${{ matrix.runner.os }}-${{ matrix.runner.arch }}"
-    runs-on: [ "${{ matrix.runner.os }}", "${{ matrix.runner.arch }}" ]
+        os: [ macos-13, macos-14 ]
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
-      - name: "Install Rust"
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: "Setup LLVM"
         run: |
           brew install --overwrite python@3.12
@@ -60,7 +54,7 @@ jobs:
           export PATH="/usr/local/opt/llvm/bin:$PATH"
           export CC=clang
           export CXX=clang++
-          python3 -m pip install -U cibuildwheel --break-system-packages
+          python3 -m pip install -U cibuildwheel
           for dep_target in 13.0; do
             export MACOSX_DEPLOYMENT_TARGET=${dep_target}
             python3 -m cibuildwheel --output-dir wheelhouse
@@ -71,22 +65,31 @@ jobs:
           path: ./wheelhouse/*.whl
 
   build-windows:
-    name: windows
-    runs-on: [ self-hosted, windows, x64 ]
+    name: windows-2022
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.204.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+      - name: "Setup CUDA"
+        uses: Jimver/cuda-toolkit@v0.2.11
+        with:
+          cuda: 12.1.0
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
           version: 1.11.1
       - name: "Build Wheels"
         shell: cmd
-        env:
-          CIBW_BEFORE_ALL: call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" && set CC=cl && set CXX=cl
         run: |
           python -m pip install -U cibuildwheel
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
