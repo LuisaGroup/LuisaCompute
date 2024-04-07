@@ -40,8 +40,8 @@ jobs:
       fail-fast: false
       matrix:
         arch: [ x86_64, arm64 ]
-    name: "macos-13-${{ matrix.runner.arch }}"
-    runs-on: [ macos-13, "${{ matrix.runner.arch }}" ]
+    name: "macos-13-${{ matrix.arch }}"
+    runs-on: [ macos-13, "${{ matrix.arch }}" ]
     steps:
       - uses: actions/checkout@v3
         with:
