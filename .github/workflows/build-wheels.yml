@@ -55,7 +55,7 @@ jobs:
           export CC=clang
           export CXX=clang++
           python3 -m pip install -U cibuildwheel --break-system-packages
-          for dep_target in { 13..${{ matrix.os }} }; do
+          for dep_target in {13..${{ matrix.os }}}; do
             export MACOSX_DEPLOYMENT_TARGET=${dep_target}.0
             python3 -m cibuildwheel --output-dir wheelhouse
           done
