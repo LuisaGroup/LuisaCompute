@@ -32,7 +32,7 @@ jobs:
             export LUISA_CXX=clang++-${{ matrix.compiler.version }}
             export LUISA_FLAGS="-stdlib=libc++"
           fi
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
+          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_RUST=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=${LUISA_CC} -D CMAKE_CXX_COMPILER=${LUISA_CXX} -D CMAKE_CXX_FLAGS="${LUISA_FLAGS}"
           cmake --build build -j 8
       - name: "Install"
         run: |
@@ -58,11 +58,8 @@ jobs:
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
             export PATH=/usr/local/opt/llvm/bin:$PATH
           fi
-          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
+          cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_RUST=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
           cmake --build build
-      - name: "Install"
-        run: |
-          sudo cmake --install build --prefix dist -v
 
   build-windows:
     strategy:
@@ -94,7 +91,7 @@ jobs:
             set CC=${{ matrix.compiler }}
             set CXX=${{ matrix.compiler }}
           )
-          cmake -S . -G Ninja -B build -D CMAKE_BUILD_TYPE=${{ matrix.config }}
+          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_RUST=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
           cmake --build build -v
       - name: "Install"
         run: |
