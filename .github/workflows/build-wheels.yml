@@ -38,9 +38,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-13, macos-14 ]
-    name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+        os: [ 13, 14 ]
+    name: macos-${{ matrix.os }}
+    runs-on: macos-${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -54,11 +54,11 @@ jobs:
           export PATH="/usr/local/opt/llvm/bin:$PATH"
           export CC=clang
           export CXX=clang++
-          python3 -m pip install -U cibuildwheel
-          for dep_target in 13.0; do
-            export MACOSX_DEPLOYMENT_TARGET=${dep_target}
-            python3 -m cibuildwheel --output-dir wheelhouse
-          done
+          python3 -m pip install -U cibuildwheel --break-system-packages
+            for dep_target in { 13..${{ matrix.os }} }; do
+              export MACOSX_DEPLOYMENT_TARGET=${dep_target}.0
+              python3 -m cibuildwheel --output-dir wheelhouse
+            done
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
         with:
