@@ -54,20 +54,19 @@ if (CUDAToolkit_FOUND)
 
     # nvrtc standalone compiler
     add_executable(luisa-cuda-nvrtc-standalone-compiler cuda_nvrtc_compiler.cpp)
-    get_target_property(NVRTC_IMPORTED_LIB CUDA::nvrtc_static IMPORTED_LOCATION)
-    get_target_property(NVRTC_BUILTINS_IMPORTED_LIB CUDA::nvrtc_builtins_static IMPORTED_LOCATION)
-    get_target_property(NVPTXCOMPILER_IMPORTED_LIB CUDA::nvptxcompiler_static IMPORTED_LOCATION)
-    target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE
-            ${NVRTC_IMPORTED_LIB} ${NVRTC_BUILTINS_IMPORTED_LIB} ${NVPTXCOMPILER_IMPORTED_LIB})
-    set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES
-            OUTPUT_NAME "luisa_nvrtc"
-            MSVC_RUNTIME_LIBRARY "MultiThreaded"
-            CXX_STANDARD 20)
+    target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE CUDA::nvrtc_static)
+    set_target_properties(luisa-cuda-nvrtc-standalone-compiler PROPERTIES OUTPUT_NAME "luisa_nvrtc")
     if (UNIX AND NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_link_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
         target_compile_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE -stdlib=libstdc++)
     endif ()
     if (WIN32)
+        if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+            target_link_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE
+                    "LINKER:/FORCE:MULTIPLE"
+                    "LINKER:/OPT:REF"
+                    "LINKER:/VERBOSE")
+        endif ()
         target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE Ws2_32)
     endif ()
     add_dependencies(luisa-compute-backend-cuda luisa-cuda-nvrtc-standalone-compiler)
