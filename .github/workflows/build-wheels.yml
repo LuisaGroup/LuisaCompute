@@ -51,7 +51,11 @@ jobs:
           brew install --overwrite llvm molten-vk
       - name: "Build Wheels"
         run: |
-          export PATH="/usr/local/opt/llvm/bin:$PATH"
+          if [ "${{ matrix.os }}" = "13" ]; then
+            export PATH="/usr/local/opt/llvm/bin:$PATH"
+          else
+            export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+          fi
           export CC=clang
           export CXX=clang++
           python3 -m pip install -U cibuildwheel --break-system-packages
