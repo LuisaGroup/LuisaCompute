@@ -28,8 +28,8 @@ dependencies = [
 license = { file = "LICENSE" }
 
 [tool.scikit-build]
-cmake.version = "3.28"
-ninja.version = "1.11"
+cmake.version = ">=3.28"
+ninja.version = ">=1.11"
 ninja.make-fallback = false
 cmake.build-type = "Release"
 cmake.args = ["-G Ninja"]
