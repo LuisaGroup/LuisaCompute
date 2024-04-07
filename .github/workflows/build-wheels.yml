@@ -76,9 +76,10 @@ jobs:
           version: 1.11.1
       - name: "Build Wheels"
         shell: cmd
+        env:
+          CIBW_BEFORE_ALL: "call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && set CC=cl && set CXX=cl"
         run: |
           python -m pip install -U cibuildwheel
-          call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
