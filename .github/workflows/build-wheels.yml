@@ -35,12 +35,14 @@ jobs:
           path: ./wheelhouse/*.whl
 
   build-macos:
-    name: macos-13
     strategy:
       fail-fast: false
       matrix:
-        arch: [ x64, arm64 ]
-    runs-on: [ macos-13, ${{ matrix.arch }} ]
+        runner:
+          - { name: macos-13, arch: arm64 }
+          - { name: macos-13, arch: x64 }
+    name: macos-13
+    runs-on: [ ${{ matrix.runner.name }}, ${{ matrix.runner.arch }} ]
     steps:
       - uses: actions/checkout@v3
         with:
