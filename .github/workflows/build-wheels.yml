@@ -41,8 +41,8 @@ jobs:
         runner:
           - { name: macos-13, arch: arm64 }
           - { name: macos-13, arch: x64 }
-#    name: "${{ matrix.runner.name }}-${{ matrix.runner.arch }}"
-    runs-on: [ ${{ matrix.runner.name }}, ${{ matrix.runner.arch }} ]
+    name: "${{ matrix.runner.name }}-${{ matrix.runner.arch }}"
+    runs-on: [ "${{ matrix.runner.name }}", "${{ matrix.runner.arch }}" ]
     steps:
       - uses: actions/checkout@v3
         with:
