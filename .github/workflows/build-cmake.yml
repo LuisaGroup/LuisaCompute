@@ -40,42 +40,42 @@ jobs:
             sudo cmake --install build --prefix dist -v
           fi
 
-  # build-macos:
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       os: [ macos-13 ]
-  #       compiler: [ homebrew-clang, system-clang ]
-  #       config: [ Release, Debug ]
-  #   name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
-  #   runs-on: [ self-hosted, macos, arm64 ]
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: recursive
-  #     - name: "Install Rust"
-  #       run: |
-  #         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  #     - name: "Install Dependencies"
-  #       run: |
-  #         brew install --overwrite python@3.12
-  #         brew install --overwrite cmake ninja llvm sccache
-  #     - name: "Setup Vulkan SDK"
-  #       uses: humbletim/setup-vulkan-sdk@v1.2.0
-  #       with:
-  #         vulkan-query-version: 1.3.204.0
-  #         vulkan-components: Vulkan-Headers, Vulkan-Loader
-  #         vulkan-use-cache: true
-  #     - name: "Configure and Build"
-  #       run: |
-  #         if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
-  #           export PATH=/usr/local/opt/llvm/bin:$PATH
-  #         fi
-  #         cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
-  #         cmake --build build
-  #     - name: "Install"
-  #       run: |
-  #         sudo cmake --install build --prefix dist -v
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-13 ]
+        compiler: [ homebrew-clang, system-clang ]
+        config: [ Release, Debug ]
+    name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
+    runs-on: [ self-hosted, macos, arm64 ]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: "Install Rust"
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: "Install Dependencies"
+        run: |
+          brew install --overwrite python@3.12
+          brew install --overwrite cmake ninja llvm sccache
+      - name: "Setup Vulkan SDK"
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: 1.3.204.0
+          vulkan-components: Vulkan-Headers, Vulkan-Loader
+          vulkan-use-cache: true
+      - name: "Configure and Build"
+        run: |
+          if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
+            export PATH=/usr/local/opt/llvm/bin:$PATH
+          fi
+          cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
+          cmake --build build
+      - name: "Install"
+        run: |
+          sudo cmake --install build --prefix dist -v
 
   build-windows:
     strategy:
