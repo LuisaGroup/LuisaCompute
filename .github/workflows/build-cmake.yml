@@ -37,7 +37,7 @@ jobs:
       - name: "Install"
         run: |
           if [ "${{ matrix.config }}" = "Release" ]; then
-            sudo cmake --install build --prefix dist -v
+            cmake --install build --prefix dist -v
           fi
 
   build-macos:
@@ -60,6 +60,11 @@ jobs:
           fi
           cmake -S . -B build -G Ninja -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }} -D CMAKE_C_COMPILER=clang -D CMAKE_CXX_COMPILER=clang++ -D LUISA_COMPUTE_ENABLE_UNITY_BUILD=OFF
           cmake --build build
+      - name: "Install"
+        run: |
+          if [ "${{ matrix.config }}" = "Release" ]; then
+            cmake --install build --prefix dist -v
+          fi
 
   build-windows:
     strategy:
