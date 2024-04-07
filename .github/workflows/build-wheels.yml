@@ -65,7 +65,7 @@ jobs:
 
   build-windows:
     name: windows-2022
-    runs-on: windows-2022
+    runs-on: [ self-hosted, windows, x64 ]
     steps:
       - uses: actions/checkout@v3
         with:
