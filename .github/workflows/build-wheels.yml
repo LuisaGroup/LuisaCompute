@@ -60,10 +60,10 @@ jobs:
           export PATH="/usr/local/opt/llvm/bin:$PATH"
           export CC=clang
           export CXX=clang++
-          python -m pip install -U cibuildwheel
+          python3 -m pip install -U cibuildwheel
           for dep_target in 13.0; do
             export MACOSX_DEPLOYMENT_TARGET=${dep_target}
-            python -m cibuildwheel --output-dir wheelhouse
+            python3 -m cibuildwheel --output-dir wheelhouse
           done
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
