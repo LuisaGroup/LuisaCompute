@@ -27,6 +27,7 @@ jobs:
           CIBW_BEFORE_ALL: "./scripts/cibw_install_deps.sh"
           CIBW_REPAIR_WHEEL_COMMAND: "auditwheel show {wheel} && auditwheel repair -w {dest_dir} {wheel} --exclude libcuda.so.1 --exclude libvulkan.so.1"
         run: |
+          apt install -y python3 python3-pip python3-venv
           python -m pip install -U cibuildwheel
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
