@@ -64,8 +64,7 @@ if (CUDAToolkit_FOUND)
         if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             target_link_options(luisa-cuda-nvrtc-standalone-compiler PRIVATE
                     "LINKER:/FORCE:MULTIPLE"
-                    "LINKER:/OPT:REF"
-                    "LINKER:/VERBOSE")
+                    "LINKER:/OPT:REF")
         endif ()
         target_link_libraries(luisa-cuda-nvrtc-standalone-compiler PRIVATE Ws2_32)
     endif ()
