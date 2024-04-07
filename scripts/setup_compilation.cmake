@@ -15,24 +15,6 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(BUILD_SHARED_LIBS ON)
 
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR
-        CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-    # disabled for compatibility with older CPUs
-    # if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    #     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /arch:AVX2")
-    #     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
-    # else ()
-    #     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mavx2 -mf16c -mfma")
-    #     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mf16c -mfma")
-    # endif ()
-else ()
-    if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        # workaround for Apple clang -Xarch_arm64 bug with precompiled headers
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-command-line-argument -Xarch_arm64 no-unused-command-line-argument")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-command-line-argument -Xarch_arm64 no-unused-command-line-argument")
-    endif ()
-endif ()
-
 if (NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     option(LUISA_COMPUTE_ENABLE_SCCACHE "Enable sccache to speed up compilation" ON)
     if (LUISA_COMPUTE_ENABLE_SCCACHE)
