@@ -14,7 +14,7 @@ env:
 
 jobs:
   build-linux:
-    name: ubuntu-22.04
+    name: ubuntu
     runs-on: [ self-hosted, x64, linux ]
     steps:
       - uses: actions/checkout@v3
@@ -40,7 +40,7 @@ jobs:
       fail-fast: false
       matrix:
         runner:
-          - { os: macos-14, arch: x64 }
+          - { os: macos-13, arch: x64 }
           - { os: macos, arch: self-hosted }
     name: "${{ matrix.runner.os }}-${{ matrix.runner.arch }}"
     runs-on: [ "${{ matrix.runner.os }}", "${{ matrix.runner.arch }}" ]
@@ -71,7 +71,7 @@ jobs:
           path: ./wheelhouse/*.whl
 
   build-windows:
-    name: windows-2022
+    name: windows
     runs-on: [ self-hosted, windows, x64 ]
     steps:
       - uses: actions/checkout@v3
