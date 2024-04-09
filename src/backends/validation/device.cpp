@@ -168,6 +168,12 @@ void Device::dispatch(
     _native->dispatch(stream_handle, std::move(list));
 }
 
+void Device::set_stream_log_callback(
+    uint64_t stream_handle,
+    const StreamLogCallback &callback) noexcept {
+    _native->set_stream_log_callback(stream_handle, callback);
+}
+
 // swap chain
 SwapchainCreationInfo Device::create_swapchain(
     const SwapchainOption &option, uint64_t stream_handle) noexcept {

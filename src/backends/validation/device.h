@@ -61,7 +61,8 @@ public:
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(
         uint64_t stream_handle, CommandList &&list) noexcept override;
-
+    void set_stream_log_callback(uint64_t stream_handle,
+                                 const StreamLogCallback &callback) noexcept override;
     // swap chain
     SwapchainCreationInfo create_swapchain(
         const SwapchainOption &option, uint64_t stream_handle) noexcept override;
