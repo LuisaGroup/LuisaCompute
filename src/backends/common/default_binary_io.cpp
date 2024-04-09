@@ -1,3 +1,4 @@
+#include <new>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/binary_file_stream.h>
@@ -147,6 +148,12 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::str
     return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
 }
 
+luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_source(luisa::string_view name) const noexcept {
+    std::filesystem::path local_path{name};
+    if (local_path.is_absolute()) { return _read(luisa::to_string(name)); }
+    return _read(luisa::to_string(_cache_dir / name));
+}
+
 luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     std::filesystem::path local_path{name};
     if (local_path.is_absolute()) {
@@ -154,6 +161,17 @@ luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_vie
         return local_path;
     }
     auto file_path = _ctx.runtime_directory() / name;
+    _write(luisa::to_string(file_path), data);
+    return file_path;
+}
+
+luisa::filesystem::path DefaultBinaryIO::write_shader_source(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
+    std::filesystem::path local_path{name};
+    if (local_path.is_absolute()) {
+        _write(luisa::to_string(name), data);
+        return local_path;
+    }
+    auto file_path = _cache_dir / name;
     _write(luisa::to_string(file_path), data);
     return file_path;
 }
@@ -167,6 +185,7 @@ luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_vie
     _data_lmdb.write(name, data);
     return _data_dir / name;
 }
+
 void DefaultBinaryIO::clear_shader_cache() const noexcept {
     vstd::destruct(std::addressof(_cache_lmdb));
     std::error_code ec;

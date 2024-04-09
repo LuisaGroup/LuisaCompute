@@ -546,7 +546,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
             if (uses_user_path) {
                 src_dump_path = _io->write_shader_bytecode(src_name, src_data);
             } else if (option.enable_cache) {
-                src_dump_path = _io->write_shader_cache(src_name, src_data);
+                src_dump_path = _io->write_shader_source(src_name, src_data);
             }
         }
         luisa::string src_filename{src_dump_path.string()};

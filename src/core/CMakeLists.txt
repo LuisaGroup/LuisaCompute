@@ -7,6 +7,7 @@ set(LUISA_COMPUTE_CORE_SOURCES
         basic_types.cpp
         binary_buffer.cpp
         binary_file_stream.cpp
+        binary_io.cpp
         dynamic_module.cpp
         first_fit.cpp
         logging.cpp
