@@ -1295,6 +1295,12 @@ protected:
     void _decode_bool(bool x) noexcept override {
         PrintValue<bool>{}(x, _str);
     }
+    void _decode_char(char x) noexcept override {
+        LUISA_NOT_IMPLEMENTED();
+    }
+    void _decode_uchar(uchar x) noexcept override {
+        LUISA_NOT_IMPLEMENTED();
+    }
     void _decode_short(short x) noexcept override {
         LUISA_NOT_IMPLEMENTED();
     }

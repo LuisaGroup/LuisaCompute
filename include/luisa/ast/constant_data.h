@@ -15,6 +15,8 @@ class LC_AST_API ConstantDecoder {
 
 protected:
     virtual void _decode_bool(bool x) noexcept = 0;
+    virtual void _decode_char(char x) noexcept = 0;
+    virtual void _decode_uchar(ubyte x) noexcept = 0;
     virtual void _decode_short(short x) noexcept = 0;
     virtual void _decode_ushort(ushort x) noexcept = 0;
     virtual void _decode_int(int x) noexcept = 0;

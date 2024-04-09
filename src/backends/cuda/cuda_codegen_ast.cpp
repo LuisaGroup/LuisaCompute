@@ -1851,6 +1851,8 @@ public:
 
 protected:
     void _decode_bool(bool x) noexcept override { _codegen->_scratch << (x ? "true" : "false"); }
+    void _decode_char(char x) noexcept override { _codegen->_scratch << luisa::format("lc_byte({})", static_cast<int>(x)); }
+    void _decode_uchar(ubyte x) noexcept override { _codegen->_scratch << luisa::format("lc_ubyte({})", static_cast<uint>(x)); }
     void _decode_short(short x) noexcept override { _codegen->_scratch << luisa::format("lc_short({})", x); }
     void _decode_ushort(ushort x) noexcept override { _codegen->_scratch << luisa::format("lc_ushort({})", x); }
     void _decode_int(int x) noexcept override { _codegen->_scratch << luisa::format("lc_int({})", x); }
