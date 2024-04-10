@@ -15,7 +15,7 @@ jobs:
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
     runs-on: [ self-hosted, x64, linux]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: "Configure and Build"
@@ -33,7 +33,7 @@ jobs:
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, macos, arm64 ]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: "Configure and Build"
@@ -53,7 +53,7 @@ jobs:
     name: windows / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, windows, x64 ]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: "Configure and Build"
