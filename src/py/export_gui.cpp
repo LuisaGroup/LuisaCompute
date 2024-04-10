@@ -130,9 +130,9 @@ void export_gui(py::module &m) {
         .def("should_close", [](PyWindow &w) {
             return w.window->should_close();
         })
-        .def("present", [](PyWindow &w, PyStream &stream, uint64_t handle, void *native_handle, uint width, uint height, uint level, PixelStorage storage) {
+        .def("present", [](PyWindow &w, PyStream &stream, uint64_t handle, uint64_t native_handle, uint width, uint height, uint level, PixelStorage storage) {
             LUISA_ASSERT(level == 0u, "Only level 0 is supported.");
-            ImageView<float> view{native_handle, handle, storage, level, make_uint2(width, height)};
+            ImageView<float> view{reinterpret_cast<void *>(native_handle), handle, storage, level, make_uint2(width, height)};
             stream.execute();
             stream.stream() << w.chain->present(view);
             vector<int> remove_list;
