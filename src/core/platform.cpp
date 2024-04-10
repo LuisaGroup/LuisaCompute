@@ -214,7 +214,13 @@ size_t pagesize() noexcept {
 
 void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     auto p = path;
-    for (auto ext : {".so", ".dylib"}) {
+    for (auto ext :
+#ifdef LUISA_PLATFORM_APPLE
+         {".so", ".dylib"}
+#else
+         {".so"}
+#endif
+    ) {
         p.replace_extension(ext);
         if (auto module = dlopen(p.c_str(), RTLD_LAZY); module != nullptr) {
             return module;
