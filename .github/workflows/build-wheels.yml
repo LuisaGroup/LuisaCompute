@@ -30,7 +30,7 @@ jobs:
           python -m pip install -U cibuildwheel
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           path: ./wheelhouse/*.whl
 
@@ -64,7 +64,7 @@ jobs:
             python3 -m cibuildwheel --output-dir wheelhouse
           done
       - name: "Upload Wheels"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           path: ./wheelhouse/*.whl
 
@@ -96,6 +96,6 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           python -m cibuildwheel --output-dir wheelhouse
       - name: "Upload Wheels"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           path: ./wheelhouse/*.whl
