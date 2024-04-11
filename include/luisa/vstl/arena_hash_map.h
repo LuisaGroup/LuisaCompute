@@ -1,4 +1,5 @@
 #pragma once
+#include <luisa/core/stl/type_traits.h>
 #include <luisa/vstl/hash_map.h>
 namespace vstd {
 template<typename Arena, typename K, typename V = void, typename Hash = HashValue, typename Compare = compare<K>>
@@ -26,7 +27,7 @@ private:
             return arena.allocate(size_bytes);
         }
         template<typename... Args>
-            requires(std::is_constructible_v<LinkNode, Args && ...>)
+            requires(luisa::is_constructible_v<LinkNode, Args && ...>)
         LinkNode *create(Args &&...args) {
             auto ptr = elements + mSize;
             mSize++;
@@ -212,7 +213,7 @@ public:
     }
     ///////////////////////
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     Index force_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -229,7 +230,7 @@ public:
     }
 
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     std::pair<Index, bool> try_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -245,7 +246,7 @@ public:
     }
 
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     Index emplace(Key &&key, ARGS &&...args) {
         return try_emplace(std::forward<Key>(key), std::forward<ARGS>(args)...).first;
     }

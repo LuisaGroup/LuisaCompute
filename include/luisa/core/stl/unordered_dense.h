@@ -72,6 +72,7 @@
 #include <type_traits>
 #include <utility>
 #include <cassert>
+#include <luisa/core/stl/type_traits.h>
 
 #if defined(_MSC_VER) && defined(_M_X64)
 #include <intrin.h>
@@ -818,7 +819,7 @@ public:
         return emplace(std::move(value));
     }
 
-    template<class P, std::enable_if_t<std::is_constructible_v<value_type, P &&>, bool> = true>
+    template<class P, std::enable_if_t<luisa::is_constructible_v<value_type, P &&>, bool> = true>
     auto insert(P &&value) -> std::pair<iterator, bool> {
         return emplace(std::forward<P>(value));
     }
@@ -831,7 +832,7 @@ public:
         return insert(std::move(value)).first;
     }
 
-    template<class P, std::enable_if_t<std::is_constructible_v<value_type, P &&>, bool> = true>
+    template<class P, std::enable_if_t<luisa::is_constructible_v<value_type, P &&>, bool> = true>
     auto insert(const_iterator /*hint*/, P &&value) -> iterator {
         return insert(std::forward<P>(value)).first;
     }

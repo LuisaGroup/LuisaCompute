@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/type_traits.h>
 #include <EASTL/finally.h>
 #include <EASTL/functional.h>
 #include <EASTL/bonus/adaptors.h>

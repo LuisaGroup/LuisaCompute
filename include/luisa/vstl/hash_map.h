@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/type_traits.h>
 #include <luisa/vstl/config.h>
 #include <luisa/core/stl/memory.h>
 #include <type_traits>
@@ -565,7 +566,7 @@ public:
     HashMap() noexcept : HashMap(4) {}
     ///////////////////////
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     Index force_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -583,7 +584,7 @@ public:
     }
 
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     std::pair<Index, bool> try_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -601,7 +602,7 @@ public:
     }
 
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     Index emplace(Key &&key, ARGS &&...args) {
         return try_emplace(std::forward<Key>(key), std::forward<ARGS>(args)...).first;
     }
