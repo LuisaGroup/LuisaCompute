@@ -1,4 +1,19 @@
 -- Global config
+option('_lc_sdk')
+set_showmenu(false)
+set_default(false)
+before_check(function(option)
+    local find_sdk = import('find_sdk')
+    local valid = true
+    if os.is_host("windows") then
+        valid = find_sdk.check_file('dx_sdk')
+    end
+    option:enable(valid, {
+        force = true
+    })
+end)
+option_end()
+
 option("_lc_enable_py")
 set_showmenu(false)
 set_default(false)
@@ -102,8 +117,6 @@ before_check(function(option)
             bin_dir = path.join(bin_dir, "release")
         end
         option:set_value(bin_dir)
-    else
-        option:set_value(false)
     end
     -- checking rust
     local enable_ir = option:dep("enable_ir")
@@ -324,6 +337,32 @@ on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
     print(cargo_cmd)
     batchcmds:vrunv(cargo_cmd)
     sb:dispose()
+end)
+rule_end()
+
+rule('lc_install_sdk')
+on_build(function(target)
+    local bin_dir = target:targetdir()
+    local lib = import('lib')
+    lib.mkdirs(bin_dir)
+    local libnames = target:extraconf("rules", "lc_install_sdk", "libnames")
+    local packages = import('packages')
+    local find_sdk = import('find_sdk')
+    local sdks = packages.sdks()
+    local sdk_dir = packages.sdk_dir(os.arch())
+    for _, lib in ipairs(libnames) do
+        local sdk_map = sdks[lib]
+        local zip = sdk_map['name']
+        local cache_file_name = path.join(bin_dir, lib .. '.txt')
+        local data
+        if os.exists(cache_file_name) then
+            data = io.readfile(cache_file_name)            
+        end
+        if not data or data ~= sdk_map['sha256'] then
+            io.writefile(cache_file_name, sdk_map['sha256'])
+            find_sdk.unzip_sdk(lib .. '.zip', sdk_dir, bin_dir)
+        end
+    end
 end)
 rule_end()
 

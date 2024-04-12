@@ -29,6 +29,3 @@
 [submodule "src/ext/marl"]
 	path = src/ext/marl
 	url = https://github.com/LuisaGroup/marl.git
-[submodule "src/backends/dx/dx_support"]
-	path = src/backends/dx/dx_support
-	url = https://github.com/LuisaGroup/DirectX-SDK.git

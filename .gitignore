@@ -179,6 +179,7 @@ Temp/
 *.iobj
 .vs/
 x64/
+SDKs/
 
 # Kernel Module Compile Results
 *.mod*
