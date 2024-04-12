@@ -145,7 +145,9 @@ dsl_binary_op_return_type_helper() noexcept {
                          op == BinaryOp::OR) {
         static_assert(lhs_is_vector && rhs_is_vector &&
                           lhs_is_boolean && rhs_is_boolean,
-                      "Logical operator requires boolean vector operands.");
+                      "Logical operator requires boolean vector operands. To perform "
+                      "logical operations on scalars, please use the bitwise operators "
+                      "and note that the short-circuit evaluation is not supported.");
         return std::make_tuple(decltype(lhs && rhs){}, lhs, rhs);
     } else if constexpr (op == BinaryOp::SHL ||
                          op == BinaryOp::SHR) {
@@ -218,16 +220,16 @@ LUISA_MAKE_GLOBAL_DSL_BINARY_OP(>=, GREATER_EQUAL)
 #undef LUISA_MAKE_GLOBAL_DSL_BINARY_OP
 
 /// Define global assign operation of dsl objects; returns *const* reference to lhs
-#define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op)                                     \
-    template<typename T, typename U>                                            \
-        requires std::same_as<decltype(std::declval<luisa::compute::Var<T> &>() \
-                                           op std::declval<U &>()),             \
-                              luisa::compute::Var<T>>                           \
-    const auto &operator op##=(luisa::compute::Var<T> &lhs, U &&rhs) noexcept { \
-        auto x = lhs op std::forward<U>(rhs);                                   \
-        luisa::compute::detail::FunctionBuilder::current()->assign(             \
-            lhs.expression(), x.expression());                                  \
-        return lhs;                                                             \
+#define LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(op)                                      \
+    template<typename T, typename U>                                             \
+        requires std::same_as<decltype(std::declval<luisa::compute::Var<T> &>()  \
+                                           op std::declval<U &>()),              \
+                              luisa::compute::Var<T>>                            \
+    const auto &operator op##=(luisa::compute::Var<T> &lhs, U && rhs) noexcept { \
+        auto x = lhs op std::forward<U>(rhs);                                    \
+        luisa::compute::detail::FunctionBuilder::current()->assign(              \
+            lhs.expression(), x.expression());                                   \
+        return lhs;                                                              \
     }
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(+)
 LUISA_MAKE_GLOBAL_DSL_ASSIGN_OP(-)
