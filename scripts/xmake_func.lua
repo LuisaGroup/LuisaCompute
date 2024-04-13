@@ -341,7 +341,7 @@ on_load(function(target)
         target:set('enabled', false)
     end
 end)
-on_build(function(target)
+before_build(function(target)
     local bin_dir = target:targetdir()
     local lib = import('lib')
     lib.mkdirs(bin_dir)
