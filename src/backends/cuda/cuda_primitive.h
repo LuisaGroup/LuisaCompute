@@ -34,7 +34,7 @@ protected:
     optix::TraversableHandle _handle{};
 
 protected:
-    [[nodiscard]] virtual optix::BuildInput _make_build_input() const noexcept = 0;
+    [[nodiscard]] virtual optix::BuildInput _make_build_input() noexcept = 0;
     void _build(CUDACommandEncoder &encoder) noexcept;
     void _update(CUDACommandEncoder &encoder) noexcept;
 
@@ -65,6 +65,11 @@ public:
     if (option.allow_update) {
         build_options.buildFlags |= optix::BUILD_FLAG_ALLOW_UPDATE;
     }
+    auto &motion_options = option.motion_options;
+    build_options.motionOptions.numKeys = motion_options.num_keys;
+    build_options.motionOptions.timeBegin = motion_options.time_begin;
+    build_options.motionOptions.timeEnd = motion_options.time_end;
+    build_options.motionOptions.flags = static_cast<uint16_t>(motion_options.flag); // They share the same definition.
     return build_options;
 }
 
