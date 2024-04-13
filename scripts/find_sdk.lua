@@ -8,13 +8,35 @@ find_sdk = find_sdk or {}
 
 -- use_lib_cache = true
 
+local function try_download(zip, url, mirror_urls, dst_dir, settings)
+    local function check_file_valid()
+        local zip_dir = find_file(zip, {dst_dir})
+        return zip_dir ~= nil
+    end
+    http.download(url .. zip, dst_dir, {
+        continue = false
+    })
+    if check_file_valid() then
+        return
+    end
+    for i, mirror_url in ipairs(mirror_urls) do
+        http.download(mirror_url .. zip, dst_dir, {
+            continue = false
+        })
+        if check_file_valid() then
+            return
+        end
+    end
+    utils.error("Download " .. zip .. " failed, please check your internet.")
+end
+
 function file_from_github(zip, dir, address, valid_sha256)
     local zip_dir = find_file(zip, {dir})
     local dst_dir = path.join(dir, zip)
     if (zip_dir == nil) then
         local url = vformat(address)
         print("download: " .. url .. zip .. " to: " .. dir)
-        http.download(url .. zip, dst_dir, {
+        try_download(zip, url, packages.sdk_mirror_addresses(), dst_dir, {
             continue = false
         })
     else
@@ -24,9 +46,14 @@ function file_from_github(zip, dir, address, valid_sha256)
             local url = vformat(address)
             print(zip .. " is invalid, download: " .. url .. zip)
             os.rm(zip_dir)
-            http.download(url .. zip, dst_dir, {
+            try_download(zip, url, packages.sdk_mirror_addresses(), dst_dir, {
                 continue = false
             })
+            sha256 = hash.sha256(zip_dir)
+            is_valid = valid_sha256 == sha256
+            if not is_valid then
+                utils.error(zip .. ' version not matched.')
+            end    
         end
     end
 end
@@ -59,7 +86,7 @@ function install_sdk(sdk_name)
         utils.error("Invalid sdk: " .. sdk_name)
         return
     end
-    file_from_github(sdk_map['name'], dir, packages.sdk_address(), sdk_map['sha256'])
+    file_from_github(sdk_map['name'], dir, packages.sdk_address(sdk_map), sdk_map['sha256'])
 end
 
 function check_file(sdk_name)

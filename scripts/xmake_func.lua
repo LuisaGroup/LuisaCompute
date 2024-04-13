@@ -333,12 +333,11 @@ on_load(function(target)
     for _, lib in ipairs(libnames) do
         local valid = find_sdk.check_file(lib)
         if not valid then
-            utils.error("Library: " .. lib .. " not installed.")
+            utils.error("Library: " .. packages.sdks()[lib]['name'] .. " not installed, run 'xmake lua setup.lua' or download it manually from ".. packages.sdk_address(packages.sdks()[lib]) .. ' to ' .. packages.sdk_dir(os.arch()) .. '.')
             enable = false
         end
     end
     if not enable then
-        utils.error("Run 'xmake lua setup.lua' or download it manually from " .. packages.sdk_address() .. ' to ' .. packages.sdk_dir(os.arch()) .. '.')
         target:set('enabled', false)
     end
 end)
