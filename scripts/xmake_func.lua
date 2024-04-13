@@ -1,19 +1,3 @@
--- Global config
-option('_lc_sdk')
-set_showmenu(false)
-set_default(false)
-before_check(function(option)
-    local find_sdk = import('find_sdk')
-    local valid = true
-    if os.is_host("windows") then
-        valid = find_sdk.check_file('dx_sdk')
-    end
-    option:enable(valid, {
-        force = true
-    })
-end)
-option_end()
-
 option("_lc_enable_py")
 set_showmenu(false)
 set_default(false)
@@ -341,6 +325,23 @@ end)
 rule_end()
 
 rule('lc_install_sdk')
+on_load(function(target)
+    local packages = import('packages')
+    local libnames = target:extraconf("rules", "lc_install_sdk", "libnames")
+    local find_sdk = import('find_sdk')
+    local enable = true
+    for _, lib in ipairs(libnames) do
+        local valid = find_sdk.check_file(lib)
+        if not valid then
+            utils.error("Library: " .. lib .. " not installed.")
+            enable = false
+        end
+    end
+    if not enable then
+        utils.error("Run 'xmake lua setup.lua' or download it manually from " .. packages.sdk_address() .. ' to ' .. packages.sdk_dir(os.arch()) .. '.')
+        target:set('enabled', false)
+    end
+end)
 on_build(function(target)
     local bin_dir = target:targetdir()
     local lib = import('lib')
@@ -356,7 +357,7 @@ on_build(function(target)
         local cache_file_name = path.join(bin_dir, lib .. '.txt')
         local data
         if os.exists(cache_file_name) then
-            data = io.readfile(cache_file_name)            
+            data = io.readfile(cache_file_name)
         end
         if not data or data ~= sdk_map['sha256'] then
             io.writefile(cache_file_name, sdk_map['sha256'])
