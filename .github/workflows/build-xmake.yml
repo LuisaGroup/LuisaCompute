@@ -15,13 +15,18 @@ jobs:
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
     runs-on: [ self-hosted, x64, linux]
     steps:
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ./SDKs
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: "Configure and Build"
         run: |
+          xmake lua setup.lua
           xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
-          xmake --jobs=8
+          xmake --jobs=16
 
   build-macos:
     strategy:
@@ -33,6 +38,10 @@ jobs:
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, macos, arm64 ]
     steps:
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ./SDKs
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -41,6 +50,7 @@ jobs:
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
             export PATH=/usr/local/opt/llvm/bin:$PATH
           fi
+          xmake lua setup.lua
           xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --mm=clang --mxx=clang++ --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           xmake
 
@@ -53,12 +63,17 @@ jobs:
     name: windows / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, windows, x64 ]
     steps:
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ./SDKs
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: "Configure and Build"
         shell: cmd
         run: |
+          xmake lua setup.lua
           if "${{ matrix.compiler }}" == "llvm" (
             xmake f -p windows -a x64 --toolchain=llvm --sdk="C:/Program Files/LLVM" -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           ) else (
