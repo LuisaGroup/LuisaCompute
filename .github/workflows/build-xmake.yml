@@ -79,4 +79,4 @@ jobs:
           ) else (
             xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           )
-          xmake -v
+          xmake
