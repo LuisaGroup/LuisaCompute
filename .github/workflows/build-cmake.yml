@@ -81,8 +81,7 @@ jobs:
           submodules: recursive
       - uses: actions/cache@v3
         with:
-          path: |
-            build/_deps/luisa_compute_dx_sdk-subbuild/luisa_compute_dx_sdk-populate-prefix/src
+          path: build/_deps/luisa_compute_dx_sdk-subbuild/luisa_compute_dx_sdk-populate-prefix/src
           key: build-windows-cmake-dx-sdk
           restore-keys: build-windows-cmake-dx-sdk
       - name: "Setup Ninja"
