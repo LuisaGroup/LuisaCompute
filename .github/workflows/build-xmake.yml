@@ -15,11 +15,6 @@ jobs:
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
     runs-on: [ self-hosted, x64, linux]
     steps:
-      - uses: actions/cache@v3
-        with:
-          path: ./SDKs
-          key: build-windows-xmake-dx-sdk
-          restore-keys: build-windows-xmake-dx-sdk
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -39,10 +34,6 @@ jobs:
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, macos, arm64 ]
     steps:
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ./SDKs
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -66,8 +57,9 @@ jobs:
     steps:
       - uses: actions/cache@v3
         with:
-          path: |
-            ./SDKs
+          path: ./SDKs
+          key: build-windows-xmake-dx-sdk
+          restore-keys: build-windows-xmake-dx-sdk
       - uses: actions/checkout@v4
         with:
           submodules: recursive
