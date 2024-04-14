@@ -9,6 +9,7 @@ if (WIN32)
         set(LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk.zip")
         set(LUISA_COMPUTE_DX_SDK_SHA1 "4ce202d1141feaf32d83e8222fa6b4b902408c06")
         message(STATUS "Downloading DirectX SDK from ${LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL}")
+        include(FetchContent)
         FetchContent_Declare(luisa_compute_dx_sdk
                 URL ${LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL}
                 URL_HASH SHA1=${LUISA_COMPUTE_DX_SDK_SHA1})
