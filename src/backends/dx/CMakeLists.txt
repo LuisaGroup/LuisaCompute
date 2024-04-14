@@ -1,18 +1,45 @@
 # TODO
 if (WIN32)
     message(STATUS "Build with DirectX backend")
-    set(LC_BACKEND_DX_SUPPORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_support")
-    set(LC_BACKEND_DX_BUILTIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dx_builtin")
-
     file(GLOB_RECURSE LC_BACKEND_DX_SOURCES CONFIGURE_DEPENDS "*.cpp" "../common/hlsl/*.cpp")
+
+    # download support SDK files
+    option(LUISA_COMPUTE_DX_SDK_DIR "The directory of DirectX SDK" "")
+    if (NOT LUISA_COMPUTE_DX_SDK_DIR OR NOT EXISTS "${LUISA_COMPUTE_DX_SDK_DIR}")
+        set(LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk.zip")
+        set(LUISA_COMPUTE_DX_SDK_SHA1 "4ce202d1141feaf32d83e8222fa6b4b902408c06")
+        message(STATUS "Downloading DirectX SDK from ${LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL}")
+        FetchContent_Declare(luisa_compute_dx_sdk
+                URL ${LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL}
+                URL_HASH SHA1=${LUISA_COMPUTE_DX_SDK_SHA1})
+        FetchContent_MakeAvailable(luisa_compute_dx_sdk)
+        FetchContent_GetProperties(luisa_compute_dx_sdk)
+        set(LUISA_COMPUTE_DX_SDK_DIR ${luisa_compute_dx_sdk_SOURCE_DIR})
+    endif ()
+
+    # check if the SDK files exist
+    set(LUISA_COMPUTE_DX_SDK_FILES
+            DirectML.dll
+            dstorage.dll
+            dstoragecore.dll
+            dxcompiler.dll
+            dxil.dll)
+    foreach (file ${LUISA_COMPUTE_DX_SDK_FILES})
+        if (NOT EXISTS "${LUISA_COMPUTE_DX_SDK_DIR}/${file}")
+            message(FATAL_ERROR "The required file ${file} is missing in the DirectX SDK directory (${LUISA_COMPUTE_DX_SDK_DIR}). \
+            You can either manually download the SDK from ${LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL} and extract it to the specified directory, \
+            or set LUISA_COMPUTE_DX_SDK_DIR to an empty string to let the build script download the SDK for you.")
+        endif ()
+    endforeach ()
+
     luisa_compute_add_backend(dx
             SOURCES ${LC_BACKEND_DX_SOURCES}
-            SUPPORT_DIR ${LC_BACKEND_DX_SUPPORT_DIR})
+            SUPPORT_DIR ${LUISA_COMPUTE_DX_SDK_DIR})
     target_precompile_headers(luisa-compute-backend-dx PRIVATE pch.h)
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi luisa-compute-vstl DirectML)
     target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)
-    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if (CMAKE_CXX_COMPILER_ID MATCHES " Clang")
         target_compile_definitions(luisa-compute-backend-dx PRIVATE
                 _XM_NO_INTRINSICS_
                 m128_f32=vector4_f32
