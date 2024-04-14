@@ -83,6 +83,8 @@ jobs:
         with:
           path: |
             build/_deps/luisa_compute_dx_sdk-subbuild/luisa_compute_dx_sdk-populate-prefix/src
+          key: build-windows-cmake-dx-sdk
+          restore-keys: build-windows-cmake-dx-sdk
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
