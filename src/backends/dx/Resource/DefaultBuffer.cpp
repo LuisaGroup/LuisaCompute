@@ -14,7 +14,7 @@ DefaultBuffer::DefaultBuffer(
         ID3D12Heap *heap;
         uint64 offset;
         allocHandle.allocateHandle = allocHandle.allocator->AllocateBufferHeap(
-            device, "default buffer", byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset, 0,
+            device, "default buffer", byteSize, D3D12_HEAP_TYPE_DEFAULT, &heap, &offset,
             shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE);
         auto buffer = CD3DX12_RESOURCE_DESC::Buffer(byteSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         ThrowIfFailed(device->device->CreatePlacedResource(

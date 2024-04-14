@@ -1,4 +1,5 @@
 #pragma once
+#include <luisa/core/stl/type_traits.h>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/vstl/memory.h>
 namespace vstd {
@@ -27,7 +28,7 @@ shared_ptr<T> create_shared(T *ptr) {
 
 using luisa::make_shared;
 template<typename T, typename... Args>
-    requires(std::is_constructible_v<T, Args &&...>)
+    requires(luisa::is_constructible_v<T, Args &&...>)
 unique_ptr<T> make_unique(Args &&...args) {
     return unique_ptr<T>(new (vengine_malloc(sizeof(T))) T(std::forward<Args>(args)...));
 }

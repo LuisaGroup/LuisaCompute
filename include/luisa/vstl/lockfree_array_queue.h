@@ -113,7 +113,7 @@ public:
         } else {
             new (ptr) T(std::move(value));
         }
-        vstd::destruct(&value);
+        vstd::destruct(std::addressof(value));
         return true;
     }
     optional<T> pop() {
@@ -142,7 +142,7 @@ public:
     }
     ~LockFreeArrayQueue() {
         for (size_t s = tail; s != head; ++s) {
-            vstd::destruct(&arr[GetIndex(s, capacity)]);
+            vstd::destruct(std::addressof(arr[GetIndex(s, capacity)]));
         }
         Allocator().Free(arr);
     }
@@ -239,7 +239,7 @@ public:
         } else {
             new (ptr) T(std::move(value));
         }
-        vstd::destruct(&value);
+        vstd::destruct(std::addressof(value));
         return true;
     }
     optional<T> pop() {
@@ -261,7 +261,7 @@ public:
     }
     ~SingleThreadArrayQueue() {
         for (size_t s = tail; s != head; ++s) {
-            vstd::destruct(&arr[GetIndex(s, capacity)]);
+            vstd::destruct(std::addressof(arr[GetIndex(s, capacity)]));
         }
         Allocator().Free(arr);
     }

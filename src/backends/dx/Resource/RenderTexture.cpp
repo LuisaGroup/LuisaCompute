@@ -43,7 +43,6 @@ RenderTexture::RenderTexture(
             &heap,
             &offset,
             allowUav,
-            0,
             shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE);
         ThrowIfFailed(device->device->CreatePlacedResource(
             heap,

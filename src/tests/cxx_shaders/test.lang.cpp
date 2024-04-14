@@ -1,5 +1,5 @@
-#include "luisa-shader/std.hpp"
-#include "luisa-shader/type_traits/is_callable.hpp"
+#include "luisa/std.hpp"
+#include "luisa/type_traits/is_callable.hpp"
 
 using namespace luisa::shader;
 

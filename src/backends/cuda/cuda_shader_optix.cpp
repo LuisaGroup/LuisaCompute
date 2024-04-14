@@ -46,7 +46,7 @@ inline void accumulate_stack_sizes(optix::StackSizes &sizes, optix::ProgramGroup
     return size;
 }
 
-CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::string ptx,
+CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<std::byte> ptx,
                                  const char *entry, const CUDAShaderMetadata &metadata,
                                  luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
     : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
@@ -144,7 +144,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::string p
     size_t log_size = sizeof(log) - 1u;// munis one to tell OptiX not to overwrite the trailing '\0'
     if (auto result = optix::api().moduleCreate(
             optix_ctx, &module_compile_options,
-            &pipeline_compile_options, ptx.data(), ptx.size(),
+            &pipeline_compile_options,
+            reinterpret_cast<const char *>(ptx.data()), ptx.size(),
             log, &log_size, &_module);
         result != optix::RESULT_SUCCESS) {
         LUISA_WARNING_WITH_LOCATION(
@@ -159,7 +160,8 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::string p
             log, log_size,
             optix::api().moduleCreate(
                 optix_ctx, &module_compile_options,
-                &pipeline_compile_options, ptx.data(), ptx.size(),
+                &pipeline_compile_options,
+                reinterpret_cast<const char *>(ptx.data()), ptx.size(),
                 log, &log_size, &_module));
     }
 

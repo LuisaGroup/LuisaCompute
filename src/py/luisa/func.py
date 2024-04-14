@@ -77,6 +77,7 @@ class FuncInstanceInfo:
             **_closure_vars.builtins
         }
         self.local_variable = {}  # dict: name -> VariableInfo(dtype, expr, is_arg)
+        self.default_arg_values = self._capture_default_arg_values(func.pyfunc)
         self.function = None
         self.shader_handle = None
 
@@ -86,6 +87,11 @@ class FuncInstanceInfo:
             if device is not None:
                 device.impl().destroy_shader(self.shader_handle)
 
+    def _capture_default_arg_values(self, pyfunc):
+        sig = inspect.signature(pyfunc)
+        return {param.name: param.default for param in sig.parameters.values()
+                if param.default is not inspect.Parameter.empty}
+    
     def build_arguments(self, allow_ref: bool, arg_info=None):
         if arg_info is None:
             for idx, name in enumerate(self.func.parameters):

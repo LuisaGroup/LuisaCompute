@@ -9,7 +9,9 @@ namespace ComputeShaderDetail {
 static const bool PRINT_CODE = ([] {
     // read env LUISA_DUMP_SOURCE
     auto env = std::getenv("LUISA_DUMP_SOURCE");
-    if (env == nullptr) return false;
+    if (env == nullptr) {
+        return false;
+    }
     return std::string_view{env} == "1";
 })();
 }// namespace ComputeShaderDetail
@@ -89,7 +91,7 @@ ComputeShader *ComputeShader::CompileCompute(
         }
         return compResult.multi_visit_or(
             vstd::UndefEval<ComputeShader *>{},
-            [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
+            [&](ComPtr<IDxcBlob> &buffer) {
                 uint bdlsBufferCount = 0;
                 if (str.useBufferBindless) bdlsBufferCount++;
                 if (str.useTex2DBindless) bdlsBufferCount++;
@@ -105,7 +107,8 @@ ComputeShader *ComputeShader::CompileCompute(
                     auto serData = ShaderSerializer::Serialize(
                         str.properties,
                         kernelArgs,
-                        {buffer->data(), buffer->size()},
+                        {reinterpret_cast<std::byte const *>(buffer->GetBufferPointer()),
+                         buffer->GetBufferSize()},
                         md5,
                         str.typeMD5,
                         bdlsBufferCount,
@@ -117,8 +120,8 @@ ComputeShader *ComputeShader::CompileCompute(
                     blockSize,
                     std::move(str.properties),
                     std::move(kernelArgs),
-                    {buffer->data(),
-                     buffer->size()},
+                    {reinterpret_cast<std::byte const *>(buffer->GetBufferPointer()),
+                     buffer->GetBufferSize()},
                     std::move(bindings),
                     std::move(str.printers),
                     device);
@@ -202,7 +205,7 @@ void ComputeShader::SaveCompute(
         profiler->after_compile_shader_bytecode(fileName);
     }
     compResult.multi_visit(
-        [&](vstd::unique_ptr<hlsl::DxcByteBlob> const &buffer) {
+        [&](ComPtr<IDxcBlob> &buffer) {
             auto kernelArgs = ShaderSerializer::SerializeKernel(kernel);
             uint bdlsBufferCount = 0;
             if (str.useBufferBindless) bdlsBufferCount++;
@@ -211,7 +214,8 @@ void ComputeShader::SaveCompute(
             auto serData = ShaderSerializer::Serialize(
                 str.properties,
                 kernelArgs,
-                {buffer->data(), buffer->size()},
+                {reinterpret_cast<std::byte const *>(buffer->GetBufferPointer()),
+                 buffer->GetBufferSize()},
                 md5,
                 str.typeMD5,
                 bdlsBufferCount,

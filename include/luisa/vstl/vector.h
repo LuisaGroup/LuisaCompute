@@ -1,4 +1,5 @@
 #pragma once
+#include <luisa/core/stl/type_traits.h>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/core/stl/vector.h>
 namespace vstd {
@@ -20,7 +21,7 @@ template<typename F>
 using VectorFuncReturnType_t = typename decltype(VectorFuncReturnType<F>())::Type;
 }// namespace detail
 template<typename T, typename... Func>
-    requires(std::is_constructible_v<T, detail::VectorFuncReturnType_t<Func> &&...>)
+    requires(luisa::is_constructible_v<T, detail::VectorFuncReturnType_t<Func> &&...>)
 void push_back_func(vector<T> &vec, size_t n, Func &&...f) EA_NOEXCEPT {
     size_t index = 0;
     auto CallFunc = [&]<typename FT>(FT &&f) -> decltype(auto) {
@@ -38,7 +39,7 @@ void push_back_func(vector<T> &vec, size_t n, Func &&...f) EA_NOEXCEPT {
     }
 }
 template<typename T, size_t node, typename... Func>
-    requires(std::is_constructible_v<T, detail::VectorFuncReturnType_t<Func> &&...>)
+    requires(luisa::is_constructible_v<T, detail::VectorFuncReturnType_t<Func> &&...>)
 void push_back_func(fixed_vector<T, node> &vec, size_t n, Func &&...f) EA_NOEXCEPT {
     size_t index = 0;
     auto CallFunc = [&]<typename FT>(FT &&f) -> decltype(auto) {
@@ -77,7 +78,7 @@ void push_back_all(fixed_vector<T, node> &vec, T const *t, size_t n) {
     }
 }
 template<typename T, typename... Args>
-    requires(std::is_constructible_v<T, Args &&...>)
+    requires(luisa::is_constructible_v<T, Args &&...>)
 void push_back_all(vector<T> &vec, size_t n, Args &&...args) {
     auto ptr = reinterpret_cast<T *>(vec.push_back_uninitialized(n));
     auto end = vec.end();
@@ -87,7 +88,7 @@ void push_back_all(vector<T> &vec, size_t n, Args &&...args) {
     }
 }
 template<typename T, size_t node, typename... Args>
-    requires(std::is_constructible_v<T, Args &&...>)
+    requires(luisa::is_constructible_v<T, Args &&...>)
 void push_back_all(fixed_vector<T, node> &vec, size_t n, Args &&...args) {
     auto ptr = reinterpret_cast<T *>(vec.push_back_uninitialized(n));
     auto end = vec.end();

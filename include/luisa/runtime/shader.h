@@ -127,15 +127,26 @@ public:
         _encoder.encode_uniform(&data, sizeof(T));
         return *this;
     }
-
     // see definition in rtx/accel.cpp
-    ShaderInvokeBase &operator<<(const Accel &accel) noexcept;
-
+    static void encode(ShaderDispatchCmdEncoder &encoder, const Accel &accel) noexcept;
     // see definition in runtime/bindless_array.cpp
-    ShaderInvokeBase &operator<<(const BindlessArray &array) noexcept;
-
+    static void encode(ShaderDispatchCmdEncoder &encoder, const BindlessArray &array) noexcept;
     // see definition in runtime/dispatch_buffer.cpp
-    ShaderInvokeBase &operator<<(const IndirectDispatchBuffer &array) noexcept;
+    static void encode(ShaderDispatchCmdEncoder &encoder, const IndirectDispatchBuffer &dispatch_buffer) noexcept;
+    ShaderInvokeBase &operator<<(const Accel &accel) noexcept {
+        encode(_encoder, accel);
+        return *this;
+    }
+
+    ShaderInvokeBase &operator<<(const BindlessArray &array) noexcept {
+        encode(_encoder, array);
+        return *this;
+    }
+
+    ShaderInvokeBase &operator<<(const IndirectDispatchBuffer &dispatch_buffer) noexcept {
+        encode(_encoder, dispatch_buffer);
+        return *this;
+    }
 
 protected:
     [[nodiscard]] auto _parallelize(uint3 dispatch_size) noexcept {

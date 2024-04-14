@@ -39,6 +39,8 @@ _MTL_OPTIONS(NS::UInteger, IndirectCommandType) {
     IndirectCommandTypeDrawIndexedPatches = 8,
     IndirectCommandTypeConcurrentDispatch = 32,
     IndirectCommandTypeConcurrentDispatchThreads = 64,
+    IndirectCommandTypeDrawMeshThreadgroups = 128,
+    IndirectCommandTypeDrawMeshThreads = 256,
 };
 
 struct IndirectCommandBufferExecutionRange
@@ -74,6 +76,15 @@ public:
 
     NS::UInteger                                  maxKernelThreadgroupMemoryBindCount() const;
     void                                          setMaxKernelThreadgroupMemoryBindCount(NS::UInteger maxKernelThreadgroupMemoryBindCount);
+
+    NS::UInteger                                  maxObjectBufferBindCount() const;
+    void                                          setMaxObjectBufferBindCount(NS::UInteger maxObjectBufferBindCount);
+
+    NS::UInteger                                  maxMeshBufferBindCount() const;
+    void                                          setMaxMeshBufferBindCount(NS::UInteger maxMeshBufferBindCount);
+
+    NS::UInteger                                  maxObjectThreadgroupMemoryBindCount() const;
+    void                                          setMaxObjectThreadgroupMemoryBindCount(NS::UInteger maxObjectThreadgroupMemoryBindCount);
 
     bool                                          supportRayTracing() const;
     void                                          setSupportRayTracing(bool supportRayTracing);
@@ -185,6 +196,39 @@ _MTL_INLINE NS::UInteger MTL::IndirectCommandBufferDescriptor::maxKernelThreadgr
 _MTL_INLINE void MTL::IndirectCommandBufferDescriptor::setMaxKernelThreadgroupMemoryBindCount(NS::UInteger maxKernelThreadgroupMemoryBindCount)
 {
     Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setMaxKernelThreadgroupMemoryBindCount_), maxKernelThreadgroupMemoryBindCount);
+}
+
+// property: maxObjectBufferBindCount
+_MTL_INLINE NS::UInteger MTL::IndirectCommandBufferDescriptor::maxObjectBufferBindCount() const
+{
+    return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(maxObjectBufferBindCount));
+}
+
+_MTL_INLINE void MTL::IndirectCommandBufferDescriptor::setMaxObjectBufferBindCount(NS::UInteger maxObjectBufferBindCount)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setMaxObjectBufferBindCount_), maxObjectBufferBindCount);
+}
+
+// property: maxMeshBufferBindCount
+_MTL_INLINE NS::UInteger MTL::IndirectCommandBufferDescriptor::maxMeshBufferBindCount() const
+{
+    return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(maxMeshBufferBindCount));
+}
+
+_MTL_INLINE void MTL::IndirectCommandBufferDescriptor::setMaxMeshBufferBindCount(NS::UInteger maxMeshBufferBindCount)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setMaxMeshBufferBindCount_), maxMeshBufferBindCount);
+}
+
+// property: maxObjectThreadgroupMemoryBindCount
+_MTL_INLINE NS::UInteger MTL::IndirectCommandBufferDescriptor::maxObjectThreadgroupMemoryBindCount() const
+{
+    return Object::sendMessage<NS::UInteger>(this, _MTL_PRIVATE_SEL(maxObjectThreadgroupMemoryBindCount));
+}
+
+_MTL_INLINE void MTL::IndirectCommandBufferDescriptor::setMaxObjectThreadgroupMemoryBindCount(NS::UInteger maxObjectThreadgroupMemoryBindCount)
+{
+    Object::sendMessage<void>(this, _MTL_PRIVATE_SEL(setMaxObjectThreadgroupMemoryBindCount_), maxObjectThreadgroupMemoryBindCount);
 }
 
 // property: supportRayTracing

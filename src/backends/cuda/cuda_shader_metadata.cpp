@@ -2,6 +2,7 @@
 
 #include <luisa/core/stl/format.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/magic_enum.h>
 #include "cuda_shader_metadata.h"
 
 namespace luisa::compute::cuda {

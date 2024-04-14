@@ -25,9 +25,7 @@ private:
     friend class ResourceGenerator;
     PixelStorage _storage{};
     Swapchain(DeviceInterface *device, const SwapchainCreationInfo &create_info) noexcept;
-    Swapchain(DeviceInterface *device, uint64_t window_handle,
-              uint64_t stream_handle, uint width, uint height,
-              bool allow_hdr, bool vsync, uint back_buffer_size) noexcept;
+    Swapchain(DeviceInterface *device, const SwapchainOption &option, uint64_t stream_handle) noexcept;
 
 public:
     Swapchain() noexcept = default;

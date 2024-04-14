@@ -54,7 +54,6 @@ D3D12_RESOURCE_STATES ResourceStateTracker::GetState(Resource const *res) const 
     }
     return res->GetInitState();
 }
-ResourceStateTracker::ResourceStateTracker() {}
 ResourceStateTracker::~ResourceStateTracker() = default;
 void ResourceStateTracker::RecordState(
     Resource const *resource,
@@ -143,9 +142,7 @@ void ResourceStateTracker::RestoreStateMap() {
     }
     stateMap.clear();
 }
-
-void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
-    ExecuteStateMap();
+void ResourceStateTracker::Dispatch(CommandBufferBuilder const &cmdBuffer) {
     if (!states.empty()) {
         cmdBuffer.GetCB()->CmdList()->ResourceBarrier(
             states.size(),
@@ -153,14 +150,13 @@ void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
         states.clear();
     }
 }
+void ResourceStateTracker::UpdateState(CommandBufferBuilder const &cmdBuffer) {
+    ExecuteStateMap();
+    Dispatch(cmdBuffer);
+}
 void ResourceStateTracker::RestoreState(CommandBufferBuilder const &cmdBuffer) {
     RestoreStateMap();
-    if (!states.empty()) {
-        cmdBuffer.GetCB()->CmdList()->ResourceBarrier(
-            states.size(),
-            states.data());
-        states.clear();
-    }
+    Dispatch(cmdBuffer);
     writeStateMap.clear();
     fenceCount = 1;
 }
@@ -219,4 +215,3 @@ D3D12_RESOURCE_STATES ResourceStateTracker::ReadState(ResourceReadUsage usage, R
     LUISA_ERROR_WITH_LOCATION("Unreachable.");
 }
 }// namespace lc::dx
-

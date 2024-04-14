@@ -13,7 +13,7 @@ public:
     mutable uint64 lastFence = 0;
     Tag GetTag() const override { return Tag::Event; }
     ID3D12Fence *Fence() const { return fence.Get(); }
-    LCEvent(Device *device);
+    LCEvent(Device *device, bool shared = false);
     ~LCEvent();
     void Sync(uint64_t fence) const;
     void Signal(CommandQueue *queue, uint64 fenceIdx) const;

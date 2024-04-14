@@ -68,7 +68,7 @@ public:
     vstd::StackAllocator dsvAllocator;
 
     template<typename Func>
-        requires(std::is_constructible_v<vstd::function<void()>, Func &&>)
+        requires(luisa::is_constructible_v<vstd::function<void()>, Func &&>)
     void ExecuteAfterComplete(Func &&func) {
         executeAfterComplete.push(std::forward<Func>(func));
     }

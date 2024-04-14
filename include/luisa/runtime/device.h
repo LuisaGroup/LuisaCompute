@@ -140,9 +140,7 @@ public:
     // see definition in runtime/event.cpp
     [[nodiscard]] TimelineEvent create_timeline_event() noexcept;
     // see definition in runtime/swap_chain.cpp
-    [[nodiscard]] Swapchain create_swapchain(
-        uint64_t window_handle, const Stream &stream, uint2 resolution,
-        bool allow_hdr = true, bool vsync = true, uint back_buffer_count = 1) noexcept;
+    [[nodiscard]] Swapchain create_swapchain(const Stream &stream, const SwapchainOption &option) noexcept;
     // see definition in runtime/dispatch_buffer.cpp
     [[nodiscard]] IndirectDispatchBuffer create_indirect_dispatch_buffer(size_t capacity) noexcept;
     // see definition in rtx/mesh.h

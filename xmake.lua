@@ -1,5 +1,6 @@
-set_xmakever("2.8.1")
+set_xmakever("2.8.7")
 add_rules("mode.release", "mode.debug", "mode.releasedbg")
+set_policy("build.ccache", not is_plat("windows"))
 -- pre-defined options
 -- enable mimalloc as default allocator: https://github.com/LuisaGroup/mimalloc
 option("enable_custom_malloc")
@@ -88,6 +89,12 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+-- enable osl
+option("enable_osl")
+set_values(true, false)
+set_default(true)
+set_showmenu(true)
+option_end()
 -- enable c-language api module for cross-language bindings module
 option("enable_api")
 set_values(true, false)
@@ -117,11 +124,17 @@ option("bin_dir")
 set_default("bin")
 set_showmenu(true)
 option_end()
+-- external_marl
+option("external_marl")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
 -- pre-defined options end
 
 -- try options.lua
-if os.exists("scripts/options.lua") then
-	includes("scripts/options.lua")	
+if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) and os.exists("scripts/options.lua") then
+	includes("scripts/options.lua")
 end
 if lc_toolchain then
 	for k, v in pairs(lc_toolchain) do

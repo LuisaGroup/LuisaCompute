@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "luisa-python"
-version = "0.3.6"
+version = "0.3.7"
 description = "A High-Performance Rendering Framework with Layered and Unified Interfaces on Stream Architectures"
 readme = "README.md"
 authors = [
@@ -28,8 +28,8 @@ dependencies = [
 license = { file = "LICENSE" }
 
 [tool.scikit-build]
-cmake.minimum-version = "3.23"
-ninja.minimum-version = "1.10"
+cmake.version = ">=3.28"
+ninja.version = ">=1.11"
 ninja.make-fallback = false
 cmake.build-type = "Release"
 cmake.args = ["-G Ninja"]

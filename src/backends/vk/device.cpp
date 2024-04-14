@@ -437,6 +437,7 @@ ResourceCreationInfo Device::create_texture(
     PixelFormat format, uint dimension,
     uint width, uint height, uint depth,
     uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept {
+
     auto ptr = new Texture(
         this,
         dimension,

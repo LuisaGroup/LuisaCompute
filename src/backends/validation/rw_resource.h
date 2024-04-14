@@ -1,5 +1,6 @@
 #pragma once
 #include "resource.h"
+#include <luisa/core/logging.h>
 #include <luisa/ast/usage.h>
 #include "range.h"
 namespace lc::validation {

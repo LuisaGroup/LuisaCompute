@@ -12,25 +12,40 @@ class LC_BACKEND_API DeviceSelect {
     using UCommand = luisa::unique_ptr<luisa::compute::cuda::CudaLCubCommand>;
 public:
 
-    static void Flagged(size_t &temp_storage_size, BufferView<int32_t> d_in, BufferView<int32_t> d_flags, BufferView<int32_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
-    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<int32_t> d_in, BufferView<int32_t> d_flags, BufferView<int32_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
+    static void Flagged(size_t &temp_storage_size, BufferView<int32_t> d_in, BufferView<int32_t> d_flags, BufferView<int32_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<int32_t> d_in, BufferView<int32_t> d_flags, BufferView<int32_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
 
-    static void Flagged(size_t &temp_storage_size, BufferView<uint32_t> d_in, BufferView<int32_t> d_flags, BufferView<uint32_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
-    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<uint32_t> d_in, BufferView<int32_t> d_flags, BufferView<uint32_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
+    static void Flagged(size_t &temp_storage_size, BufferView<uint32_t> d_in, BufferView<int32_t> d_flags, BufferView<uint32_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<uint32_t> d_in, BufferView<int32_t> d_flags, BufferView<uint32_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
 
-    static void Flagged(size_t &temp_storage_size, BufferView<int64_t> d_in, BufferView<int32_t> d_flags, BufferView<int64_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
-    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<int64_t> d_in, BufferView<int32_t> d_flags, BufferView<int64_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
+    static void Flagged(size_t &temp_storage_size, BufferView<int64_t> d_in, BufferView<int32_t> d_flags, BufferView<int64_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<int64_t> d_in, BufferView<int32_t> d_flags, BufferView<int64_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
 
-    static void Flagged(size_t &temp_storage_size, BufferView<uint64_t> d_in, BufferView<int32_t> d_flags, BufferView<uint64_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
-    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<uint64_t> d_in, BufferView<int32_t> d_flags, BufferView<uint64_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
+    static void Flagged(size_t &temp_storage_size, BufferView<uint64_t> d_in, BufferView<int32_t> d_flags, BufferView<uint64_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<uint64_t> d_in, BufferView<int32_t> d_flags, BufferView<uint64_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
 
-    static void Flagged(size_t &temp_storage_size, BufferView<float> d_in, BufferView<int32_t> d_flags, BufferView<float> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
-    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<float> d_in, BufferView<int32_t> d_flags, BufferView<float> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
+    static void Flagged(size_t &temp_storage_size, BufferView<float> d_in, BufferView<int32_t> d_flags, BufferView<float> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<float> d_in, BufferView<int32_t> d_flags, BufferView<float> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
 
-    static void Flagged(size_t &temp_storage_size, BufferView<double> d_in, BufferView<int32_t> d_flags, BufferView<double> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
-    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<double> d_in, BufferView<int32_t> d_flags, BufferView<double> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
+    static void Flagged(size_t &temp_storage_size, BufferView<double> d_in, BufferView<int32_t> d_flags, BufferView<double> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Flagged(BufferView<int> d_temp_storage, BufferView<double> d_in, BufferView<int32_t> d_flags, BufferView<double> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
 
-    static void Unique(size_t &temp_storage_size, BufferView<int32_t> d_in, BufferView<int32_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
-    static UCommand Unique(BufferView<int> d_temp_storage, BufferView<int32_t> d_in, BufferView<int32_t> d_out, BufferView<int32_t> d_num_selected_out, int num_items) noexcept;
+    static void Unique(size_t &temp_storage_size, BufferView<int32_t> d_in, BufferView<int32_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Unique(BufferView<int> d_temp_storage, BufferView<int32_t> d_in, BufferView<int32_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+
+    static void Unique(size_t &temp_storage_size, BufferView<uint32_t> d_in, BufferView<uint32_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Unique(BufferView<int> d_temp_storage, BufferView<uint32_t> d_in, BufferView<uint32_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+
+    static void Unique(size_t &temp_storage_size, BufferView<int64_t> d_in, BufferView<int64_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Unique(BufferView<int> d_temp_storage, BufferView<int64_t> d_in, BufferView<int64_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+
+    static void Unique(size_t &temp_storage_size, BufferView<uint64_t> d_in, BufferView<uint64_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Unique(BufferView<int> d_temp_storage, BufferView<uint64_t> d_in, BufferView<uint64_t> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+
+    static void Unique(size_t &temp_storage_size, BufferView<float> d_in, BufferView<float> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Unique(BufferView<int> d_temp_storage, BufferView<float> d_in, BufferView<float> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+
+    static void Unique(size_t &temp_storage_size, BufferView<double> d_in, BufferView<double> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
+    static UCommand Unique(BufferView<int> d_temp_storage, BufferView<double> d_in, BufferView<double> d_out, BufferView<std::size_t> d_num_selected_out, int num_items) noexcept;
 };
 }// namespace luisa::compute::cuda::lcub

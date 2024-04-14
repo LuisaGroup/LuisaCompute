@@ -354,15 +354,10 @@ void CUDADevice::dispatch(uint64_t stream_handle, CommandList &&list) noexcept {
     }
 }
 
-SwapchainCreationInfo CUDADevice::create_swapchain(uint64_t window_handle, uint64_t stream_handle,
-                                                   uint width, uint height,
-                                                   bool allow_hdr, bool vsync,
-                                                   uint back_buffer_size) noexcept {
+SwapchainCreationInfo CUDADevice::create_swapchain(const SwapchainOption &option, uint64_t stream_handle) noexcept {
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     auto chain = with_handle([&] {
-        return new_with_allocator<CUDASwapchain>(
-            this, window_handle, width, height,
-            allow_hdr, vsync, back_buffer_size);
+        return new_with_allocator<CUDASwapchain>(this, option);
     });
     SwapchainCreationInfo info{};
     info.handle = reinterpret_cast<uint64_t>(chain);
@@ -433,14 +428,15 @@ parse_shader_metadata(luisa::string_view data,
 }
 
 template<bool allow_update_expected_metadata>
-[[nodiscard]] inline luisa::string load_shader_ptx(BinaryStream *metadata_stream,
-                                                   BinaryStream *ptx_stream,
-                                                   luisa::string_view name,
-                                                   bool warn_not_found,
-                                                   std::conditional_t<allow_update_expected_metadata,
-                                                                      CUDAShaderMetadata,
-                                                                      const CUDAShaderMetadata> &
-                                                       expected_metadata) noexcept {
+[[nodiscard]] inline luisa::vector<std::byte> load_shader_ptx(
+    BinaryStream *metadata_stream,
+    BinaryStream *ptx_stream,
+    luisa::string_view name,
+    bool warn_not_found,
+    std::conditional_t<allow_update_expected_metadata,
+                       CUDAShaderMetadata,
+                       const CUDAShaderMetadata> &expected_metadata) noexcept {
+
     // check if the stream is valid
     if (ptx_stream == nullptr || ptx_stream->length() == 0u ||
         metadata_stream == nullptr || metadata_stream->length() == 0u) {
@@ -465,7 +461,7 @@ template<bool allow_update_expected_metadata>
         meta_data.size() * sizeof(char)});
 
     // read ptx
-    luisa::string ptx_data;
+    luisa::vector<std::byte> ptx_data;
     ptx_data.resize(ptx_stream->length());
     ptx_stream->read(luisa::span{
         reinterpret_cast<std::byte *>(ptx_data.data()),
@@ -550,7 +546,7 @@ ShaderCreationInfo CUDADevice::_create_shader(luisa::string name,
             if (uses_user_path) {
                 src_dump_path = _io->write_shader_bytecode(src_name, src_data);
             } else if (option.enable_cache) {
-                src_dump_path = _io->write_shader_cache(src_name, src_data);
+                src_dump_path = _io->write_shader_source(src_name, src_data);
             }
         }
         luisa::string src_filename{src_dump_path.string()};
@@ -649,19 +645,19 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
     auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
     auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
-    luisa::vector<const char *> nvrtc_options{
+    luisa::vector<const char *> nvrtc_options {
         sm_option.c_str(),
-        nvrtc_version_option.c_str(),
-        optix_version_option.c_str(),
-        "--std=c++17",
-        "-default-device",
-        "-restrict",
-        "-extra-device-vectorization",
-        "-dw",
-        "-w",
-        "-ewp",
+            nvrtc_version_option.c_str(),
+            optix_version_option.c_str(),
+            "--std=c++17",
+            "-default-device",
+            "-restrict",
+            "-extra-device-vectorization",
+            "-dw",
+            "-w",
+            "-ewp",
 #if !defined(NDEBUG) && LUISA_CUDA_KERNEL_DEBUG
-        "-DLUISA_DEBUG=1",
+            "-DLUISA_DEBUG=1",
 #endif
     };
 
@@ -681,10 +677,11 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     }
 
     // multithreaded compilation
-    if (_compiler->nvrtc_version() >= 120100 &&
-        _handle.driver_version() >= 12030) {
-        nvrtc_options.emplace_back("-split-compile=0");
-    }
+    // TODO: the flag seems not working any more
+    // if (_compiler->nvrtc_version() >= 120100 &&
+    //     _handle.driver_version() >= 12030) {
+    //     nvrtc_options.emplace_back("-split-compile=0");
+    // }
 
     if (option.enable_debug_info) {
         nvrtc_options.emplace_back("-lineinfo");

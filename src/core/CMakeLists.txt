@@ -7,12 +7,12 @@ set(LUISA_COMPUTE_CORE_SOURCES
         basic_types.cpp
         binary_buffer.cpp
         binary_file_stream.cpp
+        binary_io.cpp
         dynamic_module.cpp
         first_fit.cpp
         logging.cpp
         platform.cpp
         pool.cpp
-        thread_pool.cpp
         string_scratch.cpp)
 
 find_package(Threads REQUIRED)
@@ -27,7 +27,7 @@ target_link_libraries(luisa-compute-core
         ${CMAKE_DL_LIBS}
         $<$<PLATFORM_ID:Windows>:dbghelp>
         PRIVATE
-        reproc reproc++)
+        luisa-compute-ext-marl)
 
 set_target_properties(luisa-compute-core PROPERTIES
         UNITY_BUILD ${LUISA_COMPUTE_ENABLE_UNITY_BUILD}

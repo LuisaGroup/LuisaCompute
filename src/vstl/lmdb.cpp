@@ -11,14 +11,13 @@ static void check(int rc) {
 }// namespace lmdb_detail
 LMDB::LMDB(
     std::filesystem::path const &db_dir,
+    size_t max_reader,
     size_t map_size) noexcept
     : _path(luisa::to_string(db_dir)),
       _map_size(map_size) {
     using namespace lmdb_detail;
     check(mdb_env_create(&_env));
-    if (std::thread::hardware_concurrency() > 126) {
-        check(mdb_env_set_maxreaders(_env, std::thread::hardware_concurrency()));
-    }
+    check(mdb_env_set_maxreaders(_env, max_reader));
     check(mdb_env_set_mapsize(_env, _map_size));
     if (!std::filesystem::exists(db_dir)) {
         std::filesystem::create_directories(db_dir);
@@ -38,7 +37,7 @@ luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) const 
         .mv_size = key.size_bytes(),
         .mv_data = const_cast<std::byte *>(key.data())};
     MDB_val value_v;
-    uint r = mdb_get(txn, *_dbi, &key_v, &value_v);
+    uint32_t r = mdb_get(txn, *_dbi, &key_v, &value_v);
     mdb_txn_abort(txn);
     if (r == MDB_NOTFOUND) {
         return {};

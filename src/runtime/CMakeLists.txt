@@ -14,6 +14,10 @@ set(LUISA_COMPUTE_RUNTIME_RHI_SOURCES
         rhi/pixel.cpp
         rhi/resource.cpp)
 
+set(LUISA_COMPUTE_RUNTIME_REMOTE_SOURCES
+        remote/client_interface.cpp
+        remote/server_interface.cpp)
+
 set(LUISA_COMPUTE_RUNTIME_SOURCES
         bindless_array.cpp
         buffer.cpp
@@ -32,9 +36,10 @@ set(LUISA_COMPUTE_RUNTIME_SOURCES
         stream.cpp
         swapchain.cpp
         volume.cpp
+        ${LUISA_COMPUTE_RUNTIME_RHI_SOURCES}
         ${LUISA_COMPUTE_RUNTIME_RTX_SOURCES}
         ${LUISA_COMPUTE_RUNTIME_RASTER_SOURCES}
-        ${LUISA_COMPUTE_RUNTIME_RHI_SOURCES})
+        ${LUISA_COMPUTE_RUNTIME_REMOTE_SOURCES})
 
 add_library(luisa-compute-runtime SHARED ${LUISA_COMPUTE_RUNTIME_SOURCES})
 target_link_libraries(luisa-compute-runtime PUBLIC luisa-compute-ast luisa-compute-ir luisa-compute-ir-v2)

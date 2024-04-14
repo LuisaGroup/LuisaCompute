@@ -1,3 +1,4 @@
+#include <new>
 #include <luisa/core/stl/filesystem.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/binary_file_stream.h>
@@ -108,17 +109,8 @@ void DefaultBinaryIO::_write(const luisa::string &file_path, luisa::span<std::by
     if (ec) { LUISA_WARNING("Create directory {} failed.", folder.string()); }
     auto idx = _lock(file_path, true);
     if (auto f = fopen(file_path.c_str(), "wb")) [[likely]] {
-#ifdef _WIN32
-#define LUISA_FWRITE _fwrite_nolock
-#define LUISA_FCLOSE _fclose_nolock
-#else
-#define LUISA_FWRITE fwrite
-#define LUISA_FCLOSE fclose
-#endif
-        LUISA_FWRITE(data.data(), data.size(), 1, f);
-        LUISA_FCLOSE(f);
-#undef LUISA_FWRITE
-#undef LUISA_FCLOSE
+        fwrite(data.data(), data.size(), 1, f);
+        fclose(f);
     } else {
         LUISA_WARNING("Write file {} failed.", file_path);
     }
@@ -129,8 +121,8 @@ DefaultBinaryIO::DefaultBinaryIO(Context &&ctx, void *ext) noexcept
     : _ctx(std::move(ctx)),
       _cache_dir{_ctx.create_runtime_subdir(".cache"sv)},
       _data_dir{_ctx.create_runtime_subdir(".data"sv)},
-      _data_lmdb{_data_dir},
-      _cache_lmdb{_cache_dir} {
+      _data_lmdb{_data_dir, std::max<size_t>(126ull, std::thread::hardware_concurrency() * 2)},
+      _cache_lmdb{_cache_dir, std::max<size_t>(126ull, std::thread::hardware_concurrency() * 2)} {
 }
 
 DefaultBinaryIO::~DefaultBinaryIO() noexcept = default;
@@ -156,6 +148,12 @@ luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_internal_shader(luisa::str
     return luisa::make_unique<LMDBBinaryStream>(r.data(), r.size());
 }
 
+luisa::unique_ptr<BinaryStream> DefaultBinaryIO::read_shader_source(luisa::string_view name) const noexcept {
+    std::filesystem::path local_path{name};
+    if (local_path.is_absolute()) { return _read(luisa::to_string(name)); }
+    return _read(luisa::to_string(_cache_dir / name));
+}
+
 luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
     std::filesystem::path local_path{name};
     if (local_path.is_absolute()) {
@@ -163,6 +161,17 @@ luisa::filesystem::path DefaultBinaryIO::write_shader_bytecode(luisa::string_vie
         return local_path;
     }
     auto file_path = _ctx.runtime_directory() / name;
+    _write(luisa::to_string(file_path), data);
+    return file_path;
+}
+
+luisa::filesystem::path DefaultBinaryIO::write_shader_source(luisa::string_view name, luisa::span<std::byte const> data) const noexcept {
+    std::filesystem::path local_path{name};
+    if (local_path.is_absolute()) {
+        _write(luisa::to_string(name), data);
+        return local_path;
+    }
+    auto file_path = _cache_dir / name;
     _write(luisa::to_string(file_path), data);
     return file_path;
 }
@@ -176,8 +185,9 @@ luisa::filesystem::path DefaultBinaryIO::write_internal_shader(luisa::string_vie
     _data_lmdb.write(name, data);
     return _data_dir / name;
 }
+
 void DefaultBinaryIO::clear_shader_cache() const noexcept {
-    vstd::destruct(&_cache_lmdb);
+    vstd::destruct(std::addressof(_cache_lmdb));
     std::error_code ec;
     for (auto &&dir : std::filesystem::directory_iterator(_cache_dir)) {
         std::filesystem::remove_all(dir, ec);
@@ -189,4 +199,5 @@ void DefaultBinaryIO::clear_shader_cache() const noexcept {
     }
     new (std::launder(&_cache_lmdb)) vstd::LMDB{_cache_dir};
 }
+
 }// namespace luisa::compute

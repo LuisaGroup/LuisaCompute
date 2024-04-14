@@ -40,7 +40,6 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     int64 scopeCount = -1;
 
     vstd::function<void(Type const *)> generateStruct;
-    vstd::unordered_map<vstd::string, vstd::string, vstd::hash<vstd::StringBuilder>> structReplaceName;
     vstd::unordered_map<uint64, Variable> sharedVariable;
     vstd::unordered_set<AccessChain, AccessHash> atomicsFuncs;
     Expression const *tempSwitchExpr;

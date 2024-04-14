@@ -2,6 +2,7 @@
 
 #include <luisa/ast/ast2json.h>
 #include <luisa/ast/atomic_ref_node.h>
+#include <luisa/ast/attribute.h>
 #include <luisa/ast/callable_library.h>
 #include <luisa/ast/constant_data.h>
 #include <luisa/ast/expression.h>
@@ -31,6 +32,7 @@
 #include <luisa/core/constants.h>
 #include <luisa/core/dll_export.h>
 #include <luisa/core/dynamic_module.h>
+#include <luisa/core/fiber.h>
 #include <luisa/core/first_fit.h>
 #include <luisa/core/forget.h>
 #include <luisa/core/intrin.h>
@@ -44,7 +46,6 @@
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/stl.h>
 #include <luisa/core/string_scratch.h>
-#include <luisa/core/thread_pool.h>
 #include <luisa/core/thread_safety.h>
 
 #ifdef LUISA_ENABLE_DSL
@@ -175,6 +176,7 @@
 #include <luisa/vstl/functional.h>
 #include <luisa/vstl/hash.h>
 #include <luisa/vstl/hash_map.h>
+#include <luisa/vstl/lmdb.hpp>
 #include <luisa/vstl/lockfree_array_queue.h>
 #include <luisa/vstl/log.h>
 #include <luisa/vstl/md5.h>

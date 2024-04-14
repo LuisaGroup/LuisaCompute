@@ -15,13 +15,17 @@ class LCCmdVisitor;
 namespace luisa::compute {
 
 class DXCustomCmd : public CustomDispatchCommand {
-
+    using ResourceHandle = luisa::variant<
+        Argument::Buffer,
+        Argument::Texture,
+        Argument::BindlessArray,
+        Argument::Accel>;
 public:
     struct ResourceUsage {
         ResourceHandle resource;
         D3D12_RESOURCE_STATES required_state;
         template<typename Arg>
-            requires(std::is_constructible_v<ResourceHandle, Arg &&>)
+            requires(luisa::is_constructible_v<ResourceHandle, Arg &&>)
         ResourceUsage(
             Arg &&resource,
             D3D12_RESOURCE_STATES required_state)
@@ -69,11 +73,14 @@ public:
     void traverse_arguments(ArgumentVisitor &visitor) const noexcept override {
         auto usages = get_resource_usages();
         for (auto &&[handle, state] : usages) {
-            visitor.visit(handle, resource_state_to_usage(state));
+            luisa::visit([&](auto &&v) {
+                visitor.visit(v, resource_state_to_usage(state));
+            },
+                         handle);
         }
     }
     DXCustomCmd() noexcept = default;
-    ~DXCustomCmd() noexcept override = default;
+    virtual ~DXCustomCmd() noexcept override = default;
     [[nodiscard]] uint64_t uuid() const noexcept override {
         return luisa::to_underlying(CustomCommandUUID::CUSTOM_DISPATCH);
     }

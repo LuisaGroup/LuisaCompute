@@ -44,7 +44,7 @@ struct CodegenResult {
 struct RegisterIndexer;
 class CodegenUtility {
     vstd::unique_ptr<CodegenStackData> opt{};
-
+    vstd::unordered_map<vstd::string, std::pair<vstd::string, Type const*>> attributes;
 public:
 #ifdef USE_SPIRV
     CodegenStackData *StackData() const;
@@ -65,7 +65,7 @@ public:
         Function func,
         vstd::StringBuilder &result,
         bool cBufferNonEmpty);
-    void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty, bool isDX, vstd::function<void(vstd::StringBuilder &)> const &bindVertex);
+    void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty);
     void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
     bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
     bool IsCBufferNonEmpty(Function func);
@@ -97,7 +97,6 @@ public:
         uint &bind_count);
     CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV);
     CodegenResult RasterCodegen(
-        MeshFormat const &meshFormat,
         Function vertFunc,
         Function pixelFunc,
         luisa::string_view native_code,

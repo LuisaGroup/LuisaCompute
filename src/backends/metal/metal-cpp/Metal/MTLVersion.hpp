@@ -22,7 +22,7 @@
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-#define METALCPP_VERSION_MAJOR 341
+#define METALCPP_VERSION_MAJOR 354
 #define METALCPP_VERSION_MINOR 0
 #define METALCPP_VERSION_PATCH 0
 

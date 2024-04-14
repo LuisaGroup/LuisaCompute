@@ -546,15 +546,21 @@ struct lc_float{i}x{i} {{
         generate_vector_call("fract", "lc_fract_impl", "hf", ["x"])
 
         # clz/popcount/reverse
-        generate_vector_call("clz", "__clz", "uz", ["x"])
-        generate_vector_call("popcount", "__popc", "uz", ["x"])
-        generate_vector_call("reverse", "__brev", "uz", ["x"])
+        generate_vector_call("clz", "__clz", "u", ["x"])
+        generate_vector_call("clz", "__clzll", "z", ["x"])
+        generate_vector_call("popcount", "__popc", "u", ["x"])
+        generate_vector_call("popcount", "__popcll", "z", ["x"])
+        generate_vector_call("reverse", "__brev", "u", ["x"])
+        generate_vector_call("reverse", "__brevll", "z", ["x"])
 
         # ctz
         print(
             f"[[nodiscard]] __device__ inline auto lc_ctz_impl(lc_uint x) noexcept {{ return (__ffs(x) - 1u) % 32u; }}",
             file=file)
-        generate_vector_call("ctz", "lc_ctz_impl", "u", ["x"])
+        print(
+            f"[[nodiscard]] __device__ inline auto lc_ctz_impl(lc_ulong x) noexcept {{ return (__ffsll(x) - 1u) % 64u; }}",
+            file=file)
+        generate_vector_call("ctz", "lc_ctz_impl", "uz", ["x"])
 
         for t in ["float", "half"]:
             # cross

@@ -14,6 +14,8 @@
 #include <luisa/runtime/swapchain.h>
 
 #include <luisa/clangcxx/compiler.h>
+#include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/runtime/raster/raster_shader.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -60,9 +62,14 @@ int main(int argc, char *argv[]) {
             vstd::make_ite_range(defines),
             vstd::transform_range{[&](auto &&v) { return luisa::string_view{v}; }}}
                         .i_range();
+        auto inc_iter = vstd::range_linker{
+            vstd::make_ite_range(luisa::span{&include_path, 1}),
+            vstd::transform_range{
+                [&](auto &&path) { return luisa::to_string(path); }}}
+                            .i_range();
         if (kUseExport) {
             auto lib = luisa::clangcxx::Compiler::export_callables(
-                device, iter, shader_path, include_path);
+                device, iter, shader_path, inc_iter);
             luisa::string lib_str;
             for (auto &&i : lib.callable_map()) {
                 lib_str += i.first;
@@ -86,7 +93,7 @@ int main(int argc, char *argv[]) {
                 ShaderOption{
                     .compile_only = true,
                     .name = "test.bin"},
-                device, iter, shader_path, include_path);
+                device, iter, shader_path, inc_iter);
         }
     }
     if (kTestRuntime) {
@@ -101,10 +108,14 @@ int main(int argc, char *argv[]) {
             auto texture = device.create_image<float>(PixelStorage::FLOAT4, width, height);
             Window window{"test func", uint2(width, height)};
             Swapchain swap_chain{device.create_swapchain(
-                window.native_handle(),
                 stream,
-                uint2(width, height),
-                false, false, 2)};
+                SwapchainOption{
+                    .display = window.native_display(),
+                    .window = window.native_handle(),
+                    .size = uint2(width, height),
+                    .wants_hdr = false,
+                    .wants_vsync = false,
+                    .back_buffer_count = 2})};
             auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), uint2(width, height));
 
             Kernel2D hdr2ldr_kernel = [&](ImageVar<float> hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
@@ -204,6 +215,13 @@ int main(int argc, char *argv[]) {
 
             LUISA_INFO("Time: {} ms", time);
             stbi_write_png("test_rtx.png", width, height, 4, pixels.data(), 0);
+        }
+        if (kTestName == "raster") {
+            auto raster_ext = device.extension<RasterExt>();
+            auto types = {
+                Type::of<float4x4>(),
+                Type::of<float3>()};
+            auto shader = device.load_raster_shader<float, float>("test.bin");
         }
     }
     return 0;

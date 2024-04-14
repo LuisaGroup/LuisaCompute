@@ -55,11 +55,16 @@ int mpm3d(Device &device) {
 
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
 
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        make_uint2(resolution),
-        false, false, 3)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = make_uint2(resolution),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
 
     Image<float> display = device.create_image<float>(swap_chain.backend_storage(), make_uint2(resolution));
 

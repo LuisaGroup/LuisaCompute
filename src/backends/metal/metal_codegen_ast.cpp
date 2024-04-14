@@ -583,6 +583,8 @@ public:
 
 protected:
     void _decode_bool(bool x) noexcept override { _codegen->_scratch << (x ? "true" : "false"); }
+    void _decode_char(char x) noexcept override { _codegen->_scratch << luisa::format("char({})", static_cast<int>(x)); }
+    void _decode_uchar(uchar x) noexcept override { _codegen->_scratch << luisa::format("uchar({})", static_cast<uint>(x)); }
     void _decode_short(short x) noexcept override { _codegen->_scratch << luisa::format("short({})", x); }
     void _decode_ushort(ushort x) noexcept override { _codegen->_scratch << luisa::format("ushort({})", x); }
     void _decode_int(int x) noexcept override { _codegen->_scratch << luisa::format("int({})", x); }

@@ -34,7 +34,8 @@
     - `clang++` must be in `PATH`
 - CUDA
     - CUDA 11.7 or higher
-    - RTX-compatible graphics cards with appropriate drivers (R535+ for OptiX 8)
+    - Nvidia graphics cards with appropriate drivers (R535+ for OptiX 8).
+      - To use hardware ray tracing, RTX-compatible graphics cards are needed.
     - To build with GPU compression/decompression support, you may specify `-D LUISA_COMPUTE_DOWNLOAD_NVCOMP=ON` to let CMake automatically download the [nvCOMP](https://developer.nvidia.com/nvcomp) library for you
     - To build with GPU BC texture compression support, you may download [NVTT 3](https://developer.nvidia.com/gpu-accelerated-texture-compression)
       - On Linux (or when the library is installed to a custom location on Windows), also specify `-D NVTT_DIR=<path-to-nvtt>` to the directory containing the NVTT DLLs so CMake could find it.

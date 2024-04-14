@@ -1,4 +1,8 @@
 #pragma once
+
+#ifndef LUISA_COMPUTE_PYTHON_PCH_H
+#define LUISA_COMPUTE_PYTHON_PCH_H
+
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
@@ -13,3 +17,5 @@
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/rtx/ray.h>
+
+#endif

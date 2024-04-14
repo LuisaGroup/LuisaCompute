@@ -527,6 +527,16 @@ typedef struct LCShaderOption {
 
 typedef void (*LCDispatchCallback)(uint8_t*);
 
+typedef struct LCSwapchainOption {
+    uint64_t display;
+    uint64_t window;
+    uint32_t width;
+    uint32_t height;
+    bool wants_hdr;
+    bool wants_vsync;
+    uint32_t back_buffer_count;
+} LCSwapchainOption;
+
 typedef struct LCPinnedMemoryOption {
     bool write_combined;
 } LCPinnedMemoryOption;
@@ -612,13 +622,8 @@ typedef struct LCDeviceInterface {
                      LCDispatchCallback,
                      uint8_t*);
     struct LCCreatedSwapchainInfo (*create_swapchain)(struct LCDevice,
-                                                      uint64_t,
-                                                      struct LCStream,
-                                                      uint32_t,
-                                                      uint32_t,
-                                                      bool,
-                                                      bool,
-                                                      uint32_t);
+                                                      const struct LCSwapchainOption*,
+                                                      struct LCStream);
     void (*present_display_in_stream)(struct LCDevice,
                                       struct LCStream,
                                       struct LCSwapchain,

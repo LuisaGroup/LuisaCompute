@@ -2,17 +2,8 @@
 #include <luisa/core/dynamic_module.h>
 #include <luisa/vstl/string_utility.h>
 #include <luisa/core/logging.h>
+#include <luisa/vstl/spin_mutex.h>
 namespace lc::hlsl {
-class ShaderCompilerModule : public vstd::IOperatorNewBase {
-public:
-    luisa::DynamicModule dxil;
-    luisa::DynamicModule dxcCompiler;
-    IDxcCompiler3 *comp;
-    ShaderCompilerModule(std::filesystem::path const &path);
-    ~ShaderCompilerModule();
-};
-static vstd::unique_ptr<ShaderCompilerModule> dxc_module;
-
 #ifndef LC_DXC_THROW_IF_FAILED
 #define LC_DXC_THROW_IF_FAILED(x)                  \
     {                                              \
@@ -20,14 +11,6 @@ static vstd::unique_ptr<ShaderCompilerModule> dxc_module;
         LUISA_ASSERT(hr_ == S_OK, "bad HRESULT."); \
     }
 #endif
-DxcByteBlob::DxcByteBlob(ComPtr<IDxcBlob> &&b)
-    : blob(std::move(b)) {}
-std::byte *DxcByteBlob::data() const {
-    return reinterpret_cast<std::byte *>(blob->GetBufferPointer());
-}
-size_t DxcByteBlob::size() const {
-    return blob->GetBufferSize();
-}
 static vstd::wstring GetSM(uint shaderModel) {
     vstd::string smStr;
     smStr << vstd::to_string(shaderModel / 10) << '_' << vstd::to_string(shaderModel % 10);
@@ -39,10 +22,13 @@ static vstd::wstring GetSM(uint shaderModel) {
     return wstr;
 }
 IDxcCompiler3 *ShaderCompiler::compiler() {
-    std::lock_guard lck{moduleInstantiateMtx};
-    if (dxc_module) return dxc_module->comp;
-    dxc_module = vstd::make_unique<ShaderCompilerModule>(path);
-    return dxc_module->comp;
+    return compiler_module.comp;
+}
+IDxcUtils *ShaderCompiler::utils() {
+    return compiler_module.utils;
+}
+IDxcLibrary *ShaderCompiler::library() {
+    return compiler_module.library;
 }
 ShaderCompiler::~ShaderCompiler() {
 }
@@ -60,13 +46,18 @@ ShaderCompilerModule::ShaderCompilerModule(std::filesystem::path const &path)
     (const IID &, const IID &, LPVOID *) =
         reinterpret_cast<HRESULT(WINAPI *)(const IID &, const IID &, LPVOID *)>(voidPtr);
     DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&comp));
+    DxcCreateInstance(CLSID_DxcLibrary, IID_PPV_ARGS(&library));
+    DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&utils));
 }
 ShaderCompilerModule::~ShaderCompilerModule() {
     // TODO: directx-compiler may crash here
-    // comp->Release();
+    utils->Release();
+    library->Release();
+    comp->Release();
 }
 ShaderCompiler::ShaderCompiler(std::filesystem::path const &path)
-    : path(path) {}
+    : compiler_module(path) {
+}
 CompileResult ShaderCompiler::compile(
     vstd::string_view code,
     vstd::span<LPCWSTR> args) {
@@ -87,7 +78,7 @@ CompileResult ShaderCompiler::compile(
     if (status == 0) {
         ComPtr<IDxcBlob> resultBlob;
         LC_DXC_THROW_IF_FAILED(compileResult->GetResult(resultBlob.GetAddressOf()));
-        return vstd::create_unique(new DxcByteBlob(std::move(resultBlob)));
+        return resultBlob;
     } else {
         ComPtr<IDxcBlobEncoding> errBuffer;
         LC_DXC_THROW_IF_FAILED(compileResult->GetErrorBuffer(errBuffer.GetAddressOf()));

@@ -14,6 +14,7 @@
             const char *err_string = nullptr;            \
             cuGetErrorName(ec, &err_name);               \
             cuGetErrorString(ec, &err_string);           \
+            if (!err_string) { err_string = "unknown"; } \
             LUISA_ERROR_WITH_LOCATION(                   \
                 "{}: {}", err_name, err_string);         \
         }                                                \

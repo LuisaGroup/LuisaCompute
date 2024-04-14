@@ -3,7 +3,35 @@
 #include <cstdlib>
 #include <cstring>
 
-#include <vulkan/vulkan_core.h>
+#if LUISA_USE_VOLK
+#ifndef VK_NO_PROTOTYPES
+#define VK_NO_PROTOTYPES 1
+#endif
+#endif
+
+#include <vulkan/vulkan.h>
+
+#if defined(LUISA_PLATFORM_WINDOWS)
+#include <windows.h>
+#include <vulkan/vulkan_win32.h>
+#elif defined(LUISA_PLATFORM_APPLE)
+#include <vulkan/vulkan_macos.h>
+#elif defined(LUISA_PLATFORM_UNIX)
+#include <X11/Xlib.h>
+#include <vulkan/vulkan_xlib.h>
+#if LUISA_ENABLE_WAYLAND
+#include <dlfcn.h>
+#include <vulkan/vulkan_wayland.h>
+#include <wayland-client.h>
+#endif
+#else
+#error "Unsupported platform"
+#endif
+
+#ifdef LUISA_USE_VOLK
+#include <volk.h>
+#endif
+
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
 #include <luisa/core/stl/vector.h>
@@ -38,7 +66,7 @@ struct VulkanDeviceUUID {
 
 static_assert(sizeof(VulkanDeviceUUID) == 16u);
 
-class LC_BACKEND_API VulkanInstance {
+class VulkanInstance {
 
 private:
     VkInstance _instance{nullptr};

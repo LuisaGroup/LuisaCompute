@@ -46,6 +46,15 @@ struct BufferCreationInfo : public ResourceCreationInfo {
     }
 };
 
+struct SwapchainOption {
+    uint64_t display;
+    uint64_t window;
+    uint2 size;
+    bool wants_hdr = false;
+    bool wants_vsync = true;
+    uint back_buffer_count = 2;
+};
+
 struct SwapchainCreationInfo : public ResourceCreationInfo {
     PixelStorage storage;
 };

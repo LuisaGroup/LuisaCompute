@@ -6,7 +6,6 @@
 #include <luisa/vstl/common.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/runtime/buffer.h>
-#include <luisa/runtime/raster/raster_scene.h>
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/core/logging.h>
 #include <luisa/backends/ext/raster_cmd.h>
@@ -38,8 +37,10 @@ struct ReorderFuncTable{
     luisa::span<const Argument> shader_bindings(uint64_t handle) const noexcept {}
 }
 */
+
 concept ReorderFuncTable =
-    requires(const T t, uint64_t uint64_v, size_t size_v, luisa::span<const BindlessArrayUpdateCommand::Modification> modification) {
+    requires(const T t, uint64_t uint64_v, size_t size_v, luisa::span<const BindlessArrayUpdateCommand::Modification> modification,
+             CustomDispatchCommand const *cmd) {
         requires(std::is_same_v<bool, decltype(t.is_res_in_bindless(uint64_v, uint64_v))>);
         requires(std::is_same_v<Usage, decltype(t.get_usage(uint64_v, size_v))>);
         t.update_bindless(uint64_v, modification);
@@ -100,12 +101,23 @@ public:
         using Map = vstd::ArenaHashMap<ArenaRef, Range, ResourceView, RangeHash>;
     private:
         ResourceView max_view;
+        Range read_range;
+        Range write_range;
         Map views;
+        static constexpr uint GIVEUP_SIZE = 16;
+
     public:
         RangeHandle(
-            ArenaRef &&pool) : views(16, std::move(pool)) {}
+            ArenaRef &&pool) : views(GIVEUP_SIZE, std::move(pool)) {
+            read_range.min = std::numeric_limits<int64_t>::max();
+            read_range.max = std::numeric_limits<int64_t>::min();
+            write_range.min = std::numeric_limits<int64_t>::max();
+            write_range.max = std::numeric_limits<int64_t>::min();
+        }
         auto get_max_write_layer(Range const &range) {
             int64_t layer = -1;
+            if (!range.collide(write_range))
+                return layer;
             for (auto &&r : views) {
                 if (r.first.collide(range)) {
                     layer = std::max<int64_t>(layer, r.second.write_layer);
@@ -118,6 +130,8 @@ public:
         }
         auto get_max_read_layer(Range const &range) {
             int64_t layer = -1;
+            if (!range.collide(read_range))
+                return layer;
             for (auto &&r : views) {
                 if (r.first.collide(range)) {
                     layer = std::max<int64_t>(layer, r.second.read_layer);
@@ -128,29 +142,50 @@ public:
             }
             return layer;
         }
+        void clear_views() {
+            views.clear();
+            auto ite = views.try_emplace(read_range);
+            auto &value = ite.first.value();
+            value.read_layer = max_view.read_layer;
+            value.write_layer = max_view.write_layer;
+        };
         void emplace_read_layer(Range const &range, int64_t layer) {
-            auto ite = views.try_emplace(range);
-            auto &read_layer = ite.first.value().read_layer;
-            if (ite.second) {
-                read_layer = layer;
+            read_range.min = std::min(read_range.min, range.min);
+            read_range.max = std::max(read_range.max, range.max);
+            max_view.read_layer = std::max(layer, max_view.read_layer);
+            if (views.size() >= GIVEUP_SIZE) {
+                clear_views();
             } else {
-                read_layer = std::max<int64_t>(read_layer, layer);
+                auto ite = views.try_emplace(range);
+                auto &read_layer = ite.first.value().read_layer;
+                if (ite.second) {
+                    read_layer = layer;
+                } else {
+                    read_layer = std::max<int64_t>(read_layer, layer);
+                }
             }
-            max_view.read_layer = std::max(read_layer, max_view.read_layer);
         }
         void emplace_write_layer(Range const &range, int64_t layer) {
-            auto ite = views.try_emplace(range);
-            auto &read_layer = ite.first.value().read_layer;
-            auto &write_layer = ite.first.value().write_layer;
-            if (ite.second) {
-                read_layer = layer;
-                write_layer = layer;
+            read_range.min = std::min(read_range.min, range.min);
+            read_range.max = std::max(read_range.max, range.max);
+            write_range.min = std::min(write_range.min, range.min);
+            write_range.max = std::max(write_range.max, range.max);
+            max_view.read_layer = std::max(layer, max_view.read_layer);
+            max_view.write_layer = std::max(layer, max_view.write_layer);
+            if (views.size() >= GIVEUP_SIZE) {
+                clear_views();
             } else {
-                read_layer = std::max<int64_t>(read_layer, layer);
-                write_layer = std::max<int64_t>(write_layer, layer);
+                auto ite = views.try_emplace(range);
+                auto &read_layer = ite.first.value().read_layer;
+                auto &write_layer = ite.first.value().write_layer;
+                if (ite.second) {
+                    read_layer = layer;
+                    write_layer = layer;
+                } else {
+                    read_layer = std::max<int64_t>(read_layer, layer);
+                    write_layer = std::max<int64_t>(write_layer, layer);
+                }
             }
-            max_view.read_layer = std::max(read_layer, max_view.read_layer);
-            max_view.write_layer = std::max(write_layer, max_view.write_layer);
         }
     };
     struct NoRangeHandle : public ResourceHandle {
@@ -452,15 +487,15 @@ private:
             case ResourceType::Accel: {
                 auto handle = static_cast<NoRangeHandle *>(src_handle);
                 handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
-            }break;
+            } break;
             case ResourceType::Bindless: {
                 auto handle = static_cast<BindlessHandle *>(src_handle);
                 handle->view.read_layer = std::max<int64_t>(layer, handle->view.read_layer);
-            }break;
-            default:{
+            } break;
+            default: {
                 auto handle = static_cast<RangeHandle *>(src_handle);
                 handle->emplace_read_layer(read_range, layer);
-            }break;
+            } break;
         }
         return layer;
     }
@@ -557,54 +592,50 @@ private:
         _use_accel_in_pass = false;
         _dispatch_layer = 0;
 
-        auto f = [&](auto &resource, auto usage) noexcept {
-            luisa::visit(
-                [&]<typename T>(T const &t) {
-                    if constexpr (std::is_same_v<T, Argument::Buffer>) {
-                        add_dispatch_handle(
-                            t.handle,
-                            ResourceType::Texture_Buffer,
-                            Range(t.offset, t.size),
-                            ((uint)usage & (uint)Usage::WRITE) != 0);
-                    } else if constexpr (std::is_same_v<T, Argument::Texture>) {
-                        add_dispatch_handle(
-                            t.handle,
-                            ResourceType::Texture_Buffer,
-                            Range(t.level, 1),
-                            ((uint)usage & (uint)Usage::WRITE) != 0);
+        auto f = [&]<typename T>(T const &t, Usage usage) {
+            if constexpr (std::is_same_v<T, Argument::Buffer>) {
+                add_dispatch_handle(
+                    t.handle,
+                    ResourceType::Texture_Buffer,
+                    Range(t.offset, t.size),
+                    ((uint)usage & (uint)Usage::WRITE) != 0);
+            } else if constexpr (std::is_same_v<T, Argument::Texture>) {
+                add_dispatch_handle(
+                    t.handle,
+                    ResourceType::Texture_Buffer,
+                    Range(t.level, 1),
+                    ((uint)usage & (uint)Usage::WRITE) != 0);
 
-                    } else if constexpr (std::is_same_v<T, Argument::BindlessArray>) {
-                        _use_bindless_in_pass = true;
-                        {
-                            _func_table.lock_bindless(t.handle);
-                            auto unlocker = vstd::scope_exit([&] {
-                                _func_table.unlock_bindless(t.handle);
-                            });
-                            for (auto &&res : _write_res_map) {
-                                if (_func_table.is_res_in_bindless(t.handle, res)) {
-                                    add_dispatch_handle(
-                                        res,
-                                        ResourceType::Texture_Buffer,
-                                        Range{},
-                                        false);
-                                }
-                            }
+            } else if constexpr (std::is_same_v<T, Argument::BindlessArray>) {
+                _use_bindless_in_pass = true;
+                {
+                    _func_table.lock_bindless(t.handle);
+                    auto unlocker = vstd::scope_exit([&] {
+                        _func_table.unlock_bindless(t.handle);
+                    });
+                    for (auto &&res : _write_res_map) {
+                        if (_func_table.is_res_in_bindless(t.handle, res)) {
+                            add_dispatch_handle(
+                                res,
+                                ResourceType::Texture_Buffer,
+                                Range{},
+                                false);
                         }
-                        add_dispatch_handle(
-                            t.handle,
-                            ResourceType::Bindless,
-                            Range(),
-                            false);
-                    } else {
-                        _use_accel_in_pass = true;
-                        add_dispatch_handle(
-                            t.handle,
-                            ResourceType::Accel,
-                            Range(),
-                            false);
                     }
-                },
-                resource);
+                }
+                add_dispatch_handle(
+                    t.handle,
+                    ResourceType::Bindless,
+                    Range(),
+                    false);
+            } else {
+                _use_accel_in_pass = true;
+                add_dispatch_handle(
+                    t.handle,
+                    ResourceType::Accel,
+                    Range(),
+                    false);
+            }
         };
         command->traverse_arguments(f);
 
@@ -775,6 +806,64 @@ public:
             }
         });
     }
+
+    // Texture : resource
+    void visit(const TextureUploadCommand *command) noexcept override {
+        add_command(command, set_write(command->handle(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
+    }
+    void visit(const TextureDownloadCommand *command) noexcept override {
+        add_command(command, set_read(command->handle(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
+    }
+    void visit(const TextureCopyCommand *command) noexcept override {
+        add_command(command, set_rw(command->src_handle(), copy_range(command->src_level(), 1), ResourceType::Texture_Buffer, command->dst_handle(), copy_range(command->dst_level(), 1), ResourceType::Texture_Buffer));
+    }
+    void visit(const TextureToBufferCopyCommand *command) noexcept override {
+        auto sz = command->size();
+        auto bin_size = pixel_storage_size(command->storage(), sz);
+        add_command(command, set_rw(command->texture(), copy_range(command->level(), 1), ResourceType::Texture_Buffer, command->buffer(), copy_range(command->buffer_offset(), bin_size), ResourceType::Texture_Buffer));
+    }
+    void visit(const ClearDepthCommand *command) noexcept {
+        add_command(command, set_write(command->handle(), Range{}, ResourceType::Texture_Buffer));
+    }
+
+    // BindlessArray : read multi resources
+    void visit(const BindlessArrayUpdateCommand *command) noexcept override {
+        _func_table.update_bindless(command->handle(), command->modifications());
+        add_command(command, set_write(command->handle(), Range(), ResourceType::Bindless));
+    }
+
+    // Accel : conclude meshes and their buffer
+    void visit(const AccelBuildCommand *command) noexcept override {
+        auto layer = set_write(command->handle(), Range(), ResourceType::Accel);
+        _max_accel_write_level = std::max<int64_t>(_max_accel_write_level, layer);
+        add_command(command, layer);
+    }
+
+    void visit(const CurveBuildCommand *) noexcept override { /* TODO */
+    }
+
+    // Mesh : conclude vertex and triangle buffers
+    void visit(const MeshBuildCommand *command) noexcept override {
+        add_command(
+            command,
+            set_mesh(
+                command->handle(),
+                command->vertex_buffer(),
+                Range(command->vertex_buffer_offset(),
+                      command->vertex_buffer_size()),
+                command->triangle_buffer(),
+                Range(command->triangle_buffer_offset(),
+                      command->triangle_buffer_size())));
+    }
+    void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
+        add_command(
+            command,
+            set_aabb(
+                command->handle(),
+                command->aabb_buffer(),
+                Range(command->aabb_buffer_offset(), command->aabb_buffer_size())));
+    }
+
     void visit(const DrawRasterSceneCommand *command) noexcept {
         auto set_tex_dsl = [&](ShaderDispatchCommandBase::Argument::Texture const &a) {
             add_dispatch_handle(
@@ -811,62 +900,6 @@ public:
                 }
             }
         });
-    }
-
-    // Texture : resource
-    void visit(const TextureUploadCommand *command) noexcept override {
-        add_command(command, set_write(command->handle(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
-    }
-    void visit(const TextureDownloadCommand *command) noexcept override {
-        add_command(command, set_read(command->handle(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
-    }
-    void visit(const TextureCopyCommand *command) noexcept override {
-        add_command(command, set_rw(command->src_handle(), copy_range(command->src_level(), 1), ResourceType::Texture_Buffer, command->dst_handle(), copy_range(command->dst_level(), 1), ResourceType::Texture_Buffer));
-    }
-    void visit(const TextureToBufferCopyCommand *command) noexcept override {
-        auto sz = command->size();
-        auto bin_size = pixel_storage_size(command->storage(), sz);
-        add_command(command, set_rw(command->texture(), copy_range(command->level(), 1), ResourceType::Texture_Buffer, command->buffer(), copy_range(command->buffer_offset(), bin_size), ResourceType::Texture_Buffer));
-    }
-    void visit(const ClearDepthCommand *command) noexcept {
-        add_command(command, set_write(command->handle(), Range{}, ResourceType::Texture_Buffer));
-    }
-
-    // BindlessArray : read multi resources
-    void visit(const BindlessArrayUpdateCommand *command) noexcept override {
-        _func_table.update_bindless(command->handle(), command->modifications());
-        add_command(command, set_write(command->handle(), Range(), ResourceType::Bindless));
-    }
-
-    // Accel : conclude meshes and their buffer
-    void visit(const AccelBuildCommand *command) noexcept override {
-        auto layer = set_write(command->handle(), Range(), ResourceType::Accel);
-        _max_accel_write_level = std::max<int64_t>(_max_accel_write_level, layer);
-        add_command(command, layer);
-    }
-
-    void visit(const CurveBuildCommand *) noexcept override { /* TODO */ }
-
-    // Mesh : conclude vertex and triangle buffers
-    void visit(const MeshBuildCommand *command) noexcept override {
-        add_command(
-            command,
-            set_mesh(
-                command->handle(),
-                command->vertex_buffer(),
-                Range(command->vertex_buffer_offset(),
-                      command->vertex_buffer_size()),
-                command->triangle_buffer(),
-                Range(command->triangle_buffer_offset(),
-                      command->triangle_buffer_size())));
-    }
-    void visit(const ProceduralPrimitiveBuildCommand *command) noexcept override {
-        add_command(
-            command,
-            set_aabb(
-                command->handle(),
-                command->aabb_buffer(),
-                Range(command->aabb_buffer_offset(), command->aabb_buffer_size())));
     }
 
     void visit(const CustomCommand *command) noexcept override {

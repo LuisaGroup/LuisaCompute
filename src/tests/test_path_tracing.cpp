@@ -18,8 +18,6 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "common/tiny_obj_loader.h"
 
-// #define CLANG_CXX
-
 using namespace luisa;
 using namespace luisa::compute;
 
@@ -102,7 +100,7 @@ int main(int argc, char *argv[]) {
            << accel.build()
            << synchronize();
 
-    float3 mats[] = {
+    Constant materials{
         make_float3(0.725f, 0.710f, 0.680f),// floor
         make_float3(0.725f, 0.710f, 0.680f),// ceiling
         make_float3(0.725f, 0.710f, 0.680f),// back wall
@@ -112,8 +110,6 @@ int main(int argc, char *argv[]) {
         make_float3(0.725f, 0.710f, 0.680f),// tall box
         make_float3(0.000f, 0.000f, 0.000f),// light
     };
-    auto materials = device.create_buffer<float3>(8);
-    stream << materials.copy_from(mats);
 
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
         return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -136,8 +132,7 @@ int main(int argc, char *argv[]) {
         UInt state = tea(p.x, p.y);
         seed_image.write(p, make_uint4(state));
     };
-    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
-#ifndef CLANG_CXX
+
     Callable lcg = [](UInt &state) noexcept {
         constexpr uint lcg_a = 1664525u;
         constexpr uint lcg_c = 1013904223u;
@@ -172,6 +167,8 @@ int main(int argc, char *argv[]) {
     Callable balanced_heuristic = [](Float pdf_a, Float pdf_b) noexcept {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
+
+    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);
@@ -231,7 +228,7 @@ int main(int argc, char *argv[]) {
                 Bool occluded = accel.intersect_any(shadow_ray, {});
                 Float cos_wi_light = dot(wi_light, n);
                 Float cos_light = -dot(light_normal, wi_light);
-                Float3 albedo = materials->read(hit.inst);
+                Float3 albedo = materials.read(hit.inst);
                 $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                     Float pdf_light = (d_light * d_light) / (light_area * cos_light);
                     Float pdf_bsdf = cos_wi_light * inv_pi;
@@ -265,7 +262,6 @@ int main(int argc, char *argv[]) {
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
-#endif
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
         UInt2 p = dispatch_id().xy();
@@ -301,11 +297,7 @@ int main(int argc, char *argv[]) {
     auto clear_shader = device.compile(clear_kernel, o);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
     auto accumulate_shader = device.compile(accumulate_kernel, o);
-#ifdef CLANG_CXX
-    auto raytracing_shader = device.load_shader<2, Image<float>, Image<uint>, Accel, BindlessArray, Buffer<float3>, Buffer<float3>, uint2>("test.bin");
-#else
     auto raytracing_shader = device.compile(raytracing_kernel, ShaderOption{.name = "path_tracing"});
-#endif
     auto make_sampler_shader = device.compile(make_sampler_kernel, o);
 
     static constexpr uint2 resolution = make_uint2(1024u);
@@ -318,22 +310,23 @@ int main(int argc, char *argv[]) {
              << make_sampler_shader(seed_image).dispatch(resolution);
 
     Window window{"path tracing", resolution};
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        resolution,
-        false, false, 3)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = make_uint2(resolution),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 8,
+        });
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
     Clock clock;
 
     while (!window.should_close()) {
-#ifdef CLANG_CXX
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, heap, vertex_buffer, materials, resolution)
-#else
         cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
-#endif
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);

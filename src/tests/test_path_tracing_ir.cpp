@@ -328,11 +328,16 @@ int main(int argc, char *argv[]) {
              << make_sampler_shader(seed_image).dispatch(resolution);
 
     Window window{"path tracing", resolution};
-    auto swap_chain{device.create_swapchain(
-        window.native_handle(),
+    auto swap_chain = device.create_swapchain(
         stream,
-        resolution,
-        false, false, 3)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     auto last_time = 0.0;
     auto frame_count = 0u;

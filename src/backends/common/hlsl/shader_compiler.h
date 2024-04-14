@@ -7,34 +7,35 @@
 #include <luisa/core/platform.h>
 
 namespace lc::hlsl {
-using Microsoft::WRL::ComPtr;
-class DxcByteBlob final : public vstd::IOperatorNewBase {
-private:
-    ComPtr<IDxcBlob> blob;
-
+class ShaderCompilerModule : public vstd::IOperatorNewBase {
 public:
-    DxcByteBlob(Microsoft::WRL::ComPtr<IDxcBlob> &&b);
-    std::byte *data() const;
-    size_t size() const;
-};
+    luisa::DynamicModule dxil;
+    luisa::DynamicModule dxcCompiler;
+    IDxcCompiler3 *comp;
+    IDxcLibrary *library;
+    IDxcUtils *utils;
 
+    ShaderCompilerModule(std::filesystem::path const &path);
+    ~ShaderCompilerModule();
+};
+using Microsoft::WRL::ComPtr;
 using CompileResult = vstd::variant<
-    vstd::unique_ptr<DxcByteBlob>,
+    ComPtr<IDxcBlob>,
     vstd::string>;
 struct RasterBin {
     CompileResult vertex;
     CompileResult pixel;
 };
 class ShaderCompiler final : public vstd::IOperatorNewBase {
-private:
-    std::mutex moduleInstantiateMtx;
-    std::filesystem::path path;
+    ShaderCompilerModule compiler_module;
+public:
     CompileResult compile(
         vstd::string_view code,
         vstd::span<LPCWSTR> args);
     IDxcCompiler3 *compiler();
+    IDxcUtils *utils();
+    IDxcLibrary *library();
 
-public:
     ShaderCompiler(std::filesystem::path const &path);
     ~ShaderCompiler();
     CompileResult compile_compute(

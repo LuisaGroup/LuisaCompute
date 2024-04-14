@@ -50,11 +50,16 @@ int main(int argc, char *argv[]) {
 
                 << synchronize();
     Window window{"test copy", uint2(width, height)};
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        uint2(width, height),
-        false, false, 2)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = make_uint2(width, height),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     while (!window.should_close()) {
         window.poll_events();
         stream << swap_chain.present(image);

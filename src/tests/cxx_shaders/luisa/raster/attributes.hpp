@@ -1,0 +1,13 @@
+#pragma once
+#define POSITION clang::annotate("luisa-shader", "position")
+#define NORMAL clang::annotate("luisa-shader", "normal")
+#define TANGENT clang::annotate("luisa-shader", "tangent")
+#define UV0 clang::annotate("luisa-shader", "uv0")
+#define UV1 clang::annotate("luisa-shader", "uv1")
+#define UV2 clang::annotate("luisa-shader", "uv2")
+#define UV3 clang::annotate("luisa-shader", "uv3")
+#define VERTEX_ID clang::annotate("luisa-shader", "vertex_id")
+#define INSTANCE_ID clang::annotate("luisa-shader", "instance_id")
+#define IS_FRONTFACE clang::annotate("luisa-shader", "is_front_face")
+#define VERTEX_SHADER clang::annotate("luisa-shader", "vertex")
+#define PIXEL_SHADER clang::annotate("luisa-shader", "pixel")

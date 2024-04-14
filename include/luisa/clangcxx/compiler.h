@@ -8,29 +8,29 @@
 namespace luisa::clangcxx {
 
 struct LC_CLANGCXX_API Compiler {
-    static compute::ShaderCreationInfo create_shader(
+    static bool create_shader(
         const compute::ShaderOption &option,
         compute::Device &device,
-        vstd::IRange<luisa::string_view>& defines,
+        vstd::IRange<luisa::string_view> &defines,
         const std::filesystem::path &shader_path,
-        const std::filesystem::path &include_path) LUISA_NOEXCEPT;
+        vstd::IRange<luisa::string> &include_paths) LUISA_NOEXCEPT;
     static compute::CallableLibrary export_callables(
         compute::Device &device,
-        vstd::IRange<luisa::string_view>& defines,
+        vstd::IRange<luisa::string_view> &defines,
         const std::filesystem::path &shader_path,
-        const std::filesystem::path &include_path) LUISA_NOEXCEPT;
+        vstd::IRange<luisa::string> &include_paths) LUISA_NOEXCEPT;
     static void lsp_compile_commands(
-        vstd::IRange<luisa::string_view>& defines,
+        vstd::IRange<luisa::string_view> &defines,
         const std::filesystem::path &shader_dir,
         const std::filesystem::path &shader_relative_dir,
-        const std::filesystem::path &include_path,
+        vstd::IRange<luisa::string> &include_paths,
         luisa::vector<char> &result) LUISA_NOEXCEPT;
 private:
     compute::ShaderOption option;
     static luisa::vector<luisa::string> compile_args(
-                vstd::IRange<luisa::string_view>& defines,
+        vstd::IRange<luisa::string_view> &defines,
         const std::filesystem::path &shader_path,
-        const std::filesystem::path &include_path,
+        vstd::IRange<luisa::string> &include_paths,
         bool is_lsp,
         bool is_export) LUISA_NOEXCEPT;
 };

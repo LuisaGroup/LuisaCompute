@@ -28,6 +28,8 @@ public:
         bool vsync{false};
         bool hdr{false};
         bool ssaa{false};
+        bool docking{true};
+        bool multi_viewport{true};
         uint back_buffers{2};
 
         [[nodiscard]] static Config make_default() noexcept { return {}; }
@@ -99,7 +101,7 @@ public:
     }
 
     template<typename F>
-    void wtih_frame(F &&f) noexcept {
+    void with_frame(F &&f) noexcept {
         prepare_frame();
         luisa::invoke(std::forward<F>(f));
         render_frame();

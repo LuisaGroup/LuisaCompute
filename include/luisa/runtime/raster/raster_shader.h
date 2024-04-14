@@ -3,11 +3,10 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/runtime/raster/raster_state.h>
 #include <luisa/runtime/raster/depth_buffer.h>
-#include <luisa/backends/ext/raster_ext.hpp>
+#include <luisa/backends/ext/raster_ext_interface.h>
 
 namespace luisa::compute {
 
-class RasterMesh;
 class Accel;
 class BindlessArray;
 
@@ -42,14 +41,11 @@ static constexpr bool LegalDst() noexcept {
     }
 }
 
-}// namespace detail
-
 class LC_RUNTIME_API RasterShaderInvoke {
 
 private:
     RasterDispatchCmdEncoder _command;
     luisa::span<const Function::Binding> _bindings;
-
 public:
     explicit RasterShaderInvoke(
         size_t arg_size,
@@ -102,17 +98,24 @@ public:
         return *this;
     }
 
-    // see definition in rtx/accel.cpp
-    RasterShaderInvoke &operator<<(const Accel &accel) noexcept;
-    // see definition in runtime/bindless_array.cpp
-    RasterShaderInvoke &operator<<(const BindlessArray &array) noexcept;
-#ifndef NDEBUG
-    MeshFormat const *_mesh_format;
-    void check_scene(luisa::vector<RasterMesh> const &scene) noexcept;
-#endif
+    RasterShaderInvoke &operator<<(const Accel &accel) noexcept {
+        ShaderInvokeBase::encode(_command, accel);
+        return *this;
+    }
+
+    RasterShaderInvoke &operator<<(const BindlessArray &array) noexcept {
+        ShaderInvokeBase::encode(_command, array);
+        return *this;
+    }
+
+    RasterShaderInvoke &operator<<(const IndirectDispatchBuffer &dispatch_buffer) noexcept {
+        ShaderInvokeBase::encode(_command, dispatch_buffer);
+        return *this;
+    }
+
     template<typename... Rtv>
         requires(sizeof...(Rtv) == 0 || detail::LegalDst<Rtv...>())
-    [[nodiscard]] auto draw(luisa::vector<RasterMesh> &&scene, Viewport viewport, const RasterState &raster_state, DepthBuffer const *dsv, Rtv const &...rtv) && noexcept {
+    [[nodiscard]] auto draw(luisa::vector<RasterMesh> &&scene, MeshFormat const &mesh_format, Viewport viewport, const RasterState &raster_state, DepthBuffer const *dsv, Rtv const &...rtv) && noexcept {
         if (dsv) {
             _command.set_dsv_tex(ShaderDispatchCommandBase::Argument::Texture{dsv->handle(), 0});
         } else {
@@ -122,40 +125,27 @@ public:
             auto tex_args = {detail::PixelDst<std::remove_cvref_t<Rtv>>::get(rtv)...};
             _command.set_rtv_texs(tex_args);
         }
-#ifndef NDEBUG
-        check_scene(scene);
-#endif
         _command.set_scene(std::move(scene));
         _command.set_viewport(viewport);
         _command.set_raster_state(raster_state);
+        _command.set_mesh_format(&mesh_format);
         return std::move(_command).build();
     }
 };
-
-namespace detail {
-LC_RUNTIME_API void rastershader_check_rtv_format(luisa::span<const PixelFormat> rtv_format) noexcept;
-LC_RUNTIME_API void rastershader_check_vertex_func(Function func) noexcept;
-LC_RUNTIME_API void rastershader_check_pixel_func(Function func) noexcept;
 }// namespace detail
 
-// TODO: @Maxwell fix this please
 template<typename... Args>
 class RasterShader : public Resource {
-
+    friend class RasterExt;
 private:
     friend class Device;
     RasterExt *_raster_ext{};
     luisa::vector<Function::Binding> _bindings;
-    size_t _uniform_size{};
-#ifndef NDEBUG
-    MeshFormat _mesh_format;
-#endif
     // JIT Shader
     // clang-format off
 
     RasterShader(DeviceInterface *device,
                  RasterExt* raster_ext,
-                 const MeshFormat &mesh_format,
                  Function vert,
                  Function pixel,
                  const ShaderOption &option)noexcept
@@ -163,54 +153,25 @@ private:
               device,
               Tag::RASTER_SHADER,
               raster_ext->create_raster_shader(
-                  mesh_format,
-//                  raster_state,
-//                  rtv_format,
-//                  dsv_format,
                   vert,
                   pixel,
                   option)),
-                  _raster_ext{raster_ext},
-         _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
-                detail::shader_argument_types<Args...>())}
-#ifndef NDEBUG
-        ,_mesh_format(mesh_format)
-#endif
+                  _raster_ext{raster_ext}
         {
-#ifndef NDEBUG
-            detail::rastershader_check_vertex_func(vert);
-            detail::rastershader_check_pixel_func(pixel);
-#endif
-            auto vert_bindings = vert.bound_arguments().subspan(1);
-            auto pixel_bindings = pixel.bound_arguments().subspan(1);
-            _bindings.reserve(vert_bindings.size() + pixel_bindings.size());
-            for(auto&& i : vert_bindings){
-                _bindings.emplace_back(i);
-            }
-            for(auto&& i : pixel_bindings){
-                _bindings.emplace_back(i);
-            }
         }
     // AOT Shader
     RasterShader(
         DeviceInterface *device,
         RasterExt* raster_ext,
-        const MeshFormat &mesh_format,
-        string_view file_path)noexcept
+        luisa::string_view file_path)noexcept
         : Resource(
               device,
               Tag::RASTER_SHADER,
               // TODO
               raster_ext->load_raster_shader(
-                mesh_format,
                 detail::shader_argument_types<Args...>(),
                 file_path)),
-            _raster_ext{raster_ext},
-            _uniform_size{ShaderDispatchCmdEncoder::compute_uniform_size(
-                detail::shader_argument_types<Args...>())}
-#ifndef NDEBUG
-        ,_mesh_format(mesh_format)
-#endif
+            _raster_ext{raster_ext}
         {
         }
     // clang-format on
@@ -235,21 +196,14 @@ public:
         } else {
             arg_size = _bindings.size();
         }
-        RasterShaderInvoke invoke(
+        auto uniform_size = ShaderDispatchCmdEncoder::compute_uniform_size(
+            detail::shader_argument_types<Args...>());
+        detail::RasterShaderInvoke invoke(
             arg_size,
-            _uniform_size,
+            uniform_size,
             handle(),
             _bindings);
-#ifndef NDEBUG
-        invoke._mesh_format = &_mesh_format;
-#endif
         return std::move((invoke << ... << args));
-    }
-    void warm_up(luisa::span<PixelFormat const> render_target_formats, DepthFormat depth_format, const RasterState &state) const noexcept {
-#ifndef NDEBUG
-        detail::rastershader_check_rtv_format(render_target_formats);
-#endif
-        _raster_ext->warm_up_pipeline_cache(handle(), render_target_formats, depth_format, state);
     }
 };
 

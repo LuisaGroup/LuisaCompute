@@ -10,10 +10,6 @@ cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storag
     return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
 }
 
-cudaError_t DeviceRadixSort::SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit, int end_bit, cudaStream_t stream) {
-    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
-}
-
 cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, int32_t*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
 {
     return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
@@ -35,6 +31,156 @@ cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storag
 }
 
 cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, int32_t*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairs(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
 {
     return ::cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
 }
@@ -69,7 +215,182 @@ cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& t
     return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
 }
 
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const int32_t*  d_values_in, int32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const uint32_t*  d_values_in, uint32_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const int64_t*  d_values_in, int64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const uint64_t*  d_values_in, uint64_t*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const float*  d_values_in, float*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortPairsDescending(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, const double*  d_values_in, double*  d_values_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, d_values_in, d_values_out, num_items, begin_bit, end_bit, stream);
+}
+
 cudaError_t DeviceRadixSort::SortKeys(void* d_temp_storage, size_t& temp_storage_bytes, const int32_t*  d_keys_in, int32_t*  d_keys_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortKeys(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortKeys(void* d_temp_storage, size_t& temp_storage_bytes, const uint32_t*  d_keys_in, uint32_t*  d_keys_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortKeys(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortKeys(void* d_temp_storage, size_t& temp_storage_bytes, const int64_t*  d_keys_in, int64_t*  d_keys_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortKeys(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortKeys(void* d_temp_storage, size_t& temp_storage_bytes, const uint64_t*  d_keys_in, uint64_t*  d_keys_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortKeys(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortKeys(void* d_temp_storage, size_t& temp_storage_bytes, const float*  d_keys_in, float*  d_keys_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
+{
+    return ::cub::DeviceRadixSort::SortKeys(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, num_items, begin_bit, end_bit, stream);
+}
+
+cudaError_t DeviceRadixSort::SortKeys(void* d_temp_storage, size_t& temp_storage_bytes, const double*  d_keys_in, double*  d_keys_out, int  num_items, int  begin_bit, int  end_bit, cudaStream_t stream)
 {
     return ::cub::DeviceRadixSort::SortKeys(d_temp_storage, temp_storage_bytes, d_keys_in, d_keys_out, num_items, begin_bit, end_bit, stream);
 }

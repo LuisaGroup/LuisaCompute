@@ -188,7 +188,43 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
     }
     return PixelStorage{};
 }
-
+[[nodiscard]] constexpr size_t pixel_storage_align(PixelStorage storage) noexcept {
+    if (is_block_compressed(storage)) {
+        switch (storage) {
+            case PixelStorage::BC1:
+            case PixelStorage::BC4: return 8u;
+            case PixelStorage::BC2:
+            case PixelStorage::BC3:
+            case PixelStorage::BC5:
+            case PixelStorage::BC6:
+            case PixelStorage::BC7: return 16u;
+            default: break;
+        }
+        detail::error_pixel_invalid_format("unknown.");
+    }
+    switch (storage) {
+        case PixelStorage::BYTE1: return alignof(std::byte) * 1u;
+        case PixelStorage::BYTE2: return alignof(std::byte) * 2u;
+        case PixelStorage::BYTE4: return alignof(std::byte) * 4u;
+        case PixelStorage::SHORT1: return alignof(short) * 1u;
+        case PixelStorage::SHORT2: return alignof(short) * 2u;
+        case PixelStorage::SHORT4: return alignof(short) * 4u;
+        case PixelStorage::INT1: return alignof(int) * 1u;
+        case PixelStorage::INT2: return alignof(int) * 2u;
+        case PixelStorage::INT4: return alignof(int) * 4u;
+        case PixelStorage::HALF1: return alignof(short) * 1u;
+        case PixelStorage::HALF2: return alignof(short) * 2u;
+        case PixelStorage::HALF4: return alignof(short) * 4u;
+        case PixelStorage::FLOAT1: return alignof(float) * 1u;
+        case PixelStorage::FLOAT2: return alignof(float) * 2u;
+        case PixelStorage::FLOAT4: return alignof(float) * 4u;
+        case PixelStorage::R10G10B10A2:
+        case PixelStorage::R11G11B10:
+            return 4;
+        default: break;
+    }
+    detail::error_pixel_invalid_format("unknown");
+}
 [[nodiscard]] constexpr size_t pixel_storage_size(PixelStorage storage, uint3 size) noexcept {
     if (is_block_compressed(storage)) {
         auto block_width = (size.x + 3u) / 4u;
@@ -229,6 +265,10 @@ constexpr auto pixel_format_count = to_underlying(PixelFormat::BC7UNorm) + 1u;
         default: break;
     }
     detail::error_pixel_invalid_format("unknown");
+}
+
+[[nodiscard]] constexpr size_t pixel_format_align(PixelFormat format) noexcept {
+    return pixel_storage_align(pixel_format_to_storage(format));
 }
 
 [[nodiscard]] constexpr auto pixel_storage_channel_count(PixelStorage storage) noexcept {

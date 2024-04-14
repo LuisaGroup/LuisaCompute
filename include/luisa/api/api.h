@@ -9,6 +9,7 @@ typedef const void * ConstVoidPtr;
 typedef const char * ConstCharPtr;
 typedef char * CharPtr;
 typedef const LCAccelOption * ConstAccelOptionPtr;
+typedef const LCSwapchainOption * ConstSwapchainOptionPtr;
 typedef const LCShaderOption * ShaderOptionPtr;
 typedef uint8_t * BytePtr;
 typedef void (*LoggerCallback)(LCLoggerMessage);
@@ -56,7 +57,7 @@ LUISA_EXPORT_API LCCreatedResourceInfo luisa_compute_accel_create(LCDevice devic
 LUISA_EXPORT_API void luisa_compute_accel_destroy(LCDevice device, LCAccel accel) LUISA_NOEXCEPT;
 LUISA_EXPORT_API size_t luisa_compute_device_query(LCDevice device, ConstCharPtr query, CharPtr result, size_t maxlen) LUISA_NOEXCEPT;
 
-LUISA_EXPORT_API LCCreatedSwapchainInfo luisa_compute_swapchain_create(LCDevice device, uint64_t window_handle, LCStream stream_handle, uint32_t width, uint32_t height, bool allow_hdr, bool vsync, uint32_t back_buffer_size) LUISA_NOEXCEPT;
+LUISA_EXPORT_API LCCreatedSwapchainInfo luisa_compute_swapchain_create(LCDevice device, ConstSwapchainOptionPtr option, LCStream stream_handle) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_swapchain_destroy(LCDevice device, LCSwapchain swapchain) LUISA_NOEXCEPT;
 LUISA_EXPORT_API void luisa_compute_swapchain_present(LCDevice device, LCStream stream, LCSwapchain swapchain, LCTexture image) LUISA_NOEXCEPT;
 

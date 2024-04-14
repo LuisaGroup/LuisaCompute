@@ -280,10 +280,7 @@ void ClientInterface::set_stream_log_callback(
 }
 
 // swap chain
-SwapchainCreationInfo ClientInterface::create_swapchain(
-    uint64_t window_handle, uint64_t stream_handle,
-    uint width, uint height, bool allow_hdr,
-    bool vsync, uint back_buffer_size) noexcept {
+SwapchainCreationInfo ClientInterface::create_swapchain(const SwapchainOption &option, uint64_t stream_handle) noexcept {
     LUISA_ERROR("Swapchain not supported");
     return {};
 }

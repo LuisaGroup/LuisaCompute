@@ -13,7 +13,7 @@
 
 namespace luisa::compute::cuda {
 
-CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::string ptx,
+CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::vector<std::byte> ptx,
                                    const char *entry, const CUDAShaderMetadata &metadata,
                                    luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept
     : CUDAShader{CUDAShaderPrinter::create(metadata.format_types),
@@ -24,7 +24,7 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::string ptx,
                   metadata.block_size.z},
       _bound_arguments{std::move(bound_arguments)} {
 
-    auto load_ptx = [&](const char *ptx, size_t ptx_size) noexcept {
+    auto load_ptx = [&](const void *ptx, size_t ptx_size) noexcept {
         CUlinkState link_state{};
         size_t cubin_size;
         void *cubin = nullptr;
@@ -37,7 +37,7 @@ CUDAShaderNative::CUDAShaderNative(CUDADevice *device, luisa::string ptx,
                                            "cudadevrt", 0u, nullptr, nullptr));
         }
         auto ret = cuLinkAddData(link_state, CU_JIT_INPUT_PTX,
-                                 const_cast<char *>(ptx), ptx_size,
+                                 const_cast<void *>(ptx), ptx_size,
                                  "my_kernel.ptx", 0u, nullptr, nullptr);
         if (ret != CUDA_SUCCESS) {
             LUISA_CHECK_CUDA(cuLinkDestroy(link_state));

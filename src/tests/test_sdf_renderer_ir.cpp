@@ -104,9 +104,9 @@ int main(int argc, char *argv[]) {
 
     Callable ray_march = [&sdf](Float3 p, Float3 d) noexcept {
         auto dist = def(0.0f);
-        $for(j, 100) {
+        $for (j, 100) {
             auto s = sdf(p + dist * d);
-            $if(s <= 1e-6f | dist >= inf) { $break; };
+            $if (s <= 1e-6f | dist >= inf) { $break; };
             dist += s;
         };
         return min(dist, inf);
@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
         normal = make_float3();
         c = make_float3();
         auto ray_march_dist = ray_march(pos, d);
-        $if(ray_march_dist < min(dist_limit, closest)) {
+        $if (ray_march_dist < min(dist_limit, closest)) {
             closest = ray_march_dist;
             auto hit_pos = pos + d * closest;
             normal = sdf_normal(hit_pos);
@@ -143,7 +143,7 @@ int main(int argc, char *argv[]) {
 
         auto resolution = make_float2(dispatch_size().xy());
         auto coord = dispatch_id().xy();
-        $if(frame_index == 0u) {
+        $if (frame_index == 0u) {
             seed_image.write(coord, make_uint4(tea(coord.x, coord.y)));
             accum_image.write(coord, make_float4(make_float3(0.0f), 1.0f));
         };
@@ -159,17 +159,17 @@ int main(int argc, char *argv[]) {
         d = normalize(d);
         auto throughput = def(make_float3(1.0f, 1.0f, 1.0f));
         auto hit_light = def(0.0f);
-        $for(depth, max_ray_depth) {
+        $for (depth, max_ray_depth) {
             auto closest = def(0.0f);
             auto normal = def(make_float3());
             auto c = def(make_float3());
             next_hit(closest, normal, c, pos, d);
             auto dist_to_light = intersect_light(pos, d);
-            $if(dist_to_light < closest) {
+            $if (dist_to_light < closest) {
                 hit_light = 1.0f;
                 $break;
             };
-            $if(length_squared(normal) == 0.0f) { $break; };
+            $if (length_squared(normal) == 0.0f) { $break; };
             auto hit_pos = pos + closest * d;
             d = out_dir(normal, seed);
             pos = hit_pos + 1e-4f * d;
@@ -203,11 +203,16 @@ int main(int argc, char *argv[]) {
 #if ENABLE_DISPLAY
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"SDF Renderer", width, height};
-    auto swap_chain{device.create_swapchain(
-        window.native_handle(),
+    auto swap_chain = device.create_swapchain(
         stream,
-        make_uint2(width, height),
-        false, false, 2)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = make_uint2(width, height),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     static constexpr auto interval = 4u;
     static constexpr auto total_spp = 16384u;
     auto ldr_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
@@ -266,4 +271,3 @@ int main(int argc, char *argv[]) {
            << synchronize();
     stbi_write_png("sdf-renderer.png", width, height, 4, host_image.data(), 0);
 }
-

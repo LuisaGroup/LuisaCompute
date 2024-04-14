@@ -115,8 +115,8 @@ void CommandBufferBuilder::SetRasterShader(
     ID3D12PipelineState *state,
     vstd::span<const BindProperty> resources) {
     auto c = cb->CmdList();
-    c->SetPipelineState(state);
     c->SetGraphicsRootSignature(s->RootSig());
+    c->SetPipelineState(state);
     SetRasterResources(s, resources);
 }
 void CommandBufferBuilder::DispatchComputeIndirect(
@@ -190,19 +190,29 @@ void CommandBufferBuilder::CopyBufferTexture(
     uint3 startCoord,
     uint3 size,
     uint targetMip,
-    BufferTextureCopy ope) {
+    BufferTextureCopy ope,
+    bool checkAlign) {
     auto c = cb->cmdList.Get();
     D3D12_TEXTURE_COPY_LOCATION sourceLocation;
     sourceLocation.pResource = buffer.buffer->GetResource();
     sourceLocation.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
     sourceLocation.PlacedFootprint.Offset = buffer.offset;
+    auto rowPitch = size.x / (Resource::IsBCtex(texture->Format()) ? 4ull : 1ull) * Resource::GetTexturePixelSize(texture->Format());
+    if (checkAlign) {
+        if ((rowPitch & (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)) != 0) [[unlikely]] {
+            LUISA_ERROR("Texture's row must be aligned as {}, current value row-size({}) x pixel-size({}) = {}.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, size.x / (Resource::IsBCtex(texture->Format()) ? 4ull : 1ull), Resource::GetTexturePixelSize(texture->Format()), rowPitch);
+        }
+    } else {
+        rowPitch = CalcAlign(rowPitch, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+    }
     sourceLocation.PlacedFootprint.Footprint =
         {
             (DXGI_FORMAT)texture->Format(),//DXGI_FORMAT Format;
             size.x,                        //uint Width;
             size.y,                        //uint Height;
             size.z,                        //uint Depth;
-            static_cast<uint>(CalcAlign(size.x / (Resource::IsBCtex(texture->Format()) ? 4ull : 1ull) * Resource::GetTexturePixelSize(texture->Format()), D3D12_TEXTURE_DATA_PITCH_ALIGNMENT))};
+            static_cast<uint>(rowPitch)};
+
     D3D12_TEXTURE_COPY_LOCATION destLocation;
     destLocation.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
     destLocation.SubresourceIndex = targetMip;

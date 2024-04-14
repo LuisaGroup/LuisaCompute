@@ -10,6 +10,7 @@
 #include <tuple>
 #include <utility>
 
+#include <luisa/core/stl/type_traits.h>
 #include <luisa/vstl/config.h>
 
 #include <luisa/vstl/hash.h>
@@ -39,7 +40,7 @@ LC_VSTL_API void vengine_log(char const *chunk);
 class
 namespace vstd {
 template<typename T, typename... Args>
-    requires(!std::is_const_v<T> && std::is_constructible_v<T, Args && ...>)
+    requires(!std::is_const_v<T> && luisa::is_constructible_v<T, Args && ...>)
 void reset(T &v, Args &&...args) {
     v.~T();
     new (std::launder(&v)) T(std::forward<Args>(args)...);
@@ -98,13 +99,13 @@ private:
 public:
     using SelfType = StackObject<T, false>;
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     inline SelfType &create(Args &&...args) & noexcept {
         new (storage) T(std::forward<Args>(args)...);
         return *this;
     }
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     inline SelfType &&create(Args &&...args) && noexcept {
         return std::move(create(std::forward<Args>(args)...));
     }
@@ -155,7 +156,7 @@ public:
         new (storage) T(std::move(*value));
     }
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     StackObject(Args &&...args) {
         new (storage) T(std::forward<Args>(args)...);
     }
@@ -203,7 +204,7 @@ private:
 public:
     using SelfType = StackObject<T, true>;
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     inline SelfType &create(Args &&...args) & noexcept {
         if (mInitialized) return *this;
         mInitialized = true;
@@ -212,13 +213,13 @@ public:
     }
 
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     inline SelfType &&create(Args &&...args) && noexcept {
         return std::move(create(std::forward<Args>(args)...));
     }
 
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     inline SelfType &force_create(Args &&...args) & noexcept {
         if constexpr (!std::is_trivially_destructible_v<T>) {
             if (mInitialized) { destroy(); }
@@ -229,7 +230,7 @@ public:
     }
 
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     inline SelfType &&force_create(Args &&...args) && noexcept {
         return std::move(force_create(std::forward<Args>(args)...));
     }
@@ -310,7 +311,7 @@ public:
         mInitialized = false;
     }
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     StackObject(Args &&...args)
         : stackObj(std::forward<Args>(args)...),
           mInitialized(true) {
@@ -453,7 +454,7 @@ decltype(auto) get_lvalue(T &&data) {
 template<typename T>
 T *get_rval_ptr(T &&v) {
     static_assert(!std::is_lvalue_reference_v<T>, "only rvalue allowed!");
-    return &v;
+    return std::addressof(v);
 }
 template<typename T>
 decltype(auto) get_const_lvalue(T &&data) {
@@ -484,7 +485,7 @@ constexpr size_t max_size() {
 }
 template<typename T, typename... Args>
 struct MapConstructible {
-    static constexpr bool value = std::is_constructible_v<T, Args...>;
+    static constexpr bool value = luisa::is_constructible_v<T, Args...>;
 };
 
 template<typename... Args>
@@ -515,7 +516,7 @@ template<typename... Args>
 struct VariantConstructible {
     template<size_t i, typename T, typename... Ts>
     static constexpr size_t Run() {
-        if constexpr (std::is_constructible_v<T, Args...>) {
+        if constexpr (luisa::is_constructible_v<T, Args...>) {
             return i;
         } else {
             if constexpr (sizeof...(Ts) == 0) {
@@ -553,7 +554,7 @@ static Ret VisitorRet(
                 Eval,
                 std::remove_reference_t<Func>,
                 Types>...};
-    return table.begin()[id](ptr, &func, std::forward<Eval>(ret));
+    return table.begin()[id](ptr, std::addressof(func), std::forward<Eval>(ret));
 }
 template<size_t idx, VE_SUB_TEMPLATE Judger, typename Tar, typename T, typename... Args>
 static constexpr size_t IndexOfFunc() {
@@ -650,7 +651,7 @@ private:
     void m_dispose() {
         if constexpr (detail::AnyMap<std::is_trivially_destructible, true>::template Run<AA...>()) {
             auto disposeFunc = [&]<typename T>(T &value) {
-                vstd::destruct(&value);
+                vstd::destruct(std::addressof(value));
             };
             visit(disposeFunc);
         }
@@ -668,7 +669,7 @@ public:
         }
         switcher = typeIndex;
         auto func = [&]<typename T>(T &t) {
-            constexpr bool cons = std::is_constructible_v<T, Args &&...>;
+            constexpr bool cons = luisa::is_constructible_v<T, Args &&...>;
             assert(cons);
             if constexpr (cons)
                 new (&t) T(std::forward<Args>(args)...);
@@ -677,7 +678,7 @@ public:
     }
     template<typename T, typename... Args>
         requires(
-            IndexOf<T> < argSize && std::is_constructible_v<T, Args && ...>)
+            IndexOf<T> < argSize && luisa::is_constructible_v<T, Args && ...>)
     void reset_as(Args &&...args) {
         this->~variant();
         switcher = IndexOf<T>;

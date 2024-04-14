@@ -16,9 +16,6 @@
 [submodule "src/ext/pybind11"]
 	path = src/ext/pybind11
 	url = https://github.com/LuisaGroup/pybind11.git
-[submodule "src/ext/corrosion"]
-	path = src/ext/corrosion
-	url = https://github.com/corrosion-rs/corrosion.git
 [submodule "src/ext/magic_enum"]
 	path = src/ext/magic_enum
 	url = https://github.com/Neargye/magic_enum
@@ -29,3 +26,9 @@
 [submodule "src/ext/reproc"]
 	path = src/ext/reproc
 	url = https://github.com/LuisaGroup/reproc.git
+[submodule "src/ext/marl"]
+	path = src/ext/marl
+	url = https://github.com/LuisaGroup/marl.git
+[submodule "src/backends/dx/dx_support"]
+	path = src/backends/dx/dx_support
+	url = https://github.com/LuisaGroup/DirectX-SDK.git

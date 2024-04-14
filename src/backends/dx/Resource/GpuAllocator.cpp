@@ -31,7 +31,6 @@ uint64 GpuAllocator::AllocateTextureHeap(
     size_t sizeBytes,
     ID3D12Heap **heap, uint64_t *offset,
     bool isRenderTexture,
-    uint64 custom_pool,
     D3D12_HEAP_FLAGS extra_flags) {
     using namespace D3D12MA;
     D3D12_HEAP_FLAGS heapFlag =
@@ -40,7 +39,7 @@ uint64 GpuAllocator::AllocateTextureHeap(
     desc.HeapType = D3D12_HEAP_TYPE_DEFAULT;
     desc.Flags = ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
     desc.ExtraHeapFlags = heapFlag | extra_flags;
-    desc.CustomPool = reinterpret_cast<Pool *>(custom_pool);
+    desc.CustomPool = nullptr;
     D3D12_RESOURCE_ALLOCATION_INFO info;
     info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     info.SizeInBytes = sizeBytes;
@@ -49,7 +48,7 @@ uint64 GpuAllocator::AllocateTextureHeap(
     *heap = alloc->GetHeap();
     *offset = alloc->GetOffset();
     if (profiler) [[unlikely]] {
-        auto desc = luisa::format("Texture name: \"{}\", extra heap-flags: {}, custom pool: {}", name, extra_flags, custom_pool);
+        auto desc = luisa::format("Texture name: \"{}\", extra heap-flags: {}", name, extra_flags);
         auto stacktrace = luisa::backtrace();
         profiler->allocate(reinterpret_cast<uint64_t>(alloc), info.Alignment, info.SizeInBytes, name, std::move(stacktrace));
     }
@@ -61,14 +60,13 @@ uint64 GpuAllocator::AllocateBufferHeap(
     uint64_t targetSizeInBytes,
     D3D12_HEAP_TYPE heapType, ID3D12Heap **heap,
     uint64_t *offset,
-    uint64 custom_pool,
     D3D12_HEAP_FLAGS extra_flags) {
     using namespace D3D12MA;
     ALLOCATION_DESC desc;
     desc.HeapType = heapType;
     desc.Flags = ALLOCATION_FLAGS::ALLOCATION_FLAG_STRATEGY_BEST_FIT;
     desc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS | extra_flags;
-    desc.CustomPool = reinterpret_cast<Pool *>(custom_pool);
+    desc.CustomPool = nullptr;
     D3D12_RESOURCE_ALLOCATION_INFO info;
     info.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
     info.SizeInBytes = CalcPlacedOffsetAlignment(targetSizeInBytes);
@@ -77,7 +75,7 @@ uint64 GpuAllocator::AllocateBufferHeap(
     *heap = alloc->GetHeap();
     *offset = alloc->GetOffset();
     if (profiler) [[unlikely]] {
-        auto desc = luisa::format("Buffer name: \"{}\", heap type: {}, extra heap-flags: {}, custom pool: {}", name, heapType, extra_flags, custom_pool);
+        auto desc = luisa::format("Buffer name: \"{}\", heap type: {}, extra heap-flags: {}", name, heapType, extra_flags);
         auto stacktrace = luisa::backtrace();
         profiler->allocate(reinterpret_cast<uint64_t>(alloc), info.Alignment, info.SizeInBytes, desc, std::move(stacktrace));
     }
@@ -102,16 +100,5 @@ GpuAllocator::GpuAllocator(
     desc.pDevice = device->device.Get();
     desc.PreferredBlockSize = 0;
     D3D12MA::CreateAllocator(&desc, &allocator);
-}
-uint64 GpuAllocator::CreatePool(D3D12_HEAP_TYPE heap_type) {
-    D3D12MA::POOL_DESC pool_desc{
-        .HeapProperties = {
-            .Type = heap_type}};
-    D3D12MA::Pool *pool;
-    allocator->CreatePool(&pool_desc, &pool);
-    return reinterpret_cast<uint64>(pool);
-}
-void GpuAllocator::DestroyPool(uint64 pool) {
-    reinterpret_cast<D3D12MA::Pool *>(pool)->Release();
 }
 }// namespace lc::dx

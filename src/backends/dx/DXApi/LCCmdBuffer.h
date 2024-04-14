@@ -43,8 +43,14 @@ struct ReorderFuncTable {
     void unlock_bindless(uint64_t bindless_handle) const noexcept {
         reinterpret_cast<BindlessArray *>(bindless_handle)->Unlock();
     }
+    template<typename Func>
+    void traverse_arguments(
+        CustomDispatchCommand const *cmd,
+        Func &&func) const {
+        // TODO
+    }
 };
-class LCCmdBuffer final : public CmdQueueBase{
+class LCCmdBuffer final : public CmdQueueBase {
 protected:
     ResourceStateTracker tracker;
     ReorderFuncTable reorderFuncTable;

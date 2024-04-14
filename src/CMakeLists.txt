@@ -31,11 +31,10 @@ elseif (MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     target_compile_options(luisa-compute-include INTERFACE $<$<COMPILE_LANGUAGE:CXX>:/EHsc>)
 elseif (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(luisa-compute-include INTERFACE
-            -Wno-invalid-offsetof
+            $<$<OR:$<COMPILE_LANGUAGE:OBJCXX>,$<COMPILE_LANGUAGE:CXX>>:-Wno-invalid-offsetof>
             -Wno-pragmas)
 endif ()
 
-add_subdirectory(api)
 add_subdirectory(core)
 add_subdirectory(vstl)
 add_subdirectory(ast)
@@ -47,6 +46,7 @@ add_subdirectory(tensor)
 add_subdirectory(osl)
 add_subdirectory(gui)
 add_subdirectory(backends)
+add_subdirectory(api)
 add_subdirectory(ir_v2)
 add_subdirectory(clangcxx)
 

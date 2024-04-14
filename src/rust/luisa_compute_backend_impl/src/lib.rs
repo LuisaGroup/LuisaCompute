@@ -23,6 +23,7 @@ pub struct SwapChainForCpuContext {
     #[allow(dead_code)]
     lib: Library,
     pub create_cpu_swapchain: unsafe extern "C" fn(
+        display_handle: u64,
         window_handle: u64,
         width: u32,
         height: u32,

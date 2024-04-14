@@ -11,6 +11,7 @@
 #pragma warning(disable : 4996)
 #endif
 
+#include <luisa/core/stl/type_traits.h>
 #include <EASTL/vector.h>
 #include <EASTL/fixed_vector.h>
 #include <EASTL/bitvector.h>

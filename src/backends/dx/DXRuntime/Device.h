@@ -10,6 +10,7 @@
 #include <luisa/backends/ext/dx_config_ext.h>
 #include "../../common/default_binary_io.h"
 #include "HDR.h"
+#include <luisa/backends/ext/dx_config_ext.h>
 
 namespace luisa {
 class BinaryIO;
@@ -27,6 +28,22 @@ class GpuAllocator;
 class DescriptorHeap;
 class ComputeShader;
 class PipelineLibrary;
+class Device;
+class DXAllocatorImpl : public luisa::compute::DirectXFuncTable {
+public:
+    Device *device;
+    luisa::compute::DirectXHeap AllocateBufferHeap(
+        luisa::string_view name,
+        uint64_t targetSizeInBytes,
+        D3D12_HEAP_TYPE heapType,
+        D3D12_HEAP_FLAGS extraFlags) const noexcept override ;
+    luisa::compute::DirectXHeap AllocateTextureHeap(
+        vstd::string_view name,
+        size_t sizeBytes,
+        bool isRenderTexture,
+        D3D12_HEAP_FLAGS extraFlags) const noexcept override ;
+    void DeAllocateHeap(uint64_t handle) const noexcept override;
+};
 class Device {
 public:
     enum class GpuType {
@@ -61,6 +78,8 @@ public:
     DxPtr<ID3D12Device5> device;
     DxPtr<IDXGIFactory2> dxgiFactory;
     vstd::unique_ptr<GpuAllocator> defaultAllocator;
+    DXAllocatorImpl allocatorInterface;
+    
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
     vstd::optional<HDR> hdr;

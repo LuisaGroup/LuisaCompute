@@ -85,7 +85,8 @@ public:
         uint3 startCoord,
         uint3 size,
         uint targetMip,
-        BufferTextureCopy ope);
+        BufferTextureCopy ope,
+        bool checkAlign);
     struct CopyInfo {
         size_t bufferSize;
         size_t alignedBufferSize;

@@ -8,7 +8,7 @@
 
 namespace luisa::compute::cuda {
 
-void CUDAShader::_patch_ptx_version(luisa::string &ptx) noexcept {
+inline void patch_ptx_version(luisa::string &ptx) noexcept {
 
     LUISA_WARNING_WITH_LOCATION(
         "The PTX version is not supported by the installed CUDA driver. "
@@ -55,6 +55,15 @@ void CUDAShader::_patch_ptx_version(luisa::string &ptx) noexcept {
                 patched_version.data(), patched_version.size());
     ptx.erase(remaining.data() - ptx.data() + version_begin + patched_version.size(),
               version.size() - patched_version.size());
+}
+
+void CUDAShader::_patch_ptx_version(luisa::vector<std::byte> &ptx_) noexcept {
+    auto trailing_null = !ptx_.empty() && ptx_.back() == std::byte{0};
+    luisa::string ptx{reinterpret_cast<const char *>(ptx_.data()),
+                      trailing_null ? ptx_.size() - 1u : ptx_.size()};
+    patch_ptx_version(ptx);
+    ptx_.resize(ptx.size() + 1u);
+    std::memcpy(ptx_.data(), ptx.data(), ptx.size() + 1u);
 }
 
 CUDAShader::CUDAShader(luisa::unique_ptr<CUDAShaderPrinter> printer,

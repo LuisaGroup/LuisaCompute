@@ -10,6 +10,10 @@
 #include <luisa/core/dynamic_module.h>
 #include <dstorage/dstorage.h>
 #include "../d3dx12.h"
+#ifdef LCDX_ENABLE_CUDA
+#include <cuda.h>
+#endif
+
 using Microsoft::WRL::ComPtr;
 
 namespace lc::dx {
@@ -146,30 +150,30 @@ class DxRasterExt final : public RasterExt, public vstd::IOperatorNewBase {
 public:
     DxRasterExt(Device &nativeDevice) noexcept : nativeDevice{nativeDevice} {}
     ResourceCreationInfo create_raster_shader(
-        const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         const ShaderOption &cache_option) noexcept override;
     [[nodiscard]] ResourceCreationInfo load_raster_shader(
-        const MeshFormat &mesh_format,
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept override;
     void destroy_raster_shader(uint64_t handle) noexcept override;
-    void warm_up_pipeline_cache(
-        uint64_t shader_handle,
-        luisa::span<PixelFormat const> render_target_formats,
-        DepthFormat depth_format,
-        const RasterState &state) noexcept override;
-
     ResourceCreationInfo create_depth_buffer(DepthFormat format, uint width, uint height) noexcept override;
     void destroy_depth_buffer(uint64_t handle) noexcept override;
 };
 #ifdef LCDX_ENABLE_CUDA
+
+// see implementation in cuda_interop.cpp
+[[nodiscard]] int getCudaDeviceForD3D12Device(ID3D12Device *d3d12Device) noexcept;
+
 class DxCudaInteropImpl : public luisa::compute::DxCudaInterop {
+
+    CUcontext cuContext{};
+    CUdevice cuDevice{};
     LCDevice &_device;
 
 public:
-    DxCudaInteropImpl(LCDevice &device) noexcept : _device{device} {}
+    DxCudaInteropImpl(LCDevice &device) noexcept;
+    ~DxCudaInteropImpl() noexcept override;
     BufferCreationInfo create_interop_buffer(const Type *element, size_t elem_count) noexcept override;
     ResourceCreationInfo create_interop_texture(
         PixelFormat format, uint dimension,
@@ -177,8 +181,12 @@ public:
         uint mipmap_levels, bool simultaneous_access, bool allow_raster_target) noexcept override;
     void cuda_buffer(uint64_t dx_buffer, uint64_t *cuda_ptr, uint64_t *cuda_handle) noexcept override;
     uint64_t cuda_texture(uint64_t dx_texture) noexcept override;
-    uint64_t cuda_event(uint64_t dx_event) noexcept override;
-    virtual DeviceInterface *device() override;
+    uint64_t cuda_event(uint64_t dx_event_handle) noexcept override;
+    void destroy_cuda_event(uint64_t cuda_event_handle) noexcept override;
+    void cuda_signal(DeviceInterface *device, uint64_t stream_handle, uint64_t event_handle, uint64_t fence) noexcept override;
+    void cuda_wait(DeviceInterface *device, uint64_t stream_handle, uint64_t event_handle, uint64_t fence) noexcept override;
+    ResourceCreationInfo create_interop_event() noexcept override;
+    DeviceInterface *device() override;
     void unmap(void *cuda_ptr, void *cuda_handle) noexcept override;
 };
 #endif

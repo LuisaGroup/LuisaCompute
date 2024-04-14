@@ -25,9 +25,7 @@ private:
     luisa::unique_ptr<Impl> _impl;
 
 public:
-    CUDASwapchain(CUDADevice *device, uint64_t window_handle,
-                  uint width, uint height, bool allow_hdr,
-                  bool vsync, uint back_buffer_size) noexcept;
+    CUDASwapchain(CUDADevice *device, SwapchainOption o) noexcept;
     ~CUDASwapchain() noexcept;
     [[nodiscard]] VulkanSwapchain *native_handle() noexcept;
     [[nodiscard]] PixelStorage pixel_storage() const noexcept;

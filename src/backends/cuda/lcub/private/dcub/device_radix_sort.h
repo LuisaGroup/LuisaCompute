@@ -10,8 +10,6 @@ class DCUB_API DeviceRadixSort {
 public:
     static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
 
-    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
-
     static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
 
     static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
@@ -21,6 +19,66 @@ public:
     static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
 
     static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairs(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
 
     static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
 
@@ -34,7 +92,77 @@ public:
 
     static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
 
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const int32_t *d_values_in, int32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const uint32_t *d_values_in, uint32_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const int64_t *d_values_in, int64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const uint64_t *d_values_in, uint64_t *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const float *d_values_in, float *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortPairsDescending(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, const double *d_values_in, double *d_values_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
+
     static cudaError_t SortKeys(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortKeys(void *d_temp_storage, size_t &temp_storage_bytes, const uint32_t *d_keys_in, uint32_t *d_keys_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint32_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortKeys(void *d_temp_storage, size_t &temp_storage_bytes, const int64_t *d_keys_in, int64_t *d_keys_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortKeys(void *d_temp_storage, size_t &temp_storage_bytes, const uint64_t *d_keys_in, uint64_t *d_keys_out, int num_items, int begin_bit = 0, int end_bit = sizeof(uint64_t) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortKeys(void *d_temp_storage, size_t &temp_storage_bytes, const float *d_keys_in, float *d_keys_out, int num_items, int begin_bit = 0, int end_bit = sizeof(float) * 8, cudaStream_t stream = nullptr);
+
+    static cudaError_t SortKeys(void *d_temp_storage, size_t &temp_storage_bytes, const double *d_keys_in, double *d_keys_out, int num_items, int begin_bit = 0, int end_bit = sizeof(double) * 8, cudaStream_t stream = nullptr);
 
     static cudaError_t SortKeysDescending(void *d_temp_storage, size_t &temp_storage_bytes, const int32_t *d_keys_in, int32_t *d_keys_out, int num_items, int begin_bit = 0, int end_bit = sizeof(int32_t) * 8, cudaStream_t stream = nullptr);
 };

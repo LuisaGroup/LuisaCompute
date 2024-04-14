@@ -5,7 +5,6 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/image.h>
-#include <luisa/runtime/sparse_command_list.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/event.h>
 #include <luisa/vstl/common.h>

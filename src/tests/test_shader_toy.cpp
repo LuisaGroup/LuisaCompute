@@ -90,11 +90,16 @@ int main(int argc, char *argv[]) {
     static constexpr uint height = 1024u;
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
     Window window{"Display", make_uint2(width, height)};
-    Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
+    Swapchain swap_chain = device.create_swapchain(
         stream,
-        window.size(),
-        false, true, 2)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = window.size(),
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
     Image<float> device_image = device.create_image<float>(swap_chain.backend_storage(), width, height);
 
     stream << clear(device_image).dispatch(width, height);

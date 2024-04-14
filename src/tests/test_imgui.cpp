@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
     float clear_color[4] = {0.45f, 0.55f, 0.60f, 1.00f};
 
     Clock clk;
-    ImGuiWindow window{device, stream, "Display"};
+    ImGuiWindow window{device, stream, "Display", {.vsync = false}};
 
     // We support multiple ImGui contexts, so if you would like to tweak ImGui settings for
     // a specific window, you can use window.with_context to get a context guard.
@@ -124,4 +124,5 @@ int main(int argc, char *argv[]) {
 
         window.render_frame();
     }
+    stream.synchronize();
 }

@@ -325,8 +325,15 @@ int main(int argc, char *argv[]) {
 
     Window window{"Display", resolution};
     auto swap_chain = device.create_swapchain(
-        window.native_handle(), stream, resolution,
-        false, false, 3);
+        stream,
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 2,
+        });
 
     Clock clock;
     auto viewing_angle = pi;

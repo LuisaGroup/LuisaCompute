@@ -176,18 +176,17 @@ private:
 
 public:
     explicit CustomDispatchArgumentVisitor(Stream *stream) noexcept : _stream{stream} {}
-    void visit(const CustomDispatchCommand::ResourceHandle &resource, Usage usage) noexcept override {
-        luisa::visit(
-            [&]<typename T>(T const &t) {
-                if constexpr (std::is_same_v<T, Argument::Buffer>) {
-                    _stream->mark_handle(t.handle, usage, Range{t.offset, t.size});
-                } else if constexpr (std::is_same_v<T, Argument::Texture>) {
-                    _stream->mark_handle(t.handle, usage, Range{t.level, 1});
-                } else {
-                    _stream->mark_handle(t.handle, usage, Range{});
-                }
-            },
-            resource);
+    void visit(const Argument::Buffer &t, Usage usage) noexcept override {
+        _stream->mark_handle(t.handle, usage, Range{t.offset, t.size});
+    }
+    void visit(const Argument::Texture &t, Usage usage) noexcept override {
+        _stream->mark_handle(t.handle, usage, Range{t.level, 1});
+    }
+    void visit(const Argument::Accel &t, Usage usage) noexcept override {
+        _stream->mark_handle(t.handle, usage, Range{});
+    }
+    void visit(const Argument::BindlessArray &t, Usage usage) noexcept override {
+        _stream->mark_handle(t.handle, usage, Range{});
     }
 };
 
@@ -198,26 +197,26 @@ void Stream::custom(DeviceInterface *dev, Command *cmd) {
             mark_handle(c->handle(), Usage::WRITE, Range{});
         } break;
         case to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE): {
-            auto c = static_cast<DrawRasterSceneCommand *>(cmd);
-            mark_shader_dispatch(dev, c, false);
-            if (c->_dsv_tex.handle != invalid_resource_handle) {
-                mark_handle(c->_dsv_tex.handle, Usage::READ_WRITE, Range{0, 1});
-            }
-            for (auto i : vstd::range(c->_rtv_count)) {
-                mark_handle(c->_rtv_texs[i].handle, Usage::WRITE, Range{c->_rtv_texs[i].level, 1});
-            }
-            for (auto &&i : c->_scene) {
-                for (auto &&vb : i._vertex_buffers) {
-                    mark_handle(const_cast<uint64_t &>(vb._handle), Usage::READ, Range{vb._offset, vb._size});
-                }
-                luisa::visit(
-                    [&]<typename T>(T &t) {
-                        if constexpr (std::is_same_v<T, BufferView<uint>>) {
-                            mark_handle(t._handle, Usage::READ, Range{t.offset_bytes(), t.size_bytes()});
-                        }
-                    },
-                    i._index_buffer);
-            }
+            // auto c = static_cast<DrawRasterSceneCommand *>(cmd);
+            // mark_shader_dispatch(dev, c, false);
+            // if (c->_dsv_tex.handle != invalid_resource_handle) {
+            //     mark_handle(c->_dsv_tex.handle, Usage::READ_WRITE, Range{0, 1});
+            // }
+            // for (auto i : vstd::range(c->_rtv_count)) {
+            //     mark_handle(c->_rtv_texs[i].handle, Usage::WRITE, Range{c->_rtv_texs[i].level, 1});
+            // }
+            // for (auto &&i : c->_scene) {
+            //     for (auto &&vb : i._vertex_buffers) {
+            //         mark_handle(const_cast<uint64_t &>(vb._handle), Usage::READ, Range{vb._offset, vb._size});
+            //     }
+            //     luisa::visit(
+            //         [&]<typename T>(T &t) {
+            //             if constexpr (std::is_same_v<T, BufferView<uint>>) {
+            //                 mark_handle(t._handle, Usage::READ, Range{t.offset_bytes(), t.size_bytes()});
+            //             }
+            //         },
+            //         i._index_buffer);
+            // }
         } break;
         case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
             auto c = static_cast<DStorageReadCommand *>(cmd);

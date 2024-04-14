@@ -3,6 +3,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/platform.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/string.h>
 #include <luisa/core/stl/filesystem.h>
 
 static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
@@ -168,6 +169,19 @@ luisa::string cpu_name() noexcept {
     return reinterpret_cast<const char *>(brand);
 }
 
+luisa::string current_executable_path() noexcept {
+    constexpr auto max_path_length = std::max<size_t>(MAX_PATH, 4096);
+    std::filesystem::path::value_type path[max_path_length] = {};
+    auto nchar = GetModuleFileNameW(nullptr, path, max_path_length);
+    if (nchar == 0 ||
+        (nchar == MAX_PATH &&
+         ((GetLastError() == ERROR_INSUFFICIENT_BUFFER) ||
+          (path[MAX_PATH - 1] != 0)))) {
+        LUISA_ERROR_WITH_LOCATION("Failed to get current executable path.");
+    }
+    return luisa::to_string(std::filesystem::canonical(path));
+}
+
 }// namespace luisa
 
 #elif defined(LUISA_PLATFORM_UNIX)
@@ -176,6 +190,10 @@ luisa::string cpu_name() noexcept {
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <cxxabi.h>
+
+#ifdef LUISA_PLATFORM_APPLE
+#include <libproc.h>// to get current executable path
+#endif
 
 #ifdef LUISA_ARCH_ARM64
 #include <sys/types.h>
@@ -196,7 +214,13 @@ size_t pagesize() noexcept {
 
 void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     auto p = path;
-    for (auto ext : {".so", ".dylib"}) {
+    for (auto ext :
+#ifdef LUISA_PLATFORM_APPLE
+         {".so", ".dylib"}
+#else
+         {".so"}
+#endif
+    ) {
         p.replace_extension(ext);
         if (auto module = dlopen(p.c_str(), RTLD_LAZY); module != nullptr) {
             return module;
@@ -248,12 +272,52 @@ luisa::vector<TraceItem> backtrace() noexcept {
     luisa::vector<TraceItem> trace_info;
     trace_info.reserve(count - 1u);
     for (auto i = 1 /* skip current frame */; i < count; i++) {
+        TraceItem item{};
+#ifdef LUISA_PLATFORM_APPLE
         std::istringstream iss{info[i]};
         auto index = 0;
         char plus = '+';
-        TraceItem item{};
         iss >> index >> item.module >> std::hex >> item.address >> item.symbol >> plus >> std::dec >> item.offset;
         item.symbol = demangle(item.symbol.c_str());
+#else
+        if (std::string_view raw_item{info[i]}; !raw_item.empty()) {
+            // the returned string is in the format of "binary_name(function_name+offset) [address]"
+            // parse address
+            auto right_bracket = raw_item.rfind(']');
+            auto left_bracket = raw_item.rfind("[0x");
+            if (right_bracket == std::string::npos ||
+                left_bracket == std::string::npos ||
+                right_bracket < left_bracket + 3) {
+                continue;
+            }
+            left_bracket += 3;
+            auto address = raw_item.substr(left_bracket, right_bracket - left_bracket);
+            // parse function name and offset
+            raw_item = raw_item.substr(0, left_bracket - 3);
+            auto right_parenthesis = raw_item.rfind(')');
+            auto left_parenthesis = raw_item.rfind('(');
+            if (right_parenthesis == std::string::npos ||
+                left_parenthesis == std::string::npos ||
+                right_parenthesis < left_parenthesis) {
+                continue;
+            }
+            auto function_and_offset = raw_item.substr(left_parenthesis + 1, right_parenthesis - left_parenthesis - 1);
+            auto plus = function_and_offset.rfind("+0x");
+            if (plus == std::string::npos) {
+                continue;
+            }
+            plus += 3;
+            auto offset = function_and_offset.substr(plus);
+            auto function = function_and_offset.substr(0, plus - 3);
+            // the remaining string is the binary name
+            auto binary_name = raw_item.substr(0, left_parenthesis);
+            // construct the trace item
+            item.module = binary_name;
+            item.address = std::strtoull(address.data(), nullptr, 16);
+            item.symbol = function.empty() ? "unknown" : demangle(luisa::string{function}.c_str());
+            item.offset = std::strtoull(offset.data(), nullptr, 16);
+        }
+#endif
         trace_info.emplace_back(std::move(item));
     }
     free(info);
@@ -281,7 +345,42 @@ luisa::string cpu_name() noexcept {
 }
 #endif
 
+#ifdef LUISA_PLATFORM_APPLE
+luisa::string current_executable_path() noexcept {
+    char pathbuf[PROC_PIDPATHINFO_MAXSIZE] = {};
+    auto pid = getpid();
+    if (auto size = proc_pidpath(pid, pathbuf, sizeof(pathbuf)); size > 0) {
+        luisa::string_view path{pathbuf, static_cast<size_t>(size)};
+        return luisa::to_string(std::filesystem::canonical(path));
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Failed to get current executable path (PID = {}): {}.",
+        pid, strerror(errno));
+}
+#else
+luisa::string current_executable_path() noexcept {
+    char pathbuf[PATH_MAX] = {};
+    for (auto p : {"/proc/self/exe", "/proc/curproc/file", "/proc/self/path/a.out"}) {
+        if (auto size = readlink(p, pathbuf, sizeof(pathbuf)); size > 0) {
+            luisa::string_view path{pathbuf, static_cast<size_t>(size)};
+            return luisa::to_string(std::filesystem::canonical(path));
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION(
+        "Failed to get current executable path.");
+}
+#endif
+
 }// namespace luisa
 
 #endif
 
+// common functions
+namespace luisa {
+luisa::string to_string(const TraceItem &item) noexcept {
+    using namespace std::string_view_literals;
+    return luisa::format(
+        FMT_STRING("[0x{:012x}]: {} :: {} + {}"sv),
+        item.address, item.module, item.symbol, item.offset);
+}
+}// namespace luisa

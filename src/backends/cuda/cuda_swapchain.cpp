@@ -414,8 +414,8 @@ private:
             VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT);
 #endif
 
-        LUISA_CHECK_CUDA(cuImportExternalSemaphore(
-            &ext_semaphore, &cuda_ext_semaphore_handle_desc));
+        LUISA_CHECK_CUDA(cuImportExternalSemaphore(&ext_semaphore, &cuda_ext_semaphore_handle_desc));
+        LUISA_ASSERT(ext_semaphore != nullptr, "Failed to import external semaphore.");
     }
 
 private:
@@ -456,17 +456,13 @@ private:
     }
 
 public:
-    Impl(CUuuid device_uuid, uint64_t window_handle,
+    Impl(CUuuid device_uuid,
+         uint64_t display_handle, uint64_t window_handle,
          uint width, uint height, bool allow_hdr,
          bool vsync, uint back_buffer_size) noexcept
         : _base{luisa::bit_cast<VulkanDeviceUUID>(device_uuid),
-                window_handle,
-                width,
-                height,
-                allow_hdr,
-                vsync,
-                back_buffer_size,
-                required_extensions},
+                display_handle, window_handle, width, height,
+                allow_hdr, vsync, back_buffer_size, required_extensions},
           _size{make_uint2(width, height)} { _initialize(); }
     ~Impl() noexcept { _cleanup(); }
     [[nodiscard]] auto native_handle() noexcept { return &_base; }
@@ -477,7 +473,7 @@ public:
     [[nodiscard]] auto size() const noexcept { return _size; }
 
     void present(CUstream stream, CUarray image) noexcept {
-
+        LUISA_ASSERT(_current_frame < _semaphores.size(), "Invalid frame index.");
         auto name = [this] {
             std::scoped_lock lock{_name_mutex};
             return _name;
@@ -506,8 +502,8 @@ public:
         // signal that the frame is ready
         if (!name.empty()) { nvtxRangePushA(luisa::format("signal", name).c_str()); }
         CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signal_params{};
-        LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(
-            &_cuda_ext_semaphores[_current_frame], &signal_params, 1, stream));
+        auto current_semaphore = _cuda_ext_semaphores[_current_frame];
+        LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(&current_semaphore, &signal_params, 1, stream));
         if (!name.empty()) { nvtxRangePop(); }
 
         // present
@@ -528,12 +524,10 @@ public:
     }
 };
 
-CUDASwapchain::CUDASwapchain(CUDADevice *device, uint64_t window_handle,
-                             uint width, uint height, bool allow_hdr,
-                             bool vsync, uint back_buffer_size) noexcept
+CUDASwapchain::CUDASwapchain(CUDADevice *device, SwapchainOption o) noexcept
     : _impl{luisa::make_unique<Impl>(device->handle().uuid(),
-                                     window_handle, width, height,
-                                     allow_hdr, vsync, back_buffer_size)} {}
+                                     o.display, o.window, o.size.x, o.size.y,
+                                     o.wants_hdr, o.wants_vsync, o.back_buffer_count)} {}
 
 CUDASwapchain::~CUDASwapchain() noexcept = default;
 

@@ -419,11 +419,9 @@ DXOidnDenoiser::DXOidnDenoiser(LCDevice *_device, oidn::DeviceRef &&oidn_device,
 DXOidnDenoiserExt::DXOidnDenoiserExt(LCDevice *device) noexcept
     : _device{device} {}
 luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(uint64_t stream) noexcept {
-    DXGI_ADAPTER_DESC1 desc;
-    _device->nativeDevice.adapter->GetDesc1(&desc);
-    auto device_id = desc.DeviceId;
-    LUISA_ASSERT(device_id != -1, "device_id should not be -1.");
-    return luisa::make_shared<DXOidnDenoiser>(_device, oidn::newCUDADevice(device_id, 0), stream);
+    auto d3d12_device = _device->nativeDevice.device.Get();
+    auto cuda_device = getCudaDeviceForD3D12Device(d3d12_device);
+    return luisa::make_shared<DXOidnDenoiser>(_device, oidn::newCUDADevice(cuda_device, nullptr), stream);
 }
 luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(Stream &stream) noexcept {
     return create(stream.handle());

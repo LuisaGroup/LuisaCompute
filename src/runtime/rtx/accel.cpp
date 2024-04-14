@@ -7,11 +7,9 @@
 namespace luisa::compute {
 
 namespace detail {
-
-ShaderInvokeBase &ShaderInvokeBase::operator<<(const Accel &accel) noexcept {
+void ShaderInvokeBase::encode(ShaderDispatchCmdEncoder &encoder, const Accel &accel) noexcept {
     accel._check_is_valid();
-    _encoder.encode_accel(accel.handle());
-    return *this;
+    encoder.encode_accel(accel.handle());
 }
 
 }// namespace detail

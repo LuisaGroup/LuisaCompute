@@ -1,5 +1,5 @@
-#include "luisa-shader/std.hpp"
-#include "luisa-shader/printer.hpp"
+#include "luisa/std.hpp"
+#include "luisa/printer.hpp"
 using namespace luisa::shader;
 
 namespace luisa::shader {

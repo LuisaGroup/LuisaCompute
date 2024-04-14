@@ -27,6 +27,7 @@ private:
     vstd::vector<D3D12_RESOURCE_BARRIER> states;
     void ExecuteStateMap();
     void RestoreStateMap();
+    void Dispatch(CommandBufferBuilder const &builder);
     void MarkWritable(Resource const *res, bool writable);
     uint64 fenceCount = 1;
 
@@ -36,7 +37,7 @@ public:
     D3D12_RESOURCE_STATES ReadState(ResourceReadUsage usage, Resource const *res = nullptr) const;
     void ClearFence() { fenceCount++; }
     vstd::unordered_set<Resource const *> const &WriteStateMap() const { return writeStateMap; }
-    ResourceStateTracker();
+    ResourceStateTracker() = default;
     ~ResourceStateTracker();
     void RecordState(
         Resource const *resource,

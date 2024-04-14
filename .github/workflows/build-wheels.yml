@@ -1,6 +1,12 @@
 name: build-wheels
 
-on: [ push, pull_request ]
+on:
+  push:
+    branches:
+      - 'stable'
+  pull_request:
+    branches:
+      - 'stable'
 
 env:
   CIBW_ARCHS: auto64
@@ -11,7 +17,7 @@ jobs:
     name: ubuntu-22.04
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: "Build Wheels"
@@ -29,10 +35,14 @@ jobs:
           path: ./wheelhouse/*.whl
 
   build-macos:
-    name: macos-13
-    runs-on: macos-13
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ 13, 14 ]
+    name: macos-${{ matrix.os }}
+    runs-on: macos-${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: "Setup LLVM"
@@ -41,13 +51,17 @@ jobs:
           brew install --overwrite llvm molten-vk
       - name: "Build Wheels"
         run: |
-          export PATH="/usr/local/opt/llvm/bin:$PATH"
+          if [ "${{ matrix.os }}" = "13" ]; then
+            export PATH="/usr/local/opt/llvm/bin:$PATH"
+          else
+            export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+          fi
           export CC=clang
           export CXX=clang++
-          python -m pip install -U cibuildwheel
-          for dep_target in 13.0; do
-            export MACOSX_DEPLOYMENT_TARGET=${dep_target}
-            python -m cibuildwheel --output-dir wheelhouse
+          python3 -m pip install -U cibuildwheel --break-system-packages
+          for dep_target in {13..${{ matrix.os }}}; do
+            export MACOSX_DEPLOYMENT_TARGET=${dep_target}.0
+            python3 -m cibuildwheel --output-dir wheelhouse
           done
       - name: "Upload Wheels"
         uses: actions/upload-artifact@v3
@@ -58,7 +72,7 @@ jobs:
     name: windows-2022
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: "Setup Vulkan SDK"
@@ -74,7 +88,7 @@ jobs:
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
-          version: 1.10.2
+          version: 1.11.1
       - name: "Build Wheels"
         shell: cmd
         run: |

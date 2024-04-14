@@ -59,14 +59,17 @@ void ConstantDecoder::_decode_array(const Type *type, const std::byte *data) noe
 void ConstantDecoder::_decode(const Type *type, const std::byte *data) noexcept {
     switch (type->tag()) {
         case Type::Tag::BOOL: _decode_bool(*reinterpret_cast<const bool *>(data)); break;
-        case Type::Tag::FLOAT32: _decode_float(*reinterpret_cast<const float *>(data)); break;
+        case Type::Tag::INT8: _decode_char(*reinterpret_cast<const char *>(data)); break;
+        case Type::Tag::UINT8: _decode_uchar(*reinterpret_cast<const uchar *>(data)); break;
+        case Type::Tag::INT16: _decode_short(*reinterpret_cast<const short *>(data)); break;
+        case Type::Tag::UINT16: _decode_ushort(*reinterpret_cast<const ushort *>(data)); break;
         case Type::Tag::INT32: _decode_int(*reinterpret_cast<const int *>(data)); break;
         case Type::Tag::UINT32: _decode_uint(*reinterpret_cast<const uint *>(data)); break;
         case Type::Tag::INT64: _decode_long(*reinterpret_cast<const slong *>(data)); break;
         case Type::Tag::UINT64: _decode_ulong(*reinterpret_cast<const ulong *>(data)); break;
         case Type::Tag::FLOAT16: _decode_half(*reinterpret_cast<const half *>(data)); break;
-        case Type::Tag::INT16: _decode_short(*reinterpret_cast<const short *>(data)); break;
-        case Type::Tag::UINT16: _decode_ushort(*reinterpret_cast<const ushort *>(data)); break;
+        case Type::Tag::FLOAT32: _decode_float(*reinterpret_cast<const float *>(data)); break;
+        case Type::Tag::FLOAT64: _decode_double(*reinterpret_cast<const double *>(data)); break;
         case Type::Tag::VECTOR: _decode_vector(type, data); break;
         case Type::Tag::MATRIX: _decode_matrix(type, data); break;
         case Type::Tag::ARRAY: _decode_array(type, data); break;
@@ -113,6 +116,8 @@ public:
 
 protected:
     void _decode_bool(bool x) noexcept override { _s.append(luisa::format("bool({})", x)); }
+    void _decode_char(char x) noexcept override { _s.append(luisa::format("char({})", static_cast<int>(x))); }
+    void _decode_uchar(uchar x) noexcept override { _s.append(luisa::format("uchar({})", static_cast<uint>(x))); }
     void _decode_short(short x) noexcept override { _s.append(luisa::format("short({})", x)); }
     void _decode_ushort(ushort x) noexcept override { _s.append(luisa::format("ushort({})", x)); }
     void _decode_int(int x) noexcept override { _s.append(luisa::format("int({})", x)); }

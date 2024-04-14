@@ -305,7 +305,9 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
         mask |= (1 << 1);
     }
     // use default control flow
+    constexpr uint compiler_version = 202403u; // dxc version at march 2024
     mask |= (1 << 2);
+    mask |= compiler_version << 3u;
     auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false);
     if (option.compile_only) {
         assert(!option.name.empty());
@@ -450,14 +452,7 @@ ResourceCreationInfo LCDevice::create_accel(const AccelOption &option) noexcept 
 void LCDevice::destroy_accel(uint64 handle) noexcept {
     delete reinterpret_cast<TopAccel *>(handle);
 }
-SwapchainCreationInfo LCDevice::create_swapchain(
-    uint64 window_handle,
-    uint64 stream_handle,
-    uint width,
-    uint height,
-    bool allow_hdr,
-    bool vsync,
-    uint back_buffer_size) noexcept {
+SwapchainCreationInfo LCDevice::create_swapchain(const SwapchainOption &option, uint64_t stream_handle) noexcept {
     auto queue = reinterpret_cast<CmdQueueBase *>(stream_handle);
     if (queue->Tag() != CmdQueueTag::MainCmd) [[unlikely]] {
         LUISA_ERROR("swapchain not allowed in Direct-Storage.");
@@ -467,15 +462,15 @@ SwapchainCreationInfo LCDevice::create_swapchain(
         &nativeDevice,
         &reinterpret_cast<LCCmdBuffer *>(stream_handle)->queue,
         nativeDevice.defaultAllocator.get(),
-        reinterpret_cast<HWND>(window_handle),
-        width,
-        height,
-        allow_hdr,
-        vsync,
-        back_buffer_size);
+        reinterpret_cast<HWND>(option.window),
+        option.size.x,
+        option.size.y,
+        option.wants_hdr,
+        option.wants_vsync,
+        option.back_buffer_count);
     info.handle = resource_to_handle(res);
     info.native_handle = res->swapChain.Get();
-    info.storage = allow_hdr ? PixelStorage::HALF4 : PixelStorage::BYTE4;
+    info.storage = option.wants_hdr ? PixelStorage::HALF4 : PixelStorage::BYTE4;
     return info;
 }
 void LCDevice::destroy_swap_chain(uint64 handle) noexcept {
@@ -492,7 +487,6 @@ void LCDevice::present_display_in_stream(uint64 stream_handle, uint64 swapchain_
             reinterpret_cast<TextureBase *>(image_handle), nativeDevice.maxAllocatorCount);
 }
 ResourceCreationInfo DxRasterExt::create_raster_shader(
-    const MeshFormat &mesh_format,
     Function vert,
     Function pixel,
     const ShaderOption &option) noexcept {
@@ -503,7 +497,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(mesh_format, vert, pixel, option.native_include, mask, false);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false);
     vstd::MD5 checkMD5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         assert(!option.name.empty());
@@ -519,47 +513,46 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
             option.enable_fast_math);
         return ResourceCreationInfo::make_invalid();
     } else {
-        vstd::string_view file_name;
-        vstd::string str_cache;
-        CacheType cacheType{};
-        if (option.enable_cache) {
-            if (option.name.empty()) {
-                str_cache << checkMD5.to_string(false) << ".dxil"sv;
-                file_name = str_cache;
-                cacheType = CacheType::Cache;
-            } else {
-                file_name = option.name;
-                cacheType = CacheType::ByteCode;
-            }
-        }
+        // vstd::string_view file_name;
+        // vstd::string str_cache;
+        // CacheType cacheType{};
+        // if (option.enable_cache) {
+        //     if (option.name.empty()) {
+        //         str_cache << checkMD5.to_string(false) << ".dxil"sv;
+        //         file_name = str_cache;
+        //         cacheType = CacheType::Cache;
+        //     } else {
+        //         file_name = option.name;
+        //         cacheType = CacheType::ByteCode;
+        //     }
+        // }
         ResourceCreationInfo info;
-        auto res = RasterShader::CompileRaster(
-            nativeDevice.fileIo,
-            &nativeDevice,
-            vert,
-            pixel,
-            [&] { return std::move(code); },
-            checkMD5,
-            kShaderModel,
-            mesh_format,
-            file_name,
-            cacheType,
-            option.enable_fast_math);
-        info.handle = reinterpret_cast<uint64>(res);
-        info.native_handle = nullptr;
+        // auto res = RasterShader::CompileRaster(
+        //     nativeDevice.fileIo,
+        //     &nativeDevice,
+        //     vert,
+        //     pixel,
+        //     [&] { return std::move(code); },
+        //     checkMD5,
+        //     kShaderModel,
+        //     mesh_format,
+        //     file_name,
+        //     cacheType,
+        //     option.enable_fast_math);
+        // info.handle = reinterpret_cast<uint64>(res);
+        // info.native_handle = nullptr;
+        // return info;
         return info;
     }
 }
 
 ResourceCreationInfo DxRasterExt::load_raster_shader(
-    const MeshFormat &mesh_format,
     span<Type const *const> types,
     string_view ser_path) noexcept {
     ResourceCreationInfo info;
     auto res = RasterShader::LoadRaster(
         nativeDevice.fileIo,
         &nativeDevice,
-        mesh_format,
         types,
         ser_path);
 
@@ -570,18 +563,6 @@ ResourceCreationInfo DxRasterExt::load_raster_shader(
     } else {
         return ResourceCreationInfo::make_invalid();
     }
-}
-void DxRasterExt::warm_up_pipeline_cache(
-    uint64_t shader_handle,
-    luisa::span<PixelFormat const> render_target_formats,
-    DepthFormat depth_format,
-    const RasterState &state) noexcept {
-    LUISA_ASSERT(render_target_formats.size() > 8, "Render target format must be less than 8");
-    GFXFormat rtvs[8];
-    for (auto i : vstd::range(render_target_formats.size())) {
-        rtvs[i] = TextureBase::ToGFXFormat(render_target_formats[i]);
-    }
-    reinterpret_cast<RasterShader *>(shader_handle)->GetPSO({rtvs, render_target_formats.size()}, depth_format, state);
 }
 void DxRasterExt::destroy_raster_shader(uint64_t handle) noexcept {
     delete reinterpret_cast<RasterShader *>(handle);
@@ -810,9 +791,7 @@ ResourceCreationInfo LCDevice::allocate_sparse_texture_heap(size_t byte_size, bo
 }
 
 void LCDevice::deallocate_sparse_texture_heap(uint64_t handle) noexcept {
-    auto heap = reinterpret_cast<SparseHeap *>(handle);
-    nativeDevice.defaultAllocator->Release(heap->allocation);
-    vengine_free(heap);
+    deallocate_sparse_buffer_heap(handle);
 }
 uint LCDevice::compute_warp_size() const noexcept {
     return nativeDevice.waveSize();

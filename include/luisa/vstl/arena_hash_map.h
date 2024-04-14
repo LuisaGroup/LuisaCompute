@@ -1,4 +1,5 @@
 #pragma once
+#include <luisa/core/stl/type_traits.h>
 #include <luisa/vstl/hash_map.h>
 namespace vstd {
 template<typename Arena, typename K, typename V = void, typename Hash = HashValue, typename Compare = compare<K>>
@@ -26,7 +27,7 @@ private:
             return arena.allocate(size_bytes);
         }
         template<typename... Args>
-            requires(std::is_constructible_v<LinkNode, Args && ...>)
+            requires(luisa::is_constructible_v<LinkNode, Args && ...>)
         LinkNode *create(Args &&...args) {
             auto ptr = elements + mSize;
             mSize++;
@@ -44,19 +45,19 @@ public:
 
     public:
         Iterator(LinkNode *ii) : ii(ii) {}
-        bool operator==(const Iterator &ite) const noexcept {
+        bool operator==(const Iterator &ite) const {
             return ii == ite.ii;
         }
-        void operator++() noexcept {
+        void operator++() {
             ++ii;
         }
-        void operator++(int32_t) noexcept {
+        void operator++(int32_t) {
             ii++;
         }
-        NodePair *operator->() const noexcept {
+        NodePair *operator->() const {
             return reinterpret_cast<NodePair *>(&ii->data);
         }
-        NodePair &operator*() const noexcept {
+        NodePair &operator*() const {
             return reinterpret_cast<NodePair &>(ii->data);
         }
     };
@@ -68,19 +69,19 @@ public:
 
     public:
         MoveIterator(LinkNode *ii) : ii(ii) {}
-        bool operator==(const MoveIterator &ite) const noexcept {
+        bool operator==(const MoveIterator &ite) const {
             return ii == ite.ii;
         }
-        void operator++() noexcept {
+        void operator++() {
             ++ii;
         }
-        void operator++(int32_t) noexcept {
+        void operator++(int32_t) {
             ii++;
         }
-        MoveNodePair *operator->() const noexcept {
+        MoveNodePair *operator->() const {
             return &ii->data;
         }
-        MoveNodePair &&operator*() const noexcept {
+        MoveNodePair &&operator*() const {
             return std::move(ii->data);
         }
     };
@@ -97,20 +98,20 @@ public:
     private:
         const ArenaHashMap *map;
         LinkNode *node;
-        IndexBase(const ArenaHashMap *map, LinkNode *node) noexcept : map(map), node(node) {}
+        IndexBase(const ArenaHashMap *map, LinkNode *node) : map(map), node(node) {}
 
     public:
-        IndexBase() noexcept : map(nullptr), node(nullptr) {}
-        bool operator==(const IndexBase &a) const noexcept {
+        IndexBase() : map(nullptr), node(nullptr) {}
+        bool operator==(const IndexBase &a) const {
             return node == a.node;
         }
-        operator bool() const noexcept {
+        operator bool() const {
             return node;
         }
-        bool operator!() const noexcept {
+        bool operator!() const {
             return !operator bool();
         }
-        bool operator!=(const IndexBase &a) const noexcept {
+        bool operator!=(const IndexBase &a) const {
             return !operator==(a);
         }
     };
@@ -136,16 +137,16 @@ private:
         newNode->hashValue = hashValue;
         newNode->arrayIndex = pool.mSize - 1;
     }
-    static size_t GetPow2Size(size_t capacity) noexcept {
+    static size_t GetPow2Size(size_t capacity) {
         size_t ssize = 1;
         while (ssize < capacity)
             ssize <<= 1;
         return ssize;
     }
-    static size_t GetHash(size_t hash, size_t size) noexcept {
+    static size_t GetHash(size_t hash, size_t size) {
         return hash & (size - 1);
     }
-    void Resize(size_t newCapacity) noexcept {
+    void Resize(size_t newCapacity) {
         if (mCapacity >= newCapacity) return;
         LinkNode *newElements = reinterpret_cast<LinkNode *>(pool.allocate((sizeof(Map) + sizeof(LinkNode)) * newCapacity));
         memcpy(newElements, pool.elements, sizeof(LinkNode) * pool.mSize);
@@ -160,7 +161,7 @@ private:
             targetTree->weak_insert(pool, &node);
         }
     }
-    static Index EmptyIndex() noexcept {
+    static Index EmptyIndex() {
         return Index(nullptr, nullptr);
     }
     void TryResize() {
@@ -185,14 +186,17 @@ public:
         return MoveIterator(pool.elements + pool.mSize);
     }
     //////////////////Construct & Destruct
-    ArenaHashMap(size_t capacity, Arena &&arena) noexcept : pool(std::move(arena)) {
+    void clear() {
+        auto nodeVec = GetNodeVec();
+        memset(nodeVec, 0, mCapacity * sizeof(Map));
+        pool.mSize = 0;
+    }
+    ArenaHashMap(size_t capacity, Arena &&arena) : pool(std::move(arena)) {
         if (capacity < 2) capacity = 2;
         capacity = GetPow2Size(capacity);
         pool.elements = reinterpret_cast<LinkNode *>(pool.allocate((sizeof(Map) + sizeof(LinkNode)) * capacity));
         mCapacity = capacity;
-        auto nodeVec = GetNodeVec();
-        memset(nodeVec, 0, capacity * sizeof(Map));
-        pool.mSize = 0;
+        clear();
     }
     ArenaHashMap(ArenaHashMap &&map)
         : pool(std::move(map.pool)),
@@ -209,7 +213,7 @@ public:
     }
     ///////////////////////
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     Index force_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -226,7 +230,7 @@ public:
     }
 
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     std::pair<Index, bool> try_emplace(Key &&key, ARGS &&...args) {
         TryResize();
 
@@ -242,17 +246,17 @@ public:
     }
 
     template<typename Key, typename... ARGS>
-        requires(std::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
+        requires(luisa::is_constructible_v<K, Key &&> && detail::MapConstructible<V, ARGS && ...>::value)
     Index emplace(Key &&key, ARGS &&...args) {
         return try_emplace(std::forward<Key>(key), std::forward<ARGS>(args)...).first;
     }
 
-    void reserve(size_t capacity) noexcept {
+    void reserve(size_t capacity) {
         size_t newCapacity = GetPow2Size(capacity);
         Resize(newCapacity);
     }
     template<typename Key>
-    Index find(Key &&key) const noexcept {
+    Index find(Key &&key) const {
         size_t hashOriginValue = hsFunc(std::forward<Key>(key));
         size_t hashValue = GetHash(hashOriginValue, mCapacity);
         Map *map = GetNodeVec() + hashValue;
@@ -261,8 +265,8 @@ public:
             return {this, node};
         return EmptyIndex();
     }
-    [[nodiscard]] size_t size() const noexcept { return pool.mSize; }
-    [[nodiscard]] bool empty() const noexcept { return pool.mSize == 0; }
-    [[nodiscard]] size_t capacity() const noexcept { return mCapacity; }
+    [[nodiscard]] size_t size() const { return pool.mSize; }
+    [[nodiscard]] bool empty() const { return pool.mSize == 0; }
+    [[nodiscard]] size_t capacity() const { return mCapacity; }
 };
 }// namespace vstd

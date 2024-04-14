@@ -53,9 +53,15 @@ int main(int argc, char *argv[]) {
     windows.reserve(window_count);
     for (auto i = 0u; i < window_count; i++) {
         Window window{luisa::format("Window #{}", i), resolution >> i};
-        auto swpachain = device.create_swapchain(
-            window.native_handle(), stream,
-            resolution, false, false, 3);
+        auto swpachain = device.create_swapchain(stream,
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = 3,
+        });
         windows.emplace_back(PackagedWindow{
             std::move(window),
             std::move(swpachain)});

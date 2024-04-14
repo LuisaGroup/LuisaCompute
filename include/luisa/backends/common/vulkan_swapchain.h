@@ -9,7 +9,7 @@ namespace luisa::compute {
 
 struct VulkanDeviceUUID;
 
-class LC_BACKEND_API VulkanSwapchain {
+class VulkanSwapchain {
 
 public:
     class Impl;
@@ -18,7 +18,8 @@ private:
     luisa::unique_ptr<Impl> _impl;
 
 public:
-    VulkanSwapchain(const VulkanDeviceUUID &device_uuid, uint64_t window_handle,
+    VulkanSwapchain(const VulkanDeviceUUID &device_uuid,
+                    uint64_t display_handle, uint64_t window_handle,
                     uint width, uint height, bool allow_hdr,
                     bool vsync, uint back_buffer_count,
                     luisa::span<const char *const> required_device_extensions) noexcept;
@@ -38,4 +39,3 @@ public:
 };
 
 }// namespace luisa::compute
-

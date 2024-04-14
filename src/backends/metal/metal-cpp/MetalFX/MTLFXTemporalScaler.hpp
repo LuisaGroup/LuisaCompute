@@ -75,6 +75,9 @@ namespace MTLFX
 
         class TemporalScaler*                       newTemporalScaler( const MTL::Device* pDevice ) const;
 
+        static float                                supportedInputContentMinScale( const MTL::Device* pDevice );
+        static float                                supportedInputContentMaxScale( const MTL::Device* pDevice );
+
         static bool                                 supportsDevice( const MTL::Device* pDevice );
     };
 
@@ -333,6 +336,38 @@ _MTLFX_INLINE void MTLFX::TemporalScalerDescriptor::setInputContentMaxScale( flo
 _MTLFX_INLINE MTLFX::TemporalScaler* MTLFX::TemporalScalerDescriptor::newTemporalScaler( const MTL::Device* pDevice ) const
 {
     return Object::sendMessage< TemporalScaler* >( this, _MTLFX_PRIVATE_SEL( newTemporalScalerWithDevice_ ), pDevice );
+}
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+_MTLFX_INLINE float MTLFX::TemporalScalerDescriptor::supportedInputContentMinScale( const MTL::Device* pDevice )
+{
+    float scale = 1.0f;
+
+    if ( nullptr != methodSignatureForSelector( _NS_PRIVATE_CLS( MTLFXTemporalScalerDescriptor ), _MTLFX_PRIVATE_SEL( supportedInputContentMinScaleForDevice_ ) ) )
+    {
+        scale = sendMessage< float >( _NS_PRIVATE_CLS( MTLFXTemporalScalerDescriptor ), _MTLFX_PRIVATE_SEL( supportedInputContentMinScaleForDevice_ ), pDevice );
+    }
+
+    return scale;
+}
+
+//-------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+_MTLFX_INLINE float MTLFX::TemporalScalerDescriptor::supportedInputContentMaxScale( const MTL::Device* pDevice )
+{
+    float scale = 1.0f;
+
+    if ( nullptr != methodSignatureForSelector( _NS_PRIVATE_CLS( MTLFXTemporalScalerDescriptor ), _MTLFX_PRIVATE_SEL( supportedInputContentMaxScaleForDevice_ ) ) )
+    {
+        scale = sendMessage< float >( _NS_PRIVATE_CLS( MTLFXTemporalScalerDescriptor ), _MTLFX_PRIVATE_SEL( supportedInputContentMaxScaleForDevice_ ), pDevice );
+    }
+    else if ( supportsDevice( pDevice ) )
+    {
+        scale = 2.0f;
+    }
+
+    return scale;
 }
 
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------

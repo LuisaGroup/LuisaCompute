@@ -8,15 +8,7 @@ CodegenStackData::CodegenStackData()
           [this](Type const *t) {
               CreateStruct(t);
           }) {
-    structReplaceName.try_emplace(
-        "float3"sv, "float4"sv);
-    structReplaceName.try_emplace(
-        "int3"sv, "int4"sv);
-    structReplaceName.try_emplace(
-        "uint3"sv, "uint4"sv);
-    internalStruct.emplace(Type::of<CommittedHit>(), "_Hit0");
-    internalStruct.emplace(Type::of<TriangleHit>(), "_Hit1");
-    internalStruct.emplace(Type::of<ProceduralHit>(), "_Hit2");
+    Clear();
 }
 void CodegenStackData::Clear() {
     tempSwitchExpr = nullptr;
@@ -41,6 +33,10 @@ void CodegenStackData::Clear() {
     useTex2DBindless = false;
     useTex3DBindless = false;
     useBufferBindless = false;
+    internalStruct.clear();
+    internalStruct.emplace(Type::of<CommittedHit>(), "_Hit0");
+    internalStruct.emplace(Type::of<TriangleHit>(), "_Hit1");
+    internalStruct.emplace(Type::of<ProceduralHit>(), "_Hit2");
 }
 
 vstd::string_view CodegenStackData::CreateStruct(Type const *t) {

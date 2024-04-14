@@ -26,16 +26,22 @@ int main(int argc, char *argv[]) {
     auto width = 0;
     auto height = 0;
     auto channels = 0;
-    auto pixels = stbi_load("logo.png", &width, &height, &channels, 4);
+    auto pixels = stbi_load("src/tests/logo.png", &width, &height, &channels, 4);
     auto resolution = make_uint2(width, height);
     auto image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     stream << image.copy_from(pixels) << synchronize();
     stbi_image_free(pixels);
 
     Window window{"Display", resolution};
-    auto swapchain = device.create_swapchain(
-        window.native_handle(), stream,
-        resolution, false, true, 8);
+    SwapchainOption sc_options{
+        .display = window.native_display(),
+        .window = window.native_handle(),
+        .size = resolution,
+        .wants_hdr = false,
+        .wants_vsync = true,
+        .back_buffer_count = 8,
+    };
+    auto swapchain = device.create_swapchain(stream, sc_options);
 
     Clock clk;
     Framerate framerate;
@@ -46,4 +52,3 @@ int main(int argc, char *argv[]) {
         window.poll_events();
     }
 }
-

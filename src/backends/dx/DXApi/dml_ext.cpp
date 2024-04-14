@@ -95,9 +95,7 @@ public:
 class DxGraphBuildCommand final : public DXCustomCmd {
 public:
     DxGraphBuildCommand(DxDMLGraph *graph) : dmlGraph(graph) {}
-    [[nodiscard]] StreamTag stream_tag() const noexcept override {
-        return StreamTag::COMPUTE;
-    }
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
     [[nodiscard]] luisa::span<const ResourceUsage> get_resource_usages() const noexcept override {
         return {};
     }

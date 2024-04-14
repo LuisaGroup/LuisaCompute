@@ -2,6 +2,7 @@ from wrapper import *
 from dcub_template import value_types, id_type
 import dcub_template
 import lcub_template
+import itertools
 
 website = "https://nvlabs.github.io/cub/structcub_1_1_device_radix_sort.html"
 class_name = "DeviceRadixSort"
@@ -9,6 +10,8 @@ class_name = "DeviceRadixSort"
 dcub = dcub_template.template(website)
 DeviceRadixSort = Class(class_name)
 DeviceRadixSort.set_template(dcub)
+
+key_value_types = list(itertools.product(value_types, value_types))
 
 # template<typename KeyT , typename ValueT , typename NumItemsT >
 # static CUB_RUNTIME_FUNCTION
@@ -34,8 +37,12 @@ TEMP.set_template(dcub)
 SortPairs = TEMP.rename("SortPairs")
 SortPairsDescending = TEMP.rename("SortPairsDescending")
 
-DeviceRadixSort.add_funcs([ SortPairs.instantiate([("$T$", t), ("$I$", id_type)]) for t in value_types])
-DeviceRadixSort.add_funcs([ SortPairsDescending.instantiate([("$T$", t), ("$I$", id_type)]) for t in value_types])
+sortpairs_inst = [ SortPairs.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types]
+
+DeviceRadixSort.add_funcs(sortpairs_inst)
+DeviceRadixSort.add_funcs([ SortPairsDescending.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types])
+
+
 
 # template<typename KeyT , typename NumItemsT >
 # static CUB_RUNTIME_FUNCTION
@@ -55,10 +62,17 @@ TEMP.set_template(dcub)
 
 SortKeys = TEMP.rename("SortKeys")
 SortKeysDescending = TEMP.rename("SortKeysDescending")
-DeviceRadixSort.add_funcs([ SortKeys.instantiate([("$I$", id_type)])])
-DeviceRadixSort.add_funcs([ SortKeysDescending.instantiate([("$I$", id_type)])])
+DeviceRadixSort.add_funcs([ SortKeys.instantiate([("$I$", k)]) for k in value_types])
+DeviceRadixSort.add_funcs([ SortKeysDescending.instantiate([("$I$", k) for k in value_types])])
 
 DeviceRadixSort.write(src_ext=".cu", folder="../private/dcub/")
+
+
+#
+#
+# GENERATE HEADER FILES
+#
+#
 
 lcub = lcub_template.template(website)
 DeviceRadixSort = Class(class_name)
@@ -81,14 +95,13 @@ TEMP.set_template(lcub)
 SortPairs = TEMP.rename("SortPairs")
 SortPairsDescending = TEMP.rename("SortPairsDescending")
 
-DeviceRadixSort.add_funcs([ SortPairs.instantiate([("$T$", t), ("$I$", id_type)]) for t in value_types])
-DeviceRadixSort.add_funcs([ SortPairsDescending.instantiate([("$T$", t), ("$I$", id_type)]) for t in value_types])
-
+DeviceRadixSort.add_funcs([ SortPairs.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types])
+DeviceRadixSort.add_funcs([ SortPairsDescending.instantiate([("$T$", v), ("$I$", k)]) for (k, v) in key_value_types])
 
 TEMP = Func("", Ret(), 
             [
-                ar.clone("const $I$*", "d_keys_in"),
-                ar.clone("$I$*", "d_keys_out"),
+                ar.clone("BufferView<$I$>", "d_keys_in"),
+                ar.clone("BufferView<$I$>", "d_keys_out"),
                 ar.clone("int", "num_items"),
                 ar.clone("int", "begin_bit","0"),
                 ar.clone("int", "end_bit","sizeof($I$)*8"),
@@ -98,7 +111,7 @@ TEMP.set_template(lcub)
 SortKeys = TEMP.rename("SortKeys")
 SortKeysDescending = TEMP.rename("SortKeysDescending")
 
-DeviceRadixSort.add_funcs([ SortKeys.instantiate([("$I$", id_type)])])
-DeviceRadixSort.add_funcs([ SortKeysDescending.instantiate([("$I$", id_type)])])
+DeviceRadixSort.add_funcs([ SortKeys.instantiate([("$I$", k)]) for k in value_types])
+DeviceRadixSort.add_funcs([ SortKeysDescending.instantiate([("$I$", k) for k in value_types])])
 
 DeviceRadixSort.write(folder="../")

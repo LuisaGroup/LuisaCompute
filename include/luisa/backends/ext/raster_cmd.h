@@ -16,6 +16,7 @@ private:
     Argument::Texture _dsv_tex;
     luisa::vector<RasterMesh> _scene;
     Viewport _viewport;
+    MeshFormat const *_mesh_format;
     RasterState _raster_state;
 
 public:
@@ -27,10 +28,11 @@ public:
                            Argument::Texture dsv_texture,
                            luisa::vector<RasterMesh> &&scene,
                            Viewport viewport,
-                           const RasterState &raster_state) noexcept
+                           const RasterState &raster_state,
+                           MeshFormat const *mesh_format) noexcept
         : ShaderDispatchCommandBase{
               shader_handle, std::move(argument_buffer), argument_count},
-          _rtv_texs{rtv_textures}, _rtv_count{rtv_count}, _dsv_tex{dsv_texture}, _scene{std::move(scene)}, _viewport{viewport}, _raster_state{raster_state} {
+          _rtv_texs{rtv_textures}, _rtv_count{rtv_count}, _dsv_tex{dsv_texture}, _scene{std::move(scene)}, _viewport{viewport}, _raster_state{raster_state}, _mesh_format{mesh_format} {
     }
 
 public:
@@ -42,6 +44,9 @@ public:
     [[nodiscard]] auto const &raster_state() const noexcept { return _raster_state; }
     [[nodiscard]] auto scene() const noexcept {
         return luisa::span{_scene};
+    }
+    [[nodiscard]] auto const &mesh_format() const noexcept {
+        return *_mesh_format;
     }
     [[nodiscard]] auto viewport() const noexcept { return _viewport; }
     [[nodiscard]] uint64_t uuid() const noexcept override { return to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE); }
@@ -65,4 +70,3 @@ public:
 };
 
 }// namespace luisa::compute
-

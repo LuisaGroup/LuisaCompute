@@ -15,7 +15,7 @@
 #include <d3d12.h>
 #include "dstorageerr.h"
 
-#define DSTORAGE_SDK_VERSION 201
+#define DSTORAGE_SDK_VERSION 202
 
 interface ID3D12Resource;
 interface ID3D12Fence;
@@ -1331,4 +1331,3 @@ HRESULT WINAPI DStorageGetFactory(REFIID riid, _COM_Outptr_ void** ppv);
 HRESULT WINAPI DStorageCreateCompressionCodec(DSTORAGE_COMPRESSION_FORMAT format, UINT32 numThreads, REFIID riid, _COM_Outptr_ void** ppv);
 
 }
-

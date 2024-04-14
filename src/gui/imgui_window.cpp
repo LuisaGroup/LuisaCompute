@@ -6,6 +6,9 @@
 #elif defined(LUISA_PLATFORM_APPLE)
 #define GLFW_EXPOSE_NATIVE_COCOA
 #else
+#if LUISA_ENABLE_WAYLAND
+#define GLFW_EXPOSE_NATIVE_WAYLAND
+#endif
 #define GLFW_EXPOSE_NATIVE_X11// TODO: other window compositors
 #endif
 
@@ -62,7 +65,25 @@ namespace luisa::compute::detail {
 #elif defined(LUISA_PLATFORM_APPLE)
     return reinterpret_cast<uint64_t>(glfwGetCocoaWindow(window));
 #else
+#if LUISA_ENABLE_WAYLAND
+    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+        return reinterpret_cast<uint64_t>(glfwGetWaylandWindow(window));
+    }
+#endif
     return reinterpret_cast<uint64_t>(glfwGetX11Window(window));
+#endif
+}
+
+[[nodiscard]] inline auto glfw_display_native_handle() noexcept -> uint64_t {
+#if defined(LUISA_PLATFORM_WINDOWS) || defined(LUISA_PLATFORM_APPLE)
+    return 0ull;
+#else
+#if LUISA_ENABLE_WAYLAND
+    if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) {
+        return reinterpret_cast<uint64_t>(glfwGetWaylandDisplay());
+    }
+#endif
+    return reinterpret_cast<uint64_t>(glfwGetX11Display());
 #endif
 }
 
@@ -178,9 +199,16 @@ private:
             fb = {};
         }
         if (any(size != 0u)) {
-            auto native_handle = detail::glfw_window_native_handle(window);
-            sc = _device.create_swapchain(native_handle, _stream, size, _config.hdr,
-                                          _config.vsync, _config.back_buffers);
+            auto native_display = detail::glfw_display_native_handle();
+            auto native_window = detail::glfw_window_native_handle(window);
+            auto sc_options = SwapchainOption{
+                .display = native_display,
+                .window = native_window,
+                .size = size,
+                .wants_hdr = _config.hdr,
+                .wants_vsync = _config.vsync,
+                .back_buffer_count = _config.back_buffers};
+            sc = _device.create_swapchain(_stream, sc_options);
             fb = _device.create_image<float>(sc.backend_storage(), size);
         }
     }
@@ -232,7 +260,7 @@ public:
         std::call_once(once_flag, [] {
             glfwSetErrorCallback([](int error, const char *description) noexcept {
                 if (error != GLFW_NO_ERROR) [[likely]] {
-                    LUISA_ERROR("GLFW Error (code = 0x{:08x}): {}.", error, description);
+                    LUISA_WARNING("GLFW Error (code = 0x{:08x}): {}.", error, description);
                 }
             });
             if (!glfwInit()) [[unlikely]] {
@@ -256,12 +284,19 @@ public:
         // TODO: install user GLFW callbacks?
 
         // imgui config
-        _with_context([this] {
+        _with_context([this, &config] {
             auto &io = ImGui::GetIO();
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;// Enable Keyboard Controls
             io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad; // Enable Gamepad Controls
-            io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;    // Enable Docking
-            io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;  // Enable Multi-Viewport / Platform Windows
+
+            if (config.docking) {
+                io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;// Enable Docking
+            }
+
+            // Wayland does not support querying for window position so multi-viewport is disabled
+            if (config.multi_viewport && glfwGetPlatform() != GLFW_PLATFORM_WAYLAND) {
+                io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;// Enable Multi-Viewport / Platform Windows
+            }
 
             // styles
             ImGui::StyleColorsDark();
@@ -375,13 +410,17 @@ public:
     ~Impl() noexcept {
         _stream.synchronize();
         _with_context([] {
+            // to inform ImGui that the renderer is shutdown
+            auto &io = ImGui::GetIO();
+            io.BackendRendererName = nullptr;
+            io.BackendRendererUserData = nullptr;
+            io.BackendFlags &= ~(ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasViewports);
             ImGui_ImplGlfw_Shutdown();
         });
         ImGui::DestroyContext(_context);
-        LUISA_ASSERT(_platform_swapchains.empty() &&
-                         _platform_framebuffers.empty(),
-                     "Some ImGui windows are not destroyed.");
         _stream.synchronize();
+        _platform_swapchains.clear();
+        _platform_framebuffers.clear();
         _main_swapchain = {};
         _main_framebuffer = {};
         glfwDestroyWindow(_main_window);
@@ -448,7 +487,10 @@ private:
         auto width = 0, height = 0;
         io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
         // TODO: mipmaps?
-        _font_texture = _device.create_image<float>(PixelStorage::BYTE4, width, height, 1);
+        if (!_font_texture || any(_font_texture.size() != make_uint2(width, height))) {
+            if (_font_texture) { _stream << synchronize(); }
+            _font_texture = _device.create_image<float>(PixelStorage::BYTE4, width, height, 1);
+        }
         _stream << _font_texture.copy_from(pixels);
         auto tex_id = register_texture(_font_texture, Sampler::linear_point_edge());
         io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(tex_id));
@@ -639,7 +681,7 @@ public:
         ImGui::SetCurrentContext(_context);
         // ImGui checks if the font texture is created in
         // ImGui::NewFrame() so we have to create it here
-        if (!_font_texture) { _create_font_texture(); }
+        if (!ImGui::GetIO().Fonts->IsBuilt() || !_font_texture) { _create_font_texture(); }
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
     }

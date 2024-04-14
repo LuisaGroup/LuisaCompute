@@ -15,7 +15,7 @@ Context DeviceInterface::context() const noexcept {
 
 void DeviceInterface::set_stream_log_callback(uint64_t stream_handle,
                                               const StreamLogCallback &callback) noexcept {
-    LUISA_WARNING_WITH_LOCATION("DeviceInterface::set_stream_log_callback() is not "
+    LUISA_ERROR("DeviceInterface::set_stream_log_callback() is not "
                                 "implemented. Calls to this method are ignored.");
 }
 

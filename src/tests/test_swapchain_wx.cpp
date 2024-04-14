@@ -15,6 +15,9 @@
 #if defined(__WXGTK__)
 #include <gtk/gtk.h>
 #include <gdk/gdkx.h>
+#if LUISA_ENABLE_WAYLAND
+#include <gdk/gdkwayland.h>
+#endif
 #include <glib-object.h>
 #endif
 
@@ -50,13 +53,24 @@ public:
         auto handle = GetHandle();
         LUISA_ASSERT(handle != nullptr, "Window handle is null.");
 
+        auto display_handle = static_cast<uint64_t>(0u);
 #ifdef __WXGTK__
-        auto window = gtk_widget_get_window(handle);
+        auto window = gtk_widget_get_window(GTK_WIDGET(handle));
         LUISA_ASSERT(window != nullptr, "Window is null.");
-        auto window_handle = 0ull;
+        auto window_handle = static_cast<uint64_t>(0u);
         if (GDK_IS_X11_WINDOW(window)) {
             window_handle = gdk_x11_window_get_xid(window);
-        } else {
+            display_handle = reinterpret_cast<uint64_t>(gdk_x11_get_default_xdisplay());
+        }
+#if LUISA_ENABLE_WAYLAND
+        else if (GDK_IS_WAYLAND_WINDOW(window)) {
+            auto surface = gdk_wayland_window_get_wl_surface(window);
+            auto display = gdk_wayland_display_get_wl_display(gdk_display_get_default());
+            window_handle = reinterpret_cast<uint64_t>(surface);
+            display_handle = reinterpret_cast<uint64_t>(display);
+        }
+#endif
+        else {
             LUISA_ERROR_WITH_LOCATION(
                 "Unknown window type: {}",
                 G_OBJECT_CLASS_NAME(window));
@@ -67,8 +81,15 @@ public:
 
         _swapchain = luisa::make_unique<Swapchain>(
             _device.create_swapchain(
-                window_handle, _stream, resolution, false, false, 3));
-
+                _stream,
+                SwapchainOption{
+                    .display = display_handle,
+                    .window = window_handle,
+                    .size = make_uint2(resolution),
+                    .wants_hdr = false,
+                    .wants_vsync = false,
+                    .back_buffer_count = 3,
+                }));
         SetSize(GetParent()->GetClientSize());
         Center();
     }
@@ -100,6 +121,8 @@ private:
 
 public:
     bool OnInit() override {
+
+        wxApp::OnInit();
 
         if (argc <= 1) {
             LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal",

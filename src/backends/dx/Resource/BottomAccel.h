@@ -15,7 +15,7 @@ struct BottomBuffer {
     DefaultBuffer defaultBuffer;
     uint64 compactSize;
     template<typename... Args>
-        requires(std::is_constructible_v<DefaultBuffer, Args && ...>)
+        requires(luisa::is_constructible_v<DefaultBuffer, Args && ...>)
     BottomBuffer(Args &&...args)
         : defaultBuffer(std::forward<Args>(args)...) {}
 };

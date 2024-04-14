@@ -1,8 +1,5 @@
 #include <array>
 #include <algorithm>
-
-#include <vulkan/vulkan.h>
-
 #include <luisa/core/platform.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/string.h>
@@ -10,18 +7,6 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/runtime/rhi/pixel.h>
-
-#if defined(LUISA_PLATFORM_WINDOWS)
-#include <windows.h>
-#include <vulkan/vulkan_win32.h>
-#elif defined(LUISA_PLATFORM_APPLE)
-#include <vulkan/vulkan_macos.h>
-#elif defined(LUISA_PLATFORM_UNIX)
-#include <X11/Xlib.h>
-#include <vulkan/vulkan_xlib.h>
-#else
-#error "Unsupported platform"
-#endif
 
 #include "vulkan_instance.h"
 #include <luisa/backends/common/vulkan_swapchain.h>
@@ -170,9 +155,9 @@ private:
             vkGetPhysicalDeviceSurfacePresentModesKHR(device, _surface, &present_mode_count, details.present_modes.data());
         }
         return details;
-    };
+    }
 
-    void _create_surface(uint64_t window_handle) noexcept {
+    void _create_surface(uint64_t display_handle, uint64_t window_handle) noexcept {
 #if defined(LUISA_PLATFORM_WINDOWS)
         VkWin32SurfaceCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
@@ -185,11 +170,26 @@ private:
         create_info.pView = cocoa_window_content_view(window_handle);
         LUISA_CHECK_VULKAN(vkCreateMacOSSurfaceMVK(_instance->handle(), &create_info, nullptr, &_surface));
 #else
-        VkXlibSurfaceCreateInfoKHR create_info{};
-        create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-        create_info.dpy = XOpenDisplay(nullptr);
-        create_info.window = static_cast<Window>(window_handle);
-        LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
+        auto create_surface_xlib = [&] {
+            VkXlibSurfaceCreateInfoKHR create_info{};
+            create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+            create_info.dpy = display_handle ? reinterpret_cast<Display *>(display_handle) : XOpenDisplay(nullptr);
+            create_info.window = static_cast<Window>(window_handle);
+            LUISA_CHECK_VULKAN(vkCreateXlibSurfaceKHR(_instance->handle(), &create_info, nullptr, &_surface));
+        };
+#if LUISA_ENABLE_WAYLAND
+        if (window_handle & 0xffff'ffff'0000'0000ull) {// 64-bit pointer, so likely wayland
+            VkWaylandSurfaceCreateInfoKHR create_info_wl{};
+            create_info_wl.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+            create_info_wl.display = display_handle ? reinterpret_cast<wl_display *>(display_handle) : wl_display_connect(nullptr);
+            create_info_wl.surface = reinterpret_cast<wl_surface *>(window_handle);
+            LUISA_CHECK_VULKAN(vkCreateWaylandSurfaceKHR(_instance->handle(), &create_info_wl, nullptr, &_surface));
+        } else {// X uses 32-bit IDs
+            create_surface_xlib();
+        }
+#else
+        create_surface_xlib();
+#endif
 #endif
     }
 
@@ -411,35 +411,39 @@ private:
     }
 
     void _create_swapchain(uint width, uint height, uint back_buffers,
-                           bool allow_hdr, bool vsync) noexcept {
+                           bool is_recreation, bool allow_hdr, bool vsync) noexcept {
 
         auto support = _query_swapchain_support(_physical_device);
         if (support.capabilities.maxImageCount == 0u) { support.capabilities.maxImageCount = back_buffers; }
-        back_buffers = std::clamp(back_buffers, support.capabilities.minImageCount, support.capabilities.maxImageCount);
-
-        _swapchain_format = [&formats = support.formats, allow_hdr] {
-            for (auto f : formats) {
-                LUISA_VERBOSE_WITH_LOCATION(
-                    "Supported swapchain format: "
-                    "colorspace = {}, format = {}",
-                    luisa::to_string(f.colorSpace),
-                    luisa::to_string(f.format));
-            }
-            if (allow_hdr) {
-                for (auto format : formats) {
-                    if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) { return format; }
+        if (!is_recreation) {// only allow change back buffer count and swapchain format on first creation
+            back_buffers = std::clamp(
+                back_buffers,
+                support.capabilities.minImageCount,
+                support.capabilities.maxImageCount);
+            _swapchain_format = [&formats = support.formats, allow_hdr] {
+                for (auto f : formats) {
+                    LUISA_VERBOSE_WITH_LOCATION(
+                        "Supported swapchain format: "
+                        "colorspace = {}, format = {}",
+                        luisa::to_string(f.colorSpace),
+                        luisa::to_string(f.format));
                 }
-            }
-            for (auto format : formats) {
-                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
-                    (format.format == VK_FORMAT_R8G8B8A8_SRGB ||
-                     format.format == VK_FORMAT_B8G8R8A8_SRGB)) { return format; }
-            }
-            for (auto format : formats) {
-                if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { return format; }
-            }
-            return formats.front();
-        }();
+                if (allow_hdr) {
+                    for (auto format : formats) {
+                        if (format.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) { return format; }
+                    }
+                }
+                for (auto format : formats) {
+                    if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR &&
+                        (format.format == VK_FORMAT_R8G8B8A8_SRGB ||
+                         format.format == VK_FORMAT_B8G8R8A8_SRGB)) { return format; }
+                }
+                for (auto format : formats) {
+                    if (format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { return format; }
+                }
+                return formats.front();
+            }();
+        }
 
         _swapchain_extent = [&capabilities = support.capabilities, width, height] {
             if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() &&
@@ -914,7 +918,6 @@ private:
 
 private:
     uint2 _requested_size{};
-    uint _requested_back_buffers{0u};
     bool _requested_hdr{false};
     bool _requested_vsync{false};
 
@@ -929,16 +932,18 @@ private:
     }
 
     void _recreate_swapchain() noexcept {
+        auto back_buffers = _swapchain_framebuffers.size();
         vkDeviceWaitIdle(_device);
         _destroy_swapchain();
         _create_swapchain(_requested_size.x, _requested_size.y,
-                          _requested_back_buffers,
+                          back_buffers, true,
                           _requested_hdr, _requested_vsync);
         _create_framebuffers();
     }
 
 public:
     Impl(VulkanDeviceUUID device_uuid,
+         uint64_t display_handle,
          uint64_t window_handle,
          uint width, uint height,
          bool allow_hdr, bool vsync,
@@ -946,12 +951,11 @@ public:
          luisa::span<const char *const> required_device_extensions) noexcept
         : _instance{VulkanInstance::retain()},
           _requested_size{width, height},
-          _requested_back_buffers{back_buffer_count},
           _requested_hdr{allow_hdr},
           _requested_vsync{vsync} {
-        _create_surface(window_handle);
+        _create_surface(display_handle, window_handle);
         _create_device(device_uuid, required_device_extensions, allow_hdr);
-        _create_swapchain(width, height, back_buffer_count, allow_hdr, vsync);
+        _create_swapchain(width, height, back_buffer_count, false, allow_hdr, vsync);
         _create_render_pass();
         _create_descriptor_set_layout();
         _create_pipeline();
@@ -1072,12 +1076,13 @@ public:
 };
 
 VulkanSwapchain::VulkanSwapchain(const VulkanDeviceUUID &device_uuid,
+                                 uint64_t display_handle,
                                  uint64_t window_handle,
                                  uint width, uint height,
                                  bool allow_hdr, bool vsync,
                                  uint back_buffer_count,
                                  luisa::span<const char *const> required_device_extensions) noexcept
-    : _impl{luisa::make_unique<Impl>(device_uuid, window_handle,
+    : _impl{luisa::make_unique<Impl>(device_uuid, display_handle, window_handle,
                                      width, height, allow_hdr,
                                      vsync, back_buffer_count,
                                      required_device_extensions)} {}
@@ -1300,9 +1305,10 @@ private:
     }
 
 public:
-    VulkanSwapchainForCPU(uint64_t window_handle, uint width, uint height,
+    VulkanSwapchainForCPU(uint64_t display_handle, uint64_t window_handle, uint width, uint height,
                           bool allow_hdr, bool vsync, uint back_buffer_count) noexcept
         : _base{VulkanDeviceUUID{/* any */},
+                display_handle,
                 window_handle,
                 width,
                 height,
@@ -1386,8 +1392,10 @@ public:
     [[nodiscard]] const VulkanSwapchain *native_handle() const noexcept { return &_base; }
 };
 
-LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t window_handle, uint width, uint height, bool allow_hdr, bool vsync, uint back_buffer_count) noexcept {
-    return new VulkanSwapchainForCPU{window_handle, width, height, allow_hdr, vsync, back_buffer_count};
+LUISA_EXPORT_API void *luisa_compute_create_cpu_swapchain(uint64_t display_handle, uint64_t window_handle,
+                                                          uint width, uint height, bool allow_hdr, bool vsync,
+                                                          uint back_buffer_count) noexcept {
+    return new VulkanSwapchainForCPU{display_handle, window_handle, width, height, allow_hdr, vsync, back_buffer_count};
 }
 
 LUISA_EXPORT_API uint8_t luisa_compute_cpu_swapchain_storage(void *swapchain) noexcept {

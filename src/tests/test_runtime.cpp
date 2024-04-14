@@ -45,10 +45,14 @@ int main(int argc, char *argv[]) {
     static constexpr uint2 resolution = make_uint2(1024u);
     Window window{"test runtime", resolution.x, resolution.x};
     Swapchain swap_chain{device.create_swapchain(
-        window.native_handle(),
         graphics_stream,
-        resolution,
-        false, false, framebuffer_count - 1)};
+        SwapchainOption{
+            .display = window.native_display(),
+            .window = window.native_handle(),
+            .size = resolution,
+            .wants_hdr = false,
+            .wants_vsync = false,
+            .back_buffer_count = framebuffer_count - 1u})};
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     ldr_image.set_name("present");
     compute_stream.set_name("my compute");

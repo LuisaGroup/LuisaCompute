@@ -1,7 +1,10 @@
 #pragma once
-
 #include <luisa/dsl/ref.h>
 #include <luisa/dsl/arg.h>
+// X11 macro
+#ifdef Bool
+#undef Bool
+#endif
 
 namespace luisa::compute {
 
@@ -35,8 +38,9 @@ struct Var : public detail::Ref<T> {
     /// Construct a local variable of basic or array types
     Var() noexcept
         : detail::Ref<T>{detail::FunctionBuilder::current()->local(Type::of<T>())} {
-        // No more necessary. Backends now guarantee variable initialization.
-        // detail::apply_default_initializer(detail::Ref{*this});
+        // we have to apply the default initializer here so the variable
+        // is properly defined right after construction
+        detail::apply_default_initializer(detail::Ref{*this});
     }
 
     /// Assign members from args

@@ -364,7 +364,7 @@ public:
                 LUISA_ERROR("Custom command not supported by this queue.");
         }
     }
-
+    
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
         auto cs = reinterpret_cast<RasterShader *>(cmd->handle());
         size_t beforeSize = argBuffer->size();
@@ -452,7 +452,8 @@ public:
             cmd->texture_offset(),
             cmd->size(),
             cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
+            CommandBufferBuilder::BufferTextureCopy::BufferToTexture,
+            true);
     }
 
     struct Visitor {
@@ -643,7 +644,8 @@ public:
             cmd->offset(),
             cmd->size(),
             cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::BufferToTexture);
+            CommandBufferBuilder::BufferTextureCopy::BufferToTexture,
+            false);
     }
     void visit(const ClearDepthCommand *cmd) noexcept {
         auto rt = reinterpret_cast<TextureBase *>(cmd->handle());
@@ -706,7 +708,8 @@ public:
             cmd->offset(),
             cmd->size(),
             cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
+            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer,
+            false);
     }
     void visit(const TextureCopyCommand *cmd) noexcept override {
         auto src = reinterpret_cast<TextureBase *>(cmd->src_handle());
@@ -728,7 +731,8 @@ public:
             cmd->texture_offset(),
             cmd->size(),
             cmd->level(),
-            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer);
+            CommandBufferBuilder::BufferTextureCopy::TextureToBuffer,
+            true);
     }
     void visit(const AccelBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<TopAccel *>(cmd->handle());
@@ -869,7 +873,7 @@ public:
         }
         auto shader = reinterpret_cast<RasterShader *>(cmd->handle());
         auto rasterState = cmd->raster_state();
-        auto pso = shader->GetPSO({rtvFormats, rtvs.size()}, dsvFormat, rasterState);
+        auto pso = shader->GetPSO({rtvFormats, rtvs.size()}, cmd->mesh_format(), dsvFormat, rasterState);
         auto &&tempBuffer = *bufferVec;
         bufferVec++;
         bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
@@ -914,7 +918,7 @@ public:
             luisa::visit(
                 [&]<typename T>(T const &i) {
                     if constexpr (std::is_same_v<T, uint>) {
-                        cmdList->DrawInstanced(i, mesh.instance_count(), 0, 0);
+                        cmdList->DrawInstanced(i, mesh.instance_count(), mesh.vertex_offset(), 0);
                     } else {
                         auto bf = reinterpret_cast<Buffer *>(i.handle());
                         D3D12_INDEX_BUFFER_VIEW idx{
@@ -922,7 +926,7 @@ public:
                             .SizeInBytes = static_cast<uint>(i.size_bytes()),
                             .Format = DXGI_FORMAT_R32_UINT};
                         cmdList->IASetIndexBuffer(&idx);
-                        cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, 0, 0);
+                        cmdList->DrawIndexedInstanced(i.size_bytes() / sizeof(uint), mesh.instance_count(), 0, mesh.vertex_offset(), 0);
                     }
                 },
                 i);

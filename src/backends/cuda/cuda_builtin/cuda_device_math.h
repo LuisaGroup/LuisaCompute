@@ -3442,34 +3442,42 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_uint2 lc_clz(lc_uint2 x) noexcept { return lc_make_uint2(__clz(x.x), __clz(x.y)); }
 [[nodiscard]] __device__ inline lc_uint3 lc_clz(lc_uint3 x) noexcept { return lc_make_uint3(__clz(x.x), __clz(x.y), __clz(x.z)); }
 [[nodiscard]] __device__ inline lc_uint4 lc_clz(lc_uint4 x) noexcept { return lc_make_uint4(__clz(x.x), __clz(x.y), __clz(x.z), __clz(x.w)); }
-[[nodiscard]] __device__ inline lc_ulong lc_clz(lc_ulong x) noexcept { return __clz(x); }
-[[nodiscard]] __device__ inline lc_ulong2 lc_clz(lc_ulong2 x) noexcept { return lc_make_ulong2(__clz(x.x), __clz(x.y)); }
-[[nodiscard]] __device__ inline lc_ulong3 lc_clz(lc_ulong3 x) noexcept { return lc_make_ulong3(__clz(x.x), __clz(x.y), __clz(x.z)); }
-[[nodiscard]] __device__ inline lc_ulong4 lc_clz(lc_ulong4 x) noexcept { return lc_make_ulong4(__clz(x.x), __clz(x.y), __clz(x.z), __clz(x.w)); }
+
+[[nodiscard]] __device__ inline lc_ulong lc_clz(lc_ulong x) noexcept { return __clzll(x); }
+[[nodiscard]] __device__ inline lc_ulong2 lc_clz(lc_ulong2 x) noexcept { return lc_make_ulong2(__clzll(x.x), __clzll(x.y)); }
+[[nodiscard]] __device__ inline lc_ulong3 lc_clz(lc_ulong3 x) noexcept { return lc_make_ulong3(__clzll(x.x), __clzll(x.y), __clzll(x.z)); }
+[[nodiscard]] __device__ inline lc_ulong4 lc_clz(lc_ulong4 x) noexcept { return lc_make_ulong4(__clzll(x.x), __clzll(x.y), __clzll(x.z), __clzll(x.w)); }
 
 [[nodiscard]] __device__ inline lc_uint lc_popcount(lc_uint x) noexcept { return __popc(x); }
 [[nodiscard]] __device__ inline lc_uint2 lc_popcount(lc_uint2 x) noexcept { return lc_make_uint2(__popc(x.x), __popc(x.y)); }
 [[nodiscard]] __device__ inline lc_uint3 lc_popcount(lc_uint3 x) noexcept { return lc_make_uint3(__popc(x.x), __popc(x.y), __popc(x.z)); }
 [[nodiscard]] __device__ inline lc_uint4 lc_popcount(lc_uint4 x) noexcept { return lc_make_uint4(__popc(x.x), __popc(x.y), __popc(x.z), __popc(x.w)); }
-[[nodiscard]] __device__ inline lc_ulong lc_popcount(lc_ulong x) noexcept { return __popc(x); }
-[[nodiscard]] __device__ inline lc_ulong2 lc_popcount(lc_ulong2 x) noexcept { return lc_make_ulong2(__popc(x.x), __popc(x.y)); }
-[[nodiscard]] __device__ inline lc_ulong3 lc_popcount(lc_ulong3 x) noexcept { return lc_make_ulong3(__popc(x.x), __popc(x.y), __popc(x.z)); }
-[[nodiscard]] __device__ inline lc_ulong4 lc_popcount(lc_ulong4 x) noexcept { return lc_make_ulong4(__popc(x.x), __popc(x.y), __popc(x.z), __popc(x.w)); }
+
+[[nodiscard]] __device__ inline lc_ulong lc_popcount(lc_ulong x) noexcept { return __popcll(x); }
+[[nodiscard]] __device__ inline lc_ulong2 lc_popcount(lc_ulong2 x) noexcept { return lc_make_ulong2(__popcll(x.x), __popcll(x.y)); }
+[[nodiscard]] __device__ inline lc_ulong3 lc_popcount(lc_ulong3 x) noexcept { return lc_make_ulong3(__popcll(x.x), __popcll(x.y), __popcll(x.z)); }
+[[nodiscard]] __device__ inline lc_ulong4 lc_popcount(lc_ulong4 x) noexcept { return lc_make_ulong4(__popcll(x.x), __popcll(x.y), __popcll(x.z), __popcll(x.w)); }
 
 [[nodiscard]] __device__ inline lc_uint lc_reverse(lc_uint x) noexcept { return __brev(x); }
 [[nodiscard]] __device__ inline lc_uint2 lc_reverse(lc_uint2 x) noexcept { return lc_make_uint2(__brev(x.x), __brev(x.y)); }
 [[nodiscard]] __device__ inline lc_uint3 lc_reverse(lc_uint3 x) noexcept { return lc_make_uint3(__brev(x.x), __brev(x.y), __brev(x.z)); }
 [[nodiscard]] __device__ inline lc_uint4 lc_reverse(lc_uint4 x) noexcept { return lc_make_uint4(__brev(x.x), __brev(x.y), __brev(x.z), __brev(x.w)); }
-[[nodiscard]] __device__ inline lc_ulong lc_reverse(lc_ulong x) noexcept { return __brev(x); }
-[[nodiscard]] __device__ inline lc_ulong2 lc_reverse(lc_ulong2 x) noexcept { return lc_make_ulong2(__brev(x.x), __brev(x.y)); }
-[[nodiscard]] __device__ inline lc_ulong3 lc_reverse(lc_ulong3 x) noexcept { return lc_make_ulong3(__brev(x.x), __brev(x.y), __brev(x.z)); }
-[[nodiscard]] __device__ inline lc_ulong4 lc_reverse(lc_ulong4 x) noexcept { return lc_make_ulong4(__brev(x.x), __brev(x.y), __brev(x.z), __brev(x.w)); }
+
+[[nodiscard]] __device__ inline lc_ulong lc_reverse(lc_ulong x) noexcept { return __brevll(x); }
+[[nodiscard]] __device__ inline lc_ulong2 lc_reverse(lc_ulong2 x) noexcept { return lc_make_ulong2(__brevll(x.x), __brevll(x.y)); }
+[[nodiscard]] __device__ inline lc_ulong3 lc_reverse(lc_ulong3 x) noexcept { return lc_make_ulong3(__brevll(x.x), __brevll(x.y), __brevll(x.z)); }
+[[nodiscard]] __device__ inline lc_ulong4 lc_reverse(lc_ulong4 x) noexcept { return lc_make_ulong4(__brevll(x.x), __brevll(x.y), __brevll(x.z), __brevll(x.w)); }
 
 [[nodiscard]] __device__ inline auto lc_ctz_impl(lc_uint x) noexcept { return (__ffs(x) - 1u) % 32u; }
+[[nodiscard]] __device__ inline auto lc_ctz_impl(lc_ulong x) noexcept { return (__ffsll(x) - 1u) % 64u; }
 [[nodiscard]] __device__ inline lc_uint lc_ctz(lc_uint x) noexcept { return lc_ctz_impl(x); }
 [[nodiscard]] __device__ inline lc_uint2 lc_ctz(lc_uint2 x) noexcept { return lc_make_uint2(lc_ctz_impl(x.x), lc_ctz_impl(x.y)); }
 [[nodiscard]] __device__ inline lc_uint3 lc_ctz(lc_uint3 x) noexcept { return lc_make_uint3(lc_ctz_impl(x.x), lc_ctz_impl(x.y), lc_ctz_impl(x.z)); }
 [[nodiscard]] __device__ inline lc_uint4 lc_ctz(lc_uint4 x) noexcept { return lc_make_uint4(lc_ctz_impl(x.x), lc_ctz_impl(x.y), lc_ctz_impl(x.z), lc_ctz_impl(x.w)); }
+[[nodiscard]] __device__ inline lc_ulong lc_ctz(lc_ulong x) noexcept { return lc_ctz_impl(x); }
+[[nodiscard]] __device__ inline lc_ulong2 lc_ctz(lc_ulong2 x) noexcept { return lc_make_ulong2(lc_ctz_impl(x.x), lc_ctz_impl(x.y)); }
+[[nodiscard]] __device__ inline lc_ulong3 lc_ctz(lc_ulong3 x) noexcept { return lc_make_ulong3(lc_ctz_impl(x.x), lc_ctz_impl(x.y), lc_ctz_impl(x.z)); }
+[[nodiscard]] __device__ inline lc_ulong4 lc_ctz(lc_ulong4 x) noexcept { return lc_make_ulong4(lc_ctz_impl(x.x), lc_ctz_impl(x.y), lc_ctz_impl(x.z), lc_ctz_impl(x.w)); }
 
 [[nodiscard]] __device__ inline constexpr auto lc_cross(lc_float3 u, lc_float3 v) noexcept {
     return lc_make_float3(u.y * v.z - v.y * u.z,

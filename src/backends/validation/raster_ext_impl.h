@@ -10,21 +10,13 @@ class RasterExtImpl final : public RasterExt, public vstd::IOperatorNewBase {
 public:
     RasterExtImpl(RasterExt *impl) : _impl{impl} {}
     ResourceCreationInfo create_raster_shader(
-        const MeshFormat &mesh_format,
         Function vert,
         Function pixel,
         const ShaderOption &shader_option) noexcept override;
 
     ResourceCreationInfo load_raster_shader(
-        const MeshFormat &mesh_format,
         luisa::span<Type const *const> types,
         luisa::string_view ser_path) noexcept override;
-
-    void warm_up_pipeline_cache(
-        uint64_t shader_handle,
-        luisa::span<PixelFormat const> render_target_formats,
-        DepthFormat depth_format,
-        const RasterState &state) noexcept override;
 
     void destroy_raster_shader(uint64_t handle) noexcept override;
     // depth buffer

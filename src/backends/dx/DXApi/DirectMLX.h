@@ -11,7 +11,7 @@
 // clang-format off
 
 #pragma once
-#include <DirectML.h>
+#include "DirectML.h"
 
 #include <cstdint>
 #include <cassert>
