@@ -135,12 +135,12 @@ Var<bool> Expr<Accel>::intersect_any(Expr<Ray> ray, const AccelTraceOptions &opt
 
 RayQueryAll Expr<Accel>::traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
     require_curve_basis_set(options.curve_bases);
-    return {_expression, ray.expression(), options.visibility_mask.expression()};
+    return {_expression, ray.expression(), options.visibility_mask.expression(), options.time.expression()};
 }
 
 RayQueryAny Expr<Accel>::traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
     require_curve_basis_set(options.curve_bases);
-    return {_expression, ray.expression(), options.visibility_mask.expression()};
+    return {_expression, ray.expression(), options.visibility_mask.expression(), options.time.expression()};
 }
 
 Var<float4x4> Expr<Accel>::instance_transform(Expr<uint> instance_id) const noexcept {

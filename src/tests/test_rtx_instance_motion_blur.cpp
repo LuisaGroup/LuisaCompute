@@ -1,7 +1,7 @@
 //
-// Modified text_rtx.cpp to demonstrate vertex motion blur.
+// Modified text_rtx.cpp to demonstrate instance motion blur.
 // Original file created by Mike Smith on 2021/6/23.
-// Modified file created Tianyu Huang on 2024/4/13.
+// Modified file created Tianyu Huang on 2024/4/14.
 //
 #include <stb/stb_image_write.h>
 
