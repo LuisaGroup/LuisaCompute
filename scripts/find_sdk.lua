@@ -30,13 +30,19 @@ local function try_download(zip, url, mirror_urls, dst_dir, settings)
     utils.error("Download " .. zip .. " failed, please check your internet.")
 end
 
-function file_from_github(zip, dir, address, valid_sha256)
+function file_from_github(sdk_map, dir)
+    local zip, address, valid_sha256, mirror_address
+    zip = sdk_map['name']
+    address = packages.sdk_address(sdk_map)
+    valid_sha256 = sdk_map['sha256']
+    mirror_address = packages.sdk_mirror_addresses(sdk_map)
+
     local zip_dir = find_file(zip, {dir})
     local dst_dir = path.join(dir, zip)
     if (zip_dir == nil) then
         local url = vformat(address)
         print("download: " .. url .. zip .. " to: " .. dir)
-        try_download(zip, url, packages.sdk_mirror_addresses(), dst_dir, {
+        try_download(zip, url, mirror_address, dst_dir, {
             continue = false
         })
     else
@@ -46,7 +52,7 @@ function file_from_github(zip, dir, address, valid_sha256)
             local url = vformat(address)
             print(zip .. " is invalid, download: " .. url .. zip)
             os.rm(zip_dir)
-            try_download(zip, url, packages.sdk_mirror_addresses(), dst_dir, {
+            try_download(zip, url, mirror_address, dst_dir, {
                 continue = false
             })
             sha256 = hash.sha256(zip_dir)
@@ -86,7 +92,7 @@ function install_sdk(sdk_name)
         utils.error("Invalid sdk: " .. sdk_name)
         return
     end
-    file_from_github(sdk_map['name'], dir, packages.sdk_address(sdk_map), sdk_map['sha256'])
+    file_from_github(sdk_map, dir)
 end
 
 function check_file(sdk_name)

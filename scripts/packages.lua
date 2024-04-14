@@ -9,9 +9,8 @@ local _sdks = {
 function sdk_address(sdk)
     return sdk['address'] or 'https://github.com/LuisaGroup/SDKs/releases/download/sdk/'
 end
-function sdk_mirror_addresses()
-    -- TODO: mirror address for local network
-    return {}
+function sdk_mirror_addresses(sdk)
+    return sdk['mirror_addresses'] or {}
 end
 function sdks()
     return _sdks
