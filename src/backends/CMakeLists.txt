@@ -1,4 +1,6 @@
 add_library(luisa-compute-backends INTERFACE)
+
+set(FETCHCONTENT_QUIET OFF)
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "SUPPORT_DIR;BUILTIN_DIR" "SOURCES" ${ARGN})
     # DLL target
