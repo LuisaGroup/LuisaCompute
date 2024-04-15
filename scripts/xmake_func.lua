@@ -346,8 +346,8 @@ end)
 on_clean(function(target)
     local bin_dir = target:targetdir()
     local find_sdk = import('find_sdk')
-    local sdks = packages.sdks()
     local packages = import('packages')
+    local sdks = packages.sdks()
     local libnames = target:extraconf("rules", "lc_install_sdk", "libnames")
     for _, lib in ipairs(libnames) do
         local sdk_map = sdks[lib]
