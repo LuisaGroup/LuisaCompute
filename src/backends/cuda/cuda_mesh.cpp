@@ -77,7 +77,13 @@ void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noe
 CUDAAnimatedMesh::CUDAAnimatedMesh(const MotionOption &option) noexcept
     : _option(option) {}
 
+CUDAAnimatedMesh::~CUDAAnimatedMesh() noexcept {
+    if (_motion_transform_buffer) { LUISA_CHECK_CUDA(cuMemFree(_motion_transform_buffer)); }
+}
+
 void CUDAAnimatedMesh::build(CUDACommandEncoder &encoder, AnimatedMeshBuildCommand *command) noexcept {
+    std::scoped_lock lock{_mutex};
+    
     auto cuda_stream = encoder.stream()->handle();
     auto optix_ctx = encoder.stream()->device()->handle().optix_context();
     
