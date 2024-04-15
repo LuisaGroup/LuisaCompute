@@ -58,18 +58,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: actions/cache@v3
+      - name: Cache dependencies
+        id: cache
+        uses: corca-ai/local-cache@v2
         with:
           path: SDKs
           key: build-windows-xmake-dx-sdk
-          restore-keys: build-windows-xmake-dx-sdk
       - name: "Configure and Build"
         shell: cmd
         run: |
-          xmake lua setup.lua
+          xmake lua setup.lua ../luisa_compute_sdks
           if "${{ matrix.compiler }}" == "llvm" (
-            xmake f -p windows -a x64 --toolchain=llvm --sdk="C:/Program Files/LLVM" -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+            xmake f -p windows -a x64 --toolchain=llvm --sdk="C:/Program Files/LLVM" -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true --sdk_dir=../luisa_compute_sdks
           ) else (
-            xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+            xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true --sdk_dir=../luisa_compute_sdks
           )
           xmake

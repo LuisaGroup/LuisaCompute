@@ -124,6 +124,11 @@ option("bin_dir")
 set_default("bin")
 set_showmenu(true)
 option_end()
+-- custom sdk dir
+option("sdk_dir")
+set_default(false)
+set_showmenu(true)
+option_end()
 -- external_marl
 option("external_marl")
 set_values(true, false)

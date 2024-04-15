@@ -14,7 +14,7 @@ set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
     "metal_backend", "cpu_backend", "enable_tests", "enable_custom_malloc", "enable_clangcxx", "py_include",
     "py_linkdir", "external_marl", "py_libs", "cuda_ext_lcub", "enable_ir", "enable_osl", "enable_api", "enable_dsl",
-    "enable_gui", "bin_dir", "_lc_enable_py", "_lc_enable_rust")
+    "enable_gui", "bin_dir", "sdk_dir", "_lc_enable_py", "_lc_enable_rust")
 before_check(function(option)
     if path.absolute(path.join(os.projectdir(), "scripts")) == path.absolute(os.scriptdir()) then
         local v = import("options", {
@@ -331,7 +331,7 @@ on_load(function(target)
     local find_sdk = import('find_sdk')
     local enable = true
     for _, lib in ipairs(libnames) do
-        local valid = find_sdk.check_file(lib)
+        local valid = find_sdk.check_file(lib, get_config("sdk_dir"))
         if not valid then
             utils.error("Library: " .. packages.sdks()[lib]['name'] ..
                             " not installed, run 'xmake lua setup.lua' or download it manually from " ..

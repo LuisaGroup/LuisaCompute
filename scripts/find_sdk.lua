@@ -84,8 +84,8 @@ function unzip_sdk(tool_name, in_dir, out_dir)
     end
 end
 
-function install_sdk(sdk_name)
-    local dir = packages.get_or_create_sdk_dir(os.arch())
+function install_sdk(sdk_name, custom_dir)
+    local dir = packages.get_or_create_sdk_dir(os.arch(), custom_dir)
     local _sdks = packages.sdks()
     local sdk_map = _sdks[sdk_name]
     if not sdk_map then
@@ -95,8 +95,8 @@ function install_sdk(sdk_name)
     file_from_github(sdk_map, dir)
 end
 
-function check_file(sdk_name)
-    local dir = packages.sdk_dir(os.arch())
+function check_file(sdk_name, custom_dir)
+    local dir = packages.sdk_dir(os.arch(), custom_dir)
     local _sdks = packages.sdks()
     local sdk_map = _sdks[sdk_name]
     local zip = sdk_map['name']
