@@ -79,12 +79,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Cache dependencies
-        id: cache
-        uses: corca-ai/local-cache@v2
-        with:
-          path: build/_deps/luisa_compute_dx_sdk-subbuild/luisa_compute_dx_sdk-populate-prefix/src
-          key: build-windows-cmake-dx-sdk
       - name: "Setup Ninja"
         uses: ashutoshvarma/setup-ninja@master
         with:
@@ -92,6 +86,7 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
+          xmake lua setup.lua ../luisa_compute_sdks
           call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake --version
           ninja --version
@@ -102,7 +97,7 @@ jobs:
             set CC=${{ matrix.compiler }}
             set CXX=${{ matrix.compiler }}
           )
-          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
+          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_DX_SDK_DIR=../luisa_compute_sdks -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
           cmake --build build -v
       - name: "Install"
         run: |

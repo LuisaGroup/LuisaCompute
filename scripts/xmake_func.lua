@@ -330,12 +330,13 @@ on_load(function(target)
     local libnames = target:extraconf("rules", "lc_install_sdk", "libnames")
     local find_sdk = import('find_sdk')
     local enable = true
+    local sdk_dir = get_config("sdk_dir")
     for _, lib in ipairs(libnames) do
-        local valid = find_sdk.check_file(lib, get_config("sdk_dir"))
+        local valid = find_sdk.check_file(lib, sdk_dir)
         if not valid then
             utils.error("Library: " .. packages.sdks()[lib]['name'] ..
                             " not installed, run 'xmake lua setup.lua' or download it manually from " ..
-                            packages.sdk_address(packages.sdks()[lib]) .. ' to ' .. packages.sdk_dir(os.arch()) .. '.')
+                            packages.sdk_address(packages.sdks()[lib]) .. ' to ' .. packages.sdk_dir(os.arch(), sdk_dir) .. '.')
             enable = false
         end
     end
@@ -351,7 +352,6 @@ on_clean(function(target)
     local libnames = target:extraconf("rules", "lc_install_sdk", "libnames")
     for _, lib in ipairs(libnames) do
         local sdk_map = sdks[lib]
-        local zip = sdk_map['name']
         local cache_file_name = path.join(bin_dir, lib .. '.txt')
         if os.exists(cache_file_name) then
             os.rm(cache_file_name)
@@ -366,7 +366,7 @@ before_build(function(target)
     local packages = import('packages')
     local find_sdk = import('find_sdk')
     local sdks = packages.sdks()
-    local sdk_dir = packages.sdk_dir(os.arch())
+    local sdk_dir = packages.sdk_dir(os.arch(), get_config("sdk_dir"))
     for _, lib in ipairs(libnames) do
         local sdk_map = sdks[lib]
         local zip = sdk_map['name']
