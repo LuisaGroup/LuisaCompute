@@ -55,14 +55,14 @@ jobs:
     name: windows / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, windows, x64 ]
     steps:
-      - uses: actions/cache@v3
-        with:
-          path: ./SDKs
-          key: build-windows-xmake-dx-sdk
-          restore-keys: build-windows-xmake-dx-sdk
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - uses: actions/cache@v3
+        with:
+          path: SDKs
+          key: build-windows-xmake-dx-sdk
+          restore-keys: build-windows-xmake-dx-sdk
       - name: "Configure and Build"
         shell: cmd
         run: |
