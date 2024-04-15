@@ -58,12 +58,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Cache dependencies
-        id: cache
-        uses: corca-ai/local-cache@v2
-        with:
-          path: SDKs
-          key: build-windows-xmake-dx-sdk
       - name: "Configure and Build"
         shell: cmd
         run: |
