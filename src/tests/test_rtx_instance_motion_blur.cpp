@@ -110,19 +110,31 @@ int main(int argc, char *argv[]) {
     stream << vertex_buffer.copy_from(vertices.data())
            << triangle_buffer.copy_from(indices.data());
 
+    std::array motion_matrix_keys{
+        float4{1.0f, 0.0f, 0.0f, 0.0f},
+        float4{0.0f, 1.0f, 0.0f, 0.0f},
+        float4{0.0f, 0.0f, 1.0f, 0.0f},
+        float4{1.0f, 0.0f, 0.0f, 0.0f},
+        float4{0.0f, 1.0f, 0.0f, 0.5f},
+        float4{0.0f, 0.0f, 1.0f, 0.0f}};
+    Buffer<float4> matrix_buffer = device.create_buffer<float4>(6u);
+    stream << matrix_buffer.copy_from(motion_matrix_keys.data());
+
     Accel accel = device.create_accel();
     AccelOption accel_option = {
-        .motion_options = AccelOption::MotionOptions{
+        .motion_option = MotionOption{
             .num_keys = 2u,
             .time_begin = 0.0f,
             .time_end = 1.0f,
-            .flag = AccelOption::MotionOptions::MotionFlag::NONE
-            }};
+            .flag = MotionOption::MotionFlag::NONE}};
     Mesh mesh = device.create_mesh(vertex_buffer, triangle_buffer, accel_option);
-    accel.emplace_back(mesh, scaling(1.5f));
-    accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
-                                 rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
+    AnimatedMesh animated_mesh = device.create_animated_mesh(matrix_buffer, mesh.handle(), MotionOption{.num_keys = 2u, .time_begin = 0.0f, .time_end = 1.0f, .flag = MotionOption::MotionFlag::NONE});
+    // accel.emplace_back(mesh, scaling(1.5f));
+    // accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
+    //                              rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
+    accel.emplace_back(animated_mesh);
     stream << mesh.build()
+           << animated_mesh.build()
            << accel.build();
 
     auto colorspace_shader = device.compile(colorspace_kernel);

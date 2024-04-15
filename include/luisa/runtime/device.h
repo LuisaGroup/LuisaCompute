@@ -17,6 +17,7 @@ class Event;
 class TimelineEvent;
 class Stream;
 class Mesh;
+class AnimatedMesh;
 class Curve;
 class MeshFormat;
 class ProceduralPrimitive;
@@ -154,6 +155,11 @@ public:
                                    size_t vertex_stride,
                                    TBuffer &&triangles,
                                    const AccelOption &option = {}) noexcept;
+
+    template<typename MBuffer>
+    [[nodiscard]] AnimatedMesh create_animated_mesh(MBuffer &&matrix_buffer,
+                                                    uint64_t mesh_handle,
+                                                    const MotionOption &option) noexcept;
     // see definition in rtx/curve.h
     template<typename CPBuffer, typename SegmentBuffer>
     [[nodiscard]] Curve create_curve(CurveBasis basis,

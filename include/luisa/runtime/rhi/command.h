@@ -42,6 +42,7 @@ struct IndirectDispatchArg {
         TextureToBufferCopyCommand,      \
         AccelBuildCommand,               \
         MeshBuildCommand,                \
+        AnimatedMeshBuildCommand,        \
         CurveBuildCommand,               \
         ProceduralPrimitiveBuildCommand, \
         BindlessArrayUpdateCommand,      \
@@ -443,6 +444,25 @@ public:
     [[nodiscard]] auto triangle_buffer() const noexcept { return _triangle_buffer; }
     [[nodiscard]] auto triangle_buffer_offset() const noexcept { return _triangle_buffer_offset; }
     [[nodiscard]] auto triangle_buffer_size() const noexcept { return _triangle_buffer_size; }
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
+};
+
+class AnimatedMeshBuildCommand final : public Command {
+private:
+    uint64_t _handle{};
+    uint64_t _matrix_buffer{};
+    uint64_t _mesh_handle{};
+
+private:
+    AnimatedMeshBuildCommand() noexcept
+        : Command(Command::Tag::EAnimatedMeshBuildCommand) {}
+
+public:
+    AnimatedMeshBuildCommand(uint64_t handle, uint64_t matrix_buffer, uint64_t mesh_handle) noexcept
+        : Command{Command::Tag::EAnimatedMeshBuildCommand}, _handle{handle}, _matrix_buffer{matrix_buffer}, _mesh_handle{mesh_handle} {}
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto matrix_buffer() const noexcept { return _matrix_buffer; }
+    [[nodiscard]] auto mesh_handle() const noexcept { return _mesh_handle; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 

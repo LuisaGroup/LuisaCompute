@@ -72,6 +72,14 @@ public:
         emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque, user_id);
     }
 
+    void emplace_back(const AnimatedMesh &animated_mesh,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      bool opaque = true,
+                      uint user_id = 0) noexcept {
+        emplace_back_handle(animated_mesh.handle(), transform, visibility_mask, opaque, user_id);
+    }
+
     void emplace_back(const Curve &curve,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,

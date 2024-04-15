@@ -112,13 +112,14 @@ int main(int argc, char *argv[]) {
 
     Accel accel = device.create_accel();
     AccelOption accel_option = {
-        .motion_options = AccelOption::MotionOptions{
+        .motion_option = MotionOption{
             .num_keys = 2u,
             .time_begin = 0.0f,
             .time_end = 1.0f,
-            .flag = AccelOption::MotionOptions::MotionFlag::NONE
+            .flag = MotionOption::MotionFlag::NONE
             }};
     Mesh mesh = device.create_mesh(vertex_buffer, triangle_buffer, accel_option);
+
     accel.emplace_back(mesh, scaling(1.5f));
     accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                  rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));

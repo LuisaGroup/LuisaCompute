@@ -98,4 +98,50 @@ Mesh Device::create_mesh(VBuffer &&vertices, size_t vertex_stride, TBuffer &&tri
     return this->_create<Mesh>(std::forward<VBuffer>(vertices), vertex_stride, std::forward<TBuffer>(triangles), option);
 }
 
+class LC_RUNTIME_API AnimatedMesh final : public Resource {
+private:
+    uint64_t _matrix_buffer{};
+    uint64_t _mesh_handle{};
+
+private:
+    friend class Device;
+
+    template<typename MBuffer>
+        requires is_buffer_or_view_v<MBuffer>
+    [[nodiscard]] static ResourceCreationInfo _create_resource(
+        DeviceInterface *device, const MotionOption &option,
+        const MBuffer &matrix_buffer [[maybe_unused]],
+        uint64_t mesh_handle [[maybe_unused]]) noexcept {
+        return device->create_animated_mesh(option);
+    }
+
+private:
+    template<typename MBuffer>
+    AnimatedMesh(DeviceInterface *device, const MBuffer &matrix_buffer, const uint64_t mesh_handle,
+                 const MotionOption &option) noexcept
+        : Resource{device, Resource::Tag::MESH,
+                   _create_resource(device, option, matrix_buffer, mesh_handle)},
+          _matrix_buffer{BufferView{matrix_buffer}.handle()},
+          _mesh_handle{mesh_handle} {}
+
+public:
+    AnimatedMesh() noexcept = default;
+    ~AnimatedMesh() noexcept override;
+    AnimatedMesh(AnimatedMesh &&) noexcept = default;
+    AnimatedMesh(AnimatedMesh const &) noexcept = delete;
+    AnimatedMesh &operator=(AnimatedMesh &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
+    AnimatedMesh &operator=(AnimatedMesh const &) noexcept = delete;
+    using Resource::operator bool;
+    // build triangle based bottom-level acceleration structure
+    [[nodiscard]] luisa::unique_ptr<Command> build() noexcept;
+};
+
+template<typename MBuffer>
+AnimatedMesh Device::create_animated_mesh(MBuffer &&matrix_buffer, uint64_t mesh_handle, const MotionOption &option) noexcept {
+    return this->_create<AnimatedMesh>(std::forward<MBuffer>(matrix_buffer), mesh_handle, option);
+}
+
 }// namespace luisa::compute

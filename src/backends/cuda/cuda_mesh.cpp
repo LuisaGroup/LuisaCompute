@@ -18,9 +18,9 @@ inline optix::BuildInput CUDAMesh::_make_build_input() noexcept {
     build_input.triangleArray.flags = &geometry_flag;
     build_input.triangleArray.vertexFormat = optix::VERTEX_FORMAT_FLOAT3;
     _per_frame_vertex_buffer.clear();
-    _per_frame_vertex_buffer.resize(option().motion_options.num_keys);
-    size_t per_frame_buffer_size = _vertex_buffer_size / option().motion_options.num_keys;
-    for (size_t i = 0; i < option().motion_options.num_keys; ++i) {
+    _per_frame_vertex_buffer.resize(option().motion_option.num_keys);
+    size_t per_frame_buffer_size = _vertex_buffer_size / option().motion_option.num_keys;
+    for (size_t i = 0; i < option().motion_option.num_keys; ++i) {
         _per_frame_vertex_buffer[i] = _vertex_buffer + i * per_frame_buffer_size;
     }
     build_input.triangleArray.vertexBuffers = _per_frame_vertex_buffer.data();
@@ -72,6 +72,29 @@ void CUDAMesh::build(CUDACommandEncoder &encoder, MeshBuildCommand *command) noe
     } else {
         _update(encoder);
     }
+}
+
+CUDAAnimatedMesh::CUDAAnimatedMesh(const MotionOption &option) noexcept
+    : _option(option) {}
+
+void CUDAAnimatedMesh::build(CUDACommandEncoder &encoder, AnimatedMeshBuildCommand *command) noexcept {
+    auto cuda_stream = encoder.stream()->handle();
+    auto optix_ctx = encoder.stream()->device()->handle().optix_context();
+    
+    auto matrix_buffer = reinterpret_cast<const CUDABuffer *>(command->matrix_buffer());
+    _mesh_handle = command->mesh_handle();
+
+    optix::MatrixMotionTransform motion_transform{};
+    motion_transform.child = _mesh_handle;
+    motion_transform.motionOptions = optix::MotionOptions{.numKeys = _option.num_keys, .flags = static_cast<uint16_t>(_option.flag), .timeBegin = _option.time_begin, .timeEnd = _option.time_end};
+    
+    size_t transform_size_in_bytes = sizeof(optix::MatrixMotionTransform) + (_option.num_keys - 2) * 12 * sizeof(float);
+    LUISA_CHECK_CUDA(cuMemAllocAsync(&_motion_transform_buffer, transform_size_in_bytes, cuda_stream));
+    size_t motion_transform_stub_size_in_bytes = sizeof(optix::MatrixMotionTransform) - 2 * 12 * sizeof(float);
+    LUISA_ASSERT(sizeof(optix::MatrixMotionTransform) > 2 * 12 * sizeof(float), "Wrong memory layout!");
+    LUISA_CHECK_CUDA(cuMemcpyHtoD(_motion_transform_buffer, &motion_transform, motion_transform_stub_size_in_bytes));
+    LUISA_CHECK_CUDA(cuMemcpyDtoD(_motion_transform_buffer + motion_transform_stub_size_in_bytes, matrix_buffer->device_address(), _option.num_keys * 12 * sizeof(float)));
+    LUISA_CHECK_OPTIX(optix::api().convertPointerToTraversableHandle(optix_ctx, _motion_transform_buffer, optix::TRAVERSABLE_TYPE_MATRIX_MOTION_TRANSFORM, &_handle));
 }
 
 }// namespace luisa::compute::cuda
