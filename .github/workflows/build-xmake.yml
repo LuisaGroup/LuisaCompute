@@ -44,7 +44,7 @@ jobs:
           fi
           xmake lua setup.lua
           xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --mm=clang --mxx=clang++ --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
-          xmake
+          xmake --jobs=16
 
   build-windows:
     strategy:
