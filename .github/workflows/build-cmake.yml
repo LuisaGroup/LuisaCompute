@@ -86,7 +86,7 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          xmake lua setup.lua ../luisa_compute_sdks
+          xmake lua setup.lua ../luisa_compute_sdks true
           call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake --version
           ninja --version
@@ -97,7 +97,7 @@ jobs:
             set CC=${{ matrix.compiler }}
             set CXX=${{ matrix.compiler }}
           )
-          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_DX_SDK_DIR=../luisa_compute_sdks -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
+          cmake -S . -G Ninja -B build -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF -D LUISA_COMPUTE_DX_SDK_DIR=../luisa_compute_sdks/x64 -D LUISA_COMPUTE_ENABLE_CPU=OFF -D CMAKE_BUILD_TYPE=${{ matrix.config }}
           cmake --build build -v
       - name: "Install"
         run: |
