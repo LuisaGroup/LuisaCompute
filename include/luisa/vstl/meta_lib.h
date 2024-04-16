@@ -45,11 +45,8 @@ void reset(T &v, Args &&...args) {
     v.~T();
     new (std::launder(&v)) T(std::forward<Args>(args)...);
 }
-template<typename T>
-void destruct(T *ptr) {
-    if constexpr (!std::is_void_v<T> && !std::is_trivially_destructible_v<T>)
-        ptr->~T();
-}
+using luisa::destruct;
+using luisa::construct;
 template<typename T>
 struct TypeOf {
     using Type = T;
