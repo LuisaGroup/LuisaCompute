@@ -18,7 +18,7 @@ elseif is_plat("macosx") then
     add_files("../ext/glfw/src/*.m")
     add_mflags("-fno-objc-arc")
     add_defines("_GLFW_COCOA")
-    add_frameworks("Foundation", "Cocoa", "IOKit", "OpenGL")
+    add_frameworks("Foundation", "Cocoa", "IOKit", "OpenGL", "QuartzCore")
 end
 target_end()
 
