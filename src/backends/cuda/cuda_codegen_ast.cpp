@@ -624,7 +624,9 @@ void CUDACodegenAST::visit(const UnaryExpr *expr) {
         case UnaryOp::BIT_NOT: _scratch << "~"; break;
         default: break;
     }
+    _scratch << "(";
     expr->operand()->accept(*this);
+    _scratch << ")";
 }
 
 void CUDACodegenAST::visit(const BinaryExpr *expr) {
