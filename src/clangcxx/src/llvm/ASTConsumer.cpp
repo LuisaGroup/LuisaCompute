@@ -1127,6 +1127,9 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
             db->DumpWithLocation(S);
     }
 
+    const auto TemplateKind = S->getTemplatedKind();
+    is_template |= (TemplateKind == clang::FunctionDecl::TemplatedKind::TK_FunctionTemplate);
+    
     if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
         if (auto thisType = Method->getParent()) {
             is_ignore |= thisType->isUnion();// ignore union
