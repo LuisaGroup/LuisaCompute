@@ -85,6 +85,7 @@ jobs:
           version: 1.11.1
       - name: "Configure and Build"
         shell: cmd
+        # FIXME: use native CMake scripts to download the SDKs
         run: |
           xmake lua setup.lua ../luisa_compute_sdks ../luisa_compute_sdks/cmake
           call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
