@@ -9,6 +9,11 @@ namespace luisa::compute {
 namespace detail {
 void ShaderInvokeBase::encode(ShaderDispatchCmdEncoder &encoder, const Accel &accel) noexcept {
     accel._check_is_valid();
+#ifndef NDEBUG
+    if (accel.dirty()) [[unlikely]] {
+        LUISA_WARNING("Dispatching shader with a dirty accel.");
+    }
+#endif
     encoder.encode_accel(accel.handle());
 }
 
