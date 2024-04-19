@@ -60,6 +60,7 @@ public:
      * @return function return
      */
     template<concepts::function F, typename... Args>
+        requires(std::is_invocable_v<F, Args && ...>)
     decltype(auto) invoke(std::string_view name, Args &&...args) const noexcept {
         return luisa::invoke(function<F>(name), std::forward<Args>(args)...);
     }
@@ -111,4 +112,3 @@ public:
 };
 
 }// namespace luisa
-
