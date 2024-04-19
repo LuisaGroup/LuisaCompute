@@ -484,11 +484,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             auto _ = db->CommentStmt(fb, cxxFor);
 
             currentCxxForStmt = cxxFor;
-            auto lcWhile = fb->loop_();
             // i = 0
             auto cxxInit = cxxFor->getInit();
             TraverseStmt(cxxInit);
             // while (cond)
+            auto lcWhile = fb->loop_();
             fb->push_scope(lcWhile->body());
             {
                 auto cxxCond = cxxFor->getCond();
