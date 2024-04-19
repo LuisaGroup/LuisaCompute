@@ -588,10 +588,17 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = lcExpr;
             } else if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
                 auto limitedVal = il->getValue().getLimitedValue();
-                if (limitedVal <= UINT32_MAX)
-                    current = fb->literal(Type::of<uint>(), (uint)il->getValue().getLimitedValue());
-                else
-                    current = fb->literal(Type::of<uint64>(), il->getValue().getLimitedValue());
+                if (il->getType()->isSignedIntegerType()) {
+                    if (limitedVal <= INT32_MAX)
+                        current = fb->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
+                    else
+                        current = fb->literal(Type::of<int64>(), il->getValue().getLimitedValue());
+                } else {
+                    if (limitedVal <= UINT32_MAX)
+                        current = fb->literal(Type::of<uint>(), (uint)il->getValue().getLimitedValue());
+                    else
+                        current = fb->literal(Type::of<uint64>(), il->getValue().getLimitedValue());
+                }
             } else if (auto bl = llvm::dyn_cast<CXXBoolLiteralExpr>(x)) {
                 current = fb->literal(Type::of<bool>(), (bool)bl->getValue());
             } else if (auto fl = llvm::dyn_cast<FloatingLiteral>(x)) {
@@ -1129,7 +1136,7 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
 
     const auto TemplateKind = S->getTemplatedKind();
     is_template |= (TemplateKind == clang::FunctionDecl::TemplatedKind::TK_FunctionTemplate);
-    
+
     if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
         if (auto thisType = Method->getParent()) {
             is_ignore |= thisType->isUnion();// ignore union
