@@ -6,7 +6,6 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
-#include <luisa/dsl/printer.h>
 
 using namespace luisa;
 using namespace luisa::compute;

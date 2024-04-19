@@ -6,7 +6,6 @@ using namespace luisa::compute;
 
 void test_buffer_io(Device &device) noexcept {
 
-    auto printer = Printer{device};
     Stream stream = device.create_stream();
     auto buffer0 = device.create_buffer<float>(4);
     auto buffer1 = device.create_buffer<float>(4);
@@ -30,7 +29,7 @@ void test_buffer_io(Device &device) noexcept {
         }
 
         //auto res2 = buffer2->read(id);
-        printer.info("{} : res0 = {}, res1 = {}", id, res0, res1);
+        device_log("{} : res0 = {}, res1 = {}", id, res0, res1);
         result.write(iter * dispatch_size_x() + id, make_float2(res0, res1));
 
         buffer0->write(id, res0 + 1.0f);
@@ -51,11 +50,9 @@ void test_buffer_io(Device &device) noexcept {
             cmdlist << iteration(i, result_buffer).dispatch(4);
         }
 
-        stream << printer.reset()
-               << cmdlist.commit()
+        stream << cmdlist.commit()
                << used().dispatch(1)
                << result_buffer.copy_to(result_readback.data())
-               << printer.retrieve()
                << synchronize();
 
         for (auto i = 0u; i < 2u; i++) {
@@ -78,4 +75,3 @@ TEST_CASE("buffer_io") {
         }
     }
 }
-

@@ -8,7 +8,6 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
-#include <luisa/dsl/printer.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -16,20 +15,17 @@ using namespace luisa::compute;
 namespace luisa::test {
 int use_printer(Device &device) {
     log_level_verbose();
-    Printer printer{device};
 
     Kernel2D kernel = [&]() noexcept {
         UInt2 coord = dispatch_id().xy();
         $if (coord.x == coord.y) {
             Float2 v = make_float2(coord) / make_float2(dispatch_size().xy());
-            printer.info_with_location("v = ({}, {})", v.x, v.y);
+            device_log("v = ({}, {})", v.x, v.y);
         };
     };
     auto shader = device.compile(kernel);
     Stream stream = device.create_stream();
-    stream << printer.reset()
-           << shader().dispatch(128u, 128u)
-           << printer.retrieve()
+    stream << shader().dispatch(128u, 128u)
            << synchronize();
     return 0;
 }
