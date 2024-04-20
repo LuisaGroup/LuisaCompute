@@ -68,7 +68,7 @@ namespace luisa::compute::cuda {
     p.close(reproc::stream::in);
     auto buffer = read_from_subprocess(p);
     using namespace std::chrono_literals;
-    if (auto [exit_code, error] = p.wait(0ms); exit_code || error) {
+    if (auto [exit_code, error] = p.wait(1024h/* almost forever */); exit_code || error) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to terminate the process: {} (exit code = {}).",
             error.message(), exit_code);
