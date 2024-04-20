@@ -137,9 +137,15 @@ int main(int argc, char *argv[]) {
     }
 
     // write PTX to stdout
-    if (!fwrite(buffer.data, buffer.size, 1, stdout)) {
+    size_t written_size = fwrite(buffer.data, 1, buffer.size, stdout);
+    if (written_size != buffer.size) {
+        FILE *file = fopen("dump.ptx", "wb");
+        fwrite(buffer.data, 1, buffer.size, file);
+        fclose(file);
         free(buffer.data);
-        report_error("Failed to write PTX data to stdout.\n");
+        report_error("Failed to write PTX data to stdout "
+                     "(%" PRIu64 " of total %" PRIu64 "B written).\n",
+                     written_size, buffer.size);
     }
     fflush(stdout);// ensure the data is written before exit
     free(buffer.data);
