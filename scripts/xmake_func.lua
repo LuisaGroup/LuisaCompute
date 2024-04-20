@@ -196,7 +196,7 @@ on_load(function(target)
     if type(c_standard) == "string" and type(cxx_standard) == "string" then
         target:set("languages", c_standard, cxx_standard)
     else
-        target:set("languages", "clatest", "cxx20")
+        target:set("languages", "clatest", "cxxlatest")
     end
 
     local enable_exception = _get_or("enable_exception", nil)
