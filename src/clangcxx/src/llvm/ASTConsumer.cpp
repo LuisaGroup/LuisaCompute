@@ -587,17 +587,17 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 auto lcExpr = stack->GetExpr(substNonType->getReplacement());
                 current = lcExpr;
             } else if (auto il = llvm::dyn_cast<IntegerLiteral>(x)) {
-                auto limitedVal = il->getValue().getLimitedValue();
+                auto limitedVal = il->getValue().getLimitedValue(UINT64_MAX);
                 if (il->getType()->isSignedIntegerType()) {
                     if (limitedVal <= INT32_MAX)
-                        current = fb->literal(Type::of<int>(), (int)il->getValue().getLimitedValue());
-                    else
-                        current = fb->literal(Type::of<int64>(), il->getValue().getLimitedValue());
+                        current = fb->literal(Type::of<int>(), static_cast<int>(limitedVal));
+                    else if (limitedVal < INT64_MAX)
+                        current = fb->literal(Type::of<int64>(), static_cast<int64>(limitedVal));
                 } else {
                     if (limitedVal <= UINT32_MAX)
-                        current = fb->literal(Type::of<uint>(), (uint)il->getValue().getLimitedValue());
+                        current = fb->literal(Type::of<uint>(), static_cast<uint>(limitedVal));
                     else
-                        current = fb->literal(Type::of<uint64>(), il->getValue().getLimitedValue());
+                        current = fb->literal(Type::of<uint64>(), static_cast<uint64>(limitedVal));
                 }
             } else if (auto bl = llvm::dyn_cast<CXXBoolLiteralExpr>(x)) {
                 current = fb->literal(Type::of<bool>(), (bool)bl->getValue());
