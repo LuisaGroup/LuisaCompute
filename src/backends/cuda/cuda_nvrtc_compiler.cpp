@@ -141,6 +141,7 @@ int main(int argc, char *argv[]) {
         free(buffer.data);
         report_error("Failed to write PTX data to stdout.\n");
     }
+    fflush(stdout);// ensure the data is written before exit
     free(buffer.data);
     return 0;
 }
