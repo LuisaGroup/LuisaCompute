@@ -184,6 +184,9 @@ SDKs/
 # Kernel Module Compile Results
 *.mod*
 *.cmd
+*.bat
+*.sh
+*.ps1
 .tmp_versions/
 modules.order
 Module.symvers

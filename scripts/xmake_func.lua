@@ -8,6 +8,24 @@ set_showmenu(false)
 set_default(false)
 option_end()
 
+option("_lc_check_env")
+set_showmenu(false)
+set_default(false)
+after_check(function(option)
+    if not is_arch("x64", "x86_64", "arm64") then
+        option:set_value(false)
+        utils.error("Illegal environment. Please check your compiler, architecture or platform.")
+        return
+    end
+    if not (is_mode("debug") or is_mode("release") or is_mode("releasedbg")) then
+        option:set_value(false)
+        utils.error("Illegal mode. set mode to 'release', 'debug' or 'releasedbg'.")
+        return
+    end
+    option:set_value(true)
+end)
+option_end()
+
 option("_lc_bin_dir")
 set_default(false)
 set_showmenu(false)
