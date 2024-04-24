@@ -1856,7 +1856,20 @@ void CodegenUtility::CodegenProperties(
     auto args = kernel.arguments();
     for (auto &&i : vstd::ptr_range(args.data() + offset, args.size() - offset)) {
         auto print = [&] {
-            GetTypeName(*i.type(), varData, kernel.variable_usage(i.uid()));
+            auto attris = i.type()->member_attributes();
+            auto usage = kernel.variable_usage(i.uid());
+            if (!attris.empty()) {
+                for (auto &a : attris) {
+                    if ((to_underlying(usage) & to_underlying(Usage::WRITE)) != 0) {
+                        if (a.key == "cache"sv) {
+                            if (a.value == "coherent"sv) {
+                                varData << "globallycoherent "sv;
+                            }
+                        }
+                    }
+                }
+            }
+            GetTypeName(*i.type(), varData, usage);
             varData << ' ';
             GetVariableName(i, varData);
         };

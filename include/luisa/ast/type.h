@@ -343,9 +343,9 @@ public:
     /// Return matrix type of type T
     [[nodiscard]] static const Type *matrix(size_t n) noexcept;
     /// Return buffer type of type T
-    [[nodiscard]] static const Type *buffer(const Type *elem) noexcept;
+    [[nodiscard]] static const Type *buffer(const Type *elem, luisa::span<const Attribute> attributes = {}) noexcept;
     /// Return texture type of type T
-    [[nodiscard]] static const Type *texture(const Type *elem, size_t dimension) noexcept;
+    [[nodiscard]] static const Type *texture(const Type *elem, size_t dimension, luisa::span<const Attribute> attributes = {}) noexcept;
     /// Return struct type of type T
     [[nodiscard]] static const Type *structure(luisa::span<Type const *const> members, luisa::span<const Attribute> attributes = {}) noexcept;
     /// Return struct type of type T

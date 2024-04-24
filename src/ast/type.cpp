@@ -374,6 +374,16 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->size = (info->size + info->alignment - 1u) / info->alignment * info->alignment;
     } else if (type_identifier == "buffer"sv) {
         info->tag = Type::Tag::BUFFER;
+        while (try_match('[')) {
+            auto attr_key = read_identifier();
+            luisa::string_view attr_value;
+            if (try_match('(')) {
+                attr_value = read_identifier();
+                match(')');
+            }
+            match(']');
+            info->member_attributes.emplace_back(luisa::string{attr_key}, luisa::string{attr_value});
+        }
         match('<');
         auto m = info->members.emplace_back(_decode(split()));
         match('>');
@@ -391,6 +401,16 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
         info->size = 8u;
     } else if (type_identifier == "texture"sv) {
         info->tag = Type::Tag::TEXTURE;
+        while (try_match('[')) {
+            auto attr_key = read_identifier();
+            luisa::string_view attr_value;
+            if (try_match('(')) {
+                attr_value = read_identifier();
+                match(')');
+            }
+            match(']');
+            info->member_attributes.emplace_back(luisa::string{attr_key}, luisa::string{attr_value});
+        }
         match('<');
         info->dimension = read_number();
         match(',');
@@ -436,8 +456,8 @@ luisa::span<Type const *const> Type::members() const noexcept {
 }
 
 luisa::span<const Attribute> Type::member_attributes() const noexcept {
-    LUISA_ASSERT(is_structure(),
-                 "Calling members() on a non-structure type {}.",
+    LUISA_ASSERT(is_structure() || is_buffer() || is_texture(),
+                 "Calling members() on a non-structure, buffer or texture type {}.",
                  description());
     return static_cast<const detail::TypeImpl *>(this)->member_attributes;
 }
@@ -586,19 +606,47 @@ const Type *Type::matrix(size_t n) noexcept {
     return from(luisa::format("matrix<{}>", n));
 }
 
-const Type *Type::buffer(const Type *elem) noexcept {
+const Type *Type::buffer(const Type *elem, luisa::span<const Attribute> attributes) noexcept {
     LUISA_ASSERT(!elem->is_buffer() && !elem->is_texture(), "Buffer cannot hold buffers or images.");
     LUISA_ASSERT(!elem->is_structure() || elem->member_attributes().empty(), "Buffer cannot hold structure with custom attributes.");
-    return from(luisa::format("buffer<{}>", elem->description()));
+    if (!attributes.empty()) [[unlikely]] /*usually would not use attribute*/ {
+        luisa::string r{"buffer"};
+        for (auto &attr : attributes) {
+            if (!attr) continue;
+            if (attr.value.empty()) {
+                r.append(luisa::format("[{}]", attr.key));
+            } else {
+                r.append(luisa::format("[{}({})]", attr.key, attr.value));
+            }
+        }
+        r.append(luisa::format("<{}>", elem->description()));
+        return from(r);
+    } else {
+        return from(luisa::format("buffer<{}>", elem->description()));
+    }
 }
 
-const Type *Type::texture(const Type *elem, size_t dimension) noexcept {
+const Type *Type::texture(const Type *elem, size_t dimension, luisa::span<const Attribute> attributes) noexcept {
     if (elem->is_vector()) { elem = elem->element(); }
     LUISA_ASSERT(elem->is_arithmetic(),
                  "Texture element must be an arithmetic, but got {}.",
                  elem->description());
     LUISA_ASSERT(dimension == 2u || dimension == 3u, "Texture dimension must be 2 or 3");
-    return from(luisa::format("texture<{},{}>", dimension, elem->description()));
+    if (!attributes.empty()) [[unlikely]] /*usually would not use attribute*/ {
+        luisa::string r{"texture"};
+        for (auto &attr : attributes) {
+            if (!attr) continue;
+            if (attr.value.empty()) {
+                r.append(luisa::format("[{}]", attr.key));
+            } else {
+                r.append(luisa::format("[{}({})]", attr.key, attr.value));
+            }
+        }
+        r.append(luisa::format("<{},{}>", dimension, elem->description()));
+        return from(r);
+    } else {
+        return from(luisa::format("texture<{},{}>", dimension, elem->description()));
+    }
 }
 
 const Type *Type::structure(size_t alignment, luisa::span<Type const *const> members, luisa::span<const Attribute> attributes) noexcept {
@@ -608,7 +656,7 @@ const Type *Type::structure(size_t alignment, luisa::span<Type const *const> mem
     LUISA_ASSERT(attributes.empty() || attributes.size() == members.size(),
                  "Invalid attribute size (must be empty or same as members' size");
     auto desc = luisa::format("struct<{}", alignment);
-    if (!attributes.empty()) {
+    if (!attributes.empty()) [[unlikely]] /*usually would not use attribute*/ {
         for (size_t i = 0; i < members.size(); ++i) {
             desc.append(",");
             auto &a = attributes[i];
