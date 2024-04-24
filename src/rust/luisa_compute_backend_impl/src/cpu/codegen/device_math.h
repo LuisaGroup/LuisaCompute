@@ -2896,6 +2896,16 @@ template<typename T>
 [[nodiscard]] __device__ inline lc_float3 lc_abs(lc_float3 x) noexcept { return lc_make_float3(fabsf(x.x), fabsf(x.y), fabsf(x.z)); }
 [[nodiscard]] __device__ inline lc_float4 lc_abs(lc_float4 x) noexcept { return lc_make_float4(fabsf(x.x), fabsf(x.y), fabsf(x.z), fabsf(x.w)); }
 
+[[nodiscard]] __device__ inline lc_int lc_abs(lc_int x) noexcept { return abs(x); }
+[[nodiscard]] __device__ inline lc_int2 lc_abs(lc_int2 x) noexcept { return lc_make_int2(abs(x.x), abs(x.y)); }
+[[nodiscard]] __device__ inline lc_int3 lc_abs(lc_int3 x) noexcept { return lc_make_int3(abs(x.x), abs(x.y), abs(x.z)); }
+[[nodiscard]] __device__ inline lc_int4 lc_abs(lc_int4 x) noexcept { return lc_make_int4(abs(x.x), abs(x.y), abs(x.z), abs(x.w)); }
+
+[[nodiscard]] __device__ inline lc_long lc_abs(lc_long x) noexcept { return llabs(x); }
+[[nodiscard]] __device__ inline lc_long2 lc_abs(lc_long2 x) noexcept { return lc_make_long2(llabs(x.x), llabs(x.y)); }
+[[nodiscard]] __device__ inline lc_long3 lc_abs(lc_long3 x) noexcept { return lc_make_long3(llabs(x.x), llabs(x.y), llabs(x.z)); }
+[[nodiscard]] __device__ inline lc_long4 lc_abs(lc_long4 x) noexcept { return lc_make_long4(llabs(x.x), llabs(x.y), llabs(x.z), llabs(x.w)); }
+
 [[nodiscard]] __device__ inline lc_half lc_abs(lc_half x) noexcept { return __habs(x); }
 [[nodiscard]] __device__ inline lc_half2 lc_abs(lc_half2 x) noexcept { return lc_make_half2(__habs(x.x), __habs(x.y)); }
 [[nodiscard]] __device__ inline lc_half3 lc_abs(lc_half3 x) noexcept { return lc_make_half3(__habs(x.x), __habs(x.y), __habs(x.z)); }

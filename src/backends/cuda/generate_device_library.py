@@ -380,6 +380,8 @@ struct lc_float{i}x{i} {{
         generate_vector_call("max", "fmaxf", "f", ["a", "b"])
         generate_vector_call("max", "__hmax", "h", ["a", "b"])
         generate_vector_call("abs", "fabsf", "f", ["x"])
+        generate_vector_call("abs", "abs", "i", ["x"])
+        generate_vector_call("abs", "llabs", "l", ["x"])
         generate_vector_call("abs", "__habs", "h", ["x"])
 
         generate_vector_call("acos", "acosf", "hf", ["x"])
