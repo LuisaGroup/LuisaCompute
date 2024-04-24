@@ -1856,14 +1856,16 @@ void CodegenUtility::CodegenProperties(
     auto args = kernel.arguments();
     for (auto &&i : vstd::ptr_range(args.data() + offset, args.size() - offset)) {
         auto print = [&] {
-            auto attris = i.type()->member_attributes();
             auto usage = kernel.variable_usage(i.uid());
-            if (!attris.empty()) {
-                for (auto &a : attris) {
-                    if ((to_underlying(usage) & to_underlying(Usage::WRITE)) != 0) {
-                        if (a.key == "cache"sv) {
-                            if (a.value == "coherent"sv) {
-                                varData << "globallycoherent "sv;
+            if (i.type()->is_buffer() || i.type()->is_texture()) {
+                auto attris = i.type()->member_attributes();
+                if (!attris.empty()) {
+                    for (auto &a : attris) {
+                        if ((to_underlying(usage) & to_underlying(Usage::WRITE)) != 0) {
+                            if (a.key == "cache"sv) {
+                                if (a.value == "coherent"sv) {
+                                    varData << "globallycoherent "sv;
+                                }
                             }
                         }
                     }

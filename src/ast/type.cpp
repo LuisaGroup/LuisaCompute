@@ -457,7 +457,7 @@ luisa::span<Type const *const> Type::members() const noexcept {
 
 luisa::span<const Attribute> Type::member_attributes() const noexcept {
     LUISA_ASSERT(is_structure() || is_buffer() || is_texture(),
-                 "Calling members() on a non-structure, buffer or texture type {}.",
+                 "Calling member_attributes() on a non-structure, buffer or texture type {}.",
                  description());
     return static_cast<const detail::TypeImpl *>(this)->member_attributes;
 }
