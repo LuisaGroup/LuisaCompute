@@ -45,11 +45,10 @@ private:
 
 private:
     MotionOption _option;
-    mutable spin_mutex _mutex;
 
 public:
     explicit CUDAAnimatedMesh(const MotionOption &option) noexcept;
-    ~CUDAAnimatedMesh() noexcept;
+    ~CUDAAnimatedMesh() noexcept = default;
     void build(CUDACommandEncoder &encoder,
                AnimatedMeshBuildCommand *command) noexcept;
     
