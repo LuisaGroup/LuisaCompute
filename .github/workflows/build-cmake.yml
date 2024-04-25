@@ -42,7 +42,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos ]
-        compiler: [ homebrew-clang, system-clang ]
+        compiler: [ homebrew-clang ] # , system-clang
         config: [ Release, Debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, macos, arm64 ]

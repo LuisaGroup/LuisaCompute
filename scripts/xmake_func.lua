@@ -8,6 +8,24 @@ set_showmenu(false)
 set_default(false)
 option_end()
 
+option("_lc_check_env")
+set_showmenu(false)
+set_default(false)
+after_check(function(option)
+    if not is_arch("x64", "x86_64", "arm64") then
+        option:set_value(false)
+        utils.error("Illegal environment. Please check your compiler, architecture or platform.")
+        return
+    end
+    if not (is_mode("debug") or is_mode("release") or is_mode("releasedbg")) then
+        option:set_value(false)
+        utils.error("Illegal mode. set mode to 'release', 'debug' or 'releasedbg'.")
+        return
+    end
+    option:set_value(true)
+end)
+option_end()
+
 option("_lc_bin_dir")
 set_default(false)
 set_showmenu(false)
@@ -168,7 +186,7 @@ on_config(function(target)
 end)
 on_load(function(target)
     local _get_or = function(name, default_value)
-        local v = target:values(name)
+        local v = target:extraconf("rules", "lc_basic_settings", name)
         if v == nil then
             return default_value
         end
@@ -231,7 +249,7 @@ on_load(function(target)
     target:add("cxflags", "/Zc:preprocessor", {
         tools = "cl"
     });
-    if _get_or("use_simd", false) then
+    if _get_or("use_simd", get_config("enable_simd")) then
         if is_arch("arm64") then
             target:add("vectorexts", "neon")
         else
@@ -393,26 +411,8 @@ if _disable_unity_build == nil then
         _disable_unity_build = not unity_build
     end
 end
-
-if _configs == nil then
-    _configs = {}
-end
-_configs["use_simd"] = get_config("enable_simd")
 if not _config_project then
     function _config_project(config)
-        if type(_configs) == "table" then
-            for k, v in pairs(_configs) do
-                set_values(k, v)
-            end
-        end
-        if type(_config_rules) == "table" then
-            add_rules(_config_rules)
-        end
-        if type(config) == "table" then
-            for k, v in pairs(config) do
-                set_values(k, v)
-            end
-        end
         local batch_size = config["batch_size"]
         if type(batch_size) == "number" and batch_size > 1 and (not _disable_unity_build) then
             add_rules("c.unity_build", {
@@ -421,6 +421,9 @@ if not _config_project then
             add_rules("c++.unity_build", {
                 batchsize = batch_size
             })
+        end
+        if type(_config_rules) == "table" then
+            add_rules(_config_rules, config)
         end
     end
 end

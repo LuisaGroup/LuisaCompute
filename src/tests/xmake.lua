@@ -143,7 +143,6 @@ test_proj("test_shader_toy", true)
 test_proj("test_shader_visuals_present", true)
 test_proj("test_texture_io")
 test_proj("test_type")
-test_proj("test_raster", true)
 test_proj("test_texture_compress")
 test_proj("test_swapchain", true)
 test_proj("test_swapchain_static", true)
@@ -159,8 +158,13 @@ test_proj("test_pinned_mem")
 test_proj("test_imgui", true, function()
     add_deps("imgui")
 end)
-test_proj("test_cuda_dx_interop")
-test_proj("test_dml")
+if get_config("dx_backend") then
+    test_proj("test_raster", true)
+    if get_config("cuda_backend") then
+        test_proj("test_cuda_dx_interop")        
+    end
+    test_proj("test_dml") 
+end
 test_proj("test_manual_ast")
 if not is_mode("debug") then
     if get_config("enable_clangcxx") then

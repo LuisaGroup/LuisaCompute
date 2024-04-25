@@ -22,15 +22,15 @@ jobs:
         run: |
           xmake lua setup.lua
           xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
-          xmake
+          xmake --jobs=16
 
   build-macos:
     strategy:
       fail-fast: false
       matrix:
         os: [ macos ]
-        compiler: [ homebrew-clang, system-clang ]
-        config: [ Release, Debug ]
+        compiler: [ homebrew-clang ] # , system-clang
+        config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, macos, arm64 ]
     steps:
@@ -44,7 +44,7 @@ jobs:
           fi
           xmake lua setup.lua
           xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --mm=clang --mxx=clang++ --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
-          xmake --jobs=16
+          xmake
 
   build-windows:
     strategy:
