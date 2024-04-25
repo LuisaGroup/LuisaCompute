@@ -354,9 +354,9 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                     luisa::vector<luisa::compute::Attribute> attributes;
                     auto set_attributes = [&]() {
                         auto N = Arguments[1].getAsIntegral().getLimitedValue();
-                        // if (N == 1) {
-                        attributes.emplace_back("cache", "coherent");
-                        // }
+                        if (N == 1) {
+                            attributes.emplace_back("cache", "coherent");
+                        }
                     };
                     if (is_buffer) {
                         set_attributes();
