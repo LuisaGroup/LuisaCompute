@@ -172,8 +172,6 @@ public:
     void synchronize_event(uint64_t handle, uint64_t value) noexcept override;
     ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
-    ResourceCreationInfo create_animated_mesh(const MotionOption &option) noexcept override;
-    void destroy_animated_mesh(uint64_t handle) noexcept override;
     [[nodiscard]] ResourceCreationInfo create_curve(const AccelOption &option) noexcept override;
     void destroy_curve(uint64_t handle) noexcept override;
     ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept override;

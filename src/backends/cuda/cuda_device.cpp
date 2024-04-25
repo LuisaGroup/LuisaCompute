@@ -645,19 +645,19 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
     auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
     auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
-    luisa::vector<const char *> nvrtc_options{
+    luisa::vector<const char *> nvrtc_options {
         sm_option.c_str(),
-        nvrtc_version_option.c_str(),
-        optix_version_option.c_str(),
-        "--std=c++17",
-        "-default-device",
-        "-restrict",
-        "-extra-device-vectorization",
-        "-dw",
-        "-w",
-        "-ewp",
+            nvrtc_version_option.c_str(),
+            optix_version_option.c_str(),
+            "--std=c++17",
+            "-default-device",
+            "-restrict",
+            "-extra-device-vectorization",
+            "-dw",
+            "-w",
+            "-ewp",
 #if !defined(NDEBUG) && LUISA_CUDA_KERNEL_DEBUG
-        "-DLUISA_DEBUG=1",
+            "-DLUISA_DEBUG=1",
 #endif
     };
 
@@ -879,21 +879,6 @@ void CUDADevice::destroy_mesh(uint64_t handle) noexcept {
         delete_with_allocator(mesh);
     });
 }
-
-ResourceCreationInfo CUDADevice::create_animated_mesh(const MotionOption &option) noexcept {
-    auto animated_mesh_handle = with_handle([&option] {
-        return new_with_allocator<CUDAAnimatedMesh>(option);
-    });
-    return {.handle = reinterpret_cast<uint64_t>(animated_mesh_handle),
-            .native_handle = const_cast<optix::TraversableHandle *>(animated_mesh_handle->pointer_to_handle())};
-}
-
-void CUDADevice::destroy_animated_mesh(uint64_t handle) noexcept {
-    with_handle([=] {
-        auto animated_mesh = reinterpret_cast<CUDAAnimatedMesh *>(handle);
-        delete_with_allocator(animated_mesh);
-    });
-};
 
 ResourceCreationInfo CUDADevice::create_curve(const AccelOption &option) noexcept {
     auto curve_handle = with_handle([&option] {

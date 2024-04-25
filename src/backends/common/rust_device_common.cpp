@@ -321,9 +321,6 @@ public:
             .index_stride = sizeof(Triangle)};
         _converted.emplace_back(converted);
     }
-    void visit(const AnimatedMeshBuildCommand *command) noexcept override {
-        throw;
-    }
     void visit(const CurveBuildCommand *command) noexcept override {
         api::Command converted{.tag = Tag::CURVE_BUILD};
         converted.CURVE_BUILD._0 = api::CurveBuildCommand{
@@ -693,14 +690,6 @@ public:
 
     void destroy_mesh(uint64_t handle) noexcept override {
         device.destroy_mesh(device.device, api::Mesh{handle});
-    }
-
-    ResourceCreationInfo create_animated_mesh(const MotionOption &) noexcept override {
-        throw;
-    }
-
-    void destroy_animated_mesh(uint64_t handle) noexcept override {
-        throw;
     }
 
     ResourceCreationInfo create_curve(const AccelOption &option_) noexcept override {

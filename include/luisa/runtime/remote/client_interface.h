@@ -88,15 +88,6 @@ public:
     [[nodiscard]] ResourceCreationInfo create_mesh(const AccelOption &option) noexcept override;
     void destroy_mesh(uint64_t handle) noexcept override;
 
-    [[nodiscard]] ResourceCreationInfo create_animated_mesh(const MotionOption &option) noexcept override
-    {
-        throw;
-    }
-    void destroy_animated_mesh(uint64_t handle) noexcept override
-    {
-        throw;
-    }
-
     [[nodiscard]] ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept override;
     void destroy_procedural_primitive(uint64_t handle) noexcept override;
 

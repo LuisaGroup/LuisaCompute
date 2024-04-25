@@ -241,11 +241,6 @@ void CUDACommandEncoder::visit(MeshBuildCommand *command) noexcept {
     mesh->build(*this, command);
 }
 
-void CUDACommandEncoder::visit(AnimatedMeshBuildCommand *command) noexcept {
-    auto animated_mesh = reinterpret_cast<CUDAAnimatedMesh *>(command->handle());
-    animated_mesh->build(*this, command);
-}
-
 void CUDACommandEncoder::visit(CurveBuildCommand *command) noexcept {
     auto curve = reinterpret_cast<CUDACurve *>(command->handle());
     curve->build(*this, command);

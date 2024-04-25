@@ -171,9 +171,6 @@ public:
     [[nodiscard]] virtual ResourceCreationInfo create_mesh(const AccelOption &option) noexcept = 0;
     virtual void destroy_mesh(uint64_t handle) noexcept = 0;
 
-    [[nodiscard]] virtual ResourceCreationInfo create_animated_mesh(const MotionOption &option) noexcept = 0;
-    virtual void destroy_animated_mesh(uint64_t handle) noexcept = 0;
-
     [[nodiscard]] virtual ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept = 0;
     virtual void destroy_procedural_primitive(uint64_t handle) noexcept = 0;
 

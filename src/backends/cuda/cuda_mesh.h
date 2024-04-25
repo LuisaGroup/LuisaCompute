@@ -36,24 +36,5 @@ public:
                MeshBuildCommand *command) noexcept;
 };
 
-class CUDAAnimatedMesh final {
-private:
-    optix::TraversableHandle _handle{};
-    CUdeviceptr _matrix_buffer{};
-    optix::TraversableHandle _mesh_handle{};
-    CUdeviceptr _motion_transform_buffer{};
-
-private:
-    MotionOption _option;
-
-public:
-    explicit CUDAAnimatedMesh(const MotionOption &option) noexcept;
-    ~CUDAAnimatedMesh() noexcept = default;
-    void build(CUDACommandEncoder &encoder,
-               AnimatedMeshBuildCommand *command) noexcept;
-    
-public:
-    [[nodiscard]] auto pointer_to_handle() const noexcept { return &_handle; }
-};
-
 }// namespace luisa::compute::cuda
+

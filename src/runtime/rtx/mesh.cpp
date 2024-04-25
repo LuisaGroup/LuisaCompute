@@ -15,14 +15,5 @@ Mesh::~Mesh() noexcept {
     if (*this) { device()->destroy_mesh(handle()); }
 }
 
-luisa::unique_ptr<Command> AnimatedMesh::build() noexcept {
-    _check_is_valid();
-    return luisa::make_unique<AnimatedMeshBuildCommand>(
-        handle(), _matrix_buffer, _mesh_handle);
-}
-
-AnimatedMesh::~AnimatedMesh() noexcept {
-    if (*this) { device()->destroy_animated_mesh(handle()); }
-}
-
 }// namespace luisa::compute
+
