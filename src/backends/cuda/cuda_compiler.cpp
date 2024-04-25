@@ -71,12 +71,12 @@ namespace luisa::compute::cuda {
             }
         };
         auto size = s.size() + 1u /* for the null-terminator */;
-        write_data(&size, sizeof(size));
+        auto size_str = luisa::format("{:016x}", size);
+        write_data(size_str.data(), size_str.size());
         write_data(s.data(), size);
     };
     write(src_filename);
     write(src);
-    p.close(reproc::stream::in);
     using namespace std::chrono_literals;
     if (auto [exit_code, error] = p.wait(1024h/* almost forever */); exit_code || error) {
         LUISA_WARNING_WITH_LOCATION(
