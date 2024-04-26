@@ -595,6 +595,8 @@ public:
         }
     };
 
+    static_assert(sizeof(Modification) == 96u);
+
 private:
     uint64_t _handle;
     uint32_t _instance_count;

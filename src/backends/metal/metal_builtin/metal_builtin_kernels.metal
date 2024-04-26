@@ -17,10 +17,12 @@ struct alignas(16) AccelInstanceModification {
     uint vis_mask;
     float4 affine[3];// row-major
     ulong primitive;
+    ulong motion_transform_buffer;
+    ushort motion_buffer_type;
 };
 
 static_assert(sizeof(AccelInstance) == 64u, "");
-static_assert(sizeof(AccelInstanceModification) == 80u, "");
+static_assert(sizeof(AccelInstanceModification) == 96u, "");
 
 [[kernel]] void update_accel_instances(device AccelInstance *__restrict__ instances,
                                        device const AccelInstanceModification *__restrict__ mods,
@@ -33,6 +35,7 @@ static_assert(sizeof(AccelInstanceModification) == 80u, "");
         constexpr auto update_flag_opaque_off = 1u << 3u;
         constexpr auto update_flag_visibility = 1u << 4u;
         constexpr auto update_flag_user_id = 1u << 5u;
+        constexpr auto update_flag_motion = 1u << 6u;
         constexpr auto update_flag_opaque = update_flag_opaque_on | update_flag_opaque_off;
 
         constexpr auto instance_option_disable_culling = 1u;
