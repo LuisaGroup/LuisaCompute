@@ -105,25 +105,37 @@ int main(int argc, char *argv[]) {
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(3u);
     Buffer<Triangle> triangle_buffer = device.create_buffer<Triangle>(1u);
 
-    const std::vector<std::array<float, 12>> motion_matrix =
+    const std::vector<std::array<float, 12>> motion_matrix_vert =
         {{1.0f, 0.0f, 0.0f, 0.0f,
           0.0f, 1.0f, 0.0f, 0.0f,
           0.0f, 0.0f, 1.0f, 0.0f},
          {1.0f, 0.0f, 0.0f, 0.0f,
           0.0f, 1.0f, 0.0f, 0.1f,
           0.0f, 0.0f, 1.0f, 0.0f}};
-    Buffer<float[12]> motion_matrix_buffer = device.create_buffer<float[12]>(2u);
+    Buffer<float[12]> motion_matrix_buffer_vert = device.create_buffer<float[12]>(2u);
+    const std::vector<std::array<float, 12>> motion_matrix_hori =
+        {{1.0f, 0.0f, 0.0f, 0.0f,
+          0.0f, 1.0f, 0.0f, 0.0f,
+          0.0f, 0.0f, 1.0f, 0.0f},
+         {1.0f, 0.0f, 0.0f, 0.1f,
+          0.0f, 1.0f, 0.0f, 0.0f,
+          0.0f, 0.0f, 1.0f, 0.0f}};
+    Buffer<float[12]> motion_matrix_buffer_hori = device.create_buffer<float[12]>(2u);
 
     stream << vertex_buffer.copy_from(vertices.data())
            << triangle_buffer.copy_from(indices.data())
-           << motion_matrix_buffer.copy_from(motion_matrix.data());
+           << motion_matrix_buffer_vert.copy_from(motion_matrix_vert.data())
+           << motion_matrix_buffer_hori.copy_from(motion_matrix_hori.data());
 
     Accel accel = device.create_accel();
     Mesh mesh = device.create_mesh(vertex_buffer, triangle_buffer);
     // accel.emplace_back(mesh, scaling(1.5f));
-    accel.emplace_back(mesh, motion_matrix_buffer, AccelOption::MotionOptions{.num_keys = 2u, .flag = AccelOption::MotionOptions::MotionFlag::NONE, .time_begin = 0.0f, .time_end = 1.0f}, scaling(1.5f));
+    accel.emplace_back(mesh, motion_matrix_buffer_hori, MotionOptions{.num_keys = 2u, .flag = MotionOptions::MotionFlag::NONE, .time_begin = 0.0f, .time_end = 1.0f}, scaling(1.5f));
     accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                  rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
+    stream << mesh.build()
+           << accel.build();
+    accel.set(0, mesh, motion_matrix_buffer_vert, MotionOptions{.num_keys = 2u, .flag = MotionOptions::MotionFlag::NONE, .time_begin = 0.0f, .time_end = 1.0f}, scaling(1.5f));
     stream << mesh.build()
            << accel.build();
 

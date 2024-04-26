@@ -112,9 +112,9 @@ int main(int argc, char *argv[]) {
 
     Accel accel = device.create_accel();
     AccelOption accel_option = {
-        .motion_options = AccelOption::MotionOptions{
+        .motion_options = MotionOptions{
             .num_keys = 2u,
-            .flag = AccelOption::MotionOptions::MotionFlag::NONE,
+            .flag = MotionOptions::MotionFlag::NONE,
             .time_begin = 0.0f,
             .time_end = 1.0f
             }};

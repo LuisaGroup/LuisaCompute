@@ -536,7 +536,13 @@ public:
         float affine[12]{};
         uint64_t primitive{};
         uint64_t motion_transform_buffer{};
-        AccelOption::MotionOptions motion_options;
+        MotionOptions motion_options;
+        enum struct MotionBufferType : uint16_t
+        {
+            MATRIX = 0u,
+            SRT = 1u
+        };
+        MotionBufferType motion_buffer_type{};
 
         // ctor
         Modification() noexcept = default;
@@ -581,8 +587,11 @@ public:
             motion_transform_buffer = handle;
             flags |= flag_motion;
         }
-        void set_motion_options(const AccelOption::MotionOptions &motion_options_data) noexcept {
+        void set_motion_options(const MotionOptions &motion_options_data) noexcept {
             motion_options = motion_options_data;
+        }
+        void set_motion_buffer_type(MotionBufferType motion_buffer_type_data) noexcept {
+            motion_buffer_type = motion_buffer_type_data;
         }
     };
 

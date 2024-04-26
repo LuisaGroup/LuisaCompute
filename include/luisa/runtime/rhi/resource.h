@@ -91,6 +91,18 @@ struct SparseBufferCreationInfo : public BufferCreationInfo {
     }
 };
 
+struct MotionOptions {
+    enum struct MotionFlag : uint16_t {
+        NONE = 0,
+        START_VANISH = 1u << 0,
+        END_VANISH = 1u << 1
+    };
+    uint16_t num_keys{1u};
+    MotionFlag flag{MotionFlag::NONE};
+    float time_begin{0.0f};
+    float time_end{0.0f};
+};
+
 struct AccelOption {
 
     enum struct UsageHint : uint32_t {
@@ -101,18 +113,6 @@ struct AccelOption {
     UsageHint hint{UsageHint::FAST_TRACE};
     bool allow_compaction{true};
     bool allow_update{false};
-
-    struct MotionOptions {
-        enum struct MotionFlag : uint16_t {
-            NONE = 0,
-            START_VANISH = 1u << 0,
-            END_VANISH = 1u << 1
-        };
-        uint16_t num_keys{1u};
-        MotionFlag flag{MotionFlag::NONE};
-        float time_begin{0.0f};
-        float time_end{0.0f};
-    };
 
     MotionOptions motion_options;
 };
