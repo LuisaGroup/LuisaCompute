@@ -16,6 +16,7 @@
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/runtime/rhi/curve_basis.h>
+#include <luisa/runtime/rhi/resource.h>
 
 // for validation
 namespace lc::validation {
@@ -525,6 +526,7 @@ public:
         static constexpr auto flag_opaque = flag_opaque_on | flag_opaque_off;
         static constexpr auto flag_visibility = 1u << 4u;
         static constexpr auto flag_user_id = 1u << 5u;
+        static constexpr auto flag_motion = 1u << 6u;
 
         // members
         uint index{};
@@ -533,6 +535,8 @@ public:
         uint vis_mask{};
         float affine[12]{};
         uint64_t primitive{};
+        uint64_t motion_transform_buffer{};
+        AccelOption::MotionOptions motion_options;
 
         // ctor
         Modification() noexcept = default;
@@ -572,6 +576,13 @@ public:
         void set_user_id(uint id) noexcept {
             user_id = id;
             flags |= flag_user_id;
+        }
+        void set_motion_transform_buffer(uint64_t handle) noexcept {
+            motion_transform_buffer = handle;
+            flags |= flag_motion;
+        }
+        void set_motion_options(const AccelOption::MotionOptions &motion_options_data) noexcept {
+            motion_options = motion_options_data;
         }
     };
 

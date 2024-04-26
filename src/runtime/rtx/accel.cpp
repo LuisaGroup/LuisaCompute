@@ -72,6 +72,22 @@ void Accel::emplace_back_handle(uint64_t mesh, float4x4 const &transform, uint8_
     _instance_count += 1;
 }
 
+void Accel::emplace_back_handle(uint64_t mesh, uint64_t motion_buffer_handle, const AccelOption::MotionOptions &motion_options, float4x4 const &transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+    _check_is_valid();
+    std::lock_guard lock{_mtx};
+    auto index = static_cast<uint>(_instance_count);
+    Modification modification{index};
+    modification.set_primitive(mesh);
+    modification.set_transform(transform);
+    modification.set_visibility(visibility_mask);
+    modification.set_opaque(opaque);
+    modification.set_user_id(user_id);
+    modification.set_motion_transform_buffer(motion_buffer_handle);
+    modification.set_motion_options(motion_options);
+    _modifications[index] = modification;
+    _instance_count += 1;
+}
+
 void Accel::pop_back() noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};

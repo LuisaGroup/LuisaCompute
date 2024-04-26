@@ -57,6 +57,13 @@ public:
                              uint8_t visibility_mask,
                              bool opaque,
                              uint user_id) noexcept;
+    void emplace_back_handle(uint64_t mesh_handle,
+                             uint64_t motion_buffer_handle,
+                             const AccelOption::MotionOptions &motion_options,
+                             float4x4 const &transform,
+                             uint8_t visibility_mask,
+                             bool opaque,
+                             uint user_id) noexcept;
     void set_handle(size_t index, uint64_t mesh_handle,
                     float4x4 const &transform,
                     uint8_t visibility_mask, bool opaque, uint user_id) noexcept;
@@ -72,12 +79,32 @@ public:
         emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque, user_id);
     }
 
+    void emplace_back(const Mesh &mesh,
+                      const Buffer<float[12]> &motion_transform_buffer,
+                      const AccelOption::MotionOptions &motion_options,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      bool opaque = true,
+                      uint user_id = 0) noexcept {
+        emplace_back_handle(mesh.handle(), motion_transform_buffer.handle(), motion_options, transform, visibility_mask, opaque, user_id);
+    }
+
     void emplace_back(const Curve &curve,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
                       bool opaque = true,
                       uint user_id = 0) noexcept {
         emplace_back_handle(curve.handle(), transform, visibility_mask, opaque, user_id);
+    }
+
+    void emplace_back(const Curve &curve,
+                      const Buffer<float[12]> &motion_transform_buffer,
+                      const AccelOption::MotionOptions &motion_options,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      bool opaque = true,
+                      uint user_id = 0) noexcept {
+        emplace_back_handle(curve.handle(), motion_transform_buffer.handle(), motion_options, transform, visibility_mask, opaque, user_id);
     }
 
     void emplace_back(const ProceduralPrimitive &prim,
@@ -89,12 +116,33 @@ public:
                             user_id);
     }
 
+    void emplace_back(const ProceduralPrimitive &prim,
+                      const Buffer<float[12]> &motion_transform_buffer,
+                      const AccelOption::MotionOptions &motion_options,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      uint user_id = 0) noexcept {
+        emplace_back_handle(prim.handle(), motion_transform_buffer.handle(), motion_options, transform, visibility_mask,
+                            false /* procedural geometry is always non-opaque */,
+                            user_id);
+    }
+
     void emplace_back(uint64_t mesh_handle,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
                       bool opaque = true,
                       uint user_id = 0) noexcept {
         emplace_back_handle(mesh_handle, transform, visibility_mask, opaque, user_id);
+    }
+
+    void emplace_back(uint64_t mesh_handle,
+                      const Buffer<float[12]> &motion_transform_buffer,
+                      const AccelOption::MotionOptions &motion_options,
+                      float4x4 transform = make_float4x4(1.f),
+                      uint8_t visibility_mask = 0xffu,
+                      bool opaque = true,
+                      uint user_id = 0) noexcept {
+        emplace_back_handle(mesh_handle, motion_transform_buffer.handle(), motion_options, transform, visibility_mask, opaque, user_id);
     }
 
     void set(size_t index, const Mesh &mesh,

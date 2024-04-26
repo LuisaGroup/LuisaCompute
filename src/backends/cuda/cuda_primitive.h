@@ -29,6 +29,7 @@ private:
     size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
     luisa::string _name;
+    luisa::vector<CUdeviceptr> _motion_buffers{};
 
 protected:
     optix::TraversableHandle _handle{};

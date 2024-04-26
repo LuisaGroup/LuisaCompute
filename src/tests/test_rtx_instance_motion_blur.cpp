@@ -33,9 +33,6 @@ int main(int argc, char *argv[]) {
         float3(-0.5f, -0.5f, 0.0f),
         float3(0.5f, -0.5f, 0.0f),
         float3(0.0f, 0.5f, 0.0f),// Frame 0
-        float3(-0.5f, -0.5f, 0.0f),
-        float3(0.5f, -0.5f, 0.0f),
-        float3(0.0f, 0.75f, 0.0f),// Frame 1
     };
     std::array indices{0u, 1u, 2u};
 
@@ -105,21 +102,26 @@ int main(int argc, char *argv[]) {
         accel.set_instance_transform(dispatch_id().x + offset, matrix);
     };
     Stream stream = device.create_stream();
-    Buffer<float3> vertex_buffer = device.create_buffer<float3>(6u);
+    Buffer<float3> vertex_buffer = device.create_buffer<float3>(3u);
     Buffer<Triangle> triangle_buffer = device.create_buffer<Triangle>(1u);
+
+    const std::vector<std::array<float, 12>> motion_matrix =
+        {{1.0f, 0.0f, 0.0f, 0.0f,
+          0.0f, 1.0f, 0.0f, 0.0f,
+          0.0f, 0.0f, 1.0f, 0.0f},
+         {1.0f, 0.0f, 0.0f, 0.0f,
+          0.0f, 1.0f, 0.0f, 0.1f,
+          0.0f, 0.0f, 1.0f, 0.0f}};
+    Buffer<float[12]> motion_matrix_buffer = device.create_buffer<float[12]>(2u);
+
     stream << vertex_buffer.copy_from(vertices.data())
-           << triangle_buffer.copy_from(indices.data());
+           << triangle_buffer.copy_from(indices.data())
+           << motion_matrix_buffer.copy_from(motion_matrix.data());
 
     Accel accel = device.create_accel();
-    AccelOption accel_option = {
-        .motion_options = AccelOption::MotionOptions{
-            .num_keys = 2u,
-            .time_begin = 0.0f,
-            .time_end = 1.0f,
-            .flag = AccelOption::MotionOptions::MotionFlag::NONE
-            }};
-    Mesh mesh = device.create_mesh(vertex_buffer, triangle_buffer, accel_option);
-    accel.emplace_back(mesh, scaling(1.5f));
+    Mesh mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    // accel.emplace_back(mesh, scaling(1.5f));
+    accel.emplace_back(mesh, motion_matrix_buffer, AccelOption::MotionOptions{.num_keys = 2u, .flag = AccelOption::MotionOptions::MotionFlag::NONE, .time_begin = 0.0f, .time_end = 1.0f}, scaling(1.5f));
     accel.emplace_back(mesh, translation(float3(-0.25f, 0.0f, 0.1f)) *
                                  rotation(float3(0.0f, 0.0f, 1.0f), 0.5f));
     stream << mesh.build()
@@ -162,5 +164,5 @@ int main(int argc, char *argv[]) {
            << synchronize();
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_rtx_vertex_motion_blur.png", width, height, 4, pixels.data(), 0);
+    stbi_write_png("test_rtx_instance_motion_blur.png", width, height, 4, pixels.data(), 0);
 }

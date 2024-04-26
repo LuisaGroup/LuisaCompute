@@ -103,17 +103,15 @@ struct AccelOption {
     bool allow_update{false};
 
     struct MotionOptions {
-        uint16_t num_keys{1u};
-        float time_begin{0.0f};
-        float time_end{0.0f};
-
         enum struct MotionFlag : uint16_t {
             NONE = 0,
             START_VANISH = 1u << 0,
             END_VANISH = 1u << 1
         };
-
+        uint16_t num_keys{1u};
         MotionFlag flag{MotionFlag::NONE};
+        float time_begin{0.0f};
+        float time_end{0.0f};
     };
 
     MotionOptions motion_options;
