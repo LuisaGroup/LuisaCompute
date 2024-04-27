@@ -246,6 +246,7 @@ on_load(function(target)
             tools = {"clang_cl", "cl"}
         })
     end
+    target:set("fpmodels", "fast")
     target:add("cxflags", "/Zc:preprocessor", {
         tools = "cl"
     });
