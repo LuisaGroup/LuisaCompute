@@ -214,7 +214,7 @@ on_load(function(target)
     if type(c_standard) == "string" and type(cxx_standard) == "string" then
         target:set("languages", c_standard, cxx_standard, {public = true})
     else
-        target:set("languages", "clatest", "cxxlatest", {public = true})
+        target:set("languages", "clatest", "cxx20", {public = true})
     end
 
     local enable_exception = _get_or("enable_exception", nil)
@@ -260,13 +260,16 @@ on_load(function(target)
     end
     if _get_or("no_rtti", not get_config("_lc_enable_py")) then
         target:add("cxflags", "/GR-", {
-            tools = {"clang_cl", "cl"}
+            tools = {"clang_cl", "cl"},
+            public = true
         })
         target:add("cxflags", "-fno-rtti", "-fno-rtti-data", {
-            tools = {"clang"}
+            tools = {"clang"},
+            public = true
         })
         target:add("cxflags", "-fno-rtti", {
-            tools = {"gcc"}
+            tools = {"gcc"},
+            public = true
         })
     end
 end)
