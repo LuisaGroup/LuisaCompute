@@ -51,7 +51,7 @@ inline luisa::compute::BinaryOp TranslateBinaryOp(clang::BinaryOperator::Opcode 
         case CXXBinOp::BO_EQ: return LCBinOp::EQUAL;
         case CXXBinOp::BO_NE: return LCBinOp::NOT_EQUAL;
         default:
-            clangcxx_log_error("unsupportted binary op {}!", op);
+            clangcxx_log_error("unsupportted binary op {}!", luisa::to_string(op));
             return LCBinOp::ADD;
     }
 }
@@ -69,7 +69,7 @@ inline luisa::compute::BinaryOp TranslateBinaryAssignOp(clang::BinaryOperator::O
         case CXXBinOp::BO_ShlAssign: return LCBinOp::SHL;
         case CXXBinOp::BO_ShrAssign: return LCBinOp::SHR;
         default:
-            clangcxx_log_error("unsupportted binary-assign op {}!", op);
+            clangcxx_log_error("unsupportted binary-assign op {}!", luisa::to_string(op));
             return LCBinOp::ADD;
     }
 }
@@ -93,7 +93,7 @@ inline luisa::compute::UnaryOp TranslateUnaryOp(CXXUnaryOp op) {
         case CXXUnaryOp::UO_Not: return LCUnaryOp::BIT_NOT;
         case CXXUnaryOp::UO_LNot: return LCUnaryOp::NOT;
         default:
-            clangcxx_log_error("unsupportted unary op {}!", op);
+            clangcxx_log_error("unsupportted unary op {}!", luisa::to_string(op));
             return LCUnaryOp::PLUS;
     }
 }
@@ -348,7 +348,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 if (where)
                     db->DumpWithLocation(where);
                 APV.dump();
-                clangcxx_log_error("unsupportted ConstantExpr APValueKind {}", APK);
+                clangcxx_log_error("unsupportted ConstantExpr APValueKind {}", luisa::to_string(APK));
                 break;
         }
         return nullptr;
@@ -366,7 +366,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 } else// TODO: support assignment by constexpr var
                 {
                     db->DumpWithLocation(where);
-                    clangcxx_log_error("unsupportted gloal const eval type: {}", Decompressed->getKind());
+                    clangcxx_log_error("unsupportted gloal const eval type: {}", luisa::to_string(Decompressed->getKind()));
                 }
             }
         }
@@ -582,7 +582,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 if (auto constant = TraverseAPValue(ce->getAPValueResult(), nullptr, x)) {
                     current = constant;
                 } else
-                    clangcxx_log_error("unsupportted ConstantExpr APValueKind {}", ce->getResultAPValueKind());
+                    clangcxx_log_error("unsupportted ConstantExpr APValueKind {}", luisa::to_string(ce->getResultAPValueKind()));
             } else if (auto substNonType = llvm::dyn_cast<SubstNonTypeTemplateParmExpr>(x)) {
                 auto lcExpr = stack->GetExpr(substNonType->getReplacement());
                 current = lcExpr;
@@ -675,7 +675,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         case 3: { auto lcType = Type::of<stype##3>(); fb->assign(constructed, fb->call(lcType, CallOp::MAKE_##type##3, { lcArgs.begin() + 1, lcArgs.end() })); } break; \
                         case 4: { auto lcType = Type::of<stype##4>(); fb->assign(constructed, fb->call(lcType, CallOp::MAKE_##type##4, { lcArgs.begin() + 1, lcArgs.end() })); } break; \
                         default: {                                                                                             \
-                            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
+                            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), luisa::to_string(EType->getKind()), N);    \
                         } break;                                                                                               \
                     }
                                             case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool, BOOL) } break;
@@ -686,7 +686,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                             case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint, UINT) } break;
                                             case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double, DOUBLE) } break;
                                             default: {
-                                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
+                                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), luisa::to_string(EType->getKind()));
                                             } break;
                 #undef CASE_VEC_TYPE
                                         }
@@ -985,7 +985,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             auto lcReturnType = db->FindOrAddType(funcDecl->getReturnType(), x->getBeginLoc());
                             current = fb->cast(lcReturnType, luisa::compute::CastOp::BITWISE, lcArgs[0]);
                         } else
-                            clangcxx_log_error("ICE: unsupportted expr: {}", exprName);
+                            clangcxx_log_error("ICE: unsupportted expr: {}", exprName.str());
                     } else if (!callopName.empty()) {
                         auto op = db->FindCallOp(callopName);
                         if (call->getCallReturnType(*astContext)->isVoidType())
@@ -1410,7 +1410,7 @@ void FunctionDeclStmtHandler::run(const MatchFinder::MatchResult &Result) {
             if (is_export_func) {
                 auto func_name = S->getName();
                 if (!call_lib) [[unlikely]] {
-                    LUISA_WARNING("This is not a ast export compilation. Function {} export attribute ignored.", func_name);
+                    LUISA_WARNING("This is not a ast export compilation. Function {} export attribute ignored.", func_name.str());
                 } else {
                     call_lib->add_callable(
                         luisa::string_view{func_name.data(), func_name.size()},
