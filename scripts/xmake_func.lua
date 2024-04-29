@@ -212,9 +212,9 @@ on_load(function(target)
     local c_standard = target:values("c_standard")
     local cxx_standard = target:values("cxx_standard")
     if type(c_standard) == "string" and type(cxx_standard) == "string" then
-        target:set("languages", c_standard, cxx_standard)
+        target:set("languages", c_standard, cxx_standard, {public = true})
     else
-        target:set("languages", "clatest", "cxxlatest")
+        target:set("languages", "clatest", "cxxlatest", {public = true})
     end
 
     local enable_exception = _get_or("enable_exception", nil)
@@ -225,21 +225,21 @@ on_load(function(target)
     end
 
     if is_mode("debug") then
-        target:set("runtimes", _get_or("runtime", "MDd"))
+        target:set("runtimes", _get_or("runtime", "MDd"), {public = true})
         target:set("optimize", "none")
         target:set("warnings", "none")
         target:add("cxflags", "/GS", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     elseif is_mode("releasedbg") then
-        target:set("runtimes", _get_or("runtime", "MD"))
+        target:set("runtimes", _get_or("runtime", "MD"), {public = true})
         target:set("optimize", "none")
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     else
-        target:set("runtimes", _get_or("runtime", "MD"))
+        target:set("runtimes", _get_or("runtime", "MD"), {public = true})
         target:set("optimize", "aggressive")
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
@@ -248,7 +248,8 @@ on_load(function(target)
     end
     target:set("fpmodels", "fast")
     target:add("cxflags", "/Zc:preprocessor", {
-        tools = "cl"
+        tools = "cl",
+        public = true
     });
     if _get_or("use_simd", get_config("enable_simd")) then
         if is_arch("arm64") then
@@ -257,7 +258,7 @@ on_load(function(target)
             target:add("vectorexts", "avx", "avx2")
         end
     end
-    if _get_or("no_rtti", false) then
+    if _get_or("no_rtti", not get_config("_lc_enable_py")) then
         target:add("cxflags", "/GR-", {
             tools = {"clang_cl", "cl"}
         })

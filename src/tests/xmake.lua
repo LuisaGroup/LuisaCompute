@@ -86,6 +86,7 @@ local function test_proj(name, gui_dep, callable)
         return
     end
     target(name)
+    set_kind("binary")
     _config_project({
         project_kind = "binary"
     })
