@@ -37,6 +37,16 @@ public:
     MeshFormat format;
     luisa::vector<VertexAttribute> attributes;
 };
+template <typename T>
+struct halfN{
+    static constexpr bool value = false;
+};
+template <size_t n>
+struct halfN<luisa::Vector<half, n>>{
+    static constexpr bool value = true;
+    using Type = bool;
+    static constexpr size_t dimension = n;
+};
 static vstd::vector<luisa::fiber::event> futures;
 static vstd::optional<luisa::fiber::scheduler> thread_pool;
 PYBIND11_DECLARE_HOLDER_TYPE(T, luisa::shared_ptr<T>)
@@ -685,8 +695,10 @@ void export_runtime(py::module &m) {
         .def("bindless_array", &FunctionBuilder::bindless_array, pyref)
         .def("accel", &FunctionBuilder::accel, pyref)
 
-        .def(
-            "literal", [](FunctionBuilder &self, const Type *type, const LiteralExpr::Value::variant_type &value) {
+        .def("literal", [](
+                FunctionBuilder &self,
+                 const Type *type,
+                  const LiteralExpr::Value::variant_type &value) {
                 return luisa::visit(
                     [&self, type]<typename T>(T v) {
                         // we do not allow conversion between vector/matrix/bool types
@@ -694,11 +706,28 @@ void export_runtime(py::module &m) {
                             type == Type::of<bool>() || type == Type::of<T>()) {
                             return self.literal(type, v);
                         }
+                        auto print_v = [&](){
+                            if constexpr(std::is_same_v<std::decay_t<T>, half>){
+                                return (float)v;
+                            } else if constexpr(halfN<T>::value){
+                                constexpr auto dim = halfN<T>::dimension;
+                                if constexpr(dim == 2){
+                                    return float2((float)v.x, (float)v.y);
+                                }else if constexpr(dim == 3){
+                                    return float3((float)v.x, (float)v.y, (float)v.z);
+                                }else{
+                                    return float4((float)v.x, (float)v.y, (float)v.z, (float)v.z);
+                                }
+                            }
+                            else {
+                                return v;
+                            }
+                        };
                         if constexpr (is_scalar_v<T>) {
                             // we are less strict here to allow implicit conversion
                             // between integral or between floating-point types,
                             // since python does not distinguish them
-                            auto safe_convert = [v]<typename U>(U /* for tagged dispatch */) noexcept {
+                            auto safe_convert = [v = print_v()]<typename U>(U /* for tagged dispatch */) noexcept {
                                 auto u = static_cast<U>(v);
                                 LUISA_ASSERT(static_cast<T>(u) == v,
                                              "Cannot convert literal value {} to type {}.",
@@ -718,9 +747,10 @@ void export_runtime(py::module &m) {
                                 default: break;
                             }
                         }
+
                         LUISA_ERROR_WITH_LOCATION(
                             "Cannot convert literal value {} to type {}.",
-                            v, type->description());
+                            print_v(), type->description());
                     },
                     LiteralExpr::Value{value});
             },

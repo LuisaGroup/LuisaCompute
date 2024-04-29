@@ -48,7 +48,7 @@ uint64 GpuAllocator::AllocateTextureHeap(
     *heap = alloc->GetHeap();
     *offset = alloc->GetOffset();
     if (profiler) [[unlikely]] {
-        auto desc = luisa::format("Texture name: \"{}\", extra heap-flags: {}", name, extra_flags);
+        auto desc = luisa::format("Texture name: \"{}\", extra heap-flags: {}", name, (uint)extra_flags);
         auto stacktrace = luisa::backtrace();
         profiler->allocate(reinterpret_cast<uint64_t>(alloc), info.Alignment, info.SizeInBytes, name, std::move(stacktrace));
     }
@@ -75,7 +75,7 @@ uint64 GpuAllocator::AllocateBufferHeap(
     *heap = alloc->GetHeap();
     *offset = alloc->GetOffset();
     if (profiler) [[unlikely]] {
-        auto desc = luisa::format("Buffer name: \"{}\", heap type: {}, extra heap-flags: {}", name, heapType, extra_flags);
+        auto desc = luisa::format("Buffer name: \"{}\", heap type: {}, extra heap-flags: {}", name, (uint)heapType, (uint)extra_flags);
         auto stacktrace = luisa::backtrace();
         profiler->allocate(reinterpret_cast<uint64_t>(alloc), info.Alignment, info.SizeInBytes, desc, std::move(stacktrace));
     }
