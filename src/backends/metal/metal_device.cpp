@@ -788,8 +788,9 @@ LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {
     luisa::compute::metal::with_autorelease_pool([device] {
-        auto p_device = dynamic_cast<::luisa::compute::metal::MetalDevice *>(device);
-        LUISA_ASSERT(p_device != nullptr, "Invalid device.");
+        auto p_device = static_cast<::luisa::compute::metal::MetalDevice *>(device);
+        // auto p_device = dynamic_cast<::luisa::compute::metal::MetalDevice *>(device);
+        // LUISA_ASSERT(p_device != nullptr, "Invalid device.");
         ::luisa::delete_with_allocator(p_device);
     });
 }
