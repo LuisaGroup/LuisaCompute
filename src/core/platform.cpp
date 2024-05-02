@@ -20,7 +20,9 @@ static_assert(sizeof(void *) == 8 && sizeof(int) == 4 && sizeof(char) == 1,
 #endif
 
 #include <windows.h>
+#ifndef NDEBUG
 #include <DbgHelp.h>
+#endif
 
 namespace luisa {
 
@@ -120,7 +122,6 @@ luisa::string demangle(const char *name) noexcept {
 }
 
 luisa::vector<TraceItem> backtrace() noexcept {
-
     void *stack[100];
     auto process = GetCurrentProcess();
     SymInitialize(process, nullptr, true);
@@ -216,7 +217,7 @@ void *dynamic_module_load(const luisa::filesystem::path &path) noexcept {
     auto p = path;
     for (auto ext :
 #ifdef LUISA_PLATFORM_APPLE
-         {".so", ".dylib"}
+         { ".so", ".dylib" }
 #else
          {".so"}
 #endif

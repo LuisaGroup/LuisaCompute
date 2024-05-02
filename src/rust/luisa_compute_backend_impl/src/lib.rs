@@ -185,11 +185,11 @@ unsafe extern "C" fn create_device(
             {
                 let lib_path = &ctx.path;
                 let swapchain_dll = if cfg!(target_os = "windows") {
-                    "lc-vulkan-swapchain.dll"
+                    "lc-backend-cpu.dll"
                 } else if cfg!(target_os = "linux") {
-                    "liblc-vulkan-swapchain.so"
+                    "liblc-backend-cpu.so"
                 } else if cfg!(target_os = "macos") {
-                    "liblc-vulkan-swapchain.dylib"
+                    "liblc-backend-cpu.dylib"
                 } else {
                     todo!()
                 };

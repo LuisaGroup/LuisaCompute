@@ -5,6 +5,9 @@ struct Attribute {
     luisa::string key;
     luisa::string value;
     Attribute() noexcept = default;
+    [[nodiscard]] operator bool() const noexcept {
+        return !key.empty();
+    }
     Attribute(
         luisa::string &&key,
         luisa::string &&value) noexcept

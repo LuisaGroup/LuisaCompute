@@ -259,13 +259,12 @@ void CUDACommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {
 void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
     switch (command->uuid()) {
         case to_underlying(CustomCommandUUID::DSTORAGE_READ): {
-            auto ds_command = dynamic_cast<DStorageReadCommand *>(command);
-            LUISA_ASSERT(ds_command != nullptr, "Invalid DStorageReadCommand.");
+            auto ds_command = static_cast<DStorageReadCommand *>(command);
             visit(ds_command);
             break;
         }
         case to_underlying(CustomCommandUUID::CUDA_LCUB_COMMAND): {
-            auto lcub_command = dynamic_cast<CudaLCubCommand *>(command);
+            auto lcub_command = static_cast<CudaLCubCommand *>(command);
             LUISA_ASSERT(lcub_command != nullptr, "Invalid CudaLCuBCommand.");
             lcub_command->func(_stream->handle());
             break;
@@ -342,10 +341,11 @@ static void dstorage_decompress(DStorageCompression algorithm,
     auto stream = encoder.stream()->handle();
     auto decompress_to_buffer = [&](CUdeviceptr in_ptr, size_t in_size,
                                     CUdeviceptr out_ptr, size_t out_size) noexcept {
-        auto comp_stream = dynamic_cast<CUDACompressionStream *>(encoder.stream());
-        LUISA_ASSERT(comp_stream != nullptr,
-                     "DStorageReadCommand must be used "
-                     "with a compression stream.");
+        // auto comp_stream = dynamic_cast<CUDACompressionStream *>(encoder.stream());
+        // LUISA_ASSERT(comp_stream != nullptr,
+        //              "DStorageReadCommand must be used "
+        //              "with a compression stream.");
+        auto comp_stream = static_cast<CUDACompressionStream *>(encoder.stream());
         auto manager = comp_stream->compressor(algorithm);
         LUISA_ASSERT(manager != nullptr,
                      "Failed to get the compression manager for {}.",

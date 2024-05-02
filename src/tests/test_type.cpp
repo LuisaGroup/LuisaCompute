@@ -131,18 +131,8 @@ int main() {
 
     LUISA_INFO("size = {}, alignment = {}", sizeof(AA), alignof(AA));
     LUISA_INFO("size = {}, alignment = {}", sizeof(BB), alignof(BB));
-
-    auto &&type_aa = typeid(AA);
-    auto &&type_bb = typeid(BB);
-    LUISA_INFO("{}", type_aa.before(type_bb));
-
     LUISA_INFO("trivially destructible: {}", std::is_trivially_destructible_v<Impl>);
-
     print(Type::from("array<array<vector<float,3>,5>,9>"));
-
-    auto hash_aa = luisa::hash_value(type_aa.name());
-    auto hash_bb = luisa::hash_value(type_bb.name());
-    LUISA_INFO("{} {}", hash_aa, hash_bb);
 
     LUISA_INFO("{}", Type::of<std::array<float, 5>>()->description());
 

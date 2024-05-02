@@ -205,15 +205,18 @@ public:
                 [&](auto &&p) noexcept {
                     using T = std::decay_t<decltype(p)>;
                     if constexpr (std::is_same_v<T, Type::Tag>) {
-                        auto print_primitive = [&](auto v) noexcept {
-                            using TT = std::decay_t<decltype(v)>;
+                        auto print_primitive = [&]<typename T>(T v) noexcept {
+                            using TT = std::decay_t<T>;
                             std::memcpy(&v, data, sizeof(v));
                             if constexpr (std::is_same_v<TT, bool>) {
                                 scratch.append(v ? "true" : "false");
                             } else if constexpr (luisa::is_integral_v<TT> && sizeof(TT) <= sizeof(short)) {
                                 luisa::format_to(std::back_inserter(scratch), "{}", static_cast<int>(v));
                             } else {
-                                luisa::format_to(std::back_inserter(scratch), "{}", v);
+                                if constexpr (std::is_same_v<TT, half>)
+                                    luisa::format_to(std::back_inserter(scratch), "{}", static_cast<float>(v));
+                                else
+                                    luisa::format_to(std::back_inserter(scratch), "{}", v);
                             }
                         };
                         switch (p) {
@@ -245,43 +248,44 @@ public:
 inline size_t format_shader_print(luisa::span<const luisa::unique_ptr<ShaderPrintFormatter>> formatters,
                                   luisa::span<const std::byte> contents,
                                   const DeviceInterface::StreamLogCallback &log = {}) noexcept {
-    if (contents.empty()) { return 0u; }
-    luisa::string scratch;
-    scratch.reserve(1_k - 1u);
-    auto offset = static_cast<size_t>(0u);
-    while (offset < contents.size_bytes()) {
-        struct Item {
-            uint size;
-            uint fmt;
-            const std::byte data[];
-        };
-        static_assert(sizeof(Item) == 8u);
-        auto raw = contents.data() + offset;
-        auto *item = reinterpret_cast<const Item *>(raw);
-        if (item->size == 0u) {
-            LUISA_WARNING("Invalid print item size: 0.");
-            return false;
-        }
-        if (auto item_end = offset + item->size;
-            item_end > contents.size_bytes()) { break; }
-        if (item->fmt < formatters.size()) {
-            scratch.clear();
-            luisa::span payload{raw, item->size};
-            if ((*formatters[item->fmt])(scratch, payload)) {
-                if (log) {
-                    log(scratch);
-                } else {
-                    LUISA_INFO("[DEVICE] {}", scratch);
-                }
-            } else {
-                break;
-            }
-        } else {
-            LUISA_WARNING("Unknown print format: {}", item->fmt);
-        }
-        offset += item->size;
-    }
-    return offset;
+    // if (contents.empty()) { return 0u; }
+    // luisa::string scratch;
+    // scratch.reserve(1_k - 1u);
+    // auto offset = static_cast<size_t>(0u);
+    // while (offset < contents.size_bytes()) {
+    //     struct Item {
+    //         uint size;
+    //         uint fmt;
+    //         const std::byte data[];
+    //     };
+    //     static_assert(sizeof(Item) == 8u);
+    //     auto raw = contents.data() + offset;
+    //     auto *item = reinterpret_cast<const Item *>(raw);
+    //     if (item->size == 0u) {
+    //         LUISA_WARNING("Invalid print item size: 0.");
+    //         return false;
+    //     }
+    //     if (auto item_end = offset + item->size;
+    //         item_end > contents.size_bytes()) { break; }
+    //     if (item->fmt < formatters.size()) {
+    //         scratch.clear();
+    //         luisa::span payload{raw, item->size};
+    //         if ((*formatters[item->fmt])(scratch, payload)) {
+    //             if (log) {
+    //                 log(scratch);
+    //             } else {
+    //                 LUISA_INFO("[DEVICE] {}", scratch);
+    //             }
+    //         } else {
+    //             break;
+    //         }
+    //     } else {
+    //         LUISA_WARNING("Unknown print format: {}", item->fmt);
+    //     }
+    //     offset += item->size;
+    // }
+    // return offset;
+    return {};
 }
 
 }// namespace luisa::compute

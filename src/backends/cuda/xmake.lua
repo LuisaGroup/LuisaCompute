@@ -67,22 +67,22 @@ end)
 add_files("extensions/cuda_denoiser.cpp", "extensions/cuda_dstorage.cpp", "extensions/cuda_pinned_memory.cpp")
 add_links("cuda")
 
-after_build(function(target)
-    import("lib.detect.find_file")
-    import("detect.sdks.find_cuda")
-    import("cuda_sdkdir")
-    local cuda = find_cuda(cuda_sdkdir())
-    if cuda then
-        local linkdirs = cuda["linkdirs"]
-        local bin_dir = target:targetdir()
-        if is_plat("windows") then
-            for i, v in ipairs(linkdirs) do
-                os.cp(path.join(v, "cudadevrt.lib"), bin_dir)
-            end
-        end
-        -- TODO: linux
-    end
-end)
+-- after_build(function(target)
+--     import("lib.detect.find_file")
+--     import("detect.sdks.find_cuda")
+--     import("cuda_sdkdir")
+--     local cuda = find_cuda(cuda_sdkdir())
+--     if cuda then
+--         local linkdirs = cuda["linkdirs"]
+--         local bin_dir = target:targetdir()
+--         if is_plat("windows") then
+--             for i, v in ipairs(linkdirs) do
+--                 os.cp(path.join(v, "cudadevrt.lib"), bin_dir)
+--             end
+--         end
+--         -- TODO: linux
+--     end
+-- end)
 target_end()
 
 target("lc-nvrtc")

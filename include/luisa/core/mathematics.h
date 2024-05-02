@@ -52,6 +52,7 @@ using std::fmod;
 using std::round;
 
 using std::exp;
+using std::exp2;
 using std::log;
 using std::log10;
 using std::log2;
@@ -89,6 +90,7 @@ LUISA_MAKE_VECTOR_UNARY_FUNC(floor)
 LUISA_MAKE_VECTOR_UNARY_FUNC(fract)
 LUISA_MAKE_VECTOR_UNARY_FUNC(round)
 LUISA_MAKE_VECTOR_UNARY_FUNC(exp)
+LUISA_MAKE_VECTOR_UNARY_FUNC(exp2)
 LUISA_MAKE_VECTOR_UNARY_FUNC(log)
 LUISA_MAKE_VECTOR_UNARY_FUNC(log10)
 LUISA_MAKE_VECTOR_UNARY_FUNC(log2)

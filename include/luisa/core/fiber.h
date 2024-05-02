@@ -95,14 +95,14 @@ template<class F>
     using RetType = decltype(lambda());
     if constexpr (std::is_same_v<RetType, void>) {
         event evt;
-        marl::schedule([evt, lambda = std::forward<F>(lambda)] {
+        marl::schedule([evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
             lambda();
             evt.signal();
         });
         return evt;
     } else {
         future<RetType> evt;
-        marl::schedule([evt, lambda = std::forward<F>(lambda)] {
+        marl::schedule([evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
             evt.signal(lambda());
         });
         return evt;

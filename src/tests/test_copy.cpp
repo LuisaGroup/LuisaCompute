@@ -49,8 +49,7 @@ struct fmt::formatter<Test> {
 
 template<typename T, typename Generate>
 void test_buffer(Device &device, size_t size, const Generate &g) noexcept {
-    LUISA_INFO("Testing {} elements with type '{}'",
-               size, typeid(T).name());
+    LUISA_INFO("Testing {} elements with type", size);
     luisa::vector<T> host_input;
     luisa::vector<T> host_output;
     host_input.reserve(size);

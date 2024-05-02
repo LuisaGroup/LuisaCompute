@@ -103,7 +103,6 @@ int main(int argc, char *argv[]) {
     VertexBufferView vert_buffer_view{vert_buffer};
     Clock clock;
     clock.tic();
-    luisa::vector<RasterMesh> meshes;
     RasterState state{
         .cull_mode = CullMode::None,
         .depth_state = DepthState{
@@ -114,6 +113,7 @@ int main(int argc, char *argv[]) {
     while (!window.should_close()) {
         float time = clock.toc() / 1000.0f;
         // add triangle mesh
+        luisa::vector<RasterMesh> meshes;
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 114514);
         meshes.emplace_back(luisa::span<VertexBufferView const>{&vert_buffer_view, 1}, idx_buffer, 1, 1919810, 3);
         stream

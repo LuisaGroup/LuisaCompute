@@ -1216,7 +1216,7 @@ void LCCmdBuffer::CompressBC(
                 uint3(dispatchCount, 1, 1),
                 {prop, 4});
         };
-        constexpr int MAX_BLOCK_BATCH = 64;
+        constexpr uint MAX_BLOCK_BATCH = 2048;
         uint startBlockID = 0;
         if (isHDR)//bc6
         {

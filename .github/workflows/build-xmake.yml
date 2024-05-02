@@ -20,16 +20,17 @@ jobs:
           submodules: recursive
       - name: "Configure and Build"
         run: |
+          xmake lua setup.lua
           xmake f -p linux -a x86_64 --toolchain=${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }} -m ${{ matrix.config }} --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
-          xmake --jobs=8
+          xmake --jobs=16
 
   build-macos:
     strategy:
       fail-fast: false
       matrix:
         os: [ macos ]
-        compiler: [ homebrew-clang, system-clang ]
-        config: [ Release, Debug ]
+        compiler: [ homebrew-clang ] # , system-clang
+        config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.compiler }}
     runs-on: [ self-hosted, macos, arm64 ]
     steps:
@@ -41,6 +42,7 @@ jobs:
           if [ "${{ matrix.compiler }}" = "homebrew-clang" ]; then
             export PATH=/usr/local/opt/llvm/bin:$PATH
           fi
+          xmake lua setup.lua
           xmake f -p macosx --toolchain=llvm -m ${{ matrix.config }} --mm=clang --mxx=clang++ --metal_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
           xmake
 
@@ -59,9 +61,10 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
+          xmake lua setup.lua ../luisa_compute_sdks
           if "${{ matrix.compiler }}" == "llvm" (
-            xmake f -p windows -a x64 --toolchain=llvm --sdk="C:/Program Files/LLVM" -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+            xmake f -p windows -a x64 --toolchain=llvm --sdk="C:/Program Files/LLVM" -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true --sdk_dir=../luisa_compute_sdks
           ) else (
-            xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true
+            xmake f -p windows -a x64 --toolchain=${{ matrix.compiler }} -m ${{ matrix.config }} --dx_backend=true --cuda_backend=true --enable_dsl=true --enable_gui=true --enable_unity_build=false --enable_tests=true --sdk_dir=../luisa_compute_sdks
           )
-          xmake -v
+          xmake

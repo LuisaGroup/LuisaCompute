@@ -1,6 +1,7 @@
 target("lc-vstl")
 _config_project({
     project_kind = "static",
+    no_rtti = true,
     batch_size = 4
 })
 add_deps("lc-core", "lmdb")

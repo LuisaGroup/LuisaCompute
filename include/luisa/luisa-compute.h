@@ -62,7 +62,6 @@
 #include <luisa/dsl/local.h>
 #include <luisa/dsl/operators.h>
 #include <luisa/dsl/polymorphic.h>
-#include <luisa/dsl/printer.h>
 #include <luisa/dsl/raster/raster_func.h>
 #include <luisa/dsl/raster/raster_kernel.h>
 #include <luisa/dsl/ref.h>

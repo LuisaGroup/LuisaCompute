@@ -1856,7 +1856,22 @@ void CodegenUtility::CodegenProperties(
     auto args = kernel.arguments();
     for (auto &&i : vstd::ptr_range(args.data() + offset, args.size() - offset)) {
         auto print = [&] {
-            GetTypeName(*i.type(), varData, kernel.variable_usage(i.uid()));
+            auto usage = kernel.variable_usage(i.uid());
+            if (i.type()->is_buffer() || i.type()->is_texture()) {
+                auto attris = i.type()->member_attributes();
+                if (!attris.empty()) {
+                    for (auto &a : attris) {
+                        if ((to_underlying(usage) & to_underlying(Usage::WRITE)) != 0) {
+                            if (a.key == "cache"sv) {
+                                if (a.value == "coherent"sv) {
+                                    varData << "globallycoherent "sv;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            GetTypeName(*i.type(), varData, usage);
             varData << ' ';
             GetVariableName(i, varData);
         };
@@ -1970,7 +1985,13 @@ vstd::MD5 CodegenUtility::GetTypeMD5(vstd::span<Type const *const> types) {
     vstd::vector<uint64_t> typeDescs;
     typeDescs.reserve(types.size());
     for (auto &&i : types) {
-        typeDescs.emplace_back(i->hash());
+        if ((i->is_buffer() || i->is_texture()) && !i->member_attributes().empty())
+            if (i->is_buffer())
+                typeDescs.emplace_back(Type::buffer(i->element())->hash());
+            else
+                typeDescs.emplace_back(Type::texture(i->element(), i->dimension())->hash());
+        else
+            typeDescs.emplace_back(i->hash());
     }
     return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
 }
@@ -1978,7 +1999,14 @@ vstd::MD5 CodegenUtility::GetTypeMD5(std::initializer_list<vstd::IRange<Variable
     vstd::vector<uint64_t> typeDescs;
     for (auto &&rg : f) {
         for (auto &&i : *rg) {
-            typeDescs.emplace_back(i.type()->hash());
+            auto type = i.type();
+            if ((type->is_buffer() || type->is_texture()) && !type->member_attributes().empty())
+                if (type->is_buffer())
+                    typeDescs.emplace_back(Type::buffer(type->element())->hash());
+                else
+                    typeDescs.emplace_back(Type::texture(type->element(), type->dimension())->hash());
+            else
+                typeDescs.emplace_back(type->hash());
         }
     }
     return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
@@ -1988,7 +2016,14 @@ vstd::MD5 CodegenUtility::GetTypeMD5(Function func) {
     auto args = func.arguments();
     typeDescs.reserve(args.size());
     for (auto &&i : args) {
-        typeDescs.emplace_back(i.type()->hash());
+        auto type = i.type();
+        if ((type->is_buffer() || type->is_texture()) && !type->member_attributes().empty())
+            if (type->is_buffer())
+                typeDescs.emplace_back(Type::buffer(type->element())->hash());
+            else
+                typeDescs.emplace_back(Type::texture(type->element(), type->dimension())->hash());
+        else
+            typeDescs.emplace_back(type->hash());
     }
     return {vstd::span<uint8_t const>(reinterpret_cast<uint8_t const *>(typeDescs.data()), typeDescs.size_bytes())};
 }

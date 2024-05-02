@@ -38,11 +38,22 @@ namespace luisa::compute::cuda {
     for (auto o : options) { argv.emplace_back(o); }
     argv.emplace_back(nullptr);
 
+    char temp_file_name[L_tmpnam];
+    if (tmpnam(temp_file_name) == nullptr) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Failed to get temp file name for CUDA compiler.");
+    }
+    auto temp_file = fopen(temp_file_name, "wb+");
+    LUISA_ASSERT(temp_file != nullptr,
+                 "Failed to create temp file '{}' for CUDA compiler.",
+                 temp_file_name);
+
     // setup the options
     reproc::options o;
     o.redirect.in.type = reproc::redirect::pipe;
-    o.redirect.out.type = reproc::redirect::pipe;
     o.redirect.err.type = reproc::redirect::parent;
+    o.redirect.out.type = reproc::redirect::file_;
+    o.redirect.out.file = temp_file;
 
     reproc::process p;
     if (auto error = p.start(reproc::arguments{argv.data()}, o)) {
@@ -60,18 +71,42 @@ namespace luisa::compute::cuda {
             }
         };
         auto size = s.size() + 1u /* for the null-terminator */;
-        write_data(&size, sizeof(size));
+        auto size_str = luisa::format("{:016x}", size);
+        write_data(size_str.data(), size_str.size());
         write_data(s.data(), size);
     };
     write(src_filename);
     write(src);
-    p.close(reproc::stream::in);
-    auto buffer = read_from_subprocess(p);
     using namespace std::chrono_literals;
-    if (auto [exit_code, error] = p.wait(0ms); exit_code || error) {
+    if (auto [exit_code, error] = p.wait(1024h/* almost forever */); exit_code || error) {
         LUISA_WARNING_WITH_LOCATION(
             "Failed to terminate the process: {} (exit code = {}).",
             error.message(), exit_code);
+    }
+    if (fseek(temp_file, 0, SEEK_END) != 0) {
+        LUISA_ERROR_WITH_LOCATION("Failed to seek temp file end.");
+    }
+    auto length = ftell(temp_file);
+    LUISA_ASSERT(length >= 0, "Failed to tell temp file length.");
+    if (fseek(temp_file, 0, SEEK_SET) != 0) {
+        LUISA_ERROR_WITH_LOCATION("Failed to seek temp file begin.");
+    }
+    luisa::vector<std::byte> buffer;
+    buffer.resize(length);
+    if (fread(buffer.data(), 1, length, temp_file) != length) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to read temp file. "
+            "The CUDA kernel might be incomplete.");
+    }
+    if (fclose(temp_file) != 0) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to close temp file '{}'.",
+            temp_file_name);
+    }
+    if (std::error_code ec; !std::filesystem::remove(temp_file_name, ec)) {
+        LUISA_WARNING_WITH_LOCATION(
+            "Failed to remove temp file '{}': {}.",
+            temp_file_name, ec.message());
     }
     return buffer;
 }

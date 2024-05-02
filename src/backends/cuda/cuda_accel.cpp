@@ -210,7 +210,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                                 m.flags |= mod_flag_curve_bezier;
                                 break;
                             default: LUISA_ERROR_WITH_LOCATION(
-                                "Invalid curve type (0x{:x}).", basis);
+                                "Invalid curve type (0x{:x}).", static_cast<uint64_t>(basis));
                         }
                     }
                 }

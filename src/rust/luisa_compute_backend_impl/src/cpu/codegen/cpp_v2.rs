@@ -484,7 +484,7 @@ impl<'a> FunctionEmitter<'a> {
             FuncTag::PopCount => Some("lc_popcount"),
             FuncTag::Clz => Some("lc_clz"),
             FuncTag::Ctz => Some("lc_ctz"),
-            FuncTag::Reverse => Some("lc_reverse_bits"),
+            FuncTag::Reverse => Some("lc_reverse"),
             FuncTag::Min => Some("lc_min"),
             FuncTag::Max => Some("lc_max"),
             FuncTag::Clamp => Some("lc_clamp"),
