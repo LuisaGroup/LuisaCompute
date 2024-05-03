@@ -192,6 +192,10 @@ on_load(function(target)
         end
         return v
     end
+    local toolchain = _get_or("toolchain", get_config("lc_toolchain"))
+    if toolchain then
+        target:set("toolchains", toolchain)
+    end
     local project_kind = _get_or("project_kind", nil)
     if project_kind then
         target:set("kind", project_kind)
@@ -212,9 +216,13 @@ on_load(function(target)
     local c_standard = target:values("c_standard")
     local cxx_standard = target:values("cxx_standard")
     if type(c_standard) == "string" and type(cxx_standard) == "string" then
-        target:set("languages", c_standard, cxx_standard, {public = true})
+        target:set("languages", c_standard, cxx_standard, {
+            public = true
+        })
     else
-        target:set("languages", "clatest", "cxx20", {public = true})
+        target:set("languages", "clatest", "cxx20", {
+            public = true
+        })
     end
 
     local enable_exception = _get_or("enable_exception", nil)
@@ -225,21 +233,27 @@ on_load(function(target)
     end
 
     if is_mode("debug") then
-        target:set("runtimes", _get_or("runtime", "MDd"), {public = true})
+        target:set("runtimes", _get_or("runtime", "MDd"), {
+            public = true
+        })
         target:set("optimize", "none")
         target:set("warnings", "none")
         target:add("cxflags", "/GS", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     elseif is_mode("releasedbg") then
-        target:set("runtimes", _get_or("runtime", "MD"), {public = true})
+        target:set("runtimes", _get_or("runtime", "MD"), {
+            public = true
+        })
         target:set("optimize", "none")
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     else
-        target:set("runtimes", _get_or("runtime", "MD"), {public = true})
+        target:set("runtimes", _get_or("runtime", "MD"), {
+            public = true
+        })
         target:set("optimize", "aggressive")
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
@@ -287,17 +301,14 @@ on_config(function(target)
     if not is_plat("windows") then
         return
     end
-    local toolchain = get_config("toolchain")
-    if not toolchain then
-        utils.warning("Toolchain not found, win-sdk check gave up.")
-        return
-    end
-    if toolchain == "llvm" then
-        return
-    end
-    local toolchain_settings = target:toolchain(toolchain)
+    local toolchain_settings = target:toolchain("msvc")
     if not toolchain_settings then
-        utils.warning("Toolchain settings not found, win-sdk check gave up.")
+        toolchain_settings = target:toolchain("clang-cl")
+    end
+    if not toolchain_settings then
+        toolchain_settings = target:toolchain("llvm")
+    end
+    if not toolchain_settings then
         return
     end
     local sdk_version = toolchain_settings:runenvs().WindowsSDKVersion
@@ -316,9 +327,9 @@ on_config(function(target)
                 end
             end
         end
-    end
-    if not legal_sdk then
-        os.raise("Illegal windows SDK version, requires 10.0.22000.0 or later")
+        if not legal_sdk then
+            os.raise("Illegal windows SDK version, requires 10.0.22000.0 or later")
+        end
     end
 end)
 target_end()
@@ -359,7 +370,8 @@ on_load(function(target)
         if not valid then
             utils.error("Library: " .. packages.sdks()[lib]['name'] ..
                             " not installed, run 'xmake lua setup.lua' or download it manually from " ..
-                            packages.sdk_address(packages.sdks()[lib]) .. ' to ' .. packages.sdk_dir(os.arch(), sdk_dir) .. '.')
+                            packages.sdk_address(packages.sdks()[lib]) .. ' to ' .. packages.sdk_dir(os.arch(), sdk_dir) ..
+                            '.')
             enable = false
         end
     end
