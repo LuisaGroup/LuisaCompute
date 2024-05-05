@@ -2,6 +2,8 @@ if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "LuisaCompute only supports 64-bit platforms")
 endif ()
 
+message(STATUS "Build for ${CMAKE_SYSTEM} (${CMAKE_SYSTEM_PROCESSOR})")
+
 if (LUISA_COMPUTE_BUILD_TESTS)
     if (NOT LUISA_COMPUTE_ENABLE_DSL)
         message(WARNING "DSL is required for tests. The DSL will be enabled.")
