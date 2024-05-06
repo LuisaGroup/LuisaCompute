@@ -29,7 +29,7 @@ class DStorageCommandQueue : public CmdQueueBase {
         uint64_t fence;
         bool wakeupThread;
         template<typename Arg>
-            requires(std::is_constructible_v<Variant, Arg &&>)
+            requires(luisa::is_constructible_v<Variant, Arg &&>)
         CallbackEvent(Arg &&arg,
                       uint64_t fence,
                       bool wakeupThread)

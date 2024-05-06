@@ -614,7 +614,7 @@ impl<'a> FunctionEmitter<'a> {
             Func::PopCount => Some("lc_popcount"),
             Func::Clz => Some("lc_clz"),
             Func::Ctz => Some("lc_ctz"),
-            Func::Reverse => Some("lc_reverse_bits"),
+            Func::Reverse => Some("lc_reverse"),
             Func::Min => Some("lc_min"),
             Func::Max => Some("lc_max"),
             Func::Clamp => Some("lc_clamp"),

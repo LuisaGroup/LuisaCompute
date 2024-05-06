@@ -11,6 +11,7 @@
 
 #include "cuda_texture.h"
 #include "cuda_codegen_ast.h"
+#include "../common/cast.h"
 
 namespace luisa::compute::cuda {
 
@@ -624,7 +625,9 @@ void CUDACodegenAST::visit(const UnaryExpr *expr) {
         case UnaryOp::BIT_NOT: _scratch << "~"; break;
         default: break;
     }
+    _scratch << "(";
     expr->operand()->accept(*this);
+    _scratch << ")";
 }
 
 void CUDACodegenAST::visit(const BinaryExpr *expr) {
@@ -1196,7 +1199,7 @@ void CUDACodegenAST::visit(const IfStmt *stmt) {
     stmt->true_branch()->accept(*this);
     if (auto fb = stmt->false_branch(); fb != nullptr && !fb->statements().empty()) {
         _scratch << " else ";
-        if (auto elif = dynamic_cast<const IfStmt *>(fb->statements().front());
+        if (auto elif = ast_cast_to<IfStmt>(fb->statements().front());
             fb->statements().size() == 1u && elif != nullptr) {
             elif->accept(*this);
         } else {

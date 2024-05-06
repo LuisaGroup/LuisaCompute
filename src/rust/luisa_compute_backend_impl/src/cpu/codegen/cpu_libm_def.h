@@ -6,6 +6,8 @@ extern "C" {
 float fminf(float x, float y);
 float fmaxf(float x, float y);
 float fabsf(float x);
+int abs(int x);
+long long llabs(long long x);
 float acosf(float x);
 float asinf(float x);
 float asinhf(float x);

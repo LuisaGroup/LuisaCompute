@@ -124,8 +124,18 @@ option("bin_dir")
 set_default("bin")
 set_showmenu(true)
 option_end()
+-- custom sdk dir
+option("sdk_dir")
+set_default(false)
+set_showmenu(true)
+option_end()
 -- external_marl
 option("external_marl")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
+option("lc_toolchain")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
@@ -134,26 +144,19 @@ option_end()
 
 -- try options.lua
 if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) and os.exists("scripts/options.lua") then
-	includes("scripts/options.lua")
+    includes("scripts/options.lua")
 end
 if lc_toolchain then
-	for k, v in pairs(lc_toolchain) do
-		set_config(k, v)
-	end
+    for k, v in pairs(lc_toolchain) do
+        set_config(k, v)
+    end
 end
 includes("scripts/xmake_func.lua")
 
-if is_arch("x64", "x86_64", "arm64") then
-	local bin_dir = get_config("_lc_bin_dir")
-	if bin_dir then
-		set_targetdir(bin_dir)
-	end
-	includes("src")
-else
-	target("_lc_illegal_env")
-	set_kind("phony")
-	on_load(function(target)
-		utils.error("Illegal environment. Please check your compiler, architecture or platform.")
-	end)
-	target_end()
+if get_config('_lc_check_env') then
+    local bin_dir = get_config("_lc_bin_dir")
+    if bin_dir then
+        set_targetdir(bin_dir)
+    end
+    includes("src")
 end

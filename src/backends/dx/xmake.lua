@@ -24,11 +24,6 @@ on_load(function(target)
 		end
 	end
 end)
-after_build(function(target)
-	if is_plat("windows") then
-		local bin_dir = target:targetdir()
-		os.cp(path.join(os.scriptdir(), "dx_support/*.dll"), bin_dir)
-	end
-end)
 set_pcxxheader("pch.h")
+add_rules('lc_install_sdk', {libnames = {'dx_sdk'}})
 target_end()

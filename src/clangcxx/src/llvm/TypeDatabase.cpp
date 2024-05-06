@@ -244,7 +244,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsPrimitiveType(const clang::Qua
             default:
             {
                 clangcxx_log_error("unsupported field primitive type: [{}], kind [{}]",
-                    Ty.getAsString(), builtin->getKind());
+                    Ty.getAsString(), luisa::to_string(builtin->getKind()));
             }
             break;
         }
@@ -300,7 +300,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         case 3: { _type = Type::of<type##3>(); } break;                                            \
         case 4: { _type = Type::of<type##4>(); } break;                                            \
         default: {                                                                                             \
-            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
+            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), luisa::to_string(EType->getKind()), N);    \
         } break;                                                                                               \
     }
                             case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool) } break;
@@ -311,7 +311,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                             case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint) } break;
                             case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double) } break;
                             default: {
-                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
+                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), luisa::to_string(EType->getKind()));
                             } break;
 #undef CASE_VEC_TYPE
                         }
@@ -351,19 +351,32 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
             if (auto TSD = GetClassTemplateSpecializationDecl(Ty)) {
                 auto &Arguments = TSD->getTemplateArgs();
                 if (auto lcType = FindOrAddType(Arguments[0].getAsType(), TSD->getBeginLoc())) {
-                    if (is_buffer)
-                        _type = Type::buffer(lcType);
-                    if (is_image)
-                        _type = Type::texture(lcType, 2);
-                    if (is_volume)
-                        _type = Type::texture(lcType, 3);
+                    luisa::vector<luisa::compute::Attribute> attributes;
+                    auto set_attributes = [&]() {
+                        auto N = Arguments[1].getAsIntegral().getLimitedValue();
+                        if (N == 1) {
+                            attributes.emplace_back("cache", "coherent");
+                        }
+                    };
+                    if (is_buffer) {
+                        set_attributes();
+                        _type = Type::buffer(lcType, attributes);
+                    }
+                    if (is_image) {
+                        set_attributes();
+                        _type = Type::texture(lcType, 2, attributes);
+                    }
+                    if (is_volume) {
+                        set_attributes();
+                        _type = Type::texture(lcType, 3, attributes);
+                    }
                 } else {
                     if (is_buffer) {
                         _type = Type::of<ByteBuffer>();
                     } else {
                         clangcxx_log_error("unfound {} element type: {}",
-                                         is_image ? "image" : "volume",
-                                         Arguments[0].getAsType().getAsString());
+                                           is_image ? "image" : "volume",
+                                           Arguments[0].getAsType().getAsString());
                     }
                 }
             }

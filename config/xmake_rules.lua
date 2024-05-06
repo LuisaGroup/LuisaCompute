@@ -26,6 +26,8 @@ on_load(function(target)
 		path.join(lc_dir,"include"), path.join(lc_dir,"src/ext/xxHash"), path.join(lc_dir,"src/ext/magic_enum/include"),
 		--[[imgui]]
 		path.join(lc_dir, "src/ext/imgui"), path.join(lc_dir, "src/ext/imgui/backends"),
+		--[[glfw]]
+		path.join(lc_dir, "src/ext/glfw/include/"),
 		{
 			public = is_public
 		}

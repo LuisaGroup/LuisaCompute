@@ -1,4 +1,3 @@
--- Global config
 option("_lc_enable_py")
 set_showmenu(false)
 set_default(false)
@@ -9,13 +8,31 @@ set_showmenu(false)
 set_default(false)
 option_end()
 
+option("_lc_check_env")
+set_showmenu(false)
+set_default(false)
+after_check(function(option)
+    if not is_arch("x64", "x86_64", "arm64") then
+        option:set_value(false)
+        utils.error("Illegal environment. Please check your compiler, architecture or platform.")
+        return
+    end
+    if not (is_mode("debug") or is_mode("release") or is_mode("releasedbg")) then
+        option:set_value(false)
+        utils.error("Illegal mode. set mode to 'release', 'debug' or 'releasedbg'.")
+        return
+    end
+    option:set_value(true)
+end)
+option_end()
+
 option("_lc_bin_dir")
 set_default(false)
 set_showmenu(false)
 add_deps("enable_mimalloc", "enable_unity_build", "enable_simd", "dx_backend", "vk_backend", "cuda_backend",
     "metal_backend", "cpu_backend", "enable_tests", "enable_custom_malloc", "enable_clangcxx", "py_include",
     "py_linkdir", "external_marl", "py_libs", "cuda_ext_lcub", "enable_ir", "enable_osl", "enable_api", "enable_dsl",
-    "enable_gui", "bin_dir", "_lc_enable_py", "_lc_enable_rust")
+    "enable_gui", "bin_dir", "sdk_dir", "_lc_enable_py", "_lc_enable_rust")
 before_check(function(option)
     if path.absolute(path.join(os.projectdir(), "scripts")) == path.absolute(os.scriptdir()) then
         local v = import("options", {
@@ -102,8 +119,6 @@ before_check(function(option)
             bin_dir = path.join(bin_dir, "release")
         end
         option:set_value(bin_dir)
-    else
-        option:set_value(false)
     end
     -- checking rust
     local enable_ir = option:dep("enable_ir")
@@ -171,11 +186,15 @@ on_config(function(target)
 end)
 on_load(function(target)
     local _get_or = function(name, default_value)
-        local v = target:values(name)
+        local v = target:extraconf("rules", "lc_basic_settings", name)
         if v == nil then
             return default_value
         end
         return v
+    end
+    local toolchain = _get_or("toolchain", get_config("lc_toolchain"))
+    if toolchain then
+        target:set("toolchains", toolchain)
     end
     local project_kind = _get_or("project_kind", nil)
     if project_kind then
@@ -197,9 +216,13 @@ on_load(function(target)
     local c_standard = target:values("c_standard")
     local cxx_standard = target:values("cxx_standard")
     if type(c_standard) == "string" and type(cxx_standard) == "string" then
-        target:set("languages", c_standard, cxx_standard)
+        target:set("languages", c_standard, cxx_standard, {
+            public = true
+        })
     else
-        target:set("languages", "clatest", "cxx20")
+        target:set("languages", "clatest", "cxx20", {
+            public = true
+        })
     end
 
     local enable_exception = _get_or("enable_exception", nil)
@@ -210,46 +233,57 @@ on_load(function(target)
     end
 
     if is_mode("debug") then
-        target:set("runtimes", _get_or("runtime", "MDd"))
+        target:set("runtimes", _get_or("runtime", "MDd"), {
+            public = true
+        })
         target:set("optimize", "none")
         target:set("warnings", "none")
         target:add("cxflags", "/GS", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     elseif is_mode("releasedbg") then
-        target:set("runtimes", _get_or("runtime", "MD"))
+        target:set("runtimes", _get_or("runtime", "MD"), {
+            public = true
+        })
         target:set("optimize", "none")
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     else
-        target:set("runtimes", _get_or("runtime", "MD"))
+        target:set("runtimes", _get_or("runtime", "MD"), {
+            public = true
+        })
         target:set("optimize", "aggressive")
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
             tools = {"clang_cl", "cl"}
         })
     end
+    target:set("fpmodels", "fast")
     target:add("cxflags", "/Zc:preprocessor", {
-        tools = "cl"
+        tools = "cl",
+        public = true
     });
-    if _get_or("use_simd", false) then
+    if _get_or("use_simd", get_config("enable_simd")) then
         if is_arch("arm64") then
             target:add("vectorexts", "neon")
         else
             target:add("vectorexts", "avx", "avx2")
         end
     end
-    if _get_or("no_rtti", false) then
+    if _get_or("no_rtti", not get_config("_lc_enable_py")) then
         target:add("cxflags", "/GR-", {
-            tools = {"clang_cl", "cl"}
+            tools = {"clang_cl", "cl"},
+            public = true
         })
         target:add("cxflags", "-fno-rtti", "-fno-rtti-data", {
-            tools = {"clang"}
+            tools = {"clang"},
+            public = true
         })
         target:add("cxflags", "-fno-rtti", {
-            tools = {"gcc"}
+            tools = {"gcc"},
+            public = true
         })
     end
 end)
@@ -267,17 +301,14 @@ on_config(function(target)
     if not is_plat("windows") then
         return
     end
-    local toolchain = get_config("toolchain")
-    if not toolchain then
-        utils.warning("Toolchain not found, win-sdk check gave up.")
-        return
-    end
-    if toolchain == "llvm" then
-        return
-    end
-    local toolchain_settings = target:toolchain(toolchain)
+    local toolchain_settings = target:toolchain("msvc")
     if not toolchain_settings then
-        utils.warning("Toolchain settings not found, win-sdk check gave up.")
+        toolchain_settings = target:toolchain("clang-cl")
+    end
+    if not toolchain_settings then
+        toolchain_settings = target:toolchain("llvm")
+    end
+    if not toolchain_settings then
         return
     end
     local sdk_version = toolchain_settings:runenvs().WindowsSDKVersion
@@ -296,9 +327,9 @@ on_config(function(target)
                 end
             end
         end
-    end
-    if not legal_sdk then
-        os.raise("Illegal windows SDK version, requires 10.0.22000.0 or later")
+        if not legal_sdk then
+            os.raise("Illegal windows SDK version, requires 10.0.22000.0 or later")
+        end
     end
 end)
 target_end()
@@ -327,6 +358,66 @@ on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
 end)
 rule_end()
 
+rule('lc_install_sdk')
+on_load(function(target)
+    local packages = import('packages')
+    local libnames = target:extraconf("rules", "lc_install_sdk", "libnames")
+    local find_sdk = import('find_sdk')
+    local enable = true
+    local sdk_dir = get_config("sdk_dir")
+    for _, lib in ipairs(libnames) do
+        local valid = find_sdk.check_file(lib, sdk_dir)
+        if not valid then
+            utils.error("Library: " .. packages.sdks()[lib]['name'] ..
+                            " not installed, run 'xmake lua setup.lua' or download it manually from " ..
+                            packages.sdk_address(packages.sdks()[lib]) .. ' to ' .. packages.sdk_dir(os.arch(), sdk_dir) ..
+                            '.')
+            enable = false
+        end
+    end
+    if not enable then
+        target:set('enabled', false)
+    end
+end)
+on_clean(function(target)
+    local bin_dir = target:targetdir()
+    local find_sdk = import('find_sdk')
+    local packages = import('packages')
+    local sdks = packages.sdks()
+    local libnames = target:extraconf("rules", "lc_install_sdk", "libnames")
+    for _, lib in ipairs(libnames) do
+        local sdk_map = sdks[lib]
+        local cache_file_name = path.join(bin_dir, lib .. '.txt')
+        if os.exists(cache_file_name) then
+            os.rm(cache_file_name)
+        end
+    end
+end)
+before_build(function(target)
+    local bin_dir = target:targetdir()
+    local lib = import('lib')
+    lib.mkdirs(bin_dir)
+    local libnames = target:extraconf("rules", "lc_install_sdk", "libnames")
+    local packages = import('packages')
+    local find_sdk = import('find_sdk')
+    local sdks = packages.sdks()
+    local sdk_dir = packages.sdk_dir(os.arch(), get_config("sdk_dir"))
+    for _, lib in ipairs(libnames) do
+        local sdk_map = sdks[lib]
+        local zip = sdk_map['name']
+        local cache_file_name = path.join(bin_dir, lib .. '.txt')
+        local data
+        if os.exists(cache_file_name) then
+            data = io.readfile(cache_file_name)
+        end
+        if not data or data ~= sdk_map['sha256'] then
+            io.writefile(cache_file_name, sdk_map['sha256'])
+            find_sdk.unzip_sdk(lib .. '.zip', sdk_dir, bin_dir)
+        end
+    end
+end)
+rule_end()
+
 -- In-case of submod, when there is override rules, do not overload
 if _config_rules == nil then
     _config_rules = {"lc_basic_settings"}
@@ -337,26 +428,8 @@ if _disable_unity_build == nil then
         _disable_unity_build = not unity_build
     end
 end
-
-if _configs == nil then
-    _configs = {}
-end
-_configs["use_simd"] = get_config("enable_simd")
 if not _config_project then
     function _config_project(config)
-        if type(_configs) == "table" then
-            for k, v in pairs(_configs) do
-                set_values(k, v)
-            end
-        end
-        if type(_config_rules) == "table" then
-            add_rules(_config_rules)
-        end
-        if type(config) == "table" then
-            for k, v in pairs(config) do
-                set_values(k, v)
-            end
-        end
         local batch_size = config["batch_size"]
         if type(batch_size) == "number" and batch_size > 1 and (not _disable_unity_build) then
             add_rules("c.unity_build", {
@@ -365,6 +438,9 @@ if not _config_project then
             add_rules("c++.unity_build", {
                 batchsize = batch_size
             })
+        end
+        if type(_config_rules) == "table" then
+            add_rules(_config_rules, config)
         end
     end
 end

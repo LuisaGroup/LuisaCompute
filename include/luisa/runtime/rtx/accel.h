@@ -52,6 +52,12 @@ public:
         std::lock_guard lock{_mtx};
         return _instance_count;
     }
+    // whether there are any stashed updates
+    [[nodiscard]] auto dirty() const noexcept {
+        _check_is_valid();
+        std::lock_guard lck{_mtx};
+        return !_modifications.empty();
+    }
     void emplace_back_handle(uint64_t mesh_handle,
                              float4x4 const &transform,
                              uint8_t visibility_mask,

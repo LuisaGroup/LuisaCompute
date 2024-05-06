@@ -5,6 +5,7 @@
 #include <atomic>
 #include <type_traits>
 #include <mutex>
+#include <luisa/core/stl/type_traits.h>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/vstl/memory.h>
 #include <luisa/vstl/vector.h>
@@ -51,7 +52,7 @@ public:
     Pool(Pool &&o) = default;
     Pool(Pool const &o) = delete;
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     T *create(Args &&...args) {
         AllocateMemory();
         T *value = allPtrs.back();
@@ -60,7 +61,7 @@ public:
         return value;
     }
     template<typename Mutex, typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     T *create_lock(Mutex &mtx, Args &&...args) {
         T *value = nullptr;
         {
@@ -182,7 +183,7 @@ public:
     }
 
     template<typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     T *create(Args &&...args) {
         AllocateMemory();
         T *value = allPtrs.back();
@@ -192,7 +193,7 @@ public:
         return value;
     }
     template<typename Mutex, typename... Args>
-        requires(std::is_constructible_v<T, Args && ...>)
+        requires(luisa::is_constructible_v<T, Args && ...>)
     T *create_lock(Mutex &mtx, Args &&...args) {
         T *value = nullptr;
         {

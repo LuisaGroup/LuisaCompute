@@ -41,6 +41,7 @@ static void report_error(const char *fmt, ...) {
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
     va_end(args);
+    fflush(stderr);
     abort();
 }
 
@@ -59,9 +60,23 @@ typedef struct str_buffer {
 } str_buffer;
 
 static str_buffer read(const char *name) {
-    str_buffer s = {};
-    if (!fread(&s.size, sizeof(size_t), 1, stdin)) {
+    char size_str[16] = {};
+    if (fread(size_str, 1, 16, stdin) != 16) {
         report_error("Failed to read %s size from stdin.\n", name);
+    }
+    str_buffer s = {};
+    // parse size
+    for (size_t i = 0u; i < 16u; i++) {
+        s.size <<= 4u;
+        if (size_str[i] >= '0' && size_str[i] <= '9') {
+            s.size += size_str[i] - '0';
+        } else if (size_str[i] >= 'a' && size_str[i] <= 'f') {
+            s.size += size_str[i] - 'a' + 10;
+        } else if (size_str[i] >= 'A' && size_str[i] <= 'F') {
+            s.size += size_str[i] - 'A' + 10;
+        } else {
+            report_error("Invalid %s size format.\n", name);
+        }
     }
     s.data = (char *)malloc(s.size);
     if (s.data == NULL) {
@@ -137,10 +152,19 @@ int main(int argc, char *argv[]) {
     }
 
     // write PTX to stdout
-    if (!fwrite(buffer.data, buffer.size, 1, stdout)) {
+    size_t written_size = fwrite(buffer.data, 1, buffer.size, stdout);
+    if (written_size != buffer.size) {
+#ifndef NDEBUG
+        FILE *file = fopen("dump.ptx", "wb");
+        fwrite(buffer.data, 1, buffer.size, file);
+        fclose(file);
+#endif
         free(buffer.data);
-        report_error("Failed to write PTX data to stdout.\n");
+        report_error("Failed to write PTX data to stdout "
+                     "(%" PRIu64 " of total %" PRIu64 "B written).\n",
+                     written_size, buffer.size);
     }
+    fflush(stdout);// ensure the data is written before exit
     free(buffer.data);
     return 0;
 }

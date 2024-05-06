@@ -41,24 +41,6 @@ on_load(function(target)
 		add_rs_link("release")
 	end
 end)
--- after_build(function(target)
--- 	local function copy_dll(str)
--- 		local lib_path = path.absolute(path.join("../rust/target", str), os.scriptdir())
--- 		local bin_dir = target:targetdir()
--- 		if is_plat("windows") then
--- 			os.cp(path.join(lib_path, "luisa_compute_ir.dll"), bin_dir)
---         elseif is_plat("linux") then
--- 			os.cp(path.join(lib_path, "libluisa_compute_ir.so"), bin_dir)
--- 		else
--- 			os.cp(path.join(lib_path, "libluisa_compute_ir.dylib"), bin_dir)
--- 		end
--- 	end
--- 	if is_mode("debug") then
--- 		copy_dll("debug")
--- 	else
--- 		copy_dll("release")
--- 	end
--- end)
 add_headerfiles("../../include/luisa/ir/**.h")
 add_files("**.cpp")
 target_end()

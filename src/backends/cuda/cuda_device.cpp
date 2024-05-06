@@ -1147,8 +1147,9 @@ LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {
-    auto p = dynamic_cast<luisa::compute::cuda::CUDADevice *>(device);
-    LUISA_ASSERT(p != nullptr, "Deleting a null CUDA device.");
+    auto p = static_cast<luisa::compute::cuda::CUDADevice *>(device);
+    // auto p = dynamic_cast<luisa::compute::cuda::CUDADevice *>(device);
+    // LUISA_ASSERT(p != nullptr, "Deleting a null CUDA device.");
     luisa::delete_with_allocator(p);
 }
 

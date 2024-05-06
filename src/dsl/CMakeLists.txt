@@ -16,7 +16,6 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             func.cpp
             local.cpp
             polymorphic.cpp
-            printer.cpp
             resource.cpp
             soa.cpp
             sugar.cpp

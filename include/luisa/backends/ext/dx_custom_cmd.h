@@ -25,7 +25,7 @@ public:
         ResourceHandle resource;
         D3D12_RESOURCE_STATES required_state;
         template<typename Arg>
-            requires(std::is_constructible_v<ResourceHandle, Arg &&>)
+            requires(luisa::is_constructible_v<ResourceHandle, Arg &&>)
         ResourceUsage(
             Arg &&resource,
             D3D12_RESOURCE_STATES required_state)
