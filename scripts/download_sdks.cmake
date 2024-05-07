@@ -10,7 +10,7 @@ file(MAKE_DIRECTORY ${OUTPUT_DIR})
 file(REAL_PATH ${OUTPUT_DIR} OUTPUT_DIR EXPAND_TILDE)
 message(STATUS "Output directory for downloaded SDKs: ${OUTPUT_DIR}")
 
-return()
+file(LOCK ${OUTPUT_DIR} DIRECTORY)
 
 function(download_sdk name url sha1)
     message(STATUS "Downloading ${name} from ${url}")
