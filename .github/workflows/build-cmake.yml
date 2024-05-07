@@ -83,7 +83,7 @@ jobs:
       - name: "Configure and Build"
         shell: cmd
         run: |
-          cmake -D COMPONENTS="dx" -D OUTPUT_DIR="../luisa_compute_sdks/windows-cmake" -P scripts/download_sdks.cmake
+          cmake -D COMPONENTS="dx" -D OUTPUT_DIR="../../luisa_compute_sdks/windows-cmake" -P scripts/download_sdks.cmake
           call "C:\Program Files\Microsoft Visual Studio\${{ matrix.os }}\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
           cmake --version
           ninja --version
