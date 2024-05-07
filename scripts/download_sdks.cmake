@@ -9,8 +9,6 @@ message(STATUS "Output directory for downloaded SDKs: ${OUTPUT_DIR}")
 
 function(download_sdk name url sha1)
     message(STATUS "Downloading ${name} from ${url}")
-    set(${name}_SOURCE_DIR ${OUTPUT_DIR}/${name}-src)
-    set(${name}_BINARY_DIR ${OUTPUT_DIR}/${name}-build)
     FetchContent_Populate(${name}
             URL ${url}
             URL_HASH SHA1=${sha1}
