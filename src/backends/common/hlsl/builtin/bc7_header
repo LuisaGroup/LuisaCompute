@@ -165,6 +165,7 @@ static const uint aStep[3][64] = { { 0, 0, 0, 1, 1, 1, 1, 2,
  2,2,2,2,2,2,3,3,
 3,3,3,3,3,3,3,3 } };
 cbuffer _Global : register(b0){
+ uint g_mip_level;
  uint g_tex_width;
  uint g_num_block_x;
  uint g_format;

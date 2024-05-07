@@ -81,6 +81,7 @@ public:
         size_t maxAlloc);
     void CompressBC(
         TextureBase *rt,
+        uint level,
         luisa::compute::BufferView<uint> const &result,
         bool isHDR,
         float alphaImportance,

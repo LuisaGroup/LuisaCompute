@@ -30,11 +30,14 @@ int main(int argc, char *argv[]) {
     stream << byte4_image.copy_from(image_pixels) << synchronize();
     Clock clk;
     tex_ext->compress_bc6h(stream, byte4_image, bc6h_buffer);
-    tex_ext->compress_bc7(stream, byte4_image, bc7_buffer, 0 /*No need alpha channel*/);
     stream << synchronize();
     auto compress_time = clk.toc();
-    LUISA_INFO("Compress {}x{} image spend {} ms", resolution.x, resolution.y, compress_time);
-
+    LUISA_INFO("Compress BC6 {}x{} image spend {} ms", resolution.x, resolution.y, compress_time);
+    clk.tic();
+    tex_ext->compress_bc7(stream, byte4_image, bc7_buffer, 0 /*No need alpha channel*/);
+    stream << synchronize();
+    compress_time = clk.toc();
+    LUISA_INFO("Compress BC7 {}x{} image spend {} ms", resolution.x, resolution.y, compress_time);
     BindlessArray array = device.create_bindless_array(2u);
     constexpr auto bc6h_image_index = 0u;
     constexpr auto bc7_image_index = 1u;

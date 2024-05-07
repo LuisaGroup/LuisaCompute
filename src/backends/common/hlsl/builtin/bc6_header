@@ -9,6 +9,7 @@
 #define MAX_INT asint(0x7FFFFFFF)
 #define MIN_INT asint(0x80000000)
 cbuffer _Global : register(b0){
+ uint g_mip_level;
  uint g_tex_width;
  uint g_num_block_x;
  uint g_format;
