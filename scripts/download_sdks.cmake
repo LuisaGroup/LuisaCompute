@@ -3,9 +3,14 @@ cmake_minimum_required(VERSION 3.25...3.29)
 include(FetchContent)
 
 option(OUTPUT_DIR "Output directory for downloaded SDKs" "${CMAKE_CURRENT_LIST_DIR}/../downloaded_sdks")
+if (NOT IS_ABSOLUTE ${OUTPUT_DIR})
+    set(OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/${OUTPUT_DIR})
+endif ()
 file(MAKE_DIRECTORY ${OUTPUT_DIR})
 file(REAL_PATH ${OUTPUT_DIR} OUTPUT_DIR EXPAND_TILDE)
 message(STATUS "Output directory for downloaded SDKs: ${OUTPUT_DIR}")
+
+return()
 
 function(download_sdk name url sha1)
     message(STATUS "Downloading ${name} from ${url}")
