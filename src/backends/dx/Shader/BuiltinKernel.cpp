@@ -123,13 +123,14 @@ static ComputeShader *LoadBCKernel(
     vstd::string_view extName = ".dxil"sv;
     fileName.reserve(codePath.size() + extName.size());
     fileName << codePath << extName;
+    vstd::MD5 versionMD5{"0.0.1"sv};
     return ComputeShader::CompileCompute(
         device->fileIo,
         device->profiler,
         device,
         {},
         func,
-        {},
+        versionMD5,
         {},
         uint3(1, 1, 1),
         62,
