@@ -364,7 +364,7 @@ public:
                 LUISA_ERROR("Custom command not supported by this queue.");
         }
     }
-    
+
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
         auto cs = reinterpret_cast<RasterShader *>(cmd->handle());
         size_t beforeSize = argBuffer->size();
@@ -1147,6 +1147,7 @@ void LCCmdBuffer::Present(
 }
 void LCCmdBuffer::CompressBC(
     TextureBase *rt,
+    uint level,
     luisa::compute::BufferView<uint> const &result,
     bool isHDR,
     float alphaImportance,
@@ -1154,6 +1155,7 @@ void LCCmdBuffer::CompressBC(
     size_t maxAlloc) {
     alphaImportance = std::max<float>(std::min<float>(alphaImportance, 1), 0);// clamp<float>(alphaImportance, 0, 1);
     struct BCCBuffer {
+        uint g_mip_level;
         uint g_tex_width;
         uint g_num_block_x;
         uint g_format;
@@ -1162,8 +1164,8 @@ void LCCmdBuffer::CompressBC(
         uint g_num_total_blocks;
         float g_alpha_weight;
     };
-    uint width = rt->Width();
-    uint height = rt->Height();
+    uint width = rt->Width() >> level;
+    uint height = rt->Height() >> level;
     uint xBlocks = std::max<uint>(1, (width + 3) >> 2);
     uint yBlocks = std::max<uint>(1, (height + 3) >> 2);
     uint numBlocks = xBlocks * yBlocks;
@@ -1194,7 +1196,9 @@ void LCCmdBuffer::CompressBC(
             device->samplerHeap->GetHeap()};
         cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
 
-        BCCBuffer cbData;
+        BCCBuffer cbData{
+            .g_mip_level = level
+        };
         tracker.RecordState(rt, tracker.ReadState(ResourceReadUsage::Srv, rt));
         auto RunComputeShader = [&](ComputeShader const *cs, uint dispatchCount, BufferView const &inBuffer, BufferView const &outBuffer) {
             auto cbuffer = alloc->GetTempUploadBuffer(sizeof(BCCBuffer), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
@@ -1216,7 +1220,7 @@ void LCCmdBuffer::CompressBC(
                 uint3(dispatchCount, 1, 1),
                 {prop, 4});
         };
-        constexpr uint MAX_BLOCK_BATCH = 2048;
+        constexpr uint MAX_BLOCK_BATCH = 65536u;
         uint startBlockID = 0;
         if (isHDR)//bc6
         {
