@@ -17,5 +17,5 @@ template<typename Format, typename... Args>
 
 int main(int argc, char *argv[]) {
     using fmt::format_to;
-    std::cout << fmt::format("shit: {}", argv[0]) << std::endl;
+    std::cout << fmt::format("argv[0]: {}", argv[0]) << std::endl;
 }
