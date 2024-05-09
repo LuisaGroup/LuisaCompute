@@ -244,7 +244,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsPrimitiveType(const clang::Qua
             default:
             {
                 clangcxx_log_error("unsupported field primitive type: [{}], kind [{}]",
-                    Ty.getAsString(), builtin->getKind());
+                    Ty.getAsString(), luisa::to_string(builtin->getKind()));
             }
             break;
         }
@@ -300,7 +300,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
         case 3: { _type = Type::of<type##3>(); } break;                                            \
         case 4: { _type = Type::of<type##4>(); } break;                                            \
         default: {                                                                                             \
-            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), EType->getKind(), N);    \
+            clangcxx_log_error("unsupported type: {}, kind {}, N {}", Ty.getAsString(), luisa::to_string(EType->getKind()), N);    \
         } break;                                                                                               \
     }
                             case (BuiltinType::Kind::Bool): { CASE_VEC_TYPE(bool) } break;
@@ -311,7 +311,7 @@ const luisa::compute::Type *TypeDatabase::RecordAsBuiltinType(const QualType Ty)
                             case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint) } break;
                             case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double) } break;
                             default: {
-                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), EType->getKind());
+                                clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), luisa::to_string(EType->getKind()));
                             } break;
 #undef CASE_VEC_TYPE
                         }

@@ -316,7 +316,7 @@ struct PrintValue<Vector<EleType, N>> {
                 varName << "uint64_t";
             } else {
                 // static_assert(luisa::always_false_v<T>, "Unsupported type.");
-                LUISA_ERROR_WITH_LOCATION("Unsupported type. {}", typeid(T).name());
+                LUISA_ERROR_WITH_LOCATION("Unsupported type.");
             }
             vstd::to_string(N, varName);
             varName << '(';

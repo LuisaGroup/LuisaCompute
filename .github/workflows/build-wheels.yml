@@ -52,12 +52,12 @@ jobs:
       - name: "Build Wheels"
         run: |
           if [ "${{ matrix.os }}" = "13" ]; then
-            export PATH="/usr/local/opt/llvm/bin:$PATH"
+            export CC=/usr/local/opt/llvm/bin/clang
+            export CXX=/usr/local/opt/llvm/bin/clang++
           else
-            export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+            export CC=/opt/homebrew/opt/llvm/bin/clang
+            export CXX=/opt/homebrew/opt/llvm/bin/clang++
           fi
-          export CC=clang
-          export CXX=clang++
           python3 -m pip install -U cibuildwheel --break-system-packages
           for dep_target in {13..${{ matrix.os }}}; do
             export MACOSX_DEPLOYMENT_TARGET=${dep_target}.0

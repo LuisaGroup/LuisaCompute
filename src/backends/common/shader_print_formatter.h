@@ -205,15 +205,18 @@ public:
                 [&](auto &&p) noexcept {
                     using T = std::decay_t<decltype(p)>;
                     if constexpr (std::is_same_v<T, Type::Tag>) {
-                        auto print_primitive = [&](auto v) noexcept {
-                            using TT = std::decay_t<decltype(v)>;
+                        auto print_primitive = [&]<typename T>(T v) noexcept {
+                            using TT = std::decay_t<T>;
                             std::memcpy(&v, data, sizeof(v));
                             if constexpr (std::is_same_v<TT, bool>) {
                                 scratch.append(v ? "true" : "false");
                             } else if constexpr (luisa::is_integral_v<TT> && sizeof(TT) <= sizeof(short)) {
                                 luisa::format_to(std::back_inserter(scratch), "{}", static_cast<int>(v));
                             } else {
-                                luisa::format_to(std::back_inserter(scratch), "{}", v);
+                                if constexpr (std::is_same_v<TT, half>)
+                                    luisa::format_to(std::back_inserter(scratch), "{}", static_cast<float>(v));
+                                else
+                                    luisa::format_to(std::back_inserter(scratch), "{}", v);
                             }
                         };
                         switch (p) {

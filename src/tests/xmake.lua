@@ -86,6 +86,7 @@ local function test_proj(name, gui_dep, callable)
         return
     end
     target(name)
+    set_kind("binary")
     _config_project({
         project_kind = "binary"
     })
@@ -108,7 +109,6 @@ local function test_proj(name, gui_dep, callable)
 end
 
 -- FIXME: @Maxwell please use the doctest framework
-test_proj("test_helloworld")
 if get_config("enable_ir") then
     test_proj('test_autodiff')
     test_proj('test_autodiff_full')

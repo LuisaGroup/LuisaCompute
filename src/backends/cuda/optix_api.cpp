@@ -43,6 +43,7 @@
 // The cfgmgr32 header is necessary for interrogating driver information in the registry.
 #include <cfgmgr32.h>
 #else
+#include <sys/stat.h>
 #include <dlfcn.h>
 #include <glob.h>
 #endif

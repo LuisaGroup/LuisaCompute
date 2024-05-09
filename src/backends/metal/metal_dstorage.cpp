@@ -498,8 +498,9 @@ void MetalIOStream::_encode(MetalCommandEncoder &encoder,
                      static_cast<CustomCommand *>(command)->uuid() ==
                          to_underlying(CustomCommandUUID::DSTORAGE_READ),
                  "Invalid command type for MetalIOStream.");
-    auto io_encoder = dynamic_cast<MetalIOCommandEncoder *>(&encoder);
-    LUISA_ASSERT(io_encoder != nullptr, "Invalid encoder type for MetalIOStream.");
+    auto io_encoder = static_cast<MetalIOCommandEncoder *>(&encoder);
+    // auto io_encoder = dynamic_cast<MetalIOCommandEncoder *>(&encoder);
+    // LUISA_ASSERT(io_encoder != nullptr, "Invalid encoder type for MetalIOStream.");
     io_encoder->visit(static_cast<DStorageReadCommand *>(command));
 }
 
