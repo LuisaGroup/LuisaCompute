@@ -16,11 +16,7 @@ function mkdirs(p)
 end
 
 function string_split(str, chr)
-    local map = {}
-    for part in string.gmatch(str, "([^" .. chr .. "]+)") do
-        table.insert(map, part)
-    end
-    return map
+    return str:split(chr, {plain = true})
 end
 function string_replace(str, from, to)
     local s, _ = str:gsub(from, to)
