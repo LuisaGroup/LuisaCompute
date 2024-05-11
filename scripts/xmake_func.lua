@@ -50,6 +50,15 @@ before_check(function(option)
                 end
             end
         end
+        local bin_dir = option:dep("bin_dir"):enabled()
+        if is_mode("debug") then
+            bin_dir = path.join(bin_dir, "debug")
+        elseif is_mode("releasedbg") then
+            bin_dir = path.join(bin_dir, "releasedbg")
+        else
+            bin_dir = path.join(bin_dir, "release")
+        end
+        option:set_value(bin_dir)
     end
     local enable_tests = option:dep("enable_tests")
     if enable_tests:enabled() then
@@ -110,15 +119,6 @@ before_check(function(option)
             force = true
         })
     end
-    local bin_dir = option:dep("bin_dir"):enabled()
-    if is_mode("debug") then
-        bin_dir = path.join(bin_dir, "debug")
-    elseif is_mode("releasedbg") then
-        bin_dir = path.join(bin_dir, "releasedbg")
-    else
-        bin_dir = path.join(bin_dir, "release")
-    end
-    option:set_value(bin_dir)
     -- checking rust
     local enable_ir = option:dep("enable_ir")
     local cpu_backend = option:dep("cpu_backend")
