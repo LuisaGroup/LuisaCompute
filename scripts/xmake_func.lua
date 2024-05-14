@@ -50,66 +50,6 @@ before_check(function(option)
                 end
             end
         end
-
-        local enable_tests = option:dep("enable_tests")
-        if enable_tests:enabled() then
-            option:dep("enable_dsl"):enable(true, {
-                force = true
-            })
-        end
-        -- checking python
-        local enable_py = option:dep("_lc_enable_py")
-        local function non_empty_str(s)
-            return type(s) == "string" and s:len() > 0
-        end
-        if non_empty_str(option:dep("py_include"):enabled()) then
-            enable_py:enable(true)
-        end
-        local is_win = is_plat("windows")
-        -- checking dx
-        local dx_backend = option:dep("dx_backend")
-        if dx_backend:enabled() and not is_win then
-            dx_backend:enable(false, {
-                force = true
-            })
-            if dx_backend:enabled() then
-                utils.error("DX backend not supported in this platform, force disabled.")
-            end
-        end
-        -- checking metal
-        local metal_backend = option:dep("metal_backend")
-        if metal_backend:enabled() and not is_plat("macosx") then
-            metal_backend:enable(false, {
-                force = true
-            })
-            if metal_backend:enabled() then
-                utils.error("Metal backend not supported in this platform, force disabled.")
-            end
-        end
-        -- checking cuda
-        local cuda_ext_lcub = option:dep("cuda_ext_lcub")
-        local cuda_backend = option:dep("cuda_backend")
-        if cuda_backend:enabled() and not (is_win or is_plat("linux")) then
-            cuda_backend:enable(false, {
-                force = true
-            })
-            if cuda_backend:enabled() then
-                utils.error("CUDA backend not supported in this platform, force disabled.")
-            end
-        end
-        if cuda_ext_lcub:enabled() and not cuda_backend:enabled() then
-            cuda_ext_lcub:enable(false, {
-                force = true
-            })
-            if cuda_ext_lcub:enabled() then
-                utils.error("CUDA lcub extension not supported when cuda is disabled")
-            end
-        end
-        if enable_py:enabled() then
-            option:dep("enable_gui"):enable(true, {
-                force = true
-            })
-        end
         local bin_dir = option:dep("bin_dir"):enabled()
         if is_mode("debug") then
             bin_dir = path.join(bin_dir, "debug")
@@ -119,6 +59,65 @@ before_check(function(option)
             bin_dir = path.join(bin_dir, "release")
         end
         option:set_value(bin_dir)
+    end
+    local enable_tests = option:dep("enable_tests")
+    if enable_tests:enabled() then
+        option:dep("enable_dsl"):enable(true, {
+            force = true
+        })
+    end
+    -- checking python
+    local enable_py = option:dep("_lc_enable_py")
+    local function non_empty_str(s)
+        return type(s) == "string" and s:len() > 0
+    end
+    if non_empty_str(option:dep("py_include"):enabled()) then
+        enable_py:enable(true)
+    end
+    local is_win = is_plat("windows")
+    -- checking dx
+    local dx_backend = option:dep("dx_backend")
+    if dx_backend:enabled() and not is_win then
+        dx_backend:enable(false, {
+            force = true
+        })
+        if dx_backend:enabled() then
+            utils.error("DX backend not supported in this platform, force disabled.")
+        end
+    end
+    -- checking metal
+    local metal_backend = option:dep("metal_backend")
+    if metal_backend:enabled() and not is_plat("macosx") then
+        metal_backend:enable(false, {
+            force = true
+        })
+        if metal_backend:enabled() then
+            utils.error("Metal backend not supported in this platform, force disabled.")
+        end
+    end
+    -- checking cuda
+    local cuda_ext_lcub = option:dep("cuda_ext_lcub")
+    local cuda_backend = option:dep("cuda_backend")
+    if cuda_backend:enabled() and not (is_win or is_plat("linux")) then
+        cuda_backend:enable(false, {
+            force = true
+        })
+        if cuda_backend:enabled() then
+            utils.error("CUDA backend not supported in this platform, force disabled.")
+        end
+    end
+    if cuda_ext_lcub:enabled() and not cuda_backend:enabled() then
+        cuda_ext_lcub:enable(false, {
+            force = true
+        })
+        if cuda_ext_lcub:enabled() then
+            utils.error("CUDA lcub extension not supported when cuda is disabled")
+        end
+    end
+    if enable_py:enabled() then
+        option:dep("enable_gui"):enable(true, {
+            force = true
+        })
     end
     -- checking rust
     local enable_ir = option:dep("enable_ir")

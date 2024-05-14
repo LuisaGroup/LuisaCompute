@@ -33,6 +33,7 @@ TexCompressExt::Result DxTexCompressExt::compress_bc6h(Stream &stream, ImageView
     TextureBase *srcTex = reinterpret_cast<TextureBase *>(src.handle());
     cmdBuffer->CompressBC(
         srcTex,
+        src.level(),
         result,
         true,
         0,
@@ -45,6 +46,7 @@ TexCompressExt::Result DxTexCompressExt::compress_bc7(Stream &stream, ImageView<
     LCCmdBuffer *cmdBuffer = reinterpret_cast<LCCmdBuffer *>(stream.handle());
     cmdBuffer->CompressBC(
         reinterpret_cast<TextureBase *>(src.handle()),
+        src.level(),
         result,
         false,
         alphaImportance,

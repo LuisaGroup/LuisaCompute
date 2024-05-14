@@ -32,15 +32,15 @@ static luisa::string_view get_hlsl_builtin(luisa::string_view ss) {
         Dict(){
 			dict.try_emplace("accel_process", luisa::string_view{accel_process, 1432});
 			dict.try_emplace("bindless_upload", luisa::string_view{bindless_upload, 315});
-			dict.try_emplace("bc6_encode_block", luisa::string_view{bc6_encode_block, 10611});
-			dict.try_emplace("bc6_header", luisa::string_view{bc6_header, 79050});
-			dict.try_emplace("bc6_trymode_g10cs", luisa::string_view{bc6_trymode_g10cs, 6304});
-			dict.try_emplace("bc6_trymode_le10cs", luisa::string_view{bc6_trymode_le10cs, 6633});
-			dict.try_emplace("bc7_encode_block", luisa::string_view{bc7_encode_block, 9020});
-			dict.try_emplace("bc7_header", luisa::string_view{bc7_header, 25330});
-			dict.try_emplace("bc7_trymode_02cs", luisa::string_view{bc7_trymode_02cs, 7548});
-			dict.try_emplace("bc7_trymode_137cs", luisa::string_view{bc7_trymode_137cs, 7574});
-			dict.try_emplace("bc7_trymode_456cs", luisa::string_view{bc7_trymode_456cs, 10807});
+			dict.try_emplace("bc6_encode_block", luisa::string_view{bc6_encode_block, 10621});
+			dict.try_emplace("bc6_header", luisa::string_view{bc6_header, 79069});
+			dict.try_emplace("bc6_trymode_g10cs", luisa::string_view{bc6_trymode_g10cs, 6314});
+			dict.try_emplace("bc6_trymode_le10cs", luisa::string_view{bc6_trymode_le10cs, 6643});
+			dict.try_emplace("bc7_encode_block", luisa::string_view{bc7_encode_block, 9030});
+			dict.try_emplace("bc7_header", luisa::string_view{bc7_header, 25349});
+			dict.try_emplace("bc7_trymode_02cs", luisa::string_view{bc7_trymode_02cs, 7558});
+			dict.try_emplace("bc7_trymode_137cs", luisa::string_view{bc7_trymode_137cs, 7584});
+			dict.try_emplace("bc7_trymode_456cs", luisa::string_view{bc7_trymode_456cs, 10817});
 			dict.try_emplace("hlsl_header", luisa::string_view{hlsl_header, 4820});
 			dict.try_emplace("raytracing_header", luisa::string_view{raytracing_header, 3495});
 			dict.try_emplace("tex2d_bindless", luisa::string_view{tex2d_bindless, 2505});
