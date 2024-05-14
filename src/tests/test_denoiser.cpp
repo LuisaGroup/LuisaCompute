@@ -220,6 +220,9 @@ int main(int argc, char *argv[]) {
                     //     radiance += mis_weight * beta * light_emission;
                     // };
                     radiance += beta * light_emission;
+                    $if (depth == 0) {
+                        albedo_img.write(coord, make_float4(light_emission, 1.0f));
+                    };
                     $break;
                 };
 
@@ -236,6 +239,9 @@ int main(int argc, char *argv[]) {
                 Float cos_wi_light = dot(wi_light, n);
                 Float cos_light = -dot(light_normal, wi_light);
                 Float3 albedo = materials.read(hit.inst);
+                $if (depth == 0) {
+                    albedo_img.write(coord, make_float4(albedo, 1.0f));
+                };
                 // $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                 //     Float pdf_light = (d_light * d_light) / (light_area * cos_light);
                 //     Float pdf_bsdf = cos_wi_light * inv_pi;
@@ -292,17 +298,22 @@ int main(int argc, char *argv[]) {
                                   ImageFloat noisy_hdr_image,
                                   ImageFloat denoised_hdr_image,
                                   ImageFloat ldr_image,
-                                  Float scale, Bool is_hdr) noexcept {
+                                  Bool is_hdr, Bool is_normal) noexcept {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr;
         $if (coord.x < compare_x) {
             hdr = noisy_hdr_image.read(coord);
-        } $elif (coord.x == compare_x) {
+            $if (is_normal) {
+                hdr = hdr * 0.5f + 0.5f;
+            };
+        }
+        $elif (coord.x == compare_x) {
             hdr = make_float4(.2f);
-        } $else {
+        }
+        $else {
             hdr = denoised_hdr_image.read(coord);
         };
-        Float3 ldr = hdr.xyz() * scale;
+        Float3 ldr = hdr.xyz();
         $if (!is_hdr) {
             ldr = linear_to_srgb(ldr);
         };
@@ -345,14 +356,33 @@ int main(int argc, char *argv[]) {
 
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    stream << clear_shader(accum_image).dispatch(resolution)
-           << make_sampler_shader(seed_image).dispatch(resolution);
+    stream << make_sampler_shader(seed_image).dispatch(resolution);
 
     Window window{"path tracing", resolution};
     auto compare_x = resolution.x / 2u;
-    window.set_mouse_callback([&compare_x](MouseButton, Action a, float2 p) noexcept {
-        compare_x = static_cast<uint>(std::clamp(p.x, 0.f, static_cast<float>(resolution.x)));
-    });
+    auto mouse_down = false;
+    auto component = 0;// 0 for radiance, 1 for albedo, 2 for normal
+    window
+        .set_mouse_callback([&compare_x, &mouse_down](MouseButton, Action a, float2 p) noexcept {
+            if (a == Action::ACTION_PRESSED || a == Action::ACTION_REPEATED) {
+                mouse_down = true;
+            } else {
+                mouse_down = false;
+            }
+            compare_x = static_cast<uint>(std::clamp(p.x, 0.f, static_cast<float>(resolution.x - 1)));
+        })
+        .set_cursor_position_callback([&compare_x, &mouse_down](float2 p) noexcept {
+            if (mouse_down) {
+                compare_x = static_cast<uint>(std::clamp(p.x, 0.f, static_cast<float>(resolution.x - 1)));
+            }
+        })
+        .set_key_callback([&component](Key key, KeyModifiers, Action a) noexcept {
+            if (a != Action::ACTION_RELEASED) {
+                if (key == Key::KEY_TAB) {
+                    component = (component + 1) % 3;
+                }
+            }
+        });
     Swapchain swap_chain = device.create_swapchain(
         stream,
         SwapchainOption{
@@ -367,8 +397,10 @@ int main(int argc, char *argv[]) {
     double last_time = 0.0;
     uint frame_count = 0u;
     Clock clock;
-
     while (!window.should_close()) {
+        if (window.is_key_down(Key::KEY_R)) {
+            stream << clear_shader(accum_image).dispatch(resolution);
+        }
         stream << raytracing_shader(framebuffer, albedo_image, normal_image, seed_image, accel, resolution)
                       .dispatch(resolution)
                << accumulate_shader(accum_image, framebuffer)
@@ -379,9 +411,14 @@ int main(int argc, char *argv[]) {
                << albedo_image.copy_to(albedo_buf)
                << normal_image.copy_to(normal_buf);
         denoiser->execute(true);
+        auto before = component == 0 ?
+                          noisy_image.view() :
+                      component == 1 ? albedo_image.view() :
+                                       normal_image.view();
         stream << beauty_image.copy_from(output_buf)
-               << hdr2ldr_shader(compare_x, noisy_image, beauty_image, ldr_image, 1.0f,
-                                 swap_chain.backend_storage() != PixelStorage::BYTE4)
+               << hdr2ldr_shader(compare_x, before, beauty_image, ldr_image,
+                                 swap_chain.backend_storage() != PixelStorage::BYTE4,
+                                 component == 2)
                       .dispatch(resolution)
                << swap_chain.present(ldr_image) << synchronize();
         window.poll_events();
