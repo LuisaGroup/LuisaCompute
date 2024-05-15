@@ -19,16 +19,15 @@ ByteBuffer::ByteBuffer(DeviceInterface *device, size_t size_bytes) noexcept
     : ByteBuffer{
           device,
           [&] {
-              if (size_bytes == 0) [[unlikely]] {
-                  detail::error_buffer_size_is_zero();
+              if (size_bytes == 0u) [[unlikely]] { detail::error_buffer_size_is_zero(); }
+              if (size_bytes % 4u != 0u) [[unlikely]] {
+                  auto aligned_size = luisa::align(size_bytes, 4u);
+                  LUISA_WARNING_WITH_LOCATION("Buffer size ({}) is not aligned to 4 bytes. "
+                                              "We will align it for you to {}.",
+                                              size_bytes, aligned_size);
+                  size_bytes = aligned_size;
               }
-              if ((size_bytes & 3) != 0) [[unlikely]] {
-                  detail::error_buffer_size_not_aligned(4);
-              }
-              return device->create_buffer(
-                  Type::of<uint>(),
-                  (size_bytes + sizeof(uint) - 1u) / sizeof(uint),
-                  nullptr);
+              return device->create_buffer(Type::of<void>(), size_bytes, nullptr);
           }()} {}
 
 ByteBuffer::~ByteBuffer() noexcept {
