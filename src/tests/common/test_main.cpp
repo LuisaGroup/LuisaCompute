@@ -43,6 +43,17 @@ inline void args_filter(const char **argv_in) noexcept {
     args.emplace_back(nullptr);
 }
 
+// helper functions
+[[nodiscard]] bool check_bytes_equal(eastl::span<char> a, eastl::span<char> b, size_t N) noexcept {
+    return check_bytes_equal(a.data(), b.data(), N);
+}
+[[nodiscard]] bool check_bytes_equal(const char *a, const char *b, size_t N) noexcept {
+    for (size_t i = 0; i < N; ++i) {
+        if (a[i] != b[i]) { return false; }
+    }
+    return true;
+}
+
 }// namespace luisa::test
 
 int main(int argc, const char **argv) {

@@ -2,6 +2,7 @@
 
 #define DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS
 #include "doctest.h"
+#include <EASTL/span.h>
 
 namespace luisa::test {
 
@@ -9,6 +10,10 @@ namespace luisa::test {
 [[nodiscard]] const char *const *argv() noexcept;
 [[nodiscard]] int backends_to_test_count() noexcept;
 [[nodiscard]] const char *const *backends_to_test() noexcept;
+
+// helper functions
+[[nodiscard]] bool check_bytes_equal(eastl::span<char> a, eastl::span<char> b, size_t N) noexcept;
+[[nodiscard]] bool check_bytes_equal(const char *a, const char *b, size_t N) noexcept;
 
 }// namespace luisa::test
 

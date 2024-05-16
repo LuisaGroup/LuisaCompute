@@ -1,7 +1,7 @@
-/** [WIP]
+/**
  * @file src/tests/next/test/ext/core/test_dstorage.cpp
  * @author sailing-innocent, on maxwell's previous work
- * @date 2023/12/18
+ * @date 2023-12-18
  * @brief the Direct Storage Extension test suite】
  */
 
@@ -27,16 +27,7 @@ using namespace luisa::compute;
 
 namespace luisa::test {
 
-bool check_byte_equal(const char *a, const char *b, size_t size) {
-    for (size_t i = 0; i < size; ++i) {
-        if (a[i] != b[i]) {
-            return false;
-        }
-    }
-    return true;
-}
-
-int test_dstorage_texture(Device &device, luisa::string file_name = "pixels.bytes") {
+int test_dstorage_texture(Device &device, const luisa::string_view file_name = "pixels.bytes") {
     auto dstorage_ext = device.extension<DStorageExt>();
     static constexpr uint32_t width = 4096;
     static constexpr uint32_t height = 4096;
@@ -60,7 +51,7 @@ int test_dstorage_texture(Device &device, luisa::string file_name = "pixels.byte
                 pixels[pixel_pos * 4 + 2] = 127;
                 pixels[pixel_pos * 4 + 3] = 255;
             }
-        auto f = fopen(file_name.c_str(), "wb");
+        auto f = fopen(file_name.data(), "wb");
         fwrite(pixels.data(), pixels.size_bytes(), 1, f);
         fclose(f);
     }
@@ -69,7 +60,7 @@ int test_dstorage_texture(Device &device, luisa::string file_name = "pixels.byte
         // img on gpu
         auto img = device.create_image<float>(PixelStorage::BYTE4, width, height / 2);
         luisa::vector<uint8_t> out_pixels(width * height * 2);
-        DStorageFile pinned_pixels = dstorage_ext->open_file(file_name.c_str());
+        DStorageFile pinned_pixels = dstorage_ext->open_file(file_name);
         auto pinned_ext = device.extension<PinnedMemoryExt>();
         auto buffer = pinned_ext->allocate_pinned_memory<uint>(staging_buffer_size, {true});
         auto evt = device.create_event();
@@ -106,7 +97,7 @@ int test_dstorage_texture(Device &device, luisa::string file_name = "pixels.byte
     return 0;
 }
 
-int test_dstorage_str(Device &device, luisa::string file_name = "test_dstorage_file_hello.txt", luisa::string content = "hello world!") {
+int test_dstorage_str(Device &device, const luisa::string_view file_name = "test_dstorage_file_hello.txt", const luisa::string_view content = "hello world!") {
     // Extension
     auto dstorage_ext = device.extension<DStorageExt>();
     static constexpr uint32_t width = 4096;
@@ -121,14 +112,14 @@ int test_dstorage_str(Device &device, luisa::string file_name = "test_dstorage_f
     LUISA_INFO("Start test memory and buffer read.");
     // Write a test file
     {
-        FILE *file = fopen(file_name.c_str(), "wb");
+        FILE *file = fopen(file_name.data(), "wb");
         if (file) {
             fwrite(content.data(), content.size(), 1, file);
             fclose(file);
         }
     }
     {
-        DStorageFile file = dstorage_ext->open_file(file_name.c_str());
+        DStorageFile file = dstorage_ext->open_file(file_name.data());
         if (!file) {
             LUISA_WARNING("Buffer file not found.");
             exit(1);
@@ -158,10 +149,7 @@ int test_dstorage_str(Device &device, luisa::string file_name = "test_dstorage_f
         for (size_t i = file.size_bytes(); i < buffer_data.size(); ++i) {
             buffer_data[i] = 0;
         }
-        // LUISA_INFO("File content: {}", file_text);
-        // LUISA_INFO("Buffer content: {}", buffer_data.data());
-        CHECK(check_byte_equal(file_text.data(), content.data(), file_text.size()));
-        CHECK(check_byte_equal(file_text.data(), content.data(), file_text.size()));
+        CHECK(check_bytes_equal(file_text.data(), content.data(), file_text.size()));
     }
     return 0;
 }
@@ -169,7 +157,7 @@ int test_dstorage_str(Device &device, luisa::string file_name = "test_dstorage_f
 }// namespace luisa::test
 
 TEST_SUITE("ext") {
-    LUISA_TEST_CASE_WITH_DEVICE("ext_dstorage_str", luisa::test::test_dstorage_str(device) == 0);
-    // TODO: NO CUDA impl for Pinned Memory Extension
-    LUISA_TEST_CASE_WITH_DEVICE("ext_dstorage_texture", luisa::test::test_dstorage_texture(device) == 0);
+    using namespace luisa::test;
+    LUISA_TEST_CASE_WITH_DEVICE("ext_dstorage_str", test_dstorage_str(device) == 0);
+    LUISA_TEST_CASE_WITH_DEVICE("ext_dstorage_texture", test_dstorage_texture(device) == 0);
 }
