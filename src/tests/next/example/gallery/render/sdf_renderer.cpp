@@ -261,7 +261,7 @@ int sdf_renderer(Device &device, luisa::string filename = "sdf_renderer.png") {
 }
 }// namespace luisa::test
 
-TEST_SUITE("gallary") {
-    LUISA_TEST_CASE_WITH_DEVICE("sdf_renderer",
-                                luisa::test::sdf_renderer(device, "sdf_renderer_" + device_name + ".png") == 0);
+TEST_SUITE("gallery") {
+    using namespace luisa::test;
+    LUISA_TEST_CASE_WITH_DEVICE("sdf_renderer", sdf_renderer(device, "sdf_renderer_" + device_name + ".png") == 0);
 }

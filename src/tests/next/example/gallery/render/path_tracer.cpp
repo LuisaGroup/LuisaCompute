@@ -315,7 +315,7 @@ int path_tracer(Device &device, luisa::string filename = "path_tracer.png") {
 
 }// namespace luisa::test
 
-TEST_SUITE("gallary") {
-    LUISA_TEST_CASE_WITH_DEVICE("path_tracer",
-                                luisa::test::path_tracer(device, "path_tracer_" + device_name + ".png") == 0);
+TEST_SUITE("gallery") {
+    using namespace luisa::test;
+    LUISA_TEST_CASE_WITH_DEVICE("path_tracer", path_tracer(device, "path_tracer_" + device_name + ".png") == 0);
 }

@@ -5,11 +5,7 @@
  * @date 2024-05-16
  */
 #include "common/config.h"
-#include "luisa/core/logging.h"
-#include "luisa/dsl/binding_group.h"
-#include <luisa/runtime/stream.h>
-#include <luisa/runtime/image.h>
-#include <luisa/dsl/syntax.h>
+#include "luisa/luisa-compute.h"
 #include <stb/stb_image_write.h>
 using namespace luisa;
 using namespace luisa::compute;

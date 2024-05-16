@@ -291,7 +291,7 @@ int photon_mapping(Device &device) {
                         Var<Photon> photon = photon_buffer->read(photon_index);
                         Float dis = distance(Float3{photon.position}, p);
                         $if (dis < r) {
-                            radiance += material.albedo * inv_pi *Float3{photon.power};
+                            radiance += material.albedo * inv_pi * Float3{photon.power};
                         };
                         photon_index = photon.nxt;
                     };
@@ -498,7 +498,7 @@ int photon_mapping(Device &device) {
 
 }// namespace luisa::test
 
-TEST_SUITE("gallary") {
-    LUISA_TEST_CASE_WITH_DEVICE("photon_mapping",
-                                luisa::test::photon_mapping(device) == 0);
+TEST_SUITE("gallery") {
+    using namespace luisa::test;
+    LUISA_TEST_CASE_WITH_DEVICE("photon_mapping", photon_mapping(device) == 0);
 }
