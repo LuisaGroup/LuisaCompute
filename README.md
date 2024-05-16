@@ -222,7 +222,7 @@ int main(int argc, char *argv[]) {
            << synchronize();// Step 5: Synchronize the stream
    
    // Now, you have the device-computed pixels in the host memory!
-   your_image_save_function("color.png", downloaded_image, 1024u, 1024u, 4u);
+   your_image_save_function("color.png", download_image, 1024u, 1024u, 4u);
 }
 ```
 

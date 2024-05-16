@@ -15,7 +15,7 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID ) // mode 1 3 7 a
  
  if (threadInBlock < 16)
  {
- shared_temp[GI].pixel = clamp(uint4(g_Input.Load( uint3( base_x + threadInBlock % 4, base_y + threadInBlock / 4, 0 ) ) * 255), 0, 255);
+ shared_temp[GI].pixel = clamp(uint4(g_Input.Load( uint3( base_x + threadInBlock % 4, base_y + threadInBlock / 4, g_mip_level ) ) * 255), 0, 255);
  }
  GroupMemoryBarrierWithGroupSync();
 

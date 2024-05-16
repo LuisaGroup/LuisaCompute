@@ -135,6 +135,11 @@ set_values(true, false)
 set_default(false)
 set_showmenu(true)
 option_end()
+option("lc_toolchain")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
 -- pre-defined options end
 
 -- try options.lua

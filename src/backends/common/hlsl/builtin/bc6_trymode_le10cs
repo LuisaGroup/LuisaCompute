@@ -28,7 +28,7 @@ void main( uint GI : SV_GroupIndex, uint3 groupID : SV_GroupID )
  
  if (threadInBlock < 16)
  {
- shared_temp[GI].pixel = g_Input.Load( uint3( base_x + threadInBlock % 4, base_y + threadInBlock / 4, 0 ) ).rgb;
+ shared_temp[GI].pixel = g_Input.Load( uint3( base_x + threadInBlock % 4, base_y + threadInBlock / 4, g_mip_level ) ).rgb;
  uint3 pixel_h = float2half( shared_temp[GI].pixel );
  shared_temp[GI].pixel_hr = half2float(pixel_h);
  shared_temp[GI].pixel_lum = dot(shared_temp[GI].pixel_hr, RGB2LUM);

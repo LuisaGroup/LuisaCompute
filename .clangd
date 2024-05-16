@@ -5,5 +5,4 @@ Hover:
 Index:
   Background: Build
 CompileFlags:
-  Add: [-std=c++20, /std:c++20]
-  Remove: [-f*, -m*, -arch*, -std:c++*, /std:c++*, -std=c++*]
+  Remove: [-f*, -m*, -arch*]
