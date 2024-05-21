@@ -85,7 +85,8 @@ public:
 protected:
     RayQueryBase(const Expression *accel,
                  const Expression *ray,
-                 const Expression *mask) noexcept;
+                 const Expression *mask,
+                 const Expression *time) noexcept;
     RayQueryBase(RayQueryStmt *stmt,
                  bool inside_surface_handler,
                  bool inside_procedural_handler) noexcept
@@ -165,8 +166,9 @@ private:
     friend class RayQueryBase<terminate_on_first>;
     RayQueryProxy(const Expression *accel,
                   const Expression *ray,
-                  const Expression *mask) noexcept
-        : RayQueryBase<terminate_on_first>(accel, ray, mask) {}
+                  const Expression *mask,
+                  const Expression *time) noexcept
+        : RayQueryBase<terminate_on_first>(accel, ray, mask, time) {}
 
     RayQueryProxy(RayQueryProxy &&rhs) noexcept = default;
 public:
