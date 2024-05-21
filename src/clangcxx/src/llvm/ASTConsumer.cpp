@@ -876,6 +876,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (*iter == 'y') swizzle_seq[swizzle_size] = 1u;
                                 if (*iter == 'z') swizzle_seq[swizzle_size] = 2u;
                                 if (*iter == 'w') swizzle_seq[swizzle_size] = 3u;
+
+                                if (*iter == 'r') swizzle_seq[swizzle_size] = 0u;
+                                if (*iter == 'g') swizzle_seq[swizzle_size] = 1u;
+                                if (*iter == 'b') swizzle_seq[swizzle_size] = 2u;
+                                if (*iter == 'a') swizzle_seq[swizzle_size] = 3u;
+                                
                                 swizzle_size += 1;
                             }
                             // encode swizzle code
