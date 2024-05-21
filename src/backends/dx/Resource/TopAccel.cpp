@@ -202,6 +202,8 @@ size_t TopAccel::PreProcess(
             m.primitive = mesh->GetAccelBuffer()->GetAddress();
             update = false;
         }
+        // TODO: motion vector support
+        // m.motion_transform_buffer
     }
     if (requireBuild) {
         requireBuild = false;
