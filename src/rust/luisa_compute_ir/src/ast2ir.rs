@@ -1688,15 +1688,15 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
                 args
             }
             "RAY_TRACING_TRACE_CLOSEST" => {
-                // (Accel, ray, mask: uint, time: float): TriangleHit
-                let args = convert_args(&[false, false, false, false]);
+                // (Accel, ray, mask: uint): TriangleHit
+                let args = convert_args(&[false, false, false]);
                 check_is_accel(args[0]);
                 assert!(args[2].type_().is_int() && args[2].type_().is_primitive());
                 args
             }
             "RAY_TRACING_TRACE_ANY" => {
                 // (Accel, ray, mask: uint): bool
-                let args = convert_args(&[false, false, false, false]);
+                let args = convert_args(&[false, false, false]);
                 check_is_accel(args[0]);
                 assert!(args[2].type_().is_int() && args[2].type_().is_primitive());
                 assert!(t.is_bool() && t.is_primitive());
@@ -1704,7 +1704,7 @@ impl<'a: 'b, 'b> AST2IR<'a, 'b> {
             }
             "RAY_TRACING_QUERY_ALL" | "RAY_TRACING_QUERY_ANY" => {
                 // (Accel, ray, mask: uint): RayQuery
-                let args = convert_args(&[false, false, false, false]);
+                let args = convert_args(&[false, false, false]);
                 check_is_accel(args[0]);
                 assert!(args[2].type_().is_int() && args[2].type_().is_primitive());
                 args

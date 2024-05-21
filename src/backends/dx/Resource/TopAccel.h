@@ -14,14 +14,6 @@ class ResourceStateTracker;
 class Mesh;
 class BottomAccel;
 class MeshHandle;
-struct PackedModifier {
-    uint index;
-    uint user_id;
-    uint flags;
-    uint vis_mask;
-    float affine[12];
-    uint primitive[2];
-};
 class TopAccel : public Resource {
 
     friend class BottomAccel;
@@ -35,7 +27,7 @@ class TopAccel : public Resource {
     };
     vstd::vector<Instance> allInstance;
     vstd::unordered_map<uint64, MeshHandle *> setMap;
-    vstd::vector<PackedModifier> setDesc;
+    vstd::vector<AccelBuildCommand::Modification> setDesc;
     void SetMesh(BottomAccel *mesh, uint64 index);
     uint compactSize = 0;
     bool requireBuild = false;
@@ -46,8 +38,6 @@ class TopAccel : public Resource {
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
         vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state);
-    void ProcessSetDesc();
-    void ProcessSetMap();
 
 public:
     bool RequireCompact() const;
@@ -75,6 +65,7 @@ public:
     void Build(
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
+        vstd::span<AccelBuildCommand::Modification const> const &modifications,
         BufferView const *scratchBuffer);
     void FinalCopy(
         CommandBufferBuilder &builder,

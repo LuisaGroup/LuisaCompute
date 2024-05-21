@@ -24,7 +24,7 @@ private:
     CUdeviceptr _seg_buffer{};
 
 private:
-    [[nodiscard]] optix::BuildInput _make_build_input() noexcept override;
+    [[nodiscard]] optix::BuildInput _make_build_input() const noexcept override;
 
 public:
     explicit CUDACurve(const AccelOption &option) noexcept;

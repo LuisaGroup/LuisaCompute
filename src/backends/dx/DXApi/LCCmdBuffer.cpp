@@ -750,6 +750,7 @@ public:
         accel->Build(
             *stateTracker,
             *bd,
+            cmd->modifications(),
             scratch.has_value() ? scratch.ptr() : nullptr);
     }
     void BottomBuild(uint64 handle) {

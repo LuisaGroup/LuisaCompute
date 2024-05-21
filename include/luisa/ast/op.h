@@ -278,10 +278,10 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_SET_INSTANCE_OPACITY,    // (Accel, uint, bool)
     RAY_TRACING_SET_INSTANCE_USER_ID,    // (Accel, uint, uint)
 
-    RAY_TRACING_TRACE_CLOSEST,// (Accel, ray, mask: uint, time: float): TriangleHit
-    RAY_TRACING_TRACE_ANY,    // (Accel, ray, mask: uint, time: float): bool
-    RAY_TRACING_QUERY_ALL,    // (Accel, ray, mask: uint, time: float): RayQuery
-    RAY_TRACING_QUERY_ANY,    // (Accel, ray, mask: uint, time: float): RayQuery
+    RAY_TRACING_TRACE_CLOSEST,// (Accel, ray, mask: uint): TriangleHit
+    RAY_TRACING_TRACE_ANY,    // (Accel, ray, mask: uint): bool
+    RAY_TRACING_QUERY_ALL,    // (Accel, ray, mask: uint): RayQuery
+    RAY_TRACING_QUERY_ANY,    // (Accel, ray, mask: uint): RayQuery
 
     // ray query
     RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray

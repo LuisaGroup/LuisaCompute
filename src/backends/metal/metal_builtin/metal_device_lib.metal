@@ -689,7 +689,7 @@ struct LCAccel {
     return ray{o, d, r_in.m1, r_in.m3};
 }
 
-[[nodiscard]] inline auto accel_trace_closest(LCAccel accel, LCRay r, uint mask, float time) {
+[[nodiscard]] inline auto accel_trace_closest(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_closest().intersect(make_ray(r), accel.handle, mask);
     return isect.type == intersection_type::none ?
                LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
@@ -708,7 +708,7 @@ struct LCAccel {
 #endif
 }
 
-[[nodiscard]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask, float time) {
+[[nodiscard]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
     auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
     return isect.type != intersection_type::none;
 }
@@ -718,7 +718,6 @@ struct LCRayQuery {
     ray ray;
     uint mask;
     bool terminate_on_first_hit;
-    float time;
 #ifdef LUISA_ENABLE_CURVE
     thread intersection_query<triangle_data, curve_data, instancing> *i;
 #else
@@ -726,12 +725,12 @@ struct LCRayQuery {
 #endif
 };
 
-[[nodiscard]] inline auto accel_query_all(LCAccel accel, LCRay ray, uint mask, float time) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, false, time, nullptr};
+[[nodiscard]] inline auto accel_query_all(LCAccel accel, LCRay ray, uint mask) {
+    return LCRayQuery{accel.handle, make_ray(ray), mask, false, nullptr};
 }
 
-[[nodiscard]] inline auto accel_query_any(LCAccel accel, LCRay ray, uint mask, float time) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, true, time, nullptr};
+[[nodiscard]] inline auto accel_query_any(LCAccel accel, LCRay ray, uint mask) {
+    return LCRayQuery{accel.handle, make_ray(ray), mask, true, nullptr};
 }
 
 void ray_query_init(thread LCRayQuery &q,

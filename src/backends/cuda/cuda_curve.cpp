@@ -10,7 +10,7 @@ namespace luisa::compute::cuda {
 CUDACurve::CUDACurve(const AccelOption &option) noexcept
     : CUDAPrimitive{Tag::CURVE, option} {}
 
-optix::BuildInput CUDACurve::_make_build_input() noexcept {
+optix::BuildInput CUDACurve::_make_build_input() const noexcept {
     optix::BuildInput build_input{};
     build_input.type = optix::BUILD_INPUT_TYPE_CURVES;
     build_input.curveArray.curveType = _basis;

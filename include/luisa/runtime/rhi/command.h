@@ -16,7 +16,6 @@
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/runtime/rhi/curve_basis.h>
-#include <luisa/runtime/rhi/resource.h>
 
 // for validation
 namespace lc::validation {
@@ -526,7 +525,6 @@ public:
         static constexpr auto flag_opaque = flag_opaque_on | flag_opaque_off;
         static constexpr auto flag_visibility = 1u << 4u;
         static constexpr auto flag_user_id = 1u << 5u;
-        static constexpr auto flag_motion = 1u << 6u;
 
         // members
         uint index{};
@@ -535,14 +533,6 @@ public:
         uint vis_mask{};
         float affine[12]{};
         uint64_t primitive{};
-        uint64_t motion_transform_buffer{};
-        MotionOptions motion_options;
-        enum struct MotionBufferType : uint16_t
-        {
-            MATRIX = 0u,
-            SRT = 1u
-        };
-        MotionBufferType motion_buffer_type{};
 
         // ctor
         Modification() noexcept = default;
@@ -583,19 +573,7 @@ public:
             user_id = id;
             flags |= flag_user_id;
         }
-        void set_motion_transform_buffer(uint64_t handle) noexcept {
-            motion_transform_buffer = handle;
-            flags |= flag_motion;
-        }
-        void set_motion_options(const MotionOptions &motion_options_data) noexcept {
-            motion_options = motion_options_data;
-        }
-        void set_motion_buffer_type(MotionBufferType motion_buffer_type_data) noexcept {
-            motion_buffer_type = motion_buffer_type_data;
-        }
     };
-
-    static_assert(sizeof(Modification) == 96u);
 
 private:
     uint64_t _handle;

@@ -458,14 +458,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         auto &&ele = *t.element();
         return ele.is_scalar();
     };
-    auto PrintArgs = [&](size_t offset = 0, size_t last_offset = 0) {
+    auto PrintArgs = [&](size_t offset = 0) {
         if (args.empty()) return;
-        auto last = args.size() - 1 - last_offset;
+        auto last = args.size() - 1;
         for (auto i : vstd::range(offset, last)) {
             args[i]->accept(vis);
             str << ',';
         }
-        args[last]->accept(vis);
+        args.back()->accept(vis);
     };
     switch (expr->op()) {
         case CallOp::CUSTOM:
@@ -868,25 +868,17 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_texsize"sv;
         } break;
         case CallOp::RAY_TRACING_TRACE_CLOSEST:
-            str << "_TraceClosest("sv;
-            PrintArgs(0, args.size() > 3 ? args.size() - 3 : 0);
-            str << ')';
-            return;
+            str << "_TraceClosest"sv;
+            break;
         case CallOp::RAY_TRACING_TRACE_ANY:
-            str << "_TraceAny("sv;
-            PrintArgs(0, args.size() > 3 ? args.size() - 3 : 0);
-            str << ')';
-            return;
+            str << "_TraceAny"sv;
+            break;
         case CallOp::RAY_TRACING_QUERY_ALL:
-            str << "_QueryAll("sv;
-            PrintArgs(0, args.size() > 3 ? args.size() - 3 : 0);
-            str << ')';
-            return;
+            str << "_QueryAll"sv;
+            break;
         case CallOp::RAY_TRACING_QUERY_ANY:
-            str << "_QueryAny("sv;
-            PrintArgs(0, args.size() > 3 ? args.size() - 3 : 0);
-            str << ')';
-            return;
+            str << "_QueryAny"sv;
+            break;
         case CallOp::BINDLESS_BUFFER_SIZE: {
             str << "_bdlsBfSize"sv;
             opt->useBufferBindless = true;

@@ -3,7 +3,6 @@
 #include <cuda.h>
 
 #include <luisa/runtime/rtx/accel.h>
-#include <luisa/core/stl.h>
 #include "cuda_primitive.h"
 #include "optix_api.h"
 
@@ -44,8 +43,6 @@ private:
     luisa::vector<const CUDAPrimitive *> _primitives;
     luisa::vector<uint64_t> _prim_handles;
     luisa::string _name;
-    luisa::map<size_t, CUdeviceptr> _motion_transform_pointers;
-    luisa::map<size_t, uint16_t> _motion_transform_types;
 
 private:
     void _build(CUDACommandEncoder &encoder) noexcept;

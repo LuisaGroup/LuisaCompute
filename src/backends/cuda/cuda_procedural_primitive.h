@@ -15,7 +15,7 @@ private:
     size_t _aabb_buffer_size{};
 
 private:
-    [[nodiscard]] optix::BuildInput _make_build_input() noexcept override;
+    [[nodiscard]] optix::BuildInput _make_build_input() const noexcept override;
 
 public:
     explicit CUDAProceduralPrimitive(const AccelOption &option) noexcept;

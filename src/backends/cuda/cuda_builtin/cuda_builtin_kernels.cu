@@ -21,8 +21,6 @@ struct alignas(16) InstanceModification {
     unsigned int vis_mask;
     float4 affine[3];
     unsigned long long primitive;
-    unsigned long long motion_transform_buffer;
-    unsigned short motion_buffer_type;
 };
 
 struct alignas(16) InstanceHandleMidification {
@@ -39,7 +37,7 @@ enum InstanceFlags : unsigned int {
 };
 
 static_assert(sizeof(Instance) == 80, "");
-static_assert(sizeof(InstanceModification) == 96, "");
+static_assert(sizeof(InstanceModification) == 80, "");
 
 extern "C" __global__ void update_accel_instance_handles(Instance *__restrict__ instances,
                                                          const InstanceHandleMidification *__restrict__ mods,
@@ -63,7 +61,6 @@ extern "C" __global__ void update_accel(Instance *__restrict__ instances,
         constexpr auto update_flag_opaque_off = 1u << 3u;
         constexpr auto update_flag_visibility = 1u << 4u;
         constexpr auto update_flag_user_id = 1u << 5u;
-        constexpr auto update_flag_motion = 1u << 6u;
         constexpr auto update_flag_procedural = 1u << 8u;
         constexpr auto update_flag_curve_piecewise_linear = 1u << 9u;
         constexpr auto update_flag_curve_cubic_bspline = 1u << 10u;

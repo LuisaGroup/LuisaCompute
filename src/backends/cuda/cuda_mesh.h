@@ -20,14 +20,13 @@ class CUDAMesh final : public CUDAPrimitive {
 
 private:
     CUdeviceptr _vertex_buffer{};
-    std::vector<CUdeviceptr> _per_frame_vertex_buffer{};
     size_t _vertex_buffer_size{};
     size_t _vertex_stride{};
     CUdeviceptr _triangle_buffer{};
     size_t _triangle_buffer_size{};
 
 private:
-    [[nodiscard]] optix::BuildInput _make_build_input() noexcept override;
+    [[nodiscard]] optix::BuildInput _make_build_input() const noexcept override;
 
 public:
     explicit CUDAMesh(const AccelOption &option) noexcept;

@@ -10,7 +10,6 @@ namespace luisa::compute {
 struct AccelTraceOptions {
     CurveBasisSet curve_bases{CurveBasisSet::make_none()};
     UInt visibility_mask{0xffu};
-    Float time{0.f};
 };
 
 #define LUISA_ACCEL_TRACE_DEPRECATED                                                          \
