@@ -163,12 +163,12 @@ Using LuisaCompute to construct a graphics application basically involves the fo
 Putting the above together, a minimal example program that write gradient color to an image would look like
 ```cpp
 
-#include <luisa-compute.h>
+#include <luisa/luisa-compute.h>
 
 // For the DSL sugar macros like $if.
 // We exclude this header from <luisa-compute.h> to avoid pollution.
 // So you have to include it explicitly to use the sugar macros.
-#include <dsl/sugar.h>
+#include <luisa/dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;
