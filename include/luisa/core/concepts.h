@@ -40,6 +40,9 @@ concept constructible = requires(Args... args) {
 template<typename T>
 concept trivially_default_constructible = std::is_trivially_constructible_v<T>;
 
+template<typename T>
+concept non_cvref = !((std::is_const_v<T>) || (std::is_reference_v<T>) || (std::is_volatile_v<T>));
+
 template<typename Src, typename Dest>
 concept static_convertible = requires(Src s) {
     static_cast<Dest>(s);
