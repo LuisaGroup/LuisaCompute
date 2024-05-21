@@ -7,7 +7,7 @@ on_load(function(target)
 		return path.relative(path.absolute(p, os.scriptdir()), os.projectdir())
 	end
 	target:add("defines", "LC_IR_EXPORT_DLL")
-	target:add("deps", "lc-runtime", "lc-ir", "lc-ast", "lc-rust")
+	target:add("deps", "lc-runtime", "lc-ir", "lc-ast", "lc-rust", "lc-vulkan-swapchain")
 	target:set("features", "cpu")
 	if is_plat("windows") then
 		target:add("syslinks", "Ws2_32", "Advapi32", "Bcrypt", "Userenv")

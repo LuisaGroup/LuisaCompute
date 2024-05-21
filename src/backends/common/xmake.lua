@@ -4,7 +4,7 @@ end
 if (get_config("cuda_backend") or get_config("cpu_backend")) then
     target("lc-vulkan-swapchain")
     _config_project({
-        project_kind = "static"
+        project_kind = "object"
     })
     set_values("vk_public", true)
     add_headerfiles("vulkan_instance.h")
