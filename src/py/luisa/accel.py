@@ -103,7 +103,7 @@ class Accel:
 
     def add_buffer_view(self, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer,
                         triangle_byteoffset, triangle_bytesize, transform=float4x4(1), allow_compact: bool = True,
-                        allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True, user_id:int = 0):
+                        allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True, user_id: int = 0):
         assert (triangle_byteoffset & 15) == 0 and (vertex_byteoffset & 15) == 0
         assert vertex_byteoffset + vertex_bytesize <= vertex_buffer.bytesize
         assert triangle_byteoffset + triangle_bytesize <= triangle_buffer.bytesize
@@ -113,7 +113,7 @@ class Accel:
 
     def set_buffer_view(self, index, vertex_buffer, vertex_byteoffset, vertex_bytesize, vertex_stride, triangle_buffer,
                         triangle_byteoffset, triangle_bytesize, transform=float4x4(1), allow_compact: bool = True,
-                        allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True, user_id:int = 0):
+                        allow_update: bool = False, visibility_mask: int = -1, opaque: bool = True, user_id: int = 0):
         assert vertex_byteoffset + vertex_bytesize <= vertex_buffer.bytesize
         assert triangle_byteoffset + triangle_bytesize <= triangle_buffer.bytesize
         self._accel.set(index, vertex_buffer.handle, vertex_byteoffset, vertex_bytesize, vertex_stride,
@@ -150,27 +150,17 @@ class Accel:
             stream.synchronize()
 
     @BuiltinFuncBuilder
-    def trace_closest(self, ray, vis_mask, time):
+    def trace_closest(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest")
-        expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST, [self.expr, ray.expr, vis_mask.expr])
-        return TriangleHit, expr
-    
-    @BuiltinFuncBuilder
-    def trace_closest_cullback(self, ray, vis_mask, time):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest_cullback")
-        expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
+        zero = lcapi.builder().call(to_lctype(float), lcapi.CallOp.ZERO, [])  # TODO: support motion blur
+        expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST, [self.expr, ray.expr, vis_mask.expr, zero])
         return TriangleHit, expr
 
     @BuiltinFuncBuilder
-    def trace_any(self, ray, vis_mask, time):
+    def trace_any(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any")
-        expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY, [self.expr, ray.expr, vis_mask.expr])
-        return bool, expr
-    
-    @BuiltinFuncBuilder
-    def trace_any_cullback(self, ray, vis_mask, time):
-        check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any_cullback")
-        expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
+        zero = lcapi.builder().call(to_lctype(float), lcapi.CallOp.ZERO, [])  # TODO: support motion blur
+        expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY, [self.expr, ray.expr, vis_mask.expr, zero])
         return bool, expr
 
     @BuiltinFuncBuilder
@@ -178,13 +168,13 @@ class Accel:
         check_exact_signature([uint], [index], "instance_transform")
         expr = lcapi.builder().call(to_lctype(float4x4), lcapi.CallOp.RAY_TRACING_INSTANCE_TRANSFORM, [self.expr, index.expr])
         return float4x4, expr
-    
+
     @BuiltinFuncBuilder
     def user_id(self, index):
         check_exact_signature([uint], [index], "uesr_id")
         expr = lcapi.builder().call(to_lctype(uint), lcapi.CallOp.RAY_TRACING_INSTANCE_USER_ID, [self.expr, index.expr])
         return uint, expr
-    
+
     @BuiltinFuncBuilder
     def visibility_mask(self, index):
         check_exact_signature([uint], [index], "mask")
@@ -197,7 +187,6 @@ class Accel:
         expr = lcapi.builder().call(to_lctype(float4x4), lcapi.CallOp.RAY_TRACING_SET_INSTANCE_TRANSFORM, [self.expr, index.expr, transform.expr])
         return float4x4, expr
 
-
     @BuiltinFuncBuilder
     def set_instance_visibility(self, index, visibility_mask):
         check_exact_signature([uint, uint], [index, visibility_mask], "set_instance_visibility")
@@ -209,7 +198,7 @@ class Accel:
         check_exact_signature([uint, bool], [index, opacity], "set_instance_opacity")
         expr = lcapi.builder().call(lcapi.CallOp.RAY_TRACING_SET_INSTANCE_OPACITY, [self.expr, index.expr, opacity.expr])
         return None, expr
-    
+
     @BuiltinFuncBuilder
     def set_instance_user_id(self, index, opacity):
         check_exact_signature([uint, uint], [index, opacity], "set_instance_opacity")
