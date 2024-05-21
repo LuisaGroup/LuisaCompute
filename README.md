@@ -152,7 +152,9 @@ LuisaCompute follows the standard [XMake](https://xmake.io/) and [CMake](https:/
 
 ### A Minimal Example
 
-Using LuisaCompute to construct a graphics application basically involves the following steps:
+Currently, we suggest using LuisaCompute as a submodule. For quick start with CMake, you can find the project template [here](https://github.com/LuisaGroup/CMakeStarterTemplate).
+
+Generally, using LuisaCompute to construct a graphics application basically involves the following steps:
 
 1. Create a `Context` and loading a `Device` plug-in;
 2. Create a `Stream` for command submission and other device resources (e.g., `Buffer<T>`s for linear storage, `Image<T>`s for 2D readable/writable textures, and `Mesh`es and `Accel`s for ray-scene intersection testing structures) via `Device`'s `create_*` interfaces;
