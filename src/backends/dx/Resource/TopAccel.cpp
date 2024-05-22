@@ -112,24 +112,55 @@ void TopAccel::PreProcessInst(
     if (input.NumDescs != size) update = false;
     input.NumDescs = size;
     allInstance.resize(size);
-    setDesc.clear();
-    vstd::push_back_all(setDesc, modifications);
+    InitSetDesc(modifications);
+    ProcessSetDesc();
+    if (requireBuild) {
+        requireBuild = false;
+        update = false;
+    }
+    ProcessSetMap();
+    size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
+    if (GenerateNewBuffer(
+            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
+        input.InstanceDescs = instBuffer->GetAddress();
+    }
+}
+void TopAccel::ProcessSetMap() {
+    if (setMap.size() != 0) {
+        update = false;
+        setDesc.reserve(setDesc.size() + setMap.size());
+        for (auto &&i : setMap) {
+            auto &mod = setDesc.emplace_back();
+            memset(&mod, 0, sizeof(PackedModifier));
+            mod.index = i.first;
+            mod.flags = AccelBuildCommand::Modification::flag_primitive;
+            mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
+        }
+        setMap.clear();
+    }
+}
+
+void TopAccel::ProcessSetDesc() {
+
+    for (auto &&m : setDesc) {
+        auto ite = setMap.find(m.index);
 #ifndef NDEBUG
-    for (auto &&m : modifications) {
-        if (m.flags & m.flag_user_id) {
+        if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
             if (m.user_id >= (1u << 24u)) [[unlikely]] {
                 LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
             }
         }
-    }
+        if (m.index >= (1u << 24u)) [[unlikely]] {
+            LUISA_ERROR("DirectX can-not support instance_id larger than {}", (1u << 24u) - 1);
+        }
 #endif
-    for (auto &&m : setDesc) {
-        auto ite = setMap.find(m.index);
-        bool updateMesh = (m.flags & m.flag_primitive);
+        bool updateMesh = (m.flags & AccelBuildCommand::Modification::flag_primitive);
+
         if (ite != setMap.end()) {
             if (!updateMesh) {
                 m.primitive = ite->second->mesh->GetAccelBuffer()->GetAddress();
-                m.flags |= m.flag_primitive;
+                m.flags |= AccelBuildCommand::Modification::flag_primitive;
+                updateMesh = true;
             }
             setMap.erase(ite);
         }
@@ -139,27 +170,37 @@ void TopAccel::PreProcessInst(
             m.primitive = mesh->GetAccelBuffer()->GetAddress();
             update = false;
         }
+        // TODO: motion vector support
+        // m.motion_transform_buffer
     }
-    if (requireBuild) {
-        requireBuild = false;
-        update = false;
-    }
-    if (setMap.size() != 0) {
-        update = false;
-        setDesc.reserve(setMap.size());
-        for (auto &&i : setMap) {
-            auto &mod = setDesc.emplace_back(i.first);
-            mod.flags = mod.flag_primitive;
-            mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
+}
+void TopAccel::InitSetDesc(vstd::span<AccelBuildCommand::Modification const> const &modifications) {
+    setDesc.clear();
+    setDesc.resize_uninitialized(modifications.size());
+    {
+        auto iter = setDesc.data();
+        for (auto &i : modifications) {
+            memcpy(iter->affine, i.affine, sizeof(iter->affine));
+            iter->primitive = i.primitive;
+            iter->index = i.index;
+            iter->vis_mask = i.vis_mask;
+            iter->user_id = i.user_id;
+            iter->flags = i.flags;
+            iter++;
         }
-        setMap.clear();
     }
-
-    size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
-    if (GenerateNewBuffer(
-            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
-        input.InstanceDescs = instBuffer->GetAddress();
+#ifndef NDEBUG
+    for (auto &&m : modifications) {
+        if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
+            if (m.user_id >= (1u << 24u)) [[unlikely]] {
+                LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
+            }
+        }
+        if (m.index >= (1u << 24u)) [[unlikely]] {
+            LUISA_ERROR("DirectX can-not support instance_id larger than {}", (1u << 24u) - 1);
+        }
     }
+#endif
 }
 
 size_t TopAccel::PreProcess(
@@ -176,48 +217,13 @@ size_t TopAccel::PreProcess(
         input.NumDescs != size) update = false;
     input.NumDescs = size;
     allInstance.resize(size);
-    vstd::span<AccelBuildCommand::Modification> mutable_mod{
-        const_cast<AccelBuildCommand::Modification *>(modifications.data()),
-        modifications.size()};
-    for (auto &&m : mutable_mod) {
-        auto ite = setMap.find(m.index);
-#ifndef NDEBUG
-        if (m.flags & m.flag_user_id) {
-            if (m.user_id >= (1u << 24u)) [[unlikely]] {
-                LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
-            }
-        }
-#endif
-        bool updateMesh = (m.flags & m.flag_primitive);
-        if (ite != setMap.end()) {
-            if (!updateMesh) {
-                m.primitive = ite->second->mesh->GetAccelBuffer()->GetAddress();
-                m.flags |= m.flag_primitive;
-            }
-            setMap.erase(ite);
-        }
-        if (updateMesh) {
-            auto mesh = reinterpret_cast<BottomAccel *>(m.primitive);
-            SetMesh(mesh, m.index);
-            m.primitive = mesh->GetAccelBuffer()->GetAddress();
-            update = false;
-        }
-    }
+    InitSetDesc(modifications);
+    ProcessSetDesc();
     if (requireBuild) {
         requireBuild = false;
         update = false;
     }
-    setDesc.clear();
-    if (setMap.size() != 0) {
-        update = false;
-        setDesc.reserve(setMap.size());
-        for (auto &&i : setMap) {
-            auto &mod = setDesc.emplace_back(i.first);
-            mod.flags = mod.flag_primitive;
-            mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
-        }
-        setMap.clear();
-    }
+    ProcessSetMap();
 
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     if (GenerateNewBuffer(
@@ -240,7 +246,7 @@ size_t TopAccel::PreProcess(
     tracker.RecordState(
         GetAccelBuffer(),
         D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
-    if (!modifications.empty() || !setDesc.empty()) {
+    if (!setDesc.empty()) {
         tracker.RecordState(
             instBuffer.get(),
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -250,15 +256,14 @@ size_t TopAccel::PreProcess(
 void TopAccel::Build(
     ResourceStateTracker &tracker,
     CommandBufferBuilder &builder,
-    vstd::span<AccelBuildCommand::Modification const> const &modifications,
     BufferView const *scratchBuffer) {
     if (Length() == 0) return;
     auto alloc = builder.GetCB()->GetAlloc();
     // Update
-    if (!modifications.empty() || !setDesc.empty()) {
+    if (!setDesc.empty()) {
         auto cs = device->setAccelKernel.Get(device);
-        auto size = modifications.size() + setDesc.size();
-        auto size_bytes = size * sizeof(AccelBuildCommand::Modification);
+        auto size = setDesc.size();
+        auto size_bytes = setDesc.size_bytes();
         auto setBuffer = alloc->GetTempUploadBuffer(size_bytes);
         auto cbuffer = alloc->GetTempUploadBuffer(sizeof(size_t), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
         struct CBuffer {
@@ -273,10 +278,7 @@ void TopAccel::Build(
                        {reinterpret_cast<uint8_t const *>(&cbValue), sizeof(CBuffer)});
         auto dataBuffer = static_cast<UploadBuffer const *>(setBuffer.buffer);
         if (!setDesc.empty()) {
-            dataBuffer->CopyData(setBuffer.offset, {reinterpret_cast<uint8_t const *>(setDesc.data()), setDesc.size_bytes()});
-        }
-        if (!modifications.empty()) {
-            dataBuffer->CopyData(setBuffer.offset + setDesc.size_bytes(), {reinterpret_cast<uint8_t const *>(modifications.data()), modifications.size_bytes()});
+            dataBuffer->CopyData(setBuffer.offset, {reinterpret_cast<uint8_t const *>(setDesc.data()), size_bytes});
         }
         BindProperty properties[3];
         properties[0] = cbuffer;
@@ -286,7 +288,6 @@ void TopAccel::Build(
             cs,
             uint3(size, 1, 1),
             properties);
-        setDesc.clear();
     }
     if (scratchBuffer) {
         auto readState = tracker.ReadState(ResourceReadUsage::AccelBuildSrc);
