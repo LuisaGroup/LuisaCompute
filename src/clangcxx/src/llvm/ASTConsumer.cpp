@@ -1105,6 +1105,7 @@ protected:
 auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKernel) -> BuildResult {
     BuildResult result{
         .dimension = 0};
+    bool is_builtin_type_method = false;
     bool is_ignore = false;
     bool is_kernel = false;
     bool is_vertex = false;
@@ -1147,7 +1148,10 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
         if (auto thisType = Method->getParent()) {
             is_ignore |= thisType->isUnion();// ignore union
             for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>())
-                is_ignore |= isBuiltinType(Anno);
+            {
+                is_builtin_type_method |= isBuiltinType(Anno);
+                is_ignore |= is_builtin_type_method;
+            }
             if (thisType->isLambda())// ignore global lambda declares, we deal them on stacks only
                 is_lambda = true;
 
@@ -1326,7 +1330,7 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
                 }
 
                 // ctor initializers
-                if (is_method) {
+                if (is_method && !is_builtin_type_method) {
                     if (auto lcType = db->FindOrAddType(methodThisType, S->getBeginLoc())) {
                         auto this_local = db->GetFunctionThis(builder);
                         if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {
