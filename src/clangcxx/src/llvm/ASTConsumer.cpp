@@ -800,6 +800,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     current = fb->binary(lcType, TranslateBinaryOp(cxx_op), lhs, rhs);
                 }
+            } else if (auto cxxCondOp = llvm::dyn_cast<clang::ConditionalOperator>(x)) {
+                auto _cond = stack->GetExpr(cxxCondOp->getCond());
+                auto _true = stack->GetExpr(cxxCondOp->getTrueExpr());
+                auto _false = stack->GetExpr(cxxCondOp->getFalseExpr());
+                const auto lcType = db->FindOrAddType(cxxCondOp->getType(), x->getBeginLoc());
+                current = fb->call(lcType, CallOp::SELECT, {_false, _true, _cond});
             } else if (auto dref = llvm::dyn_cast<DeclRefExpr>(x)) {
                 auto str = luisa::string(dref->getNameInfo().getName().getAsString());
                 if (auto _current = stack->GetLocal(dref->getDecl())) {
