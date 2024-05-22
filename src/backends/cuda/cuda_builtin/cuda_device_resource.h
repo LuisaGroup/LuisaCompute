@@ -1604,7 +1604,7 @@ enum LCHitKind : lc_uint {
 
 template<lc_uint payload_type, lc_uint sbt_offset, lc_uint reg_count = 0u>
 inline void lc_ray_traverse(lc_uint flags, LCAccel accel,
-                            LCRay ray, lc_uint mask, lc_float time,
+                            LCRay ray, lc_uint mask,
                             lc_uint r0 = lc_undef(),
                             lc_uint r1 = lc_undef()) noexcept {
     static_assert(reg_count <= 2u, "Register count must be less than 2.");
@@ -1637,7 +1637,7 @@ inline void lc_ray_traverse(lc_uint flags, LCAccel accel,
           "=r"(p17), "=r"(p18), "=r"(p19), "=r"(p20), "=r"(p21), "=r"(p22), "=r"(p23), "=r"(p24),
           "=r"(p25), "=r"(p26), "=r"(p27), "=r"(p28), "=r"(p29), "=r"(p30), "=r"(p31)
         : "r"(payload_type), "l"(accel.handle), "f"(ox), "f"(oy), "f"(oz), "f"(dx), "f"(dy), "f"(dz), "f"(t_min),
-          "f"(t_max), "f"(time), "r"(mask & 0xffu), "r"(flags), "r"(sbt_offset), "r"(0u),
+          "f"(t_max), "f"(0.f), "r"(mask & 0xffu), "r"(flags), "r"(sbt_offset), "r"(0u),
           "r"(0u), "r"(reg_count), "r"(r0), "r"(r1), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
           "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u), "r"(u),
@@ -1645,9 +1645,9 @@ inline void lc_ray_traverse(lc_uint flags, LCAccel accel,
 }
 
 template<lc_uint flags>
-[[nodiscard]] inline auto lc_accel_trace_closest_impl(LCAccel accel, LCRay ray, lc_uint mask, lc_float time) noexcept {
+[[nodiscard]] inline auto lc_accel_trace_closest_impl(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     // traverse
-    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE, 0u>(flags, accel, ray, mask, time);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE, 0u>(flags, accel, ray, mask);
     // decode the hit
     auto hit = [] {
         auto inst = lc_hit_object_instance_index();
@@ -1670,26 +1670,26 @@ template<lc_uint flags>
 }
 
 template<lc_uint flags>
-[[nodiscard]] inline auto lc_accel_trace_any_impl(LCAccel accel, LCRay ray, lc_uint mask, lc_float time) noexcept {
+[[nodiscard]] inline auto lc_accel_trace_any_impl(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     // traverse
-    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE, 0u>(flags, accel, ray, mask, time);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_TRACE, 0u>(flags, accel, ray, mask);
     // decode if hit
     auto is_hit = lc_hit_object_is_hit();
     lc_hit_object_reset();
     return is_hit;
 }
 
-[[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask, lc_float time) noexcept {
+[[nodiscard]] inline auto lc_accel_trace_closest(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
                            LC_RAY_FLAG_DISABLE_CLOSESTHIT;
-    return lc_accel_trace_closest_impl<flags>(accel, ray, mask, time);
+    return lc_accel_trace_closest_impl<flags>(accel, ray, mask);
 }
 
-[[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask, lc_float time) noexcept {
+[[nodiscard]] inline auto lc_accel_trace_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = LC_RAY_FLAG_DISABLE_ANYHIT |
                            LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
                            LC_RAY_FLAG_DISABLE_CLOSESTHIT;
-    return lc_accel_trace_any_impl<flags>(accel, ray, mask, time);
+    return lc_accel_trace_any_impl<flags>(accel, ray, mask);
 }
 
 [[nodiscard]] inline auto lc_dispatch_id() noexcept {
@@ -1748,7 +1748,6 @@ struct LCRayQuery {
     LCAccel accel;
     LCRay ray;
     lc_uint mask;
-    lc_float time;
     lc_uint flags;
     LCCommittedHit hit;
 };
@@ -1787,19 +1786,19 @@ inline void lc_ray_query_trace(LCRayQuery &q, lc_uint impl_tag, void *ctx) noexc
     auto r0 = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
     auto r1 = static_cast<lc_uint>(p_ctx);
     // traverse
-    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_QUERY, 5u, 2u>(q.flags, q.accel, q.ray, q.mask, q.time, r0, r1);
+    lc_ray_traverse<LC_PAYLOAD_TYPE_RAY_QUERY, 5u, 2u>(q.flags, q.accel, q.ray, q.mask, r0, r1);
     q.hit = lc_ray_query_decode_hit();
 }
 
-[[nodiscard]] inline auto lc_accel_query_all(LCAccel accel, LCRay ray, lc_uint mask, lc_float time) noexcept {
+[[nodiscard]] inline auto lc_accel_query_all(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = LC_RAY_FLAG_DISABLE_CLOSESTHIT;
-    return LCRayQueryAll{accel, ray, mask, time, flags, LCCommittedHit{}};
+    return LCRayQueryAll{accel, ray, mask, flags, LCCommittedHit{}};
 }
 
-[[nodiscard]] inline auto lc_accel_query_any(LCAccel accel, LCRay ray, lc_uint mask, lc_float time) noexcept {
+[[nodiscard]] inline auto lc_accel_query_any(LCAccel accel, LCRay ray, lc_uint mask) noexcept {
     constexpr auto flags = LC_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
                            LC_RAY_FLAG_DISABLE_CLOSESTHIT;
-    return LCRayQueryAny{accel, ray, mask, time, flags, LCCommittedHit{}};
+    return LCRayQueryAny{accel, ray, mask, flags, LCCommittedHit{}};
 }
 
 [[nodiscard]] inline auto lc_ray_query_committed_hit(LCRayQuery q) noexcept {

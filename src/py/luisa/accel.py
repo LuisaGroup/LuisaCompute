@@ -150,25 +150,25 @@ class Accel:
             stream.synchronize()
 
     @BuiltinFuncBuilder
-    def trace_closest(self, ray, vis_mask, time):
+    def trace_closest(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest")
         expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST, [self.expr, ray.expr, vis_mask.expr])
         return TriangleHit, expr
     
     @BuiltinFuncBuilder
-    def trace_closest_cullback(self, ray, vis_mask, time):
+    def trace_closest_cullback(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_closest_cullback")
         expr = lcapi.builder().call(to_lctype(TriangleHit), lcapi.CallOp.RAY_TRACING_TRACE_CLOSEST_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
         return TriangleHit, expr
 
     @BuiltinFuncBuilder
-    def trace_any(self, ray, vis_mask, time):
+    def trace_any(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any")
         expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY, [self.expr, ray.expr, vis_mask.expr])
         return bool, expr
     
     @BuiltinFuncBuilder
-    def trace_any_cullback(self, ray, vis_mask, time):
+    def trace_any_cullback(self, ray, vis_mask):
         check_exact_signature([Ray, uint], [ray, vis_mask], "trace_any_cullback")
         expr = lcapi.builder().call(to_lctype(bool), lcapi.CallOp.RAY_TRACING_TRACE_ANY_CULL_BACKFACE, [self.expr, ray.expr, vis_mask.expr])
         return bool, expr

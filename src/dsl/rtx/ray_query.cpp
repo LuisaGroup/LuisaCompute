@@ -54,15 +54,14 @@ namespace detail {
 template<bool terminate_on_first>
 [[nodiscard]] inline auto make_ray_query_object(const Expression *accel,
                                                 const Expression *ray,
-                                                const Expression *mask,
-                                                const Expression *time) noexcept {
+                                                const Expression *mask) noexcept {
     auto builder = detail::FunctionBuilder::current();
     auto type = Type::of<RayQueryProxy<terminate_on_first>>();
     auto local = builder->local(type);
     CallOp op = terminate_on_first ?
                     CallOp::RAY_TRACING_QUERY_ANY :
                     CallOp::RAY_TRACING_QUERY_ALL;
-    auto call = builder->call(type, op, {accel, ray, mask, time});
+    auto call = builder->call(type, op, {accel, ray, mask});
     builder->assign(local, call);
     return local;
 }
@@ -70,10 +69,9 @@ template<bool terminate_on_first>
 template<bool terminate_on_first>
 RayQueryBase<terminate_on_first>::RayQueryBase(const Expression *accel,
                                                const Expression *ray,
-                                               const Expression *mask,
-                                               const Expression *time) noexcept
+                                               const Expression *mask) noexcept
     : _stmt{detail::FunctionBuilder::current()->ray_query_(
-          make_ray_query_object<terminate_on_first>(accel, ray, mask, time))} {}
+          make_ray_query_object<terminate_on_first>(accel, ray, mask))} {}
 
 template<bool terminate_on_first>
 RayQueryProceduralProxy<terminate_on_first>

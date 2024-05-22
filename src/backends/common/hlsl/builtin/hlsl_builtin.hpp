@@ -30,7 +30,7 @@ static luisa::string_view get_hlsl_builtin(luisa::string_view ss) {
     struct Dict {
         luisa::unordered_map<luisa::string_view, luisa::string_view> dict;
         Dict(){
-			dict.try_emplace("accel_process", luisa::string_view{accel_process, 1421});
+			dict.try_emplace("accel_process", luisa::string_view{accel_process, 1431});
 			dict.try_emplace("bindless_upload", luisa::string_view{bindless_upload, 315});
 			dict.try_emplace("bc6_encode_block", luisa::string_view{bc6_encode_block, 10621});
 			dict.try_emplace("bc6_header", luisa::string_view{bc6_header, 79069});

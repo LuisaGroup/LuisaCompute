@@ -112,24 +112,7 @@ void TopAccel::PreProcessInst(
     if (input.NumDescs != size) update = false;
     input.NumDescs = size;
     allInstance.resize(size);
-    setDesc.clear();
-    setDesc.resize_uninitialized(modifications.size());
-    {
-        auto iter = setDesc.data();
-        for (auto &i : modifications) {
-            memcpy(iter, &i, sizeof(PackedModifier));
-            iter++;
-        }
-    }
-#ifndef NDEBUG
-    for (auto &&m : modifications) {
-        if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
-            if (m.user_id >= (1u << 24u)) [[unlikely]] {
-                LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
-            }
-        }
-    }
-#endif
+    InitSetDesc(modifications);
     ProcessSetDesc();
     if (requireBuild) {
         requireBuild = false;
@@ -146,33 +129,19 @@ void TopAccel::ProcessSetMap() {
     if (setMap.size() != 0) {
         update = false;
         setDesc.reserve(setDesc.size() + setMap.size());
-        auto set_prim = [&](uint64_t prim, auto &mod) {
-            auto prim_ptr = reinterpret_cast<uint32_t *>(&prim);
-            mod.primitive[0] = prim_ptr[0];
-            mod.primitive[1] = prim_ptr[1];
-        };
         for (auto &&i : setMap) {
-            auto &mod = setDesc.emplace_back(i.first);
+            auto &mod = setDesc.emplace_back();
             memset(&mod, 0, sizeof(PackedModifier));
+            mod.index = i.first;
             mod.flags = AccelBuildCommand::Modification::flag_primitive;
-            set_prim(i.second->mesh->GetAccelBuffer()->GetAddress(), mod);
+            mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
         }
         setMap.clear();
     }
 }
 
 void TopAccel::ProcessSetDesc() {
-    uint64_t prim;
-    auto update_prim = [&](auto &m) {
-        auto prim_ptr = reinterpret_cast<uint32_t *>(&prim);
-        prim_ptr[0] = m.primitive[0];
-        prim_ptr[1] = m.primitive[1];
-    };
-    auto set_prim = [&](auto &m) {
-        auto prim_ptr = reinterpret_cast<uint32_t *>(&prim);
-        m.primitive[0] = prim_ptr[0];
-        m.primitive[1] = prim_ptr[1];
-    };
+
     for (auto &&m : setDesc) {
         auto ite = setMap.find(m.index);
 #ifndef NDEBUG
@@ -181,31 +150,57 @@ void TopAccel::ProcessSetDesc() {
                 LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
             }
         }
+        if (m.index >= (1u << 24u)) [[unlikely]] {
+            LUISA_ERROR("DirectX can-not support instance_id larger than {}", (1u << 24u) - 1);
+        }
 #endif
         bool updateMesh = (m.flags & AccelBuildCommand::Modification::flag_primitive);
 
         if (ite != setMap.end()) {
             if (!updateMesh) {
-                prim = ite->second->mesh->GetAccelBuffer()->GetAddress();
+                m.primitive = ite->second->mesh->GetAccelBuffer()->GetAddress();
                 m.flags |= AccelBuildCommand::Modification::flag_primitive;
                 updateMesh = true;
-            } else {
-                update_prim(m);
             }
             setMap.erase(ite);
-        } else {
-            update_prim(m);
         }
         if (updateMesh) {
-            auto mesh = reinterpret_cast<BottomAccel *>(prim);
+            auto mesh = reinterpret_cast<BottomAccel *>(m.primitive);
             SetMesh(mesh, m.index);
-            prim = mesh->GetAccelBuffer()->GetAddress();
+            m.primitive = mesh->GetAccelBuffer()->GetAddress();
             update = false;
-            set_prim(m);
         }
         // TODO: motion vector support
         // m.motion_transform_buffer
     }
+}
+void TopAccel::InitSetDesc(vstd::span<AccelBuildCommand::Modification const> const &modifications) {
+    setDesc.clear();
+    setDesc.resize_uninitialized(modifications.size());
+    {
+        auto iter = setDesc.data();
+        for (auto &i : modifications) {
+            memcpy(iter->affine, i.affine, sizeof(iter->affine));
+            iter->primitive = i.primitive;
+            iter->index = i.index;
+            iter->vis_mask = i.vis_mask;
+            iter->user_id = i.user_id;
+            iter->flags = i.flags;
+            iter++;
+        }
+    }
+#ifndef NDEBUG
+    for (auto &&m : modifications) {
+        if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
+            if (m.user_id >= (1u << 24u)) [[unlikely]] {
+                LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
+            }
+        }
+        if (m.index >= (1u << 24u)) [[unlikely]] {
+            LUISA_ERROR("DirectX can-not support instance_id larger than {}", (1u << 24u) - 1);
+        }
+    }
+#endif
 }
 
 size_t TopAccel::PreProcess(
@@ -222,24 +217,7 @@ size_t TopAccel::PreProcess(
         input.NumDescs != size) update = false;
     input.NumDescs = size;
     allInstance.resize(size);
-    setDesc.clear();
-    setDesc.resize_uninitialized(modifications.size());
-    {
-        auto iter = setDesc.data();
-        for (auto &i : modifications) {
-            memcpy(iter, &i, sizeof(PackedModifier));
-            iter++;
-        }
-    }
-#ifndef NDEBUG
-    for (auto &&m : modifications) {
-        if (m.flags & AccelBuildCommand::Modification::flag_user_id) {
-            if (m.user_id >= (1u << 24u)) [[unlikely]] {
-                LUISA_ERROR("DirectX can-not support user_id larger than {}", (1u << 24u) - 1);
-            }
-        }
-    }
-#endif
+    InitSetDesc(modifications);
     ProcessSetDesc();
     if (requireBuild) {
         requireBuild = false;
@@ -273,7 +251,6 @@ size_t TopAccel::PreProcess(
             instBuffer.get(),
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
-    assert(offsetof(PackedModifier, primitive) == offsetof(AccelBuildCommand::Modification, primitive));
     return (update ? topLevelPrebuildInfo.UpdateScratchDataSizeInBytes : topLevelPrebuildInfo.ScratchDataSizeInBytes) + sizeof(size_t);
 }
 void TopAccel::Build(

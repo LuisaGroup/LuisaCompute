@@ -14,13 +14,13 @@ class ResourceStateTracker;
 class Mesh;
 class BottomAccel;
 class MeshHandle;
-struct PackedModifier {
-    uint index;
-    uint user_id;
-    uint flags;
-    uint vis_mask;
+struct alignas(16) PackedModifier {
     float affine[12];
-    uint primitive[2];
+    uint64_t primitive;
+    uint index : 24;
+    uint vis_mask : 8;
+    uint user_id : 24;
+    uint flags : 8;
 };
 class TopAccel : public Resource {
 
@@ -46,6 +46,7 @@ class TopAccel : public Resource {
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
         vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state);
+    void InitSetDesc(vstd::span<AccelBuildCommand::Modification const> const &modifications);
     void ProcessSetDesc();
     void ProcessSetMap();
 

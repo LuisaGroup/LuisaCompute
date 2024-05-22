@@ -10,7 +10,7 @@ namespace luisa::compute::cuda {
 CUDAProceduralPrimitive::CUDAProceduralPrimitive(const AccelOption &option) noexcept
     : CUDAPrimitive{Tag::PROCEDURAL, option} {}
 
-optix::BuildInput CUDAProceduralPrimitive::_make_build_input() noexcept {
+optix::BuildInput CUDAProceduralPrimitive::_make_build_input() const noexcept {
     optix::BuildInput build_input{};
     static const auto geometry_flag = static_cast<uint32_t>(optix::GEOMETRY_FLAG_DISABLE_ANYHIT);
     build_input.type = optix::BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES;

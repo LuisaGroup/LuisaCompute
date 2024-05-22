@@ -63,21 +63,7 @@ public:
                              uint8_t visibility_mask,
                              bool opaque,
                              uint user_id) noexcept;
-    void emplace_back_handle(uint64_t mesh_handle,
-                             uint64_t motion_buffer_handle,
-                             Modification::MotionBufferType motion_buffer_type,
-                             const MotionOptions &motion_options,
-                             float4x4 const &transform,
-                             uint8_t visibility_mask,
-                             bool opaque,
-                             uint user_id) noexcept;
     void set_handle(size_t index, uint64_t mesh_handle,
-                    float4x4 const &transform,
-                    uint8_t visibility_mask, bool opaque, uint user_id) noexcept;
-    void set_handle(size_t index, uint64_t mesh_handle,
-                    uint64_t motion_buffer_handle,
-                    Modification::MotionBufferType motion_buffer_type,
-                    const MotionOptions &motion_options,
                     float4x4 const &transform,
                     uint8_t visibility_mask, bool opaque, uint user_id) noexcept;
     void set_prim_handle(size_t index, uint64_t prim_handle) noexcept;
@@ -92,26 +78,6 @@ public:
         emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque, user_id);
     }
 
-    void emplace_back(const Mesh &mesh,
-                      const Buffer<float[12]> &matrix_motion_buffer,
-                      const MotionOptions &motion_options,
-                      float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(mesh.handle(), matrix_motion_buffer.handle(), Modification::MotionBufferType::MATRIX, motion_options, transform, visibility_mask, opaque, user_id);
-    }
-
-    void emplace_back(const Mesh &mesh,
-                      const Buffer<float[16]> &srt_motion_buffer,
-                      const MotionOptions &motion_options,
-                      float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(mesh.handle(), srt_motion_buffer.handle(), Modification::MotionBufferType::SRT, motion_options, transform, visibility_mask, opaque, user_id);
-    }
-
     void emplace_back(const Curve &curve,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
@@ -120,53 +86,11 @@ public:
         emplace_back_handle(curve.handle(), transform, visibility_mask, opaque, user_id);
     }
 
-    void emplace_back(const Curve &curve,
-                      const Buffer<float[12]> &matrix_motion_buffer,
-                      const MotionOptions &motion_options,
-                      float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(curve.handle(), matrix_motion_buffer.handle(), Modification::MotionBufferType::MATRIX, motion_options, transform, visibility_mask, opaque, user_id);
-    }
-
-    void emplace_back(const Curve &curve,
-                      const Buffer<float[16]> &srt_motion_buffer,
-                      const MotionOptions &motion_options,
-                      float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(curve.handle(), srt_motion_buffer.handle(), Modification::MotionBufferType::SRT, motion_options, transform, visibility_mask, opaque, user_id);
-    }
-
     void emplace_back(const ProceduralPrimitive &prim,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
                       uint user_id = 0) noexcept {
         emplace_back_handle(prim.handle(), transform, visibility_mask,
-                            false /* procedural geometry is always non-opaque */,
-                            user_id);
-    }
-
-    void emplace_back(const ProceduralPrimitive &prim,
-                      const Buffer<float[12]> &matrix_motion_buffer,
-                      const MotionOptions &motion_options,
-                      float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(prim.handle(), matrix_motion_buffer.handle(), Modification::MotionBufferType::MATRIX, motion_options, transform, visibility_mask,
-                            false /* procedural geometry is always non-opaque */,
-                            user_id);
-    }
-
-    void emplace_back(const ProceduralPrimitive &prim,
-                      const Buffer<float[16]> &srt_motion_buffer,
-                      const MotionOptions &motion_options,
-                      float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(prim.handle(), srt_motion_buffer.handle(), Modification::MotionBufferType::SRT, motion_options, transform, visibility_mask,
                             false /* procedural geometry is always non-opaque */,
                             user_id);
     }
@@ -179,50 +103,12 @@ public:
         emplace_back_handle(mesh_handle, transform, visibility_mask, opaque, user_id);
     }
 
-    void emplace_back(uint64_t mesh_handle,
-                      const Buffer<float[12]> &matrix_motion_buffer,
-                      const MotionOptions &motion_options,
-                      float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(mesh_handle, matrix_motion_buffer.handle(), Modification::MotionBufferType::MATRIX, motion_options, transform, visibility_mask, opaque, user_id);
-    }
-
-    void emplace_back(uint64_t mesh_handle,
-                      const Buffer<float[16]> &srt_motion_buffer,
-                      const MotionOptions &motion_options,
-                      float4x4 transform = make_float4x4(1.f),
-                      uint8_t visibility_mask = 0xffu,
-                      bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(mesh_handle, srt_motion_buffer.handle(), Modification::MotionBufferType::SRT, motion_options, transform, visibility_mask, opaque, user_id);
-    }
-
     void set(size_t index, const Mesh &mesh,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
              bool opaque = true,
              uint user_id = 0) noexcept {
         set_handle(index, mesh.handle(), transform, visibility_mask, opaque, user_id);
-    }
-    void set(size_t index, const Mesh &mesh,
-             const Buffer<float[12]> &matrix_motion_buffer,
-             const MotionOptions &motion_options,
-             float4x4 transform = make_float4x4(1.f),
-             uint8_t visibility_mask = 0xffu,
-             bool opaque = true,
-             uint user_id = 0) noexcept {
-        set_handle(index, mesh.handle(), matrix_motion_buffer.handle(), Modification::MotionBufferType::MATRIX, motion_options, transform, visibility_mask, opaque, user_id);
-    }
-    void set(size_t index, const Mesh &mesh,
-             const Buffer<float[16]> &srt_motion_buffer,
-             const MotionOptions &motion_options,
-             float4x4 transform = make_float4x4(1.f),
-             uint8_t visibility_mask = 0xffu,
-             bool opaque = true,
-             uint user_id = 0) noexcept {
-        set_handle(index, mesh.handle(), srt_motion_buffer.handle(), Modification::MotionBufferType::SRT, motion_options, transform, visibility_mask, opaque, user_id);
     }
     void set(size_t index, const Curve &curve,
              float4x4 transform = make_float4x4(1.f),
@@ -231,45 +117,11 @@ public:
              uint user_id = 0) noexcept {
         set_handle(index, curve.handle(), transform, visibility_mask, opaque, user_id);
     }
-    void set(size_t index, const Curve &curve,
-             const Buffer<float[12]> &matrix_motion_buffer,
-             const MotionOptions &motion_options,
-             float4x4 transform = make_float4x4(1.f),
-             uint8_t visibility_mask = 0xffu,
-             bool opaque = true,
-             uint user_id = 0) noexcept {
-        set_handle(index, curve.handle(), matrix_motion_buffer.handle(), Modification::MotionBufferType::MATRIX, motion_options, transform, visibility_mask, opaque, user_id);
-    }
-    void set(size_t index, const Curve &curve,
-             const Buffer<float[16]> &srt_motion_buffer,
-             const MotionOptions &motion_options,
-             float4x4 transform = make_float4x4(1.f),
-             uint8_t visibility_mask = 0xffu,
-             bool opaque = true,
-             uint user_id = 0) noexcept {
-        set_handle(index, curve.handle(), srt_motion_buffer.handle(), Modification::MotionBufferType::SRT, motion_options, transform, visibility_mask, opaque, user_id);
-    }
     void set(size_t index, const ProceduralPrimitive &prim,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
              uint user_id = 0) noexcept {
         set_handle(index, prim.handle(), transform, visibility_mask, false, user_id);
-    }
-    void set(size_t index, const ProceduralPrimitive &prim,
-             const Buffer<float[12]> &matrix_motion_buffer,
-             const MotionOptions &motion_options,
-             float4x4 transform = make_float4x4(1.f),
-             uint8_t visibility_mask = 0xffu,
-             uint user_id = 0) noexcept {
-        set_handle(index, prim.handle(), matrix_motion_buffer.handle(), Modification::MotionBufferType::MATRIX, motion_options, transform, visibility_mask, false, user_id);
-    }
-    void set(size_t index, const ProceduralPrimitive &prim,
-             const Buffer<float[16]> &srt_motion_buffer,
-             const MotionOptions &motion_options,
-             float4x4 transform = make_float4x4(1.f),
-             uint8_t visibility_mask = 0xffu,
-             uint user_id = 0) noexcept {
-        set_handle(index, prim.handle(), srt_motion_buffer.handle(), Modification::MotionBufferType::SRT, motion_options, transform, visibility_mask, false, user_id);
     }
     void set_mesh(size_t index, const Mesh &mesh) noexcept {
         set_prim_handle(index, mesh.handle());

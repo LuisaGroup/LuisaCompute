@@ -10,7 +10,6 @@
 #include "cuda_device.h"
 #include "cuda_curve.h"
 #include "cuda_accel.h"
-#include "cuda_buffer.h"
 
 namespace luisa::compute::cuda {
 
@@ -147,9 +146,6 @@ CUDAAccel::CUDAAccel(const AccelOption &option) noexcept
 CUDAAccel::~CUDAAccel() noexcept {
     if (_instance_buffer) { LUISA_CHECK_CUDA(cuMemFree(_instance_buffer)); }
     if (_bvh_buffer) { LUISA_CHECK_CUDA(cuMemFree(_bvh_buffer)); }
-    for (auto i = _motion_transform_pointers.begin(); i != _motion_transform_pointers.end(); i++) {
-        LUISA_CHECK_CUDA(cuMemFree(i->second));
-    }
 }
 
 void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) noexcept {
@@ -159,7 +155,6 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     // prepare instance buffer
     auto cuda_stream = encoder.stream()->handle();// the worker stream has to be pinned for dependencies
     auto instance_count = command->instance_count();
-    auto optix_ctx = encoder.stream()->device()->handle().optix_context();
     LUISA_ASSERT(instance_count > 0u, "Instance count must be greater than 0.");
     if (auto size = instance_count * sizeof(optix::Instance); _instance_buffer_size < size) {
         auto old_instance_buffer = _instance_buffer;
@@ -195,51 +190,6 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                     auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
                     _primitives[m.index] = prim;
                     auto handle = prim->handle();
-                    if (m.flags & Mod::flag_motion) {
-                        optix::MotionOptions optix_motion_option{.numKeys = m.motion_options.num_keys,
-                                                                 .flags = static_cast<uint16_t>(m.motion_options.flag),
-                                                                 .timeBegin = m.motion_options.time_begin,
-                                                                 .timeEnd = m.motion_options.time_end};
-                        CUdeviceptr motion_transform_device_ptr{0u};
-                        size_t motion_transform_stub_size_in_bytes{};
-                        size_t alloc_size_in_bytes{};
-                        size_t buffer_stride{};
-                        void *motion_transform_host_ptr{};
-                        if (m.motion_buffer_type == Mod::MotionBufferType::MATRIX) {
-                            buffer_stride = 12u;
-                            optix::MatrixMotionTransform motion_transform{.child = handle,
-                                                                          .motionOptions = optix_motion_option};
-                            motion_transform_stub_size_in_bytes = sizeof(optix::MatrixMotionTransform) - 2u * buffer_stride * sizeof(float);
-                            motion_transform_host_ptr = &motion_transform;
-                        } else if (m.motion_buffer_type == Mod::MotionBufferType::SRT) {
-                            buffer_stride = 16u;
-                            optix::SRTMotionTransform motion_transform{.child = handle,
-                                                                       .motionOptions = optix_motion_option};
-                            motion_transform_stub_size_in_bytes = sizeof(optix::SRTMotionTransform) - 2u * buffer_stride * sizeof(float);
-                            motion_transform_host_ptr = &motion_transform;
-                        } else [[unlikely]] {
-                            LUISA_ERROR_WITH_LOCATION("Undefined motion buffer type: {}", static_cast<uint16_t>(m.motion_buffer_type));
-                        }
-                        alloc_size_in_bytes = motion_transform_stub_size_in_bytes + optix_motion_option.numKeys * buffer_stride * sizeof(float);
-                        LUISA_CHECK_CUDA(cuMemAllocAsync(&motion_transform_device_ptr, alloc_size_in_bytes, cuda_stream));
-                        LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(motion_transform_device_ptr,
-                                                           motion_transform_host_ptr,
-                                                           motion_transform_stub_size_in_bytes, cuda_stream));
-                        auto motion_transform_buffer = reinterpret_cast<const CUDABuffer *>(m.motion_transform_buffer)->device_address();
-                        LUISA_CHECK_CUDA(cuMemcpyDtoDAsync(motion_transform_device_ptr + motion_transform_stub_size_in_bytes,
-                                                           motion_transform_buffer,
-                                                           optix_motion_option.numKeys * buffer_stride * sizeof(float),
-                                                           cuda_stream));
-                        if (_motion_transform_pointers[m.index] != 0)
-                        {
-                            // Currently, we handle the destruction of the transform buffer lazily.
-                            // This means that when the buffer loses its reference, it will not be released immediately.
-                            // Release can only occur when Accel is destroyed or a new buffer is created at the same index.
-                            LUISA_CHECK_CUDA(cuMemFreeAsync(_motion_transform_pointers[m.index], cuda_stream));
-                        }
-                        _motion_transform_pointers[m.index] = motion_transform_device_ptr;
-                        _motion_transform_types[m.index] = static_cast<uint16_t>(m.motion_buffer_type);
-                    }
                     m.primitive = handle;
                     _prim_handles[m.index] = handle;
                     if (prim->tag() == CUDAPrimitive::Tag::PROCEDURAL) {
@@ -324,41 +274,6 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
             0u, cuda_stream, args.data(), nullptr));
         LUISA_CHECK_CUDA(cuMemFreeAsync(device_buffer, cuda_stream));
     }
-
-    auto motion_handle_count = _motion_transform_pointers.size();
-    // modify handles with motion
-    if (motion_handle_count > 0u) {
-        struct alignas(16u) MotionUpdateHandle {
-            size_t index;
-            optix::TraversableHandle handle;
-        };
-
-        auto size_bytes = _motion_transform_pointers.size() * sizeof(MotionUpdateHandle);
-        auto device_buffer = 0ull;
-        LUISA_CHECK_CUDA(cuMemAllocAsync(&device_buffer, size_bytes, cuda_stream));
-        encoder.with_upload_buffer(size_bytes, [&](auto host_buffer) noexcept {
-            auto host_handles = reinterpret_cast<MotionUpdateHandle *>(host_buffer->address());
-            for (auto [i, j] = std::pair{_motion_transform_pointers.begin(), 0u}; i != _motion_transform_pointers.end(); i++) {
-                optix::TraversableHandle motion_handle;
-                LUISA_CHECK_OPTIX(optix::api().convertPointerToTraversableHandle(
-                    optix_ctx,
-                    i->second,
-                    (_motion_transform_types[i->first] == 0u) ? optix::TRAVERSABLE_TYPE_MATRIX_MOTION_TRANSFORM : optix::TRAVERSABLE_TYPE_SRT_MOTION_TRANSFORM,
-                    &motion_handle));
-                host_handles[j++] = {i->first, motion_handle};
-            }
-            LUISA_CHECK_CUDA(cuMemcpyHtoDAsync(device_buffer, host_handles, size_bytes, cuda_stream));
-        });
-        auto kernel = encoder.stream()->device()->instance_handle_update_function();
-        std::array<void *, 3u> args{&_instance_buffer, &device_buffer, &motion_handle_count};
-        constexpr auto block_size = 256u;
-        auto block_count = (motion_handle_count + block_size - 1u) / block_size;
-        LUISA_CHECK_CUDA(cuLaunchKernel(
-            kernel, block_count, 1u, 1u, block_size, 1u, 1u,
-            0u, cuda_stream, args.data(), nullptr));
-        LUISA_CHECK_CUDA(cuMemFreeAsync(device_buffer, cuda_stream));
-    }
-
     if (!command->update_instance_buffer_only()) {// build or update the BVH
         if (_requires_rebuild) {
             _build(encoder);

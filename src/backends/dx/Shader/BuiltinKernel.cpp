@@ -37,7 +37,7 @@ ComputeShader *BuiltinKernel::LoadAccelSetKernel(Device *device) {
         {},
         uint3(256, 1, 1),
         62,
-        "set_accel3.dxil"sv,
+        "set_accel4.dxil"sv,
         CacheType::Internal, true);
 }
 ComputeShader *BuiltinKernel::LoadBindlessSetKernel(Device *device) {

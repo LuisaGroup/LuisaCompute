@@ -121,7 +121,6 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
 
     optix::PipelineCompileOptions pipeline_compile_options{};
     pipeline_compile_options.exceptionFlags = optix::EXCEPTION_FLAG_NONE;
-    pipeline_compile_options.usesMotionBlur = true;
     pipeline_compile_options.traversableGraphFlags = optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
     pipeline_compile_options.numPayloadValues = 0u;
     auto primitive_flags = metadata.requires_ray_query ?
