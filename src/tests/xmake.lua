@@ -1,16 +1,4 @@
 local enable_gui = get_config("enable_gui")
-target("stb-image")
-set_basename("lc-ext-stb-image")
-_config_project({
-    project_kind = "static"
-})
-add_headerfiles("../ext/stb/**.h")
-add_files("../ext/stb/stb.c")
-add_includedirs("../ext/stb", {
-    public = true
-})
-target_end()
-
 -- TEST MAIN with doctest
 ------------------------------------
 local function lc_add_app(appname, folder, name)
