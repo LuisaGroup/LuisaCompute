@@ -55,7 +55,11 @@ private:
         : Resource{device, Tag::TEXTURE, create_info},
           _size{size},
           _mip_levels{detail::max_mip_levels(make_uint3(size, 1u), mip_levels)},
-          _storage{storage} {}
+          _storage{storage} {
+        if (size.x == 0 || size.y == 0) [[unlikely]] {
+            detail::image_size_zero_error();
+        }
+    }
 
     Image(DeviceInterface *device, PixelStorage storage, uint2 size,
           uint mip_levels = 1u, bool simultaneous_access = false, bool allow_raster_target = false) noexcept
