@@ -163,7 +163,7 @@ void parallel(uint32_t job_count, F &&lambda, uint32_t internal_jobs = 1) noexce
         evt.wait();
     } else {
         for (uint32_t i = 0; i < job_count; ++i) {
-            lambda[i];
+            lambda(i);
         }
     }
 }
