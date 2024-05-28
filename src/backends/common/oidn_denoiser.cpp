@@ -30,7 +30,7 @@ void OidnDenoiser::reset() noexcept {
 oidn::BufferRef OidnDenoiser::get_buffer(const DenoiserExt::Image &img, bool _read) noexcept {
     LUISA_ASSERT(img.buffer_handle != ~0ull, "Invalid buffer handle.");
     LUISA_ASSERT(img.device_ptr != nullptr, "Invalid device pointer.");
-    return _oidn_device.newBuffer((byte *)img.device_ptr + img.offset, img.size_bytes);
+    return _oidn_device.newBuffer(static_cast<byte *>(img.device_ptr) + img.offset, img.size_bytes);
 }
 void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
     std::unique_lock lock{_mutex};
