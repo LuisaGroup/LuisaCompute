@@ -128,7 +128,7 @@ public:
                 filter.setImage("albedo", _albedo_buffer, get_format(albedo_image->format), input.width, input.height, albedo_image->offset, albedo_image->pixel_stride, albedo_image->row_stride);
             }
             if (has_normal) {
-                filter.setImage("normal", _normal_buffer, get_format(albedo_image->format), input.width, input.height, normal_image->offset, normal_image->pixel_stride, normal_image->row_stride);
+                filter.setImage("normal", _normal_buffer, get_format(normal_image->format), input.width, input.height, normal_image->offset, normal_image->pixel_stride, normal_image->row_stride);
             }
             set_filter_properties(filter, in);
 
