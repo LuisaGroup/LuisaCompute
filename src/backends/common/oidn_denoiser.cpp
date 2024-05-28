@@ -97,7 +97,6 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 has_albedo = true;
                 albedo_image = &f.image;
                 set_prefilter_properties(_albedo_prefilter);
-
             } else if (f.name == "normal") {
                 LUISA_ASSERT(!has_normal, "Normal feature already set.");
                 LUISA_ASSERT(!_normal_prefilter, "Normal prefilter already set.");
@@ -109,7 +108,6 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 has_normal = true;
                 normal_image = &f.image;
                 set_prefilter_properties(_normal_prefilter);
-
             } else {
                 LUISA_ERROR_WITH_LOCATION("Invalid feature name: {}.", f.name);
             }
