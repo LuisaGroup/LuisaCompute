@@ -143,6 +143,9 @@ end
 function _string_builder:caddr()
     return self._ptr + 1
 end
+function _string_builder:cdata()
+    return self._ptr + 1
+end
 function _string_builder:clear()
     self._size = 0
 end

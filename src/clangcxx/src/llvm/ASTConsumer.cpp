@@ -800,6 +800,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     current = fb->binary(lcType, TranslateBinaryOp(cxx_op), lhs, rhs);
                 }
+            } else if (auto cxxCondOp = llvm::dyn_cast<clang::ConditionalOperator>(x)) {
+                auto _cond = stack->GetExpr(cxxCondOp->getCond());
+                auto _true = stack->GetExpr(cxxCondOp->getTrueExpr());
+                auto _false = stack->GetExpr(cxxCondOp->getFalseExpr());
+                const auto lcType = db->FindOrAddType(cxxCondOp->getType(), x->getBeginLoc());
+                current = fb->call(lcType, CallOp::SELECT, {_false, _true, _cond});
             } else if (auto dref = llvm::dyn_cast<DeclRefExpr>(x)) {
                 auto str = luisa::string(dref->getNameInfo().getName().getAsString());
                 if (auto _current = stack->GetLocal(dref->getDecl())) {
@@ -876,6 +882,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (*iter == 'y') swizzle_seq[swizzle_size] = 1u;
                                 if (*iter == 'z') swizzle_seq[swizzle_size] = 2u;
                                 if (*iter == 'w') swizzle_seq[swizzle_size] = 3u;
+
+                                if (*iter == 'r') swizzle_seq[swizzle_size] = 0u;
+                                if (*iter == 'g') swizzle_seq[swizzle_size] = 1u;
+                                if (*iter == 'b') swizzle_seq[swizzle_size] = 2u;
+                                if (*iter == 'a') swizzle_seq[swizzle_size] = 3u;
+                                
                                 swizzle_size += 1;
                             }
                             // encode swizzle code
@@ -1099,6 +1111,7 @@ protected:
 auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKernel) -> BuildResult {
     BuildResult result{
         .dimension = 0};
+    bool is_builtin_type_method = false;
     bool is_ignore = false;
     bool is_kernel = false;
     bool is_vertex = false;
@@ -1141,7 +1154,10 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
         if (auto thisType = Method->getParent()) {
             is_ignore |= thisType->isUnion();// ignore union
             for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>())
-                is_ignore |= isBuiltinType(Anno);
+            {
+                is_builtin_type_method |= isBuiltinType(Anno);
+                is_ignore |= is_builtin_type_method;
+            }
             if (thisType->isLambda())// ignore global lambda declares, we deal them on stacks only
                 is_lambda = true;
 
@@ -1320,7 +1336,7 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
                 }
 
                 // ctor initializers
-                if (is_method) {
+                if (is_method && !is_builtin_type_method) {
                     if (auto lcType = db->FindOrAddType(methodThisType, S->getBeginLoc())) {
                         auto this_local = db->GetFunctionThis(builder);
                         if (auto Ctor = llvm::dyn_cast<clang::CXXConstructorDecl>(S)) {

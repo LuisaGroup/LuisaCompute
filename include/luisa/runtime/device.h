@@ -43,7 +43,7 @@ class Image;
 template<typename T>
 class Volume;
 
-template<size_t dim, typename... Args>
+template<size_t dimension, concepts::non_cvref... Args>
 class Shader;
 
 template<size_t dim, typename... Args>

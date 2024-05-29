@@ -122,12 +122,17 @@ struct NonMovableAtomic {
 }// namespace detail
 template<class F>
     requires(std::is_invocable_v<F, uint32_t>)
-[[nodiscard]] auto async_parallel(uint32_t job_count, F &&lambda) noexcept {
-    auto thread_count = std::min<uint32_t>(job_count, worker_thread_count());
+[[nodiscard]] auto async_parallel(uint32_t job_count, F &&lambda, uint32_t internal_jobs = 1) noexcept {
+    auto thread_count = std::clamp<uint32_t>(job_count / internal_jobs, 1u, worker_thread_count());
     counter evt{thread_count};
-    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
+    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, internal_jobs, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
         uint32_t i = 0u;
-        while ((i = counter.value.fetch_add(1u)) < job_count) { lambda(i); }
+        while ((i = counter.value.fetch_add(internal_jobs)) < job_count) {
+            auto end = std::min<uint32_t>(i + internal_jobs, job_count);
+            for (uint32_t v = i; v < end; ++v) {
+                lambda(v);
+            }
+        }
         evt.done();
     }};
     for (uint32_t i = 0; i < thread_count; ++i) {
@@ -138,18 +143,29 @@ template<class F>
 
 template<class F>
     requires(std::is_invocable_v<F, uint32_t>)
-void parallel(uint32_t job_count, F &&lambda) noexcept {
-    auto thread_count = std::min<uint32_t>(job_count, worker_thread_count());
-    counter evt{thread_count};
-    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
-        uint32_t i = 0u;
-        while ((i = counter.value.fetch_add(1u)) < job_count) { lambda(i); }
-        evt.done();
-    }};
-    for (uint32_t i = 0; i < thread_count; ++i) {
-        marl::schedule(func);
+void parallel(uint32_t job_count, F &&lambda, uint32_t internal_jobs = 1) noexcept {
+    auto thread_count = std::clamp<uint32_t>(job_count / internal_jobs, 1u, worker_thread_count());
+    if (thread_count > 1) {
+        counter evt{thread_count};
+        luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, internal_jobs, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
+            uint32_t i = 0u;
+            while ((i = counter.value.fetch_add(internal_jobs)) < job_count) {
+                auto end = std::min<uint32_t>(i + internal_jobs, job_count);
+                for (uint32_t v = i; v < end; ++v) {
+                    lambda(v);
+                }
+            }
+            evt.done();
+        }};
+        for (uint32_t i = 0; i < thread_count; ++i) {
+            marl::schedule(func);
+        }
+        evt.wait();
+    } else {
+        for (uint32_t i = 0; i < job_count; ++i) {
+            lambda(i);
+        }
     }
-    evt.wait();
 }
 
 }// namespace luisa::fiber

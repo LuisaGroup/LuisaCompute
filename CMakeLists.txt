@@ -62,6 +62,7 @@ endif ()
 
 # basic set-up for compilers
 include(scripts/setup_compilation.cmake)
+include(scripts/setup_output_dirs.cmake)
 
 # rpath
 set(CMAKE_MACOSX_RPATH ON)

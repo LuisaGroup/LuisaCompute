@@ -267,8 +267,7 @@ public:
         return _uniform_size;
     }
 };
-
-template<size_t dimension, typename... Args>
+template<size_t dimension, concepts::non_cvref... Args>
 class Shader final : public ShaderBase {
 
     static_assert(dimension == 1u || dimension == 2u || dimension == 3u);
