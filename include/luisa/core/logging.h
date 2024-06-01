@@ -123,13 +123,15 @@ LC_CORE_API void log_flush() noexcept;
 #define LUISA_NOT_IMPLEMENTED() \
     LUISA_ERROR_WITH_LOCATION("Not implemented.")
 
-#define LUISA_ASSERT(x, fmt, ...)                \
-    do {                                         \
-        if (!(x)) [[unlikely]] {                 \
-            auto msg = luisa::format(            \
-                fmt __VA_OPT__(, ) __VA_ARGS__); \
-            LUISA_ERROR_WITH_LOCATION(           \
-                "Assertion '{}' failed: {}",     \
-                #x, msg);                        \
-        }                                        \
+#define LUISA_ASSERT(x, fmt, ...)                            \
+    do {                                                     \
+        auto _luisa_cond_x = static_cast<bool>(x); \
+        LUISA_ASSUME(_luisa_cond_x);               \
+        if (!_luisa_cond_x) [[unlikely]] {         \
+            auto msg = luisa::format(                        \
+                fmt __VA_OPT__(, ) __VA_ARGS__);             \
+            LUISA_ERROR_WITH_LOCATION(                       \
+                "Assertion '{}' failed: {}",                 \
+                #x, msg);                                    \
+        }                                                    \
     } while (false)
