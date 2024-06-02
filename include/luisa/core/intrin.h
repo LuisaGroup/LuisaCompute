@@ -38,3 +38,16 @@ using float32x4_t = ::float32x4_t;
 
 #endif
 
+////////////// assume
+#ifdef NDEBUG // assume only enabled in non-debug mode.
+#if defined(__clang__)// Clang
+#define LUISA_ASSUME(x) (__builtin_assume(x))
+#elif defined(_MSC_VER)// MSVC
+#define LUISA_ASSUME(x) (__assume(x))
+#else// GCC
+#define LUISA_ASSUME(x) \
+    if (!(x)) __builtin_unreachable()
+#endif
+#else
+#define LUISA_ASSUME(expression) ((void)0)
+#endif
