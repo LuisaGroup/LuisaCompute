@@ -2164,7 +2164,7 @@ allocDesc.ExtraHeapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_RT_DS_TEXTURES;
 
 D3D12MA::Allocation* alloc;
 hr = allocator->AllocateMemory(&allocDesc, &finalAllocInfo, &alloc);
-assert(alloc != NULL && alloc->GetHeap() != NULL);
+LUISA_ASSUME(alloc != NULL && alloc->GetHeap() != NULL);
 
 ID3D12Resource* res1;
 hr = allocator->CreateAliasingResource(
@@ -2361,7 +2361,7 @@ else
 When no longer needed, an allocation can be freed by calling D3D12MA::VirtualBlock::FreeAllocation.
 
 When whole block is no longer needed, the block object can be released by calling `block->Release()`.
-All allocations must be freed before the block is destroyed, which is checked internally by an assert.
+All allocations must be freed before the block is destroyed, which is checked internally by an LUISA_ASSUME.
 However, if you don't want to call `block->FreeAllocation` for each allocation, you can use D3D12MA::VirtualBlock::Clear to free them all at once -
 a feature not available in normal D3D12 memory allocator.
 
@@ -2587,7 +2587,7 @@ Features deliberately excluded from the scope of this library:
   objects in CPU memory (not the GPU memory), allocation failures are not
   handled gracefully, because that would complicate code significantly and
   is usually not needed in desktop PC applications anyway.
-  Success of an allocation is just checked with an assert.
+  Success of an allocation is just checked with an LUISA_ASSUME.
 - **Code free of any compiler warnings.**
   There are many preprocessor macros that make some variables unused, function parameters unreferenced,
   or conditional expressions constant in some configurations.

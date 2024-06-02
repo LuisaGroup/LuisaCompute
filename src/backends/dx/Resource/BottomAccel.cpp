@@ -85,7 +85,7 @@ BottomAccel::~BottomAccel() {
 void BottomAccel::SyncTopAccel() {
     std::lock_guard lck(handleMtx);
     for (auto &&i : handles) {
-        assert(i->mesh == this);
+        LUISA_ASSUME(i->mesh == this);
         i->accel->UpdateMesh(i);
     }
 }
@@ -226,7 +226,7 @@ MeshHandle *BottomAccel::AddAccelRef(TopAccel *accel, uint index) {
     return meshHandle;
 }
 void BottomAccel::RemoveAccelRef(MeshHandle *handle) {
-    assert(handle->mesh == this);
+    LUISA_ASSUME(handle->mesh == this);
     {
         std::lock_guard lck(handleMtx);
         auto last = handles.back();

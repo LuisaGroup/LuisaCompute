@@ -46,7 +46,7 @@ void DecodeCmd(vstd::span<const Argument> args, Visitor &&visitor) {
                 visitor(i.accel);
             } break;
             default: {
-                assert(false);
+                LUISA_ASSUME(false);
             } break;
         }
     }

@@ -448,7 +448,7 @@ ComPtr<ID3DBlob> ShaderSerializer::SerializeRootSig(
             case hlsl::ShaderVariableType::RWStructuredBuffer:
                 allParameter.emplace_back().InitAsUnorderedAccessView(var.register_index, var.space_index);
                 break;
-            default: assert(false); break;
+            default: LUISA_ASSUME(false); break;
         }
     }
     if (isRasterShader) {
@@ -492,7 +492,7 @@ ComPtr<ID3D12RootSignature> ShaderSerializer::DeSerializeRootSig(
     return rootSig;
 }
 vstd::vector<SavedArgument> ShaderSerializer::SerializeKernel(Function kernel) {
-    assert(kernel.tag() != Function::Tag::CALLABLE);
+    LUISA_ASSUME(kernel.tag() != Function::Tag::CALLABLE);
     auto &&args = kernel.arguments();
     vstd::vector<SavedArgument> result;
     vstd::push_back_func(result, args.size(), [&](size_t i) {

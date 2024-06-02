@@ -38,7 +38,7 @@ TopAccel::TopAccel(Device *device, AccelOption const &option)
 void TopAccel::UpdateMesh(
     MeshHandle *handle) {
     auto instIndex = handle->accelIndex;
-    assert(allInstance[instIndex].handle == handle);
+    LUISA_ASSUME(allInstance[instIndex].handle == handle);
     setMap.force_emplace(instIndex, handle);
     requireBuild = true;
 }
