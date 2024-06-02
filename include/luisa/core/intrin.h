@@ -12,6 +12,7 @@
 
 #include <immintrin.h>
 #include <cstdint>
+#include <cassert>
 
 #define LUISA_INTRIN_PAUSE() _mm_pause()
 
@@ -49,5 +50,5 @@ using float32x4_t = ::float32x4_t;
     if (!(x)) __builtin_unreachable()
 #endif
 #else
-#define LUISA_ASSUME(expression) ((void)0)
+#define LUISA_ASSUME(expression) assert(expression)
 #endif

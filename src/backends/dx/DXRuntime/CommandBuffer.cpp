@@ -42,7 +42,7 @@ CommandBuffer::CommandBuffer(
 void CommandBufferBuilder::SetComputeResources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
-    assert(resources.size() == s->Properties().size());
+    LUISA_ASSUME(resources.size() == s->Properties().size());
     for (auto i : vstd::range(resources.size())) {
         resources[i].visit(
             [&](auto &&b) {
@@ -56,7 +56,7 @@ void CommandBufferBuilder::SetComputeResources(
 void CommandBufferBuilder::SetRasterResources(
     Shader const *s,
     vstd::span<const BindProperty> resources) {
-    assert(resources.size() == s->Properties().size());
+    LUISA_ASSUME(resources.size() == s->Properties().size());
     for (auto i : vstd::range(resources.size())) {
         resources[i].visit(
             [&](auto &&b) {
@@ -129,7 +129,7 @@ void CommandBufferBuilder::DispatchComputeIndirect(
     auto res = indirectBuffer.GetResource();
     size_t byteSize = indirectBuffer.GetByteSize();
     size_t cmdSize = (byteSize - 4) / ComputeShader::DispatchIndirectStride;
-    assert(cmdSize >= 1);
+    LUISA_ASSUME(cmdSize >= 1);
     c->SetComputeRootSignature(cs->RootSig());
     SetComputeResources(cs, resources);
     c->SetPipelineState(cs->Pso());
@@ -276,7 +276,7 @@ void CommandBufferBuilder::Readback(BufferView const &buffer, void *dst) {
         buffer.byteSize);
     cb->GetAlloc()->ExecuteAfterComplete(
         [rBuffer, dst] {
-            assert(rBuffer.buffer->GetTag() == Resource::Tag::ReadbackBuffer);
+            LUISA_ASSUME(rBuffer.buffer->GetTag() == Resource::Tag::ReadbackBuffer);
             static_cast<ReadbackBuffer const *>(rBuffer.buffer)
                 ->CopyData(
                     rBuffer.offset,

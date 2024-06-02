@@ -106,7 +106,7 @@ D3D12_SHADER_RESOURCE_VIEW_DESC DepthBuffer::GetColorSrvDesc(uint mipOffset) con
         case GFXFormat_D32_Float_S8X24_UInt:
             srvDesc.Format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
             break;
-        default: assert(false); break;
+        default: LUISA_ASSUME(false); break;
     }
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srvDesc.Texture2D.MostDetailedMip = 0;

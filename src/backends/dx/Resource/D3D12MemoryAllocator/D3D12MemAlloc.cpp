@@ -62,7 +62,7 @@
 
 #ifndef D3D12MA_ASSERT
 #include <cassert>
-#define D3D12MA_ASSERT(cond) assert(cond)
+#define D3D12MA_ASSERT(cond) LUISA_ASSUME(cond)
 #endif
 
 // Assert that will be called very often, like inside data structures e.g. operator[].

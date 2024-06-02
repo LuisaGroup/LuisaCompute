@@ -202,7 +202,7 @@ void AccessChain::gen_func_impl(CodegenUtility *util, TemplateFunction const &tm
 }
 void AccessChain::call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const {
     builder << _func_name << '(';
-    assert(!args.empty() && !_nodes.empty() && args.size() > _nodes.size());
+    LUISA_ASSUME(!args.empty() && !_nodes.empty() && args.size() > _nodes.size());
     if (!_root_var.is_shared()) {
         args[0]->accept(visitor);
         builder << ',';

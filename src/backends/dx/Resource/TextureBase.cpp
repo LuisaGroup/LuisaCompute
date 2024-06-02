@@ -34,7 +34,7 @@ TextureBase::TextureBase(
             this->depth = 6;
             break;
         default:
-            assert(dimension == TextureDimension::Tex3D);
+            LUISA_ASSUME(dimension == TextureDimension::Tex3D);
             break;
     }
     //layouts = vstd::create_unique(vengine_new_array<std::atomic<D3D12_BARRIER_LAYOUT>>(mip, D3D12_BARRIER_LAYOUT_COMMON));
@@ -79,14 +79,14 @@ D3D12_SHADER_RESOURCE_VIEW_DESC TextureBase::GetColorSrvDescBase(uint mipOffset)
             srvDesc.Texture3D.MostDetailedMip = mipOffset;
             srvDesc.Texture3D.ResourceMinLODClamp = 0.0f;
             break;
-        default: assert(false); break;
+        default: LUISA_ASSUME(false); break;
     }
     return srvDesc;
 }
 D3D12_RENDER_TARGET_VIEW_DESC TextureBase::GetRenderTargetDescBase(uint mipOffset) const {
     D3D12_RENDER_TARGET_VIEW_DESC rtv;
     rtv.Format = static_cast<DXGI_FORMAT>(format);
-    assert(dimension == TextureDimension::Tex2D);
+    LUISA_ASSUME(dimension == TextureDimension::Tex2D);
     rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
     rtv.Texture2D.MipSlice = mipOffset;
     rtv.Texture2D.PlaneSlice = 0;
@@ -307,7 +307,7 @@ D3D12_RESOURCE_DESC TextureBase::GetResourceDescBase(uint3 size, uint mip, bool 
         case TextureDimension::Tex1D:
             texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
             break;
-        default: assert(false); break;
+        default: LUISA_ASSUME(false); break;
     }
     texDesc.Alignment = 0;
     texDesc.Width = size.x;
