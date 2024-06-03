@@ -385,6 +385,20 @@ public:
         void operator++(int32_t) noexcept {
             ii++;
         }
+        Iterator &operator+=(size_t i) noexcept {
+            ii += i;
+            return *this;
+        }
+        Iterator &operator-=(size_t i) noexcept {
+            ii -= i;
+            return *this;
+        }
+        Iterator operator+(size_t i) const noexcept {
+            return Iterator{ii + i};
+        }
+        Iterator operator-(size_t i) const noexcept {
+            return Iterator{ii - i};
+        }
         NodePair *operator->() const noexcept {
             return reinterpret_cast<NodePair *>(&(*ii)->data);
         }
@@ -408,6 +422,20 @@ public:
         }
         void operator++(int32_t) noexcept {
             ii++;
+        }
+        MoveIterator &operator+=(size_t i) noexcept {
+            ii += i;
+            return *this;
+        }
+        MoveIterator &operator-=(size_t i) noexcept {
+            ii -= i;
+            return *this;
+        }
+        MoveIterator operator+(size_t i) const noexcept {
+            return MoveIterator{ii + i};
+        }
+        MoveIterator operator-(size_t i) const noexcept {
+            return MoveIterator{ii - i};
         }
         MoveNodePair *operator->() const noexcept {
             return &(*ii)->data;

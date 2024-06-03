@@ -15,10 +15,10 @@
 #include "../../common/oidn_denoiser.h"
 namespace luisa::compute::cuda {
 class CUDADenoiserExt final : public DenoiserExt {
+private:
     CUDADevice *_device;
 public:
-    explicit CUDADenoiserExt(CUDADevice *device) noexcept : _device(device) {
-    }
+    explicit CUDADenoiserExt(CUDADevice *device) noexcept : _device{device} {}
     luisa::shared_ptr<Denoiser> create(uint64_t stream) noexcept override;
     luisa::shared_ptr<Denoiser> create(Stream &stream) noexcept override {
         return create(stream.handle());

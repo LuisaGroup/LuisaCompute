@@ -2,99 +2,66 @@
 if (LUISA_COMPUTE_DOWNLOAD_OIDN)
 
     set(oidn_DOWNLOAD_VERSION 2.2.2)
-    set(oidn_BUILD_FROM_SOURCE OFF)
     if (WIN32)
-        set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x64.windows.zip")
+        set(oidn_DOWNLOAD_URL "https://github.com/RenderKit/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x64.windows.zip")
     elseif (UNIX AND NOT APPLE)
-        set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x86_64.linux.tar.gz")
+        set(oidn_DOWNLOAD_URL "https://github.com/RenderKit/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x86_64.linux.tar.gz")
     elseif (APPLE)
-        set(oidn_BUILD_FROM_SOURCE ON)
-        set(oidn_DOWNLOAD_URL "https://github.com/OpenImageDenoise/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.src.tar.gz")
+        if (CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+            set(oidn_DOWNLOAD_URL "https://github.com/RenderKit/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.x86_64.macos.tar.gz")
+        else ()
+            set(oidn_DOWNLOAD_URL "https://github.com/RenderKit/oidn/releases/download/v${oidn_DOWNLOAD_VERSION}/oidn-${oidn_DOWNLOAD_VERSION}.arm64.macos.tar.gz")
+        endif ()
     endif ()
 
     message(STATUS "Downloading OpenImageDenoise from ${oidn_DOWNLOAD_URL}")
 
     include(FetchContent)
-    if (oidn_BUILD_FROM_SOURCE) # FIXME: currently this is only for macOS
-        FetchContent_Declare(OpenImageDenoise
-                URL ${oidn_DOWNLOAD_URL}
-                DOWNLOAD_EXTRACT_TIMESTAMP ON
-                OVERRIDE_FIND_PACKAGE)
-        set(OIDN_INSTALL_DEPENDENCIES ON CACHE BOOL "" FORCE)
-        set(OIDN_APPS OFF CACHE BOOL "" FORCE)
-        find_package(OpenImageDenoise CONFIG REQUIRED)
-        FetchContent_GetProperties(OpenImageDenoise)
-        message(STATUS "OpenImageDenoise source downloaded to ${openimagedenoise_SOURCE_DIR}")
-        string(REPLACE "." ";" oidn_DOWNLOAD_VERSION_LIST ${oidn_DOWNLOAD_VERSION})
-        list(GET oidn_DOWNLOAD_VERSION_LIST 0 oidn_DOWNLOAD_VERSION_MAJOR)
-        # FIXME: anyway to glob these runtime libs?
-        set(oidn_RUNTIME_LIBS
-                "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise.${oidn_DOWNLOAD_VERSION}.dylib"
-                "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise.${oidn_DOWNLOAD_VERSION_MAJOR}.dylib"
-                "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise.dylib"
-                "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise_core.${oidn_DOWNLOAD_VERSION}.dylib"
-                "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise_core.dylib"
-                "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise_device_cpu.${oidn_DOWNLOAD_VERSION}.dylib"
-                "${openimagedenoise_BINARY_DIR}/libOpenImageDenoise_device_cpu.dylib")
-    else ()
-        FetchContent_Declare(OpenImageDenoise
-                URL ${oidn_DOWNLOAD_URL}
-                DOWNLOAD_EXTRACT_TIMESTAMP ON)
-        FetchContent_MakeAvailable(OpenImageDenoise)
-        FetchContent_GetProperties(OpenImageDenoise)
-        message(STATUS "OpenImageDenoise binary downloaded to ${openimagedenoise_SOURCE_DIR}")
-        list(APPEND CMAKE_PREFIX_PATH ${openimagedenoise_SOURCE_DIR})
-        find_package(OpenImageDenoise CONFIG REQUIRED)
-        file(GLOB oidn_RUNTIME_LIBS
-                "${openimagedenoise_SOURCE_DIR}/bin/*.dll"
-                "${openimagedenoise_SOURCE_DIR}/lib/*.so"
-                "${openimagedenoise_SOURCE_DIR}/lib/*.so.*"
-                "${openimagedenoise_SOURCE_DIR}/lib/*.dylib")
-        # set(oidn_RUNTIME_BACKEND_LIBS ${oidn_RUNTIME_LIBS})
-        # list(FILTER oidn_RUNTIME_BACKEND_LIBS INCLUDE REGEX ".*_device_(cpu|cuda).*")
-        # list(FILTER oidn_RUNTIME_LIBS EXCLUDE REGEX ".*_device_.*")
-        # list(APPEND oidn_RUNTIME_LIBS ${oidn_RUNTIME_BACKEND_LIBS})
-    endif ()
+    FetchContent_Declare(OpenImageDenoise
+            URL ${oidn_DOWNLOAD_URL}
+            DOWNLOAD_EXTRACT_TIMESTAMP ON)
+    FetchContent_MakeAvailable(OpenImageDenoise)
+    FetchContent_GetProperties(OpenImageDenoise)
+    message(STATUS "OpenImageDenoise binary downloaded to ${openimagedenoise_SOURCE_DIR}")
+    list(APPEND CMAKE_PREFIX_PATH ${openimagedenoise_SOURCE_DIR})
+    find_package(OpenImageDenoise CONFIG REQUIRED)
+    file(GLOB oidn_RUNTIME_LIBS
+            "${openimagedenoise_SOURCE_DIR}/bin/*.dll"
+            "${openimagedenoise_SOURCE_DIR}/lib/*.so"
+            "${openimagedenoise_SOURCE_DIR}/lib/*.so.*"
+            "${openimagedenoise_SOURCE_DIR}/lib/*.dylib")
 
-    if (oidn_BUILD_FROM_SOURCE)
-        # FIXME: trouble linking the STATIC library on macOS with Apple Silicons, so SHARED here to workaround...
-        add_library(luisa-compute-oidn-ext SHARED oidn_denoiser.cpp)
-        set_target_properties(luisa-compute-oidn-ext PROPERTIES OUTPUT_NAME lc-oidn-ext)
-        # FIXME: ad-hoc fix for the missing dependency of the OpenImageDenoise_device_cpu library
-        add_dependencies(luisa-compute-oidn-ext OpenImageDenoise_device_cpu)
-    else ()
-        add_library(luisa-compute-oidn-ext STATIC oidn_denoiser.cpp)
-        set_target_properties(luisa-compute-oidn-ext PROPERTIES POSITION_INDEPENDENT_CODE ON)
-        # fix the rpaths of the OpenImageDenoise libraries
-        if (APPLE)
-            find_program(INSTALL_NAME_TOOL_EXE install_name_tool)
-            if (INSTALL_NAME_TOOL_EXE)
-                foreach (oidn_lib ${oidn_RUNTIME_LIBS})
-                    # get file name without path
-                    get_filename_component(oidn_lib_name ${oidn_lib} NAME)
-                    add_custom_command(TARGET luisa-compute-oidn-ext POST_BUILD
-                            COMMENT "Fixing rpath of ${oidn_lib_name}"
-                            COMMAND ${INSTALL_NAME_TOOL_EXE} -id "@rpath/${oidn_lib_name}" "${oidn_lib}"
-                            COMMAND ${INSTALL_NAME_TOOL_EXE} -add_rpath "@loader_path" "${oidn_lib}"
-                            BYPRODUCTS ${oidn_lib}
-                            VERBATIM)
-                endforeach ()
-            else ()
-                message(FATAL_ERROR "install_name_tool not found, rpath of OpenImageDenoise libraries will not be fixed. You may either install Xcode or disable the OIDN extension with -DLUISA_COMPUTE_DOWNLOAD_OIDN=OFF when configuring.")
-            endif ()
-        elseif (UNIX)
-            find_program(PATCHELF_EXE patchelf)
-            if (PATCHELF_EXE)
-                foreach (oidn_lib ${oidn_RUNTIME_LIBS})
-                    add_custom_command(TARGET luisa-compute-oidn-ext POST_BUILD
-                            COMMENT "Fixing rpath of ${oidn_lib}"
-                            COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN" "${oidn_lib}"
-                            BYPRODUCTS ${oidn_lib}
-                            VERBATIM)
-                endforeach ()
-            else ()
-                message(FATAL_ERROR "patchelf not found, rpath of OpenImageDenoise libraries will not be fixed. You may either install patchelf or disable the OIDN extension with -DLUISA_COMPUTE_DOWNLOAD_OIDN=OFF when configuring.")
-            endif ()
+    add_library(luisa-compute-oidn-ext STATIC oidn_denoiser.cpp)
+    set_target_properties(luisa-compute-oidn-ext PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    # fix the rpaths of the OpenImageDenoise libraries
+    if (APPLE) # recent version already has the correct RPATH
+        # find_program(INSTALL_NAME_TOOL_EXE install_name_tool)
+        # if (INSTALL_NAME_TOOL_EXE)
+        #     foreach (oidn_lib ${oidn_RUNTIME_LIBS})
+        #         # get file name without path
+        #         get_filename_component(oidn_lib_name ${oidn_lib} NAME)
+        #         add_custom_command(TARGET luisa-compute-oidn-ext POST_BUILD
+        #                 COMMENT "Fixing rpath of ${oidn_lib_name}"
+        #                 COMMAND ${INSTALL_NAME_TOOL_EXE} -id "@rpath/${oidn_lib_name}" "${oidn_lib}"
+        #                 COMMAND ${INSTALL_NAME_TOOL_EXE} -add_rpath "@loader_path" "${oidn_lib}"
+        #                 BYPRODUCTS ${oidn_lib}
+        #                 VERBATIM)
+        #     endforeach ()
+        # else ()
+        #     message(FATAL_ERROR "install_name_tool not found, rpath of OpenImageDenoise libraries will not be fixed. You may either install Xcode or disable the OIDN extension with -DLUISA_COMPUTE_DOWNLOAD_OIDN=OFF when configuring.")
+        # endif ()
+    elseif (UNIX)
+        find_program(PATCHELF_EXE patchelf)
+        if (PATCHELF_EXE)
+            foreach (oidn_lib ${oidn_RUNTIME_LIBS})
+                add_custom_command(TARGET luisa-compute-oidn-ext POST_BUILD
+                        COMMENT "Fixing rpath of ${oidn_lib}"
+                        COMMAND ${PATCHELF_EXE} --set-rpath "$ORIGIN" "${oidn_lib}"
+                        BYPRODUCTS ${oidn_lib}
+                        VERBATIM)
+            endforeach ()
+        else ()
+            message(FATAL_ERROR "patchelf not found, rpath of OpenImageDenoise libraries will not be fixed. You may either install patchelf or disable the OIDN extension with -DLUISA_COMPUTE_DOWNLOAD_OIDN=OFF when configuring.")
         endif ()
     endif ()
     target_compile_definitions(luisa-compute-oidn-ext

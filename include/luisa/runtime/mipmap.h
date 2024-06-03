@@ -110,7 +110,10 @@ public:
     }
 };
 
+[[noreturn]] LC_RUNTIME_API void error_image_size_contains_zero(uint3 size) noexcept;
+
 [[nodiscard]] constexpr auto max_mip_levels(uint3 size, uint requested_levels) noexcept {
+    if (luisa::any(size == 0u)) { error_image_size_contains_zero(size); }
     auto max_size = std::max({size.x, size.y, size.z});
     auto max_levels = 0u;
     while (max_size != 0u) {

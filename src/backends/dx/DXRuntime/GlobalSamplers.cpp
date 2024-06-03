@@ -34,7 +34,7 @@ struct GlobalSampleData {
                         v.MaxAnisotropy = 16;
                         v.Filter = D3D12_FILTER_ANISOTROPIC;
                         break;
-                    default: assert(false); break;
+                    default: LUISA_ASSUME(false); break;
                 }
                 D3D12_TEXTURE_ADDRESS_MODE address = [&] {
                     switch ((Sampler::Address)x) {

@@ -37,6 +37,7 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             metal_mesh.cpp metal_mesh.h
             metal_accel.cpp metal_accel.h
             metal_buffer.cpp metal_buffer.h
+            metal_denoiser.cpp metal_denoiser.h
             metal_dstorage.cpp metal_dstorage.h
             metal_debug_capture.cpp metal_debug_capture.h
             metal_pinned_memory.cpp metal_pinned_memory.h)
@@ -46,6 +47,10 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     endif ()
 
     luisa_compute_add_backend(metal SOURCES ${METAL_SOURCES})
+
+    if (TARGET luisa-compute-oidn-ext)
+        target_link_libraries(luisa-compute-backend-metal PRIVATE luisa-compute-oidn-ext)
+    endif ()
 
     find_library(COMPRESSION_LIB compression)
     target_link_libraries(luisa-compute-backend-metal PRIVATE

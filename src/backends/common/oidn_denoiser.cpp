@@ -30,7 +30,7 @@ void OidnDenoiser::reset() noexcept {
 oidn::BufferRef OidnDenoiser::get_buffer(const DenoiserExt::Image &img, bool _read) noexcept {
     LUISA_ASSERT(img.buffer_handle != ~0ull, "Invalid buffer handle.");
     LUISA_ASSERT(img.device_ptr != nullptr, "Invalid device pointer.");
-    return _oidn_device.newBuffer((byte *)img.device_ptr + img.offset, img.size_bytes);
+    return _oidn_device.newBuffer(static_cast<byte *>(img.device_ptr) + img.offset, img.size_bytes);
 }
 void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
     std::unique_lock lock{_mutex};
@@ -97,7 +97,6 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 has_albedo = true;
                 albedo_image = &f.image;
                 set_prefilter_properties(_albedo_prefilter);
-
             } else if (f.name == "normal") {
                 LUISA_ASSERT(!has_normal, "Normal feature already set.");
                 LUISA_ASSERT(!_normal_prefilter, "Normal prefilter already set.");
@@ -109,7 +108,6 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
                 has_normal = true;
                 normal_image = &f.image;
                 set_prefilter_properties(_normal_prefilter);
-
             } else {
                 LUISA_ERROR_WITH_LOCATION("Invalid feature name: {}.", f.name);
             }
@@ -129,7 +127,7 @@ void OidnDenoiser::init(const DenoiserExt::DenoiserInput &input) noexcept {
             filter.setImage("albedo", _albedo_buffer, get_format(albedo_image->format), input.width, input.height, 0, albedo_image->pixel_stride, albedo_image->row_stride);
         }
         if (has_normal) {
-            filter.setImage("normal", _normal_buffer, get_format(albedo_image->format), input.width, input.height, 0, normal_image->pixel_stride, normal_image->row_stride);
+            filter.setImage("normal", _normal_buffer, get_format(normal_image->format), input.width, input.height, 0, normal_image->pixel_stride, normal_image->row_stride);
         }
         set_filter_properties(filter, in);
 

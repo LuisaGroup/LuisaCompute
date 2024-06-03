@@ -38,5 +38,10 @@ MipmapView::MipmapView(uint64_t handle, uint3 size, uint32_t level, PixelStorage
         _storage, src._handle, _handle, src._level, _level, _size);
 }
 
-}// namespace luisa::compute::detail
+void error_image_size_contains_zero(uint3 size) noexcept {
+    LUISA_ERROR_WITH_LOCATION(
+        "Image size contains zero: {}x{}x{}.",
+        size.x, size.y, size.z);
+}
 
+}// namespace luisa::compute::detail

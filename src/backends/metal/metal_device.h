@@ -10,6 +10,7 @@ class MetalCompiler;
 class MetalDStorageExt;
 class MetalDebugCaptureExt;
 class MetalPinnedMemoryExt;
+class MetalDenoiserExt;
 
 class MetalDevice : public DeviceInterface {
 
@@ -35,6 +36,10 @@ private:
     luisa::unique_ptr<MetalDStorageExt> _dstorage_ext;
     luisa::unique_ptr<MetalPinnedMemoryExt> _pinned_memory_ext;
     luisa::unique_ptr<MetalDebugCaptureExt> _debug_capture_ext;
+
+#if LUISA_BACKEND_ENABLE_OIDN
+    luisa::unique_ptr<MetalDenoiserExt> _denoiser_ext;
+#endif
 
 public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
@@ -89,4 +94,3 @@ public:
 };
 
 }// namespace luisa::compute::metal
-

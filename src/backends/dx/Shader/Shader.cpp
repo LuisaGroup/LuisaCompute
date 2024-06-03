@@ -102,7 +102,7 @@ void Shader::SetComputeResource(
                 propertyName,
                 view.heap->hGPU(view.index));
         } break;
-        default: assert(false); break;
+        default: LUISA_ASSUME(false); break;
     }
 }
 void Shader::SetComputeResource(
@@ -110,7 +110,7 @@ void Shader::SetComputeResource(
     CommandBufferBuilder *cb,
     std::pair<uint, uint4> const &constValue) const {
     auto cmdList = cb->GetCB()->CmdList();
-    assert(properties[propertyName].type == hlsl::ShaderVariableType::ConstantValue);
+    LUISA_ASSUME(properties[propertyName].type == hlsl::ShaderVariableType::ConstantValue);
     cmdList->SetComputeRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
 void Shader::SetComputeResource(
@@ -144,7 +144,7 @@ void Shader::SetRasterResource(
                 propertyName,
                 buffer.buffer->GetAddress() + buffer.offset);
         } break;
-        default: assert(false); break;
+        default: LUISA_ASSUME(false); break;
     }
 }
 void Shader::SetRasterResource(
@@ -164,7 +164,7 @@ void Shader::SetRasterResource(
                 propertyName,
                 view.heap->hGPU(view.index));
         } break;
-        default: assert(false); break;
+        default: LUISA_ASSUME(false); break;
     }
 }
 void Shader::SetRasterResource(
@@ -181,7 +181,7 @@ void Shader::SetRasterResource(
     CommandBufferBuilder *cb,
     std::pair<uint, uint4> const &constValue) const {
     auto cmdList = cb->GetCB()->CmdList();
-    assert(properties[propertyName].type == hlsl::ShaderVariableType::ConstantValue);
+    LUISA_ASSUME(properties[propertyName].type == hlsl::ShaderVariableType::ConstantValue);
     cmdList->SetGraphicsRoot32BitConstants(propertyName, constValue.first, &constValue.second, 0);
 }
 void Shader::SavePSO(ID3D12PipelineState *pso, vstd::string_view psoName, luisa::BinaryIO const *fileStream, Device const *device) const {

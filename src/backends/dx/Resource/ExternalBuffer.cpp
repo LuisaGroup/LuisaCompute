@@ -17,14 +17,14 @@ vstd::optional<D3D12_SHADER_RESOURCE_VIEW_DESC> ExternalBuffer::GetColorSrvDesc(
     res.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     if (isRaw) {
         res.Format = DXGI_FORMAT_R32_TYPELESS;
-        assert((offset & 15) == 0);
+        LUISA_ASSUME((offset & 15) == 0);
         res.Buffer.FirstElement = offset / 4;
         res.Buffer.NumElements = byteSize / 4;
         res.Buffer.StructureByteStride = 0;
         res.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
     } else {
         res.Format = DXGI_FORMAT_UNKNOWN;
-        assert((offset & 3) == 0);
+        LUISA_ASSUME((offset & 3) == 0);
         res.Buffer.FirstElement = offset / 4;
         res.Buffer.NumElements = byteSize / 4;
         res.Buffer.StructureByteStride = 4;
@@ -38,13 +38,13 @@ vstd::optional<D3D12_UNORDERED_ACCESS_VIEW_DESC> ExternalBuffer::GetColorUavDesc
     res.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
     res.Buffer.CounterOffsetInBytes = 0;
     if (isRaw) {
-        assert((offset & 15) == 0);
+        LUISA_ASSUME((offset & 15) == 0);
         res.Buffer.FirstElement = offset / 4;
         res.Buffer.NumElements = byteSize / 4;
         res.Buffer.StructureByteStride = 0;
         res.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
     } else {
-        assert((offset & 3) == 0);
+        LUISA_ASSUME((offset & 3) == 0);
         res.Buffer.FirstElement = offset / 4;
         res.Buffer.NumElements = byteSize / 4;
         res.Buffer.StructureByteStride = 4;
