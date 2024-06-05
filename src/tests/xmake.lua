@@ -18,7 +18,6 @@ local function lc_add_app(appname, folder, name)
     _config_project({
         project_kind = "binary"
     })
-    add_deps("lc_tests_pch", {public = false})
     add_files("common/test_main.cpp")
     add_files("common/test_math_util.cpp")
     add_includedirs("./", {

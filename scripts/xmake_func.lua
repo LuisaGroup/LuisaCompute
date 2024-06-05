@@ -423,14 +423,28 @@ before_build(function(target, opt)
     import("core.project.project")
     import("core.language.language")
     import("private.action.build.object")
-    local _, cc = target:tool("cxx")
-
-    -- local owner_name = target:extraconf("rules", "luisa.pcxxheader", "owner_name")
+-- local owner_name = target:extraconf("rules", "luisa.pcxxheader", "owner_name")
     -- local owner = project.target(owner_name)
+
+    -- FXXK MSVC, workaround ...
     local using_msvc = target:toolchain("msvc")
+    if using_msvc and is_mode("debug") then
+        return
+    end
     local using_clang_cl = target:toolchain("clang-cl")
-    local using_llvm = target:toolchain("llvm")
-    local using_gcc = target:toolchain("gcc")
+    local using_llvm
+    local using_gcc
+    if is_plat("linux") then
+        local _, cc = target:tool("cxx")
+        if cc == "gcc" or cc == "gxx" then
+            using_gcc = true
+        elseif cc == "clang" or cc == "clangxx" then
+            using_llvm = true
+        end
+    else
+        using_llvm = target:toolchain("llvm")
+        using_gcc = target:toolchain("mingw")
+    end
     local using_xcode = target:toolchain("xcode")
 
     -- extract files
