@@ -144,7 +144,7 @@ CUDADevice::CUDADevice(Context &&ctx,
             const char *error_string = nullptr;
             cuGetErrorString(error, &error_string);
             LUISA_WARNING_WITH_LOCATION(
-                "Failed to load built-in kernels: {}. "
+                "Failed to load built-in kernels: {} "
                 "Re-trying with patched PTX version...",
                 error_string ? error_string : "Unknown error");
             CUDAShader::_patch_ptx_version(builtin_kernel_ptx);
@@ -195,6 +195,24 @@ CUDADevice::CUDADevice(Context &&ctx,
     } else {
         _cudadevrt_library = luisa::string{std::istreambuf_iterator<char>{devrt_file},
                                            std::istreambuf_iterator<char>{}};
+    }
+    // test if the device runtime library is recognized by the driver
+    if (!_cudadevrt_library.empty()) {
+        with_handle([&] {
+            CUlinkState link_state{};
+            LUISA_CHECK_CUDA(cuLinkCreate(0u, nullptr, nullptr, &link_state));
+            if (cuLinkAddData(link_state, CU_JIT_INPUT_LIBRARY,
+                              _cudadevrt_library.data(), _cudadevrt_library.size(),
+                              "cudadevrt", 0u, nullptr, nullptr)
+                != CUDA_SUCCESS) {
+                LUISA_WARNING_WITH_LOCATION(
+                    "Found CUDA device runtime library '{}', but the driver does not "
+                    "recognize it. Indirect kernel dispatch will not be available.",
+                    device_runtime_lib_path.string());
+                _cudadevrt_library.clear();
+            }
+            LUISA_CHECK_CUDA(cuLinkDestroy(link_state));
+        });
     }
 }
 
