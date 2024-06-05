@@ -418,86 +418,97 @@ end)
 rule_end()
 
 rule("luisa.pcxxheader")
-    set_extensions(".pch", ".h", ".hpp")
-    before_build(function(target, opt)
-        import("core.project.project")
-        import("core.language.language")
-        import("private.action.build.object")
-        local _, cc = target:tool("cxx")
+set_extensions(".pch", ".h", ".hpp")
+before_build(function(target, opt)
+    import("core.project.project")
+    import("core.language.language")
+    import("private.action.build.object")
+    local _, cc = target:tool("cxx")
 
-        -- local owner_name = target:extraconf("rules", "luisa.pcxxheader", "owner_name")
-        -- local owner = project.target(owner_name)
-        local using_msvc = target:toolchain("msvc")
-        local using_clang_cl = target:toolchain("clang-cl")
-        local using_llvm = target:toolchain("llvm")
-        local using_xcode = target:toolchain("xcode")
+    -- local owner_name = target:extraconf("rules", "luisa.pcxxheader", "owner_name")
+    -- local owner = project.target(owner_name)
+    local using_msvc = target:toolchain("msvc")
+    local using_clang_cl = target:toolchain("clang-cl")
+    local using_llvm = target:toolchain("llvm")
+    local using_gcc = target:toolchain("gcc")
+    local using_xcode = target:toolchain("xcode")
 
-        -- extract files
-        local sourcebatches = target:sourcebatches()
-        local pchfile = ""
-        if sourcebatches then
-            local sourcebatch = sourcebatches["luisa.pcxxheader"]
-            assert(#sourcebatch.sourcefiles == 1)
-            pchfile = sourcebatch.sourcefiles[1]
-        end
+    -- extract files
+    local sourcebatches = target:sourcebatches()
+    local pchfile = ""
+    if sourcebatches then
+        local sourcebatch = sourcebatches["luisa.pcxxheader"]
+        assert(#sourcebatch.sourcefiles == 1)
+        pchfile = sourcebatch.sourcefiles[1]
+    end
 
-        -- generate proxy header
-        local header_to_compile = nil
-        if using_msvc or using_clang_cl then
-            header_to_compile = target:autogenfile(pchfile..".hpp")
-            if not os.isfile(header_to_compile) then
-                io.writefile(header_to_compile, ([[
+    -- generate proxy header
+    local header_to_compile = nil
+    if using_msvc or using_clang_cl then
+        header_to_compile = target:autogenfile(pchfile .. ".hpp")
+        if not os.isfile(header_to_compile) then
+            io.writefile(header_to_compile, ([[
 #pragma system_header
 #ifdef __cplusplus
 #include "%s"
 #endif // __cplusplus
                 ]]):format(path.translate(path.absolute(pchfile))))
-            end
-        else
-            header_to_compile = pchfile
         end
+    else
+        header_to_compile = pchfile
+    end
 
-        -- build pch
-        local pcoutputfile = ""
-        if header_to_compile then
-            local sourcefile = header_to_compile
-            pcoutputfile = target:autogenfile(pchfile..".pch")
-            local dependfile = target:dependfile(pcoutputfile)
-            local sourcekind = language.langkinds()["cxx"]
-            local sourcebatch = {sourcekind = sourcekind, sourcefiles = {sourcefile}, objectfiles = {pcoutputfile}, dependfiles = {dependfile}}
-            object.build(target, sourcebatch, opt)
-        end
+    -- build pch
+    local pcoutputfile = ""
+    if header_to_compile then
+        local sourcefile = header_to_compile
+        pcoutputfile = target:autogenfile(pchfile .. ".pch")
+        local dependfile = target:dependfile(pcoutputfile)
+        local sourcekind = language.langkinds()["cxx"]
+        local sourcebatch = {
+            sourcekind = sourcekind,
+            sourcefiles = {sourcefile},
+            objectfiles = {pcoutputfile},
+            dependfiles = {dependfile}
+        }
+        object.build(target, sourcebatch, opt)
+    end
 
-        -- insert to target
-        local need_pc_obj = false
-        if using_msvc then
-            target:add("cxxflags", "/Yu"..path.absolute(header_to_compile), {public = true})
-            target:add("cxxflags", "/FI"..path.absolute(header_to_compile), {public = true})
-            target:add("cxxflags", "/Fp"..path.absolute(pcoutputfile), {public = true})
-            need_pc_obj = true
-        elseif using_clang_cl then
-            target:add("cxxflags", "-I"..path.directory(header_to_compile), {public = true})
-            target:add("cxxflags", "-Yu"..path.filename(header_to_compile), {public = true})
-            target:add("cxxflags", "-FI"..path.filename(header_to_compile), {public = true})
-            target:add("cxxflags", "-Fp"..path.absolute(pcoutputfile), {public = true})
-            need_pc_obj = true
-        elseif using_llvm or using_xcode then
-            target:add("cxxflags", "-include", {public = true})
-            target:add("cxxflags", header_to_compile, {public = true})
-            target:add("cxxflags", "-include-pch", {public = true})
-            target:add("cxxflags", pcoutputfile, {public = true})
-        else
-            raise("PCH: unsupported toolchain!")
-        end
+    -- insert to target
+    local need_pc_obj = false
+    if using_msvc then
+        local abs_header = path.absolute(header_to_compile)
+        target:add("cxxflags", "/Yu" .. abs_header, "/FI" .. abs_header, "/Fp" .. path.absolute(pcoutputfile), {
+            public = true
+        })
+        need_pc_obj = true
+    elseif using_clang_cl then
+        local filename = path.filename(header_to_compile)
+        target:add("cxxflags", "-I" .. path.directory(header_to_compile), "-Yu" .. filename, "-FI" .. filename,
+            "-Fp" .. path.absolute(pcoutputfile), {
+                public = true
+            })
+        need_pc_obj = true
+    elseif using_llvm or using_xcode then
+        target:add("cxxflags", "-include", header_to_compile, "-include-pch", pcoutputfile, {
+            public = true
+        })
+    elseif using_gcc then
+        target:add("cxxflags", "-include", header_to_compile, "-I", pcoutputfile, {
+            public = true
+        })
+    else
+        raise("PCH: unsupported toolchain!")
+    end
 
-        -- insert pc objects
-        if need_pc_obj then
-            local objectfiles = target:objectfiles()
-            if objectfiles then
-                table.insert(objectfiles, path.absolute(pcoutputfile) .. ".obj")
-            end
+    -- insert pc objects
+    if need_pc_obj then
+        local objectfiles = target:objectfiles()
+        if objectfiles then
+            table.insert(objectfiles, path.absolute(pcoutputfile) .. ".obj")
         end
-    end)
+    end
+end)
 
 -- In-case of submod, when there is override rules, do not overload
 if _config_rules == nil then
