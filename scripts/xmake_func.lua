@@ -427,26 +427,22 @@ before_build(function(target, opt)
     -- local owner = project.target(owner_name)
 
     -- FXXK MSVC, workaround ...
-    local using_msvc = target:toolchain("msvc")
-    if using_msvc and is_mode("debug") then
+    local _, cc = target:tool("cxx")
+    local using_clang, using_cl, using_gcc, using_clang_cl
+
+    if cc == "gcc" or cc == "gxx" then
+        using_gcc = true
+    elseif cc == "clang" or cc == "clangxx" then
+        using_clang = true
+    elseif cc == "clang-cl" or cc == "clangcl" then
+        using_clang_cl = true
+    elseif cc == "cl" then
+        using_cl = true
+    end
+    if using_cl and is_mode("debug") then
         return
     end
-    local using_clang_cl = target:toolchain("clang-cl")
-    local using_llvm
-    local using_gcc
-    if is_plat("linux") then
-        local _, cc = target:tool("cxx")
-        if cc == "gcc" or cc == "gxx" then
-            using_gcc = true
-        elseif cc == "clang" or cc == "clangxx" then
-            using_llvm = true
-        end
-    else
-        using_llvm = target:toolchain("llvm")
-        using_gcc = target:toolchain("mingw")
-    end
     local using_xcode = target:toolchain("xcode")
-
     -- extract files
     local sourcebatches = target:sourcebatches()
     local pchfile = ""
@@ -458,7 +454,7 @@ before_build(function(target, opt)
 
     -- generate proxy header
     local header_to_compile = nil
-    if using_msvc or using_clang_cl then
+    if using_cl or using_clang_cl then
         header_to_compile = target:autogenfile(pchfile .. ".hpp")
         if not os.isfile(header_to_compile) then
             io.writefile(header_to_compile, ([[
@@ -490,7 +486,7 @@ before_build(function(target, opt)
 
     -- insert to target
     local need_pc_obj = false
-    if using_msvc then
+    if using_cl then
         local abs_header = path.absolute(header_to_compile)
         target:add("cxxflags", "/Yu" .. abs_header, "/FI" .. abs_header, "/Fp" .. path.absolute(pcoutputfile), {
             public = true
@@ -503,7 +499,7 @@ before_build(function(target, opt)
                 public = true
             })
         need_pc_obj = true
-    elseif using_llvm or using_xcode then
+    elseif using_clang or using_xcode then
         target:add("cxxflags", "-include", header_to_compile, "-include-pch", pcoutputfile, {
             public = true
         })
