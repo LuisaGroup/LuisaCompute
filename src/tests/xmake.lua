@@ -2,22 +2,12 @@ local enable_gui = get_config("enable_gui")
 -- TEST MAIN with doctest
 ------------------------------------
 
-target("lc_tests_pch")
-_config_project({
-    project_kind = "object"
-})
-add_deps("lc-dsl")
-set_kind("phony")
-set_policy("build.fence", true)
-add_rules("luisa.pcxxheader")
-add_files("pch.h")
-target_end()
-
 local function lc_add_app(appname, folder, name)
     target(appname)
     _config_project({
         project_kind = "binary"
     })
+    set_pcxxheader("pch.h")
     add_files("common/test_main.cpp")
     add_files("common/test_math_util.cpp")
     add_includedirs("./", {
@@ -85,7 +75,6 @@ local function test_proj(name, gui_dep, callable)
         return
     end
     target(name)
-    add_deps("lc_tests_pch", {public = false})
     _config_project({
         project_kind = "binary"
     })
