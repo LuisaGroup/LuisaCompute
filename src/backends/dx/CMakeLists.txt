@@ -21,7 +21,7 @@ if (WIN32)
     endif ()
     if (NOT LUISA_COMPUTE_DX_SDK_DIR OR NOT EXISTS "${LUISA_COMPUTE_DX_SDK_DIR}")
         set(LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL "https://github.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk.zip")
-        set(LUISA_COMPUTE_DX_SDK_SHA1 "4ce202d1141feaf32d83e8222fa6b4b902408c06")
+        set(LUISA_COMPUTE_DX_SDK_SHA1 "0674d518f3a7a02f2417efec7a432d911515c012")
         message(STATUS "Downloading DirectX SDK from ${LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL}")
         include(FetchContent)
         FetchContent_Declare(luisa_compute_dx_sdk
