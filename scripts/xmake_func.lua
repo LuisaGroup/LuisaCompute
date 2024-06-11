@@ -411,7 +411,7 @@ before_build(function(target)
         end
         if not data or data ~= sdk_map['sha256'] then
             io.writefile(cache_file_name, sdk_map['sha256'])
-            find_sdk.unzip_sdk(lib .. '.zip', sdk_dir, bin_dir)
+            find_sdk.unzip_sdk(zip, sdk_dir, bin_dir)
         end
     end
 end)
