@@ -351,7 +351,7 @@ on_buildcmd_file(function(target, batchcmds, sourcefile, opt)
         sb:add("--release ")
     end
     local cargo_cmd = sb:to_string()
-    print(cargo_cmd)
+    batchcmds:show(cargo_cmd)
     batchcmds:vrunv(cargo_cmd)
     sb:dispose()
 end)

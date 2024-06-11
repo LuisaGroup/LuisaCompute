@@ -1,11 +1,13 @@
 local enable_gui = get_config("enable_gui")
 -- TEST MAIN with doctest
 ------------------------------------
+
 local function lc_add_app(appname, folder, name)
     target(appname)
     _config_project({
         project_kind = "binary"
     })
+    set_pcxxheader("pch.h")
     add_files("common/test_main.cpp")
     add_files("common/test_math_util.cpp")
     add_includedirs("./", {
@@ -17,7 +19,6 @@ local function lc_add_app(appname, folder, name)
     else
         match_str = path.join(name, "**.cpp")
     end
-    set_pcxxheader("pch.h")
     add_files(path.join("next", folder, match_str))
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
     if get_config("enable_ir") then
@@ -74,7 +75,6 @@ local function test_proj(name, gui_dep, callable)
         return
     end
     target(name)
-    set_kind("binary")
     _config_project({
         project_kind = "binary"
     })
@@ -149,9 +149,9 @@ end)
 if get_config("dx_backend") then
     test_proj("test_raster", true)
     if get_config("cuda_backend") then
-        test_proj("test_cuda_dx_interop")        
+        test_proj("test_cuda_dx_interop")
     end
-    test_proj("test_dml") 
+    test_proj("test_dml")
 end
 test_proj("test_manual_ast")
 if not is_mode("debug") then

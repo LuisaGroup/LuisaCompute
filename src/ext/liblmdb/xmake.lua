@@ -1,6 +1,6 @@
 target("lmdb")
 _config_project({
-    project_kind = "static"
+    project_kind = "object"
 })
 add_files("mdb.c", "midl.c")
 add_includedirs("./", {public = true})

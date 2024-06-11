@@ -1,6 +1,7 @@
 set_xmakever("2.8.7")
 add_rules("mode.release", "mode.debug", "mode.releasedbg")
 set_policy("build.ccache", not is_plat("windows"))
+set_policy("check.auto_ignore_flags", false)
 -- pre-defined options
 -- enable mimalloc as default allocator: https://github.com/LuisaGroup/mimalloc
 option("enable_custom_malloc")
