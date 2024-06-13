@@ -204,9 +204,6 @@ on_load(function(target)
             target:add("cxflags", "-fPIC", {
                 tools = { "clang", "gcc" }
             })
-            target:add("cflags", "-fPIC", {
-                tools = { "clang", "gcc" }
-            })
         end
     end
     -- fma support
