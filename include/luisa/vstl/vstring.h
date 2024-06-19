@@ -143,20 +143,20 @@ template<>
 struct compare<string> {
     int32 operator()(string const &a, string const &b) const noexcept {
         if (a.size() == b.size())
-            return memcmp(a.data(), b.data(), a.size());
+            return std::memcmp(a.data(), b.data(), a.size());
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
     int32 operator()(string const &a, const std::string_view &b) const noexcept {
         if (a.size() == b.size())
-            return memcmp(a.data(), b.data(), a.size());
+            return std::memcmp(a.data(), b.data(), a.size());
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
     int32 operator()(string const &a, char const *ptr) const noexcept {
         size_t sz = strlen(ptr);
         if (a.size() == sz)
-            return memcmp(a.data(), ptr, a.size());
+            return std::memcmp(a.data(), ptr, a.size());
         else
             return (a.size() > sz) ? 1 : -1;
     }
@@ -180,20 +180,20 @@ template<>
 struct compare<vstd::wstring> {
     int32 operator()(const vstd::wstring &a, const vstd::wstring &b) const noexcept {
         if (a.size() == b.size())
-            return memcmp(a.data(), b.data(), a.size()  * sizeof(wchar_t));
+            return std::memcmp(a.data(), b.data(), a.size()  * sizeof(wchar_t));
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
     int32 operator()(const vstd::wstring &a, const std::wstring_view &b) const noexcept {
         if (a.size() == b.size())
-            return memcmp(a.data(), b.data(), a.size()  * sizeof(wchar_t));
+            return std::memcmp(a.data(), b.data(), a.size()  * sizeof(wchar_t));
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
     int32 operator()(const vstd::wstring &a, wchar_t const *ptr) const noexcept {
         size_t sz = wstrLen(ptr);
         if (a.size() == sz)
-            return memcmp(a.data(), ptr, a.size() * sizeof(wchar_t));
+            return std::memcmp(a.data(), ptr, a.size() * sizeof(wchar_t));
         else
             return (a.size() > sz) ? 1 : -1;
     }
@@ -203,20 +203,20 @@ template<>
 struct compare<std::string_view> {
     int32 operator()(const std::string_view &a, string const &b) const noexcept {
         if (a.size() == b.size())
-            return memcmp(a.data(), b.data(), a.size());
+            return std::memcmp(a.data(), b.data(), a.size());
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
     int32 operator()(const std::string_view &a, const std::string_view &b) const noexcept {
         if (a.size() == b.size())
-            return memcmp(a.data(), b.data(), a.size());
+            return std::memcmp(a.data(), b.data(), a.size());
         else
             return (a.size() > b.size()) ? 1 : -1;
     }
     int32 operator()(const std::string_view &a, char const *ptr) const noexcept {
         size_t sz = strlen(ptr);
         if (a.size() == sz)
-            return memcmp(a.data(), ptr, a.size());
+            return std::memcmp(a.data(), ptr, a.size());
         else
             return (a.size() > sz) ? 1 : -1;
     }

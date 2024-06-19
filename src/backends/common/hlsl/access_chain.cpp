@@ -21,7 +21,7 @@ void AccessChain::init_name() {
     auto ptr = bin_vecs.data();
     *reinterpret_cast<CallOp *>(ptr) = _op;
     ptr += sizeof(CallOp);
-    memcpy(ptr, desc.data(), desc.size());
+    std::memcpy(ptr, desc.data(), desc.size());
 
     for (auto &&i : _nodes) {
         i.multi_visit(
@@ -31,7 +31,7 @@ void AccessChain::init_name() {
             [&](MemberNode const &m) {
                 auto last_size = bin_vecs.size();
                 bin_vecs.push_back_uninitialized(sizeof(size_t));
-                memcpy(bin_vecs.data() + last_size, &m.member_index, sizeof(size_t));
+                std::memcpy(bin_vecs.data() + last_size, &m.member_index, sizeof(size_t));
             });
     }
     vstd::MD5 md5{bin_vecs};

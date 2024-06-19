@@ -23,10 +23,10 @@ private:
     };
     struct PtrEqual {
         int operator()(ComPtr<ID3D12Heap> const &a, ComPtr<ID3D12Heap> const &b) const {
-            return memcmp(a.GetAddressOf(), b.GetAddressOf(), sizeof(void *));
+            return std::memcmp(a.GetAddressOf(), b.GetAddressOf(), sizeof(void *));
         }
         int operator()(ComPtr<ID3D12Heap> const &a, ID3D12Heap *b) const {
-            return memcmp(a.GetAddressOf(), &b, sizeof(void *));
+            return std::memcmp(a.GetAddressOf(), &b, sizeof(void *));
         }
     };
     Device *device;

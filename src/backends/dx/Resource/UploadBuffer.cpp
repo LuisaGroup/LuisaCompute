@@ -46,7 +46,7 @@ UploadBuffer::~UploadBuffer() {
     }
 }
 void UploadBuffer::CopyData(uint64 offset, vstd::span<uint8_t const> data) const {
-    memcpy(reinterpret_cast<uint8_t *>(mappedPtr) + offset, data.data(), data.size());
+    std::memcpy(reinterpret_cast<uint8_t *>(mappedPtr) + offset, data.data(), data.size());
 }
 
 }// namespace lc::dx

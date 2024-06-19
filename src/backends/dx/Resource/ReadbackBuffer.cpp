@@ -48,7 +48,7 @@ ReadbackBuffer::~ReadbackBuffer() {
 void ReadbackBuffer::CopyData(
     uint64 offset,
     vstd::span<uint8_t> data) const {
-    memcpy(data.data(), reinterpret_cast<uint8_t const *>(mappedPtr) + offset, data.size());
+    std::memcpy(data.data(), reinterpret_cast<uint8_t const *>(mappedPtr) + offset, data.size());
 }
 
 }// namespace lc::dx

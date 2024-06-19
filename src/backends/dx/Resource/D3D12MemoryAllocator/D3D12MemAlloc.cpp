@@ -877,7 +877,7 @@ static D3D12MA_MUTEX g_DebugGlobalMutex;
 #ifndef _D3D12MA_VECTOR
 /*
 Dynamically resizing continuous array. Class with interface similar to std::vector.
-T must be POD because constructors and destructors are not called and memcpy is
+T must be POD because constructors and destructors are not called and std::memcpy is
 used for these objects.
 */
 template<typename T>
@@ -960,7 +960,7 @@ Vector<T>::Vector(const Vector<T> &src)
       m_Count(src.m_Count),
       m_Capacity(src.m_Count) {
     if (m_Count > 0) {
-        memcpy(m_pArray, src.m_pArray, m_Count * sizeof(T));
+        std::memcpy(m_pArray, src.m_pArray, m_Count * sizeof(T));
     }
 }
 
@@ -1023,7 +1023,7 @@ void Vector<T>::reserve(size_t newCapacity, bool freeMemory) {
     if (newCapacity != m_Capacity) {
         T *const newArray = newCapacity ? AllocateArray<T>(m_AllocationCallbacks, newCapacity) : NULL;
         if (m_Count != 0) {
-            memcpy(newArray, m_pArray, m_Count * sizeof(T));
+            std::memcpy(newArray, m_pArray, m_Count * sizeof(T));
         }
         Free(m_AllocationCallbacks, m_pArray);
         m_Capacity = newCapacity;
@@ -1044,7 +1044,7 @@ void Vector<T>::resize(size_t newCount, bool freeMemory) {
         T *const newArray = newCapacity ? AllocateArray<T>(m_AllocationCallbacks, newCapacity) : NULL;
         const size_t elementsToCopy = D3D12MA_MIN(m_Count, newCount);
         if (elementsToCopy != 0) {
-            memcpy(newArray, m_pArray, elementsToCopy * sizeof(T));
+            std::memcpy(newArray, m_pArray, elementsToCopy * sizeof(T));
         }
         Free(m_AllocationCallbacks, m_pArray);
         m_Capacity = newCapacity;
@@ -1109,7 +1109,7 @@ Vector<T> &Vector<T>::operator=(const Vector<T> &rhs) {
     if (&rhs != this) {
         resize(rhs.m_Count);
         if (m_Count != 0) {
-            memcpy(m_pArray, rhs.m_pArray, m_Count * sizeof(T));
+            std::memcpy(m_pArray, rhs.m_pArray, m_Count * sizeof(T));
         }
     }
     return *this;
@@ -1154,7 +1154,7 @@ void StringBuilder::Add(LPCWSTR str) {
     if (len > 0) {
         const size_t oldCount = m_Data.size();
         m_Data.resize(oldCount + len);
-        memcpy(m_Data.data() + oldCount, str, len * sizeof(WCHAR));
+        std::memcpy(m_Data.data() + oldCount, str, len * sizeof(WCHAR));
     }
 }
 
@@ -1667,7 +1667,7 @@ void PoolAllocator<T>::Free(T *ptr) {
         ItemBlock &block = m_ItemBlocks[i];
 
         Item *pItemPtr;
-        memcpy(&pItemPtr, &ptr, sizeof(pItemPtr));
+        std::memcpy(&pItemPtr, &ptr, sizeof(pItemPtr));
 
         // Check if pItemPtr is in address range of this block.
         if ((pItemPtr >= block.pItems) && (pItemPtr < block.pItems + block.Capacity)) {
@@ -4737,10 +4737,10 @@ void BlockMetadata_TLSF::Init(UINT64 size) {
         m_ListsCount += 4;
 
     m_MemoryClasses = memoryClass + 2;
-    memset(m_InnerIsFreeBitmap, 0, MAX_MEMORY_CLASSES * sizeof(UINT32));
+    std::memset(m_InnerIsFreeBitmap, 0, MAX_MEMORY_CLASSES * sizeof(UINT32));
 
     m_FreeList = D3D12MA_NEW_ARRAY(*GetAllocs(), Block *, m_ListsCount);
-    memset(m_FreeList, 0, m_ListsCount * sizeof(Block *));
+    std::memset(m_FreeList, 0, m_ListsCount * sizeof(Block *));
 }
 
 bool BlockMetadata_TLSF::Validate() const {
@@ -5112,8 +5112,8 @@ void BlockMetadata_TLSF::Clear() {
         m_BlockAllocator.Free(block);
         block = prev;
     }
-    memset(m_FreeList, 0, m_ListsCount * sizeof(Block *));
-    memset(m_InnerIsFreeBitmap, 0, m_MemoryClasses * sizeof(UINT32));
+    std::memset(m_FreeList, 0, m_ListsCount * sizeof(Block *));
+    std::memset(m_InnerIsFreeBitmap, 0, m_MemoryClasses * sizeof(UINT32));
 }
 
 AllocHandle BlockMetadata_TLSF::GetAllocationListBegin() const {
@@ -7083,7 +7083,7 @@ void AllocatorPimpl::BuildStatsString(WCHAR **ppStatsString, BOOL detailedMap) {
     const size_t length = sb.GetLength();
     WCHAR *result = AllocateArray<WCHAR>(GetAllocs(), length + 2);
     result[0] = 0xFEFF;
-    memcpy(result + 1, sb.GetData(), length * sizeof(WCHAR));
+    std::memcpy(result + 1, sb.GetData(), length * sizeof(WCHAR));
     result[length + 1] = L'\0';
     *ppStatsString = result;
 }
@@ -8797,7 +8797,7 @@ void PoolPimpl::SetName(LPCWSTR Name) {
     if (Name) {
         const size_t nameCharCount = wcslen(Name) + 1;
         m_Name = D3D12MA_NEW_ARRAY(m_Allocator->GetAllocs(), WCHAR, nameCharCount);
-        memcpy(m_Name, Name, nameCharCount * sizeof(WCHAR));
+        std::memcpy(m_Name, Name, nameCharCount * sizeof(WCHAR));
     }
 }
 
@@ -8942,7 +8942,7 @@ void Allocation::SetName(LPCWSTR Name) {
     if (Name) {
         const size_t nameCharCount = wcslen(Name) + 1;
         m_Name = D3D12MA_NEW_ARRAY(m_Allocator->GetAllocs(), WCHAR, nameCharCount);
-        memcpy(m_Name, Name, nameCharCount * sizeof(WCHAR));
+        std::memcpy(m_Name, Name, nameCharCount * sizeof(WCHAR));
     }
 }
 
@@ -9499,7 +9499,7 @@ void VirtualBlock::BuildStatsString(WCHAR **ppStatsString) const {
 
     const size_t length = sb.GetLength();
     WCHAR *result = AllocateArray<WCHAR>(m_Pimpl->m_AllocationCallbacks, length + 1);
-    memcpy(result, sb.GetData(), length * sizeof(WCHAR));
+    std::memcpy(result, sb.GetData(), length * sizeof(WCHAR));
     result[length] = L'\0';
     *ppStatsString = result;
 }

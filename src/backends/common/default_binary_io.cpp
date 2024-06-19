@@ -21,7 +21,7 @@ public:
         return _ptr - _begin;
     }
     void read(luisa::span<std::byte> dst) noexcept override {
-        memcpy(dst.data(), _ptr, dst.size());
+        std::memcpy(dst.data(), _ptr, dst.size());
         _ptr += dst.size();
     }
     BinaryBlob read(size_t expected_max_size) noexcept override {

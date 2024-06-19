@@ -307,7 +307,7 @@ LUISA_EXPORT_API void luisa_compute_context_destroy(LCContext ctx) LUISA_NOEXCEP
 inline char *path_to_c_str(const std::filesystem::path &path) LUISA_NOEXCEPT {
     auto s = path.string();
     auto cs = static_cast<char *>(malloc(s.size() + 1u));
-    memcpy(cs, s.c_str(), s.size() + 1u);
+    std::memcpy(cs, s.c_str(), s.size() + 1u);
     return cs;
 }
 

@@ -149,11 +149,11 @@ private:
     void Resize(size_t newCapacity) {
         if (mCapacity >= newCapacity) return;
         LinkNode *newElements = reinterpret_cast<LinkNode *>(pool.allocate((sizeof(Map) + sizeof(LinkNode)) * newCapacity));
-        memcpy(newElements, pool.elements, sizeof(LinkNode) * pool.mSize);
+        std::memcpy(newElements, pool.elements, sizeof(LinkNode) * pool.mSize);
         pool.elements = newElements;
         mCapacity = newCapacity;
         auto nodeVec = GetNodeVec();
-        memset(nodeVec, 0, sizeof(Map) * newCapacity);
+        std::memset(nodeVec, 0, sizeof(Map) * newCapacity);
         for (auto &node : ptr_range(newElements, pool.mSize)) {
             size_t hashValue = node.hashValue;
             hashValue = GetHash(hashValue, newCapacity);
@@ -188,7 +188,7 @@ public:
     //////////////////Construct & Destruct
     void clear() {
         auto nodeVec = GetNodeVec();
-        memset(nodeVec, 0, mCapacity * sizeof(Map));
+        std::memset(nodeVec, 0, mCapacity * sizeof(Map));
         pool.mSize = 0;
     }
     ArenaHashMap(size_t capacity, Arena &&arena) : pool(std::move(arena)) {

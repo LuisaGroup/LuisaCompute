@@ -36,11 +36,11 @@ void SerPrinterSize(std::pair<vstd::string, Type const *> const &printer, vstd::
     auto lastSize = vec.size();
     vec.push_back_uninitialized(strAndTypeSize.first + strAndTypeSize.second + sizeof(strAndTypeSize));
     auto ptr = vec.data() + lastSize;
-    memcpy(ptr, &strAndTypeSize, sizeof(strAndTypeSize));
+    std::memcpy(ptr, &strAndTypeSize, sizeof(strAndTypeSize));
     ptr += sizeof(strAndTypeSize);
-    memcpy(ptr, printer.first.data(), strAndTypeSize.first);
+    std::memcpy(ptr, printer.first.data(), strAndTypeSize.first);
     ptr += strAndTypeSize.first;
-    memcpy(ptr, printer.second->description().data(), strAndTypeSize.second);
+    std::memcpy(ptr, printer.second->description().data(), strAndTypeSize.second);
 }
 std::pair<vstd::string, Type const *> DeserPrinterSize(BinaryStream *streamer) {
     std::pair<size_t, size_t> strAndTypeSize;
@@ -264,9 +264,9 @@ ComputeShader *ShaderSerializer::DeSerialize(
     vstd::vector<SavedArgument> kernelArgs;
     properties.push_back_uninitialized(header.propertyCount);
     kernelArgs.push_back_uninitialized(header.kernelArgCount);
-    memcpy(properties.data(), binPtr, properties.size_bytes());
+    std::memcpy(properties.data(), binPtr, properties.size_bytes());
     binPtr += properties.size_bytes();
-    memcpy(kernelArgs.data(), binPtr, kernelArgs.size_bytes());
+    std::memcpy(kernelArgs.data(), binPtr, kernelArgs.size_bytes());
 
     auto cs = new ComputeShader(
         uint3(header.blockSize[0], header.blockSize[1], header.blockSize[2]),
@@ -338,11 +338,11 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     // psoDesc.pRootSignature = rootSig.Get();
     vstd::vector<std::byte> vertBin;
     vertBin.push_back_uninitialized(header.vertCodeBytes);
-    memcpy(vertBin.data(), binPtr, header.vertCodeBytes);
+    std::memcpy(vertBin.data(), binPtr, header.vertCodeBytes);
     binPtr += header.vertCodeBytes;
     vstd::vector<std::byte> pixelBin;
     pixelBin.push_back_uninitialized(header.pixelCodeBytes);
-    memcpy(pixelBin.data(), binPtr, header.pixelCodeBytes);
+    std::memcpy(pixelBin.data(), binPtr, header.pixelCodeBytes);
     binPtr += header.pixelCodeBytes;
     // ComPtr<ID3D12PipelineState> pso;
     // auto createPipe = [&] {
@@ -372,9 +372,9 @@ RasterShader *ShaderSerializer::RasterDeSerialize(
     vstd::vector<SavedArgument> kernelArgs;
     properties.push_back_uninitialized(header.propertyCount);
     kernelArgs.push_back_uninitialized(header.kernelArgCount);
-    memcpy(properties.data(), binPtr, properties.size_bytes());
+    std::memcpy(properties.data(), binPtr, properties.size_bytes());
     binPtr += properties.size_bytes();
-    memcpy(kernelArgs.data(), binPtr, kernelArgs.size_bytes());
+    std::memcpy(kernelArgs.data(), binPtr, kernelArgs.size_bytes());
     auto s = new RasterShader(
         device,
         header.md5,

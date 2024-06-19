@@ -81,7 +81,7 @@ public:
         size_t sz = argBuffer->size();
         auto byteSize = size * sizeof(T);
         argBuffer->push_back_uninitialized(byteSize);
-        memcpy(argBuffer->data() + sz, data, byteSize);
+        std::memcpy(argBuffer->data() + sz, data, byteSize);
     }
     struct Visitor {
         LCPreProcessVisitor *self;

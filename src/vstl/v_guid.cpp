@@ -14,12 +14,12 @@ Guid::Guid(bool generate) {
     if (generate) {
         remake();
     } else {
-        memset(&data, 0, sizeof(GuidData));
+        std::memset(&data, 0, sizeof(GuidData));
     }
 }
 
 Guid::Guid(GuidData const &d) {
-    memcpy(&data, &d, sizeof(GuidData));
+    std::memcpy(&data, &d, sizeof(GuidData));
 }
 namespace VGuid_Detail {
 int32 GetNumber(char c) {
@@ -102,10 +102,10 @@ Guid::Guid(span<uint8_t> data) {
         vengine_log("Wrong guid string length!\n");
         VENGINE_EXIT;
     }
-    memcpy(&this->data, data.data(), sizeof(GuidData));
+    std::memcpy(&this->data, data.data(), sizeof(GuidData));
 }
 Guid::Guid(std::array<uint8_t, sizeof(GuidData)> const &data) {
-    memcpy(&this->data, data.data(), sizeof(GuidData));
+    std::memcpy(&this->data, data.data(), sizeof(GuidData));
 }
 
 string Guid::to_base64() const {
@@ -138,13 +138,13 @@ void Guid::remake() {
     auto newId = CFUUIDCreate(NULL);
     auto bytes = CFUUIDGetUUIDBytes(newId);
     static_assert(sizeof(data) == sizeof(bytes), "Size mismatch");
-    memcpy(&data, &bytes, sizeof(data));
+    std::memcpy(&data, &bytes, sizeof(data));
     CFRelease(newId);
 #endif
 }
 std::array<uint8_t, sizeof(Guid::GuidData)> Guid::ToArray() const {
     std::array<uint8_t, sizeof(GuidData)> arr;
-    memcpy(arr.data(), &data, sizeof(GuidData));
+    std::memcpy(arr.data(), &data, sizeof(GuidData));
     return arr;
 }
 namespace vguid_detail {

@@ -190,7 +190,7 @@ ConstantData ConstantData::create(const Type *type, const void *data, size_t siz
         }
     }
     luisa::vector<std::byte> buffer(size);
-    memcpy(buffer.data(), data, size);
+    std::memcpy(buffer.data(), data, size);
     registry.emplace_back(detail::ConstantContainer{
         type, hash, std::move(buffer)});
     auto &&c = registry.back();

@@ -25,7 +25,7 @@ struct compare {
             return 1;
         } else {
             static_assert(sizeof(T) == sizeof(V), "Same size!");
-            return memcmp(&a, &b, sizeof(T));
+            return std::memcmp(&a, &b, sizeof(T));
         }
     }
 };

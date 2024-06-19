@@ -650,16 +650,16 @@ struct CD3DX12_CLEAR_VALUE : public D3D12_CLEAR_VALUE {
         DXGI_FORMAT format,
         const FLOAT color[4]) noexcept {
         Format = format;
-        memcpy(Color, color, sizeof(Color));
+        std::memcpy(Color, color, sizeof(Color));
     }
     CD3DX12_CLEAR_VALUE(
         DXGI_FORMAT format,
         FLOAT depth,
         UINT8 stencil) noexcept {
         Format = format;
-        memset(&Color, 0, sizeof(Color));
-        /* Use memcpy to preserve NAN values */
-        memcpy(&DepthStencil.Depth, &depth, sizeof(depth));
+        std::memset(&Color, 0, sizeof(Color));
+        /* Use std::memcpy to preserve NAN values */
+        std::memcpy(&DepthStencil.Depth, &depth, sizeof(depth));
         DepthStencil.Stencil = stencil;
     }
 };
@@ -1841,7 +1841,7 @@ struct CD3DX12_VIEW_INSTANCING_DESC : public D3D12_VIEW_INSTANCING_DESC {
 };
 
 //------------------------------------------------------------------------------------------------
-// Row-by-row memcpy
+// Row-by-row std::memcpy
 void MemcpySubresource(
     _In_ const D3D12_MEMCPY_DEST *pDest,
     _In_ const D3D12_SUBRESOURCE_DATA *pSrc,
@@ -1850,7 +1850,7 @@ void MemcpySubresource(
     uint NumSlices) noexcept;
 
 //------------------------------------------------------------------------------------------------
-// Row-by-row memcpy
+// Row-by-row std::memcpy
 void MemcpySubresource(
     _In_ const D3D12_MEMCPY_DEST *pDest,
     _In_ const void *pResourceData,
@@ -2000,7 +2000,7 @@ struct CD3DX12_RT_FORMAT_ARRAY : public D3D12_RT_FORMAT_ARRAY {
         : D3D12_RT_FORMAT_ARRAY(o) {}
     explicit CD3DX12_RT_FORMAT_ARRAY(_In_reads_(NumFormats) const DXGI_FORMAT *pFormats, uint NumFormats) noexcept {
         NumRenderTargets = NumFormats;
-        memcpy(RTFormats, pFormats, sizeof(RTFormats));
+        std::memcpy(RTFormats, pFormats, sizeof(RTFormats));
         // assumes ARRAY_SIZE(pFormats) == ARRAY_SIZE(RTFormats)
     }
 };
@@ -2182,7 +2182,7 @@ struct CD3DX12_PIPELINE_STATE_STREAM2 {
         D.DSVFormat = this->DSVFormat;
         D.RasterizerState = this->RasterizerState;
         D.NumRenderTargets = D3D12_RT_FORMAT_ARRAY(this->RTVFormats).NumRenderTargets;
-        memcpy(D.RTVFormats, D3D12_RT_FORMAT_ARRAY(this->RTVFormats).RTFormats, sizeof(D.RTVFormats));
+        std::memcpy(D.RTVFormats, D3D12_RT_FORMAT_ARRAY(this->RTVFormats).RTFormats, sizeof(D.RTVFormats));
         D.SampleDesc = this->SampleDesc;
         D.SampleMask = this->SampleMask;
         D.CachedPSO = this->CachedPSO;
@@ -2253,7 +2253,7 @@ struct CD3DX12_PIPELINE_STATE_STREAM1 {
         D.DSVFormat = this->DSVFormat;
         D.RasterizerState = this->RasterizerState;
         D.NumRenderTargets = D3D12_RT_FORMAT_ARRAY(this->RTVFormats).NumRenderTargets;
-        memcpy(D.RTVFormats, D3D12_RT_FORMAT_ARRAY(this->RTVFormats).RTFormats, sizeof(D.RTVFormats));
+        std::memcpy(D.RTVFormats, D3D12_RT_FORMAT_ARRAY(this->RTVFormats).RTFormats, sizeof(D.RTVFormats));
         D.SampleDesc = this->SampleDesc;
         D.SampleMask = this->SampleMask;
         D.CachedPSO = this->CachedPSO;
@@ -2302,7 +2302,7 @@ struct CD3DX12_PIPELINE_MESH_STATE_STREAM {
         D.DSVFormat = this->DSVFormat;
         D.RasterizerState = this->RasterizerState;
         D.NumRenderTargets = D3D12_RT_FORMAT_ARRAY(this->RTVFormats).NumRenderTargets;
-        memcpy(D.RTVFormats, D3D12_RT_FORMAT_ARRAY(this->RTVFormats).RTFormats, sizeof(D.RTVFormats));
+        std::memcpy(D.RTVFormats, D3D12_RT_FORMAT_ARRAY(this->RTVFormats).RTFormats, sizeof(D.RTVFormats));
         D.SampleDesc = this->SampleDesc;
         D.SampleMask = this->SampleMask;
         D.CachedPSO = this->CachedPSO;
@@ -2358,7 +2358,7 @@ struct CD3DX12_PIPELINE_STATE_STREAM {
         D.DSVFormat = this->DSVFormat;
         D.RasterizerState = this->RasterizerState;
         D.NumRenderTargets = D3D12_RT_FORMAT_ARRAY(this->RTVFormats).NumRenderTargets;
-        memcpy(D.RTVFormats, D3D12_RT_FORMAT_ARRAY(this->RTVFormats).RTFormats, sizeof(D.RTVFormats));
+        std::memcpy(D.RTVFormats, D3D12_RT_FORMAT_ARRAY(this->RTVFormats).RTFormats, sizeof(D.RTVFormats));
         D.SampleDesc = this->SampleDesc;
         D.SampleMask = this->SampleMask;
         D.CachedPSO = this->CachedPSO;

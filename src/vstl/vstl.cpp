@@ -18,13 +18,13 @@ void *vengine_default_realloc(void *ptr, size_t size) {
 }
 #ifdef EXPORT_UNITY_FUNCTION
 VENGINE_UNITY_EXTERN void vengine_memcpy(void *dest, void *src, uint64 sz) {
-    memcpy(dest, src, sz);
+    std::memcpy(dest, src, sz);
 }
 VENGINE_UNITY_EXTERN void vengine_memset(void *dest, byte b, uint64 sz) {
-    memset(dest, b, sz);
+    std::memset(dest, b, sz);
 }
 VENGINE_UNITY_EXTERN void vengine_memmove(void *dest, void *src, uint64 sz) {
-    memmove(dest, src, sz);
+    std::memmove(dest, src, sz);
 }
 #endif
 

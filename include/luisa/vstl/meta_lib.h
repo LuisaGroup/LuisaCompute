@@ -1102,16 +1102,16 @@ struct compare<variant<T...>> {
 };
 #define VSTD_TRIVIAL_COMPARABLE(T)               \
     bool operator==(T const &a) const {          \
-        return memcmp(this, &a, sizeof(T)) == 0; \
+        return std::memcmp(this, &a, sizeof(T)) == 0; \
     }                                            \
     bool operator!=(T const &a) const {          \
-        return memcmp(this, &a, sizeof(T)) != 0; \
+        return std::memcmp(this, &a, sizeof(T)) != 0; \
     }                                            \
     bool operator>(T const &a) const {           \
-        return memcmp(this, &a, sizeof(T)) > 0;  \
+        return std::memcmp(this, &a, sizeof(T)) > 0;  \
     }                                            \
     bool operator<(T const &a) const {           \
-        return memcmp(this, &a, sizeof(T)) < 0;  \
+        return std::memcmp(this, &a, sizeof(T)) < 0;  \
     }
 class IOperatorNewBase {
 public:

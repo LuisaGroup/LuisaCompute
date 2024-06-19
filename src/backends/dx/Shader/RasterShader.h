@@ -33,13 +33,13 @@ struct RasterPSOStateEqual {
         auto rtvSizeComp = vstd::compare<size_t>{}(a.rtvFormats.size(), b.rtvFormats.size());
         if (rtvSizeComp != 0) return rtvSizeComp;
         if (!a.rtvFormats.empty()) {
-            auto level = memcmp(a.rtvFormats.data(), b.rtvFormats.data(), a.rtvFormats.size_bytes());
+            auto level = std::memcmp(a.rtvFormats.data(), b.rtvFormats.data(), a.rtvFormats.size_bytes());
             if (level != 0) return level;
         }
         auto dsvComp = vstd::compare<DepthFormat>{}(a.dsvFormat, b.dsvFormat);
         if (dsvComp != 0)
             return dsvComp;
-        return memcmp(&a.rasterState, &b.rasterState, sizeof(RasterState));
+        return std::memcmp(&a.rasterState, &b.rasterState, sizeof(RasterState));
     }
 };
 class RasterShader final : public Shader {

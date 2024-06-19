@@ -47,7 +47,7 @@ public:
         }
         T *ptr = reinterpret_cast<T *>(chunk.handle + chunk.offset);
         if constexpr (clearMemory) {
-            memset(ptr, 0, sizeof(T));
+            std::memset(ptr, 0, sizeof(T));
         }
         return ptr;
     }

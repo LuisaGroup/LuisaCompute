@@ -21,8 +21,8 @@ TopAccel::TopAccel(Device *device, AccelOption const &option)
         }
         LUISA_ERROR_WITH_LOCATION("Unreachable.");
     };
-    memset(&topLevelBuildDesc, 0, sizeof(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC));
-    memset(&topLevelPrebuildInfo, 0, sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO));
+    std::memset(&topLevelBuildDesc, 0, sizeof(D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC));
+    std::memset(&topLevelPrebuildInfo, 0, sizeof(D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO));
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS &topLevelInputs = topLevelBuildDesc.Inputs;
     topLevelInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
     topLevelInputs.Flags = GetPreset();
@@ -131,7 +131,7 @@ void TopAccel::ProcessSetMap() {
         setDesc.reserve(setDesc.size() + setMap.size());
         for (auto &&i : setMap) {
             auto &mod = setDesc.emplace_back();
-            memset(&mod, 0, sizeof(PackedModifier));
+            std::memset(&mod, 0, sizeof(PackedModifier));
             mod.index = i.first;
             mod.flags = AccelBuildCommand::Modification::flag_primitive;
             mod.primitive = i.second->mesh->GetAccelBuffer()->GetAddress();
@@ -180,7 +180,7 @@ void TopAccel::InitSetDesc(vstd::span<AccelBuildCommand::Modification const> con
     {
         auto iter = setDesc.data();
         for (auto &i : modifications) {
-            memcpy(iter->affine, i.affine, sizeof(iter->affine));
+            std::memcpy(iter->affine, i.affine, sizeof(iter->affine));
             iter->primitive = i.primitive;
             iter->index = i.index;
             iter->vis_mask = i.vis_mask;

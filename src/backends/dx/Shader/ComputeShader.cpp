@@ -232,7 +232,7 @@ ID3D12CommandSignature *ComputeShader::CmdSig() const {
     if (cmdSig) return cmdSig.Get();
     D3D12_COMMAND_SIGNATURE_DESC desc{};
     D3D12_INDIRECT_ARGUMENT_DESC indDesc[2];
-    memset(indDesc, 0, vstd::array_byte_size(indDesc));
+    std::memset(indDesc, 0, vstd::array_byte_size(indDesc));
     indDesc[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT;
     auto &c = indDesc[0].Constant;
     c.RootParameterIndex = 0;

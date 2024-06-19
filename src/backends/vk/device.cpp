@@ -412,7 +412,7 @@ void Device::_init_device(uint32_t selectedDevice, bool fallback) {
     VK_CHECK_RESULT(vkCreateDescriptorPool(logic_device(), &createInfo, Device::alloc_callbacks(), &_desc_pool));
 }
 bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
-    return memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
+    return std::memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
     vkDestroyDescriptorPool(logic_device(), _desc_pool, Device::alloc_callbacks());

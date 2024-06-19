@@ -120,7 +120,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 UINT Revision;
             };
             AdapterInfo info;
-            memcpy(info.Description, desc.Description, sizeof(WCHAR) * 128);
+            std::memcpy(info.Description, desc.Description, sizeof(WCHAR) * 128);
             info.VendorId = desc.VendorId;
             info.DeviceId = desc.DeviceId;
             info.SubSysId = desc.SubSysId;
@@ -208,7 +208,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             bool sameAdaptor = false;
             if (adapterIdStream) {
                 auto blob = adapterIdStream->read(~0ull);
-                sameAdaptor = blob.size() == sizeof(vstd::MD5) && memcmp(blob.data(), &adapterID, sizeof(vstd::MD5)) == 0;
+                sameAdaptor = blob.size() == sizeof(vstd::MD5) && std::memcmp(blob.data(), &adapterID, sizeof(vstd::MD5)) == 0;
             }
             if (!sameAdaptor) {
                 LUISA_INFO("Adapter mismatch, shader cache cleared.");

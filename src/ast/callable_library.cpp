@@ -33,13 +33,13 @@ void CallableLibrary::ser_value(T const &t, luisa::vector<std::byte> &vec) noexc
     static_assert(std::is_trivially_destructible_v<T> && !std::is_pointer_v<T>);
     auto last_len = vec.size();
     vec.push_back_uninitialized(sizeof(T));
-    memcpy(vec.data() + last_len, &t, sizeof(T));
+    std::memcpy(vec.data() + last_len, &t, sizeof(T));
 }
 template<typename T>
 T CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pack) noexcept {
     static_assert(std::is_trivially_destructible_v<T> && !std::is_pointer_v<T>);
     T t;
-    memcpy(&t, ptr, sizeof(T));
+    std::memcpy(&t, ptr, sizeof(T));
     ptr += sizeof(T);
     return t;
 }
@@ -49,7 +49,7 @@ void CallableLibrary::ser_value(luisa::string_view const &t, luisa::vector<std::
     ser_value(t.size(), vec);
     auto last_len = vec.size();
     vec.push_back_uninitialized(t.size());
-    memcpy(vec.data() + last_len, t.data(), t.size());
+    std::memcpy(vec.data() + last_len, t.data(), t.size());
 }
 template<>
 void CallableLibrary::ser_value(luisa::string const &t, luisa::vector<std::byte> &vec) noexcept {
@@ -61,7 +61,7 @@ luisa::string CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &
     auto size = deser_value<size_t>(ptr, pack);
     t.clear();
     t.resize(size);
-    memcpy(t.data(), ptr, size);
+    std::memcpy(t.data(), ptr, size);
     ptr += size;
     return t;
 }
@@ -86,7 +86,7 @@ void CallableLibrary::ser_value(luisa::span<const std::byte> const &t, luisa::ve
     ser_value(t.size(), vec);
     auto last_len = vec.size();
     vec.push_back_uninitialized(t.size());
-    memcpy(vec.data() + last_len, t.data(), t.size());
+    std::memcpy(vec.data() + last_len, t.data(), t.size());
 }
 template<>
 void CallableLibrary::ser_value(Variable const &t, luisa::vector<std::byte> &vec) noexcept {
@@ -107,7 +107,7 @@ void CallableLibrary::ser_value(ConstantData const &t, luisa::vector<std::byte> 
     ser_value(t._type, vec);
     auto last_len = vec.size();
     vec.push_back_uninitialized(t._type->size());
-    memcpy(vec.data() + last_len, t._raw, t._type->size());
+    std::memcpy(vec.data() + last_len, t._raw, t._type->size());
 }
 template<>
 ConstantData CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pack) noexcept {
@@ -125,7 +125,7 @@ void CallableLibrary::ser_value(CallOpSet const &t, luisa::vector<std::byte> &ve
     }
     auto last_len = vec.size();
     vec.push_back_uninitialized(byte_arr.size());
-    memcpy(vec.data() + last_len, byte_arr.data(), byte_arr.size());
+    std::memcpy(vec.data() + last_len, byte_arr.data(), byte_arr.size());
 }
 template<>
 CallOpSet CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pack) noexcept {
@@ -201,7 +201,7 @@ void CallableLibrary::deser_ptr(LiteralExpr *obj, std::byte const *&ptr, DeserPa
     auto index = deser_value<size_t>(ptr, pack);
     auto literal_size = deser_value<size_t>(ptr, pack);
     *reinterpret_cast<size_t *>(&obj->_value) = index;
-    memcpy(obj->_value.get_as<std::byte *>(), ptr, literal_size);
+    std::memcpy(obj->_value.get_as<std::byte *>(), ptr, literal_size);
     ptr += literal_size;
 }
 template<>
@@ -750,7 +750,7 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
     }
     size_t variable_usage_size = deser_value<size_t>(ptr, pack) / sizeof(Usage);
     builder._variable_usages.push_back_uninitialized(variable_usage_size);
-    memcpy(builder._variable_usages.data(), ptr, builder._variable_usages.size_bytes());
+    std::memcpy(builder._variable_usages.data(), ptr, builder._variable_usages.size_bytes());
     ptr += builder._variable_usages.size_bytes();
     builder._direct_builtin_callables = deser_value<CallOpSet>(ptr, pack);
     builder._propagated_builtin_callables = deser_value<CallOpSet>(ptr, pack);

@@ -13,7 +13,7 @@ struct GlobalSampleData {
         SamplerHash>
         searchMap;
     GlobalSampleData() {
-        memset(arr.data(), 0, sizeof(D3D12_SAMPLER_DESC) * arr.size());
+        std::memset(arr.data(), 0, sizeof(D3D12_SAMPLER_DESC) * arr.size());
         size_t idx = 0;
         for (auto x : vstd::range(4))
             for (auto y : vstd::range(4)) {
@@ -45,7 +45,7 @@ struct GlobalSampleData {
                         case Sampler::Address::MIRROR:
                             return D3D12_TEXTURE_ADDRESS_MODE_MIRROR;
                         default:
-                            memset(v.BorderColor, 0, 16);
+                            std::memset(v.BorderColor, 0, 16);
                             return D3D12_TEXTURE_ADDRESS_MODE_BORDER;
                     }
                 }();

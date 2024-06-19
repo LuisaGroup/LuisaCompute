@@ -23,7 +23,7 @@ uint64 Resource::GetTextureSize(
             break;
     }
     D3D12_RESOURCE_DESC texDesc;
-    memset(&texDesc, 0, sizeof(D3D12_RESOURCE_DESC));
+    std::memset(&texDesc, 0, sizeof(D3D12_RESOURCE_DESC));
     texDesc.Dimension = (type == TextureDimension::Tex3D) ? D3D12_RESOURCE_DIMENSION_TEXTURE3D : D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     texDesc.Alignment = 0;
     texDesc.Width = width;

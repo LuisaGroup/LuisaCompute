@@ -517,9 +517,9 @@ private:
     void Resize(size_t newCapacity) noexcept {
         if (mCapacity >= newCapacity) return;
         LinkNode **newNode = reinterpret_cast<LinkNode **>(Allocator().Malloc(sizeof(LinkNode *) * newCapacity * 2));
-        memcpy(newNode, nodeArray, sizeof(LinkNode *) * mSize);
+        std::memcpy(newNode, nodeArray, sizeof(LinkNode *) * mSize);
         auto nodeVec = newNode + newCapacity;
-        memset(nodeVec, 0, sizeof(LinkNode *) * newCapacity);
+        std::memset(nodeVec, 0, sizeof(LinkNode *) * newCapacity);
         for (auto node : ptr_range(nodeArray, nodeArray + mSize)) {
             size_t hashValue = node->hashValue;
             hashValue = GetHash(hashValue, newCapacity);
@@ -566,7 +566,7 @@ public:
         if (capacity < 2) capacity = 2;
         capacity = GetPow2Size(capacity);
         nodeArray = reinterpret_cast<LinkNode **>(Allocator().Malloc(sizeof(LinkNode *) * capacity * 2));
-        memset(nodeArray + capacity, 0, capacity * sizeof(LinkNode *));
+        std::memset(nodeArray + capacity, 0, capacity * sizeof(LinkNode *));
         mCapacity = capacity;
         mSize = 0;
     }
@@ -679,7 +679,7 @@ public:
     void clear() noexcept {
         if (mSize == 0) return;
         auto nodeVec = nodeArray + mCapacity;
-        memset(nodeVec, 0, mCapacity * sizeof(LinkNode *));
+        std::memset(nodeVec, 0, mCapacity * sizeof(LinkNode *));
         for (auto ite : ptr_range(nodeArray, nodeArray + mSize)) {
             pool.destroy(ite);
         }
