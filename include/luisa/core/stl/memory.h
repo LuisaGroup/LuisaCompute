@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cassert>
 #include <memory>
+#include <cstring>
 
 #if defined(__clang__)
 #pragma clang diagnostic push
