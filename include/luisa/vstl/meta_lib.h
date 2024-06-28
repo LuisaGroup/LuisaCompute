@@ -648,7 +648,7 @@ public:
         switcher = typeIndex;
         auto func = [&]<typename T>(T &t) {
             constexpr bool cons = luisa::is_constructible_v<T, Args &&...>;
-            assert(cons);
+            LUISA_ASSUME(cons);
             if constexpr (cons)
                 new (&t) T(std::forward<Args>(args)...);
         };
@@ -1031,7 +1031,7 @@ public:
                 if constexpr (std::is_copy_assignable_v<T>)
                     *std::launder(reinterpret_cast<T *>(&placeHolder)) = v;
                 else {
-                    assert(false);
+                    LUISA_ASSUME(false);
                     VENGINE_EXIT;
                 }
             };
@@ -1050,7 +1050,7 @@ public:
                 if constexpr (std::is_move_assignable_v<T>)
                     *std::launder(reinterpret_cast<T *>(&placeHolder)) = std::move(v);
                 else {
-                    assert(false);
+                    LUISA_ASSUME(false);
                     VENGINE_EXIT;
                 }
             };

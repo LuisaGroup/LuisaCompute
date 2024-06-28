@@ -35,7 +35,7 @@ public:
         _dispose();
     }
     Ret operator()(Args... args) const noexcept {
-        assert(_base);
+        LUISA_ASSUME(_base);
         if constexpr (std::is_same_v<Ret, void>) {
             _func_ptr(_base, std::forward<Args>(args)...);
         } else {

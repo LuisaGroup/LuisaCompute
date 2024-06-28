@@ -24,6 +24,7 @@
 #include <EASTL/shared_ptr.h>
 #include <EASTL/span.h>
 #include <EASTL/bonus/compressed_pair.h>
+#include <luisa/core/intrin.h>
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -75,7 +76,7 @@ struct allocator {
         return static_cast<T *>(luisa::detail::allocator_allocate(sizeof(T) * n, alignof(T)));
     }
     [[nodiscard]] auto allocate(std::size_t n, size_t alignment, size_t) const noexcept {
-        assert(alignment >= alignof(T));
+        LUISA_ASSUME(alignment >= alignof(T));
         return static_cast<T *>(luisa::detail::allocator_allocate(sizeof(T) * n, alignment));
     }
     void deallocate(T *p, size_t) const noexcept {

@@ -49,7 +49,7 @@ public:
     template<typename T>
     [[nodiscard]] auto read() noexcept {
         _offset = align(_offset, alignof(T));
-        assert(_offset + sizeof(T) <= _size);
+        LUISA_ASSUME(_offset + sizeof(T) <= _size);
         auto ptr = _bytes + _offset;
         _offset += sizeof(T);
         return *reinterpret_cast<const T *>(ptr);// FIXME: this is UB
@@ -58,7 +58,7 @@ public:
     void read(T *dst, size_t n) noexcept {
         _offset = align(_offset, alignof(T));
         auto size = n * sizeof(T);
-        assert(_offset + size <= _size);
+        LUISA_ASSUME(_offset + size <= _size);
         auto ptr = _bytes + _offset;
         _offset += size;
         std::memcpy(dst, ptr, size);

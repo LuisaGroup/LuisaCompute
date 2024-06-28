@@ -59,7 +59,7 @@ decltype(auto) with_cuda(CUcontext ctx, F &&f) {
 
 WindowsSecurityAttributes::WindowsSecurityAttributes() {
     m_winPSecurityDescriptor = (PSECURITY_DESCRIPTOR)calloc(1, SECURITY_DESCRIPTOR_MIN_LENGTH + 2 * sizeof(void **));
-    assert(m_winPSecurityDescriptor != (PSECURITY_DESCRIPTOR)NULL);
+    LUISA_ASSUME(m_winPSecurityDescriptor != (PSECURITY_DESCRIPTOR)NULL);
 
     PSID *ppSID = (PSID *)((PBYTE)m_winPSecurityDescriptor + SECURITY_DESCRIPTOR_MIN_LENGTH);
     PACL *ppACL = (PACL *)((PBYTE)ppSID + sizeof(PSID *));
