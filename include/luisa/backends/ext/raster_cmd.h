@@ -32,7 +32,7 @@ public:
                            MeshFormat const *mesh_format) noexcept
         : ShaderDispatchCommandBase{
               shader_handle, std::move(argument_buffer), argument_count},
-          _rtv_texs{rtv_textures}, _rtv_count{rtv_count}, _dsv_tex{dsv_texture}, _scene{std::move(scene)}, _viewport{viewport}, _raster_state{raster_state}, _mesh_format{mesh_format} {
+          _rtv_texs{rtv_textures}, _rtv_count{rtv_count}, _dsv_tex{dsv_texture}, _scene{std::move(scene)}, _viewport{viewport},_mesh_format{mesh_format}, _raster_state{raster_state} {
     }
 
 public:
