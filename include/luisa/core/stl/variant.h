@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/stl/optional.h>
 #include <EASTL/variant.h>
 
 namespace luisa {

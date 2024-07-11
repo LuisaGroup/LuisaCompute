@@ -25,6 +25,7 @@ namespace luisa {
 
 using eastl::make_optional;
 using eastl::nullopt;
+using eastl::nullopt_t;
 using eastl::optional;
 
 }// namespace luisa
