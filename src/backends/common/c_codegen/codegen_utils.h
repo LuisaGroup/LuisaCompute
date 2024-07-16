@@ -38,7 +38,9 @@ class Clanguage_CodegenUtils {
     };
     using FuncMap = vstd::HashMap<Key, vstd::StringBuilder, KeyHash, KeyCompare>;
     FuncMap func_map;
-    static vstd::StringBuilder _gen_func_name(Key const &key);
+    vstd::HashMap<Type const*, size_t> _custom_types;
+    bool _get_custom_type(vstd::StringBuilder& sb, Type const* t);
+    vstd::StringBuilder _gen_func_name(Key const &key);
     template<typename Func>
         requires std::is_invocable_v<Func, luisa::string_view>
     luisa::string_view _gen_func(
@@ -61,28 +63,31 @@ class Clanguage_CodegenUtils {
     }
 
 public:
+    vstd::StringBuilder struct_sb;
+    vstd::StringBuilder decl_sb;
+
     Clanguage_CodegenUtils();
     ~Clanguage_CodegenUtils();
     Clanguage_CodegenUtils(Clanguage_CodegenUtils const &) = delete;
     Clanguage_CodegenUtils(Clanguage_CodegenUtils &&) = delete;
     static void replace(char *ptr, size_t len, char src, char dst);
-    static void get_type_name(vstd::StringBuilder &sb, Type const *type);
-    static vstd::StringBuilder get_type_name(Type const *type) {
+    void get_type_name(vstd::StringBuilder &sb, Type const *type);
+    vstd::StringBuilder get_type_name(Type const *type) {
         vstd::StringBuilder r;
         get_type_name(r, type);
         return r;
     }
     // replace '#' into swizzle,
     // if arg is ("a.# + b.#", type(int3)), result will be "(int3){a.x + b.x, a.y + b.y, a.z + b.z}"
-    static void gen_vec_function(vstd::StringBuilder &sb, vstd::string_view expr, Type const *type);
-    static vstd::StringBuilder gen_vec_function(vstd::string_view expr, Type const *type) {
+    void gen_vec_function(vstd::StringBuilder &sb, vstd::string_view expr, Type const *type);
+    vstd::StringBuilder gen_vec_function(vstd::string_view expr, Type const *type) {
         vstd::StringBuilder r;
         gen_vec_function(r, expr, type);
         return r;
     }
-    luisa::string_view gen_vec_unary(vstd::StringBuilder &decl_sb, UnaryOp op, Type const *type);
-    luisa::string_view gen_vec_binary(vstd::StringBuilder &decl_sb, BinaryOp op, Type const *left_type, Type const *right_type);
-    luisa::string_view gen_callop(vstd::StringBuilder &decl_sb, CallOp op, Type const *return_type, luisa::span<Type const *const> arg_types);
-    luisa::string_view gen_make_vec(vstd::StringBuilder &decl_sb, Type const *return_type, luisa::span<Type const *const> arg_types);
+    luisa::string_view gen_vec_unary( UnaryOp op, Type const *type);
+    luisa::string_view gen_vec_binary( BinaryOp op, Type const *left_type, Type const *right_type);
+    luisa::string_view gen_callop( CallOp op, Type const *return_type, luisa::span<Type const *const> arg_types);
+    luisa::string_view gen_make_vec( Type const *return_type, luisa::span<Type const *const> arg_types);
 };
 }// namespace luisa::compute

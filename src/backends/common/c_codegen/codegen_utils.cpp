@@ -67,14 +67,51 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
             sb << 'x';
             vstd::to_string((type->dimension() == 3) ? 4 : type->dimension(), sb);
         }
+            return;
         case Type::Tag::VECTOR: {
             get_type_name(sb, type->element());
             vstd::to_string(type->dimension(), sb);
         }
             return;
+        case Type::Tag::BUFFER: {
+            sb << "buffer_type";
+        }
+            return;
+        case Type::Tag::STRUCTURE: {
+            vstd::StringBuilder type_name;
+            if (_get_custom_type(type_name, type)) {
+                struct_sb << "typedef struct alignas(";
+                vstd::to_string(type->alignment(), struct_sb);
+                struct_sb << ") {\n";
+                size_t idx = 0;
+                for (auto &i : type->members()) {
+                    get_type_name(struct_sb, i);
+                    struct_sb << " v";
+                    vstd::to_string(idx, struct_sb);
+                    ++idx;
+                }
+                struct_sb << "} " << type_name << ";\n";
+            }
+            sb << type_name;
+        }
+            return;
+        default:
+            LUISA_ERROR("Unsupported type.");
+            return;
             // TODO
     }
 }
+bool Clanguage_CodegenUtils::_get_custom_type(vstd::StringBuilder &sb, Type const *t) {
+    auto size = _custom_types.size();
+    auto iter = _custom_types.try_emplace(t);
+    if (iter.second) {
+        iter.first.value() = size;
+    }
+    sb << "_t";
+    vstd::to_string(iter.first.value(), sb);
+    return iter.second;
+}
+
 void Clanguage_CodegenUtils::gen_vec_function(vstd::StringBuilder &sb, vstd::string_view expr, Type const *type) {
     LUISA_ASSERT(type->is_vector(), "Type must be vector");
     static char arr[4] = {'x', 'y', 'z', 'w'};
@@ -92,15 +129,15 @@ void Clanguage_CodegenUtils::gen_vec_function(vstd::StringBuilder &sb, vstd::str
     }
     sb << '}';
 }
-luisa::string_view Clanguage_CodegenUtils::gen_vec_unary(vstd::StringBuilder &decl_sb, UnaryOp op, Type const *type) {
+luisa::string_view Clanguage_CodegenUtils::gen_vec_unary(UnaryOp op, Type const *type) {
     Key key{
         .type = 0,
         .flag = luisa::to_underlying(op)};
     key.arg_types.emplace_back(type);
     return _gen_func(
-        [&decl_sb, type, op](luisa::string_view func_name) {
+        [this, type, op](luisa::string_view func_name) {
             auto type_name = get_type_name(type);
-            decl_sb << type_name << ' ' << func_name << '(' << type_name << " a){ return "sv;
+            decl_sb << "static " << type_name << ' ' << func_name << '(' << type_name << " a){ return "sv;
             luisa::string_view expr = [&]() {
                 switch (op) {
                     case UnaryOp::MINUS:
@@ -120,7 +157,7 @@ luisa::string_view Clanguage_CodegenUtils::gen_vec_unary(vstd::StringBuilder &de
         },
         std::move(key));
 }
-luisa::string_view Clanguage_CodegenUtils::gen_make_vec(vstd::StringBuilder &decl_sb, Type const *return_type, luisa::span<Type const *const> arg_types) {
+luisa::string_view Clanguage_CodegenUtils::gen_make_vec(Type const *return_type, luisa::span<Type const *const> arg_types) {
     auto scalar_type = return_type->element();
     auto callop = [&]() {
         switch (scalar_type->tag()) {
@@ -139,16 +176,16 @@ luisa::string_view Clanguage_CodegenUtils::gen_make_vec(vstd::StringBuilder &dec
             default: LUISA_ERROR("Bad vector type.");
         }
     }();
-    return gen_callop(decl_sb, callop, return_type, arg_types);
+    return gen_callop(callop, return_type, arg_types);
 }
-luisa::string_view Clanguage_CodegenUtils::gen_vec_binary(vstd::StringBuilder &decl_sb, BinaryOp op, Type const *left_type, Type const *right_type) {
+luisa::string_view Clanguage_CodegenUtils::gen_vec_binary(BinaryOp op, Type const *left_type, Type const *right_type) {
     Key key{
         .type = 1,
         .flag = luisa::to_underlying(op)};
     key.arg_types.emplace_back(left_type);
     key.arg_types.emplace_back(right_type);
     return _gen_func(
-        [&decl_sb, left_type, right_type, op, this](luisa::string_view func_name) mutable {
+        [left_type, right_type, op, this](luisa::string_view func_name) mutable {
             auto left_type_name = get_type_name(left_type);
             auto right_type_name = get_type_name(right_type);
             luisa::string left_name = "a";
@@ -157,7 +194,7 @@ luisa::string_view Clanguage_CodegenUtils::gen_vec_binary(vstd::StringBuilder &d
             auto make_vec = [&](Type const *&type, size_t dst_dim, vstd::StringBuilder &type_name, vstd::string &var_name) {
                 auto vec_type = Type::vector(type, dst_dim);
                 auto args = {(Type const *)type};
-                auto make_func = gen_make_vec(decl_sb, vec_type, args);
+                auto make_func = gen_make_vec(vec_type, args);
                 type_name.clear();
                 get_type_name(type_name, vec_type);
                 temp_sb << type_name << ' ' << var_name << "_vec = " << make_func << '(' << var_name << ");\n"sv;
@@ -169,6 +206,7 @@ luisa::string_view Clanguage_CodegenUtils::gen_vec_binary(vstd::StringBuilder &d
             } else if (right_type->is_scalar()) {
                 make_vec(right_type, left_type->dimension(), left_type_name, right_name);
             }
+            decl_sb << "static ";
             bool ret_is_boolvec = (luisa::to_underlying(op) >= luisa::to_underlying(BinaryOp::LESS));
             if (ret_is_boolvec) {
                 get_type_name(decl_sb, Type::vector(Type::of<bool>(), left_type->dimension()));
@@ -215,7 +253,7 @@ luisa::string_view Clanguage_CodegenUtils::gen_vec_binary(vstd::StringBuilder &d
         },
         std::move(key));
 }
-luisa::string_view Clanguage_CodegenUtils::gen_callop(vstd::StringBuilder &decl_sb, CallOp op, Type const *return_type, luisa::span<Type const *const> arg_types) {
+luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *return_type, luisa::span<Type const *const> arg_types) {
     static char swizzle[4] = {'x', 'y', 'z', 'w'};
     Key key{
         .type = 2,
@@ -226,7 +264,7 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(vstd::StringBuilder &decl_
         [&](luisa::string_view name) {
             auto ret_type_name = get_type_name(return_type);
             vstd::StringBuilder tmp_sb;
-            tmp_sb << ret_type_name << ' ' << name << '(';
+            tmp_sb << "static " << ret_type_name << ' ' << name << '(';
             bool comma = false;
             size_t idx = 0;
             for (auto &i : arg_types) {
@@ -324,7 +362,7 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(vstd::StringBuilder &decl_
                         if (arg_types[2]->is_scalar()) {
                             auto args = {arg_types[2]};
                             auto vec_type = Type::vector(arg_types[2], arg_types[0]->dimension());
-                            auto make_name = gen_make_vec(decl_sb, vec_type, args);
+                            auto make_name = gen_make_vec(vec_type, args);
                             get_type_name(tmp_sb, vec_type);
                             tmp_sb << " tmp = " << make_name << "(a2);\n"
                                    << gen_vec_function("tmp.# ? a1.# : a0.#", Type::vector(Type::of<bool>(), arg_types[0]->dimension()));
@@ -350,17 +388,17 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(vstd::StringBuilder &decl_
                 } break;
                 case CallOp::CLAMP: {
                     auto min_args = {arg_types[0], arg_types[1]};
-                    auto min_func = gen_callop(decl_sb, CallOp::MIN, arg_types[0], min_args);
-                    auto max_func = gen_callop(decl_sb, CallOp::MAX, arg_types[0], min_args);
+                    auto min_func = gen_callop(CallOp::MIN, arg_types[0], min_args);
+                    auto max_func = gen_callop(CallOp::MAX, arg_types[0], min_args);
                     tmp_sb << "return " << min_func << '(' << max_func << "(a0, a1), a2);";
                 } break;
                 case CallOp::SATURATE: {
                     auto clamp_args = {arg_types[0], arg_types[0], arg_types[0]};
-                    auto clamp_func = gen_callop(decl_sb, CallOp::CLAMP, arg_types[0], clamp_args);
+                    auto clamp_func = gen_callop(CallOp::CLAMP, arg_types[0], clamp_args);
                     tmp_sb << "return " << clamp_func << "(a0, ";
                     if (arg_types[0]->is_vector()) {
                         auto scalar_args = {arg_types[0]->element()};
-                        auto make_vec = gen_make_vec(decl_sb, arg_types[0], scalar_args);
+                        auto make_vec = gen_make_vec(arg_types[0], scalar_args);
                         tmp_sb << make_vec << "(0), " << make_vec << "(1));";
                     } else {
                         tmp_sb << "0, 1);";
@@ -378,7 +416,6 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(vstd::StringBuilder &decl_
                 case CallOp::MAKE_FLOAT2:
                 case CallOp::MAKE_FLOAT3:
                 case CallOp::MAKE_FLOAT4:
-
                 case CallOp::MAKE_SHORT2:
                 case CallOp::MAKE_SHORT3:
                 case CallOp::MAKE_SHORT4:
@@ -405,6 +442,7 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(vstd::StringBuilder &decl_
                 case CallOp::MAKE_UBYTE4:
                     make_vec();
                     break;
+                default: break;
             }
 
             tmp_sb << "\n}\n"sv;
