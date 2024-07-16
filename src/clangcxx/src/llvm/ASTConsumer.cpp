@@ -887,7 +887,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (*iter == 'g') swizzle_seq[swizzle_size] = 1u;
                                 if (*iter == 'b') swizzle_seq[swizzle_size] = 2u;
                                 if (*iter == 'a') swizzle_seq[swizzle_size] = 3u;
-                                
+
                                 swizzle_size += 1;
                             }
                             // encode swizzle code
@@ -920,6 +920,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     auto calleeDecl = call->getCalleeDecl();
                     auto funcDecl = calleeDecl->getAsFunction();
                     llvm::StringRef callopName = {};
+                    llvm::StringRef extCallName = {};
                     llvm::StringRef binopName = {};
                     llvm::StringRef unaopName = {};
                     llvm::StringRef exprName = {};
@@ -927,6 +928,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     for (auto attr : calleeDecl->specific_attrs<clang::AnnotateAttr>()) {
                         if (callopName.empty())
                             callopName = getCallopName(attr);
+                        if (extCallName.empty())
+                            extCallName = getExtCallName(attr);
                         if (binopName.empty())
                             binopName = getBinopName(attr);
                         if (unaopName.empty())
@@ -1010,6 +1013,29 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             clangcxx_log_error(
                                 "unfound return type: {}",
                                 call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
+                    } else if (!extCallName.empty()) {
+                        luisa::vector<const Type*> arg_types;
+                        luisa::vector<Usage> argument_usages;
+                        arg_types.resize_uninitialized(lcArgs.size());
+                        argument_usages.resize_uninitialized(lcArgs.size());
+                        for(auto& i : argument_usages){
+                            i = Usage::READ;
+                        }
+                        for(auto i : vstd::range(lcArgs.size())){
+                            arg_types[i] = lcArgs[i]->type();
+                        }
+                        auto ext_func = luisa::make_shared<ExternalFunction>(extCallName.data(), Type::of<void>(), std::move(arg_types), std::move(argument_usages));
+                        if (call->getCallReturnType(*astContext)->isVoidType())
+                            fb->call(std::move(ext_func), lcArgs);
+                        else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
+                            auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
+                            fb->assign(ret_value, fb->call(lcReturnType, std::move(ext_func), lcArgs));
+                            current = ret_value;
+                        } else
+                            clangcxx_log_error(
+                                "unfound return type: {}",
+                                call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
+                        // TODO: external call
                     } else {
                         // TODO: REFACTOR THIS
                         auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
@@ -1153,8 +1179,7 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
     if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
         if (auto thisType = Method->getParent()) {
             is_ignore |= thisType->isUnion();// ignore union
-            for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>())
-            {
+            for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>()) {
                 is_builtin_type_method |= isBuiltinType(Anno);
                 is_ignore |= is_builtin_type_method;
             }

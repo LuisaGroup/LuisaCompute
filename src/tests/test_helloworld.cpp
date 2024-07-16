@@ -1,21 +1,45 @@
 #include <spdlog/fmt/fmt.h>
 #include <string>
 #include <iostream>
-template<typename String, typename Format, typename... Args>
-[[nodiscard]] inline auto format(Format &&f, Args &&...args) noexcept {
-    using char_type = typename String::value_type;
-    using memory_buffer = fmt::basic_memory_buffer<char_type, fmt::inline_buffer_size, std::allocator<char_type>>;
-    memory_buffer buffer;
-    fmt::format_to(std::back_inserter(buffer), std::forward<Format>(f), std::forward<Args>(args)...);
-    return String{buffer.data(), buffer.size()};
-}
-
-template<typename Format, typename... Args>
-[[nodiscard]] inline auto format(Format &&f, Args &&...args) noexcept {
-    return format<std::string>(std::forward<Format>(f), std::forward<Args>(args)...);
-}
-
+#include "../backends/common/c_codegen/codegen_utils.h"
+using namespace luisa;
+using namespace luisa::compute;
 int main(int argc, char *argv[]) {
-    using fmt::format_to;
-    std::cout << fmt::format("argv[0]: {}", argv[0]) << std::endl;
+    Clanguage_CodegenUtils codegen;
+    vstd::StringBuilder decl_sb;
+    auto bool4_type = Type::vector(Type::of<bool>(), 4);
+    auto float4_type = Type::vector(Type::of<float>(), 4);
+    {
+        auto args = {
+            bool4_type,
+            bool4_type,
+            bool4_type};
+        codegen.gen_callop(decl_sb, CallOp::SELECT, bool4_type, args);
+    }
+    {
+        auto args = {
+            bool4_type};
+        codegen.gen_callop(decl_sb, CallOp::ALL, bool4_type, args);
+        codegen.gen_callop(decl_sb, CallOp::ANY, bool4_type, args);
+    }
+    {
+        auto args = {
+            float4_type,
+            float4_type};
+        codegen.gen_callop(decl_sb, CallOp::MIN, bool4_type, args);
+        codegen.gen_callop(decl_sb, CallOp::MAX, bool4_type, args);
+    }
+    {
+        auto args = {
+            float4_type,
+            float4_type,
+            float4_type};
+        codegen.gen_callop(decl_sb, CallOp::CLAMP, bool4_type, args);
+    }
+    {
+        auto args = {
+            float4_type};
+        codegen.gen_callop(decl_sb, CallOp::SATURATE, bool4_type, args);
+    }
+    std::cout << decl_sb.view() << "\n";
 }
