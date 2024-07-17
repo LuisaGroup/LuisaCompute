@@ -1,7 +1,139 @@
 #include "codegen_utils.h"
 #include <luisa/core/logging.h>
 #include <luisa/vstl/md5.h>
+#include <luisa/ast/type_registry.h>
+#include "codegen_visitor.h"
+
 namespace luisa::compute {
+
+class CodegenConstantPrinter final : public ConstantDecoder {
+
+private:
+    vstd::StringBuilder &_str;
+
+public:
+    CodegenConstantPrinter(vstd::StringBuilder &str) noexcept
+        : _str{str} {}
+
+protected:
+    void _decode_bool(bool x) noexcept override {
+        PrintValue<bool>{}(x, _str);
+    }
+    void _decode_char(char x) noexcept override {
+        PrintValue<luisa::byte>{}(x, _str);
+    }
+    void _decode_uchar(uchar x) noexcept override {
+        PrintValue<luisa::ubyte>{}(x, _str);
+    }
+    void _decode_short(short x) noexcept override {
+        PrintValue<short>{}(x, _str);
+    }
+    void _decode_ushort(ushort x) noexcept override {
+        PrintValue<ushort>{}(x, _str);
+    }
+    void _decode_int(int x) noexcept override {
+        PrintValue<int>{}(x, _str);
+    }
+    void _decode_uint(uint x) noexcept override {
+        PrintValue<uint>{}(x, _str);
+    }
+    void _decode_long(slong x) noexcept override {
+        PrintValue<slong>{}(x, _str);
+    }
+    void _decode_ulong(ulong x) noexcept override {
+        PrintValue<ulong>{}(x, _str);
+    }
+    void _decode_half(half x) noexcept override {
+        PrintValue<half>{}(x, _str);
+    }
+    void _decode_float(float x) noexcept override {
+        PrintValue<float>{}(x, _str);
+    }
+    void _decode_double(double x) noexcept override {
+        PrintValue<double>{}(x, _str);
+    }
+    void _vector_separator(const Type *type, uint index) noexcept override {
+        LUISA_ERROR_WITH_LOCATION("Should not be called.");
+    }
+    void _matrix_separator(const Type *type, uint index) noexcept override {
+        LUISA_ERROR_WITH_LOCATION("Should not be called.");
+    }
+    void _decode_vector(const Type *type, const std::byte *data) noexcept override {
+#define LUISA_C_DECODE_CONST_VEC(T, N)                      \
+    do {                                                    \
+        if (type == Type::of<T##N>()) {                     \
+            auto x = *reinterpret_cast<const T##N *>(data); \
+            if constexpr (N == 3) { _str << "{"sv; }        \
+            PrintValue<T##N>{}(x, _str);                    \
+            if constexpr (N == 3) { _str << ",0}"sv; }      \
+            return;                                         \
+        }                                                   \
+    } while (false)
+#define LUISA_C_DECODE_CONST(T)     \
+    LUISA_C_DECODE_CONST_VEC(T, 2); \
+    LUISA_C_DECODE_CONST_VEC(T, 3); \
+    LUISA_C_DECODE_CONST_VEC(T, 4)
+        LUISA_C_DECODE_CONST(bool);
+        LUISA_C_DECODE_CONST(int);
+        LUISA_C_DECODE_CONST(uint);
+        LUISA_C_DECODE_CONST(float);
+        LUISA_ERROR_WITH_LOCATION(
+            "Constant type '{}' is not supported yet.",
+            type->description());
+#undef LUISA_C_DECODE_CONST_VEC
+#undef LUISA_C_DECODE_CONST
+    }
+    void _decode_matrix(const Type *type, const std::byte *data) noexcept override {
+#define LUISA_C_DECODE_CONST_MAT(N)                                  \
+    do {                                                             \
+        using M = float##N##x##N;                                    \
+        if (type == Type::of<M>()) {                                 \
+            auto x = *reinterpret_cast<const M *>(data);             \
+            _str << "float" << #N "x" << (N == 3 ? "4" : #N) << "("; \
+            for (auto i = 0; i < N; i++) {                           \
+                _str << "float" << (N == 3 ? "4" : #N) << "(";       \
+                for (auto j = 0; j < 3; j++) {                       \
+                    PrintValue<float>{}(x[i][j], _str);              \
+                    if (j != N - 1) { _str << ","; }                 \
+                }                                                    \
+                if (N == 3) { _str << ",0"; }                        \
+                _str << ")";                                         \
+                if (i != N - 1) { _str << ","; }                     \
+            }                                                        \
+            _str << ")";                                             \
+            return;                                                  \
+        }                                                            \
+    } while (false)
+        LUISA_C_DECODE_CONST_MAT(2);
+        LUISA_C_DECODE_CONST_MAT(3);
+        LUISA_C_DECODE_CONST_MAT(4);
+        LUISA_ERROR_WITH_LOCATION(
+            "Constant type '{}' is not supported yet.",
+            type->description());
+#undef LUISA_C_DECODE_CONST_MAT
+    }
+    void _struct_separator(const Type *type, uint index) noexcept override {
+        auto n = type->members().size();
+        if (index == 0u) {
+            _str << "{"sv;
+        } else if (index == n) {
+            _str << "}"sv;
+        } else {
+            _str << ',';
+        }
+    }
+    void _array_separator(const Type *type, uint index) noexcept override {
+        auto n = type->dimension();
+        if (index == 0u) {
+            _str << "{{"sv;
+        } else if (index == n) {
+            _str << "}}"sv;
+        } else {
+            _str << ',';
+        }
+    }
+};
+
 using namespace std::string_view_literals;
 void Clanguage_CodegenUtils::replace(char *ptr, size_t len, char src, char dst) {
     for (auto &i : vstd::ptr_range(ptr, len)) {
@@ -89,8 +221,23 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
                     struct_sb << " v";
                     vstd::to_string(idx, struct_sb);
                     ++idx;
+                    struct_sb << ";\n";
                 }
                 struct_sb << "} " << type_name << ";\n";
+            }
+            sb << type_name;
+        }
+            return;
+        case Type::Tag::ARRAY: {
+            vstd::StringBuilder type_name;
+            if (_get_custom_type(type_name, type)) {
+                struct_sb << "typedef struct alignas(";
+                vstd::to_string(type->alignment(), struct_sb);
+                struct_sb << ") {\n";
+                get_type_name(struct_sb, type->element());
+                struct_sb << " v[";
+                vstd::to_string(type->dimension(), struct_sb);
+                struct_sb << "];\n} " << type_name << ";\n";
             }
             sb << type_name;
         }
@@ -129,6 +276,14 @@ void Clanguage_CodegenUtils::gen_vec_function(vstd::StringBuilder &sb, vstd::str
     }
     sb << '}';
 }
+luisa::string_view Clanguage_CodegenUtils::gen_constant(vstd::StringBuilder &sb, ConstantData const &data) {
+    auto type_name = get_type_name(data.type());
+    struct_sb << "static const " << type_name << " c" << luisa::format("{}", data.hash()) << "[] = ";
+    CodegenConstantPrinter printer{sb};
+    data.decode(printer);
+    sb << ";\n"sv;
+}
+
 luisa::string_view Clanguage_CodegenUtils::gen_vec_unary(UnaryOp op, Type const *type) {
     Key key{
         .type = 0,
@@ -360,14 +515,9 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *ret
                     } else {
                         tmp_sb << "return ";
                         if (arg_types[2]->is_scalar()) {
-                            auto args = {arg_types[2]};
-                            auto vec_type = Type::vector(arg_types[2], arg_types[0]->dimension());
-                            auto make_name = gen_make_vec(vec_type, args);
-                            get_type_name(tmp_sb, vec_type);
-                            tmp_sb << " tmp = " << make_name << "(a2);\n"
-                                   << gen_vec_function("tmp.# ? a1.# : a0.#", Type::vector(Type::of<bool>(), arg_types[0]->dimension()));
+                            gen_vec_function(tmp_sb, "a2 ? a1.# : a0.#", Type::vector(Type::of<bool>(), arg_types[0]->dimension()));
                         } else {
-                            tmp_sb << gen_vec_function("a2.# ? a1.# : a0.#", Type::vector(Type::of<bool>(), arg_types[0]->dimension()));
+                            gen_vec_function(tmp_sb, "a2.# ? a1.# : a0.#", Type::vector(Type::of<bool>(), arg_types[0]->dimension()));
                         }
                         tmp_sb << ';';
                     }
@@ -376,34 +526,432 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *ret
                     if (test_all_scalar()) {
                         tmp_sb << "return a0 > a1 ? a1 : a0";
                     } else {
-                        tmp_sb << "return " << gen_vec_function("a0.# > a1.# ? a1.# : a0.#", arg_types[0]) << ';';
+                        tmp_sb << "return ";
+                        gen_vec_function(tmp_sb, "a0.# > a1.# ? a1.# : a0.#", return_type);
+                        tmp_sb << ';';
                     }
                 } break;
                 case CallOp::MAX: {
                     if (test_all_scalar()) {
                         tmp_sb << "return a0 > a1 ? a0 : a1";
                     } else {
-                        tmp_sb << "return " << gen_vec_function("a0.# > a1.# ? a0.# : a1.#", arg_types[0]) << ';';
+                        tmp_sb << "return " << gen_vec_function("a0.# > a1.# ? a0.# : a1.#", return_type) << ';';
                     }
                 } break;
                 case CallOp::CLAMP: {
                     auto min_args = {arg_types[0], arg_types[1]};
-                    auto min_func = gen_callop(CallOp::MIN, arg_types[0], min_args);
-                    auto max_func = gen_callop(CallOp::MAX, arg_types[0], min_args);
+                    auto min_func = gen_callop(CallOp::MIN, return_type, min_args);
+                    auto max_func = gen_callop(CallOp::MAX, return_type, min_args);
                     tmp_sb << "return " << min_func << '(' << max_func << "(a0, a1), a2);";
                 } break;
                 case CallOp::SATURATE: {
-                    auto clamp_args = {arg_types[0], arg_types[0], arg_types[0]};
-                    auto clamp_func = gen_callop(CallOp::CLAMP, arg_types[0], clamp_args);
+                    auto clamp_args = {return_type, return_type, return_type};
+                    auto clamp_func = gen_callop(CallOp::CLAMP, return_type, clamp_args);
                     tmp_sb << "return " << clamp_func << "(a0, ";
-                    if (arg_types[0]->is_vector()) {
-                        auto scalar_args = {arg_types[0]->element()};
-                        auto make_vec = gen_make_vec(arg_types[0], scalar_args);
+                    if (return_type->is_vector()) {
+                        auto scalar_args = {return_type->element()};
+                        auto make_vec = gen_make_vec(return_type, scalar_args);
                         tmp_sb << make_vec << "(0), " << make_vec << "(1));";
                     } else {
                         tmp_sb << "0, 1);";
                     }
                 } break;
+                case CallOp::LERP: {
+                    if (return_type->is_vector()) {
+                        auto scalar_args = {return_type->element(), return_type->element(), return_type->element()};
+                        auto scalar_lerp = gen_callop(CallOp::LERP, return_type->element(), scalar_args);
+                        if (arg_types[2]->is_scalar()) {
+                            tmp_sb << "return ";
+                            gen_vec_function(tmp_sb, luisa::format("{}(a0.#, a1.#, a2)", scalar_lerp), return_type);
+                            tmp_sb << ';';
+                        } else {
+                            tmp_sb << "return ";
+                            gen_vec_function(tmp_sb, luisa::format("{}(a0.#, a1.#, a2.#)", scalar_lerp), return_type);
+                            tmp_sb << ';';
+                        }
+                    } else {
+                        tmp_sb << "return a0 * (1.0 - a2) + a1 * a2;";
+                    }
+                } break;
+                case CallOp::SMOOTHSTEP: {
+                    if (return_type->is_vector()) {
+                        auto scalar_args = {return_type->element(), return_type->element(), return_type->element()};
+                        auto scalar_lerp = gen_callop(CallOp::SMOOTHSTEP, return_type->element(), scalar_args);
+                        tmp_sb << "return ";
+                        if (arg_types[2]->is_scalar()) {
+                            gen_vec_function(tmp_sb, luisa::format("{}(a0.#, a1.#, tmp.#)", scalar_lerp), return_type);
+                            tmp_sb << ';';
+                        } else {
+                            gen_vec_function(tmp_sb, luisa::format("{}(a0.#, a1.#, a2.#)", scalar_lerp), return_type);
+                            tmp_sb << ';';
+                        }
+                    } else {
+                        auto scalar_args = {return_type};
+                        auto clamp_func = gen_callop(CallOp::SATURATE, return_type, scalar_args);
+                        get_type_name(tmp_sb, return_type);
+                        tmp_sb << " x = " << clamp_func
+                               << "((a2 - a0) / (a1 - a0));\nreturn x * x * (3.0 - 2.0 * x);";
+                    }
+                } break;
+                case CallOp::STEP: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        auto scalar_args = {return_type->element(), return_type->element()};
+                        auto scalar_step = gen_callop(CallOp::STEP, return_type->element(), scalar_args);
+                        gen_vec_function(tmp_sb, luisa::format("{}(a0.#, a1.#)", scalar_step), return_type);
+                    } else {
+                        tmp_sb << "(a0 >= a1) ? 1 : 0";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ABS: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "abs(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "abs(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ISINF: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "isinf(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "isinf(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ISNAN: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "isnan(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "isnan(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ACOS: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "acos(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "acos(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ACOSH: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "acosh(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "acosh(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ASIN: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "asin(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "asin(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ASINH: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "asinh(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "asinh(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ATAN: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "atan(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "atan(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ATAN2: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "atan2(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "atan2(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ATANH: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "atanh(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "atanh(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::COS: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "cos(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "cos(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::COSH: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "cosh(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "cosh(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::SIN: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "sin(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "sin(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::SINH: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "sinh(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "sinh(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::TAN: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "tan(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "tan(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::TANH: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "tanh(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "tanh(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::EXP: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "exp(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "exp(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::EXP2: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "exp2(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "exp2(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::EXP10: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "exp10(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "ldexp(a0, 10)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::LOG: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "log(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "log(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::LOG2: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "log2(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "log2(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::LOG10: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "log10(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "log10(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::POW: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "pow(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "pow(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::SQRT: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "sqrt(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "sqrt(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::RSQRT: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "rsqrt(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "1.0 / sqrt(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::CEIL: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "ceil(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "ceil(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::FLOOR: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "floor(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "floor(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::FRACT: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "fract(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "a0 - floor(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::TRUNC: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "trunc(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "trunc(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::ROUND: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "round(a0.#)", return_type);
+                    } else {
+                        tmp_sb << "round(a0)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::FMA: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "a0.# * a1.# + a2.#", return_type);
+                    } else {
+                        tmp_sb << "a0 * a1 + a2";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::COPYSIGN: {
+                    tmp_sb << "return ";
+                    if (return_type->is_vector()) {
+                        gen_vec_function(tmp_sb, "copysign(a0.#, a1.#)", return_type);
+                    } else {
+                        tmp_sb << "copysign(a0, a1)";
+                    }
+                    tmp_sb << ';';
+                } break;
+                case CallOp::CROSS: {
+                    get_type_name(tmp_sb, return_type);
+                    tmp_sb << " r;\n"
+                              "r.x = a0.y * a1.z - a0.z * a1.y;\n"
+                              "r.y = -(a0.x * a1.z - a0.z * a1.x);\n"
+                              "r.z = a0.x * a1.y - a0.y * a1.x;\n"
+                              "return r;";
+                } break;
+                case CallOp::DOT: {
+                    switch (arg_types[0]->dimension()) {
+                        case 2:
+                            tmp_sb << "return a0.x * a1.x + a0.y * a1.y;";
+                            break;
+                        case 3:
+                            tmp_sb << "return a0.x * a1.x + a0.y * a1.y + a0.z * a1.z;";
+                            break;
+                        case 4:
+                            tmp_sb << "return a0.x * a1.x + a0.y * a1.y + a0.z * a1.z + a0.w * a1.w;";
+                            break;
+                    }
+                } break;
+                case CallOp::LENGTH: {
+                    switch (arg_types[0]->dimension()) {
+                        case 2:
+                            tmp_sb << "return sqrt(a0.x * a0.x + a0.y * a0.y);";
+                            break;
+                        case 3:
+                            tmp_sb << "return sqrt(a0.x * a0.x + a0.y * a0.y + a0.z * a0.z);";
+                            break;
+                        case 4:
+                            tmp_sb << "return sqrt(a0.x * a0.x + a0.y * a0.y + a0.z * a0.z + a0.w * a0.w);";
+                            break;
+                    }
+                } break;
+                case CallOp::LENGTH_SQUARED: {
+                    switch (arg_types[0]->dimension()) {
+                        case 2:
+                            tmp_sb << "return (a0.x * a0.x + a0.y * a0.y);";
+                            break;
+                        case 3:
+                            tmp_sb << "return (a0.x * a0.x + a0.y * a0.y + a0.z * a0.z);";
+                            break;
+                        case 4:
+                            tmp_sb << "return (a0.x * a0.x + a0.y * a0.y + a0.z * a0.z + a0.w * a0.w);";
+                            break;
+                    }
+                } break;
+                case CallOp::NORMALIZE: {
+                    auto length_arg = {return_type};
+                    auto length_func = gen_callop(CallOp::LENGTH, return_type->element(), length_arg);
+                    get_type_name(tmp_sb, return_type->element());
+                    tmp_sb
+                        << " tmp = "
+                        << length_func
+                        << "(a0);\n";
+                    tmp_sb << "return ";
+                    gen_vec_function(tmp_sb, "a0.# / tmp", return_type);
+                    tmp_sb << ';';
+                } break;
+
                 case CallOp::MAKE_BOOL2:
                 case CallOp::MAKE_BOOL3:
                 case CallOp::MAKE_BOOL4:
@@ -442,13 +990,159 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *ret
                 case CallOp::MAKE_UBYTE4:
                     make_vec();
                     break;
-                default: break;
+                default:
+                    LUISA_ERROR("Unsupported call {}", luisa::to_string(op));
+                    break;
             }
 
             tmp_sb << "\n}\n"sv;
             decl_sb << tmp_sb;
         },
         std::move(key));
+}
+luisa::string_view Clanguage_CodegenUtils::gen_vec_swizzle(luisa::span<uint const> swizzle, uint swizzle_code, Type const *arg) {
+    Key key{
+        .type = 3,
+        .flag = swizzle_code};
+    key.arg_types.emplace_back(arg);
+    return _gen_func(
+        [&](luisa::string_view name) {
+            auto return_type = Type::vector(arg->element(), swizzle.size());
+            auto ret_typename = get_type_name(return_type);
+            auto ele_typename = get_type_name(arg->element());
+            decl_sb << "static " << ret_typename << ' ' << name << '(';
+            get_type_name(decl_sb, arg);
+            decl_sb << " a0){\nreturn ("
+                    << ret_typename << "){";
+            bool comma = false;
+            for (auto &i : swizzle) {
+                if (comma) {
+                    decl_sb << ", ";
+                }
+                comma = true;
+                decl_sb << "GET(" << ele_typename << ", a0, ";
+                vstd::to_string(i, decl_sb);
+                decl_sb << ')';
+            }
+            decl_sb << "};\n}\n";
+        },
+        std::move(key));
+}
+size_t Clanguage_CodegenUtils::func_index(Function f) {
+    auto size = _custom_funcs.size();
+    auto iter = _custom_funcs.try_emplace(f.builder());
+    if (iter.second) {
+        iter.first.value() = size;
+    };
+    return size;
+}
+void Clanguage_CodegenUtils::print_function_declare(vstd::StringBuilder &sb, Function func) {
+    sb << "static ";
+    get_type_name(sb, func.return_type());
+    sb << " custom_" << luisa::format("{}", func_index(func))
+       << '(';
+    bool comma = false;
+    for (auto &i : func.arguments()) {
+        if (comma) {
+            sb << ", ";
+        }
+        comma = true;
+        get_type_name(sb, i.type());
+        sb << ' ';
+        if (i.tag() == Variable::Tag::REFERENCE) {
+            sb << '&';
+        }
+        gen_var_name(sb, i);
+    }
+    sb << ')';
+}
+void Clanguage_CodegenUtils::print_kernel_declare(vstd::StringBuilder &sb, Function func, luisa::string_view entry_name) {
+#ifdef _MSC_VER
+    sb << "__declspec(dllexport) ";
+#else
+    sb << "__attribute__((visibility(" default "))) ";
+#endif
+    sb << "void " << entry_name << "(uint32_t3 thd_id, uint32_t3 blk_id, uint32_t3 dsp_id, uint32_t3 dsp_size, uint32_t3 ker_id";
+    for (auto &i : func.arguments()) {
+        sb << ", ";
+        get_type_name(sb, i.type());
+        sb << ' ';
+        if (i.tag() == Variable::Tag::REFERENCE) {
+            sb << '&';
+        }
+        gen_var_name(sb, i);
+    }
+    sb << ')';
+}
+void Clanguage_CodegenUtils::gen_var_name(vstd::StringBuilder &sb, Variable const &var) {
+    switch (var.tag()) {
+        case Variable::Tag::LOCAL:
+            sb << luisa::format("v{}", var.uid());
+            break;
+        case Variable::Tag::BUFFER:
+            sb << luisa::format("b{}", var.uid());
+            break;
+        case Variable::Tag::THREAD_ID:
+            sb << "thd_id";
+            break;
+        case Variable::Tag::BLOCK_ID:
+            sb << "blk_id";
+            break;
+        case Variable::Tag::DISPATCH_ID:
+            sb << "dsp_id";
+            break;
+        case Variable::Tag::DISPATCH_SIZE:
+            sb << "dsp_size";
+            break;
+        case Variable::Tag::KERNEL_ID:
+            sb << "ker_id";
+            break;
+        case Variable::Tag::OBJECT_ID:
+            sb << "ker_id";
+            break;
+        case Variable::Tag::REFERENCE:
+            sb << luisa::format("r{}", var.uid());
+            break;
+        default:
+            LUISA_ERROR("Bad variable type. {}", luisa::to_string(var.tag()));
+            break;
+    }
+}
+void Clanguage_CodegenUtils::codegen(
+    luisa::string const &path,
+    luisa::string_view entry_name,
+    Function func) {
+    struct_sb << "#include <header.h>\n";
+    vstd::StringBuilder sb;
+    for (auto &i : func.custom_callables()) {
+        print_function_declare(sb, Function(i.get()));
+        sb << ";\n";
+    }
+    for (auto &i : func.custom_callables()) {
+        CodegenVisitor visitor(
+            sb,
+            entry_name,
+            *this,
+            Function(i.get()));
+    }
+    {
+        CodegenVisitor visitor(
+            sb,
+            entry_name,
+            *this,
+            func);
+    }
+    auto f = fopen(path.c_str(), "wb");
+    if (f) {
+        if (struct_sb.size() > 0)
+            fwrite(struct_sb.data(), struct_sb.size(), 1, f);
+        if (decl_sb.size() > 0)
+            fwrite(decl_sb.data(), decl_sb.size(), 1, f);
+        if (sb.size() > 0)
+            fwrite(sb.data(), sb.size(), 1, f);
+        fclose(f);
+    }
+    // order: struct_cb, decl_sb, sb
 }
 Clanguage_CodegenUtils::Clanguage_CodegenUtils() = default;
 Clanguage_CodegenUtils::~Clanguage_CodegenUtils() = default;

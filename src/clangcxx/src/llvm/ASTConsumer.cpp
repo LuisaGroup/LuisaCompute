@@ -1014,21 +1014,28 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 "unfound return type: {}",
                                 call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
                     } else if (!extCallName.empty()) {
-                        luisa::vector<const Type*> arg_types;
+                        luisa::vector<const Type *> arg_types;
                         luisa::vector<Usage> argument_usages;
                         arg_types.resize_uninitialized(lcArgs.size());
                         argument_usages.resize_uninitialized(lcArgs.size());
-                        for(auto& i : argument_usages){
+                        for (auto &i : argument_usages) {
                             i = Usage::READ;
                         }
-                        for(auto i : vstd::range(lcArgs.size())){
+                        for (auto i : vstd::range(lcArgs.size())) {
                             arg_types[i] = lcArgs[i]->type();
                         }
-                        auto ext_func = luisa::make_shared<ExternalFunction>(extCallName.data(), Type::of<void>(), std::move(arg_types), std::move(argument_usages));
-                        if (call->getCallReturnType(*astContext)->isVoidType())
+                        auto get_ext_func = [&](ExternalFunction &&ext_func) -> auto & {
+                            auto iter = db->ext_funcs.try_emplace(ext_func.hash(), vstd::lazy_eval([&](){
+                                return luisa::make_shared<ExternalFunction>(std::move(ext_func));
+                            }));
+                            return iter.first->second;
+                        };
+                        if (call->getCallReturnType(*astContext)->isVoidType()) {
+                            auto ext_func = get_ext_func(ExternalFunction(extCallName.data(), Type::of<void>(), std::move(arg_types), std::move(argument_usages)));
                             fb->call(std::move(ext_func), lcArgs);
-                        else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
+                        } else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
                             auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
+                            auto ext_func = get_ext_func(ExternalFunction(extCallName.data(), lcReturnType, std::move(arg_types), std::move(argument_usages)));
                             fb->assign(ret_value, fb->call(lcReturnType, std::move(ext_func), lcArgs));
                             current = ret_value;
                         } else
