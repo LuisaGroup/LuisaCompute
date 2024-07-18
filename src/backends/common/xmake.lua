@@ -19,12 +19,12 @@ if (get_config("cuda_backend") or get_config("cpu_backend")) then
     target_end()
 end
 
--- target("lc-c-test")
--- _config_project({
---     project_kind = "object"
--- })
--- add_files("c_codegen/**.c")
--- target_end()
+target("lc-script")
+_config_project({
+    project_kind = "shared"
+})
+add_files("script/**.c")
+target_end()
 
 target("lc-clanguage-codegen")
 _config_project({

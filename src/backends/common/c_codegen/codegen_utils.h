@@ -16,6 +16,7 @@ class Clanguage_CodegenUtils {
         // 1: binary
         // 2: Call op
         // 3: swizzle
+        // 4: external
         uint8_t type;
         uint32_t flag;
         luisa::fixed_vector<const Type *, 2> arg_types;
@@ -57,9 +58,6 @@ class Clanguage_CodegenUtils {
         if (!key.arg_types.empty()) {
             key.hash = luisa::hash64(key.arg_types.data(), key.arg_types.size_bytes(), key.hash);
         }
-        for (auto &i : key.arg_types) {
-            auto type_hs = i->hash();
-        }
         auto iter = func_map.try_emplace(std::move(key));
         if (iter.second) {
             auto func_name = _gen_func_name(iter.first.key());
@@ -80,7 +78,8 @@ public:
     static void replace(char *ptr, size_t len, char src, char dst);
     void get_type_name(vstd::StringBuilder &sb, Type const *type);
     void print_function_declare(vstd::StringBuilder &sb, Function func);
-    void print_kernel_declare(vstd::StringBuilder &sb, Function func, luisa::string_view entry_name);
+    void print_kernel_declare(vstd::StringBuilder &sb, Function func);
+    luisa::string_view validate_external_func(luisa::string_view name, Type const *ret_type, luisa::span<Type const* const> arg_types);
     vstd::StringBuilder get_type_name(Type const *type) {
         vstd::StringBuilder r;
         get_type_name(r, type);
@@ -101,7 +100,7 @@ public:
         return r;
     }
     size_t func_index(Function f);
-    luisa::string_view gen_constant(vstd::StringBuilder &sb, ConstantData const &data);
+    void gen_constant(vstd::StringBuilder &sb, ConstantData const &data);
     luisa::string_view gen_vec_swizzle(luisa::span<uint const> swizzle, uint swizzle_code, Type const *arg);
     luisa::string_view gen_vec_unary(UnaryOp op, Type const *type);
     luisa::string_view gen_vec_binary(BinaryOp op, Type const *left_type, Type const *right_type);
@@ -138,7 +137,7 @@ struct PrintValue<double> {
         if (luisa::isinf(v)) [[unlikely]] {
             str.append(v < 0.0 ? "(-_INF_d)" : "(_INF_d)");
         } else {
-            str.append(luisa::format("float64_t({})", v));
+            str.append(luisa::format("double({})", v));
         }
     }
 };
@@ -146,14 +145,7 @@ struct PrintValue<double> {
 template<>
 struct PrintValue<half> {
     void operator()(half const &v, vstd::StringBuilder &str) {
-        if (luisa::isnan(v)) [[unlikely]] {
-            LUISA_ERROR_WITH_LOCATION("Encountered with NaN.");
-        }
-        if (luisa::isinf(v)) [[unlikely]] {
-            str.append(v < 0.0f ? "(-_INF_f)" : "(_INF_f)");
-        } else {
-            str.append(luisa::format("float16_t({})", static_cast<float>(v)));
-        }
+        LUISA_ERROR("Half not supported by backend.");
     }
 };
 
@@ -244,9 +236,9 @@ struct PrintValue<Vector<EleType, N>> {
             } else if constexpr (std::is_same_v<EleType, bool>) {
                 varName << "bool";
             } else if constexpr (std::is_same_v<EleType, half>) {
-                varName << "float16_t";
+                LUISA_ERROR("Half not supported by backend.");
             } else if constexpr (std::is_same_v<EleType, double>) {
-                varName << "float64_t";
+                varName << "double";
             } else if constexpr (std::is_same_v<EleType, short>) {
                 varName << "int16_t";
             } else if constexpr (std::is_same_v<EleType, ushort>) {

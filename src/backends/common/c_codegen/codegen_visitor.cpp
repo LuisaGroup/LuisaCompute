@@ -124,10 +124,17 @@ void CodegenVisitor::visit(const LiteralExpr *expr) {
     sb << ')';
 }
 void CodegenVisitor::visit(const RefExpr *expr) {
-    utils.gen_var_name(sb, expr->variable());
+    auto &&var = expr->variable();
+    if (var.is_reference()) {
+        sb << "(*";
+        utils.gen_var_name(sb, expr->variable());
+        sb << ')';
+    } else {
+        utils.gen_var_name(sb, expr->variable());
+    }
 }
 void CodegenVisitor::visit(const ConstantExpr *expr) {
-    sb << luisa::format("c{}", expr->hash());
+    sb << luisa::format("c{}", expr->data().hash());
 }
 void CodegenVisitor::visit(const CallExpr *expr) {
     auto args = expr->arguments();
@@ -136,13 +143,35 @@ void CodegenVisitor::visit(const CallExpr *expr) {
     };
     switch (expr->op()) {
         case CallOp::EXTERNAL: {
-            auto fb = expr->builder();
-            // TODO
+            auto func = expr->external();
+            sb << utils.validate_external_func(func->name(), func->return_type(), func->argument_types());
         } break;
         case CallOp::CUSTOM: {
-            //
-        } break;
+            auto func = expr->custom();
+            auto &&func_args = func.arguments();
+            sb << "custom_" << luisa::format("{}", utils.func_index(func))
+               << '(';
+            bool comma = false;
+            auto func_arg_iter = func_args.begin();
+            for (auto &i : args) {
+                if (comma) {
+                    sb << ", ";
+                }
+                comma = true;
+                if (func_arg_iter->is_reference()) {
+                    sb << "&(";
+                    i->accept(*this);
+                    sb << ')';
+                } else {
+                    i->accept(*this);
+                }
+                func_arg_iter++;
+            }
+            sb << ')';
+        }
+            return;
         case CallOp::ATOMIC_EXCHANGE:
+            check_atomic(args[0]->type());
             sb << "skr_atomic_exchange_explicit((volatile ";
             utils.get_type_name(sb, args[0]->type());
             sb << "*)&";
@@ -152,6 +181,7 @@ void CodegenVisitor::visit(const CallExpr *expr) {
             sb << ", skr_memory_order_seq_cst)";
             return;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
+            check_atomic(args[0]->type());
             sb << "skr_atomic_compare_exchange_weak((volatile ";
             utils.get_type_name(sb, args[0]->type());
             sb << "*)&";
@@ -164,6 +194,7 @@ void CodegenVisitor::visit(const CallExpr *expr) {
             return;
         case CallOp::ATOMIC_FETCH_ADD:
             sb << "skr_atomic_fetch_add_explicit((volatile ";
+            check_atomic(args[0]->type());
             utils.get_type_name(sb, args[0]->type());
             sb << "*)&";
             args[0]->accept(*this);
@@ -173,6 +204,7 @@ void CodegenVisitor::visit(const CallExpr *expr) {
             return;
         case CallOp::ATOMIC_FETCH_SUB:
             sb << "skr_atomic_fetch_sub_explicit((volatile ";
+            check_atomic(args[0]->type());
             utils.get_type_name(sb, args[0]->type());
             sb << "*)&";
             args[0]->accept(*this);
@@ -182,6 +214,7 @@ void CodegenVisitor::visit(const CallExpr *expr) {
             return;
         case CallOp::ATOMIC_FETCH_AND:
             sb << "skr_atomic_fetch_and_explicit((volatile ";
+            check_atomic(args[0]->type());
             utils.get_type_name(sb, args[0]->type());
             sb << "*)&";
             args[0]->accept(*this);
@@ -191,6 +224,7 @@ void CodegenVisitor::visit(const CallExpr *expr) {
             return;
         case CallOp::ATOMIC_FETCH_OR:
             sb << "skr_atomic_fetch_or_explicit((volatile ";
+            check_atomic(args[0]->type());
             utils.get_type_name(sb, args[0]->type());
             sb << "*)&";
             args[0]->accept(*this);
@@ -200,6 +234,7 @@ void CodegenVisitor::visit(const CallExpr *expr) {
             return;
         case CallOp::ATOMIC_FETCH_XOR:
             sb << "skr_atomic_fetch_xor_explicit((volatile ";
+            check_atomic(args[0]->type());
             utils.get_type_name(sb, args[0]->type());
             sb << "*)&";
             args[0]->accept(*this);
@@ -255,6 +290,19 @@ void CodegenVisitor::visit(const CallExpr *expr) {
             } else {
                 sb << "make_float4x4_1";
             }
+        } break;
+        case CallOp::TRANSPOSE: {
+            // TODO
+        } break;
+        case CallOp::INVERSE: {
+            // TODO
+        } break;
+        case CallOp::ZERO: {
+            sb << "memzero(&(";
+            args[0]->accept(*this);
+            sb << "), "
+               << luisa::format("{}", args[0]->type()->size())
+               << ')';
         } break;
         default: {
             luisa::fixed_vector<Type const *, 4> types;
@@ -319,7 +367,7 @@ void CodegenVisitor::visit(const IfStmt *stmt) {
     stmt->condition()->accept(*this);
     sb << ")";
     stmt->true_branch()->accept(*this);
-    sb << " else ";
+    sb << "else";
     stmt->false_branch()->accept(*this);
 }
 void CodegenVisitor::visit(const LoopStmt *stmt) {
@@ -341,12 +389,10 @@ void CodegenVisitor::visit(const SwitchCaseStmt *stmt) {
     stmt->expression()->accept(*this);
     sb << ":\n";
     stmt->body()->accept(*this);
-    sb << "break;";
 }
 void CodegenVisitor::visit(const SwitchDefaultStmt *stmt) {
     sb << "default:\n";
     stmt->body()->accept(*this);
-    sb << "break;";
 }
 void CodegenVisitor::visit(const AssignStmt *stmt) {
     stmt->lhs()->accept(*this);
@@ -403,7 +449,7 @@ CodegenVisitor::CodegenVisitor(
     if (func.tag() == Function::Tag::CALLABLE) {
         utils.print_function_declare(sb, func);
     } else {
-        utils.print_kernel_declare(sb, func, entry_name);
+        utils.print_kernel_declare(sb, func);
     }
     sb << "{\n";
     for (auto &i : func.constants()) {
@@ -413,7 +459,7 @@ CodegenVisitor::CodegenVisitor(
         utils.get_type_name(sb, i.type());
         sb << ' ';
         if (i.tag() == Variable::Tag::REFERENCE) {
-            sb << '&';
+            sb << '*';
         }
         utils.gen_var_name(sb, i);
         sb << ";\n";

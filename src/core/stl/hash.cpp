@@ -11,6 +11,12 @@ LC_CORE_API uint64_t hash64(const void *ptr, size_t size, uint64_t seed) noexcep
     return XXH_INLINE_XXH3_64bits_withSeed(ptr, size, seed);
 }
 
+LC_CORE_API Hash128 hash128(const void *ptr, size_t size, uint64_t seed) noexcept {
+    static_assert(sizeof(Hash128) == sizeof(XXH128_hash_t));
+    auto result =  XXH_INLINE_XXH3_128bits_withSeed(ptr, size, seed);
+    return reinterpret_cast<Hash128&>(result);
+}
+
 luisa::string Hash128::to_string() const noexcept {
     constexpr const char *hex = "0123456789abcdef";
     std::array<char, 32u> s{};

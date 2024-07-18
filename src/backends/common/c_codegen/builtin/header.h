@@ -18,28 +18,28 @@ typedef struct alignas(16) {
 typedef struct alignas(16) {
     double x, y;
 } double2;
-typedef struct alignas(32) {
+typedef struct alignas(16) {
     double x, y, z;
 } double3;
-typedef struct alignas(32) {
+typedef struct alignas(16) {
     double x, y, z, w;
 } double4;
 typedef struct alignas(16) {
     uint64_t x, y;
 } uint64_t2;
-typedef struct alignas(32) {
+typedef struct alignas(16) {
     uint64_t x, y, z;
 } uint64_t3;
-typedef struct alignas(32) {
+typedef struct alignas(16) {
     uint64_t x, y, z, w;
 } uint64_t4;
 typedef struct alignas(16) {
     int64_t x, y;
 } int64_t2;
-typedef struct alignas(32) {
+typedef struct alignas(16) {
     int64_t x, y, z;
 } int64_t3;
-typedef struct alignas(32) {
+typedef struct alignas(16) {
     int64_t x, y, z, w;
 } int64_t4;
 typedef struct alignas(8) {
@@ -121,29 +121,29 @@ typedef struct {
     uint64_t len;
 } buffer_type;
 
-static float2x2 make_float2x2_0(float2 a, float2 b) {
+inline float2x2 make_float2x2_0(float2 a, float2 b) {
     return (float2x2){a, b};
 }
-static float2x2 make_float2x2_1(float a0, float a1, float a2, float a3) {
+inline float2x2 make_float2x2_1(float a0, float a1, float a2, float a3) {
     float2x2 f;
     f.c0 = (float2){a0, a1};
     f.c1 = (float2){a2, a3};
     return f;
 }
-static float3x3 make_float3x3_0(float3 a, float3 b, float3 c) {
+inline float3x3 make_float3x3_0(float3 a, float3 b, float3 c) {
     return (float3x3){a, b, c};
 }
-static float3x3 make_float3x3_1(float a0, float a1, float a2, float a3, float a4, float a5, float a6, float a7, float a8) {
+inline float3x3 make_float3x3_1(float a0, float a1, float a2, float a3, float a4, float a5, float a6, float a7, float a8) {
     float3x3 f;
     f.c0 = (float3){a0, a1, a2};
     f.c1 = (float3){a3, a4, a5};
     f.c2 = (float3){a6, a7, a8};
     return f;
 }
-static float4x4 make_float4x4_0(float4 a, float4 b, float4 c, float4 d) {
+inline float4x4 make_float4x4_0(float4 a, float4 b, float4 c, float4 d) {
     return (float4x4){a, b, c, d};
 }
-static float4x4 make_float4x4_1(float a0, float a1, float a2, float a3, float a4, float a5, float a6, float a7, float a8, float a9, float a10, float a11, float a12, float a13, float a14, float a15) {
+inline float4x4 make_float4x4_1(float a0, float a1, float a2, float a3, float a4, float a5, float a6, float a7, float a8, float a9, float a10, float a11, float a12, float a13, float a14, float a15) {
     float4x4 f;
     f.c0 = (float4){a0, a1, a2, a3};
     f.c1 = (float4){a4, a5, a6, a7};
@@ -151,20 +151,20 @@ static float4x4 make_float4x4_1(float a0, float a1, float a2, float a3, float a4
     f.c3 = (float4){a12, a13, a14, a15};
     return f;
 }
-static float2 mul_float2x2_float2(float2x2 m, float2 v) {
+inline float2 mul_float2x2_float2(float2x2 m, float2 v) {
     float2 r;
     r.x = v.x * m.c0.x + v.y * m.c1.x;
     r.y = v.x * m.c0.y + v.y * m.c1.y;
     return r;
 }
-static float3 mul_float3x3_float3(float3x3 m, float3 v) {
+inline float3 mul_float3x3_float3(float3x3 m, float3 v) {
     float3 r;
     r.x = v.x * m.c0.x + v.y * m.c1.x + v.z * m.c2.x;
     r.y = v.x * m.c0.y + v.y * m.c1.y + v.z * m.c2.y;
     r.z = v.x * m.c0.z + v.y * m.c1.z + v.z * m.c2.z;
     return r;
 }
-static float4 mul_float4x4_float4(float4x4 m, float4 v) {
+inline float4 mul_float4x4_float4(float4x4 m, float4 v) {
     float4 r;
     r.x = v.x * m.c0.x + v.y * m.c1.x + v.z * m.c2.x + v.w * m.c3.x;
     r.y = v.x * m.c0.y + v.y * m.c1.y + v.z * m.c2.y + v.w * m.c3.y;
@@ -172,20 +172,20 @@ static float4 mul_float4x4_float4(float4x4 m, float4 v) {
     r.w = v.x * m.c0.w + v.y * m.c1.w + v.z * m.c2.w + v.w * m.c3.w;
     return r;
 }
-static float2x2 mul_float2x2_float2x2(float2x2 a, float2x2 b) {
+inline float2x2 mul_float2x2_float2x2(float2x2 a, float2x2 b) {
     float2x2 r;
     r.c0 = mul_float2x2_float2(a, b.c0);
     r.c1 = mul_float2x2_float2(a, b.c1);
     return r;
 }
-static float3x3 mul_float3x3_float3x3(float3x3 a, float3x3 b) {
+inline float3x3 mul_float3x3_float3x3(float3x3 a, float3x3 b) {
     float3x3 r;
     r.c0 = mul_float3x3_float3(a, b.c0);
     r.c1 = mul_float3x3_float3(a, b.c1);
     r.c2 = mul_float3x3_float3(a, b.c2);
     return r;
 }
-static float4x4 mul_float4x4_float4x4(float4x4 a, float4x4 b) {
+inline float4x4 mul_float4x4_float4x4(float4x4 a, float4x4 b) {
     float4x4 r;
     r.c0 = mul_float4x4_float4(a, b.c0);
     r.c1 = mul_float4x4_float4(a, b.c1);
@@ -193,13 +193,17 @@ static float4x4 mul_float4x4_float4x4(float4x4 a, float4x4 b) {
     r.c3 = mul_float4x4_float4(a, b.c3);
     return r;
 }
+inline buffer_type to_buffer(uint64_t ptr, uint64_t len) {
+    return (buffer_type){ptr, len};
+}
 #define GET(ELE, value, index) (((ELE *)&(value))[index])
-#define ADDR_OF(value) ((uint64_t)&(value))
+#define ADDR_OF(value) ((uint64_t) & (value))
+#define CAST_BF(x) (x)
 
-static float determinant_float2x2(float2x2 m) {
+inline float determinant_float2x2(float2x2 m) {
     return m.c0.x * m.c1.y - m.c1.x * m.c0.y;
 }
-static float determinant_float3x3(float3x3 m) {
+inline float determinant_float3x3(float3x3 m) {
     return m.c0.x * (m.c1.y * m.c2.z - m.c2.y * m.c1.z) - m.c1.x * (m.c0.y * m.c2.z - m.c2.y * m.c0.z) + m.c2.x * (m.c0.y * m.c1.z - m.c1.y * m.c0.z);
 }
 float determinant_float4x4(float4x4 m);
@@ -214,8 +218,14 @@ float determinant_float4x4(float4x4 m);
 #define LUISA_ASSUME(x) \
     if (!(x)) __builtin_unreachable()
 #endif
-
-
+void memzero(void *ptr, uint64_t size);
+void memone(void *ptr, uint64_t size);
+int32_t lc_memcmp(uint64_t dst, uint64_t src, uint64_t size);
+void lc_memcpy(uint64_t dst, uint64_t src, uint64_t size);
+void lc_memmove(uint64_t dst, uint64_t src, uint64_t size);
+uint64_t persist_malloc(uint64_t size);
+uint64_t temp_malloc(uint64_t size);
+void persist_free(uint64_t ptr);
 ///////////////// implement
 inline float4 float4_mul(float4 a, float4 b) {
     return (float4){a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w};
@@ -267,4 +277,29 @@ float determinant_float4x4(float4x4 m) {
     float4 inv_3 = float4_mul(inv3, sign_b);
     float4 dot0 = float4_mul(m.c0, (float4){inv_0.x, inv_1.x, inv_2.x, inv_3.x});
     return dot0.x + dot0.y + dot0.z + dot0.w;
+}
+void memzero(void *ptr, uint64_t size) {
+    memset(ptr, 0, size);
+}
+void memone(void *ptr, uint64_t size) {
+    memset(ptr, 1, size);
+}
+int32_t lc_memcmp(uint64_t dst, uint64_t src, uint64_t size) {
+    return memcmp((void const *)dst, (void const *)src, size);
+}
+void lc_memcpy(uint64_t dst, uint64_t src, uint64_t size) {
+    memcpy((void *)dst, (void const *)src, size);
+}
+void lc_memmove(uint64_t dst, uint64_t src, uint64_t size) {
+    memmove((void *)dst, (void const *)src, size);
+}
+uint64_t persist_malloc(uint64_t size) {
+    return (uint64_t)malloc(size);
+}
+uint64_t temp_malloc(uint64_t size) {
+    // TODO
+    return (uint64_t)malloc(size);
+}
+void persist_free(uint64_t ptr) {
+    free((void *)ptr);
 }

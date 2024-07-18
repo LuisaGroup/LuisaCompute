@@ -3,9 +3,128 @@
 #include <luisa/vstl/md5.h>
 #include <luisa/ast/type_registry.h>
 #include "codegen_visitor.h"
+#include <luisa/vstl/functional.h>
 
 namespace luisa::compute {
+namespace c_codegen_detail {
+static bool is_integer(Type const *t) {
+    switch (t->tag()) {
+        case Type::Tag::INT8:
+        case Type::Tag::INT16:
+        case Type::Tag::INT32:
+        case Type::Tag::INT64:
+        case Type::Tag::UINT8:
+        case Type::Tag::UINT16:
+        case Type::Tag::UINT32:
+        case Type::Tag::UINT64:
+            return true;
+        default: return false;
+    }
+}
+struct ExternalTable {
+    using GenFunc = vstd::func_ptr_t<void(Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args)>;
+    using Var =
+        luisa::variant<
+            // template function
+            std::pair<uint32_t, GenFunc>,
+            // fixed type validation
+            vstd::func_ptr_t<bool(Type const *ret_type, luisa::span<Type const *const> args)>>;
 
+    vstd::HashMap<vstd::string, Var> map;
+    ExternalTable() {
+        map.emplace(
+            "to_buffer",
+            +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
+                if (!(ret_type && ret_type->is_buffer())) return false;
+                return (args.size() == 2 && is_integer(args[0]) && is_integer(args[1]));
+            });
+        auto ptr = +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
+            if (!ret_type->is_int32()) {
+                return false;
+            }
+            return args.size() == 3 && is_integer(args[0]) && is_integer(args[1]) && is_integer(args[2]);
+        };
+        map.emplace(
+            "lc_memcmp", ptr);
+        ptr = +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
+            if (ret_type != Type::of<void>()) return false;
+            return args.size() == 3 && is_integer(args[0]) && is_integer(args[1]) && is_integer(args[2]);
+        };
+        map.emplace(
+            "lc_memcpy",
+            ptr);
+        map.emplace(
+            "lc_memmove",
+            ptr);
+        map.emplace(
+            "CAST_BF",
+            +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
+                if (!ret_type->is_buffer()) return false;
+                return args.size() == 1 && args[0]->is_buffer();
+            });
+        ptr = +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
+            if (!ret_type->is_uint64()) return false;
+            return args.size() == 1 && is_integer(args[0]);
+        };
+        map.emplace(
+            "persist_malloc", ptr);
+        map.emplace(
+            "temp_malloc",
+            ptr);
+        map.emplace(
+            "persist_free",
+            +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
+                if (ret_type != Type::of<void>()) return false;
+                return args.size() == 1 && args[0]->is_uint64();
+            });
+        uint flag = 0;
+        auto add_ext = [&](luisa::string &&name, GenFunc func) {
+            map.emplace(
+                std::move(name),
+                std::pair<uint32_t, GenFunc>{flag, func});
+        };
+        add_ext(
+            "invoke",
+            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args) {
+                sb << "inline ";
+                utils.get_type_name(sb, ret_type);
+                sb << ' ' << func_name << '(';
+                bool comma = false;
+                size_t arg_idx = 0;
+                for (auto &i : args) {
+                    if (comma) {
+                        sb << ", ";
+                    }
+                    comma = true;
+                    utils.get_type_name(sb, i);
+                    sb << " a" << luisa::format("{}", arg_idx);
+                    arg_idx++;
+                }
+                sb << "){\ntypedef ";
+                utils.get_type_name(sb, ret_type);
+                sb << "(*Fn)(";
+                comma = false;
+                for (auto &i : args) {
+                    if (comma) {
+                        sb << ", ";
+                    }
+                    comma = true;
+                    utils.get_type_name(sb, i);
+                }
+                sb << ");\nreturn ((Fn)(a0))(";
+                comma = false;
+                for (auto i : vstd::range(1, args.size())) {
+                    if (comma) {
+                        sb << ", ";
+                    }
+                    comma = true;
+                    sb << luisa::format("a{}", i);
+                }
+                sb << ");\n}";
+            });
+    }
+};
+static ExternalTable extern_table;
 class CodegenConstantPrinter final : public ConstantDecoder {
 
 private:
@@ -84,25 +203,25 @@ protected:
 #undef LUISA_C_DECODE_CONST
     }
     void _decode_matrix(const Type *type, const std::byte *data) noexcept override {
-#define LUISA_C_DECODE_CONST_MAT(N)                                  \
-    do {                                                             \
-        using M = float##N##x##N;                                    \
-        if (type == Type::of<M>()) {                                 \
-            auto x = *reinterpret_cast<const M *>(data);             \
-            _str << "float" << #N "x" << (N == 3 ? "4" : #N) << "("; \
-            for (auto i = 0; i < N; i++) {                           \
-                _str << "float" << (N == 3 ? "4" : #N) << "(";       \
-                for (auto j = 0; j < 3; j++) {                       \
-                    PrintValue<float>{}(x[i][j], _str);              \
-                    if (j != N - 1) { _str << ","; }                 \
-                }                                                    \
-                if (N == 3) { _str << ",0"; }                        \
-                _str << ")";                                         \
-                if (i != N - 1) { _str << ","; }                     \
-            }                                                        \
-            _str << ")";                                             \
-            return;                                                  \
-        }                                                            \
+#define LUISA_C_DECODE_CONST_MAT(N)                                    \
+    do {                                                               \
+        using M = float##N##x##N;                                      \
+        if (type == Type::of<M>()) {                                   \
+            auto x = *reinterpret_cast<const M *>(data);               \
+            _str << "(float" << #N "x" << (N == 3 ? "4" : #N) << "){"; \
+            for (auto i = 0; i < N; i++) {                             \
+                _str << "float" << (N == 3 ? "4" : #N) << "(";         \
+                for (auto j = 0; j < 3; j++) {                         \
+                    PrintValue<float>{}(x[i][j], _str);                \
+                    if (j != N - 1) { _str << ","; }                   \
+                }                                                      \
+                if (N == 3) { _str << ",0"; }                          \
+                _str << ")";                                           \
+                if (i != N - 1) { _str << ","; }                       \
+            }                                                          \
+            _str << "}";                                               \
+            return;                                                    \
+        }                                                              \
     } while (false)
         LUISA_C_DECODE_CONST_MAT(2);
         LUISA_C_DECODE_CONST_MAT(3);
@@ -133,8 +252,9 @@ protected:
         }
     }
 };
-
+}// namespace c_codegen_detail
 using namespace std::string_view_literals;
+
 void Clanguage_CodegenUtils::replace(char *ptr, size_t len, char src, char dst) {
     for (auto &i : vstd::ptr_range(ptr, len)) {
         if (i == src) i = dst;
@@ -276,10 +396,10 @@ void Clanguage_CodegenUtils::gen_vec_function(vstd::StringBuilder &sb, vstd::str
     }
     sb << '}';
 }
-luisa::string_view Clanguage_CodegenUtils::gen_constant(vstd::StringBuilder &sb, ConstantData const &data) {
+void Clanguage_CodegenUtils::gen_constant(vstd::StringBuilder &sb, ConstantData const &data) {
     auto type_name = get_type_name(data.type());
-    struct_sb << "static const " << type_name << " c" << luisa::format("{}", data.hash()) << "[] = ";
-    CodegenConstantPrinter printer{sb};
+    sb << "static const " << type_name << " c" << luisa::format("{}", data.hash()) << "[] = ";
+    c_codegen_detail::CodegenConstantPrinter printer{sb};
     data.decode(printer);
     sb << ";\n"sv;
 }
@@ -413,13 +533,15 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *ret
     Key key{
         .type = 2,
         .flag = luisa::to_underlying(op)};
+    key.arg_types.reserve(arg_types.size() + 1);
+    key.arg_types.emplace_back(return_type);
     vstd::push_back_all(key.arg_types, arg_types);
 
     return _gen_func(
         [&](luisa::string_view name) {
             auto ret_type_name = get_type_name(return_type);
             vstd::StringBuilder tmp_sb;
-            tmp_sb << "static " << ret_type_name << ' ' << name << '(';
+            tmp_sb << "inline " << ret_type_name << ' ' << name << '(';
             bool comma = false;
             size_t idx = 0;
             for (auto &i : arg_types) {
@@ -515,9 +637,9 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *ret
                     } else {
                         tmp_sb << "return ";
                         if (arg_types[2]->is_scalar()) {
-                            gen_vec_function(tmp_sb, "a2 ? a1.# : a0.#", Type::vector(Type::of<bool>(), arg_types[0]->dimension()));
+                            gen_vec_function(tmp_sb, "a2 ? a1.# : a0.#", return_type);
                         } else {
-                            gen_vec_function(tmp_sb, "a2.# ? a1.# : a0.#", Type::vector(Type::of<bool>(), arg_types[0]->dimension()));
+                            gen_vec_function(tmp_sb, "a2.# ? a1.# : a0.#", return_type);
                         }
                         tmp_sb << ';';
                     }
@@ -951,6 +1073,27 @@ luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *ret
                     gen_vec_function(tmp_sb, "a0.# / tmp", return_type);
                     tmp_sb << ';';
                 } break;
+                case CallOp::BUFFER_READ: {
+                    tmp_sb << "return ((";
+                    get_type_name(tmp_sb, return_type);
+                    tmp_sb << "*)(a0.ptr))[a1];";
+                } break;
+                case CallOp::BUFFER_WRITE: {
+                    tmp_sb << "((";
+                    get_type_name(tmp_sb, arg_types[2]);
+                    tmp_sb << "*)(a0.ptr))[a1] = a2;";
+                } break;
+                case CallOp::BYTE_BUFFER_READ: {
+                    tmp_sb << "return *((";
+                    get_type_name(tmp_sb, return_type);
+                    tmp_sb << "*)(a0.ptr + a1));";
+                } break;
+
+                case CallOp::BYTE_BUFFER_WRITE: {
+                    tmp_sb << "*((";
+                    get_type_name(tmp_sb, arg_types[2]);
+                    tmp_sb << "*)(a0.ptr + a1)) = a2;";
+                } break;
 
                 case CallOp::MAKE_BOOL2:
                 case CallOp::MAKE_BOOL3:
@@ -1034,7 +1177,7 @@ size_t Clanguage_CodegenUtils::func_index(Function f) {
     if (iter.second) {
         iter.first.value() = size;
     };
-    return size;
+    return iter.first.value();
 }
 void Clanguage_CodegenUtils::print_function_declare(vstd::StringBuilder &sb, Function func) {
     sb << "static ";
@@ -1050,25 +1193,20 @@ void Clanguage_CodegenUtils::print_function_declare(vstd::StringBuilder &sb, Fun
         get_type_name(sb, i.type());
         sb << ' ';
         if (i.tag() == Variable::Tag::REFERENCE) {
-            sb << '&';
+            sb << '*';
         }
         gen_var_name(sb, i);
     }
     sb << ')';
 }
-void Clanguage_CodegenUtils::print_kernel_declare(vstd::StringBuilder &sb, Function func, luisa::string_view entry_name) {
-#ifdef _MSC_VER
-    sb << "__declspec(dllexport) ";
-#else
-    sb << "__attribute__((visibility(" default "))) ";
-#endif
-    sb << "void " << entry_name << "(uint32_t3 thd_id, uint32_t3 blk_id, uint32_t3 dsp_id, uint32_t3 dsp_size, uint32_t3 ker_id";
+void Clanguage_CodegenUtils::print_kernel_declare(vstd::StringBuilder &sb, Function func) {
+    sb << "static void builtin_c4434d750cf64f0eae3f73cca8650b16(uint32_t3 thd_id, uint32_t3 blk_id, uint32_t3 dsp_id, uint32_t3 dsp_size, uint32_t3 ker_id";
     for (auto &i : func.arguments()) {
         sb << ", ";
         get_type_name(sb, i.type());
         sb << ' ';
         if (i.tag() == Variable::Tag::REFERENCE) {
-            sb << '&';
+            sb << '*';
         }
         gen_var_name(sb, i);
     }
@@ -1112,26 +1250,99 @@ void Clanguage_CodegenUtils::codegen(
     luisa::string const &path,
     luisa::string_view entry_name,
     Function func) {
-    struct_sb << "#include <header.h>\n";
+
+    struct_sb << "#include \"header.h\"\n";
     vstd::StringBuilder sb;
-    for (auto &i : func.custom_callables()) {
-        print_function_declare(sb, Function(i.get()));
-        sb << ";\n";
+    auto print_extern = [&]() {
+#ifdef _MSC_VER
+        sb << "__declspec(dllexport) ";
+#else
+        sb << "__attribute__((visibility(\"default\"))) ";
+#endif
+    };
+    auto find_all_custom_func = [&](auto &find_all_custom_func, Function func) -> void {
+        auto size = _custom_funcs.size();
+        auto iter = _custom_funcs.try_emplace(func.builder());
+        if (iter.second) {
+            iter.first.value() = size;
+            for (auto &i : func.custom_callables()) {
+                find_all_custom_func(find_all_custom_func, Function(i.get()));
+            }
+        };
+    };
+    find_all_custom_func(find_all_custom_func, func);
+    for (auto &i : _custom_funcs) {
+        if (i.first != func.builder()) {
+            print_function_declare(decl_sb, Function(i.first));
+            decl_sb << ";\n";
+        }
     }
-    for (auto &i : func.custom_callables()) {
+    for (auto &i : _custom_funcs) {
         CodegenVisitor visitor(
             sb,
             entry_name,
             *this,
-            Function(i.get()));
+            Function(i.first));
     }
-    {
-        CodegenVisitor visitor(
-            sb,
-            entry_name,
-            *this,
-            func);
+    print_extern();
+    sb << "uint32_t " << entry_name << "_arg_usage_c4434d750cf64f0eae3f73cca8650b16(uint32_t idx) {\nstatic const uint32_t usages[] = {";
+    if (func.arguments().empty()) {
+        sb << '0';
+    } else {
+        bool comma = false;
+        for (auto &i : func.arguments()) {
+            if(comma) {
+                sb << ", ";
+            }
+            comma = true;
+            sb << luisa::format("{}u", luisa::to_underlying(func.variable_usage(i.uid())));
+        }
     }
+    sb << "};\nreturn usages[idx];\n}\n";
+
+    print_extern();
+    auto blk_size = func.block_size();
+    sb << "uint32_t3 " << entry_name << "_block_size_c4434d750cf64f0eae3f73cca8650b16(){\nreturn (uint32_t3){"
+       << luisa::format("{}, {}, {}", blk_size.x, blk_size.y, blk_size.z)
+       << "};\n}\n";
+    print_extern();
+    sb << "uint64_t2 " << entry_name << "_args_md5_c4434d750cf64f0eae3f73cca8650b16(){\nreturn (uint64_t2){";
+    luisa::vector<char> arg_decs;
+    arg_decs.reserve(1024);
+    for (auto &i : func.arguments()) {
+        auto &&desc = i.type()->description();
+        vstd::push_back_all(arg_decs, desc.data(), desc.size());
+        arg_decs.emplace_back(' ');
+    }
+    vstd::MD5 md5{luisa::span{reinterpret_cast<uint8_t const *>(arg_decs.data()), arg_decs.size_bytes()}};
+    auto &md5_data = md5.to_binary();
+    PrintValue<uint64_t>{}(md5_data.data0, sb);
+    sb << ", ";
+    PrintValue<uint64_t>{}(md5_data.data1, sb);
+    sb << "};\n}\n";
+    sb << "typedef struct {\n";
+    size_t arg_idx = 0;
+    for (auto &i : func.arguments()) {
+        sb << "alignas(16) ";
+        get_type_name(sb, i.type());
+        sb << " a" << luisa::format("{}", arg_idx)
+           << ";\n";
+        ++arg_idx;
+    }
+    sb << "} Args;\n";
+#ifdef _MSC_VER
+    sb << "__declspec(dllexport) ";
+#else
+    sb << "__attribute__((visibility(\"default\"))) ";
+#endif
+
+    sb << " void " << entry_name << "(uint32_t3 thd_id, uint32_t3 blk_id, uint32_t3 dsp_id, uint32_t3 dsp_size, uint32_t3 ker_id, Args* args){\nbuiltin_c4434d750cf64f0eae3f73cca8650b16(thd_id, blk_id, dsp_id, dsp_size, ker_id";
+    arg_idx = 0;
+    for (auto &i : func.arguments()) {
+        sb << ", args->a" << luisa::format("{}", arg_idx);
+        arg_idx++;
+    }
+    sb << ");\n}\n";
     auto f = fopen(path.c_str(), "wb");
     if (f) {
         if (struct_sb.size() > 0)
@@ -1143,6 +1354,32 @@ void Clanguage_CodegenUtils::codegen(
         fclose(f);
     }
     // order: struct_cb, decl_sb, sb
+}
+luisa::string_view Clanguage_CodegenUtils::validate_external_func(luisa::string_view name, Type const *ret_type, luisa::span<Type const *const> arg_types) {
+    auto iter = c_codegen_detail::extern_table.map.find(name);
+    if (!iter) {
+        return name;
+    }
+    auto &&func_generator = iter.value();
+    if (func_generator.index() == 0) {
+        auto &&kv = luisa::get<0>(func_generator);
+        Key key;
+        key.type = 4;
+        key.flag = kv.first;
+        key.arg_types.reserve(arg_types.size());
+        key.arg_types.emplace_back(ret_type);
+        vstd::push_back_all(key.arg_types, arg_types);
+        return _gen_func(
+            [&](luisa::string_view func_name) {
+                kv.second(*this, decl_sb, func_name, ret_type, arg_types);
+            },
+            std::move(key));
+    } else {
+        if (!luisa::get<1>(func_generator)(ret_type, arg_types)) {
+            LUISA_ERROR("Function {} argument type not match.", name);
+        }
+        return name;
+    }
 }
 Clanguage_CodegenUtils::Clanguage_CodegenUtils() = default;
 Clanguage_CodegenUtils::~Clanguage_CodegenUtils() = default;
