@@ -198,21 +198,38 @@ CUDADevice::CUDADevice(Context &&ctx,
     }
     // test if the device runtime library is recognized by the driver
     if (!_cudadevrt_library.empty()) {
+        // generate some non-sense kernel source with dynamic parallelism
+        auto dummy_kernel_src = R"(__global__ void a() {} __global__ void b() { a<<<1,1>>>(); })";
+        auto dummy_ptx = _compiler->compile(builtin_kernel_src, "luisa_builtin.cu", options);
+        void *output_cubin = nullptr;
+        size_t output_cubin_size = 0u;
         with_handle([&] {
             CUlinkState link_state{};
             LUISA_CHECK_CUDA(cuLinkCreate(0u, nullptr, nullptr, &link_state));
-            if (cuLinkAddData(link_state, CU_JIT_INPUT_LIBRARY,
-                              _cudadevrt_library.data(), _cudadevrt_library.size(),
-                              "cudadevrt", 0u, nullptr, nullptr)
-                != CUDA_SUCCESS) {
+            auto report_failure_and_clear_library = [&](auto phase) {
                 LUISA_WARNING_WITH_LOCATION(
                     "Found CUDA device runtime library '{}', but the driver does not "
-                    "recognize it. Indirect kernel dispatch will not be available.",
-                    device_runtime_lib_path.string());
+                    "recognize it when {}. Indirect kernel dispatch will not be available.",
+                    device_runtime_lib_path.string(), phase);
                 _cudadevrt_library.clear();
+            };
+            if (cuLinkAddData(link_state, CU_JIT_INPUT_PTX,
+                dummy_ptx.data(), dummy_ptx.size(),
+                "dummy_kernel", 0u, nullptr, nullptr) != CUDA_SUCCESS) {
+                report_failure_and_clear_library("adding the kernel PTX");
+            } else if (cuLinkAddData(link_state, CU_JIT_INPUT_LIBRARY,
+                              _cudadevrt_library.data(), _cudadevrt_library.size(),
+                              "cudadevrt", 0u, nullptr, nullptr) != CUDA_SUCCESS) {
+                report_failure_and_clear_library("adding the device runtime library");
+            } else if (cuLinkComplete(link_state, &output_cubin, &output_cubin_size) != CUDA_SUCCESS) {
+                report_failure_and_clear_library("completing linking");
             }
             LUISA_CHECK_CUDA(cuLinkDestroy(link_state));
         });
+    }
+    if (!_cudadevrt_library.empty()) {
+        LUISA_VERBOSE("Successfully loaded CUDA device runtime library. "
+                      "Indirect dispatch feature is available.");
     }
 }
 
@@ -663,19 +680,19 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
     auto sm_option = luisa::format("-arch=compute_{}", _handle.compute_capability());
     auto nvrtc_version_option = luisa::format("-DLC_NVRTC_VERSION={}", _compiler->nvrtc_version());
     auto optix_version_option = luisa::format("-DLC_OPTIX_VERSION={}", optix::VERSION);
-    luisa::vector<const char *> nvrtc_options {
+    luisa::vector<const char *> nvrtc_options{
         sm_option.c_str(),
-            nvrtc_version_option.c_str(),
-            optix_version_option.c_str(),
-            "--std=c++17",
-            "-default-device",
-            "-restrict",
-            "-extra-device-vectorization",
-            "-dw",
-            "-w",
-            "-ewp",
+        nvrtc_version_option.c_str(),
+        optix_version_option.c_str(),
+        "--std=c++17",
+        "-default-device",
+        "-restrict",
+        "-extra-device-vectorization",
+        "-dw",
+        "-w",
+        "-ewp",
 #if !defined(NDEBUG) && LUISA_CUDA_KERNEL_DEBUG
-            "-DLUISA_DEBUG=1",
+        "-DLUISA_DEBUG=1",
 #endif
     };
 
