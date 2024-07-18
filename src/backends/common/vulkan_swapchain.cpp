@@ -170,6 +170,15 @@ private:
         create_info.pView = cocoa_window_content_view(window_handle);
         LUISA_CHECK_VULKAN(vkCreateMacOSSurfaceMVK(_instance->handle(), &create_info, nullptr, &_surface));
 #else
+        static std::once_flag set_xlib_error_handler;
+        std::call_once(set_xlib_error_handler, [] {
+            XSetErrorHandler([](Display *display, XErrorEvent *error) noexcept {
+                char buffer[256] = {};
+                XGetErrorText(display, error->error_code, buffer, sizeof(buffer));
+                LUISA_WARNING_WITH_LOCATION("Xlib error: {}", buffer);
+                return 0;
+            });
+        });
         auto create_surface_xlib = [&] {
             VkXlibSurfaceCreateInfoKHR create_info{};
             create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
