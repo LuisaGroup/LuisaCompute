@@ -3,6 +3,9 @@
 #include <luisa/core/logging.h>
 #include "stream.h"
 #include "shader.h"
+#include "../common/c_codegen/codegen_utils.h"
+#include "../common/c_codegen/codegen_visitor.h"
+#include <luisa/core/stl/filesystem.h>
 namespace lc::toy_c {
 using namespace luisa;
 using namespace luisa::compute;
@@ -20,7 +23,7 @@ public:
     BufferCreationInfo create_buffer(
         const Type *element,
         size_t elem_count,
-        void *external_memory /* nullptr if now imported from external memory */) {
+        void *external_memory /* nullptr if now imported from external memory */) override {
         BufferCreationInfo bf;
         bf.element_stride = element->size(),
         bf.total_size_bytes = elem_count * element->size();
@@ -75,8 +78,10 @@ public:
 
     // kernel
     ShaderCreationInfo create_shader(const ShaderOption &option, Function kernel) noexcept override {
-        LUISA_ERROR("Not supported.");
-        return {};
+        Clanguage_CodegenUtils codegen;
+        auto kernel_name = luisa::to_string(luisa::filesystem::path{option.name}.filename().replace_extension());
+        codegen.codegen(option.name, kernel_name, kernel);
+        return ShaderCreationInfo::make_invalid();
     }
     ShaderCreationInfo create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept override {
         LUISA_ERROR("Not supported.");

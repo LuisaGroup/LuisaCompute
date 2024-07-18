@@ -227,6 +227,8 @@ uint64_t persist_malloc(uint64_t size);
 uint64_t temp_malloc(uint64_t size);
 void persist_free(uint64_t ptr);
 ///////////////// implement
+#include <string.h>
+#include <stdlib.h>
 inline float4 float4_mul(float4 a, float4 b) {
     return (float4){a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w};
 }
@@ -297,7 +299,6 @@ uint64_t persist_malloc(uint64_t size) {
     return (uint64_t)malloc(size);
 }
 uint64_t temp_malloc(uint64_t size) {
-    // TODO
     return (uint64_t)malloc(size);
 }
 void persist_free(uint64_t ptr) {

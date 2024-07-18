@@ -304,6 +304,13 @@ void CodegenVisitor::visit(const CallExpr *expr) {
                << luisa::format("{}", args[0]->type()->size())
                << ')';
         } break;
+        case CallOp::ONE: {
+            sb << "memone(&(";
+            args[0]->accept(*this);
+            sb << "), "
+               << luisa::format("{}", args[0]->type()->size())
+               << ')';
+        } break;
         default: {
             luisa::fixed_vector<Type const *, 4> types;
             vstd::push_back_func(types, args.size(), [&](size_t i) { return args[i]->type(); });
