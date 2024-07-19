@@ -24,16 +24,8 @@ public:
         const Type *element,
         size_t elem_count,
         void *external_memory /* nullptr if now imported from external memory */) override {
-        BufferCreationInfo bf;
-        bf.element_stride = element->size(),
-        bf.total_size_bytes = elem_count * element->size();
-        if (external_memory) {
-            bf.native_handle = external_memory;
-        } else {
-            bf.native_handle = luisa::detail::allocator_allocate(bf.total_size_bytes, 0);
-        }
-        bf.handle = (uint64_t)bf.native_handle;
-        return bf;
+        LUISA_ERROR("Not supported.");
+        return {};
     }
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element,
                                      size_t elem_count,
@@ -41,7 +33,7 @@ public:
         LUISA_ERROR("Not supported.");
     }
     void destroy_buffer(uint64_t handle) noexcept override {
-        luisa::detail::allocator_deallocate((void *)handle, 0);
+        LUISA_ERROR("Not supported.");
     }
     ResourceCreationInfo create_texture(
         PixelFormat format, uint dimension,

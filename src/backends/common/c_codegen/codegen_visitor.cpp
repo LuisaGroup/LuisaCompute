@@ -105,13 +105,33 @@ void CodegenVisitor::visit(const MemberExpr *expr) {
     }
 }
 void CodegenVisitor::visit(const AccessExpr *expr) {
-    sb << "GET(";
-    utils.get_type_name(sb, expr->type());
-    sb << ", ";
-    expr->range()->accept(*this);
-    sb << ", ";
-    expr->index()->accept(*this);
-    sb << ')';
+    bool is_deref = false;
+    if (expr->index()->tag() == Expression::Tag::LITERAL) {
+        auto lit = static_cast<LiteralExpr const *>(expr->index());
+        is_deref = luisa::visit(
+            [&]<typename T>(T const &t) {
+                if constexpr (std::is_integral_v<T> || std::is_floating_point_v<T>) {
+                    return t == 0;
+                }
+                return false;
+            },
+            lit->value());
+    }
+    if (is_deref) {
+        sb << "DEREF(";
+        utils.get_type_name(sb, expr->type());
+        sb << ", ";
+        expr->range()->accept(*this);
+        sb << ')';
+    } else {
+        sb << "ACCESS(";
+        utils.get_type_name(sb, expr->type());
+        sb << ", ";
+        expr->range()->accept(*this);
+        sb << ", ";
+        expr->index()->accept(*this);
+        sb << ')';
+    }
 }
 void CodegenVisitor::visit(const LiteralExpr *expr) {
     sb << '(';

@@ -977,7 +977,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             current = fb->unary(lcReturnType, lcUnaop, lcArgs[0]);
                     } else if (isAccess) {
                         if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc())) {
-                            current = fb->access(lcReturnType, lcArgs[0], lcArgs[1]);
+                            if (lcArgs.size() >= 2) {
+                                current = fb->access(lcReturnType, lcArgs[0], lcArgs[1]);
+                            } else {
+                                current = fb->access(lcReturnType, lcArgs[0], fb->literal(Type::of<int32_t>(), int32_t(0)));
+                            }
                         }
                     } else if (!exprName.empty()) {
                         if (exprName == "dispatch_id")
@@ -1025,9 +1029,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             arg_types[i] = lcArgs[i]->type();
                         }
                         auto get_ext_func = [&](ExternalFunction &&ext_func) -> auto & {
-                            auto iter = db->ext_funcs.try_emplace(ext_func.hash(), vstd::lazy_eval([&](){
-                                return luisa::make_shared<ExternalFunction>(std::move(ext_func));
-                            }));
+                            auto iter = db->ext_funcs.try_emplace(ext_func.hash(), vstd::lazy_eval([&]() {
+                                                                      return luisa::make_shared<ExternalFunction>(std::move(ext_func));
+                                                                  }));
                             return iter.first->second;
                         };
                         if (call->getCallReturnType(*astContext)->isVoidType()) {

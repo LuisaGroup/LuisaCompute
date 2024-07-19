@@ -32,12 +32,6 @@ struct ExternalTable {
 
     vstd::HashMap<vstd::string, Var> map;
     ExternalTable() {
-        map.emplace(
-            "to_buffer",
-            +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
-                if (!(ret_type && ret_type->is_buffer())) return false;
-                return (args.size() == 2 && is_integer(args[0]) && is_integer(args[1]));
-            });
         auto ptr = +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
             if (!ret_type->is_int32()) {
                 return false;
@@ -56,12 +50,6 @@ struct ExternalTable {
         map.emplace(
             "lc_memmove",
             ptr);
-        map.emplace(
-            "CAST_BF",
-            +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
-                if (!ret_type->is_buffer()) return false;
-                return args.size() == 1 && args[0]->is_buffer();
-            });
         ptr = +[](Type const *ret_type, luisa::span<Type const *const> args) -> bool {
             if (!ret_type->is_uint64()) return false;
             return args.size() == 1 && is_integer(args[0]);
@@ -104,7 +92,7 @@ struct ExternalTable {
                 utils.get_type_name(sb, ret_type);
                 sb << "(*Fn)(";
                 comma = false;
-                for (auto &i : args) {
+                for (auto &i : args.subspan(1)) {
                     if (comma) {
                         sb << ", ";
                     }
@@ -120,7 +108,7 @@ struct ExternalTable {
                     comma = true;
                     sb << luisa::format("a{}", i);
                 }
-                sb << ");\n}";
+                sb << ");\n}\n";
             });
     }
 };
@@ -296,10 +284,10 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
             sb << "uint32_t"sv;
             return;
         case Type::Tag::FLOAT16:
-            sb << "float16_t"sv;
+            LUISA_ERROR("Half not supported.");
             return;
         case Type::Tag::FLOAT64:
-            sb << "float64_t"sv;
+            sb << "double"sv;
             return;
         case Type::Tag::INT16:
             sb << "int16_t"sv;
@@ -355,7 +343,7 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
                 vstd::to_string(type->alignment(), struct_sb);
                 struct_sb << ") {\n";
                 get_type_name(struct_sb, type->element());
-                struct_sb << " v[";
+                struct_sb << " v0[";
                 vstd::to_string(type->dimension(), struct_sb);
                 struct_sb << "];\n} " << type_name << ";\n";
             }

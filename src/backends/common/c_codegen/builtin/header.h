@@ -117,8 +117,8 @@ typedef struct alignas(16) {
 } float4x4;
 
 typedef struct {
-    uint64_t ptr;
-    uint64_t len;
+    uint64_t v0;
+    uint64_t v1;
 } buffer_type;
 
 inline float2x2 make_float2x2_0(float2 a, float2 b) {
@@ -197,7 +197,9 @@ inline buffer_type to_buffer(uint64_t ptr, uint64_t len) {
     return (buffer_type){ptr, len};
 }
 #define GET(ELE, value, index) (((ELE *)&(value))[index])
-#define ADDR_OF(value) ((uint64_t) & (value))
+#define ACCESS(ELE, value, index) (((ELE *)(value).v0)[index])
+#define DEREF(ELE, value) (*((ELE *)(value).v0))
+#define ADDR_OF(value) ((uint64_t)&(value))
 #define CAST_BF(x) (x)
 
 inline float determinant_float2x2(float2x2 m) {
