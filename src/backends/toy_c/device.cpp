@@ -4,17 +4,136 @@
 #include "stream.h"
 #include "shader.h"
 #include "../common/c_codegen/codegen_utils.h"
-#include "../common/c_codegen/codegen_visitor.h"
+#include <luisa/backends/ext/toy_c_ext.h>
 #include <luisa/core/stl/filesystem.h>
+#include "memory_manager.h"
+#include "../common/shader_print_formatter.h"
 namespace lc::toy_c {
 using namespace luisa;
 using namespace luisa::compute;
 class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
 public:
     DynamicModule dyn_module;
+    vstd::optional<MemoryManager> manager;
     LCDevice(Context &&ctx, DeviceConfig const *settings)
         : DeviceInterface(std::move(ctx)) {
-        dyn_module = DynamicModule::load("lc-script");
+        if (!settings->headless) {
+            if (!settings->extension) [[unlikely]] {
+                LUISA_ERROR("DeviceConfig::extension must be an instance of luisa::compute::ToyCDeviceConfig.");
+            }
+            manager.create();
+            auto ext = static_cast<ToyCDeviceConfig *>(settings->extension.get());
+            auto module_name = ext->dynamic_module_name();
+            dyn_module = DynamicModule::load(module_name);
+            if (!dyn_module) [[unlikely]] {
+                LUISA_ERROR("Dynamic module {} not found.", module_name);
+            }
+            auto func_name = ext->set_func_table_name();
+            vstd::func_ptr_t<void(void *)> set_functable = dyn_module.function<void(void *)>(func_name);
+            if (!set_functable) [[unlikely]] {
+                LUISA_ERROR("{} not found.", func_name);
+            }
+            typedef struct {
+                void *(*persist_malloc)(size_t);
+                void *(*temp_malloc)(size_t);
+                void (*persist_free)(void *);
+                void (*push_print_str)(char const *ptr, uint64_t len);
+                void (*push_print_value)(void *value, uint32_t type);
+                void (*print)();
+            } FuncTable;
+            FuncTable table{
+                .persist_malloc = vengine_malloc,
+                .temp_malloc = +[](size_t size) -> void * {
+                    auto handle = MemoryManager::get_tlocal_ctx()->temp_alloc.allocate(size);
+                    return (void *)(handle.handle + handle.offset);
+                },
+                .persist_free = vengine_free,
+                .push_print_str =
+                    +[](char const *ptr, uint64_t len) {
+                        MemoryManager::get_tlocal_ctx()->print_format = luisa::string_view(ptr, len);
+                    },
+                .push_print_value =
+                    +[](void *value, uint32_t type) {
+                        auto ctx = MemoryManager::get_tlocal_ctx();
+                        switch (type) {
+                            case 0: ctx->print_values.emplace_back(*((bool *)value)); break;
+                            case 1: ctx->print_values.emplace_back(*((bool2 *)value)); break;
+                            case 2: ctx->print_values.emplace_back(*((bool3 *)value)); break;
+                            case 3: ctx->print_values.emplace_back(*((bool4 *)value)); break;
+                            case 4: ctx->print_values.emplace_back(*((float *)value)); break;
+                            case 5: ctx->print_values.emplace_back(*((double *)value)); break;
+                            case 6: ctx->print_values.emplace_back(*((int32_t *)value)); break;
+                            case 7: ctx->print_values.emplace_back(*((int8_t *)value)); break;
+                            case 8: ctx->print_values.emplace_back(*((int16_t *)value)); break;
+                            case 9: ctx->print_values.emplace_back(*((int64_t *)value)); break;
+                            case 10: ctx->print_values.emplace_back(*((uint32_t *)value)); break;
+                            case 11: ctx->print_values.emplace_back(*((uint8_t *)value)); break;
+                            case 12: ctx->print_values.emplace_back(*((uint16_t *)value)); break;
+                            case 13: ctx->print_values.emplace_back(*((uint64_t *)value)); break;
+                            case 14: ctx->print_values.emplace_back(*((float2 *)value)); break;
+                            case 15: ctx->print_values.emplace_back(*((double2 *)value)); break;
+                            case 16: ctx->print_values.emplace_back(*((int2 *)value)); break;
+                            case 17: ctx->print_values.emplace_back(*((byte2 *)value)); break;
+                            case 18: ctx->print_values.emplace_back(*((short2 *)value)); break;
+                            case 19: ctx->print_values.emplace_back(*((slong2 *)value)); break;
+                            case 20: ctx->print_values.emplace_back(*((uint2 *)value)); break;
+                            case 21: ctx->print_values.emplace_back(*((ubyte2 *)value)); break;
+                            case 22: ctx->print_values.emplace_back(*((ushort2 *)value)); break;
+                            case 23: ctx->print_values.emplace_back(*((ulong2 *)value)); break;
+                            case 24: ctx->print_values.emplace_back(*((float3 *)value)); break;
+                            case 25: ctx->print_values.emplace_back(*((double3 *)value)); break;
+                            case 26: ctx->print_values.emplace_back(*((int3 *)value)); break;
+                            case 27: ctx->print_values.emplace_back(*((byte3 *)value)); break;
+                            case 28: ctx->print_values.emplace_back(*((short3 *)value)); break;
+                            case 29: ctx->print_values.emplace_back(*((slong3 *)value)); break;
+                            case 30: ctx->print_values.emplace_back(*((uint3 *)value)); break;
+                            case 31: ctx->print_values.emplace_back(*((ubyte3 *)value)); break;
+                            case 32: ctx->print_values.emplace_back(*((ushort3 *)value)); break;
+                            case 33: ctx->print_values.emplace_back(*((ulong3 *)value)); break;
+                            case 34: ctx->print_values.emplace_back(*((float4 *)value)); break;
+                            case 35: ctx->print_values.emplace_back(*((double4 *)value)); break;
+                            case 36: ctx->print_values.emplace_back(*((int4 *)value)); break;
+                            case 37: ctx->print_values.emplace_back(*((byte4 *)value)); break;
+                            case 38: ctx->print_values.emplace_back(*((short4 *)value)); break;
+                            case 39: ctx->print_values.emplace_back(*((slong4 *)value)); break;
+                            case 40: ctx->print_values.emplace_back(*((uint4 *)value)); break;
+                            case 41: ctx->print_values.emplace_back(*((ubyte4 *)value)); break;
+                            case 42: ctx->print_values.emplace_back(*((ushort4 *)value)); break;
+                            case 43: ctx->print_values.emplace_back(*((ulong4 *)value)); break;
+                            case 44: ctx->print_values.emplace_back(*((float2x2 *)value)); break;
+                            case 45: ctx->print_values.emplace_back(*((float3x3 *)value)); break;
+                            case 46: ctx->print_values.emplace_back(*((float4x4 *)value)); break;
+                        }
+                    },
+                .print = +[]() {
+                    auto ctx = MemoryManager::get_tlocal_ctx();
+                    if(!ctx->stream->print_callback) return;
+                    luisa::vector<Type const*> types;
+                    vstd::push_back_func(types, ctx->print_values.size(), [&](size_t i){
+                        return luisa::visit([&]<typename T>(T const& t){
+                            return Type::of<T>();
+                        }, ctx->print_values[i]);
+                    });
+                    auto str_type = Type::structure(types);
+                    luisa::vector<std::byte> bytes;
+                    bytes.reserve(str_type->size());
+                    for(auto i : vstd::range(types.size())){
+                        auto type = types[i];
+                        auto start_idx = (bytes.size() + type->alignment() - 1) & (~(type->alignment() - 1));
+                        bytes.resize_uninitialized(start_idx + type->size());
+                        luisa::visit([&]<typename T>(T const& t){
+                            std::memcpy(bytes.data() + start_idx, &t, type->size());
+                        }, ctx->print_values[i]);
+                    }
+                    
+                    ShaderPrintFormatter fmt{ctx->print_format, str_type, false};
+                    luisa::string str;
+                    fmt(str, bytes);
+                    ctx->stream->print_callback(str);
+                    ctx->print_format = {};
+                    ctx->print_values.clear(); }};
+            set_functable(&table);
+        }
     }
     void *native_handle() const noexcept override { return nullptr; }
     uint compute_warp_size() const noexcept override {
@@ -194,12 +313,12 @@ public:
     }
     void dispatch(
         uint64_t stream_handle, CommandList &&list) noexcept override {
-        reinterpret_cast<LCStream *>(stream_handle)->dispatch(std::move(list));
+        reinterpret_cast<LCStream *>(stream_handle)->dispatch(*manager, std::move(list));
     }
     void set_stream_log_callback(
         uint64_t stream_handle,
         const StreamLogCallback &callback) noexcept override {
-        LUISA_ERROR("TODO");
+        reinterpret_cast<LCStream *>(stream_handle)->print_callback = callback;
     }
     ShaderCreationInfo load_shader(luisa::string_view name, luisa::span<const Type *const> arg_types) noexcept override {
         auto ptr = new LCShader(dyn_module, arg_types, name);
@@ -218,5 +337,8 @@ VSTL_EXPORT_C DeviceInterface *create(Context &&c, DeviceConfig const *settings)
 }
 VSTL_EXPORT_C void destroy(DeviceInterface *device) {
     delete static_cast<LCDevice *>(device);
+}
+VSTL_EXPORT_C void backend_device_names(luisa::vector<luisa::string> &r) {
+    r.clear();
 }
 }// namespace lc::toy_c

@@ -1,5 +1,6 @@
 #include "shader.h"
 #include <luisa/core/fiber.h>
+#include "memory_manager.h"
 namespace lc::toy_c {
 LCShader::LCShader(DynamicModule &dyn_module, luisa::span<const Type *const> arg_types, luisa::string_view kernel_name) {
     kernel = dyn_module.function<void(uint3 thd_id, uint3 blk_id, uint3 dsp_id, uint3 dsp_size, uint3 ker_id, void *args)>(kernel_name);
@@ -58,7 +59,7 @@ void LCShader::_emplace_arg(luisa::span<const Argument> arguments, std::byte con
         }
     }
 }
-void LCShader::dispatch(uint3 size, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer) {
+void LCShader::dispatch(LCStream *stream, MemoryManager &manager, uint3 size, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer) {
     _emplace_arg(arguments, uniform_data, arg_buffer);
     auto disp_count = (size + block_size - 1u) / block_size;
 
@@ -76,6 +77,8 @@ void LCShader::dispatch(uint3 size, luisa::span<const Argument> arguments, std::
             uint3 start_idx = block_idx * block_size;
             uint3 end_idx = min(size, (block_idx + 1u) * block_size);
             uint3 disp_count = end_idx - start_idx;
+            manager.alloc_tlocal_ctx();
+            MemoryManager::get_tlocal_ctx()->stream = stream;
             for (uint z = 0; z < disp_count.z; ++z)
                 for (uint y = 0; y < disp_count.y; ++y)
                     for (uint x = 0; x < disp_count.x; ++x) {
@@ -87,6 +90,7 @@ void LCShader::dispatch(uint3 size, luisa::span<const Argument> arguments, std::
                             uint3(0),
                             arg_buffer.data());
                     }
+            manager.dealloc_tlocal_ctx();
         },
         1);
 }
@@ -112,10 +116,10 @@ template<class F>
     }
 }
 }// namespace detail
-void LCShader::dispatch(luisa::span<uint3 const> sizes, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer) {
+void LCShader::dispatch(LCStream *stream, MemoryManager &manager, luisa::span<uint3 const> sizes, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer) {
     if (sizes.empty()) return;
     if (sizes.size() == 1) {
-        dispatch(sizes[0], arguments, uniform_data, arg_buffer);
+        dispatch(stream, manager, sizes[0], arguments, uniform_data, arg_buffer);
     }
     _emplace_arg(arguments, uniform_data, arg_buffer);
     luisa::fiber::counter evt;
@@ -125,28 +129,33 @@ void LCShader::dispatch(luisa::span<uint3 const> sizes, luisa::span<const Argume
             evt,
             disp_count.x * disp_count.y * disp_count.z,
             [&](uint idx) {
-            uint3 block_idx;
-            uint xy = block_size.x * block_size.y;
-            block_idx.z = idx / xy;
-            idx -= block_idx.z * xy;
-            block_idx.y = idx / block_size.x;
-            idx -= block_idx.y * block_size.x;
-            block_idx.x = idx;
+                uint3 block_idx;
+                uint xy = block_size.x * block_size.y;
+                block_idx.z = idx / xy;
+                idx -= block_idx.z * xy;
+                block_idx.y = idx / block_size.x;
+                idx -= block_idx.y * block_size.x;
+                block_idx.x = idx;
 
-            uint3 start_idx = block_idx * block_size;
-            uint3 end_idx = min(size, (block_idx + 1u) * block_size);
-            uint3 disp_count = end_idx - start_idx;
-            for (uint z = 0; z < disp_count.z; ++z)
-                for (uint y = 0; y < disp_count.y; ++y)
-                    for (uint x = 0; x < disp_count.x; ++x) {
-                        kernel(
-                            uint3(x, y, z),
-                            block_idx,
-                            start_idx + uint3(x, y, z),
-                            size,
-                            uint3(0),
-                            arg_buffer.data());
-                    } }, 1);
+                uint3 start_idx = block_idx * block_size;
+                uint3 end_idx = min(size, (block_idx + 1u) * block_size);
+                uint3 disp_count = end_idx - start_idx;
+                manager.alloc_tlocal_ctx();
+                MemoryManager::get_tlocal_ctx()->stream = stream;
+                for (uint z = 0; z < disp_count.z; ++z)
+                    for (uint y = 0; y < disp_count.y; ++y)
+                        for (uint x = 0; x < disp_count.x; ++x) {
+                            kernel(
+                                uint3(x, y, z),
+                                block_idx,
+                                start_idx + uint3(x, y, z),
+                                size,
+                                uint3(0),
+                                arg_buffer.data());
+                        }
+                manager.dealloc_tlocal_ctx();
+            },
+            1);
     }
     evt.wait();
 }

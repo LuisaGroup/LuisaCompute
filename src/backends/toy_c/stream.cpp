@@ -3,11 +3,12 @@
 #include <luisa/core/fiber.h>
 namespace lc::toy_c {
 LCStream::LCStream() : _evt(luisa::fiber::event::Mode::Manual, true) {
+    
 }
-void LCStream::dispatch(CommandList &&cmdlist) {
+void LCStream::dispatch(MemoryManager &manager, CommandList &&cmdlist) {
     luisa::fiber::event new_evt;
     luisa::fiber::schedule(
-        luisa::SharedFunction<void()>{[this, _evt = std::move(_evt), new_evt, cmdlist = std::move(cmdlist)]() mutable {
+        luisa::SharedFunction<void()>{[this, &manager, _evt = std::move(_evt), new_evt, cmdlist = std::move(cmdlist)]() mutable {
             _evt.wait();
             auto sig = vstd::scope_exit([&]() {
                 new_evt.signal();
@@ -25,12 +26,16 @@ void LCStream::dispatch(CommandList &&cmdlist) {
                     LUISA_ERROR("Backend do not support indirect dispatch.");
                 } else if (cmd->is_multiple_dispatch()) {
                     shader->dispatch(
+                        this,
+                        manager,
                         cmd->dispatch_sizes(),
                         arg_buffer,
                         reinterpret_cast<std::byte const *>(arg_buffer.data()),
                         arg_alloc);
                 } else {
                     shader->dispatch(
+                        this,
+                        manager,
                         cmd->dispatch_size(),
                         arg_buffer,
                         reinterpret_cast<std::byte const *>(arg_buffer.data()),

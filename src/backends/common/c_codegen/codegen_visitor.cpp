@@ -312,10 +312,12 @@ void CodegenVisitor::visit(const CallExpr *expr) {
             }
         } break;
         case CallOp::TRANSPOSE: {
-            // TODO
+            sb << "transpose_";
+            utils.get_type_name(sb, expr->type());
         } break;
         case CallOp::INVERSE: {
-            // TODO
+            sb << "inverse_";
+            utils.get_type_name(sb, expr->type());
         } break;
         case CallOp::ZERO: {
             sb << "memzero(&(";
@@ -454,9 +456,9 @@ void CodegenVisitor::visit(const PrintStmt *stmt) {
            << ',';
     };
     sb
-        << ",0};\n"
+        << "0};\n"
            "push_str(print_str, "
-        << luisa::format("{}", stmt->format().size())
+        << luisa::format("{}ull", stmt->format().size())
         << ");\n";
     for (auto &i : stmt->arguments()) {
         sb << "push_";
