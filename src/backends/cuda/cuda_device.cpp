@@ -198,9 +198,10 @@ CUDADevice::CUDADevice(Context &&ctx,
     }
     // test if the device runtime library is recognized by the driver
     if (!_cudadevrt_library.empty()) {
+        // TODO: this check can consume hundreds of milliseconds! Is there a better way?
         // generate some non-sense kernel source with dynamic parallelism
-        auto dummy_kernel_src = R"(__global__ void a() {} __global__ void b() { a<<<1,1>>>(); })";
-        auto dummy_ptx = _compiler->compile(builtin_kernel_src, "luisa_builtin.cu", options);
+        auto dummy_kernel_src = R"(__global__ void a() {} __global__ void b() { a<<<1024,32>>>(); })";
+        auto dummy_ptx = _compiler->compile(dummy_kernel_src, "dummy_devrt_check.cu", options);
         void *output_cubin = nullptr;
         size_t output_cubin_size = 0u;
         with_handle([&] {
