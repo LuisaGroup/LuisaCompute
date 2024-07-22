@@ -141,8 +141,10 @@ void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *e
     if (!stmt)
         clangcxx_log_error("unknown error: SetExpr with nullptr!");
     if (expr_map.contains(stmt)) {
-        stmt->dump();
-        clangcxx_log_error("unknown error: SetExpr with existed!");
+        // TODO: ignore template case.
+        // stmt->dump();
+        // clangcxx_log_error("unknown error: SetExpr with existed!");
+        return;
     }
     expr_map[stmt] = expr;
 }
