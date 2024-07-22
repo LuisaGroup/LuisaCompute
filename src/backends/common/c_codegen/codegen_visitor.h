@@ -18,6 +18,7 @@ public:
     void visit(const CastExpr *) override;
     void visit(const TypeIDExpr *) override;
     void visit(const StringIDExpr *) override;
+    void visit(const FuncRefExpr *) override;
 
     void visit(const BreakStmt *) override;
     void visit(const ContinueStmt *) override;

@@ -71,6 +71,7 @@ inline static bool isDump(const clang::AnnotateAttr *Anno) { return isLuisaAttri
 inline static bool isIgnore(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "ignore"); }
 inline static bool isByPass(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "bypass"); }
 inline static bool isAccess(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "access"); }
+inline static bool isFuncRef(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "funcref"); }
 inline static bool isCallop(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "callop"); }
 inline static bool isExtCall(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "ext_call"); }
 inline static bool isBuiltinType(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "builtin"); }

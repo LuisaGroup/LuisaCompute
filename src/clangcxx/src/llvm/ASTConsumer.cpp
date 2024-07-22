@@ -925,6 +925,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     llvm::StringRef unaopName = {};
                     llvm::StringRef exprName = {};
                     bool isAccess = false;
+                    bool isFuncRef = false;
                     for (auto attr : calleeDecl->specific_attrs<clang::AnnotateAttr>()) {
                         if (callopName.empty())
                             callopName = getCallopName(attr);
@@ -937,6 +938,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         if (exprName.empty())
                             exprName = getExprName(attr);
                         isAccess |= luisa::clangcxx::isAccess(attr);
+                        isFuncRef |= luisa::clangcxx::isFuncRef(attr);
                     }
                     // args
                     luisa::string printer_str;
@@ -953,6 +955,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         else if (auto _str_literal = llvm::dyn_cast<clang::StringLiteral>(arg)) {
                             auto &&str = _str_literal->getString();
                             printer_str = luisa::string{reinterpret_cast<char const *>(str.bytes_begin()), str.size()};
+                        } else if (auto _decl_ref_expr = llvm::dyn_cast<clang::DeclRefExpr>(arg)) {
+                            // TODO
                         } else {
                             db->DumpWithLocation(arg);
                             clangcxx_log_error("unfound arg: {}", arg->getStmtClassName());

@@ -698,6 +698,28 @@ void FunctionBuilder::call(luisa::shared_ptr<const ExternalFunction> func,
 }
 
 // call custom functions
+
+const FuncRefExpr *FunctionBuilder::func_ref(Function custom) noexcept {
+    if (custom.tag() != Function::Tag::CALLABLE) {
+        LUISA_ERROR_WITH_LOCATION(
+            "Calling non-callable function in device code.");
+    }
+    auto f = custom.builder();
+    auto expr = _create_expression<FuncRefExpr>(custom.builder());
+    if (auto iter = std::find_if(
+            _used_custom_callables.cbegin(), _used_custom_callables.cend(),
+            [&](auto &&p) noexcept { return f == p.get(); });
+        iter == _used_custom_callables.cend()) {
+        _used_custom_callables.emplace_back(custom.shared_builder());
+        // propagate used builtin/custom callables and constants
+        _propagated_builtin_callables.propagate(f->_propagated_builtin_callables);
+        _required_curve_bases.propagate(f->_required_curve_bases);
+        _requires_atomic_float |= f->_requires_atomic_float;
+        _requires_printing |= f->_requires_printing;
+    }
+    return expr;
+}
+
 const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::span<const Expression *const> args) noexcept {
     if (custom.tag() != Function::Tag::CALLABLE) {
         LUISA_ERROR_WITH_LOCATION(

@@ -331,6 +331,8 @@ public:
     [[nodiscard]] const TypeIDExpr *type_id(const Type *payload) noexcept;
     /// Create cast expression
     [[nodiscard]] const CastExpr *cast(const Type *type, CastOp op, const Expression *expr) noexcept;
+    // return function reference (not supported by some backend)
+    [[nodiscard]] const FuncRefExpr *func_ref(Function custom) noexcept;
     /// Create call expression
     [[nodiscard]] const CallExpr *call(const Type *type /* nullptr for void */, CallOp call_op, std::initializer_list<const Expression *> args) noexcept;
     /// Create call expression

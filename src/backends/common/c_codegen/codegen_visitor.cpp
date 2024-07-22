@@ -31,6 +31,10 @@ void CodegenVisitor::visit(const UnaryExpr *expr) {
         sb << ')';
     }
 }
+void CodegenVisitor::visit(const FuncRefExpr *expr) {
+    Function func(expr->func());
+    sb << "((uint64_t)(&custom_" << luisa::format("{}", utils.func_index(func)) << "))";
+}
 void CodegenVisitor::visit(const BinaryExpr *expr) {
     auto lhs = expr->lhs();
     auto rhs = expr->rhs();
