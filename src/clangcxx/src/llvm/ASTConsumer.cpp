@@ -871,6 +871,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         current = lcExpr;
                 }
+                else
+                {
+                    _explicit_cast->getSubExpr()->dump();
+                    clangcxx_log_error("dont cast function type, use function pointer type instead");
+                }
             } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
                 auto _ = db->CommentStmt(fb, cxxDefaultArg);
 
