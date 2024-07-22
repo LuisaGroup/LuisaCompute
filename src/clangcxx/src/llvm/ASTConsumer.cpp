@@ -754,7 +754,26 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         clangcxx_log_error("only support deref 'this'(*this)!");
                 } else if (!IsUnaryAssignOp(cxx_op)) {
-                    current = fb->unary(lcType, TranslateUnaryOp(cxx_op), lhs);
+                    if ((cxx_op == clang::UO_AddrOf) && unary->getType()->isFunctionPointerType())
+                    {
+                        auto funcPtr = LC_Local(fb, luisa::compute::Type::of<uint64_t>(), compute::Usage::READ_WRITE);
+                        auto funcDecl = unary->getSubExpr()->getReferencedDeclOfCallee()->getAsFunction();
+                        if (!db->lambda_builders.contains(funcDecl) && !db->func_builders.contains(funcDecl)) {
+                            FunctionBuilderBuilder fbfb(db, *stack);
+                            funcDecl->getAsFunction()->dump();
+                            fbfb.build(funcDecl, false);
+                        }
+                        auto func = db->func_builders.contains(funcDecl) ? 
+                            db->func_builders[funcDecl] : 
+                            db->lambda_builders[funcDecl];
+                        fb->assign(
+                            funcPtr,
+                            fb->func_ref(func->function())
+                        );
+                        current = funcPtr;
+                    }   
+                    else
+                        current = fb->unary(lcType, TranslateUnaryOp(cxx_op), lhs);
                 } else {
                     auto one = fb->literal(Type::of<int>(), 1);
                     auto typed_one = one;
@@ -828,27 +847,27 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = stack->GetExpr(_cxxParen->getSubExpr());
             } else if (auto implicit_cast = llvm::dyn_cast<ImplicitCastExpr>(x)) {
                 if (stack->GetExpr(implicit_cast->getSubExpr()) != nullptr) {
-                    const auto lcType = db->FindOrAddType(implicit_cast->getType(), x->getBeginLoc());
+                    const auto lcCastType = db->FindOrAddType(implicit_cast->getType(), x->getBeginLoc());
                     auto lcExpr = stack->GetExpr(implicit_cast->getSubExpr());
                     if (!lcExpr) {
                         db->DumpWithLocation(implicit_cast->getSubExpr());
                         clangcxx_log_error("unknown error: rhs not found!");
                     }
-                    if (lcExpr->type() != lcType)
-                        current = fb->cast(lcType, CastOp::STATIC, lcExpr);
+                    if (lcExpr->type() != lcCastType)
+                        current = fb->cast(lcCastType, CastOp::STATIC, lcExpr);
                     else
                         current = lcExpr;
                 }
             } else if (auto _explicit_cast = llvm::dyn_cast<ExplicitCastExpr>(x)) {
                 if (stack->GetExpr(_explicit_cast->getSubExpr()) != nullptr) {
-                    const auto lcType = db->FindOrAddType(_explicit_cast->getType(), x->getBeginLoc());
+                    const auto lcCastType = db->FindOrAddType(_explicit_cast->getType(), x->getBeginLoc());
                     auto lcExpr = stack->GetExpr(_explicit_cast->getSubExpr());
                     if (!lcExpr) {
                         db->DumpWithLocation(_explicit_cast->getSubExpr());
                         clangcxx_log_error("unknown error: rhs not found!");
                     }
-                    if (lcExpr->type() != lcType)
-                        current = fb->cast(lcType, CastOp::STATIC, lcExpr);
+                    if (lcExpr->type() != lcCastType)
+                        current = fb->cast(lcCastType, CastOp::STATIC, lcExpr);
                     else
                         current = lcExpr;
                 }
@@ -976,7 +995,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     } else if (!unaopName.empty()) {
                         UnaryOp lcUnaop = (unaopName == "PLUS")  ? UnaryOp::PLUS :
                                           (unaopName == "MINUS") ? UnaryOp::MINUS :
-                                                                   (clangcxx_log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
+                                                                   (clangcxx_log_error("unsupportted unary op {}!!", unaopName.data()), UnaryOp::PLUS);
                         if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc()))
                             current = fb->unary(lcReturnType, lcUnaop, lcArgs[0]);
                     } else if (isAccess) {

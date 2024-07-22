@@ -63,10 +63,13 @@ const luisa::compute::Type *TypeDatabase::findType(const clang::QualType Ty) {
 
 const luisa::compute::Type *TypeDatabase::FindOrAddType(const clang::QualType Ty, const clang::SourceLocation &loc) {
     const bool isPointer = Ty->isPointerType();
+    const bool isFunctionPointer = Ty->isFunctionPointerType();
     const bool isUnion = Ty->isUnionType();
     if (isPointer || isUnion) {
         loc.dump(GetASTContext()->getSourceManager());
         Ty->dump();
+        if (isFunctionPointer)
+            return luisa::compute::Type::of<uint64>();
         if (isPointer)
             clangcxx_log_error("pointer types are banned!");
         if (isUnion)

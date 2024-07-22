@@ -32,7 +32,7 @@ inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, b
             return nullptr;
         } else if (isRestrict) {
             Ty.dump();
-            luisa::log_error("!!!");
+            luisa::log_error("Restrict GetRecordDeclFromQualType failed!!!");
         }
     }
     return recordDecl;
