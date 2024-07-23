@@ -33,26 +33,22 @@ public:
             if (!set_functable) [[unlikely]] {
                 LUISA_ERROR("{} not found.", func_name);
             }
-            typedef struct {
-                void *(*persist_malloc)(size_t);
-                void *(*temp_malloc)(size_t);
-                void (*persist_free)(void *);
-                void (*push_print_str)(char const *ptr, uint64_t len);
-                void (*push_print_value)(void *value, uint32_t type);
-                void (*print)();
-            } FuncTable;
-            FuncTable table{
-                .persist_malloc = vengine_malloc,
-                .temp_malloc = +[](size_t size) -> void * {
+            auto table_opt = ext->get_functable();
+            if (table_opt) {
+                set_functable(&table_opt.value());
+            } else {
+                ToyCDeviceConfig::FuncTable table{};
+                table.persist_malloc = vengine_malloc,
+                table.temp_malloc = +[](size_t size) -> void * {
                     auto handle = MemoryManager::get_tlocal_ctx()->temp_alloc.allocate(size);
                     return (void *)(handle.handle + handle.offset);
                 },
-                .persist_free = vengine_free,
-                .push_print_str =
+                table.persist_free = vengine_free,
+                table.push_print_str =
                     +[](char const *ptr, uint64_t len) {
                         MemoryManager::get_tlocal_ctx()->print_format = luisa::string_view(ptr, len);
                     },
-                .push_print_value =
+                table.push_print_value =
                     +[](void *value, uint32_t type) {
                         auto ctx = MemoryManager::get_tlocal_ctx();
                         switch (type) {
@@ -103,9 +99,10 @@ public:
                             case 44: ctx->print_values.emplace_back(*((float2x2 *)value)); break;
                             case 45: ctx->print_values.emplace_back(*((float3x3 *)value)); break;
                             case 46: ctx->print_values.emplace_back(*((float4x4 *)value)); break;
+                            default: break;
                         }
                     },
-                .print = +[]() {
+                table.print = +[]() {
                     auto ctx = MemoryManager::get_tlocal_ctx();
                     if(!ctx->stream->print_callback) return;
                     luisa::vector<Type const*> types;
@@ -131,8 +128,9 @@ public:
                     fmt(str, bytes);
                     ctx->stream->print_callback(str);
                     ctx->print_format = {};
-                    ctx->print_values.clear(); }};
-            set_functable(&table);
+                    ctx->print_values.clear(); };
+                set_functable(&table);
+            }
         }
     }
     void *native_handle() const noexcept override { return nullptr; }
