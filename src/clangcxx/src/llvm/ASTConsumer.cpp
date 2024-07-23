@@ -686,6 +686,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                             case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int, INT) } break;
                                             case (BuiltinType::Kind::ULong): { CASE_VEC_TYPE(ulong, ULONG) } break;
                                             case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint, UINT) } break;
+                                            case (BuiltinType::Kind::Short): { CASE_VEC_TYPE(short, SHORT) } break;
+                                            case (BuiltinType::Kind::UShort): { CASE_VEC_TYPE(ushort, USHORT) } break;
                                             case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double, DOUBLE) } break;
                                             default: {
                                                 clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), luisa::to_string(EType->getKind()));
@@ -756,8 +758,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         clangcxx_log_error("only support deref 'this'(*this)!");
                 } else if (!IsUnaryAssignOp(cxx_op)) {
-                    if ((cxx_op == clang::UO_AddrOf) && unary->getType()->isFunctionPointerType())
-                    {
+                    if ((cxx_op == clang::UO_AddrOf) && unary->getType()->isFunctionPointerType()) {
                         auto funcPtr = LC_Local(fb, luisa::compute::Type::of<uint64_t>(), compute::Usage::READ_WRITE);
                         auto funcDecl = unary->getSubExpr()->getReferencedDeclOfCallee()->getAsFunction();
                         if (!db->lambda_builders.contains(funcDecl) && !db->func_builders.contains(funcDecl)) {
@@ -765,16 +766,14 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             funcDecl->getAsFunction()->dump();
                             fbfb.build(funcDecl, false);
                         }
-                        auto func = db->func_builders.contains(funcDecl) ? 
-                            db->func_builders[funcDecl] : 
-                            db->lambda_builders[funcDecl];
+                        auto func = db->func_builders.contains(funcDecl) ?
+                                        db->func_builders[funcDecl] :
+                                        db->lambda_builders[funcDecl];
                         fb->assign(
                             funcPtr,
-                            fb->func_ref(func->function())
-                        );
+                            fb->func_ref(func->function()));
                         current = funcPtr;
-                    }   
-                    else
+                    } else
                         current = fb->unary(lcType, TranslateUnaryOp(cxx_op), lhs);
                 } else {
                     auto one = fb->literal(Type::of<int>(), 1);
@@ -872,9 +871,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         current = fb->cast(lcCastType, CastOp::STATIC, lcExpr);
                     else
                         current = lcExpr;
-                }
-                else
-                {
+                } else {
                     _explicit_cast->getSubExpr()->dump();
                     clangcxx_log_error("dont cast function type, use function pointer type instead");
                 }
@@ -980,9 +977,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             lcArgs.emplace_back(lcArg);
                         else if (auto _str_literal = llvm::dyn_cast<clang::StringLiteral>(arg)) {
                             auto &&str = _str_literal->getString();
-                            printer_str = luisa::string{reinterpret_cast<char const *>(str.bytes_begin()), str.size()};
-                        } else if (auto _decl_ref_expr = llvm::dyn_cast<clang::DeclRefExpr>(arg)) {
-                            // TODO
+                            if (callopName != "device_log") {
+                                lcArgs.emplace_back(fb->constant(ConstantData::create(Type::array(Type::of<uint8_t>(), str.size()), str.bytes_begin(), str.size())));
+                                lcArgs.emplace_back(fb->literal(Type::of<uint64_t>(), uint64_t(str.size())));
+                            } else {
+                                printer_str = luisa::string{reinterpret_cast<char const *>(str.bytes_begin()), str.size()};
+                            }
                         } else {
                             db->DumpWithLocation(arg);
                             clangcxx_log_error("unfound arg: {}", arg->getStmtClassName());
@@ -990,10 +990,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     // call
                     auto cxxReturnType = call->getCallReturnType(*astContext);
-                    if (!printer_str.empty()) {
-                        if (callopName != "device_log") [[unlikely]] {
-                            clangcxx_log_error("String literal only allowed in device_log.");
-                        }
+                    if (callopName == "device_log") [[unlikely]] {
                         fb->print_(std::move(printer_str), lcArgs);
                     } else if (!binopName.empty()) {
                         auto lcBinop = db->FindBinOp(binopName);
@@ -1065,11 +1062,11 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             return iter.first->second;
                         };
                         if (call->getCallReturnType(*astContext)->isVoidType()) {
-                            auto ext_func = get_ext_func(ExternalFunction(extCallName.data(), Type::of<void>(), std::move(arg_types), std::move(argument_usages)));
+                            auto ext_func = get_ext_func(ExternalFunction(luisa::string(extCallName.data(), extCallName.size()), Type::of<void>(), std::move(arg_types), std::move(argument_usages)));
                             fb->call(std::move(ext_func), lcArgs);
                         } else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
                             auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
-                            auto ext_func = get_ext_func(ExternalFunction(extCallName.data(), lcReturnType, std::move(arg_types), std::move(argument_usages)));
+                            auto ext_func = get_ext_func(ExternalFunction(luisa::string(extCallName.data(), extCallName.size()), lcReturnType, std::move(arg_types), std::move(argument_usages)));
                             fb->assign(ret_value, fb->call(lcReturnType, std::move(ext_func), lcArgs));
                             current = ret_value;
                         } else

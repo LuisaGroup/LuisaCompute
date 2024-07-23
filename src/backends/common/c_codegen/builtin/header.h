@@ -235,6 +235,9 @@ float4x4 inverse_float4x4(float4x4 m);
 #define LUISA_ASSUME(x) \
 	if (!(x)) __builtin_unreachable()
 #endif
+
+#define to_string(type, array, size) ((type){(uint64_t)(&(array)), size})
+
 void memzero(void* ptr, uint64_t size);
 void memone(void* ptr, uint64_t size);
 int32_t lc_memcmp(uint64_t dst, uint64_t src, uint64_t size);

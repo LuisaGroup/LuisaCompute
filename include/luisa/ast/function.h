@@ -136,6 +136,7 @@ public:
     /// Return pointer to body statement
     [[nodiscard]] const ScopeStmt *body() const noexcept;
     /// Return hash
+    [[nodiscard]] bool hash_computed() const noexcept;
     [[nodiscard]] uint64_t hash() const noexcept;
     /// Return if is ray tracing function
     [[nodiscard]] bool requires_raytracing() const noexcept;

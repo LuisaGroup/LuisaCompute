@@ -188,7 +188,8 @@ public:
     [[nodiscard]] static FunctionBuilder *current() noexcept;
     [[nodiscard]] static FunctionBuilder *current_or_null() noexcept;
     [[nodiscard]] static luisa::span<const FunctionBuilder *const> stack() noexcept;
-
+    
+    [[nodiscard]] auto hash_computed() const noexcept { return _hash_computed; }
     // interfaces for class Function
     /// Return a span of builtin variables.
     [[nodiscard]] auto builtin_variables() const noexcept { return luisa::span{_builtin_variables}; }

@@ -1,4 +1,5 @@
 #include "codegen_utils.h"
+#include "codegen_visitor.h"
 #include <luisa/core/logging.h>
 #include <luisa/vstl/md5.h>
 #include <luisa/ast/type_registry.h>
@@ -28,7 +29,9 @@ struct ExternalTable {
             // template function
             std::pair<uint32_t, GenFunc>,
             // fixed type validation
-            vstd::func_ptr_t<bool(Type const *ret_type, luisa::span<Type const *const> args)>>;
+            vstd::func_ptr_t<bool(Type const *ret_type, luisa::span<Type const *const> args)>,
+            // template call
+            vstd::func_ptr_t<void(vstd::StringBuilder &sb, CodegenVisitor *visitor, Clanguage_CodegenUtils &utils, CallExpr const *call_expr)>>;
 
     vstd::HashMap<vstd::string, Var> map;
     ExternalTable() {
@@ -65,11 +68,24 @@ struct ExternalTable {
                 if (ret_type != Type::of<void>()) return false;
                 return args.size() == 1 && args[0]->is_uint64();
             });
+        map.emplace(
+            "to_string",
+            +[](vstd::StringBuilder &sb, CodegenVisitor *visitor, Clanguage_CodegenUtils &utils, CallExpr const *call_expr) {
+                auto func = call_expr->external();
+                sb << "to_string(";
+                utils.get_type_name(sb, func->return_type());
+                for (auto &i : call_expr->arguments()) {
+                    sb << ", ";
+                    i->accept(*visitor);
+                }
+                sb << ')';
+            });
         uint flag = 0;
         auto add_ext = [&](luisa::string &&name, GenFunc func) {
             map.emplace(
                 std::move(name),
                 std::pair<uint32_t, GenFunc>{flag, func});
+            flag++;
         };
         add_ext(
             "invoke",
@@ -109,6 +125,35 @@ struct ExternalTable {
                     sb << luisa::format("a{}", i);
                 }
                 sb << ");\n}\n";
+            });
+        add_ext(
+            "device_log_ext",
+            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args) {
+                sb << "inline ";
+                utils.get_type_name(sb, ret_type);
+                sb << ' ' << func_name << '(';
+                bool comma = false;
+                size_t arg_idx = 0;
+                for (auto &i : args) {
+                    if (comma) {
+                        sb << ", ";
+                    }
+                    comma = true;
+                    utils.get_type_name(sb, i);
+                    sb << " a" << luisa::format("{}", arg_idx);
+                    arg_idx++;
+                }
+                sb << "){\npush_str((char const*)a0.v0, a0.v1);\n";
+                arg_idx = 1;
+                for (auto &i : args.subspan(1)) {
+                    sb << "push_";
+                    utils.get_type_name(sb, i);
+                    sb << "(a"
+                       << luisa::format("{}", arg_idx)
+                       << ");\n";
+                    arg_idx++;
+                }
+                sb << "invoke_print();\n}\n";
             });
     }
 };
@@ -283,6 +328,12 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
         case Type::Tag::UINT32:
             sb << "uint32_t"sv;
             return;
+        case Type::Tag::INT8:
+            sb << "int8_t"sv;
+            return;
+        case Type::Tag::UINT8:
+            sb << "uint8_t"sv;
+            return;
         case Type::Tag::FLOAT16:
             LUISA_ERROR("Half not supported.");
             return;
@@ -386,10 +437,12 @@ void Clanguage_CodegenUtils::gen_vec_function(vstd::StringBuilder &sb, vstd::str
 }
 void Clanguage_CodegenUtils::gen_constant(vstd::StringBuilder &sb, ConstantData const &data) {
     auto type_name = get_type_name(data.type());
-    sb << "static const " << type_name << " c" << luisa::format("{}", data.hash()) << "[] = ";
-    c_codegen_detail::CodegenConstantPrinter printer{sb};
-    data.decode(printer);
-    sb << ";\n"sv;
+    if (const_set.try_emplace(data.hash()).second) {
+        sb << "static const " << type_name << " c" << luisa::format("{}", data.hash()) << "[] = ";
+        c_codegen_detail::CodegenConstantPrinter printer{sb};
+        data.decode(printer);
+        sb << ";\n"sv;
+    }
 }
 
 luisa::string_view Clanguage_CodegenUtils::gen_vec_unary(UnaryOp op, Type const *type) {
@@ -1264,6 +1317,9 @@ void Clanguage_CodegenUtils::codegen(
             print_function_declare(decl_sb, Function(i.first));
             decl_sb << ";\n";
         }
+        for (auto &i : func.constants()) {
+            gen_constant(sb, i);
+        }
     }
     for (auto &i : _custom_funcs) {
         CodegenVisitor visitor(
@@ -1279,7 +1335,7 @@ void Clanguage_CodegenUtils::codegen(
     } else {
         bool comma = false;
         for (auto &i : func.arguments()) {
-            if(comma) {
+            if (comma) {
                 sb << ", ";
             }
             comma = true;
@@ -1343,30 +1399,62 @@ void Clanguage_CodegenUtils::codegen(
     }
     // order: struct_cb, decl_sb, sb
 }
-luisa::string_view Clanguage_CodegenUtils::validate_external_func(luisa::string_view name, Type const *ret_type, luisa::span<Type const *const> arg_types) {
+void Clanguage_CodegenUtils::call_external_func(vstd::StringBuilder &sb, CodegenVisitor *visitor, CallExpr const *expr) {
+    auto func = expr->external();
+    auto name = func->name();
+    auto ret_type = func->return_type();
+    auto arg_types = func->argument_types();
     auto iter = c_codegen_detail::extern_table.map.find(name);
+    auto print_args = [&]() {
+        bool comma = false;
+        for (auto &i : expr->arguments()) {
+            if (comma) {
+                sb << ", ";
+            }
+            comma = true;
+            i->accept(*visitor);
+        }
+    };
     if (!iter) {
-        return name;
+        sb << name << '(';
+        print_args();
+        sb << ')';
+        return;
     }
     auto &&func_generator = iter.value();
-    if (func_generator.index() == 0) {
-        auto &&kv = luisa::get<0>(func_generator);
-        Key key;
-        key.type = 4;
-        key.flag = kv.first;
-        key.arg_types.reserve(arg_types.size());
-        key.arg_types.emplace_back(ret_type);
-        vstd::push_back_all(key.arg_types, arg_types);
-        return _gen_func(
-            [&](luisa::string_view func_name) {
-                kv.second(*this, decl_sb, func_name, ret_type, arg_types);
-            },
-            std::move(key));
-    } else {
-        if (!luisa::get<1>(func_generator)(ret_type, arg_types)) {
-            LUISA_ERROR("Function {} argument type not match.", name);
+    switch (func_generator.index()) {
+        case 0: {
+            auto &&kv = luisa::get<0>(func_generator);
+            Key key;
+            key.type = 4;
+            key.flag = kv.first;
+            key.arg_types.reserve(arg_types.size());
+            key.arg_types.emplace_back(ret_type);
+            vstd::push_back_all(key.arg_types, arg_types);
+            sb << _gen_func(
+                      [&](luisa::string_view func_name) {
+                          kv.second(*this, decl_sb, func_name, ret_type, arg_types);
+                      },
+                      std::move(key))
+               << '(';
+            print_args();
+            sb << ')';
         }
-        return name;
+            return;
+        case 1: {
+            if (!luisa::get<1>(func_generator)(ret_type, arg_types)) {
+                LUISA_ERROR("Function {} argument type not match.", name);
+            }
+            sb << name << '(';
+            print_args();
+            sb << ')';
+        }
+            return;
+        case 2: {
+            auto func_ptr = luisa::get<2>(func_generator);
+            func_ptr(sb, visitor, *this, expr);
+        }
+            return;
     }
 }
 Clanguage_CodegenUtils::Clanguage_CodegenUtils() = default;

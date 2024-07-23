@@ -10,6 +10,7 @@
 #include <luisa/core/mathematics.h>
 #include <luisa/core/logging.h>
 namespace luisa::compute {
+class CodegenVisitor;
 class Clanguage_CodegenUtils {
     struct Key {
         // 0: unary
@@ -70,6 +71,7 @@ class Clanguage_CodegenUtils {
 public:
     vstd::StringBuilder struct_sb;
     vstd::StringBuilder decl_sb;
+    vstd::HashMap<uint64> const_set;
 
     Clanguage_CodegenUtils();
     ~Clanguage_CodegenUtils();
@@ -79,7 +81,8 @@ public:
     void get_type_name(vstd::StringBuilder &sb, Type const *type);
     void print_function_declare(vstd::StringBuilder &sb, Function func);
     void print_kernel_declare(vstd::StringBuilder &sb, Function func);
-    luisa::string_view validate_external_func(luisa::string_view name, Type const *ret_type, luisa::span<Type const* const> arg_types);
+    void call_external_func(
+        vstd::StringBuilder &sb, CodegenVisitor *visitor, CallExpr const *expr);
     vstd::StringBuilder get_type_name(Type const *type) {
         vstd::StringBuilder r;
         get_type_name(r, type);
@@ -137,7 +140,7 @@ struct PrintValue<double> {
         if (luisa::isinf(v)) [[unlikely]] {
             str.append(v < 0.0 ? "(-_INF_d)" : "(_INF_d)");
         } else {
-            str.append(luisa::format("double({})", v));
+            str.append(luisa::format("(double){}", v));
         }
     }
 };
@@ -152,14 +155,14 @@ struct PrintValue<half> {
 template<>
 struct PrintValue<short> {
     void operator()(short const &v, vstd::StringBuilder &str) {
-        str.append(luisa::format("int16_t({})", v));
+        str.append(luisa::format("(int16_t){}", v));
     }
 };
 
 template<>
 struct PrintValue<ushort> {
     void operator()(ushort const &v, vstd::StringBuilder &str) {
-        str.append(luisa::format("uint16_t({}u)", v));
+        str.append(luisa::format("(uint16_t){}u", v));
     }
 };
 
@@ -202,14 +205,14 @@ struct PrintValue<bool> {
 };
 template<>
 struct PrintValue<luisa::byte> {
-    void operator()(bool const &v, vstd::StringBuilder &str) {
-        str.append(luisa::format("int8_t({})", v));
+    void operator()(luisa::byte const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("(int8_t){}", v));
     }
 };
 template<>
 struct PrintValue<luisa::ubyte> {
-    void operator()(bool const &v, vstd::StringBuilder &str) {
-        str.append(luisa::format("uint8_t({})", v));
+    void operator()(luisa::ubyte const &v, vstd::StringBuilder &str) {
+        str.append(luisa::format("(uint8_t){}", v));
     }
 };
 template<typename EleType, uint64 N>

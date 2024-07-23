@@ -100,7 +100,12 @@ uint64_t CallExpr::_compute_hash() const noexcept {
         hash = hash_value(a->hash(), hash);
     }
     if (_op == CallOp::CUSTOM) {
-        hash = hash_value(custom().hash(), hash);
+        if (custom().hash_computed()) {
+            hash = hash_value(custom().hash(), hash);
+        } else {
+            // recursive
+            hash = hash_value(custom().builder(), hash);
+        }
     } else if (_op == CallOp::EXTERNAL) {
         hash = hash_value(external()->hash(), hash);
     }

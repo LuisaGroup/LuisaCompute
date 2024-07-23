@@ -167,9 +167,8 @@ void CodegenVisitor::visit(const CallExpr *expr) {
     };
     switch (expr->op()) {
         case CallOp::EXTERNAL: {
-            auto func = expr->external();
-            sb << utils.validate_external_func(func->name(), func->return_type(), func->argument_types());
-        } break;
+            utils.call_external_func(sb, this, expr);
+        } return;
         case CallOp::CUSTOM: {
             auto func = expr->custom();
             auto &&func_args = func.arguments();
@@ -485,9 +484,6 @@ CodegenVisitor::CodegenVisitor(
         utils.print_kernel_declare(sb, func);
     }
     sb << "{\n";
-    for (auto &i : func.constants()) {
-        utils.gen_constant(sb, i);
-    }
     for (auto &i : func.local_variables()) {
         utils.get_type_name(sb, i.type());
         sb << ' ';
