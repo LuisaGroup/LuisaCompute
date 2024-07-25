@@ -87,44 +87,77 @@ struct ExternalTable {
                 std::pair<uint32_t, GenFunc>{flag, func});
             flag++;
         };
-        add_ext(
+        map.emplace(
             "invoke",
-            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args) {
-                sb << "inline ";
-                utils.get_type_name(sb, ret_type);
-                sb << ' ' << func_name << '(';
+            +[](vstd::StringBuilder &sb, CodegenVisitor *visitor, Clanguage_CodegenUtils &utils, CallExpr const *call_expr) {
+                sb << "(((";
+                utils.get_type_name(sb, call_expr->type());
+                sb << "(*)(";
                 bool comma = false;
-                size_t arg_idx = 0;
-                for (auto &i : args) {
+                auto args = call_expr->arguments();
+                for (auto &i : args.subspan(1)) {
                     if (comma) {
                         sb << ", ";
                     }
                     comma = true;
-                    utils.get_type_name(sb, i);
-                    sb << " a" << luisa::format("{}", arg_idx);
-                    arg_idx++;
+                    utils.get_type_name(sb, i->type());
+                    if (i->tag() == Expression::Tag::REF && static_cast<RefExpr const*>(i)->variable().is_reference()) {
+                        sb << '*';
+                    }
                 }
-                sb << "){\ntypedef ";
-                utils.get_type_name(sb, ret_type);
-                sb << "(*Fn)(";
+                sb << "))";
+                args[0]->accept(*visitor);
+                sb << ")(";
                 comma = false;
                 for (auto &i : args.subspan(1)) {
                     if (comma) {
                         sb << ", ";
                     }
                     comma = true;
-                    utils.get_type_name(sb, i);
-                }
-                sb << ");\nreturn ((Fn)(a0))(";
-                comma = false;
-                for (auto i : vstd::range(1, args.size())) {
-                    if (comma) {
-                        sb << ", ";
+                    if (i->tag() == Expression::Tag::REF && static_cast<RefExpr const*>(i)->variable().is_reference()) {
+                        sb << '&';
                     }
-                    comma = true;
-                    sb << luisa::format("a{}", i);
+                    i->accept(*visitor);
                 }
-                sb << ");\n}\n";
+                sb << "))";
+                // uint64_t v;
+                // (((void(*)())v)());
+
+
+                // sb << "inline ";
+                // utils.get_type_name(sb, ret_type);
+                // sb << ' ' << func_name << '(';
+                // size_t arg_idx = 0;
+                // for (auto &i : args) {
+                //     if (comma) {
+                //         sb << ", ";
+                //     }
+                //     comma = true;
+                //     utils.get_type_name(sb, i);
+                //     sb << " a" << luisa::format("{}", arg_idx);
+                //     arg_idx++;
+                // }
+                // sb << "){\ntypedef ";
+                // utils.get_type_name(sb, ret_type);
+                // sb << "(*Fn)(";
+                // comma = false;
+                // for (auto &i : args.subspan(1)) {
+                //     if (comma) {
+                //         sb << ", ";
+                //     }
+                //     comma = true;
+                //     utils.get_type_name(sb, i);
+                // }
+                // sb << ");\nreturn ((Fn)(a0))(";
+                // comma = false;
+                // for (auto i : vstd::range(1, args.size())) {
+                //     if (comma) {
+                //         sb << ", ";
+                //     }
+                //     comma = true;
+                //     sb << luisa::format("a{}", i);
+                // }
+                // sb << ");\n}\n";
             });
         add_ext(
             "device_log_ext",

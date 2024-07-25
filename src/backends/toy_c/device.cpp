@@ -307,7 +307,7 @@ public:
         delete reinterpret_cast<LCStream *>(handle);
     }
     void synchronize_stream(uint64_t stream_handle) noexcept override {
-        reinterpret_cast<LCStream *>(stream_handle)->sync();
+        LUISA_ERROR("Synchronize is fobidden in this backend, all commands are executed synchronizly.");
     }
     void dispatch(
         uint64_t stream_handle, CommandList &&list) noexcept override {
