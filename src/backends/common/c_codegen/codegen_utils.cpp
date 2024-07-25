@@ -23,7 +23,7 @@ static bool is_integer(Type const *t) {
     }
 }
 struct ExternalTable {
-    using GenFunc = vstd::func_ptr_t<void(Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args)>;
+    using GenFunc = vstd::func_ptr_t<void(Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args, luisa::bitvector &is_ref)>;
     using Var =
         luisa::variant<
             // template function
@@ -101,7 +101,7 @@ struct ExternalTable {
                     }
                     comma = true;
                     utils.get_type_name(sb, i->type());
-                    if (i->tag() == Expression::Tag::REF && static_cast<RefExpr const*>(i)->variable().is_reference()) {
+                    if (i->tag() == Expression::Tag::REF && static_cast<RefExpr const *>(i)->variable().is_reference()) {
                         sb << '*';
                     }
                 }
@@ -114,7 +114,7 @@ struct ExternalTable {
                         sb << ", ";
                     }
                     comma = true;
-                    if (i->tag() == Expression::Tag::REF && static_cast<RefExpr const*>(i)->variable().is_reference()) {
+                    if (i->tag() == Expression::Tag::REF && static_cast<RefExpr const *>(i)->variable().is_reference()) {
                         sb << '&';
                     }
                     i->accept(*visitor);
@@ -122,7 +122,6 @@ struct ExternalTable {
                 sb << "))";
                 // uint64_t v;
                 // (((void(*)())v)());
-
 
                 // sb << "inline ";
                 // utils.get_type_name(sb, ret_type);
@@ -161,7 +160,7 @@ struct ExternalTable {
             });
         add_ext(
             "device_log_ext",
-            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args) {
+            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args, luisa::bitvector &is_ref) {
                 sb << "inline ";
                 utils.get_type_name(sb, ret_type);
                 sb << ' ' << func_name << '(';
@@ -187,6 +186,30 @@ struct ExternalTable {
                     arg_idx++;
                 }
                 sb << "invoke_print();\n}\n";
+            });
+        add_ext(
+            "rtti_call",
+            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args, luisa::bitvector &is_ref) {
+                is_ref.resize(2);
+                is_ref[1] = true;
+                sb << "inline void " << func_name << '(';
+                utils.get_type_name(sb, args[0]);
+                sb << " a0, ";
+                utils.get_type_name(sb, args[1]);
+                sb << "* a1){\n"
+                      "static const char type_desc[] = {";
+                bool comma = false;
+                auto desc = args[1]->description();
+                for (auto &i : desc) {
+                    if (comma) {
+                        sb << ',';
+                    }
+                    comma = true;
+                    sb << luisa::format("{}", (uint)i);
+                }
+                sb << "};\nrtti_call(a0.v0, a0.v1.v0, type_desc, "
+                   << luisa::format("{}", desc.size())
+                   << ", &a1);\n}\n";
             });
     }
 };
@@ -404,18 +427,20 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
         case Type::Tag::STRUCTURE: {
             vstd::StringBuilder type_name;
             if (_get_custom_type(type_name, type)) {
-                struct_sb << "typedef struct alignas(";
-                vstd::to_string(type->alignment(), struct_sb);
-                struct_sb << ") {\n";
+                vstd::StringBuilder temp_sb;
+                temp_sb << "typedef struct alignas(";
+                vstd::to_string(type->alignment(), temp_sb);
+                temp_sb << ") {\n";
                 size_t idx = 0;
                 for (auto &i : type->members()) {
-                    get_type_name(struct_sb, i);
-                    struct_sb << " v";
-                    vstd::to_string(idx, struct_sb);
+                    get_type_name(temp_sb, i);
+                    temp_sb << " v";
+                    vstd::to_string(idx, temp_sb);
                     ++idx;
-                    struct_sb << ";\n";
+                    temp_sb << ";\n";
                 }
-                struct_sb << "} " << type_name << ";\n";
+                temp_sb << "} " << type_name << ";\n";
+                struct_sb << temp_sb;
             }
             sb << type_name;
         }
@@ -423,13 +448,15 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
         case Type::Tag::ARRAY: {
             vstd::StringBuilder type_name;
             if (_get_custom_type(type_name, type)) {
-                struct_sb << "typedef struct alignas(";
-                vstd::to_string(type->alignment(), struct_sb);
-                struct_sb << ") {\n";
-                get_type_name(struct_sb, type->element());
-                struct_sb << " v0[";
-                vstd::to_string(type->dimension(), struct_sb);
-                struct_sb << "];\n} " << type_name << ";\n";
+                vstd::StringBuilder temp_sb;
+                temp_sb << "typedef struct alignas(";
+                vstd::to_string(type->alignment(), temp_sb);
+                temp_sb << ") {\n";
+                get_type_name(temp_sb, type->element());
+                temp_sb << " v0[";
+                vstd::to_string(type->dimension(), temp_sb);
+                temp_sb << "];\n} " << type_name << ";\n";
+                struct_sb << temp_sb;
             }
             sb << type_name;
         }
@@ -1325,7 +1352,11 @@ void Clanguage_CodegenUtils::codegen(
     luisa::string_view entry_name,
     Function func) {
 
-    struct_sb << "#include \"header.h\"\n";
+    struct_sb << "#include \"header.h\"\n#define INF_d ";
+    vstd::to_string(std::numeric_limits<double>::max(), struct_sb);
+    struct_sb << "\n#define INF_f ";
+    vstd::to_string(std::numeric_limits<float>::max(), struct_sb);
+    struct_sb << "\n";
     vstd::StringBuilder sb;
     auto print_extern = [&]() {
 #ifdef _MSC_VER
@@ -1464,13 +1495,26 @@ void Clanguage_CodegenUtils::call_external_func(vstd::StringBuilder &sb, Codegen
             key.arg_types.reserve(arg_types.size());
             key.arg_types.emplace_back(ret_type);
             vstd::push_back_all(key.arg_types, arg_types);
+            is_ref.clear();
             sb << _gen_func(
                       [&](luisa::string_view func_name) {
-                          kv.second(*this, decl_sb, func_name, ret_type, arg_types);
+                          kv.second(*this, decl_sb, func_name, ret_type, arg_types, is_ref);
                       },
                       std::move(key))
                << '(';
-            print_args();
+            bool comma = false;
+            size_t idx = 0;
+            for (auto &i : expr->arguments()) {
+                if (comma) {
+                    sb << ", ";
+                }
+                if (is_ref.size() > idx && is_ref[idx]) {
+                    sb << '&';
+                }
+                comma = true;
+                i->accept(*visitor);
+                ++idx;
+            }
             sb << ')';
         }
             return;
