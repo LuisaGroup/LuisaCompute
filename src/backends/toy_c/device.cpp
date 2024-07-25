@@ -40,7 +40,7 @@ public:
                 ToyCDeviceConfig::FuncTable table{};
                 table.persist_malloc = vengine_malloc,
                 table.temp_malloc = +[](size_t size) -> void * {
-                    auto handle = MemoryManager::get_tlocal_ctx()->temp_alloc.allocate(size);
+                    auto handle = MemoryManager::get_tlocal_ctx()->temp_alloc.allocate(size, 16);
                     return (void *)(handle.handle + handle.offset);
                 },
                 table.persist_free = vengine_free,

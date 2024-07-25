@@ -24,10 +24,15 @@ static bool is_integer(Type const *t) {
 }
 struct ExternalTable {
     using GenFunc = vstd::func_ptr_t<void(Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args, luisa::bitvector &is_ref)>;
+    struct GenFuncValue {
+        uint32_t flag;
+        luisa::bitvector is_ref;
+        GenFunc func;
+    };
     using Var =
         luisa::variant<
             // template function
-            std::pair<uint32_t, GenFunc>,
+            GenFuncValue,
             // fixed type validation
             vstd::func_ptr_t<bool(Type const *ret_type, luisa::span<Type const *const> args)>,
             // template call
@@ -84,7 +89,9 @@ struct ExternalTable {
         auto add_ext = [&](luisa::string &&name, GenFunc func) {
             map.emplace(
                 std::move(name),
-                std::pair<uint32_t, GenFunc>{flag, func});
+                GenFuncValue{
+                    .flag = flag,
+                    .func = func});
             flag++;
         };
         map.emplace(
@@ -209,7 +216,7 @@ struct ExternalTable {
                 }
                 sb << "};\nrtti_call(a0.v0, a0.v1.v0, type_desc, "
                    << luisa::format("{}", desc.size())
-                   << ", &a1);\n}\n";
+                   << ", a1);\n}\n";
             });
     }
 };
@@ -1491,14 +1498,13 @@ void Clanguage_CodegenUtils::call_external_func(vstd::StringBuilder &sb, Codegen
             auto &&kv = luisa::get<0>(func_generator);
             Key key;
             key.type = 4;
-            key.flag = kv.first;
+            key.flag = kv.flag;
             key.arg_types.reserve(arg_types.size());
             key.arg_types.emplace_back(ret_type);
             vstd::push_back_all(key.arg_types, arg_types);
-            is_ref.clear();
             sb << _gen_func(
                       [&](luisa::string_view func_name) {
-                          kv.second(*this, decl_sb, func_name, ret_type, arg_types, is_ref);
+                          kv.func(*this, decl_sb, func_name, ret_type, arg_types, kv.is_ref);
                       },
                       std::move(key))
                << '(';
@@ -1508,7 +1514,7 @@ void Clanguage_CodegenUtils::call_external_func(vstd::StringBuilder &sb, Codegen
                 if (comma) {
                     sb << ", ";
                 }
-                if (is_ref.size() > idx && is_ref[idx]) {
+                if (kv.is_ref.size() > idx && kv.is_ref[idx]) {
                     sb << '&';
                 }
                 comma = true;

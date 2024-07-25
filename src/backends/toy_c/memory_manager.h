@@ -14,7 +14,7 @@ struct MemoryManager {
         lc::toy_c::LCStream* stream;
         luisa::string_view print_format;
         luisa::vector<luisa::compute::detail::LiteralValueVariant> print_values;
-        Context() : temp_alloc(65536, &alloc) {}
+        Context() : temp_alloc(1024ull * 1024ull, &alloc, 2) {}
     };
     MemoryManager();
     ~MemoryManager();

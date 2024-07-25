@@ -46,7 +46,6 @@ class Clanguage_CodegenUtils {
     };
     using FuncMap = vstd::HashMap<Key, vstd::StringBuilder, KeyHash, KeyCompare>;
     FuncMap func_map;
-    luisa::bitvector is_ref;
     vstd::HashMap<Type const *, size_t> _custom_types;
     vstd::HashMap<detail::FunctionBuilder const *, size_t> _custom_funcs;
     bool _get_custom_type(vstd::StringBuilder &sb, Type const *t);
