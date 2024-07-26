@@ -127,43 +127,6 @@ struct ExternalTable {
                     i->accept(*visitor);
                 }
                 sb << "))";
-                // uint64_t v;
-                // (((void(*)())v)());
-
-                // sb << "inline ";
-                // utils.get_type_name(sb, ret_type);
-                // sb << ' ' << func_name << '(';
-                // size_t arg_idx = 0;
-                // for (auto &i : args) {
-                //     if (comma) {
-                //         sb << ", ";
-                //     }
-                //     comma = true;
-                //     utils.get_type_name(sb, i);
-                //     sb << " a" << luisa::format("{}", arg_idx);
-                //     arg_idx++;
-                // }
-                // sb << "){\ntypedef ";
-                // utils.get_type_name(sb, ret_type);
-                // sb << "(*Fn)(";
-                // comma = false;
-                // for (auto &i : args.subspan(1)) {
-                //     if (comma) {
-                //         sb << ", ";
-                //     }
-                //     comma = true;
-                //     utils.get_type_name(sb, i);
-                // }
-                // sb << ");\nreturn ((Fn)(a0))(";
-                // comma = false;
-                // for (auto i : vstd::range(1, args.size())) {
-                //     if (comma) {
-                //         sb << ", ";
-                //     }
-                //     comma = true;
-                //     sb << luisa::format("a{}", i);
-                // }
-                // sb << ");\n}\n";
             });
         add_ext(
             "device_log_ext",
@@ -214,9 +177,71 @@ struct ExternalTable {
                     comma = true;
                     sb << luisa::format("{}", (uint)i);
                 }
-                sb << "};\nrtti_call(a0.v0, a0.v1.v0, type_desc, "
+                sb << "};\nrtti_call(a0.v0, a0.v1, type_desc, "
                    << luisa::format("{}", desc.size())
                    << ", a1);\n}\n";
+            });
+        add_ext(
+            "dispose",
+            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args, luisa::bitvector &is_ref) {
+                is_ref.resize(1);
+                is_ref[0] = true;
+                sb << "inline void " << func_name << '(';
+                utils.get_type_name(sb, args[0]);
+                if (!args[0]->is_structure()) {
+                    sb << "* a0){}\n";
+                    return;
+                }
+                sb << "* a0){\n"
+                      "static const uint64_t type_md5[] = {";
+                auto type_desc = args[0]->description();
+                vstd::MD5 md5{type_desc};
+                sb << luisa::format("{}, {}", md5.to_binary().data0, md5.to_binary().data1);
+                sb << "};\n"
+                      "static const char type_desc[] = {";
+                bool comma = false;
+                for (auto &i : type_desc) {
+                    if (comma) {
+                        sb << ',';
+                    }
+                    comma = true;
+                    sb << luisa::format("{}", (uint)i);
+                }
+                sb << "};\n"
+                      "destruct(type_md5, type_desc, "
+                   << luisa::format("{}", type_desc.size())
+                   << ", a0);\n}\n";
+            });
+        add_ext(
+            "is_trivial",
+            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args, luisa::bitvector &is_ref) {
+                is_ref.resize(1);
+                is_ref[0] = true;
+                sb << "inline bool " << func_name << '(';
+                utils.get_type_name(sb, args[0]);
+                if (!args[0]->is_structure()) {
+                    sb << "* a0){ return false; }\n";
+                    return;
+                }
+                sb << "* a0){\n"
+                      "static const uint64_t type_md5[] = {";
+                auto type_desc = args[0]->description();
+                vstd::MD5 md5{type_desc};
+                sb << luisa::format("{}, {}", md5.to_binary().data0, md5.to_binary().data1);
+                sb << "};\n"
+                      "static const char type_desc[] = {";
+                bool comma = false;
+                for (auto &i : type_desc) {
+                    if (comma) {
+                        sb << ',';
+                    }
+                    comma = true;
+                    sb << luisa::format("{}", (uint)i);
+                }
+                sb << "};\n"
+                      "return is_trivial(type_md5, type_desc, "
+                   << luisa::format("{}", type_desc.size())
+                   << ");\n}\n";
             });
     }
 };
@@ -435,11 +460,12 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
             vstd::StringBuilder type_name;
             if (_get_custom_type(type_name, type)) {
                 vstd::StringBuilder temp_sb;
-                temp_sb << "typedef struct alignas(";
-                vstd::to_string(type->alignment(), temp_sb);
-                temp_sb << ") {\n";
+                temp_sb << "typedef struct {\n";
                 size_t idx = 0;
                 for (auto &i : type->members()) {
+                    temp_sb << "_Alignas("
+                            << luisa::format("{}", i->alignment())
+                            << ") ";
                     get_type_name(temp_sb, i);
                     temp_sb << " v";
                     vstd::to_string(idx, temp_sb);
@@ -456,9 +482,10 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
             vstd::StringBuilder type_name;
             if (_get_custom_type(type_name, type)) {
                 vstd::StringBuilder temp_sb;
-                temp_sb << "typedef struct alignas(";
-                vstd::to_string(type->alignment(), temp_sb);
-                temp_sb << ") {\n";
+                temp_sb << "typedef struct {\n";
+                temp_sb << "_Alignas("
+                        << luisa::format("{}", type->element()->alignment())
+                        << ") ";
                 get_type_name(temp_sb, type->element());
                 temp_sb << " v0[";
                 vstd::to_string(type->dimension(), temp_sb);
@@ -505,7 +532,7 @@ void Clanguage_CodegenUtils::gen_vec_function(vstd::StringBuilder &sb, vstd::str
 void Clanguage_CodegenUtils::gen_constant(vstd::StringBuilder &sb, ConstantData const &data) {
     auto type_name = get_type_name(data.type());
     if (const_set.try_emplace(data.hash()).second) {
-        sb << "static const " << type_name << " c" << luisa::format("{}", data.hash()) << "[] = ";
+        sb << "static " << type_name << " c" << luisa::format("{}", data.hash()) << "[] = ";
         c_codegen_detail::CodegenConstantPrinter printer{sb};
         data.decode(printer);
         sb << ";\n"sv;
@@ -636,6 +663,51 @@ luisa::string_view Clanguage_CodegenUtils::gen_vec_binary(BinaryOp op, Type cons
         },
         std::move(key));
 }
+luisa::string_view Clanguage_CodegenUtils::gen_access(Type const *return_type, luisa::span<Type const *const> arg_types, bool is_self_rvalue) {
+    Key key{
+        .type = 5,
+        .flag = is_self_rvalue ? 1u : 0u};
+    key.arg_types.reserve(arg_types.size() + 1);
+    key.arg_types.emplace_back(return_type);
+    vstd::push_back_all(key.arg_types, arg_types);
+    LUISA_ASSUME(arg_types.size() == 3);
+    return _gen_func(
+        [&](luisa::string_view name) {
+            vstd::StringBuilder ret_name;
+            get_type_name(ret_name, return_type);
+
+            vstd::StringBuilder tmp_sb;
+            tmp_sb << "inline " << ret_name << "* " << name << '(';
+            get_type_name(tmp_sb, arg_types[0]);
+            if (!is_self_rvalue) {
+                tmp_sb << '*';
+            }
+            tmp_sb << " a0, ";
+            get_type_name(tmp_sb, arg_types[1]);
+            tmp_sb << " a1){\n";
+            if (arg_types[0]->is_structure()) {
+                if (is_self_rvalue) {
+                    tmp_sb << "check_access(a0.v1, a1";
+                } else {
+                    tmp_sb << "check_access(a0->v1, a1";
+                }
+                // tmp_sb << "return check_access(a0.v0, " << luisa::format("{}", return_type->)
+            } else {
+                tmp_sb << "check_access(";
+                tmp_sb << luisa::format("{}", arg_types[0]->dimension()) << ", a1";
+            }
+            tmp_sb << ");\nreturn ((" << ret_name << "*)";
+            if (is_self_rvalue) {
+                tmp_sb << "a0.v0";
+            } else {
+                tmp_sb << "a0->v0";
+            }
+            tmp_sb << ") + a1;\n}\n";
+            decl_sb << tmp_sb;
+        },
+        std::move(key));
+}
+
 luisa::string_view Clanguage_CodegenUtils::gen_callop(CallOp op, Type const *return_type, luisa::span<Type const *const> arg_types) {
     static char swizzle[4] = {'x', 'y', 'z', 'w'};
     Key key{
@@ -1438,11 +1510,14 @@ void Clanguage_CodegenUtils::codegen(
     sb << "typedef struct {\n";
     size_t arg_idx = 0;
     for (auto &i : func.arguments()) {
-        sb << "alignas(16) ";
+        sb << "_Alignas(16) ";
         get_type_name(sb, i.type());
         sb << " a" << luisa::format("{}", arg_idx)
            << ";\n";
         ++arg_idx;
+    }
+    if(func.arguments().empty()){
+        sb << "int8_t _a;\n";
     }
     sb << "} Args;\n";
 #ifdef _MSC_VER

@@ -6,6 +6,7 @@
 struct MemoryManager;
 namespace lc::toy_c {
 class LCStream;
+class LCDevice;
 using namespace luisa;
 using namespace luisa::compute;
 class LCShader : public vstd::IOperatorNewBase {
@@ -17,7 +18,7 @@ public:
     uint3 block_size;
     LCShader(DynamicModule &dyn_module, luisa::span<const Type *const> arg_types, luisa::string_view kernel_name);
     ~LCShader();
-    void dispatch(LCStream* stream, MemoryManager &manager, uint3 size, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer);
-    void dispatch(LCStream* stream, MemoryManager &manager, luisa::span<uint3 const> size, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer);
+    void dispatch(LCDevice* device, LCStream* stream, MemoryManager &manager, uint3 size, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer);
+    void dispatch(LCDevice* device, LCStream* stream, MemoryManager &manager, luisa::span<uint3 const> size, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer);
 };
 }// namespace lc::toy_c

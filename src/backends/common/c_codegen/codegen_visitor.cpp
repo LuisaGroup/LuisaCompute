@@ -121,20 +121,61 @@ void CodegenVisitor::visit(const AccessExpr *expr) {
             },
             lit->value());
     }
-    if (is_deref) {
-        sb << "DEREF(";
-        utils.get_type_name(sb, expr->type());
-        sb << ", ";
-        expr->range()->accept(*this);
-        sb << ')';
-    } else {
-        sb << "ACCESS(";
-        utils.get_type_name(sb, expr->type());
-        sb << ", ";
-        expr->range()->accept(*this);
+    auto self = expr->range();
+    auto self_type = self->type();
+    auto is_valid_struct = [&](Type const *t) {
+        if (!t->is_structure()) return false;
+        auto mem = t->members();
+        if (mem.size() < 2) return false;
+        return mem[0]->is_uint64() && mem[1]->is_uint64();
+    };
+    auto is_lvalue = [&](auto &is_lvalue, Expression const *expr) -> bool {
+        switch (expr->tag()) {
+            case Expression::Tag::UNARY: return is_lvalue(is_lvalue, static_cast<UnaryExpr const *>(expr)->operand());
+            case Expression::Tag::BINARY: return false;
+            case Expression::Tag::MEMBER: return is_lvalue(is_lvalue, static_cast<MemberExpr const *>(expr)->self());
+            case Expression::Tag::ACCESS: return is_lvalue(is_lvalue, static_cast<AccessExpr const *>(expr)->range());
+            case Expression::Tag::LITERAL: return true;
+            case Expression::Tag::REF: return true;
+            case Expression::Tag::CONSTANT: return true;
+            case Expression::Tag::CALL: return false;
+            case Expression::Tag::CAST: return is_lvalue(is_lvalue, static_cast<CastExpr const *>(expr)->expression());
+            case Expression::Tag::TYPE_ID:
+            case Expression::Tag::STRING_ID:
+            case Expression::Tag::FUNC_REF:
+                return true;
+            default:
+                LUISA_ERROR("Not accessable.");
+                return false;
+        }
+    };
+    if (self_type->is_vector() || self_type->is_array() || is_valid_struct(self_type)) {
+        auto arg_types = {self_type, expr->index()->type()};
+        auto is_rval = !is_lvalue(is_lvalue, expr->range());
+        sb << "(*" << utils.gen_access(expr->type(), arg_types, is_rval) << '(';
+        if(!is_rval){
+            sb << '&';
+        }
+        self->accept(*this);
         sb << ", ";
         expr->index()->accept(*this);
-        sb << ')';
+        sb << "))";
+    } else {
+        if (is_deref) {
+            sb << "DEREF(";
+            utils.get_type_name(sb, expr->type());
+            sb << ", ";
+            self->accept(*this);
+            sb << ')';
+        } else {
+            sb << "ACCESS(";
+            utils.get_type_name(sb, expr->type());
+            sb << ", ";
+            self->accept(*this);
+            sb << ", ";
+            expr->index()->accept(*this);
+            sb << ')';
+        }
     }
 }
 void CodegenVisitor::visit(const LiteralExpr *expr) {
@@ -168,7 +209,8 @@ void CodegenVisitor::visit(const CallExpr *expr) {
     switch (expr->op()) {
         case CallOp::EXTERNAL: {
             utils.call_external_func(sb, this, expr);
-        } return;
+        }
+            return;
         case CallOp::CUSTOM: {
             auto func = expr->custom();
             auto &&func_args = func.arguments();

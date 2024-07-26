@@ -18,6 +18,7 @@ class Clanguage_CodegenUtils {
         // 2: Call op
         // 3: swizzle
         // 4: external
+        // 5: access
         uint8_t type;
         uint32_t flag;
         luisa::fixed_vector<const Type *, 2> arg_types;
@@ -108,6 +109,7 @@ public:
     luisa::string_view gen_vec_unary(UnaryOp op, Type const *type);
     luisa::string_view gen_vec_binary(BinaryOp op, Type const *left_type, Type const *right_type);
     luisa::string_view gen_callop(CallOp op, Type const *return_type, luisa::span<Type const *const> arg_types);
+    luisa::string_view gen_access(Type const *return_type, luisa::span<Type const *const> arg_types, bool is_self_rvalue);
     luisa::string_view gen_make_vec(Type const *return_type, luisa::span<Type const *const> arg_types);
     void codegen(
         luisa::string const &path,

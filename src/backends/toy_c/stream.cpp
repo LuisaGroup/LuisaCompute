@@ -3,7 +3,7 @@
 #include <luisa/core/fiber.h>
 namespace lc::toy_c {
 LCStream::LCStream() = default;
-void LCStream::dispatch(MemoryManager &manager, CommandList &&cmdlist) {
+void LCStream::dispatch(MemoryManager &manager, LCDevice *device, CommandList &&cmdlist) {
     luisa::vector<std::byte> arg_alloc;
     arg_alloc.reserve(1024);
     for (auto &base_cmd : cmdlist.commands()) {
@@ -17,6 +17,7 @@ void LCStream::dispatch(MemoryManager &manager, CommandList &&cmdlist) {
             LUISA_ERROR("Backend do not support indirect dispatch.");
         } else if (cmd->is_multiple_dispatch()) {
             shader->dispatch(
+                device,
                 this,
                 manager,
                 cmd->dispatch_sizes(),
@@ -25,6 +26,7 @@ void LCStream::dispatch(MemoryManager &manager, CommandList &&cmdlist) {
                 arg_alloc);
         } else {
             shader->dispatch(
+                device,
                 this,
                 manager,
                 cmd->dispatch_size(),

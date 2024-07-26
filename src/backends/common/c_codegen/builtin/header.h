@@ -238,6 +238,8 @@ float4x4 inverse_float4x4(float4x4 m);
 
 #define to_string(type, array, size) ((type){(uint64_t)(&(array)), size})
 
+void rtti_call(uint64_t usr_data, uint64_t func_ptr, char const* type_desc, uint64_t type_desc_size, void* ptr);
+
 void memzero(void* ptr, uint64_t size);
 void memone(void* ptr, uint64_t size);
 int32_t lc_memcmp(uint64_t dst, uint64_t src, uint64_t size);

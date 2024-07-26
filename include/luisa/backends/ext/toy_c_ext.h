@@ -11,6 +11,8 @@ public:
         void (*push_print_str)(char const *ptr, uint64_t len);
         void (*push_print_value)(void *value, uint32_t type);
         void (*print)();
+        void (*destruct)(uint64_t const* type_md5, char const* type_desc, uint64_t type_desc_size, void* ptr);
+        bool (*is_trivial)(uint64_t const* type_md5, char const* type_desc, uint64_t type_desc_size);
     };
     [[nodiscard]] virtual luisa::string dynamic_module_name() const = 0;
     [[nodiscard]] virtual luisa::string set_func_table_name() const {

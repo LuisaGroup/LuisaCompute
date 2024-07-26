@@ -59,7 +59,7 @@ void LCShader::_emplace_arg(luisa::span<const Argument> arguments, std::byte con
         }
     }
 }
-void LCShader::dispatch(LCStream *stream, MemoryManager &manager, uint3 size, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer) {
+void LCShader::dispatch(LCDevice* device, LCStream *stream, MemoryManager &manager, uint3 size, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer) {
     _emplace_arg(arguments, uniform_data, arg_buffer);
     auto disp_count = (size + block_size - 1u) / block_size;
 
@@ -78,7 +78,9 @@ void LCShader::dispatch(LCStream *stream, MemoryManager &manager, uint3 size, lu
             uint3 end_idx = min(size, (block_idx + 1u) * block_size);
             uint3 disp_count = end_idx - start_idx;
             manager.alloc_tlocal_ctx();
-            MemoryManager::get_tlocal_ctx()->stream = stream;
+            auto ctx = MemoryManager::get_tlocal_ctx();
+            ctx->device = device;
+            ctx->stream = stream;
             for (uint z = 0; z < disp_count.z; ++z)
                 for (uint y = 0; y < disp_count.y; ++y)
                     for (uint x = 0; x < disp_count.x; ++x) {
@@ -116,10 +118,10 @@ template<class F>
     }
 }
 }// namespace detail
-void LCShader::dispatch(LCStream *stream, MemoryManager &manager, luisa::span<uint3 const> sizes, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer) {
+void LCShader::dispatch(LCDevice *device, LCStream *stream, MemoryManager &manager, luisa::span<uint3 const> sizes, luisa::span<const Argument> arguments, std::byte const *uniform_data, luisa::vector<std::byte> &arg_buffer) {
     if (sizes.empty()) return;
     if (sizes.size() == 1) {
-        dispatch(stream, manager, sizes[0], arguments, uniform_data, arg_buffer);
+        dispatch(device, stream, manager, sizes[0], arguments, uniform_data, arg_buffer);
     }
     _emplace_arg(arguments, uniform_data, arg_buffer);
     luisa::fiber::counter evt;
@@ -141,7 +143,9 @@ void LCShader::dispatch(LCStream *stream, MemoryManager &manager, luisa::span<ui
                 uint3 end_idx = min(size, (block_idx + 1u) * block_size);
                 uint3 disp_count = end_idx - start_idx;
                 manager.alloc_tlocal_ctx();
-                MemoryManager::get_tlocal_ctx()->stream = stream;
+                auto ctx = MemoryManager::get_tlocal_ctx();
+                ctx->device = device;
+                ctx->stream = stream;
                 for (uint z = 0; z < disp_count.z; ++z)
                     for (uint y = 0; y < disp_count.y; ++y)
                         for (uint x = 0; x < disp_count.x; ++x) {

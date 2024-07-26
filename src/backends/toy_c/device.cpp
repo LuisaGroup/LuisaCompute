@@ -11,10 +11,71 @@
 namespace lc::toy_c {
 using namespace luisa;
 using namespace luisa::compute;
+struct Dtor {
+    vstd::vector<std::pair<uint64_t, Dtor *>> sub_elements;
+    vstd::func_ptr_t<void(Dtor *self, void *)> self_dtor{};
+};
 class LCDevice : public DeviceInterface, public vstd::IOperatorNewBase {
 public:
     DynamicModule dyn_module;
     vstd::optional<MemoryManager> manager;
+    vstd::HashMap<vstd::MD5, Dtor> _dtors;
+    ToyCDeviceConfig::FuncTable *func_table_ptr;
+    Dtor gen_dtor(Type const *type) {
+        LUISA_ASSUME(type->is_structure());
+        Dtor dtor;
+        size_t offset = 0;
+        for (auto &i : type->members()) {
+            if (i->alignment() > 1) {
+                offset = (offset + (i->alignment() - 1)) & (~(i->alignment() - 1));
+            }
+            auto mem_dtor = emplace_dtor(vstd::MD5{i->description()}, i);
+            if (mem_dtor) {
+                dtor.sub_elements.emplace_back(offset, mem_dtor);
+            }
+            offset += i->size();
+        }
+        if (dtor.sub_elements.empty()) {
+            return dtor;
+        }
+        dtor.self_dtor = +[](Dtor *self, void *ptr) {
+            auto byte_ptr = reinterpret_cast<std::byte *>(ptr);
+            for (auto &ele : self->sub_elements) {
+                ele.second->self_dtor(ele.second, byte_ptr + ele.first);
+            }
+        };
+        return dtor;
+    }
+    Dtor *emplace_dtor(vstd::MD5 type_md5, Type const *type) {
+        auto iter = _dtors.emplace(
+            type_md5, vstd::lazy_eval([&]() {
+                return gen_dtor(type);
+            }));
+        if (iter.value().self_dtor) {
+            return &iter.value();
+        } else {
+            return nullptr;
+        }
+    }
+    Dtor *emplace_dtor(vstd::MD5 type_md5, luisa::string_view type_desc) {
+        auto iter = _dtors.emplace(
+            type_md5, vstd::lazy_eval([&]() {
+                auto type = Type::from(type_desc);
+                return gen_dtor(type);
+            }));
+        if (iter.value().self_dtor) {
+            return &iter.value();
+        } else {
+            return nullptr;
+        }
+    }
+    struct ScriptVector {
+        void *ptr;
+        uint64 stride;
+        uint64 len;
+        uint64 capacity;
+        vstd::func_ptr_t<void(void *)> dtor;
+    };
     LCDevice(Context &&ctx, DeviceConfig const *settings)
         : DeviceInterface(std::move(ctx)) {
         if (!settings->headless) {
@@ -29,14 +90,46 @@ public:
                 LUISA_ERROR("Dynamic module {} not found.", module_name);
             }
             auto func_name = ext->set_func_table_name();
-            vstd::func_ptr_t<void(void *)> set_functable = dyn_module.function<void(void *)>(func_name);
+            vstd::func_ptr_t<ToyCDeviceConfig::FuncTable *(void *)> set_functable = dyn_module.function<ToyCDeviceConfig::FuncTable *(void *)>(func_name);
             if (!set_functable) [[unlikely]] {
                 LUISA_ERROR("{} not found.", func_name);
             }
             auto table_opt = ext->get_functable();
             if (table_opt) {
-                set_functable(&table_opt.value());
+                func_table_ptr = set_functable(&table_opt.value());
             } else {
+                auto string_type = Type::from("struct<8,[str_ptr]ulong,ulong,ulong>");
+                _dtors.emplace(
+                    vstd::MD5{string_type->description()},
+                    Dtor{
+                        .self_dtor = +[](Dtor *self, void *ptr) {
+                            auto ele = reinterpret_cast<std::pair<char *, uint64> *>(ptr);
+                            auto clear = vstd::scope_exit([&]() {
+                                ele->first = nullptr;
+                                ele->second = 0;
+                            });
+                            if (!ele->first) return;
+                            vengine_free(ele->first);
+                        }});
+                auto vector_type = Type::from("struct<8,[vec_ptr]ulong,ulong,ulong,ulong,[vec_dtor]ulong>");
+                _dtors.emplace(
+                    vstd::MD5{vector_type->description()},
+                    Dtor{
+                        .self_dtor = +[](Dtor *self, void *ptr) {
+                            auto ele = reinterpret_cast<ScriptVector *>(ptr);
+                            auto clear = vstd::scope_exit([&]() {
+                                std::memset(ele, 0, sizeof(ScriptVector));
+                            });
+                            if (!ele->ptr) return;
+                            if (ele->dtor) {
+                                auto byte_ptr = reinterpret_cast<std::byte *>(ele->ptr);
+                                auto end_ptr = byte_ptr + ele->stride * ele->len;
+                                for (; byte_ptr != end_ptr; byte_ptr += ele->stride) {
+                                    ele->dtor(byte_ptr);
+                                }
+                            }
+                            vengine_free(ele->ptr);
+                        }});
                 ToyCDeviceConfig::FuncTable table{};
                 table.persist_malloc = vengine_malloc,
                 table.temp_malloc = +[](size_t size) -> void * {
@@ -129,7 +222,15 @@ public:
                     ctx->stream->print_callback(str);
                     ctx->print_format = {};
                     ctx->print_values.clear(); };
-                set_functable(&table);
+                table.destruct = +[](uint64_t const *type_md5, char const *type_desc, uint64_t type_desc_size, void *ptr) {
+                    auto dtor = MemoryManager::get_tlocal_ctx()->device->emplace_dtor(*reinterpret_cast<vstd::MD5 const *>(type_md5), luisa::string_view(type_desc, type_desc_size));
+                    dtor->self_dtor(dtor, ptr);
+                };
+                table.is_trivial = +[](uint64_t const *type_md5, char const *type_desc, uint64_t type_desc_size) {
+                    auto dtor = MemoryManager::get_tlocal_ctx()->device->emplace_dtor(*reinterpret_cast<vstd::MD5 const *>(type_md5), luisa::string_view(type_desc, type_desc_size));
+                    return dtor == nullptr;
+                };
+                func_table_ptr = set_functable(&table);
             }
         }
     }
@@ -140,7 +241,7 @@ public:
     BufferCreationInfo create_buffer(
         const Type *element,
         size_t elem_count,
-        void *external_memory /* nullptr if now imported from external memory */) override {
+        void *external_memory /* nullptr if now imported from external memory */) noexcept override {
         LUISA_ERROR("Not supported.");
         return {};
     }
@@ -311,7 +412,7 @@ public:
     }
     void dispatch(
         uint64_t stream_handle, CommandList &&list) noexcept override {
-        reinterpret_cast<LCStream *>(stream_handle)->dispatch(*manager, std::move(list));
+        reinterpret_cast<LCStream *>(stream_handle)->dispatch(*manager, this, std::move(list));
     }
     void set_stream_log_callback(
         uint64_t stream_handle,

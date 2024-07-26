@@ -6,11 +6,13 @@
 #include <luisa/ast/expression.h>
 namespace lc::toy_c {
 class LCStream;
+class LCDevice;
 }// namespace lc::toy_c
 struct MemoryManager {
     struct Context {
         vstd::VEngineMallocVisitor alloc;
         vstd::StackAllocator temp_alloc;
+        lc::toy_c::LCDevice* device;
         lc::toy_c::LCStream* stream;
         luisa::string_view print_format;
         luisa::vector<luisa::compute::detail::LiteralValueVariant> print_values;
