@@ -71,8 +71,8 @@ public:
     }
     struct ScriptVector {
         void *ptr;
-        uint64 stride;
         uint64 len;
+        uint64 stride;
         uint64 capacity;
         vstd::func_ptr_t<void(void *)> dtor;
     };

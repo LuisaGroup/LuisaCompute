@@ -220,7 +220,7 @@ struct ExternalTable {
                 sb << "inline bool " << func_name << '(';
                 utils.get_type_name(sb, args[0]);
                 if (!args[0]->is_structure()) {
-                    sb << "* a0){ return false; }\n";
+                    sb << "* a0){ return true; }\n";
                     return;
                 }
                 sb << "* a0){\n"
