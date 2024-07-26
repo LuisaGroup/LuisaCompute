@@ -6,114 +6,148 @@
 #include "detail/c11.inc"
 
 // Vector
-typedef struct alignas(8) {
-	float x, y;
+typedef struct {
+	_Alignas(8) float x;
+	float y;
 } float2;
-typedef struct alignas(16) {
-	float x, y, z;
+typedef struct {
+	_Alignas(16) float x, y, z;
 } float3;
-typedef struct alignas(16) {
-	float x, y, z, w;
+typedef struct {
+	_Alignas(16) float x;
+	float y;
+	float z;
+	float w;
 } float4;
-typedef struct alignas(16) {
-	double x, y;
+typedef struct {
+	_Alignas(16) double x;
+	double y;
 } double2;
-typedef struct alignas(16) {
-	double x, y, z;
+typedef struct {
+	_Alignas(16) double x;
+	double y, z;
 } double3;
-typedef struct alignas(16) {
-	double x, y, z, w;
+typedef struct {
+	_Alignas(16) double x;
+	double y, z, w;
 } double4;
-typedef struct alignas(16) {
-	uint64_t x, y;
+typedef struct {
+	_Alignas(16) uint64_t x;
+	uint64_t y;
 } uint64_t2;
-typedef struct alignas(16) {
-	uint64_t x, y, z;
+typedef struct {
+	_Alignas(16) uint64_t x;
+	uint64_t y, z;
 } uint64_t3;
-typedef struct alignas(16) {
-	uint64_t x, y, z, w;
+typedef struct {
+	_Alignas(16) uint64_t x;
+	uint64_t y, z, w;
 } uint64_t4;
-typedef struct alignas(16) {
-	int64_t x, y;
+typedef struct {
+	_Alignas(16) int64_t x;
+	int64_t y;
 } int64_t2;
-typedef struct alignas(16) {
-	int64_t x, y, z;
+typedef struct {
+	_Alignas(16) int64_t x;
+	int64_t y, z;
 } int64_t3;
-typedef struct alignas(16) {
-	int64_t x, y, z, w;
+typedef struct {
+	_Alignas(16) int64_t x;
+	int64_t y, z, w;
 } int64_t4;
-typedef struct alignas(8) {
-	uint32_t x, y;
+typedef struct {
+	_Alignas(8) uint32_t x;
+	uint32_t y;
 } uint32_t2;
-typedef struct alignas(16) {
-	uint32_t x, y, z;
+typedef struct {
+	_Alignas(16) uint32_t x;
+	uint32_t y, z;
 } uint32_t3;
-typedef struct alignas(16) {
-	uint32_t x, y, z, w;
+typedef struct {
+	_Alignas(8) uint32_t x;
+	uint32_t y, z, w;
 } uint32_t4;
-typedef struct alignas(8) {
-	int32_t x, y;
+typedef struct {
+	_Alignas(16) int32_t x;
+	int32_t y;
 } int32_t2;
-typedef struct alignas(16) {
-	int32_t x, y, z;
+typedef struct {
+	_Alignas(16) int32_t x;
+	int32_t y, z;
 } int32_t3;
-typedef struct alignas(16) {
-	int32_t x, y, z, w;
+typedef struct {
+	_Alignas(16) int32_t x;
+	int32_t y, z, w;
 } int32_t4;
-typedef struct alignas(4) {
-	uint16_t x, y;
+typedef struct {
+	_Alignas(4) uint16_t x;
+	uint16_t y;
 } uint16_t2;
-typedef struct alignas(8) {
-	uint16_t x, y, z;
+typedef struct {
+	_Alignas(8) uint16_t x;
+	uint16_t y, z;
 } uint16_t3;
-typedef struct alignas(8) {
-	uint16_t x, y, z, w;
+typedef struct {
+	_Alignas(8) uint16_t x;
+	uint16_t y, z, w;
 } uint16_t4;
-typedef struct alignas(4) {
-	int16_t x, y;
+typedef struct {
+	_Alignas(4) int16_t x;
+	int16_t y;
 } int16_t2;
-typedef struct alignas(8) {
-	int16_t x, y, z;
+typedef struct {
+	_Alignas(8) int16_t x;
+	int16_t y, z;
 } int16_t3;
-typedef struct alignas(8) {
-	int16_t x, y, z, w;
+typedef struct {
+	_Alignas(8) int16_t x;
+	int16_t y, z, w;
 } int16_t4;
-typedef struct alignas(2) {
-	uint8_t x, y;
+typedef struct {
+	_Alignas(2) uint8_t x;
+	uint8_t y;
 } uint8_t2;
-typedef struct alignas(4) {
-	uint8_t x, y, z;
+typedef struct {
+	_Alignas(4) uint8_t x;
+	uint8_t y, z;
 } uint8_t3;
-typedef struct alignas(4) {
-	uint8_t x, y, z, w;
+typedef struct {
+	_Alignas(4) uint8_t x;
+	uint8_t y, z, w;
 } uint8_t4;
-typedef struct alignas(2) {
-	int8_t x, y;
+typedef struct {
+	_Alignas(2) int8_t x;
+	int8_t y;
 } int8_t2;
-typedef struct alignas(4) {
-	int8_t x, y, z;
+typedef struct {
+	_Alignas(4) int8_t x;
+	int8_t y, z;
 } int8_t3;
-typedef struct alignas(4) {
-	int8_t x, y, z, w;
+typedef struct {
+	_Alignas(4) int8_t x;
+	int8_t y, z, w;
 } int8_t4;
-typedef struct alignas(2) {
-	bool x, y;
+typedef struct {
+	_Alignas(2) bool x;
+	bool y;
 } bool2;
-typedef struct alignas(4) {
-	bool x, y, z;
+typedef struct {
+	_Alignas(4) bool x;
+	bool y, z;
 } bool3;
-typedef struct alignas(4) {
-	bool x, y, z, w;
+typedef struct {
+	_Alignas(4) bool x;
+	bool y, z, w;
 } bool4;
 // Matrix
-typedef struct alignas(8) {
-	float2 c0, c1;
+typedef struct {
+	_Alignas(8) float2 c0, c1;
 } float2x2;
-typedef struct alignas(16) {
-	float3 c0, c1, c2;
+typedef struct {
+	_Alignas(16) float3 c0, c1, c2;
 } float3x3;
-typedef struct alignas(16) {
-	float4 c0, c1, c2, c3;
+typedef struct {
+	_Alignas(16) float4 c0, c1, c2, c3;
 } float4x4;
 
 inline float2x2 make_float2x2_0(float2 a, float2 b) {
@@ -301,3 +335,7 @@ void push_float2x2(uint64_t4 v);
 void push_float3x3(uint64_t4 v);
 void push_float4x4(uint64_t4 v);
 void invoke_print();
+
+void destruct(uint64_t const* type_md5, char const* type_desc, uint64_t type_desc_size, void* ptr);
+bool is_trivial(uint64_t const* type_md5, char const* type_desc, uint64_t type_desc_size);
+void check_access(uint64_t size, uint64_t idx);
