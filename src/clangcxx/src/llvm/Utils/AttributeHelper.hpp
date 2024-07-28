@@ -32,7 +32,7 @@ inline static clang::RecordDecl *GetRecordDeclFromQualType(clang::QualType Ty, b
             return nullptr;
         } else if (isRestrict) {
             Ty.dump();
-            luisa::log_error("!!!");
+            luisa::log_error("Restrict GetRecordDeclFromQualType failed!!!");
         }
     }
     return recordDecl;
@@ -71,7 +71,9 @@ inline static bool isDump(const clang::AnnotateAttr *Anno) { return isLuisaAttri
 inline static bool isIgnore(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "ignore"); }
 inline static bool isByPass(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "bypass"); }
 inline static bool isAccess(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "access"); }
+inline static bool isFuncRef(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "funcref"); }
 inline static bool isCallop(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "callop"); }
+inline static bool isExtCall(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "ext_call"); }
 inline static bool isBuiltinType(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "builtin"); }
 inline static bool isNoignore(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "noignore"); }
 inline static bool isBinop(const clang::AnnotateAttr *Anno) { return isLuisaAttribute(Anno, "binop"); }
@@ -155,6 +157,19 @@ inline static llvm::StringRef getBuiltinTypeName(const clang::AnnotateAttr *Anno
 
 inline static llvm::StringRef getCallopName(const clang::AnnotateAttr *Anno) {
     if (!isCallop(Anno))
+        return {};
+    if (Anno->args_size() >= 1) {
+        auto arg = Anno->args_begin();
+        arg++;
+        if (auto TypeLiterial = llvm::dyn_cast<clang::StringLiteral>((*arg)->IgnoreParenCasts())) {
+            return TypeLiterial->getString();
+        }
+    }
+    return {};
+}
+
+inline static llvm::StringRef getExtCallName(const clang::AnnotateAttr *Anno) {
+    if (!isExtCall(Anno))
         return {};
     if (Anno->args_size() >= 1) {
         auto arg = Anno->args_begin();

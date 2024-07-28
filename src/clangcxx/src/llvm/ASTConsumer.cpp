@@ -141,8 +141,10 @@ void Stack::SetExpr(const clang::Stmt *stmt, const luisa::compute::Expression *e
     if (!stmt)
         clangcxx_log_error("unknown error: SetExpr with nullptr!");
     if (expr_map.contains(stmt)) {
-        stmt->dump();
-        clangcxx_log_error("unknown error: SetExpr with existed!");
+        // TODO: ignore template case.
+        // stmt->dump();
+        // clangcxx_log_error("unknown error: SetExpr with existed!");
+        return;
     }
     expr_map[stmt] = expr;
 }
@@ -684,6 +686,8 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                             case (BuiltinType::Kind::Int): { CASE_VEC_TYPE(int, INT) } break;
                                             case (BuiltinType::Kind::ULong): { CASE_VEC_TYPE(ulong, ULONG) } break;
                                             case (BuiltinType::Kind::UInt): { CASE_VEC_TYPE(uint, UINT) } break;
+                                            case (BuiltinType::Kind::Short): { CASE_VEC_TYPE(short, SHORT) } break;
+                                            case (BuiltinType::Kind::UShort): { CASE_VEC_TYPE(ushort, USHORT) } break;
                                             case (BuiltinType::Kind::Double): { CASE_VEC_TYPE(double, DOUBLE) } break;
                                             default: {
                                                 clangcxx_log_error("unsupported type: {}, kind {}", Ty.getAsString(), luisa::to_string(EType->getKind()));
@@ -754,7 +758,23 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     else
                         clangcxx_log_error("only support deref 'this'(*this)!");
                 } else if (!IsUnaryAssignOp(cxx_op)) {
-                    current = fb->unary(lcType, TranslateUnaryOp(cxx_op), lhs);
+                    if ((cxx_op == clang::UO_AddrOf) && unary->getType()->isFunctionPointerType()) {
+                        auto funcPtr = LC_Local(fb, luisa::compute::Type::of<uint64_t>(), compute::Usage::READ_WRITE);
+                        auto funcDecl = unary->getSubExpr()->getReferencedDeclOfCallee()->getAsFunction();
+                        if (!db->lambda_builders.contains(funcDecl) && !db->func_builders.contains(funcDecl)) {
+                            FunctionBuilderBuilder fbfb(db, *stack);
+                            funcDecl->getAsFunction()->dump();
+                            fbfb.build(funcDecl, false);
+                        }
+                        auto func = db->func_builders.contains(funcDecl) ?
+                                        db->func_builders[funcDecl] :
+                                        db->lambda_builders[funcDecl];
+                        fb->assign(
+                            funcPtr,
+                            fb->func_ref(func->function()));
+                        current = funcPtr;
+                    } else
+                        current = fb->unary(lcType, TranslateUnaryOp(cxx_op), lhs);
                 } else {
                     auto one = fb->literal(Type::of<int>(), 1);
                     auto typed_one = one;
@@ -828,29 +848,32 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 current = stack->GetExpr(_cxxParen->getSubExpr());
             } else if (auto implicit_cast = llvm::dyn_cast<ImplicitCastExpr>(x)) {
                 if (stack->GetExpr(implicit_cast->getSubExpr()) != nullptr) {
-                    const auto lcType = db->FindOrAddType(implicit_cast->getType(), x->getBeginLoc());
+                    const auto lcCastType = db->FindOrAddType(implicit_cast->getType(), x->getBeginLoc());
                     auto lcExpr = stack->GetExpr(implicit_cast->getSubExpr());
                     if (!lcExpr) {
                         db->DumpWithLocation(implicit_cast->getSubExpr());
                         clangcxx_log_error("unknown error: rhs not found!");
                     }
-                    if (lcExpr->type() != lcType)
-                        current = fb->cast(lcType, CastOp::STATIC, lcExpr);
+                    if (lcExpr->type() != lcCastType)
+                        current = fb->cast(lcCastType, CastOp::STATIC, lcExpr);
                     else
                         current = lcExpr;
                 }
             } else if (auto _explicit_cast = llvm::dyn_cast<ExplicitCastExpr>(x)) {
                 if (stack->GetExpr(_explicit_cast->getSubExpr()) != nullptr) {
-                    const auto lcType = db->FindOrAddType(_explicit_cast->getType(), x->getBeginLoc());
+                    const auto lcCastType = db->FindOrAddType(_explicit_cast->getType(), x->getBeginLoc());
                     auto lcExpr = stack->GetExpr(_explicit_cast->getSubExpr());
                     if (!lcExpr) {
                         db->DumpWithLocation(_explicit_cast->getSubExpr());
                         clangcxx_log_error("unknown error: rhs not found!");
                     }
-                    if (lcExpr->type() != lcType)
-                        current = fb->cast(lcType, CastOp::STATIC, lcExpr);
+                    if (lcExpr->type() != lcCastType)
+                        current = fb->cast(lcCastType, CastOp::STATIC, lcExpr);
                     else
                         current = lcExpr;
+                } else {
+                    _explicit_cast->getSubExpr()->dump();
+                    clangcxx_log_error("dont cast function type, use function pointer type instead");
                 }
             } else if (auto cxxDefaultArg = llvm::dyn_cast<clang::CXXDefaultArgExpr>(x)) {
                 auto _ = db->CommentStmt(fb, cxxDefaultArg);
@@ -887,7 +910,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (*iter == 'g') swizzle_seq[swizzle_size] = 1u;
                                 if (*iter == 'b') swizzle_seq[swizzle_size] = 2u;
                                 if (*iter == 'a') swizzle_seq[swizzle_size] = 3u;
-                                
+
                                 swizzle_size += 1;
                             }
                             // encode swizzle code
@@ -920,13 +943,17 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     auto calleeDecl = call->getCalleeDecl();
                     auto funcDecl = calleeDecl->getAsFunction();
                     llvm::StringRef callopName = {};
+                    llvm::StringRef extCallName = {};
                     llvm::StringRef binopName = {};
                     llvm::StringRef unaopName = {};
                     llvm::StringRef exprName = {};
                     bool isAccess = false;
+                    bool isFuncRef = false;
                     for (auto attr : calleeDecl->specific_attrs<clang::AnnotateAttr>()) {
                         if (callopName.empty())
                             callopName = getCallopName(attr);
+                        if (extCallName.empty())
+                            extCallName = getExtCallName(attr);
                         if (binopName.empty())
                             binopName = getBinopName(attr);
                         if (unaopName.empty())
@@ -934,6 +961,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         if (exprName.empty())
                             exprName = getExprName(attr);
                         isAccess |= luisa::clangcxx::isAccess(attr);
+                        isFuncRef |= luisa::clangcxx::isFuncRef(attr);
                     }
                     // args
                     luisa::string printer_str;
@@ -949,7 +977,12 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             lcArgs.emplace_back(lcArg);
                         else if (auto _str_literal = llvm::dyn_cast<clang::StringLiteral>(arg)) {
                             auto &&str = _str_literal->getString();
-                            printer_str = luisa::string{reinterpret_cast<char const *>(str.bytes_begin()), str.size()};
+                            if (callopName != "device_log") {
+                                lcArgs.emplace_back(fb->constant(ConstantData::create(Type::array(Type::of<uint8_t>(), str.size()), str.bytes_begin(), str.size())));
+                                lcArgs.emplace_back(fb->literal(Type::of<uint64_t>(), uint64_t(str.size())));
+                            } else {
+                                printer_str = luisa::string{reinterpret_cast<char const *>(str.bytes_begin()), str.size()};
+                            }
                         } else {
                             db->DumpWithLocation(arg);
                             clangcxx_log_error("unfound arg: {}", arg->getStmtClassName());
@@ -957,10 +990,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     }
                     // call
                     auto cxxReturnType = call->getCallReturnType(*astContext);
-                    if (!printer_str.empty()) {
-                        if (callopName != "device_log") [[unlikely]] {
-                            clangcxx_log_error("String literal only allowed in device_log.");
-                        }
+                    if (callopName == "device_log") [[unlikely]] {
                         fb->print_(std::move(printer_str), lcArgs);
                     } else if (!binopName.empty()) {
                         auto lcBinop = db->FindBinOp(binopName);
@@ -969,12 +999,16 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     } else if (!unaopName.empty()) {
                         UnaryOp lcUnaop = (unaopName == "PLUS")  ? UnaryOp::PLUS :
                                           (unaopName == "MINUS") ? UnaryOp::MINUS :
-                                                                   (clangcxx_log_error("unsupportted unary op {}!", unaopName.data()), UnaryOp::PLUS);
+                                                                   (clangcxx_log_error("unsupportted unary op {}!!", unaopName.data()), UnaryOp::PLUS);
                         if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc()))
                             current = fb->unary(lcReturnType, lcUnaop, lcArgs[0]);
                     } else if (isAccess) {
                         if (auto lcReturnType = db->FindOrAddType(cxxReturnType, x->getBeginLoc())) {
-                            current = fb->access(lcReturnType, lcArgs[0], lcArgs[1]);
+                            if (lcArgs.size() >= 2) {
+                                current = fb->access(lcReturnType, lcArgs[0], lcArgs[1]);
+                            } else {
+                                current = fb->access(lcReturnType, lcArgs[0], fb->literal(Type::of<int32_t>(), int32_t(0)));
+                            }
                         }
                     } else if (!exprName.empty()) {
                         if (exprName == "dispatch_id")
@@ -1010,6 +1044,36 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             clangcxx_log_error(
                                 "unfound return type: {}",
                                 call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
+                    } else if (!extCallName.empty()) {
+                        luisa::vector<const Type *> arg_types;
+                        luisa::vector<Usage> argument_usages;
+                        arg_types.resize_uninitialized(lcArgs.size());
+                        argument_usages.resize_uninitialized(lcArgs.size());
+                        for (auto &i : argument_usages) {
+                            i = Usage::READ;
+                        }
+                        for (auto i : vstd::range(lcArgs.size())) {
+                            arg_types[i] = lcArgs[i]->type();
+                        }
+                        auto get_ext_func = [&](ExternalFunction &&ext_func) -> auto & {
+                            auto iter = db->ext_funcs.try_emplace(ext_func.hash(), vstd::lazy_eval([&]() {
+                                                                      return luisa::make_shared<ExternalFunction>(std::move(ext_func));
+                                                                  }));
+                            return iter.first->second;
+                        };
+                        if (call->getCallReturnType(*astContext)->isVoidType()) {
+                            auto ext_func = get_ext_func(ExternalFunction(luisa::string(extCallName.data(), extCallName.size()), Type::of<void>(), std::move(arg_types), std::move(argument_usages)));
+                            fb->call(std::move(ext_func), lcArgs);
+                        } else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
+                            auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
+                            auto ext_func = get_ext_func(ExternalFunction(luisa::string(extCallName.data(), extCallName.size()), lcReturnType, std::move(arg_types), std::move(argument_usages)));
+                            fb->assign(ret_value, fb->call(lcReturnType, std::move(ext_func), lcArgs));
+                            current = ret_value;
+                        } else
+                            clangcxx_log_error(
+                                "unfound return type: {}",
+                                call->getCallReturnType(*astContext)->getCanonicalTypeInternal().getAsString());
+                        // TODO: external call
                     } else {
                         // TODO: REFACTOR THIS
                         auto methodDecl = llvm::dyn_cast<clang::CXXMethodDecl>(funcDecl);
@@ -1153,8 +1217,7 @@ auto FunctionBuilderBuilder::build(const clang::FunctionDecl *S, bool allowKerne
     if (auto Method = llvm::dyn_cast<clang::CXXMethodDecl>(S)) {
         if (auto thisType = Method->getParent()) {
             is_ignore |= thisType->isUnion();// ignore union
-            for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>())
-            {
+            for (auto Anno : thisType->specific_attrs<clang::AnnotateAttr>()) {
                 is_builtin_type_method |= isBuiltinType(Anno);
                 is_ignore |= is_builtin_type_method;
             }

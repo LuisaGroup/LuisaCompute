@@ -102,7 +102,7 @@ void *dynamic_module_find_symbol(void *handle, luisa::string_view name_view) noe
     name = name_view;
     auto symbol = GetProcAddress(reinterpret_cast<HMODULE>(handle), name.c_str());
     if (symbol == nullptr) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",
+        LUISA_WARNING("Failed to load symbol '{}', reason: {}.",
                                   name, detail::win32_last_error_message());
     }
     return reinterpret_cast<void *>(symbol);
@@ -243,7 +243,7 @@ void *dynamic_module_find_symbol(void *handle, luisa::string_view name_view) noe
     Clock clock;
     auto symbol = dlsym(handle, name.c_str());
     if (symbol == nullptr) [[unlikely]] {
-        LUISA_ERROR_WITH_LOCATION("Failed to load symbol '{}', reason: {}.",
+        LUISA_WARNING("Failed to load symbol '{}', reason: {}.",
                                   name, dlerror());
     }
     LUISA_VERBOSE_WITH_LOCATION(

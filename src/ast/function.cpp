@@ -77,6 +77,10 @@ uint3 Function::block_size() const noexcept {
     return _builder->block_size();
 }
 
+bool Function::hash_computed() const noexcept {
+    return _builder->hash_computed();
+}
+
 uint64_t Function::hash() const noexcept {
     return _builder->hash();
 }
@@ -126,4 +130,3 @@ CurveBasisSet Function::required_curve_bases() const noexcept {
 }
 
 }// namespace luisa::compute
-

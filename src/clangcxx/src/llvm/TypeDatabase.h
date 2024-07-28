@@ -1,6 +1,6 @@
 #pragma once
 #include "Utils/AttributeHelper.hpp"
-
+#include <luisa/ast/external_function.h>
 namespace luisa::clangcxx {
 template<typename... Args>
 [[noreturn]] LUISA_FORCE_INLINE void clangcxx_log_error(Args &&...args) noexcept {
@@ -41,6 +41,8 @@ struct TypeDatabase {
     luisa::shared_ptr<compute::detail::FunctionBuilder> pixel_builder;
     luisa::unordered_map<const clang::Decl *, luisa::shared_ptr<compute::detail::FunctionBuilder>> func_builders;
     luisa::unordered_map<const clang::Decl *, luisa::shared_ptr<compute::detail::FunctionBuilder>> lambda_builders;
+    luisa::unordered_map<uint64_t, luisa::shared_ptr<luisa::compute::ExternalFunction>> ext_funcs;
+
 
 protected:
     const luisa::compute::Type *RecordAsPrimitiveType(const clang::QualType Type);

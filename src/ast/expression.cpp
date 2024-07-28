@@ -100,7 +100,12 @@ uint64_t CallExpr::_compute_hash() const noexcept {
         hash = hash_value(a->hash(), hash);
     }
     if (_op == CallOp::CUSTOM) {
-        hash = hash_value(custom().hash(), hash);
+        if (custom().hash_computed()) {
+            hash = hash_value(custom().hash(), hash);
+        } else {
+            // recursive
+            hash = hash_value(custom().builder(), hash);
+        }
     } else if (_op == CallOp::EXTERNAL) {
         hash = hash_value(external()->hash(), hash);
     }
@@ -224,6 +229,10 @@ uint64_t StringIDExpr::_compute_hash() const noexcept {
     return hash_value(_data);
 }
 
+void ExprVisitor::visit(const FuncRefExpr *) {
+    LUISA_ERROR_WITH_LOCATION("Func ref op is not supported on this backend.");
+}
+
 void ExprVisitor::visit(const CpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("CPU custom op is not supported on this backend.");
 }
@@ -232,4 +241,7 @@ void ExprVisitor::visit(const GpuCustomOpExpr *) {
     LUISA_ERROR_WITH_LOCATION("GPU custom op is not supported on this backend.");
 }
 
+uint64_t FuncRefExpr::_compute_hash() const noexcept {
+    return _func->hash();
+}
 }// namespace luisa::compute

@@ -101,6 +101,7 @@ if get_config("enable_ir") then
     test_proj('test_autodiff')
     test_proj('test_autodiff_full')
 end
+test_proj("test_helloworld")
 test_proj("test_ast")
 test_proj("test_atomic")
 test_proj("test_bindless", true)

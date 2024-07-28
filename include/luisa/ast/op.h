@@ -170,7 +170,7 @@ enum struct CallOp : uint32_t {
     ATOMIC_FETCH_MIN,       /// [(atomic_ref, val) -> old]: stores min(old, val), returns old.
     ATOMIC_FETCH_MAX,       /// [(atomic_ref, val) -> old]: stores max(old, val), returns old.
 
-    ADDRESS_OF, // (expr) -> uint64
+    ADDRESS_OF,// (expr) -> uint64
 
     BUFFER_READ,   /// [(buffer, index) -> value]: reads the index-th element in buffer
     BUFFER_WRITE,  /// [(buffer, index, value) -> void]: writes value into the index-th element of buffer
@@ -241,6 +241,12 @@ enum struct CallOp : uint32_t {
     MAKE_DOUBLE2,// (scalar, vec2)
     MAKE_DOUBLE3,// (scalar, vec3)
     MAKE_DOUBLE4,// (scalar, vec4)
+    MAKE_BYTE2,  // (scalar, vec2)
+    MAKE_BYTE3,  // (scalar, vec3)
+    MAKE_BYTE4,  // (scalar, vec4)
+    MAKE_UBYTE2, // (scalar, vec2)
+    MAKE_UBYTE3, // (scalar, vec3)
+    MAKE_UBYTE4, // (scalar, vec4)
 
     MAKE_FLOAT2X2,// (float2x2) / (float3x3) / (float4x4)
     MAKE_FLOAT3X3,// (float2x2) / (float3x3) / (float4x4)
