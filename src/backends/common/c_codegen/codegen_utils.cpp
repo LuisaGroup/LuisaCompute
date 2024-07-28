@@ -5,7 +5,6 @@
 #include <luisa/ast/type_registry.h>
 #include "codegen_visitor.h"
 #include <luisa/vstl/functional.h>
-
 namespace luisa::compute {
 namespace c_codegen_detail {
 static bool is_integer(Type const *t) {
@@ -181,67 +180,31 @@ struct ExternalTable {
                    << luisa::format("{}", desc.size())
                    << ", a1);\n}\n";
             });
-        add_ext(
-            "dispose",
-            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args, luisa::bitvector &is_ref) {
-                is_ref.resize(1);
-                is_ref[0] = true;
-                sb << "inline void " << func_name << '(';
-                utils.get_type_name(sb, args[0]);
-                if (!args[0]->is_structure()) {
-                    sb << "* a0){}\n";
-                    return;
-                }
-                sb << "* a0){\n"
-                      "static const uint64_t type_md5[] = {";
-                auto type_desc = args[0]->description();
-                vstd::MD5 md5{type_desc};
-                sb << luisa::format("{}, {}", md5.to_binary().data0, md5.to_binary().data1);
-                sb << "};\n"
-                      "static const char type_desc[] = {";
-                bool comma = false;
-                for (auto &i : type_desc) {
-                    if (comma) {
-                        sb << ',';
-                    }
-                    comma = true;
-                    sb << luisa::format("{}", (uint)i);
-                }
-                sb << "};\n"
-                      "destruct(type_md5, type_desc, "
-                   << luisa::format("{}", type_desc.size())
-                   << ", a0);\n}\n";
-            });
-        add_ext(
+        map.emplace(
             "is_trivial",
-            +[](Clanguage_CodegenUtils &utils, vstd::StringBuilder &sb, vstd::string_view func_name, Type const *ret_type, luisa::span<Type const *const> args, luisa::bitvector &is_ref) {
-                is_ref.resize(1);
-                is_ref[0] = true;
-                sb << "inline bool " << func_name << '(';
-                utils.get_type_name(sb, args[0]);
-                if (!args[0]->is_structure()) {
-                    sb << "* a0){ return true; }\n";
+            +[](vstd::StringBuilder &sb, CodegenVisitor *visitor, Clanguage_CodegenUtils &utils, CallExpr const *call_expr) {
+                auto args = call_expr->arguments();
+                auto type = args[0]->type();
+                utils.set_dtor_type(type);
+                if (utils.is_trivial_destructible(type)) {
+                    sb << "true";
+                    return;
+                } else {
+                    sb << "false";
+                }
+            });
+        map.emplace(
+            "dispose",
+            +[](vstd::StringBuilder &sb, CodegenVisitor *visitor, Clanguage_CodegenUtils &utils, CallExpr const *call_expr) {
+                auto args = call_expr->arguments();
+                auto type = args[0]->type();
+                utils.set_dtor_type(type);
+                if (utils.is_trivial_destructible(type)) {
                     return;
                 }
-                sb << "* a0){\n"
-                      "static const uint64_t type_md5[] = {";
-                auto type_desc = args[0]->description();
-                vstd::MD5 md5{type_desc};
-                sb << luisa::format("{}, {}", md5.to_binary().data0, md5.to_binary().data1);
-                sb << "};\n"
-                      "static const char type_desc[] = {";
-                bool comma = false;
-                for (auto &i : type_desc) {
-                    if (comma) {
-                        sb << ',';
-                    }
-                    comma = true;
-                    sb << luisa::format("{}", (uint)i);
-                }
-                sb << "};\n"
-                      "return is_trivial(type_md5, type_desc, "
-                   << luisa::format("{}", type_desc.size())
-                   << ");\n}\n";
+                sb << "dtor_" << vstd::MD5(type->description()).to_string(false) << "(&";
+                args[0]->accept(*visitor);
+                sb << ')';
             });
     }
 };
@@ -397,12 +360,76 @@ vstd::StringBuilder Clanguage_CodegenUtils::_gen_func_name(Key const &key) {
     r << md5.to_string(false);
     return r;
 }
-
+void Clanguage_CodegenUtils::set_dtor_type(Type const *type) {
+    struct Destructor {
+        luisa::vector<std::pair<size_t, Type const *>> dtor_member_idx;
+        size_t finalizer_offset{std::numeric_limits<size_t>::max()};
+    };
+    static Type const *finalizer_type = Type::from("struct<8,[finalizer]ulong>");
+    switch (type->tag()) {
+        case Type::Tag::STRUCTURE: {
+            if (_destructor_types.find(type)) return;
+            size_t offset = 0;
+            Destructor destructor;
+            for (auto &i : type->members()) {
+                if (i->alignment() > 1) {
+                    offset = (offset + i->alignment() - 1) & (~(i->alignment() - 1));
+                }
+                if (i == finalizer_type) {
+                    if (destructor.finalizer_offset != std::numeric_limits<size_t>::max()) [[unlikely]] {
+                        LUISA_ERROR("Struct can not have multiple destructor.");
+                    }
+                    destructor.finalizer_offset = offset;
+                } else if (auto iter = _destructor_types.find(i)) {
+                    destructor.dtor_member_idx.emplace_back(offset, i);
+                }
+                offset += i->size();
+            }
+            if (destructor.finalizer_offset != std::numeric_limits<size_t>::max() || (!destructor.dtor_member_idx.empty())) [[unlikely]] {
+                _destructor_types.emplace(type);
+                dtor_sb << "void dtor_" << vstd::MD5(type->description()).to_string(false) << "(void* ptr) {\nuint8_t* byte_ptr = (uint8_t*)ptr;\n";
+                if (destructor.finalizer_offset != std::numeric_limits<size_t>::max()) {
+                    dtor_sb << "call_dtor(((Finalizer*)(byte_ptr + " << luisa::format("{}", destructor.finalizer_offset) << "))->ptr, ptr);\n";
+                }
+                for (auto &mem : destructor.dtor_member_idx) {
+                    dtor_sb
+                        << "dtor_"
+                        << vstd::MD5(mem.second->description()).to_string(false)
+                        << "(byte_ptr + "
+                        << luisa::format("{}", mem.first) << ");\n";
+                }
+                dtor_sb << "}\n";
+            }
+        } break;
+        case Type::Tag::ARRAY: {
+            if (_destructor_types.find(type)) return;
+            if (auto iter = _destructor_types.find(type->element())) [[unlikely]] {
+                _destructor_types.emplace(type);
+                auto ele_type = get_type_name(type->element());
+                dtor_sb
+                    << "void dtor_"
+                    << vstd::MD5(type->description()).to_string(false)
+                    << "(void* ptr) {\n"
+                    << ele_type
+                    << "* byte_ptr = ("
+                    << ele_type
+                    << "*)ptr;\n"
+                       "for(size_t i = 0; i < "
+                    << luisa::format("{}", type->dimension())
+                    << "; ++i) {\n"
+                       "dtor_"
+                    << vstd::MD5(type->element()->description()).to_string(false)
+                    << "(byte_ptr + i);\n}\n}\n";
+            }
+        } break;
+    }
+}
 void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *type) {
     if (!type) {
         sb << "void"sv;
         return;
     }
+
     switch (type->tag()) {
         case Type::Tag::BOOL:
             sb << "bool"sv;
@@ -452,10 +479,6 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
             vstd::to_string(type->dimension(), sb);
         }
             return;
-        case Type::Tag::BUFFER: {
-            sb << "buffer_type";
-        }
-            return;
         case Type::Tag::STRUCTURE: {
             vstd::StringBuilder type_name;
             if (_get_custom_type(type_name, type)) {
@@ -469,11 +492,13 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
                     get_type_name(temp_sb, i);
                     temp_sb << " v";
                     vstd::to_string(idx, temp_sb);
-                    ++idx;
                     temp_sb << ";\n";
+                    ++idx;
                 }
+
                 temp_sb << "} " << type_name << ";\n";
                 struct_sb << temp_sb;
+                set_dtor_type(type);
             }
             sb << type_name;
         }
@@ -491,12 +516,13 @@ void Clanguage_CodegenUtils::get_type_name(vstd::StringBuilder &sb, Type const *
                 vstd::to_string(type->dimension(), temp_sb);
                 temp_sb << "];\n} " << type_name << ";\n";
                 struct_sb << temp_sb;
+                set_dtor_type(type);
             }
             sb << type_name;
         }
             return;
         default:
-            LUISA_ERROR("Unsupported type.");
+            LUISA_ERROR("Unsupported type {}.", luisa::to_string(type->tag()));
             return;
             // TODO
     }
@@ -1516,7 +1542,7 @@ void Clanguage_CodegenUtils::codegen(
            << ";\n";
         ++arg_idx;
     }
-    if(func.arguments().empty()){
+    if (func.arguments().empty()) {
         sb << "int8_t _a;\n";
     }
     sb << "} Args;\n";
@@ -1534,9 +1560,21 @@ void Clanguage_CodegenUtils::codegen(
     }
     sb << ");\n}\n";
     auto f = fopen(path.c_str(), "wb");
+    if (!_destructor_types.empty()) {
+        struct_sb << R"(
+typedef struct {
+    void(*ptr)(void*);
+} Finalizer;
+void call_dtor(void(*func)(void*), void* ptr) {
+    if(func) { func(ptr); }
+}
+)";
+    }
     if (f) {
         if (struct_sb.size() > 0)
             fwrite(struct_sb.data(), struct_sb.size(), 1, f);
+        if (dtor_sb.size() > 0)
+            fwrite(dtor_sb.data(), dtor_sb.size(), 1, f);
         if (decl_sb.size() > 0)
             fwrite(decl_sb.data(), decl_sb.size(), 1, f);
         if (sb.size() > 0)

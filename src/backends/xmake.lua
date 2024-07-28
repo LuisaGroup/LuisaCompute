@@ -14,20 +14,20 @@ end
 if LCRemoteBackend then
     includes("remote")
 end
-includes("toy_c")
 if get_config("vk_backend") then
     includes("vk")
 end
 includes("validation")
+-- includes("toy_c")
 target("lc-backends-dummy")
 set_kind("phony")
 on_load(function(target)
     target:add("deps", "lc-validation-layer", {
         inherit = false
     })
-    target:add("deps", "lc-backend-toy-c", {
-        inherit = false
-    })
+    -- target:add("deps", "lc-backend-toy-c", {
+    --     inherit = false
+    -- })
     if get_config("dx_backend") then
         target:add("deps", "lc-backend-dx", {
             inherit = false

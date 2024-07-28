@@ -47,6 +47,7 @@ class Clanguage_CodegenUtils {
     };
     using FuncMap = vstd::HashMap<Key, vstd::StringBuilder, KeyHash, KeyCompare>;
     FuncMap func_map;
+    vstd::HashMap<Type const *> _destructor_types;
     vstd::HashMap<Type const *, size_t> _custom_types;
     vstd::HashMap<detail::FunctionBuilder const *, size_t> _custom_funcs;
     bool _get_custom_type(vstd::StringBuilder &sb, Type const *t);
@@ -70,7 +71,10 @@ class Clanguage_CodegenUtils {
     }
 
 public:
+    void set_dtor_type(Type const *t);
+    bool is_trivial_destructible(Type const *t) { return !_destructor_types.find(t); }
     vstd::StringBuilder struct_sb;
+    vstd::StringBuilder dtor_sb;
     vstd::StringBuilder decl_sb;
     vstd::HashMap<uint64> const_set;
 

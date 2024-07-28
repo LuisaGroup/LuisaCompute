@@ -1,0 +1,83 @@
+[[swizzle]] T x, y, z;
+
+[[swizzle]] vec<T, 2>
+    &xx,
+    &xy,
+    &xz,
+    &yx,
+    &yy,
+    &yz,
+    &zx,
+    &zy,
+    &zz;
+
+[[swizzle]] vec<T, 3>
+    &xxx,
+    &xxy,
+    &xxz,
+    &xyx,
+    &xyy,
+    &xyz,
+    &xzx,
+    &xzy,
+    &xzz,
+    &yxx,
+    &yxy,
+    &yxz,
+    &yyx,
+    &yyy,
+    &yyz,
+    &yzx,
+    &yzy,
+    &yzz,
+    &zxx,
+    &zxy,
+    &zxz,
+    &zyx,
+    &zyy,
+    &zyz,
+    &zzx,
+    &zzy,
+    &zzz;
+
+[[swizzle]] T r, g, b;
+
+[[swizzle]] vec<T, 2>
+    &rr,
+    &rg,
+    &rb,
+    &gr,
+    &gg,
+    &gb,
+    &br,
+    &bg,
+    &bb;
+
+[[swizzle]] vec<T, 3>
+    &rrr,
+    &rrg,
+    &rrb,
+    &rgr,
+    &rgg,
+    &rgb,
+    &rbr,
+    &rbg,
+    &rbb,
+    &grr,
+    &grg,
+    &grb,
+    &ggr,
+    &ggg,
+    &ggb,
+    &gbr,
+    &gbg,
+    &gbb,
+    &brr,
+    &brg,
+    &brb,
+    &bgr,
+    &bgg,
+    &bgb,
+    &bbr,
+    &bbg,
+    &bbb;

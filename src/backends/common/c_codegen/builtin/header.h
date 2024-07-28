@@ -336,6 +336,4 @@ void push_float3x3(uint64_t4 v);
 void push_float4x4(uint64_t4 v);
 void invoke_print();
 
-void destruct(uint64_t const* type_md5, char const* type_desc, uint64_t type_desc_size, void* ptr);
-bool is_trivial(uint64_t const* type_md5, char const* type_desc, uint64_t type_desc_size);
 void check_access(uint64_t size, uint64_t idx);
