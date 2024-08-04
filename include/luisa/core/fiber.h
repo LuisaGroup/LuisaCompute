@@ -59,14 +59,16 @@ private:
     marl::Event _evt;
 public:
     using Mode = marl::Event::Mode;
-    event(Mode mode = Mode::Manual, bool init_state = false) noexcept
-        : _evt{mode, init_state} {}
+    event(Mode mode = Mode::Manual, bool init_signalled = false) noexcept
+        : _evt{mode, init_signalled} {}
     void signal() const noexcept {
         _evt.signal();
     }
+    // signalled = false;
     void clear() const noexcept {
         _evt.clear();
     }
+    // while (!signalled) { __wait(); }
     void wait() const noexcept {
         _evt.wait();
     }
