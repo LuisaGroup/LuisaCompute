@@ -13,7 +13,7 @@ jobs:
           - { name: clang, version: 17 }
         config: [ release, debug ]
     name: ${{ matrix.os }} / ${{ matrix.config }} / ${{ matrix.toolchain.name }}-${{ matrix.toolchain.version }}
-    runs-on: [ self-hosted, x64, linux]
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
