@@ -56,10 +56,10 @@ private:
 
 class LC_VSTL_API LMDB {
     luisa::string _path;
-    size_t _map_size;
+    size_t _map_size{};
     MDB_env *_env{nullptr};
     luisa::optional<uint32_t> _dbi{};
-    uint32_t _flag;
+    uint32_t _flag{};
     void _dispose() noexcept;
 
 public:

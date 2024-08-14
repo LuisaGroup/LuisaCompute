@@ -1,38 +1,40 @@
 #include <luisa/vstl/lmdb.hpp>
 #include <lmdb.h>
 #include <luisa/core/logging.h>
+
 namespace vstd {
-namespace lmdb_detail {
-static void check(int rc) {
-    if (rc != MDB_SUCCESS) [[unlikely]] {
-        LUISA_ERROR("MDB error: {}", mdb_strerror(rc));
-    }
-}
-}// namespace lmdb_detail
+
+#define LUISA_CHECK_LMDB_ERROR(call)                            \
+    do {                                                        \
+        if (auto rc = (call); rc != MDB_SUCCESS) [[unlikely]] { \
+            LUISA_ERROR_WITH_LOCATION(                          \
+                "MDB error in call '{}': {}",                   \
+                #call, mdb_strerror(rc));                       \
+        }                                                       \
+    } while (false)
+
 LMDB::LMDB(
     std::filesystem::path const &db_dir,
     size_t max_reader,
     size_t map_size) noexcept
     : _path(luisa::to_string(db_dir)),
       _map_size(map_size) {
-    using namespace lmdb_detail;
-    check(mdb_env_create(&_env));
-    check(mdb_env_set_maxreaders(_env, max_reader));
-    check(mdb_env_set_mapsize(_env, _map_size));
+    LUISA_CHECK_LMDB_ERROR(mdb_env_create(&_env));
+    LUISA_CHECK_LMDB_ERROR(mdb_env_set_maxreaders(_env, max_reader));
+    LUISA_CHECK_LMDB_ERROR(mdb_env_set_mapsize(_env, _map_size));
     if (!std::filesystem::exists(db_dir)) {
         std::filesystem::create_directories(db_dir);
     }
-    check(mdb_env_open(_env, _path.c_str(), MDB_NORDAHEAD, 0664));
+    LUISA_CHECK_LMDB_ERROR(mdb_env_open(_env, _path.c_str(), MDB_NORDAHEAD, 0664));
     MDB_txn *txn;
-    check(mdb_txn_begin(_env, nullptr, MDB_RDONLY, &txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_begin(_env, nullptr, MDB_RDONLY, &txn));
     _dbi = 0;
-    check(mdb_dbi_open(txn, nullptr, 0, &*_dbi));
+    LUISA_CHECK_LMDB_ERROR(mdb_dbi_open(txn, nullptr, 0, &*_dbi));
     mdb_txn_abort(txn);
 }
 luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) const noexcept {
-    using namespace lmdb_detail;
     MDB_txn *txn;
-    check(mdb_txn_begin(_env, nullptr, MDB_RDONLY, &txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_begin(_env, nullptr, MDB_RDONLY, &txn));
     MDB_val key_v{
         .mv_size = key.size_bytes(),
         .mv_data = const_cast<std::byte *>(key.data())};
@@ -45,9 +47,8 @@ luisa::span<const std::byte> LMDB::read(luisa::span<const std::byte> key) const 
     return {static_cast<std::byte const *>(value_v.mv_data), value_v.mv_size};
 }
 void LMDB::write(luisa::span<const std::byte> key, luisa::span<const std::byte> value) const noexcept {
-    using namespace lmdb_detail;
     MDB_txn *txn;
-    check(mdb_txn_begin(_env, nullptr, 0, &txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_begin(_env, nullptr, 0, &txn));
     MDB_val key_v{
         .mv_size = key.size_bytes(),
         .mv_data = const_cast<std::byte *>(key.data())};
@@ -55,12 +56,11 @@ void LMDB::write(luisa::span<const std::byte> key, luisa::span<const std::byte> 
         .mv_size = value.size_bytes(),
         .mv_data = const_cast<std::byte *>(value.data())};
     mdb_put(txn, *_dbi, &key_v, &value_v, 0);
-    check(mdb_txn_commit(txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_commit(txn));
 }
 void LMDB::write_all(luisa::vector<LMDBWriteCommand> &&commands) const noexcept {
-    using namespace lmdb_detail;
     MDB_txn *txn;
-    check(mdb_txn_begin(_env, nullptr, 0, &txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_begin(_env, nullptr, 0, &txn));
     for (auto &i : commands) {
         MDB_val key_v{
             .mv_size = i.key.size_bytes(),
@@ -70,7 +70,7 @@ void LMDB::write_all(luisa::vector<LMDBWriteCommand> &&commands) const noexcept 
             .mv_data = const_cast<std::byte *>(i.value.data())};
         mdb_put(txn, *_dbi, &key_v, &value_v, 0);
     }
-    check(mdb_txn_commit(txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_commit(txn));
 }
 LMDB::LMDB(LMDB &&rhs) noexcept
     : _path(std::move(rhs._path)),
@@ -91,39 +91,35 @@ void LMDB::_dispose() noexcept {
     }
 }
 void LMDB::copy_to(std::filesystem::path path) const noexcept {
-    using namespace lmdb_detail;
     if (!std::filesystem::exists(path)) {
         std::filesystem::create_directories(path);
     } else {
         std::filesystem::remove_all(path);
         std::filesystem::create_directories(path);
     }
-    check(mdb_env_copy2(_env, luisa::to_string(path).c_str(), MDB_CP_COMPACT));
+    LUISA_CHECK_LMDB_ERROR(mdb_env_copy2(_env, luisa::to_string(path).c_str(), MDB_CP_COMPACT));
 }
 void LMDB::remove(luisa::span<const std::byte> key) const noexcept {
-    using namespace lmdb_detail;
     MDB_txn *txn;
-    check(mdb_txn_begin(_env, nullptr, 0, &txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_begin(_env, nullptr, 0, &txn));
     MDB_val key_v{
         .mv_size = key.size_bytes(),
         .mv_data = const_cast<std::byte *>(key.data())};
     mdb_del(txn, *_dbi, &key_v, nullptr);
-    check(mdb_txn_commit(txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_commit(txn));
 }
 void LMDB::remove_all(luisa::vector<luisa::vector<std::byte>> &&keys) const noexcept {
-    using namespace lmdb_detail;
     MDB_txn *txn;
-    check(mdb_txn_begin(_env, nullptr, 0, &txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_begin(_env, nullptr, 0, &txn));
     for (auto &i : keys) {
         MDB_val key_v{
             .mv_size = i.size_bytes(),
             .mv_data = const_cast<std::byte *>(i.data())};
         mdb_del(txn, *_dbi, &key_v, nullptr);
     }
-    check(mdb_txn_commit(txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_commit(txn));
 }
 LMDB::~LMDB() noexcept {
-    using namespace lmdb_detail;
     _dispose();
 }
 LMDBIterator LMDB::begin() const noexcept {
@@ -146,9 +142,8 @@ LMDBIterator::~LMDBIterator() noexcept {
     }
 }
 LMDBIterator::LMDBIterator(MDB_env *env, uint32_t dbi) noexcept {
-    using namespace lmdb_detail;
-    check(mdb_txn_begin(env, nullptr, MDB_RDONLY, &_txn));
-    check(mdb_cursor_open(_txn, dbi, &_cursor));
+    LUISA_CHECK_LMDB_ERROR(mdb_txn_begin(env, nullptr, MDB_RDONLY, &_txn));
+    LUISA_CHECK_LMDB_ERROR(mdb_cursor_open(_txn, dbi, &_cursor));
     operator++();
 }
 void LMDBIterator::operator++() noexcept {
@@ -169,4 +164,7 @@ void LMDBIterator::operator++() noexcept {
             data.mv_size};
     }
 }
+
+#undef LUISA_CHECK_LMDB_ERROR
+
 }// namespace vstd
