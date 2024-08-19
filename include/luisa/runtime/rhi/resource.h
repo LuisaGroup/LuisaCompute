@@ -229,6 +229,7 @@ public:
     [[nodiscard]] auto valid() const noexcept { return _info.valid(); }
     [[nodiscard]] explicit operator bool() const noexcept { return valid(); }
     void set_name(luisa::string_view name) const noexcept;
+    void dispose() noexcept;
 };
 
 }// namespace luisa::compute
