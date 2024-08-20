@@ -202,6 +202,9 @@ void CommandBufferBuilder::CopyBufferTexture(
         if ((rowPitch & (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)) != 0) [[unlikely]] {
             LUISA_ERROR("Texture's row must be aligned as {}, current value row-size({}) x pixel-size({}) = {}.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, size.x / (Resource::IsBCtex(texture->Format()) ? 4ull : 1ull), Resource::GetTexturePixelSize(texture->Format()), rowPitch);
         }
+        if((buffer.offset & (D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT - 1)) != 0) [[unlikely]] {
+            LUISA_ERROR("Buffer offset must be aligned as {}, current value is {}", D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, buffer.offset);
+        }
     } else {
         rowPitch = CalcAlign(rowPitch, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
     }
