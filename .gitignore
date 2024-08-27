@@ -326,3 +326,4 @@ scripts/options.cmake
 .deps/**
 FidelityFX-FSR2/
 xess/
+!xrepo/**

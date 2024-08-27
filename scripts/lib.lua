@@ -193,8 +193,8 @@ function StringBuilder(str)
         end
     else
         inst._size = 0
-        inst._capacity = 0
-        inst._ptr = 0
+        inst._capacity = 32
+        inst._ptr = libc.malloc(32)
     end
     return inst
 end

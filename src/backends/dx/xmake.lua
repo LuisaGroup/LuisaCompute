@@ -26,4 +26,8 @@ on_load(function(target)
 end)
 set_pcxxheader("pch.h")
 add_rules('lc_install_sdk', {libnames = {'dx_sdk'}})
+add_packages("zlib", {
+    public = false,
+    inherit = false
+})
 target_end()

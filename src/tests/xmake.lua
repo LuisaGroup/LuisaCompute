@@ -147,6 +147,12 @@ test_proj("test_pinned_mem")
 test_proj("test_imgui", true, function()
     add_deps("imgui")
 end)
+test_proj("test_zip", false, function()
+    add_packages("zlib", {
+        public = false,
+        inherit = false
+    })
+end)
 if get_config("dx_backend") then
     test_proj("test_raster", true)
     if get_config("cuda_backend") then
@@ -237,7 +243,7 @@ if get_config("dx_backend") and (enable_fsr2 or enable_xess) then
         end)
     end)
 end
-includes("amd")
+-- includes("amd")
 if get_config("dx_backend") and enable_fsr3 then
     test_proj("test_fsr3", true, function()
         set_pcxxheader("pch.h")
