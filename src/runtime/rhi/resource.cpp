@@ -42,8 +42,17 @@ void Resource::_error_invalid() noexcept {
     LUISA_ERROR_WITH_LOCATION("Invalid resource.");
 }
 
+Resource::~Resource() noexcept {
+    // manually reset to workaround "dispose"
+    _device.reset();
+}
+
 void Resource::dispose() noexcept {
-    this->~Resource();
-    _info.invalidate();
+    // trick here: we can not call derive class' destructor
+    // Resource destructor might be called multiple times
+    if (*this) {
+        this->~Resource();
+        _info.invalidate();
+    }
 }
 }// namespace luisa::compute

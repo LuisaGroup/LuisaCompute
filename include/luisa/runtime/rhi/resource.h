@@ -217,7 +217,7 @@ protected:
     // protected destructor for derived classes
 
 public:
-    virtual ~Resource() noexcept = default;
+    virtual ~Resource() noexcept;
     Resource(const Resource &) noexcept = delete;
     Resource &operator=(Resource &&) noexcept = delete;// use _move_from in derived classes
     Resource &operator=(const Resource &) noexcept = delete;
