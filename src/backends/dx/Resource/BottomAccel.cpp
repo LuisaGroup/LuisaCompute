@@ -130,7 +130,9 @@ size_t BottomAccel::PreProcessStates(
             device,
             CalcAlign(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, 65536),
             device->defaultAllocator.get(),
-            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE));
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+            false,
+            "blas-accel-buffer"));
     };
     if (!accelBuffer) {
         update = false;
@@ -163,7 +165,9 @@ bool BottomAccel::CheckAccel(
         device,
         CalcAlign(compactSize, 65536),
         device->defaultAllocator.get(),
-        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE));
+        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+        false,
+        "blas-accel-buffer"));
     builder.GetCB()->CmdList()->CopyRaytracingAccelerationStructure(
         newAccelBuffer->GetAddress(),
         accelBuffer->GetAddress(),

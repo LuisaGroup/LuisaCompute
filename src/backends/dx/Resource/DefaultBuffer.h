@@ -22,7 +22,8 @@ public:
 		uint64 byteSize,
 		GpuAllocator* allocator = nullptr,
 		D3D12_RESOURCE_STATES initState = D3D12_RESOURCE_STATE_COMMON,
-		bool shared_adaptor = false);
+		bool shared_adaptor = false,
+		char const* name = nullptr);
 	~DefaultBuffer();
 	DefaultBuffer(
 		Device* device,

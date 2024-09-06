@@ -59,6 +59,7 @@ TopAccel::~TopAccel() {
     }
 }
 bool TopAccel::GenerateNewBuffer(
+    char const *name,
     ResourceStateTracker &tracker,
     CommandBufferBuilder &builder,
     vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state) {
@@ -68,7 +69,9 @@ bool TopAccel::GenerateNewBuffer(
             device,
             newSize,
             device->defaultAllocator.get(),
-            state));
+            state,
+            false,
+            name));
         return true;
     } else {
         if (newSize <= oldBuffer->GetByteSize()) return false;
@@ -121,6 +124,7 @@ void TopAccel::PreProcessInst(
     ProcessSetMap();
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     if (GenerateNewBuffer(
+            "tlas-instance-buffer",
             tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         input.InstanceDescs = instBuffer->GetAddress();
     }
@@ -227,11 +231,12 @@ size_t TopAccel::PreProcess(
 
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     if (GenerateNewBuffer(
+            "tlas-instance-buffer",
             tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         input.InstanceDescs = instBuffer->GetAddress();
     }
     device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
-    if (GenerateNewBuffer(tracker, builder, accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
+    if (GenerateNewBuffer("tlas-accel-buffer", tracker, builder, accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
         update = false;
         topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
     }

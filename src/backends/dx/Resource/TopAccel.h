@@ -43,6 +43,7 @@ class TopAccel : public Resource {
     void UpdateMesh(
         MeshHandle *handle);
     bool GenerateNewBuffer(
+        char const *name,
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
         vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state);
