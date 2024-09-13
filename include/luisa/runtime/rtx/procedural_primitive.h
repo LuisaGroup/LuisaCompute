@@ -13,14 +13,19 @@ class LC_RUNTIME_API ProceduralPrimitive final : public Resource {
     friend class Device;
 
 private:
+    void *_aabb_buffer_native_handle{};
     uint64_t _aabb_buffer{};
-    size_t _aabb_buffer_offset{};
-    size_t _aabb_buffer_size{};
+    size_t _aabb_buffer_offset_bytes{};
+    size_t _aabb_buffer_size_bytes{};
+    size_t _aabb_buffer_total_size_bytes{};
     ProceduralPrimitive(DeviceInterface *device,
                         BufferView<AABB> aabb,
                         const AccelOption &option) noexcept;
 
 public:
+    [[nodiscard]] BufferView<AABB> aabb_buffer() const noexcept {
+        return {_aabb_buffer_native_handle, _aabb_buffer, sizeof(AABB), _aabb_buffer_offset_bytes, _aabb_buffer_size_bytes / sizeof(AABB), _aabb_buffer_total_size_bytes / sizeof(AABB)};
+    }
     ProceduralPrimitive() noexcept = default;
     ~ProceduralPrimitive() noexcept override;
     ProceduralPrimitive(ProceduralPrimitive &&) noexcept = default;
@@ -37,11 +42,11 @@ public:
         AccelBuildRequest request = AccelBuildRequest::PREFER_UPDATE) noexcept;
     [[nodiscard]] auto aabb_buffer_offset() const noexcept {
         _check_is_valid();
-        return _aabb_buffer_offset;
+        return _aabb_buffer_offset_bytes;
     }
     [[nodiscard]] auto aabb_buffer_size() const noexcept {
         _check_is_valid();
-        return _aabb_buffer_size;
+        return _aabb_buffer_size_bytes;
     }
 };
 

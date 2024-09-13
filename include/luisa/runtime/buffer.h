@@ -201,6 +201,8 @@ public:
     [[nodiscard]] auto offset() const noexcept { return _offset_bytes / _element_stride; }
     [[nodiscard]] auto offset_bytes() const noexcept { return _offset_bytes; }
     [[nodiscard]] auto size_bytes() const noexcept { return _size * _element_stride; }
+    [[nodiscard]] auto total_size() const noexcept { return _total_size; }
+    [[nodiscard]] auto total_size_bytes() const noexcept { return _total_size * _element_stride; }
 
     [[nodiscard]] auto original() const noexcept {
         return BufferView{_native_handle, _handle,
