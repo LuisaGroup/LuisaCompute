@@ -67,8 +67,14 @@ row_major float4x4 m;
 #define _bytebfwrite(bf,idx,value) bf.Store(idx,value)
 #define _bytebfwriteVec3(bf,type,idx,value) bf.template Store<type##4>(idx,type##4(value,0))
 #define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}
-#define _Smptx(tex,uv) tex[uv]
+#define _Readtx(tex,uv) tex[uv]
 #define _Writetx(tex,uv,value) tex[uv]=value
+#define _Smptx(tex,uv,filter,address) (tex.SampleLevel(samplers[(address)*4+(filter)],(uv),0))
+#define _SmptxPixel(tex,uv,filter,address) (tex.Sample(samplers[(address)*4+(filter)],(uv)))
+#define _SmptxLevel(tex,uv,level,filter,address) (tex.SampleLevel(samplers[(address)*4+(filter)],uv,level))
+#define _SmptxGrad(tex,uv,dx,dy,filter,address) (tex.SampleLevel(samplers[(address)*4+(filter)],uv,dx,dy))
+#define _SmptxGrad2DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleLevel(samplers[(address)*4+(filter)],uv,dx,dy,int2(0),minMip))
+#define _SmptxGrad3DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleLevel(samplers[(address)*4+(filter)],uv,dx,dy,int3(0),minMip))
 template<typename T>
 T _fract(T x){return x-floor(x);}
 struct _Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};

@@ -335,6 +335,17 @@ enum struct CallOp : uint32_t {
     INDIRECT_SET_DISPATCH_KERNEL,// (Buffer, uint offset, uint3 block_size, uint3 dispatch_size, uint kernel_id)
     INDIRECT_SET_DISPATCH_COUNT, // (Buffer, uint count)
 
+    // texture direct sample
+
+    TEXTURE2D_SAMPLE,           // (tex, uv: float2, filter: uint, address: uint): float4
+    TEXTURE2D_SAMPLE_LEVEL,     // (tex, uv: float2, level: float, filter: uint, address: uint): float4
+    TEXTURE2D_SAMPLE_GRAD,      // (tex, uv: float2, ddx: float2, ddy: float2, filter: uint, address: uint): float4
+    TEXTURE2D_SAMPLE_GRAD_LEVEL,// (tex, uv: float2, ddx: float2, ddy: float2,  mip_clamp: float, filter: uint, address: uint): float4
+    TEXTURE3D_SAMPLE,           // (tex, uv: float3, filter: uint, address: uint): float4
+    TEXTURE3D_SAMPLE_LEVEL,     // (tex, uv: float3, level: float, filter: uint, address: uint): float4
+    TEXTURE3D_SAMPLE_GRAD,      // (tex, uv: float3, ddx: float3, ddy: float3, filter: uint, address: uint): float4
+    TEXTURE3D_SAMPLE_GRAD_LEVEL,// (tex, uv: float3, ddx: float3, ddy: float3,  mip_clamp: float, filter: uint, address: uint): float4
+
     // SER
     SHADER_EXECUTION_REORDER,// (uint hint, uint hint_bits): void
 };

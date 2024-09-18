@@ -710,7 +710,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             return;
         }
         case CallOp::TEXTURE_READ:
-            str << "_Smptx";
+            str << "_Readtx";
             break;
         case CallOp::TEXTURE_WRITE:
             str << "_Writetx";
@@ -1254,6 +1254,28 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
         case CallOp::BINDLESS_BUFFER_WRITE: LUISA_NOT_IMPLEMENTED();
         case CallOp::WARP_FIRST_ACTIVE_LANE: LUISA_NOT_IMPLEMENTED();
+        case CallOp::TEXTURE2D_SAMPLE:
+        case CallOp::TEXTURE3D_SAMPLE:
+            if (opt->isPixelShader) {
+                str << "_SmptxPixel"sv;
+            } else {
+                str << "_Smptx"sv;
+            }
+            break;
+        case CallOp::TEXTURE2D_SAMPLE_LEVEL:
+        case CallOp::TEXTURE3D_SAMPLE_LEVEL:
+            str << "_SmptxLevel"sv;
+            break;
+        case CallOp::TEXTURE3D_SAMPLE_GRAD:
+        case CallOp::TEXTURE2D_SAMPLE_GRAD:
+            str << "_SmptxGrad"sv;
+            break;
+        case CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL:
+            str << "_SmptxGrad2DLevel"sv;
+            break;
+        case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
+            str << "_SmptxGrad3DLevel"sv;
+            break;
         case CallOp::SHADER_EXECUTION_REORDER:
             str << "(void)";
             break;
