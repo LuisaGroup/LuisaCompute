@@ -124,6 +124,18 @@ void CUDAPrimitive::_update(CUDACommandEncoder &encoder) noexcept {
     if (!_name.empty()) { nvtxRangePop(); }
 }
 
+const CUdeviceptr *CUDAPrimitive::_motion_buffer_pointers(CUdeviceptr base, size_t total_size) const noexcept {
+    static thread_local CUdeviceptr pointers[max_motion_keyframe_count] = {};
+    auto n = motion_keyframe_count();
+    LUISA_ASSERT(n <= max_motion_keyframe_count, "Too many motion keyframes.");
+    LUISA_ASSERT(total_size % n == 0u, "Motion buffer size is not divisible by keyframe count.");
+    auto pitch = total_size / n;
+    for (auto i = 0u; i < n; i++) {
+        pointers[i] = base + i * pitch;
+    }
+    return pointers;
+}
+
 void CUDAPrimitive::set_name(luisa::string &&name) noexcept {
     std::scoped_lock lock{_mutex};
     _name = std::move(name);

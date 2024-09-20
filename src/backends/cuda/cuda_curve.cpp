@@ -15,10 +15,14 @@ optix::BuildInput CUDACurve::_make_build_input() const noexcept {
     build_input.type = optix::BUILD_INPUT_TYPE_CURVES;
     build_input.curveArray.curveType = _basis;
     build_input.curveArray.numPrimitives = _seg_count;
-    build_input.curveArray.vertexBuffers = &_cp_buffer;
-    build_input.curveArray.numVertices = _cp_count;
+    build_input.curveArray.vertexBuffers = _motion_buffer_pointers(_cp_buffer, _cp_count * _cp_stride);
+    build_input.curveArray.numVertices = _cp_count / motion_keyframe_count();
     build_input.curveArray.vertexStrideInBytes = _cp_stride;
-    build_input.curveArray.widthBuffers = &_radius_buffer;
+    static thread_local CUdeviceptr width_buffers[max_motion_keyframe_count] = {};
+    for (auto i = 0u; i < motion_keyframe_count(); i++) {
+        width_buffers[i] = build_input.curveArray.vertexBuffers[i] + sizeof(float) * 3u;
+    }
+    build_input.curveArray.widthBuffers = width_buffers;
     build_input.curveArray.widthStrideInBytes = _cp_stride;
     build_input.curveArray.normalBuffers = nullptr;
     build_input.curveArray.normalStrideInBytes = 0u;
@@ -79,7 +83,6 @@ void CUDACurve::build(CUDACommandEncoder &encoder, CurveBuildCommand *command) n
     _seg_count = seg_count;
     _cp_buffer = cp_buffer->device_address() + command->cp_buffer_offset();
     _cp_stride = cp_stride;
-    _radius_buffer = _cp_buffer + sizeof(float) * 3u;
     _seg_buffer = seg_buffer->device_address() + command->seg_buffer_offset();
 
     // build or update
