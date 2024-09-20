@@ -201,8 +201,6 @@ public:
     ArenaHashMap(ArenaHashMap &&map)
         : pool(std::move(map.pool)),
           mCapacity(map.mCapacity) {
-        map.elements = nullptr;
-        map.nodeVec = nullptr;
     }
     ArenaHashMap(ArenaHashMap const &map) = delete;
 
