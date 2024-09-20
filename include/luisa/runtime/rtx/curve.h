@@ -6,6 +6,10 @@
 
 namespace luisa::compute {
 
+namespace detail {
+LC_RUNTIME_API void check_curve_cp_buffer_motion_keyframe_count(size_t total_cp_count, uint motion_keyframe_count);
+}// namespace detail
+
 class LC_RUNTIME_API Curve final : public Resource {
 
 public:
@@ -13,7 +17,8 @@ public:
 
 private:
     CurveBasis _basis{};
-    size_t _cp_count{};
+    uint _motion_keyframe_count{};
+    size_t _cp_count_total{};
     size_t _seg_count{};
     // control point buffer
     uint64_t _cp_buffer{};
@@ -50,13 +55,16 @@ private:
                                     control_point_buffer,
                                     segment_buffer)},
           _basis{basis},
-          _cp_count{control_point_buffer.size()},
+          _motion_keyframe_count{option.motion.keyframe_count},
+          _cp_count_total{control_point_buffer.size()},
           _seg_count{segment_buffer.size()},
           _cp_buffer{BufferView{control_point_buffer}.handle()},
           _cp_buffer_offset{BufferView{control_point_buffer}.offset_bytes()},
           _cp_stride{control_point_buffer.stride()},
           _seg_buffer{BufferView{segment_buffer}.handle()},
-          _seg_buffer_offset{BufferView{segment_buffer}.offset_bytes()} {}
+          _seg_buffer_offset{BufferView{segment_buffer}.offset_bytes()} {
+        detail::check_curve_cp_buffer_motion_keyframe_count(_cp_count_total, _motion_keyframe_count);
+    }
 
 public:
     Curve() noexcept = default;
@@ -72,8 +80,12 @@ public:
 
 public:
     [[nodiscard]] CurveBasis basis() const noexcept;
-    [[nodiscard]] size_t control_point_count() const noexcept;
+    [[nodiscard]] size_t control_point_count_per_motion_keyframe() const noexcept;
     [[nodiscard]] size_t segment_count() const noexcept;
+
+    [[nodiscard]] auto motion_keyframe_count() const noexcept {
+        return std::max<uint>(1u, _motion_keyframe_count);
+    }
 
 public:
     [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;

@@ -20,7 +20,6 @@ private:
     size_t _seg_count{};
     CUdeviceptr _cp_buffer{};
     size_t _cp_stride{};
-    CUdeviceptr _radius_buffer{};
     CUdeviceptr _seg_buffer{};
 
 private:

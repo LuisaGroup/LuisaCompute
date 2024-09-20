@@ -14,8 +14,8 @@ optix::BuildInput CUDAProceduralPrimitive::_make_build_input() const noexcept {
     optix::BuildInput build_input{};
     static const auto geometry_flag = static_cast<uint32_t>(optix::GEOMETRY_FLAG_DISABLE_ANYHIT);
     build_input.type = optix::BUILD_INPUT_TYPE_CUSTOM_PRIMITIVES;
-    build_input.customPrimitiveArray.aabbBuffers = &_aabb_buffer;
-    build_input.customPrimitiveArray.numPrimitives = _aabb_buffer_size / sizeof(optix::Aabb);
+    build_input.customPrimitiveArray.aabbBuffers = _motion_buffer_pointers(_aabb_buffer, _aabb_buffer_size);
+    build_input.customPrimitiveArray.numPrimitives = _aabb_buffer_size / sizeof(optix::Aabb) / motion_keyframe_count();
     build_input.customPrimitiveArray.strideInBytes = sizeof(optix::Aabb);
     build_input.customPrimitiveArray.flags = &geometry_flag;
     build_input.customPrimitiveArray.numSbtRecords = 1u;

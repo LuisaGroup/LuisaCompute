@@ -28,7 +28,6 @@ private:
     mutable luisa::spin_mutex _mtx;
     size_t _instance_count{};
 
-
 private:
     friend class Device;
     friend class Mesh;
