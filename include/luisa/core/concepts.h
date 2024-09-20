@@ -22,6 +22,14 @@ concept iterable = requires(T v) {
     v.end();
 };
 
+template <typename Iter>
+concept is_iterator = requires(Iter ite, size_t n) {
+    *ite;
+    !std::is_integral_v<Iter>;
+    std::distance(ite, ite);
+    std::advance(ite, n);
+};
+
 template<typename T>
 concept string_viewable = requires(T v) {
     std::string_view{v};

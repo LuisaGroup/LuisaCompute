@@ -143,6 +143,10 @@ set_showmenu(true)
 option_end()
 -- pre-defined options end
 
+-- use xrepo from skr
+add_repositories("skr-xrepo xrepo", {
+    rootdir = os.projectdir()
+})
 -- try options.lua
 if path.absolute(os.projectdir()) == path.absolute(os.scriptdir()) and os.exists("scripts/options.lua") then
     includes("scripts/options.lua")
