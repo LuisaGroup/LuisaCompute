@@ -1,6 +1,7 @@
 # TODO
 if (WIN32)
     message(STATUS "Build with DirectX backend")
+
     file(GLOB_RECURSE LC_BACKEND_DX_SOURCES CONFIGURE_DEPENDS "*.cpp" "../common/hlsl/*.cpp")
 
     # download support SDK files
@@ -69,6 +70,17 @@ if (WIN32)
 
     if (TARGET luisa-compute-oidn-ext)
         target_link_libraries(luisa-compute-backend-dx PRIVATE luisa-compute-oidn-ext)
+    endif ()
+
+    find_package(ZLIB)
+    if (ZLIB_FOUND)
+        target_link_libraries(luisa-compute-backend-dx PRIVATE ZLIB::ZLIB)
+    else () # use maxwell's favorite xrepo otherwise
+        target_include_directories(luisa-compute-backend-dx PRIVATE "../../../xrepo/packages/z/zlib/port/zlib/include")
+        # convert zlib path to absolute path
+        set(ZLIB_LIB_FILE "../../../xrepo/packages/z/zlib/port/zlib/lib/windows/x64/zlibstatic.lib")
+        cmake_path(ABSOLUTE_PATH ZLIB_LIB_FILE)
+        target_link_libraries(luisa-compute-backend-dx PRIVATE ${ZLIB_LIB_FILE})
     endif ()
 
 elseif (NOT LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES)

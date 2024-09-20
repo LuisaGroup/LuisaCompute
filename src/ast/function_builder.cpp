@@ -694,7 +694,7 @@ void FunctionBuilder::mark_required_curve_basis_set(CurveBasisSet basis_set) noe
 
 void FunctionBuilder::call(luisa::shared_ptr<const ExternalFunction> func,
                            luisa::span<const Expression *const> args) noexcept {
-    call(nullptr, std::move(func), args);
+    static_cast<void>(call(nullptr, std::move(func), args));
 }
 
 // call custom functions
