@@ -67,11 +67,35 @@ template<bool terminate_on_first>
 }
 
 template<bool terminate_on_first>
+[[nodiscard]] inline auto make_ray_query_object(const Expression *accel,
+                                                const Expression *ray,
+                                                const Expression *time,
+                                                const Expression *mask) noexcept {
+    auto builder = detail::FunctionBuilder::current();
+    auto type = Type::of<RayQueryProxy<terminate_on_first>>();
+    auto local = builder->local(type);
+    CallOp op = terminate_on_first ?
+                    CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR :
+                    CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR;
+    auto call = builder->call(type, op, {accel, ray, time, mask});
+    builder->assign(local, call);
+    return local;
+}
+
+template<bool terminate_on_first>
 RayQueryBase<terminate_on_first>::RayQueryBase(const Expression *accel,
                                                const Expression *ray,
                                                const Expression *mask) noexcept
     : _stmt{detail::FunctionBuilder::current()->ray_query_(
           make_ray_query_object<terminate_on_first>(accel, ray, mask))} {}
+
+template<bool terminate_on_first>
+RayQueryBase<terminate_on_first>::RayQueryBase(const Expression *accel,
+                                               const Expression *ray,
+                                               const Expression *time,
+                                               const Expression *mask) noexcept
+    : _stmt{detail::FunctionBuilder::current()->ray_query_(
+          make_ray_query_object<terminate_on_first>(accel, ray, time, mask))} {}
 
 template<bool terminate_on_first>
 RayQueryProceduralProxy<terminate_on_first>
@@ -89,7 +113,6 @@ RayQueryBase<terminate_on_first>::_on_surface_candidate(
     _inside_surface_handler = false;
     return {_stmt, _inside_surface_handler, _inside_procedural_handler};
 }
-
 
 template<bool terminate_on_first>
 RayQuerySurfaceProxy<terminate_on_first>

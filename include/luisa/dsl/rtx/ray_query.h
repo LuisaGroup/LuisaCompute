@@ -66,10 +66,13 @@ public:
 };
 
 namespace detail {
+
 template<bool terminate_on_first>
 class RayQuerySurfaceProxy;
+
 template<bool terminate_on_first>
 class RayQueryProceduralProxy;
+
 template<bool terminate_on_first>
 class LC_DSL_API RayQueryBase {
 
@@ -86,6 +89,12 @@ protected:
     RayQueryBase(const Expression *accel,
                  const Expression *ray,
                  const Expression *mask) noexcept;
+
+    RayQueryBase(const Expression *accel,
+                 const Expression *ray,
+                 const Expression *time,
+                 const Expression *mask) noexcept;
+
     RayQueryBase(RayQueryStmt *stmt,
                  bool inside_surface_handler,
                  bool inside_procedural_handler) noexcept
@@ -107,6 +116,7 @@ protected:
     [[nodiscard]] RayQueryProceduralProxy<terminate_on_first> _on_surface_candidate(const SurfaceCandidateHandler &handler) noexcept;
     [[nodiscard]] RayQuerySurfaceProxy<terminate_on_first> _on_procedural_candidate(const ProceduralCandidateHandler &handler) noexcept;
 };
+
 template<bool terminate_on_first>
 class RayQueryProceduralProxy : public RayQueryBase<terminate_on_first> {
 private:
@@ -132,16 +142,19 @@ public:
 
 template<bool terminate_on_first>
 class RayQuerySurfaceProxy : public RayQueryBase<terminate_on_first> {
+
 private:
     friend struct Expr<Accel>;
     friend class compute::SurfaceCandidate;
     friend class compute::ProceduralCandidate;
     friend class RayQueryBase<terminate_on_first>;
+
     RayQuerySurfaceProxy(RayQueryStmt *stmt,
                          bool inside_surface_handler,
                          bool inside_procedural_handler) noexcept
         : RayQueryBase<terminate_on_first>(stmt, inside_surface_handler, inside_procedural_handler) {}
     RayQuerySurfaceProxy(RayQuerySurfaceProxy &&rhs) noexcept = default;
+
 public:
     using SurfaceCandidateHandler = luisa::function<void(SurfaceCandidate &)>;
     // legacy names, provided for compatibility
@@ -158,17 +171,26 @@ public:
 
 template<bool terminate_on_first>
 class RayQueryProxy : public RayQueryBase<terminate_on_first> {
+
 private:
     friend struct Expr<Accel>;
     friend class compute::SurfaceCandidate;
     friend class compute::ProceduralCandidate;
     friend class RayQueryBase<terminate_on_first>;
+
     RayQueryProxy(const Expression *accel,
                   const Expression *ray,
                   const Expression *mask) noexcept
         : RayQueryBase<terminate_on_first>(accel, ray, mask) {}
 
+    RayQueryProxy(const Expression *accel,
+                  const Expression *ray,
+                  const Expression *time,
+                  const Expression *mask) noexcept
+        : RayQueryBase<terminate_on_first>(accel, ray, time, mask) {}
+
     RayQueryProxy(RayQueryProxy &&rhs) noexcept = default;
+
 public:
     using SurfaceCandidateHandler = luisa::function<void(SurfaceCandidate &)>;
     using ProceduralCandidateHandler = luisa::function<void(ProceduralCandidate &)>;

@@ -289,6 +289,11 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_QUERY_ALL,    // (Accel, ray, mask: uint): RayQuery
     RAY_TRACING_QUERY_ANY,    // (Accel, ray, mask: uint): RayQuery
 
+    RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR,// (Accel, ray, mask: uint, time: float): TriangleHit
+    RAY_TRACING_TRACE_ANY_MOTION_BLUR,    // (Accel, ray, mask: uint, time: float): bool
+    RAY_TRACING_QUERY_ALL_MOTION_BLUR,    // (Accel, ray, mask: uint, time: float): RayQuery
+    RAY_TRACING_QUERY_ANY_MOTION_BLUR,    // (Accel, ray, mask: uint, time: float): RayQuery
+
     // ray query
     RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray
     RAY_QUERY_PROCEDURAL_CANDIDATE_HIT,// (RayQuery): ProceduralHit
@@ -297,6 +302,7 @@ enum struct CallOp : uint32_t {
     RAY_QUERY_COMMIT_TRIANGLE,         // (RayQuery): void
     RAY_QUERY_COMMIT_PROCEDURAL,       // (RayQuery, float): void
     RAY_QUERY_TERMINATE,               // (RayQuery): void
+
     // For REAL rayquery
     RAY_QUERY_PROCEED,
     RAY_QUERY_IS_TRIANGLE_CANDIDATE,
@@ -421,11 +427,27 @@ public:
         return test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
                test(CallOp::RAY_TRACING_TRACE_ANY) ||
                test(CallOp::RAY_TRACING_QUERY_ALL) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY);
+               test(CallOp::RAY_TRACING_QUERY_ANY) ||
+               test(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR) ||
+               test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR) ||
+               test(CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR);
     }
     [[nodiscard]] auto uses_ray_query() const noexcept {
         return test(CallOp::RAY_TRACING_QUERY_ALL) ||
-               test(CallOp::RAY_TRACING_QUERY_ANY);
+               test(CallOp::RAY_TRACING_QUERY_ANY) ||
+               test(CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR);
+    }
+    [[nodiscard]] auto uses_raytracing_motion_blur() const noexcept {
+        return test(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR) ||
+               test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR) ||
+               test(CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR);
+    }
+    [[nodiscard]] auto uses_ray_query_motion_blur() const noexcept {
+        return test(CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR) ||
+               test(CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR);
     }
     [[nodiscard]] auto uses_atomic() const noexcept {
         return test(CallOp::ATOMIC_FETCH_ADD) ||

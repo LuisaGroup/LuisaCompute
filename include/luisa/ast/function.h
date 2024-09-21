@@ -140,6 +140,8 @@ public:
     [[nodiscard]] uint64_t hash() const noexcept;
     /// Return if is ray tracing function
     [[nodiscard]] bool requires_raytracing() const noexcept;
+    /// Return if requires motion blur
+    [[nodiscard]] bool requires_motion_blur() const noexcept;
     /// Return whether the function requires atomic operations
     [[nodiscard]] bool requires_atomic() const noexcept;
     /// Return whether the function requires atomic float operations

@@ -215,12 +215,12 @@ CUDADevice::CUDADevice(Context &&ctx,
                 _cudadevrt_library.clear();
             };
             if (cuLinkAddData(link_state, CU_JIT_INPUT_PTX,
-                dummy_ptx.data(), dummy_ptx.size(),
-                "dummy_kernel", 0u, nullptr, nullptr) != CUDA_SUCCESS) {
+                              dummy_ptx.data(), dummy_ptx.size(),
+                              "dummy_kernel", 0u, nullptr, nullptr) != CUDA_SUCCESS) {
                 report_failure_and_clear_library("adding the kernel PTX");
             } else if (cuLinkAddData(link_state, CU_JIT_INPUT_LIBRARY,
-                              _cudadevrt_library.data(), _cudadevrt_library.size(),
-                              "cudadevrt", 0u, nullptr, nullptr) != CUDA_SUCCESS) {
+                                     _cudadevrt_library.data(), _cudadevrt_library.size(),
+                                     "cudadevrt", 0u, nullptr, nullptr) != CUDA_SUCCESS) {
                 report_failure_and_clear_library("adding the device runtime library");
             } else if (cuLinkComplete(link_state, &output_cubin, &output_cubin_size) != CUDA_SUCCESS) {
                 report_failure_and_clear_library("completing linking");
@@ -523,6 +523,7 @@ template<bool allow_update_expected_metadata>
         expected_metadata.requires_trace_any = metadata->requires_trace_any;
         expected_metadata.requires_ray_query = metadata->requires_ray_query;
         expected_metadata.requires_printing = metadata->requires_printing;
+        expected_metadata.requires_motion_blur = metadata->requires_motion_blur;
         if (expected_metadata.max_register_count == 0u) { expected_metadata.max_register_count = metadata->max_register_count; }
         if (all(expected_metadata.block_size == 0u)) { expected_metadata.block_size = metadata->block_size; }
         if (expected_metadata.argument_types.empty()) { expected_metadata.argument_types = metadata->argument_types; }
@@ -748,10 +749,13 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                     CUDAShaderMetadata::Kind::RAY_TRACING :
                     CUDAShaderMetadata::Kind::COMPUTE,
         .enable_debug = option.enable_debug_info,
-        .requires_trace_closest = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST),
-        .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY),
+        .requires_trace_closest = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST) ||
+                                  kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR),
+        .requires_trace_any = kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY) ||
+                              kernel.propagated_builtin_callables().test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR),
         .requires_ray_query = kernel.propagated_builtin_callables().uses_ray_query(),
         .requires_printing = kernel.requires_printing(),
+        .requires_motion_blur = kernel.requires_motion_blur(),
         .max_register_count = std::clamp(option.max_registers, 0u, 255u),
         .block_size = kernel.block_size(),
         .argument_types = [kernel] {
