@@ -25,6 +25,7 @@ class CUDAMotionInstance : public CUDAPrimitiveBase {
 
 private:
     AccelMotionOption _option;
+    size_t _motion_buffer_size{};
     CUdeviceptr _motion_buffer{};
 
 public:
