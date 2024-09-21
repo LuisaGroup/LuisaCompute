@@ -121,7 +121,7 @@ LC_CORE_API void log_flush() noexcept;
     LUISA_ERROR(fmt " [{}:{}]" __VA_OPT__(, ) __VA_ARGS__, __FILE__, __LINE__)
 
 #define LUISA_NOT_IMPLEMENTED() \
-    LUISA_ERROR_WITH_LOCATION("Not implemented.")
+    LUISA_ERROR_WITH_LOCATION("Not implemented in function {}.", __FUNCTION__)
 
 #define LUISA_ASSERT(x, fmt, ...)                \
     do {                                         \

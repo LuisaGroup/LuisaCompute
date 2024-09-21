@@ -37,6 +37,7 @@ public:
     void visit(CurveBuildCommand *command) noexcept override;
     void visit(MeshBuildCommand *command) noexcept override;
     void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
+    void visit(MotionInstanceBuildCommand *command) noexcept override;
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(CustomCommand *command) noexcept override;
     void add_callback(MetalCallbackContext *cb) noexcept;

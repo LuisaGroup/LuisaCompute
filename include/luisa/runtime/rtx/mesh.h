@@ -5,6 +5,7 @@
 #include <luisa/runtime/rtx/triangle.h>
 
 namespace luisa::compute {
+
 namespace detail {
 LC_RUNTIME_API void check_mesh_vert_align(size_t v_stride, size_t dst);
 LC_RUNTIME_API void check_mesh_vert_buffer_motion_keyframe_count(size_t total_vertex_count, uint motion_keyframe_count);

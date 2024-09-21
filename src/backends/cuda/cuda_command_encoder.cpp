@@ -276,6 +276,10 @@ void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
     }
 }
 
+void CUDACommandEncoder::visit(MotionInstanceBuildCommand *) noexcept {
+    LUISA_NOT_IMPLEMENTED();// TODO
+}
+
 namespace detail {
 
 using DSBufferRequest = DStorageReadCommand::BufferRequest;

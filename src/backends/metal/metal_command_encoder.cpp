@@ -262,6 +262,10 @@ void MetalCommandEncoder::visit(ProceduralPrimitiveBuildCommand *command) noexce
     prim->build(*this, command);
 }
 
+void MetalCommandEncoder::visit(MotionInstanceBuildCommand *command) noexcept {
+    LUISA_NOT_IMPLEMENTED();
+}
+
 void MetalCommandEncoder::visit(BindlessArrayUpdateCommand *command) noexcept {
     _prepare_command_buffer();
     auto bindless_array = reinterpret_cast<MetalBindlessArray *>(command->handle());

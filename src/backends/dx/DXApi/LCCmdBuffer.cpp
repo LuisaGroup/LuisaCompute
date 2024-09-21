@@ -325,6 +325,9 @@ public:
                 meshOptions,
                 bottomAccelDatas->emplace_back()));
     }
+    void visit(const MotionInstanceBuildCommand *) noexcept override {
+        LUISA_NOT_IMPLEMENTED();
+    }
     void visit(const ProceduralPrimitiveBuildCommand *cmd) noexcept override {
         auto accel = reinterpret_cast<BottomAccel *>(cmd->handle());
         BottomAccel::AABBOptions aabbOptions{
@@ -454,6 +457,10 @@ public:
             cmd->level(),
             CommandBufferBuilder::BufferTextureCopy::BufferToTexture,
             true);
+    }
+
+    void visit(const MotionInstanceBuildCommand *) noexcept override {
+        LUISA_NOT_IMPLEMENTED();
     }
 
     struct Visitor {

@@ -400,7 +400,10 @@ public:
         _converted.emplace_back(converted);
     }
     void visit(const CustomCommand *command) noexcept override {
-        LUISA_ERROR_WITH_LOCATION("Not implemented.");
+        LUISA_NOT_IMPLEMENTED();
+    }
+    void visit(const MotionInstanceBuildCommand *) noexcept override {
+        LUISA_NOT_IMPLEMENTED();
     }
 };
 

@@ -917,5 +917,10 @@ public:
                 LUISA_ERROR("Custom command not supported by reorder.");
         }
     }
+
+    void visit(const MotionInstanceBuildCommand *) noexcept override {
+        LUISA_NOT_IMPLEMENTED();
+    }
 };
+
 }// namespace luisa::compute

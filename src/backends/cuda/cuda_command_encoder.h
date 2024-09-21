@@ -48,7 +48,7 @@ public:
     void visit(BindlessArrayUpdateCommand *command) noexcept override;
     void visit(ProceduralPrimitiveBuildCommand *command) noexcept override;
     void visit(CustomCommand *command) noexcept override;
-
+    void visit(MotionInstanceBuildCommand *) noexcept override;
     void commit(CommandList::CallbackContainer &&user_callbacks) noexcept;
 
     template<typename F>

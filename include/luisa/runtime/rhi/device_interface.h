@@ -177,6 +177,9 @@ public:
     [[nodiscard]] virtual ResourceCreationInfo create_curve(const AccelOption &option) noexcept;
     virtual void destroy_curve(uint64_t handle) noexcept;
 
+    [[nodiscard]] virtual ResourceCreationInfo create_motion_instance(const AccelMotionOption &option) noexcept;
+    virtual void destroy_motion_instance(uint64_t handle) noexcept;
+
     [[nodiscard]] virtual ResourceCreationInfo create_accel(const AccelOption &option) noexcept = 0;
     virtual void destroy_accel(uint64_t handle) noexcept = 0;
 
