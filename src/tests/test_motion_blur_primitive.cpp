@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
     static constexpr uint height = 512u;
 
     static constexpr auto mesh_keyframe_count = 3u;
-    static constexpr auto curve_keyframe_count = 3u;
+    static constexpr auto curve_keyframe_count = 2u;
 
     // curve
     static constexpr auto control_point_count = 50u;

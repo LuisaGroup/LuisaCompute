@@ -81,6 +81,9 @@ public:
         }
         build_options.motionOptions.timeBegin = m.time_start;
         build_options.motionOptions.timeEnd = m.time_end;
+    } else {
+        build_options.motionOptions.timeBegin = 0.f;
+        build_options.motionOptions.timeEnd = 1.f;
     }
     return build_options;
 }
