@@ -17,6 +17,7 @@ class LC_RUNTIME_API MotionInstance : public Resource {
     friend class Device;
 
 private:
+    uint64_t _child_handle;
     AccelMotionMode _mode;
     luisa::vector<MotionInstanceTransform> _transform_keyframes;
 

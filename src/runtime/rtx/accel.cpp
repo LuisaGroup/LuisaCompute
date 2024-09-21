@@ -7,6 +7,7 @@
 namespace luisa::compute {
 
 namespace detail {
+
 void ShaderInvokeBase::encode(ShaderDispatchCmdEncoder &encoder, const Accel &accel) noexcept {
     accel._check_is_valid();
 #ifndef NDEBUG

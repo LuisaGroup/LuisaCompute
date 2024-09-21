@@ -140,6 +140,7 @@
 #include <luisa/runtime/rtx/curve.h>
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/rtx/mesh.h>
+#include <luisa/runtime/rtx/motion_instance.h>
 #include <luisa/runtime/rtx/procedural_primitive.h>
 #include <luisa/runtime/rtx/ray.h>
 #include <luisa/runtime/rtx/triangle.h>

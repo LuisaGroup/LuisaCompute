@@ -8,32 +8,47 @@ namespace luisa::compute::cuda {
 
 class CUDACommandEncoder;
 
-class CUDAPrimitive {
+class CUDAPrimitiveBase {
 
 public:
     enum struct Tag : uint8_t {
         MESH,
         PROCEDURAL,
         CURVE,
+        MOTION_INSTANCE,
     };
-
-    static constexpr auto max_motion_keyframe_count = 64u;
 
 private:
     Tag _tag;
-    AccelOption _option;
+
+protected:
+    luisa::string _name;
+    optix::TraversableHandle _handle{};
 
 protected:
     mutable spin_mutex _mutex;
+
+public:
+    explicit CUDAPrimitiveBase(Tag tag) noexcept : _tag{tag} {}
+    virtual ~CUDAPrimitiveBase() noexcept = default;
+    [[nodiscard]] auto tag() const noexcept { return _tag; }
+    [[nodiscard]] optix::TraversableHandle handle() const noexcept;
+    [[nodiscard]] auto pointer_to_handle() const noexcept { return &_handle; }
+    void set_name(luisa::string &&name) noexcept;
+};
+
+class CUDAPrimitive : public CUDAPrimitiveBase {
+
+public:
+    static constexpr auto max_motion_keyframe_count = 64u;
+
+private:
+    AccelOption _option;
 
 private:
     CUdeviceptr _bvh_buffer_handle{};
     size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
-    luisa::string _name;
-
-protected:
-    optix::TraversableHandle _handle{};
 
 protected:
     [[nodiscard]] virtual optix::BuildInput _make_build_input() const noexcept = 0;
@@ -44,12 +59,8 @@ protected:
 
 public:
     CUDAPrimitive(Tag tag, const AccelOption &option) noexcept;
-    virtual ~CUDAPrimitive() noexcept;
-    [[nodiscard]] optix::TraversableHandle handle() const noexcept;
-    [[nodiscard]] auto tag() const noexcept { return _tag; }
+    ~CUDAPrimitive() noexcept override;
     [[nodiscard]] auto option() const noexcept { return _option; }
-    [[nodiscard]] auto pointer_to_handle() const noexcept { return &_handle; }
-    void set_name(luisa::string &&name) noexcept;
     [[nodiscard]] auto is_motion_blur() const noexcept { return static_cast<bool>(_option.motion); }
     [[nodiscard]] auto motion_keyframe_count() const noexcept { return std::max<uint>(1u, _option.motion.keyframe_count); }
 };

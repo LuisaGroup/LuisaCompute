@@ -40,7 +40,7 @@ private:
     CUdeviceptr _bvh_buffer{};
     size_t _bvh_buffer_size{};
     size_t _update_buffer_size{};
-    luisa::vector<const CUDAPrimitive *> _primitives;
+    luisa::vector<const CUDAPrimitiveBase *> _primitives;
     luisa::vector<uint64_t> _prim_handles;
     luisa::string _name;
 

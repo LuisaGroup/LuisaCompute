@@ -20,6 +20,7 @@ if (CUDAToolkit_FOUND)
             cuda_procedural_primitive.cpp cuda_procedural_primitive.h
             cuda_curve.cpp cuda_curve.h
             cuda_mesh.cpp cuda_mesh.h
+            cuda_motion_instance.cpp cuda_motion_instance.h
             cuda_shader.cpp cuda_shader.h
             cuda_shader_metadata.cpp cuda_shader_metadata.h
             cuda_shader_native.cpp cuda_shader_native.h

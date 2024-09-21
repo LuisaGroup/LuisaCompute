@@ -10,10 +10,23 @@
 
 namespace luisa::compute {
 
+MotionInstance Device::create_motion_instance(const Mesh &mesh, const AccelMotionOption &option) noexcept {
+    return _create<MotionInstance>(mesh, option);
+}
+
+MotionInstance Device::create_motion_instance(const Curve &curve, const AccelMotionOption &option) noexcept {
+    return _create<MotionInstance>(curve, option);
+}
+
+MotionInstance Device::create_motion_instance(const ProceduralPrimitive &primitive, const AccelMotionOption &option) noexcept {
+    return _create<MotionInstance>(primitive, option);
+}
+
 MotionInstance::MotionInstance(DeviceInterface *device,
                                const Resource &resource,
                                const AccelMotionOption &option) noexcept
     : Resource{device, Tag::MOTION_INSTANCE, {}},
+      _child_handle{resource.handle()},
       _mode{option.mode} {
     LUISA_ASSERT(resource &&
                      (resource.tag() == Tag::MESH ||
@@ -126,7 +139,7 @@ luisa::span<const MotionInstanceTransformSRT> MotionInstance::keyframes_srt() co
 
 luisa::unique_ptr<Command> MotionInstance::build() noexcept {
     return luisa::make_unique<MotionInstanceBuildCommand>(
-        handle(), _transform_keyframes /* note this needs to be copied */);
+        handle(), _child_handle, _transform_keyframes /* note this needs to be copied */);
 }
 
 }// namespace luisa::compute
