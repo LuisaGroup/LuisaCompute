@@ -18,6 +18,7 @@ class TimelineEvent;
 class Stream;
 class Mesh;
 class Curve;
+class MotionInstance;
 class MeshFormat;
 class ProceduralPrimitive;
 class Accel;
@@ -165,6 +166,12 @@ public:
     template<typename AABBBuffer>
     [[nodiscard]] ProceduralPrimitive create_procedural_primitive(AABBBuffer &&aabb_buffer,
                                                                   const AccelOption &option = {}) noexcept;
+
+    // see definition in rtx/motion_instance.h
+    [[nodiscard]] MotionInstance create_motion_instance(const Mesh &mesh, const AccelMotionOption &option) noexcept;
+    [[nodiscard]] MotionInstance create_motion_instance(const Curve &curve, const AccelMotionOption &option) noexcept;
+    [[nodiscard]] MotionInstance create_motion_instance(const ProceduralPrimitive &primitive, const AccelMotionOption &option) noexcept;
+
     // see definition in rtx/accel.cpp
     [[nodiscard]] Accel create_accel(const AccelOption &option = {}) noexcept;
     // see definition in runtime/bindless_array.cpp

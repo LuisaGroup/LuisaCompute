@@ -89,6 +89,11 @@ int main(int argc, char *argv[]) {
     mesh_option.motion.time_end = 1.f;
     auto mesh = device.create_mesh(vertex_buffer, triangle_buffer, mesh_option);
 
+    AccelMotionOption motion_option;
+    motion_option.mode = AccelMotionMode::MATRIX;
+    motion_option.keyframe_count = 2u;
+    auto motion_instance = device.create_motion_instance(mesh, motion_option);
+
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
                       12.92f * x,
@@ -175,6 +180,7 @@ int main(int argc, char *argv[]) {
     accel.emplace_back(curve);
     stream << curve.build()
            << mesh.build()
+           << motion_instance.build()
            << accel.build();
 
     auto colorspace_shader = device.compile(colorspace_kernel);

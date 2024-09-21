@@ -551,14 +551,16 @@ class MotionInstanceBuildCommand final : public Command {
 
 private:
     uint64_t _handle{};
+    uint64_t _child{};
     luisa::vector<MotionInstanceTransform> _keyframes;
 
 public:
-    MotionInstanceBuildCommand(uint64_t handle,
+    MotionInstanceBuildCommand(uint64_t handle, uint64_t child,
                                luisa::vector<MotionInstanceTransform> keyframes) noexcept
         : Command{Command::Tag::EMotionInstanceBuildCommand},
-          _handle{handle}, _keyframes{std::move(keyframes)} {}
+          _handle{handle}, _child{child}, _keyframes{std::move(keyframes)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto child() const noexcept { return _child; }
     [[nodiscard]] auto keyframes() const noexcept { return luisa::span{_keyframes}; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };

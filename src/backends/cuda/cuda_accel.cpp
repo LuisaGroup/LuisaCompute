@@ -187,7 +187,7 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                     static constexpr auto mod_flag_curve_cubic_bspline = 1u << 10u;
                     static constexpr auto mod_flag_curve_catmull_rom = 1u << 11u;
                     static constexpr auto mod_flag_curve_bezier = 1u << 12u;
-                    auto prim = reinterpret_cast<const CUDAPrimitive *>(m.primitive);
+                    auto prim = reinterpret_cast<const CUDAPrimitiveBase *>(m.primitive);
                     _primitives[m.index] = prim;
                     auto handle = prim->handle();
                     m.primitive = handle;

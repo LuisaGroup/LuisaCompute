@@ -9,7 +9,7 @@ namespace luisa::compute::cuda {
 
 CUDAPrimitive::CUDAPrimitive(CUDAPrimitive::Tag tag,
                              const AccelOption &option) noexcept
-    : _tag{tag}, _option{option}, _handle{} {}
+    : CUDAPrimitiveBase{tag}, _option{option} {}
 
 CUDAPrimitive::~CUDAPrimitive() noexcept {
     if (_bvh_buffer_handle) {
@@ -136,12 +136,12 @@ const CUdeviceptr *CUDAPrimitive::_motion_buffer_pointers(CUdeviceptr base, size
     return pointers;
 }
 
-void CUDAPrimitive::set_name(luisa::string &&name) noexcept {
+void CUDAPrimitiveBase::set_name(luisa::string &&name) noexcept {
     std::scoped_lock lock{_mutex};
     _name = std::move(name);
 }
 
-optix::TraversableHandle CUDAPrimitive::handle() const noexcept {
+optix::TraversableHandle CUDAPrimitiveBase::handle() const noexcept {
     std::scoped_lock lock{_mutex};
     return _handle;
 }

@@ -25,6 +25,7 @@
 #include "cuda_mesh.h"
 #include "cuda_curve.h"
 #include "cuda_procedural_primitive.h"
+#include "cuda_motion_instance.h"
 #include "cuda_accel.h"
 #include "cuda_stream.h"
 #include "cuda_event.h"
@@ -950,6 +951,21 @@ void CUDADevice::destroy_procedural_primitive(uint64_t handle) noexcept {
     });
 }
 
+ResourceCreationInfo CUDADevice::create_motion_instance(const AccelMotionOption &option) noexcept {
+    auto instance_handle = with_handle([this, &option] {
+        return new_with_allocator<CUDAMotionInstance>(this, option);
+    });
+    return {.handle = reinterpret_cast<uint64_t>(instance_handle),
+            .native_handle = reinterpret_cast<void *>(instance_handle->handle())};
+}
+
+void CUDADevice::destroy_motion_instance(uint64_t handle) noexcept {
+    with_handle([=] {
+        auto instance = reinterpret_cast<CUDAMotionInstance *>(handle);
+        delete_with_allocator(instance);
+    });
+}
+
 ResourceCreationInfo CUDADevice::create_accel(const AccelOption &option) noexcept {
     auto accel_handle = with_handle([&option] {
         return new_with_allocator<CUDAAccel>(option);
@@ -1140,8 +1156,9 @@ void CUDADevice::set_name(luisa::compute::Resource::Tag resource_tag,
                 break;
             case Resource::Tag::MESH: [[fallthrough]];
             case Resource::Tag::CURVE: [[fallthrough]];
-            case Resource::Tag::PROCEDURAL_PRIMITIVE:
-                reinterpret_cast<CUDAPrimitive *>(handle)->set_name(std::move(name));
+            case Resource::Tag::PROCEDURAL_PRIMITIVE: [[fallthrough]];
+            case Resource::Tag::MOTION_INSTANCE:
+                reinterpret_cast<CUDAPrimitiveBase *>(handle)->set_name(std::move(name));
                 break;
             case Resource::Tag::ACCEL:
                 reinterpret_cast<CUDAAccel *>(handle)->set_name(std::move(name));

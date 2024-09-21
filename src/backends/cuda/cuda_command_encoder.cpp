@@ -7,6 +7,7 @@
 #include "cuda_mesh.h"
 #include "cuda_curve.h"
 #include "cuda_procedural_primitive.h"
+#include "cuda_motion_instance.h"
 #include "cuda_accel.h"
 #include "cuda_stream.h"
 #include "cuda_device.h"
@@ -276,8 +277,9 @@ void CUDACommandEncoder::visit(CustomCommand *command) noexcept {
     }
 }
 
-void CUDACommandEncoder::visit(MotionInstanceBuildCommand *) noexcept {
-    LUISA_NOT_IMPLEMENTED();// TODO
+void CUDACommandEncoder::visit(MotionInstanceBuildCommand *command) noexcept {
+    auto motion_instance = reinterpret_cast<CUDAMotionInstance *>(command->handle());
+    motion_instance->build(*this, command);
 }
 
 namespace detail {

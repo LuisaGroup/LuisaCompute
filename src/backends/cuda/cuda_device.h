@@ -176,6 +176,8 @@ public:
     void destroy_curve(uint64_t handle) noexcept override;
     ResourceCreationInfo create_procedural_primitive(const AccelOption &option) noexcept override;
     void destroy_procedural_primitive(uint64_t handle) noexcept override;
+    [[nodiscard]] ResourceCreationInfo create_motion_instance(const AccelMotionOption &option) noexcept override;
+    void destroy_motion_instance(uint64_t handle) noexcept override;
     ResourceCreationInfo create_accel(const AccelOption &option) noexcept override;
     void destroy_accel(uint64_t handle) noexcept override;
     string query(luisa::string_view property) noexcept override;
