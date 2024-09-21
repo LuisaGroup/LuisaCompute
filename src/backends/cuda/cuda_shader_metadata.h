@@ -26,6 +26,7 @@ struct CUDAShaderMetadata {
     bool requires_trace_any;
     bool requires_ray_query;
     bool requires_printing;
+    bool requires_motion_blur;
     uint max_register_count;
     uint3 block_size;
     luisa::vector<luisa::string> argument_types;
@@ -41,6 +42,7 @@ struct CUDAShaderMetadata {
                requires_trace_any == rhs.requires_trace_any &&
                requires_ray_query == rhs.requires_ray_query &&
                requires_printing == rhs.requires_printing &&
+               requires_motion_blur == rhs.requires_motion_blur &&
                max_register_count == rhs.max_register_count &&
                all(block_size == rhs.block_size) &&
                argument_types == rhs.argument_types &&

@@ -37,6 +37,22 @@ RayQueryAny AccelExprProxy::traverse_any(Expr<Ray> ray, const AccelTraceOptions 
     return Expr<Accel>{_accel}.traverse_any(ray, options);
 }
 
+Var<SurfaceHit> AccelExprProxy::intersect(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept {
+    return Expr<Accel>{_accel}.intersect(ray, time, options);
+}
+
+Var<bool> AccelExprProxy::intersect_any(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept {
+    return Expr<Accel>{_accel}.intersect_any(ray, time, options);
+}
+
+RayQueryAll AccelExprProxy::traverse(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept {
+    return Expr<Accel>{_accel}.traverse(ray, time, options);
+}
+
+RayQueryAny AccelExprProxy::traverse_any(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept {
+    return Expr<Accel>{_accel}.traverse_any(ray, time, options);
+}
+
 Var<float4x4> AccelExprProxy::instance_transform(Expr<int> instance_id) const noexcept {
     return Expr<Accel>{_accel}.instance_transform(instance_id);
 }
@@ -141,6 +157,32 @@ RayQueryAll Expr<Accel>::traverse(Expr<Ray> ray, const AccelTraceOptions &option
 RayQueryAny Expr<Accel>::traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept {
     require_curve_basis_set(options.curve_bases);
     return {_expression, ray.expression(), options.visibility_mask.expression()};
+}
+
+Var<SurfaceHit> Expr<Accel>::intersect(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept {
+    require_curve_basis_set(options.curve_bases);
+    return def<TriangleHit>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<TriangleHit>(), CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR,
+            {_expression, ray.expression(), time.expression(), options.visibility_mask.expression()}));
+}
+
+Var<bool> Expr<Accel>::intersect_any(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept {
+    require_curve_basis_set(options.curve_bases);
+    return def<bool>(
+        detail::FunctionBuilder::current()->call(
+            Type::of<bool>(), CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR,
+            {_expression, ray.expression(), time.expression(), options.visibility_mask.expression()}));
+}
+
+RayQueryAll Expr<Accel>::traverse(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept {
+    require_curve_basis_set(options.curve_bases);
+    return {_expression, ray.expression(), time.expression(), options.visibility_mask.expression()};
+}
+
+RayQueryAny Expr<Accel>::traverse_any(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept {
+    require_curve_basis_set(options.curve_bases);
+    return {_expression, ray.expression(), time.expression(), options.visibility_mask.expression()};
 }
 
 Var<float4x4> Expr<Accel>::instance_transform(Expr<uint> instance_id) const noexcept {

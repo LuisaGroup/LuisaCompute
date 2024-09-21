@@ -36,10 +36,18 @@ public:
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+
     [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+
+    // motion blur versions
+    [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<uint> instance_id) const noexcept;
@@ -86,10 +94,18 @@ public:
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] Var<bool> trace_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAll query_all(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
     LUISA_ACCEL_TRACE_DEPRECATED [[nodiscard]] RayQueryAny query_any(Expr<Ray> ray, Expr<uint> vis_mask = 0xffu) const noexcept;
+
     [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
     [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, const AccelTraceOptions &options) const noexcept;
+
+    // motion blur versions
+    [[nodiscard]] Var<SurfaceHit> intersect(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] Var<bool> intersect_any(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAll traverse(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+    [[nodiscard]] RayQueryAny traverse_any(Expr<Ray> ray, Expr<float> time, const AccelTraceOptions &options) const noexcept;
+
     [[nodiscard]] Var<float4x4> instance_transform(Expr<int> instance_id) const noexcept;
     [[nodiscard]] Var<float4x4> instance_transform(Expr<uint> instance_id) const noexcept;
     [[nodiscard]] Var<uint> instance_user_id(Expr<int> instance_id) const noexcept;

@@ -863,6 +863,10 @@ bool FunctionBuilder::requires_raytracing() const noexcept {
     return _propagated_builtin_callables.uses_raytracing();
 }
 
+bool FunctionBuilder::requires_motion_blur() const noexcept {
+    return _propagated_builtin_callables.uses_raytracing_motion_blur();
+}
+
 bool FunctionBuilder::requires_atomic() const noexcept {
     return _propagated_builtin_callables.uses_atomic();
 }

@@ -120,8 +120,12 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
     module_compile_options.payloadTypes = payload_types.data();
 
     optix::PipelineCompileOptions pipeline_compile_options{};
+    pipeline_compile_options.usesMotionBlur = metadata.requires_motion_blur;
     pipeline_compile_options.exceptionFlags = optix::EXCEPTION_FLAG_NONE;
-    pipeline_compile_options.traversableGraphFlags = optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
+    pipeline_compile_options.traversableGraphFlags =
+        metadata.requires_motion_blur ?
+            optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_ANY :
+            optix::TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING;
     pipeline_compile_options.numPayloadValues = 0u;
     auto primitive_flags = metadata.requires_ray_query ?
                                (optix::PRIMITIVE_TYPE_FLAGS_CUSTOM | optix::PRIMITIVE_TYPE_FLAGS_TRIANGLE) :
@@ -225,7 +229,7 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
             optix::Module is_module{nullptr};
             optix::BuiltinISOptions options{
                 .builtinISModuleType = type,
-                .usesMotionBlur = false,
+                .usesMotionBlur = metadata.requires_motion_blur,
                 .buildFlags = optix::BUILD_FLAG_NONE,
                 .curveEndcapFlags = optix::CURVE_ENDCAP_DEFAULT,
             };
@@ -284,8 +288,9 @@ CUDAShaderOptiX::CUDAShaderOptiX(optix::DeviceContext optix_ctx, luisa::vector<s
     optix::StackSizes stack_sizes{};
     for (auto pg : program_groups) { accumulate_stack_sizes(stack_sizes, pg, _pipeline); }
     auto continuation_stack_size = compute_continuation_stack_size(stack_sizes);
+    auto max_traversal_depth = metadata.requires_motion_blur ? 3u : 2u;
     LUISA_CHECK_OPTIX(optix::api().pipelineSetStackSize(
-        _pipeline, 0u, 0u, continuation_stack_size, 2u));
+        _pipeline, 0u, 0u, continuation_stack_size, max_traversal_depth));
 
     // create shader binding table
     std::array<OptiXSBTRecord, 10u> sbt_records{};
