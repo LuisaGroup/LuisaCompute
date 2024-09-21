@@ -39,6 +39,7 @@ CUDAMotionInstance::CUDAMotionInstance(CUDADevice *device, const AccelMotionOpti
         LUISA_ERROR_WITH_LOCATION("Unsupported motion mode.");
     }();
     LUISA_CHECK_CUDA(cuMemAlloc(&_motion_buffer, buffer_size));
+    _motion_buffer_size = buffer_size;
     auto optix_ctx = device->handle().optix_context();
     LUISA_CHECK_OPTIX(optix::api().convertPointerToTraversableHandle(
         optix_ctx, _motion_buffer, traversable_type, &_handle));
