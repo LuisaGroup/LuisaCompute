@@ -4,6 +4,7 @@
 
 #include "cuda_error.h"
 #include "cuda_device.h"
+#include "cuda_command_encoder.h"
 #include "cuda_motion_instance.h"
 
 namespace luisa::compute::cuda {
@@ -52,6 +53,8 @@ CUDAMotionInstance::~CUDAMotionInstance() noexcept {
 void CUDAMotionInstance::build(CUDACommandEncoder &encoder,
                                MotionInstanceBuildCommand *command) noexcept {
     std::scoped_lock lock{_mutex};
+    LUISA_ASSERT(command->keyframes().size() == _option.keyframe_count,
+                 "Keyframe count mismatch.");
     // TODO
 }
 
