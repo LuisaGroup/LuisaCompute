@@ -98,12 +98,21 @@ struct AccelOption {
         FAST_BUILD // optimize for frequent rebuild
     };
 
+    enum struct MotionMode : uint8_t {
+        STATIC,
+        MATRIX,
+        SRT,
+    };
+
     struct Motion {
         uint keyframe_count{0};         // <= 1 means no motion blur, otherwise the number of keyframes in [time_start, time_end]
         float time_start{0.f};          // the start time of the motion blur effect
         float time_end{1.f};            // the end time of the motion blur effect
         bool should_vanish_start{false};// whether the object should vanish before time_start
         bool should_vanish_end{false};  // whether the object should vanish after time_end
+
+        using Mode = MotionMode;
+        Mode mode{};// only valid for motion blur geometry
 
         [[nodiscard]] constexpr auto is_enabled() const noexcept { return keyframe_count > 1; }
         [[nodiscard]] constexpr explicit operator bool() const noexcept { return is_enabled(); }
@@ -119,6 +128,7 @@ struct AccelOption {
 
 using AccelUsageHint = AccelOption::UsageHint;
 using AccelMotionOption = AccelOption::Motion;
+using AccelMotionMode = AccelMotionOption::Mode;
 
 /// \brief Options for shader creation.
 struct ShaderOption {
@@ -174,6 +184,7 @@ public:
         MESH,
         CURVE,
         PROCEDURAL_PRIMITIVE,
+        MOTION_INSTANCE,
         ACCEL,
         STREAM,
         EVENT,

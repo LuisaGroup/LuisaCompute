@@ -2,7 +2,9 @@
 #include "texture.h"
 #include "stream.h"
 #include <luisa/core/stl/format.h>
+
 namespace lc::validation {
+
 vstd::string Resource::get_tag_name(Tag tag) const {
     switch (tag) {
         case Tag::BUFFER:
@@ -13,8 +15,12 @@ vstd::string Resource::get_tag_name(Tag tag) const {
             return "bindless-array";
         case Tag::MESH:
             return "mesh";
+        case Tag::CURVE:
+            return "curve";
         case Tag::PROCEDURAL_PRIMITIVE:
             return "procedural-primitive";
+        case Tag::MOTION_INSTANCE:
+            return "motion-instance";
         case Tag::ACCEL:
             return "accel";
         case Tag::STREAM:

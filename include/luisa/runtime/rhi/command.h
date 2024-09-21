@@ -44,6 +44,7 @@ struct IndirectDispatchArg {
         MeshBuildCommand,                \
         CurveBuildCommand,               \
         ProceduralPrimitiveBuildCommand, \
+        MotionInstanceBuildCommand,      \
         BindlessArrayUpdateCommand,      \
         CustomCommand
 
@@ -509,6 +510,56 @@ public:
     [[nodiscard]] auto aabb_buffer() const noexcept { return _aabb_buffer; }
     [[nodiscard]] auto aabb_buffer_offset() const noexcept { return _aabb_buffer_offset; }
     [[nodiscard]] auto aabb_buffer_size() const noexcept { return _aabb_buffer_size; }
+    LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
+};
+
+using MotionInstanceTransformMatrix = float4x4;
+
+struct alignas(16) MotionInstanceTransformSRT {
+    float pivot[3] = {};
+    float quaternion[4] = {};
+    float scale[3] = {};
+    float shear[3] = {};
+    float translation[3] = {};
+};
+
+struct alignas(16) MotionInstanceTransform {
+
+    float data[16] = {};
+
+    MotionInstanceTransform() noexcept = default;
+
+    explicit MotionInstanceTransform(const MotionInstanceTransformMatrix &m) noexcept {
+        as_matrix() = m;
+    }
+
+    explicit MotionInstanceTransform(const MotionInstanceTransformSRT &m) noexcept {
+        as_srt() = m;
+    }
+
+    [[nodiscard]] auto &as_matrix() noexcept { return *reinterpret_cast<float4x4 *>(data); }
+    [[nodiscard]] auto &as_matrix() const noexcept { return *reinterpret_cast<const float4x4 *>(data); }
+    [[nodiscard]] auto &as_srt() noexcept { return *reinterpret_cast<MotionInstanceTransformSRT *>(data); }
+    [[nodiscard]] auto &as_srt() const noexcept { return *reinterpret_cast<const MotionInstanceTransformSRT *>(data); }
+};
+
+static_assert(sizeof(MotionInstanceTransformMatrix) == 64u && alignof(MotionInstanceTransformMatrix) == 16u);
+static_assert(sizeof(MotionInstanceTransformSRT) == 64u && alignof(MotionInstanceTransformSRT) == 16u);
+static_assert(sizeof(MotionInstanceTransform) == 64u && alignof(MotionInstanceTransform) == 16u);
+
+class MotionInstanceBuildCommand final : public Command {
+
+private:
+    uint64_t _handle{};
+    luisa::vector<MotionInstanceTransform> _keyframes;
+
+public:
+    MotionInstanceBuildCommand(uint64_t handle,
+                               luisa::vector<MotionInstanceTransform> keyframes) noexcept
+        : Command{Command::Tag::EMotionInstanceBuildCommand},
+          _handle{handle}, _keyframes{std::move(keyframes)} {}
+    [[nodiscard]] auto handle() const noexcept { return _handle; }
+    [[nodiscard]] auto keyframes() const noexcept { return luisa::span{_keyframes}; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 

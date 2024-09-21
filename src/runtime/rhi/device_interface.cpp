@@ -27,4 +27,12 @@ void DeviceInterface::destroy_curve(uint64_t handle) noexcept {
     LUISA_NOT_IMPLEMENTED();
 }
 
+ResourceCreationInfo DeviceInterface::create_motion_instance(const AccelMotionOption &option) noexcept {
+    LUISA_NOT_IMPLEMENTED();
+}
+
+void DeviceInterface::destroy_motion_instance(uint64_t handle) noexcept {
+    LUISA_NOT_IMPLEMENTED();
+}
+
 }// namespace luisa::compute
