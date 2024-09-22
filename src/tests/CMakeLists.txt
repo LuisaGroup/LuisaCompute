@@ -120,7 +120,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_executable(test_shader_visuals_present test_shader_visuals_present.cpp)
     luisa_compute_add_executable(test_texture3d test_texture3d.cpp)
     luisa_compute_add_executable(test_imgui test_imgui.cpp)
-    luisa_compute_add_executable(test_motion_blur_primitive test_motion_blur_primitive.cpp)
+    luisa_compute_add_executable(test_motion_blur test_motion_blur.cpp)
 endif ()
 
 if (LUISA_COMPUTE_ENABLE_CUDA AND LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB)

@@ -66,15 +66,15 @@ int main(int argc, char *argv[]) {
         // keyframe 0
         float3(-0.5f, -0.5f, 0.0f),
         float3(0.5f, -0.5f, 0.0f),
-        float3(0.0f, 0.5f, 0.0f),
+        float3(-0.1f, 0.5f, 0.0f),
         // keyframe 1
-        float3(-0.4f, -0.5f, 0.0f),
-        float3(0.6f, -0.5f, 0.0f),
-        float3(0.1f, 0.5f, 0.0f),
+        float3(-0.5f, -0.5f, 0.0f),
+        float3(0.5f, -0.5f, 0.0f),
+        float3(0.0f, 0.55f, 0.0f),
         // keyframe 2
-        float3(-0.4f, -0.4f, 0.0f),
-        float3(0.6f, -0.4f, 0.0f),
-        float3(0.1f, 0.6f, 0.0f),
+        float3(-0.5f, -0.5f, 0.0f),
+        float3(0.5f, -0.5f, 0.0f),
+        float3(0.1f, 0.5f, 0.0f),
     };
     std::array indices{0u, 1u, 2u};
 
@@ -214,5 +214,5 @@ int main(int argc, char *argv[]) {
            << synchronize();
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
-    stbi_write_png("test_rtx.png", width, height, 4, pixels.data(), 0);
+    stbi_write_png("test_motion_blur.png", width, height, 4, pixels.data(), 0);
 }
