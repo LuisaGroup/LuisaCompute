@@ -27,11 +27,13 @@ private:
     AccelMotionOption _option;
     size_t _motion_buffer_size{};
     CUdeviceptr _motion_buffer{};
+    CUDAPrimitive *_child{};
 
 public:
     CUDAMotionInstance(CUDADevice *device, const AccelMotionOption &option) noexcept;
     ~CUDAMotionInstance() noexcept override;
     void build(CUDACommandEncoder &encoder, MotionInstanceBuildCommand *command) noexcept;
+    [[nodiscard]] auto child() const noexcept { return _child; }
 };
 
 }// namespace luisa::compute::cuda
