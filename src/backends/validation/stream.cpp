@@ -7,6 +7,8 @@
 #include "depth_buffer.h"
 #include "bindless_array.h"
 #include "mesh.h"
+#include "curve.h"
+#include "motion_instance.h"
 #include "procedural_primitives.h"
 #include "shader.h"
 #include "swap_chain.h"
@@ -377,7 +379,23 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
                 }
                 custom(dev, cmd);
             } break;
-            case Command::Tag::ECurveBuildCommand: LUISA_NOT_IMPLEMENTED();
+            case Command::Tag::ECurveBuildCommand: {
+                Device::check_stream(handle(), StreamFunc::Compute);
+                auto c = static_cast<CurveBuildCommand *>(cmd);
+                auto curve = RWResource::get<Curve>(c->handle());
+                curve->cp = RWResource::get<Buffer>(c->cp_buffer());
+                curve->seg = RWResource::get<Buffer>(c->seg_buffer());
+                curve->cp_range = Range{c->cp_buffer_offset(), c->cp_count() * c->cp_stride()};
+                curve->seg_range = Range{c->seg_buffer_offset(), c->seg_count()};
+                mark_handle(c->handle(), Usage::WRITE, Range{});
+            } break;
+            case CmdTag::EMotionInstanceBuildCommand: {
+                Device::check_stream(handle(), StreamFunc::Compute);
+                auto c = static_cast<MotionInstanceBuildCommand *>(cmd);
+                auto motion = RWResource::get<MotionInstance>(c->handle());
+                motion->child = RWResource::get<RWResource>(c->child());
+                mark_handle(c->handle(), Usage::WRITE, Range{});
+            } break;
         }
         // TODO: resources record
     }

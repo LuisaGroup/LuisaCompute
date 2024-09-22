@@ -11,11 +11,11 @@ namespace luisa::compute {
 using MotionInstanceTransformMatrix = float4x4;
 
 struct alignas(16) MotionInstanceTransformSRT {
-    float pivot[3] = {};
-    float quaternion[4] = {};
-    float scale[3] = {};
-    float shear[3] = {};
-    float translation[3] = {};
+    float pivot[3] = {0.f, 0.f, 0.f};
+    float quaternion[4] = {0.f, 0.f, 0.f, 1.f};
+    float scale[3] = {1.f, 1.f, 1.f};
+    float shear[3] = {0.f, 0.f, 0.f};
+    float translation[3] = {0.f, 0.f, 0.f};
 };
 
 struct alignas(16) MotionInstanceTransform {

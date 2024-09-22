@@ -1,8 +1,12 @@
 #include <luisa/core/stl/algorithm.h>
 #include <luisa/ast/function_builder.h>
 #include <luisa/runtime/shader.h>
-#include <luisa/runtime/rtx/accel.h>
 #include <luisa/core/logging.h>
+#include <luisa/runtime/rtx/mesh.h>
+#include <luisa/runtime/rtx/curve.h>
+#include <luisa/runtime/rtx/procedural_primitive.h>
+#include <luisa/runtime/rtx/motion_instance.h>
+#include <luisa/runtime/rtx/accel.h>
 
 namespace luisa::compute {
 
@@ -32,6 +36,23 @@ Accel::Accel(Accel &&rhs) noexcept
       _modifications{std::move(rhs._modifications)},
       _instance_count{rhs._instance_count} {
     rhs._instance_count = 0;
+}
+
+Accel &Accel::operator=(Accel &&rhs) noexcept {
+    _move_from(std::move(rhs));
+    return *this;
+}
+
+size_t Accel::size() const noexcept {
+    _check_is_valid();
+    std::lock_guard lock{_mtx};
+    return _instance_count;
+}
+
+bool Accel::dirty() const noexcept {
+    _check_is_valid();
+    std::lock_guard lck{_mtx};
+    return !_modifications.empty();
 }
 
 Accel::~Accel() noexcept {
@@ -107,6 +128,7 @@ void Accel::set_handle(size_t index, uint64_t mesh, float4x4 const &transform, u
         _modifications[index] = modification;
     }
 }
+
 void Accel::set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
@@ -120,6 +142,56 @@ void Accel::set_prim_handle(size_t index, uint64_t prim_handle) noexcept {
         iter->second.set_primitive(prim_handle);
     }
 }
+
+void Accel::emplace_back(const Mesh &mesh, float4x4 transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+    emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque, user_id);
+}
+
+void Accel::emplace_back(const Curve &curve, float4x4 transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+    emplace_back_handle(curve.handle(), transform, visibility_mask, opaque, user_id);
+}
+
+void Accel::emplace_back(const ProceduralPrimitive &prim, float4x4 transform, uint8_t visibility_mask, uint user_id) noexcept {
+    emplace_back_handle(prim.handle(), transform, visibility_mask,
+                        false /* procedural geometry is always non-opaque */, user_id);
+}
+
+void Accel::emplace_back(const MotionInstance &instance, float4x4 transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+    emplace_back_handle(instance.handle(), transform, visibility_mask, opaque, user_id);
+}
+
+void Accel::set(size_t index, const Mesh &mesh, float4x4 transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+    set_handle(index, mesh.handle(), transform, visibility_mask, opaque, user_id);
+}
+
+void Accel::set(size_t index, const Curve &curve, float4x4 transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+    set_handle(index, curve.handle(), transform, visibility_mask, opaque, user_id);
+}
+
+void Accel::set(size_t index, const ProceduralPrimitive &prim, float4x4 transform, uint8_t visibility_mask, uint user_id) noexcept {
+    set_handle(index, prim.handle(), transform, visibility_mask, false, user_id);
+}
+
+void Accel::set(size_t index, const MotionInstance &instance, float4x4 transform, uint8_t visibility_mask, bool opaque, uint user_id) noexcept {
+    set_handle(index, instance.handle(), transform, visibility_mask, opaque, user_id);
+}
+
+void Accel::set_mesh(size_t index, const Mesh &mesh) noexcept {
+    set_prim_handle(index, mesh.handle());
+}
+
+void Accel::set_curve(size_t index, const Curve &curve) noexcept {
+    set_prim_handle(index, curve.handle());
+}
+
+void Accel::set_procedural_primitive(size_t index, const ProceduralPrimitive &prim) noexcept {
+    set_prim_handle(index, prim.handle());
+}
+
+void Accel::set_motion_instance(size_t index, const MotionInstance &instance) noexcept {
+    set_prim_handle(index, instance.handle());
+}
+
 void Accel::set_transform_on_update(size_t index, float4x4 transform) noexcept {
     _check_is_valid();
     std::lock_guard lock{_mtx};
@@ -174,6 +246,19 @@ void Accel::set_instance_user_id_on_update(size_t index, uint user_id) noexcept 
             index, Modification{static_cast<uint>(index)});
         iter->second.set_user_id(user_id);
     }
+}
+
+luisa::unique_ptr<Command> Accel::update_instance_buffer() noexcept {
+    return _build(Accel::BuildRequest::PREFER_UPDATE, true);
+}
+
+luisa::unique_ptr<Command> Accel::build(BuildRequest request) noexcept {
+    return _build(request, false);
+}
+
+const detail::AccelExprProxy *Accel::operator->() const noexcept {
+    _check_is_valid();
+    return reinterpret_cast<const detail::AccelExprProxy *>(this);
 }
 
 }// namespace luisa::compute

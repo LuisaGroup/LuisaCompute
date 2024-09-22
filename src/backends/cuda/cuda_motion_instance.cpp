@@ -51,7 +51,7 @@ void CUDAMotionInstance::build(CUDACommandEncoder &encoder,
     LUISA_ASSERT(command->keyframes().size() == _option.keyframe_count,
                  "Keyframe count mismatch.");
     // allocate host-pinned memory for keyframes
-    auto child = reinterpret_cast<CUDAPrimitive *>(command->child())->handle();
+    auto child = reinterpret_cast<CUDAPrimitive *>(command->child());
     encoder.with_upload_buffer(
         _motion_buffer_size,
         [&encoder, option = _option, child,
@@ -64,8 +64,9 @@ void CUDAMotionInstance::build(CUDACommandEncoder &encoder,
                 [[no_unique_address]] float data[];
             };
             auto p = reinterpret_cast<MotionTransform *>(view->address());
+            memset(p, 0, sizeof(MotionTransform));
             {
-                p->child = child;
+                p->child = child->handle();
                 p->motionOptions.numKeys = option.keyframe_count;
                 p->motionOptions.flags = optix::MOTION_FLAG_NONE;
                 if (option.should_vanish_start) { p->motionOptions.flags |= optix::MOTION_FLAG_START_VANISH; }

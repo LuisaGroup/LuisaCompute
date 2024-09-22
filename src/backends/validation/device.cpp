@@ -6,6 +6,8 @@
 #include "texture.h"
 #include "bindless_array.h"
 #include "mesh.h"
+#include "curve.h"
+#include "motion_instance.h"
 #include "procedural_primitives.h"
 #include "shader.h"
 #include "sparse_heap.h"
@@ -17,7 +19,9 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/backends/ext/registry.h>
+
 namespace lc::validation {
+
 static vstd::unordered_map<uint64_t, StreamOption> stream_options;
 static std::mutex stream_mtx;
 
@@ -260,6 +264,28 @@ ResourceCreationInfo Device::create_mesh(
 void Device::destroy_mesh(uint64_t handle) noexcept {
     RWResource::dispose(handle);
     _native->destroy_mesh(handle);
+}
+
+ResourceCreationInfo Device::create_curve(const AccelOption &option) noexcept {
+    auto curve = _native->create_curve(option);
+    new Curve(curve.handle);
+    return curve;
+}
+
+void Device::destroy_curve(uint64_t handle) noexcept {
+    RWResource::dispose(handle);
+    _native->destroy_curve(handle);
+}
+
+ResourceCreationInfo Device::create_motion_instance(const AccelMotionOption &option) noexcept {
+    auto motion = _native->create_motion_instance(option);
+    new MotionInstance(motion.handle);
+    return motion;
+}
+
+void Device::destroy_motion_instance(uint64_t handle) noexcept {
+    RWResource::dispose(handle);
+    _native->destroy_motion_instance(handle);
 }
 
 ResourceCreationInfo Device::create_procedural_primitive(
