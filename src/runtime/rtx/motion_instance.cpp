@@ -25,7 +25,7 @@ MotionInstance Device::create_motion_instance(const ProceduralPrimitive &primiti
 MotionInstance::MotionInstance(DeviceInterface *device,
                                const Resource &resource,
                                const AccelMotionOption &option) noexcept
-    : Resource{device, Tag::MOTION_INSTANCE, {}},
+    : Resource{device, Tag::MOTION_INSTANCE, device->create_motion_instance(option)},
       _child_handle{resource.handle()},
       _mode{option.mode} {
     LUISA_ASSERT(resource &&
