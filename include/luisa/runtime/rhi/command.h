@@ -526,6 +526,7 @@ public:
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto child() const noexcept { return _child; }
     [[nodiscard]] auto keyframes() const noexcept { return luisa::span{_keyframes}; }
+    [[nodiscard]] auto steal_keyframes() noexcept { return std::move(_keyframes); }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
 

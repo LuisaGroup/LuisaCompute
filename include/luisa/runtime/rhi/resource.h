@@ -99,7 +99,6 @@ struct AccelOption {
     };
 
     enum struct MotionMode : uint8_t {
-        STATIC,
         MATRIX,
         SRT,
     };

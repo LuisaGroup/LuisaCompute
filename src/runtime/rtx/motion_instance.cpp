@@ -34,12 +34,6 @@ MotionInstance::MotionInstance(DeviceInterface *device,
                       resource.tag() == Tag::PROCEDURAL_PRIMITIVE),
                  "Invalid resource type for motion instance.");
     switch (_mode) {
-        case AccelOption::MotionMode::STATIC: {
-            LUISA_ASSERT(option.keyframe_count == 1u,
-                         "Only one keyframe is allowed for static motion (got {}).",
-                         option.keyframe_count);
-            break;
-        }
         case AccelOption::MotionMode::MATRIX: [[fallthrough]];
         case AccelOption::MotionMode::SRT: {
             LUISA_ASSERT(option.keyframe_count >= 2u,
