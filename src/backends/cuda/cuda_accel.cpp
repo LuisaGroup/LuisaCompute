@@ -9,6 +9,7 @@
 #include "cuda_command_encoder.h"
 #include "cuda_device.h"
 #include "cuda_curve.h"
+#include "cuda_motion_instance.h"
 #include "cuda_accel.h"
 
 namespace luisa::compute::cuda {
@@ -192,26 +193,35 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                     auto handle = prim->handle();
                     m.primitive = handle;
                     _prim_handles[m.index] = handle;
-                    if (prim->tag() == CUDAPrimitive::Tag::PROCEDURAL) {
-                        m.flags |= mod_flag_procedural;
-                    } else if (prim->tag() == CUDAPrimitive::Tag::CURVE) {
-                        auto curve = static_cast<const CUDACurve *>(prim);
-                        switch (auto basis = curve->basis()) {
-                            case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE:
-                                m.flags |= mod_flag_curve_cubic_bspline;
-                                break;
-                            case optix::PRIMITIVE_TYPE_ROUND_LINEAR:
-                                m.flags |= mod_flag_curve_piecewise_linear;
-                                break;
-                            case optix::PRIMITIVE_TYPE_ROUND_CATMULLROM:
-                                m.flags |= mod_flag_curve_catmull_rom;
-                                break;
-                            case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER:
-                                m.flags |= mod_flag_curve_bezier;
-                                break;
-                            default: LUISA_ERROR_WITH_LOCATION(
-                                "Invalid curve type (0x{:x}).", static_cast<uint64_t>(basis));
+                    auto mark_prim_mod_flag = [&m](auto p) noexcept {
+                        if (p->tag() == CUDAPrimitive::Tag::PROCEDURAL) {
+                            m.flags |= mod_flag_procedural;
+                        } else if (p->tag() == CUDAPrimitive::Tag::CURVE) {
+                            auto curve = static_cast<const CUDACurve *>(p);
+                            switch (auto basis = curve->basis()) {
+                                case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE:
+                                    m.flags |= mod_flag_curve_cubic_bspline;
+                                    break;
+                                case optix::PRIMITIVE_TYPE_ROUND_LINEAR:
+                                    m.flags |= mod_flag_curve_piecewise_linear;
+                                    break;
+                                case optix::PRIMITIVE_TYPE_ROUND_CATMULLROM:
+                                    m.flags |= mod_flag_curve_catmull_rom;
+                                    break;
+                                case optix::PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER:
+                                    m.flags |= mod_flag_curve_bezier;
+                                    break;
+                                default: LUISA_ERROR_WITH_LOCATION(
+                                    "Invalid curve type (0x{:x}).", static_cast<uint64_t>(basis));
+                            }
                         }
+                    };
+                    if (prim->tag() == CUDAPrimitiveBase::Tag::MOTION_INSTANCE) {
+                        auto instance = static_cast<const CUDAMotionInstance *>(prim);
+                        auto child = instance->child();
+                        mark_prim_mod_flag(child);
+                    } else {
+                        mark_prim_mod_flag(prim);
                     }
                 }
                 host_updates[i] = m;
@@ -232,9 +242,18 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
     // check if any primitive handle changed due to
     // rebuild but not presented in modifications
     auto changed_handle_count = 0u;
+    auto any_motion_instance_child_changed = false;
     for (auto i = 0u; i < instance_count; i++) {
         if (_primitives[i]->handle() != _prim_handles[i]) {
             changed_handle_count++;
+        }
+        if (_primitives[i]->tag() == CUDAPrimitiveBase::Tag::MOTION_INSTANCE) {
+            auto instance = static_cast<const CUDAMotionInstance *>(_primitives[i]);
+            auto child = instance->child();
+            if (auto iter = _motion_instance_to_primitive.find(instance);
+                iter == _motion_instance_to_primitive.end() || iter->second != child) {
+                any_motion_instance_child_changed = true;
+            }
         }
     }
 
@@ -244,7 +263,20 @@ void CUDAAccel::build(CUDACommandEncoder &encoder, AccelBuildCommand *command) n
                         !_option.allow_update /* update is not allowed in the accel */ ||
                         _handle == 0u /* the accel is not yet built */ ||
                         instance_count_changed /* instance count changed */ ||
-                        changed_handle_count > 0u /* additional handle changes due to rebuild */;
+                        changed_handle_count > 0u /* additional handle changes due to rebuild */ ||
+                        any_motion_instance_child_changed /* motion instance child changed */;
+
+    // rebuild the motion instance to primitive map if necessary
+    if (any_motion_instance_child_changed) {
+        _motion_instance_to_primitive.clear();
+        for (auto i = 0u; i < instance_count; i++) {
+            if (_primitives[i]->tag() == CUDAPrimitiveBase::Tag::MOTION_INSTANCE) {
+                auto instance = static_cast<const CUDAMotionInstance *>(_primitives[i]);
+                auto child = instance->child();
+                _motion_instance_to_primitive.emplace(instance, child);
+            }
+        }
+    }
 
     // gather changed handles if any
     if (changed_handle_count > 0u) {

@@ -92,16 +92,16 @@ int main(int argc, char *argv[]) {
     AccelMotionOption motion_option;
     motion_option.mode = AccelMotionMode::SRT;
     motion_option.keyframe_count = 3u;
-    auto motion_instance = device.create_motion_instance(mesh, motion_option);
+    auto motion_instance = device.create_motion_instance(curve, motion_option);
     luisa::vector<MotionInstanceTransformSRT> motion_transforms;
     for (auto i = 0; i < motion_option.keyframe_count; i++) {
-        auto angle = i * radians(30.f);
+        auto angle = i * radians(15.f);
         auto transform = MotionInstanceTransformSRT{
             .pivot = {0.f, 0.f, 0.f},
-            .quaternion = {0.f, 0.f, sin(angle / 2.f), cos(angle / 2.f)},
+            .quaternion = {0.f, sin(angle / 2.f), 0.f, cos(angle / 2.f)},
             .scale = {1.f, 1.f, 1.f},
             .shear = {0.f, 0.f, 0.f},
-            .translation = {0.f, -.5f, .5f}};
+            .translation = {0.f, -.5f, 0.f}};
         motion_transforms.emplace_back(transform);
     }
     motion_instance.set_keyframes(motion_transforms);
@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
 
     auto accel = device.create_accel();
     accel.emplace_back(mesh, translation(-.3f, 0.f, 0.f) * scaling(2.f));
-    accel.emplace_back(curve);
+    // accel.emplace_back(curve);
     accel.emplace_back(motion_instance);
     stream << curve.build()
            << mesh.build()

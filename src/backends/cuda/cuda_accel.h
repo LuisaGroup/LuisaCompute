@@ -9,6 +9,7 @@
 namespace luisa::compute::cuda {
 
 class CUDAMesh;
+class CUDAMotionInstance;
 class CUDAHeap;
 class CUDADevice;
 class CUDAStream;
@@ -42,6 +43,7 @@ private:
     size_t _update_buffer_size{};
     luisa::vector<const CUDAPrimitiveBase *> _primitives;
     luisa::vector<uint64_t> _prim_handles;
+    luisa::unordered_map<const CUDAMotionInstance *, const CUDAPrimitive *> _motion_instance_to_primitive;
     luisa::string _name;
 
 private:

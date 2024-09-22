@@ -52,6 +52,10 @@ void CUDAMotionInstance::build(CUDACommandEncoder &encoder,
                  "Keyframe count mismatch.");
     // allocate host-pinned memory for keyframes
     auto child = reinterpret_cast<CUDAPrimitive *>(command->child());
+    {
+        std::scoped_lock lock{_mutex};
+        _child = child;
+    }
     encoder.with_upload_buffer(
         _motion_buffer_size,
         [&encoder, option = _option, child,
