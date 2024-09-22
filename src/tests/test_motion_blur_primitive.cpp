@@ -11,7 +11,7 @@ using namespace luisa::compute;
 
 int main(int argc, char *argv[]) {
 
-    log_level_info();
+    log_level_verbose();
 
     Context context{argv[0]};
     if (argc <= 1) {

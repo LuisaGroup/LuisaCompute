@@ -130,6 +130,7 @@
 #include <luisa/runtime/rhi/command_encoder.h>
 #include <luisa/runtime/rhi/curve_basis.h>
 #include <luisa/runtime/rhi/device_interface.h>
+#include <luisa/runtime/rhi/motion_transform.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/sampler.h>

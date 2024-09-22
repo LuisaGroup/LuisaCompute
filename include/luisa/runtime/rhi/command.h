@@ -1,21 +1,19 @@
 #pragma once
 
 #include <cstdlib>
-#include <array>
 
 #include <luisa/core/macro.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/variant.h>
-#include <luisa/core/stl/string.h>
-#include <luisa/core/stl/functional.h>
 #include <luisa/ast/usage.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/stream_tag.h>
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/runtime/rhi/curve_basis.h>
+#include <luisa/runtime/rhi/motion_transform.h>
 
 // for validation
 namespace lc::validation {
@@ -512,40 +510,6 @@ public:
     [[nodiscard]] auto aabb_buffer_size() const noexcept { return _aabb_buffer_size; }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)
 };
-
-using MotionInstanceTransformMatrix = float4x4;
-
-struct alignas(16) MotionInstanceTransformSRT {
-    float pivot[3] = {};
-    float quaternion[4] = {};
-    float scale[3] = {};
-    float shear[3] = {};
-    float translation[3] = {};
-};
-
-struct alignas(16) MotionInstanceTransform {
-
-    float data[16] = {};
-
-    MotionInstanceTransform() noexcept = default;
-
-    explicit MotionInstanceTransform(const MotionInstanceTransformMatrix &m) noexcept {
-        as_matrix() = m;
-    }
-
-    explicit MotionInstanceTransform(const MotionInstanceTransformSRT &m) noexcept {
-        as_srt() = m;
-    }
-
-    [[nodiscard]] auto &as_matrix() noexcept { return *reinterpret_cast<float4x4 *>(data); }
-    [[nodiscard]] auto &as_matrix() const noexcept { return *reinterpret_cast<const float4x4 *>(data); }
-    [[nodiscard]] auto &as_srt() noexcept { return *reinterpret_cast<MotionInstanceTransformSRT *>(data); }
-    [[nodiscard]] auto &as_srt() const noexcept { return *reinterpret_cast<const MotionInstanceTransformSRT *>(data); }
-};
-
-static_assert(sizeof(MotionInstanceTransformMatrix) == 64u && alignof(MotionInstanceTransformMatrix) == 16u);
-static_assert(sizeof(MotionInstanceTransformSRT) == 64u && alignof(MotionInstanceTransformSRT) == 16u);
-static_assert(sizeof(MotionInstanceTransform) == 64u && alignof(MotionInstanceTransform) == 16u);
 
 class MotionInstanceBuildCommand final : public Command {
 
