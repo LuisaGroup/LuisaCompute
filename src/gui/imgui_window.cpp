@@ -513,7 +513,7 @@ private:
         if (!_accel) {
             _accel = _device.create_accel(o);
             _mesh_handle = _device.impl()->create_mesh(o).handle;
-            _accel.emplace_back(_mesh_handle);
+            _accel.emplace_back_handle(_mesh_handle, make_float4x4(1.f), 0xffu, true, 0u);
         }
         if (!_vertex_buffer) { _vertex_buffer = _device.create_buffer<Vertex>(std::max(next_pow2(_vertices.size()), 64_k)); }
         if (!_triangle_buffer) { _triangle_buffer = _device.create_buffer<Triangle>(std::max(next_pow2(_triangles.size()), 64_k)); }

@@ -7,6 +7,8 @@ set(LUISA_COMPUTE_VALIDATION_SOURCES
         dstorage_ext_impl.cpp dstorage_ext_impl.h
         event.h
         mesh.h
+        curve.cpp curve.h
+        motion_instance.cpp motion_instance.h
         pinned_mem_impl.cpp pinned_mem_impl.h
         procedural_primitives.h
         range.h

@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
             auto z = sin(i * pi / 5.f) * (1.f - .01f * i);
             auto t = static_cast<float>(i) / static_cast<float>(control_point_count - 1u);// [0, 1]
             auto r = .03f + .03f * sin(t * 10.f * pi - .5f * pi);
-            control_points.emplace_back(make_float4(x, y + k * .5f, z, r));
+            control_points.emplace_back(make_float4(x, y + k * .1f, z, r));
         }
     }
     luisa::vector<uint> segments;
@@ -68,13 +68,13 @@ int main(int argc, char *argv[]) {
         float3(0.5f, -0.5f, 0.0f),
         float3(0.0f, 0.5f, 0.0f),
         // keyframe 1
-        float3(0.5f, -0.5f, 0.0f),
-        float3(1.5f, -0.5f, 0.0f),
-        float3(1.0f, 0.5f, 0.0f),
+        float3(-0.4f, -0.5f, 0.0f),
+        float3(0.6f, -0.5f, 0.0f),
+        float3(0.1f, 0.5f, 0.0f),
         // keyframe 2
-        float3(1.0f, 0.5f, 0.0f),
-        float3(1.5f, 0.5f, 0.0f),
-        float3(1.0f, 1.5f, 0.0f),
+        float3(-0.4f, -0.4f, 0.0f),
+        float3(0.6f, -0.4f, 0.0f),
+        float3(0.1f, 0.6f, 0.0f),
     };
     std::array indices{0u, 1u, 2u};
 
@@ -90,9 +90,21 @@ int main(int argc, char *argv[]) {
     auto mesh = device.create_mesh(vertex_buffer, triangle_buffer, mesh_option);
 
     AccelMotionOption motion_option;
-    motion_option.mode = AccelMotionMode::MATRIX;
-    motion_option.keyframe_count = 2u;
+    motion_option.mode = AccelMotionMode::SRT;
+    motion_option.keyframe_count = 3u;
     auto motion_instance = device.create_motion_instance(mesh, motion_option);
+    luisa::vector<MotionInstanceTransformSRT> motion_transforms;
+    for (auto i = 0; i < motion_option.keyframe_count; i++) {
+        auto angle = i * radians(30.f);
+        auto transform = MotionInstanceTransformSRT{
+            .pivot = {0.f, 0.f, 0.f},
+            .quaternion = {0.f, 0.f, sin(angle / 2.f), cos(angle / 2.f)},
+            .scale = {1.f, 1.f, 1.f},
+            .shear = {0.f, 0.f, 0.f},
+            .translation = {0.f, -.5f, .5f}};
+        motion_transforms.emplace_back(transform);
+    }
+    motion_instance.set_keyframes(motion_transforms);
 
     Callable linear_to_srgb = [](Var<float3> x) noexcept {
         return select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -155,7 +167,7 @@ int main(int argc, char *argv[]) {
         auto color = def<float3>(0.3f, 0.5f, 0.7f);
         auto u = rand(frame_index, coord);
         auto ray = generate_ray(make_float2(coord) + u.xy());
-        auto time = u.z * .1f;
+        auto time = u.z * 1.f;
         auto hit = accel.intersect(ray, time, {.curve_bases = {curve_basis}});
         $if (!hit->miss()) {
             constexpr auto red = make_float3(1.0f, 0.0f, 0.0f);
@@ -176,8 +188,9 @@ int main(int argc, char *argv[]) {
     };
 
     auto accel = device.create_accel();
-    accel.emplace_back(mesh, scaling(2.f));
+    accel.emplace_back(mesh, translation(-.3f, 0.f, 0.f) * scaling(2.f));
     accel.emplace_back(curve);
+    accel.emplace_back(motion_instance);
     stream << curve.build()
            << mesh.build()
            << motion_instance.build()

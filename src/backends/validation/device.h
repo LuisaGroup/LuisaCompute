@@ -57,6 +57,10 @@ public:
 
     // stream
     ResourceCreationInfo create_stream(StreamTag stream_tag) noexcept override;
+    [[nodiscard]] ResourceCreationInfo create_curve(const AccelOption &option) noexcept override;
+    void destroy_curve(uint64_t handle) noexcept override;
+    [[nodiscard]] ResourceCreationInfo create_motion_instance(const AccelMotionOption &option) noexcept override;
+    void destroy_motion_instance(uint64_t handle) noexcept override;
     void destroy_stream(uint64_t handle) noexcept override;
     void synchronize_stream(uint64_t stream_handle) noexcept override;
     void dispatch(

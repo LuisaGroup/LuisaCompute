@@ -4,11 +4,13 @@
 #include <luisa/core/spin_mutex.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/unordered_map.h>
-#include <luisa/runtime/rtx/mesh.h>
-#include <luisa/runtime/rtx/curve.h>
-#include <luisa/runtime/rtx/procedural_primitive.h>
 
 namespace luisa::compute {
+
+class Mesh;
+class Curve;
+class ProceduralPrimitive;
+class MotionInstance;
 
 namespace detail {
 // for DSL
@@ -40,31 +42,27 @@ public:
     ~Accel() noexcept override;
     Accel(Accel &&) noexcept;
     Accel(Accel const &) noexcept = delete;
-    Accel &operator=(Accel &&rhs) noexcept {
-        _move_from(std::move(rhs));
-        return *this;
-    }
+    Accel &operator=(Accel &&rhs) noexcept;
     Accel &operator=(Accel const &) noexcept = delete;
     using Resource::operator bool;
-    [[nodiscard]] auto size() const noexcept {
-        _check_is_valid();
-        std::lock_guard lock{_mtx};
-        return _instance_count;
-    }
+
+    // number of instances
+    [[nodiscard]] size_t size() const noexcept;
+
     // whether there are any stashed updates
-    [[nodiscard]] auto dirty() const noexcept {
-        _check_is_valid();
-        std::lock_guard lck{_mtx};
-        return !_modifications.empty();
-    }
+    [[nodiscard]] bool dirty() const noexcept;
+
+    // low-level interfaces
     void emplace_back_handle(uint64_t mesh_handle,
                              float4x4 const &transform,
                              uint8_t visibility_mask,
                              bool opaque,
                              uint user_id) noexcept;
+
     void set_handle(size_t index, uint64_t mesh_handle,
                     float4x4 const &transform,
                     uint8_t visibility_mask, bool opaque, uint user_id) noexcept;
+
     void set_prim_handle(size_t index, uint64_t prim_handle) noexcept;
 
     // host interfaces
@@ -73,64 +71,53 @@ public:
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
                       bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(mesh.handle(), transform, visibility_mask, opaque, user_id);
-    }
+                      uint user_id = 0) noexcept;
 
     void emplace_back(const Curve &curve,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
                       bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(curve.handle(), transform, visibility_mask, opaque, user_id);
-    }
+                      uint user_id = 0) noexcept;
 
     void emplace_back(const ProceduralPrimitive &prim,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(prim.handle(), transform, visibility_mask,
-                            false /* procedural geometry is always non-opaque */,
-                            user_id);
-    }
+                      uint user_id = 0) noexcept;
 
-    void emplace_back(uint64_t mesh_handle,
+    void emplace_back(const MotionInstance &instance,
                       float4x4 transform = make_float4x4(1.f),
                       uint8_t visibility_mask = 0xffu,
                       bool opaque = true,
-                      uint user_id = 0) noexcept {
-        emplace_back_handle(mesh_handle, transform, visibility_mask, opaque, user_id);
-    }
+                      uint user_id = 0) noexcept;
 
     void set(size_t index, const Mesh &mesh,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
              bool opaque = true,
-             uint user_id = 0) noexcept {
-        set_handle(index, mesh.handle(), transform, visibility_mask, opaque, user_id);
-    }
+             uint user_id = 0) noexcept;
+
     void set(size_t index, const Curve &curve,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
              bool opaque = true,
-             uint user_id = 0) noexcept {
-        set_handle(index, curve.handle(), transform, visibility_mask, opaque, user_id);
-    }
+             uint user_id = 0) noexcept;
+
     void set(size_t index, const ProceduralPrimitive &prim,
              float4x4 transform = make_float4x4(1.f),
              uint8_t visibility_mask = 0xffu,
-             uint user_id = 0) noexcept {
-        set_handle(index, prim.handle(), transform, visibility_mask, false, user_id);
-    }
-    void set_mesh(size_t index, const Mesh &mesh) noexcept {
-        set_prim_handle(index, mesh.handle());
-    }
-    void set_curve(size_t index, const Curve &curve) noexcept {
-        set_prim_handle(index, curve.handle());
-    }
-    void set_procedural_primitive(size_t index, const ProceduralPrimitive &prim) noexcept {
-        set_prim_handle(index, prim.handle());
-    }
+             uint user_id = 0) noexcept;
+
+    void set(size_t index, const MotionInstance &instance,
+             float4x4 transform = make_float4x4(1.f),
+             uint8_t visibility_mask = 0xffu,
+             bool opaque = true,
+             uint user_id = 0) noexcept;
+
+    void set_mesh(size_t index, const Mesh &mesh) noexcept;
+    void set_curve(size_t index, const Curve &curve) noexcept;
+    void set_procedural_primitive(size_t index, const ProceduralPrimitive &prim) noexcept;
+    void set_motion_instance(size_t index, const MotionInstance &instance) noexcept;
+
     void pop_back() noexcept;
     void set_transform_on_update(size_t index, float4x4 transform) noexcept;
     void set_visibility_on_update(size_t index, uint8_t visibility_mask) noexcept;
@@ -138,19 +125,12 @@ public:
     void set_instance_user_id_on_update(size_t index, uint user_id) noexcept;
 
     // update top-level acceleration structure's instance data without build
-    [[nodiscard]] luisa::unique_ptr<Command> update_instance_buffer() noexcept {
-        return _build(Accel::BuildRequest::PREFER_UPDATE, true);
-    }
+    [[nodiscard]] luisa::unique_ptr<Command> update_instance_buffer() noexcept;
     // update top-level acceleration structure's instance data and build
-    [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept {
-        return _build(request, false);
-    }
+    [[nodiscard]] luisa::unique_ptr<Command> build(BuildRequest request = BuildRequest::PREFER_UPDATE) noexcept;
 
     // DSL interface
-    [[nodiscard]] auto operator->() const noexcept {
-        _check_is_valid();
-        return reinterpret_cast<const detail::AccelExprProxy *>(this);
-    }
+    [[nodiscard]] const detail::AccelExprProxy *operator->() const noexcept;
 };
 
 }// namespace luisa::compute

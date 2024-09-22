@@ -34,12 +34,19 @@ MotionInstance::MotionInstance(DeviceInterface *device,
                       resource.tag() == Tag::PROCEDURAL_PRIMITIVE),
                  "Invalid resource type for motion instance.");
     switch (_mode) {
-        case AccelOption::MotionMode::MATRIX: [[fallthrough]];
+        case AccelOption::MotionMode::MATRIX: {
+            LUISA_ASSERT(option.keyframe_count >= 2u,
+                         "At least two keyframes are required for matrix motion (got {}).",
+                         option.keyframe_count);
+            MotionInstanceTransform identity{luisa::make_float4x4(1.f)};
+            _transform_keyframes.resize(option.keyframe_count, identity);
+        }
         case AccelOption::MotionMode::SRT: {
             LUISA_ASSERT(option.keyframe_count >= 2u,
-                         "At least two keyframes are required for non-static motion (got {}).",
+                         "At least two keyframes are required for SRT motion (got {}).",
                          option.keyframe_count);
-            _transform_keyframes.resize(option.keyframe_count);
+            MotionInstanceTransform identity{MotionInstanceTransformSRT{}};
+            _transform_keyframes.resize(option.keyframe_count, identity);
             break;
         }
     }

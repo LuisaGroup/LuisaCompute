@@ -636,6 +636,7 @@ void traverse_subexpressions(const Expression *expr,
             traverse_subexpressions(cast_expr->expression(), enter, exit);
             break;
         }
+        case Expression::Tag::FUNC_REF:
         case Expression::Tag::TYPE_ID:
         case Expression::Tag::STRING_ID:
         case Expression::Tag::CPUCUSTOM:

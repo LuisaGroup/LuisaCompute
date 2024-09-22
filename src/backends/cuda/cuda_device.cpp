@@ -956,7 +956,7 @@ ResourceCreationInfo CUDADevice::create_motion_instance(const AccelMotionOption 
         return new_with_allocator<CUDAMotionInstance>(this, option);
     });
     return {.handle = reinterpret_cast<uint64_t>(instance_handle),
-            .native_handle = reinterpret_cast<void *>(instance_handle->handle())};
+            .native_handle = const_cast<optix::TraversableHandle *>(instance_handle->pointer_to_handle())};
 }
 
 void CUDADevice::destroy_motion_instance(uint64_t handle) noexcept {
