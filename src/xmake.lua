@@ -34,7 +34,6 @@ if get_config("enable_clangcxx") then
     includes("clangcxx")
 end
 
-includes(path.join(os.projectdir(), "xrepo/packages/z/zlib/xmake.lua"))
 add_requires("zlib >=1.2.8-skr", {
     system = false
 })

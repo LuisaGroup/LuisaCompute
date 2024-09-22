@@ -6,6 +6,7 @@
 #include <marl/finally.h>
 #include <luisa/core/shared_function.h>
 #include <luisa/core/stl/functional.h>
+#include <luisa/core/concepts.h>
 
 namespace marl {
 
@@ -32,7 +33,22 @@ namespace marl {
 }// namespace marl
 
 namespace luisa::fiber {
-
+template<typename Iter>
+void _advance(Iter &&ite, size_t n) {
+    if constexpr (luisa::concepts::is_iterator<std::remove_cvref_t<Iter>>) {
+        std::advance(ite, n);
+    } else {
+        ite += n;
+    }
+}
+template<typename Iter>
+[[nodiscard]] auto _distance(Iter ite, Iter last) {
+    if constexpr (luisa::concepts::is_iterator<std::remove_cvref_t<Iter>>) {
+        return std::distance(ite, last);
+    } else {
+        return last > ite ? last - ite : ite - last;
+    }
+}
 class scheduler {
 
 public:
@@ -168,6 +184,62 @@ void parallel(uint32_t job_count, F &&lambda, uint32_t internal_jobs = 1) noexce
             lambda(i);
         }
     }
+}
+
+template<class F, class Iter>
+    requires(std::is_invocable_v<F, Iter, Iter>)
+void parallel(Iter begin, Iter end, size_t batch, F f, size_t inplace_batch_threahold = 1ull) {
+    auto n = _distance(begin, end);
+    size_t batchCount = (n + batch - 1) / batch;
+    if (batchCount < inplace_batch_threahold) {
+        for (size_t i = 0; i < batchCount; ++i) {
+            auto toAdvance = std::min((size_t)n, batch);
+            auto l = begin;
+            auto r = begin;
+            _advance(r, toAdvance);
+            n -= toAdvance;
+            f(l, r);
+            begin = r;
+        }
+    } else {
+        auto thread_count = std::clamp<size_t>(batchCount, 1u, std::thread::hardware_concurrency());
+        counter counter(thread_count);
+        luisa::SharedFunction<void()> shared_func{[atomic_fence = detail::NonMovableAtomic<size_t>(0), counter, batchCount, batch, n, begin, f = std::forward<F>(f)]() mutable {
+            size_t i = 0ull;
+            while ((i = atomic_fence.value.fetch_add(1)) < batchCount) {
+                auto begin_idx = i * batch;
+                auto end_idx = std::min<size_t>((i + 1) * batch, static_cast<size_t>(n));
+                f(begin + begin_idx, begin + end_idx);
+            }
+            counter.done();
+        }};
+        for (size_t i = 0; i < thread_count; ++i) {
+            marl::schedule(shared_func);
+        }
+        counter.wait();
+    }
+}
+template<class F, class Iter>
+    requires(std::is_invocable_v<F, Iter, Iter>)
+auto async_parallel(Iter begin, Iter end, size_t batch, F f, size_t inplace_batch_threahold = 1ull) {
+    auto n = _distance(begin, end);
+    size_t batchCount = (n + batch - 1) / batch;
+
+    auto thread_count = std::clamp<size_t>(batchCount, 1u, std::thread::hardware_concurrency());
+    counter counter(thread_count);
+    luisa::SharedFunction<void()> shared_func{[atomic_fence = detail::NonMovableAtomic<size_t>(0), counter, batchCount, batch, n, begin, f = std::forward<F>(f)]() mutable {
+        size_t i = 0ull;
+        while ((i = atomic_fence.value.fetch_add(1)) < batchCount) {
+            auto begin_idx = i * batch;
+            auto end_idx = std::min<size_t>((i + 1) * batch, static_cast<size_t>(n));
+            f(begin + begin_idx, begin + end_idx);
+        }
+        counter.done();
+    }};
+    for (size_t i = 0; i < thread_count; ++i) {
+        marl::schedule(shared_func);
+    }
+    return counter;
 }
 
 }// namespace luisa::fiber
