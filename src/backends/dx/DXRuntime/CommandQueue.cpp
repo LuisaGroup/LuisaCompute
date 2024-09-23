@@ -45,6 +45,7 @@ CommandQueue::AllocatorPtr CommandQueue::CreateAllocator(size_t maxAllocCount) {
 }
 
 void CommandQueue::AddEvent(LCEvent const *evt, uint64 fenceIdx) {
+    ++lastFrame;
     mtx.lock();
     executedAllocators.push(evt, fenceIdx, true);
     mtx.unlock();
@@ -83,6 +84,9 @@ void CommandQueue::ExecuteThread() {
                 evt->finishedEvent = std::max(fence, evt->finishedEvent);
             }
             evt->cv.notify_all();
+            if (wakeupThread) {
+                executedFrame++;
+            }
         };
         auto ExecuteHandle = [&](WaitFence) {
             device->WaitFence(cmdFence.Get(), fence);

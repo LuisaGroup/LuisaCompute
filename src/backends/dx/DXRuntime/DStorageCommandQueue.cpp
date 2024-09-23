@@ -40,6 +40,9 @@ void DStorageCommandQueue::ExecuteThread() {
                 evt->finishedEvent = std::max(fence, evt->finishedEvent);
             }
             evt->cv.notify_all();
+            if (wakeupThread) {
+                executedFrame++;
+            }
         };
         while (true) {
             vstd::optional<CallbackEvent> b;
@@ -62,6 +65,7 @@ void DStorageCommandQueue::ExecuteThread() {
     }
 }
 void DStorageCommandQueue::AddEvent(LCEvent const *evt, uint64 fenceIdx) {
+    ++lastFrame;
     mtx.lock();
     executedAllocators.push(evt, fenceIdx, true);
     mtx.unlock();
