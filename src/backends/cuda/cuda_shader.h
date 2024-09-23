@@ -42,6 +42,7 @@ public:
     [[nodiscard]] Usage argument_usage(size_t i) const noexcept;
     [[nodiscard]] auto printer() const noexcept { return _printer.get(); }
     [[nodiscard]] virtual void *handle() const noexcept = 0;
+    [[nodiscard]] virtual bool is_graph_compatible() const noexcept { return false; }
     void launch(CUDACommandEncoder &encoder,
                 ShaderDispatchCommand *command) const noexcept;
     void set_name(luisa::string &&name) noexcept;

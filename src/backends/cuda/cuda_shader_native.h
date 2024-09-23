@@ -26,6 +26,7 @@ public:
                      const char *entry, const CUDAShaderMetadata &metadata,
                      luisa::vector<ShaderDispatchCommand::Argument> bound_arguments = {}) noexcept;
     ~CUDAShaderNative() noexcept override;
+    [[nodiscard]] bool is_graph_compatible() const noexcept override { return true; }
     [[nodiscard]] void *handle() const noexcept override { return _function; }
 };
 
