@@ -105,8 +105,11 @@ void CUDAPrimitive::_build(CUDACommandEncoder &encoder) noexcept {
     }
     // update handle
     LUISA_ASSERT(_handle != 0ull, "OptiX BVH build failed.");
-
     if (!_name.empty()) { nvtxRangePop(); }
+    LUISA_VERBOSE("Built CUDA primitive: handle = {}, bvh_buffer = {}, size = {}.",
+                  reinterpret_cast<void *>(_handle),
+                  reinterpret_cast<void *>(_bvh_buffer_handle),
+                  _bvh_buffer_size);
 }
 
 void CUDAPrimitive::_update(CUDACommandEncoder &encoder) noexcept {
@@ -122,6 +125,10 @@ void CUDAPrimitive::_update(CUDACommandEncoder &encoder) noexcept {
         _bvh_buffer_handle, _bvh_buffer_size, &_handle, nullptr, 0u));
     LUISA_CHECK_CUDA(cuMemFreeAsync(update_buffer, cuda_stream));
     if (!_name.empty()) { nvtxRangePop(); }
+    LUISA_VERBOSE("Updated CUDA primitive: handle = {}, bvh_buffer = {}, size = {}.",
+                  reinterpret_cast<void *>(_handle),
+                  reinterpret_cast<void *>(_bvh_buffer_handle),
+                  _bvh_buffer_size);
 }
 
 const CUdeviceptr *CUDAPrimitive::_motion_buffer_pointers(CUdeviceptr base, size_t total_size) const noexcept {

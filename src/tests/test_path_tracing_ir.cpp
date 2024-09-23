@@ -7,12 +7,13 @@
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/event.h>
 #include <luisa/runtime/swapchain.h>
+#include <luisa/runtime/rtx/mesh.h>
+#include <luisa/runtime/rtx/accel.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/ir/ast2ir.h>
-#include <luisa/runtime/rtx/accel.h>
-#include "common/cornell_box.h"
 #include <stb/stb_image_write.h>
 #include <luisa/gui/window.h>
+#include "common/cornell_box.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "common/tiny_obj_loader.h"
