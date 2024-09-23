@@ -71,7 +71,7 @@ public:
         auto expr_keyframe_id = detail::extract_expression(std::forward<I1>(keyframe_id));
         return def<float4x4>(
             detail::FunctionBuilder::current()->call(
-                Type::of<float4x4>(), CallOp::RAY_TRACING_INSTANCE_TRANSFORM_MOTION_MATRIX,
+                Type::of<float4x4>(), CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX,
                 {_expression, expr_inst_id, expr_keyframe_id}));
     }
 
@@ -82,7 +82,7 @@ public:
         auto expr_keyframe_id = detail::extract_expression(std::forward<I1>(keyframe_id));
         return def<MotionInstanceTransformSRT>(
             detail::FunctionBuilder::current()->call(
-                Type::of<MotionInstanceTransformSRT>(), CallOp::RAY_TRACING_INSTANCE_TRANSFORM_MOTION_SRT,
+                Type::of<MotionInstanceTransformSRT>(), CallOp::RAY_TRACING_INSTANCE_MOTION_SRT,
                 {_expression, expr_inst_id, expr_keyframe_id}));
     }
 
@@ -93,7 +93,7 @@ public:
         auto expr_keyframe_id = detail::extract_expression(std::forward<I1>(keyframe_id));
         auto expr_m = m.expression();
         detail::FunctionBuilder::current()->call(
-            CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM_MOTION_MATRIX,
+            CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX,
             {_expression, expr_inst_id, expr_keyframe_id, expr_m});
     }
 
@@ -104,7 +104,7 @@ public:
         auto expr_keyframe_id = detail::extract_expression(std::forward<I1>(keyframe_id));
         auto expr_srt = srt.expression();
         detail::FunctionBuilder::current()->call(
-            CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM_MOTION_SRT,
+            CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT,
             {_expression, expr_inst_id, expr_keyframe_id, expr_srt});
     }
 

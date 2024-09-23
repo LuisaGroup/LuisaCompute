@@ -41,6 +41,7 @@ private:
     const Type *_ray_query_all_type;
     const Type *_ray_query_any_type;
     const Type *_indirect_buffer_type;
+    const Type *_motion_srt_type;
 
 private:
     void visit(const Type *type) noexcept override;

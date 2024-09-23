@@ -78,6 +78,11 @@ inline __device__ void lc_assert(bool) noexcept {}
 inline __device__ void lc_assert_with_message(bool, const char *) noexcept {}
 #endif
 
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_address_of(T &object) noexcept {
+    return reinterpret_cast<lc_ulong>(&object);
+}
+
 [[nodiscard]] __device__ inline auto lc_bits_to_half(lc_ushort bits) noexcept {
     return *reinterpret_cast<const lc_half *>(&bits);
 }
@@ -165,6 +170,12 @@ __device__ inline void lc_buffer_write(LCBuffer<T> buffer, Index index, T value)
     lc_check_in_bounds(index, lc_buffer_size(buffer));
 #endif
     buffer.ptr[index] = value;
+}
+
+template<typename T>
+[[nodiscard]] __device__ inline auto lc_buffer_address(LCBuffer<T> buffer) noexcept {
+    lc_assume(__isGlobal(buffer.ptr));
+    return reinterpret_cast<lc_ulong>(buffer.ptr);
 }
 
 enum struct LCPixelStorage {
@@ -1093,6 +1104,13 @@ template<typename T>
     return 0ull;// TODO
 }
 
+[[nodiscard]] inline __device__ auto lc_bindless_buffer_address(LCBindlessArray array, lc_uint index) noexcept {
+    lc_assume(__isGlobal(array.slots));
+    auto buffer = static_cast<const char *>(array.slots[index].buffer);
+    lc_assume(__isGlobal(buffer));
+    return reinterpret_cast<lc_ulong>(buffer);
+}
+
 template<typename T>
 [[nodiscard]] inline __device__ T lc_bindless_byte_buffer_read(LCBindlessArray array, lc_uint index, lc_ulong offset) noexcept {
     lc_assume(__isGlobal(array.slots));
@@ -1294,6 +1312,44 @@ struct LCCommittedHit {
 static_assert(sizeof(LCCommittedHit) == 24u, "LCCommittedHit size mismatch");
 static_assert(alignof(LCCommittedHit) == 8u, "LCCommittedHit align mismatch");
 
+struct alignas(16) LCMotionSRT {
+    lc_array<lc_float, 3> m0; // pivot
+    lc_array<lc_float, 4> m1; // quaternion
+    lc_array<lc_float, 3> m2; // scale
+    lc_array<lc_float, 3> m3; // shear
+    lc_array<lc_float, 3> m4; // translation
+};
+
+static_assert(sizeof(LCMotionSRT) == 64u, "LCMotionSRT size mismatch");
+static_assert(alignof(LCMotionSRT) == 16u, "LCMotionSRT align mismatch");
+
+struct LCMotionOptions {
+    unsigned short count;
+    unsigned short flags;
+    float time_start;
+    float time_end;
+};
+
+struct alignas(16) LCMotionTransformBuffer {
+    unsigned long long child;
+    LCMotionOptions options;
+    unsigned int pad[3];
+};
+
+static_assert(sizeof(LCMotionTransformBuffer) == 32u, "LCMotionTransformBuffer size mismatch");
+
+struct alignas(16) LCSRTData {
+    float sx, a, b, pvx, sy, c, pvy, sz, pvz, qx, qy, qz, qw, tx, ty, tz;
+};
+
+static_assert(sizeof(LCSRTData) == 64u, "LCSRTData size mismatch");
+
+struct alignas(16) LCMatrixData {
+    float m[12];
+};
+
+static_assert(sizeof(LCMatrixData) == 48u, "LCMatrixData size mismatch");
+
 enum LCInstanceFlags : lc_uint {
     LC_INSTANCE_FLAG_NONE = 0u,
     LC_INSTANCE_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 0u,
@@ -1308,13 +1364,88 @@ struct alignas(16) LCAccelInstance {
     lc_uint sbt_offset;
     lc_uint mask;
     lc_uint flags;
-    lc_uint pad[4];
+    unsigned long long handle;
+    lc_uint pad[2];
 };
 
 struct alignas(16u) LCAccel {
     unsigned long long handle;
     LCAccelInstance *instances;
 };
+
+template<typename T>
+[[nodiscard]] __device__ T *lc_instance_motion_data(LCAccel accel, lc_uint inst_index, lc_uint key_index) noexcept {
+    lc_assume(__isGlobal(accel.instances));
+    auto handle = accel.instances[inst_index].handle;
+    auto buffer = reinterpret_cast<LCMotionTransformBuffer *>(handle & ~0x0full);
+#ifdef LUISA_DEBUG
+    lc_check_in_bounds(key_index, buffer->options.count);
+#endif
+    return reinterpret_cast<T *>(buffer + 1) + key_index;
+}
+
+[[nodiscard]] __device__ lc_float4x4 lc_instance_motion_matrix(LCAccel accel, lc_uint inst_index, lc_uint key_index) noexcept {
+    auto m = *lc_instance_motion_data<LCMatrixData>(accel, inst_index, key_index);
+    return lc_make_float4x4(
+        m.m[0], m.m[4], m.m[8], 0.0f,
+        m.m[1], m.m[5], m.m[9], 0.0f,
+        m.m[2], m.m[6], m.m[10], 0.0f,
+        m.m[3], m.m[7], m.m[11], 1.0f);
+}
+
+[[nodiscard]] __device__ LCMotionSRT lc_instance_motion_srt(LCAccel accel, lc_uint inst_index, lc_uint key_index) noexcept {
+    auto srt = *lc_instance_motion_data<LCSRTData>(accel, inst_index, key_index);
+    LCMotionSRT result;
+    result.m0[0] = srt.pvx;
+    result.m0[1] = srt.pvy;
+    result.m0[2] = srt.pvz;
+    result.m1[0] = srt.qx;
+    result.m1[1] = srt.qy;
+    result.m1[2] = srt.qz;
+    result.m1[3] = srt.qw;
+    result.m2[0] = srt.sx;
+    result.m2[1] = srt.sy;
+    result.m2[2] = srt.sz;
+    result.m3[0] = srt.tx;
+    result.m3[1] = srt.ty;
+    result.m3[2] = srt.tz;
+    return result;
+}
+
+__device__ void lc_set_instance_motion_matrix(LCAccel accel, lc_uint inst_index, lc_uint key_index, lc_float4x4 m) noexcept {
+    LCMatrixData data;
+    data.m[0] = m[0][0];
+    data.m[1] = m[1][0];
+    data.m[2] = m[2][0];
+    data.m[3] = m[3][0];
+    data.m[4] = m[0][1];
+    data.m[5] = m[1][1];
+    data.m[6] = m[2][1];
+    data.m[7] = m[3][1];
+    data.m[8] = m[0][2];
+    data.m[9] = m[1][2];
+    data.m[10] = m[2][2];
+    data.m[11] = m[3][2];
+    *lc_instance_motion_data<LCMatrixData>(accel, inst_index, key_index) = data;
+}
+
+__device__ void lc_set_instance_motion_srt(LCAccel accel, lc_uint inst_index, lc_uint key_index, LCMotionSRT srt) noexcept {
+    LCSRTData data;
+    data.sx = srt.m2[0];
+    data.sy = srt.m2[1];
+    data.sz = srt.m2[2];
+    data.pvx = srt.m0[0];
+    data.pvy = srt.m0[1];
+    data.pvz = srt.m0[2];
+    data.qx = srt.m1[0];
+    data.qy = srt.m1[1];
+    data.qz = srt.m1[2];
+    data.qw = srt.m1[3];
+    data.tx = srt.m3[0];
+    data.ty = srt.m3[1];
+    data.tz = srt.m3[2];
+    *lc_instance_motion_data<LCSRTData>(accel, inst_index, key_index) = data;
+}
 
 [[nodiscard]] __device__ inline auto lc_accel_instance_transform(LCAccel accel, lc_uint instance_id) noexcept {
     lc_assume(__isGlobal(accel.instances));
@@ -1329,6 +1460,11 @@ struct alignas(16u) LCAccel {
 [[nodiscard]] __device__ inline auto lc_accel_instance_user_id(LCAccel accel, lc_uint instance_id) noexcept {
     lc_assume(__isGlobal(accel.instances));
     return accel.instances[instance_id].user_id;
+}
+
+[[nodiscard]] __device__ inline auto lc_accel_instance_visibility(LCAccel accel, lc_uint index) noexcept {
+    lc_assume(__isGlobal(accel.instances));
+    return accel.instances[index].mask;
 }
 
 __device__ inline void lc_accel_set_instance_transform(LCAccel accel, lc_uint index, lc_float4x4 m) noexcept {

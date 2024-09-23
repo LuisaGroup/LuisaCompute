@@ -291,10 +291,10 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_QUERY_ANY,    // (Accel, ray, mask: uint): RayQuery
 
     // ray tracing with motion blur
-    RAY_TRACING_INSTANCE_TRANSFORM_MOTION_MATRIX,    // (Accel, index: uint, key: uint): float4x4
-    RAY_TRACING_INSTANCE_TRANSFORM_MOTION_SRT,       // (Accel, index: uint, key: uint): SRT
-    RAY_TRACING_SET_INSTANCE_TRANSFORM_MOTION_MATRIX,// (Accel, index: uint, key: uint, transform: float4x4)
-    RAY_TRACING_SET_INSTANCE_TRANSFORM_MOTION_SRT,   // (Accel, index: uint, key: uint, transform: SRT)
+    RAY_TRACING_INSTANCE_MOTION_MATRIX,    // (Accel, index: uint, key: uint): float4x4
+    RAY_TRACING_INSTANCE_MOTION_SRT,       // (Accel, index: uint, key: uint): SRT
+    RAY_TRACING_SET_INSTANCE_MOTION_MATRIX,// (Accel, index: uint, key: uint, transform: float4x4)
+    RAY_TRACING_SET_INSTANCE_MOTION_SRT,   // (Accel, index: uint, key: uint, transform: SRT)
 
     RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR,// (Accel, ray, mask: uint, time: float): TriangleHit
     RAY_TRACING_TRACE_ANY_MOTION_BLUR,    // (Accel, ray, mask: uint, time: float): bool
