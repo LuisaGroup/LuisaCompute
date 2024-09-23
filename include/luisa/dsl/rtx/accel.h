@@ -4,6 +4,7 @@
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/dsl/rtx/hit.h>
 #include <luisa/dsl/rtx/ray.h>
+#include <luisa/dsl/rtx/motion.h>
 
 namespace luisa::compute {
 
@@ -12,14 +13,14 @@ struct AccelTraceOptions {
     UInt visibility_mask{0xffu};
 };
 
-#define LUISA_ACCEL_TRACE_DEPRECATED                                                          \
-    [[deprecated(                                                                             \
-        "\n\n"                                                                                \
-        "Accel::trace_*(ray, vis_mask) and query_*(ray, vis_mask) are deprecated.\n"          \
+#define LUISA_ACCEL_TRACE_DEPRECATED                                                                 \
+    [[deprecated(                                                                                    \
+        "\n\n"                                                                                       \
+        "Accel::trace_*(ray, vis_mask) and query_*(ray, vis_mask) are deprecated.\n"                 \
         "Please use Accel::intersect_*/traverse_*(ray, const AccelTraceOptions &options) instead.\n" \
-        "\n"                                                                                  \
-        "Note: curve tracing is disabled by default for performance reasons. If you would\n"  \
-        "      like to enable it, please specify the required curve bases in the options.\n"  \
+        "\n"                                                                                         \
+        "Note: curve tracing is disabled by default for performance reasons. If you would\n"         \
+        "      like to enable it, please specify the required curve bases in the options.\n"         \
         "\n")]]
 
 template<>
@@ -62,6 +63,51 @@ public:
     void set_instance_visibility(Expr<uint> instance_id, Expr<uint> vis_mask) const noexcept;
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque) const noexcept;
     void set_instance_user_id(Expr<uint> instance_id, Expr<uint> id) const noexcept;
+
+    template<typename I0, typename I1>
+        requires is_integral_expr_v<I0> && is_integral_expr_v<I1>
+    [[nodiscard]] auto instance_motion_matrix(I0 &&instance_id, I1 &&keyframe_id) const noexcept {
+        auto expr_inst_id = detail::extract_expression(std::forward<I0>(instance_id));
+        auto expr_keyframe_id = detail::extract_expression(std::forward<I1>(keyframe_id));
+        return def<float4x4>(
+            detail::FunctionBuilder::current()->call(
+                Type::of<float4x4>(), CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX,
+                {_expression, expr_inst_id, expr_keyframe_id}));
+    }
+
+    template<typename I0, typename I1>
+        requires is_integral_expr_v<I0> && is_integral_expr_v<I1>
+    [[nodiscard]] auto instance_motion_srt(I0 &&instance_id, I1 &&keyframe_id) const noexcept {
+        auto expr_inst_id = detail::extract_expression(std::forward<I0>(instance_id));
+        auto expr_keyframe_id = detail::extract_expression(std::forward<I1>(keyframe_id));
+        return def<MotionInstanceTransformSRT>(
+            detail::FunctionBuilder::current()->call(
+                Type::of<MotionInstanceTransformSRT>(), CallOp::RAY_TRACING_INSTANCE_MOTION_SRT,
+                {_expression, expr_inst_id, expr_keyframe_id}));
+    }
+
+    template<typename I0, typename I1>
+        requires is_integral_expr_v<I0> && is_integral_expr_v<I1>
+    void set_instance_motion_matrix(I0 &&instance_id, I1 &&keyframe_id, Expr<float4x4> m) const noexcept {
+        auto expr_inst_id = detail::extract_expression(std::forward<I0>(instance_id));
+        auto expr_keyframe_id = detail::extract_expression(std::forward<I1>(keyframe_id));
+        auto expr_m = m.expression();
+        detail::FunctionBuilder::current()->call(
+            CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX,
+            {_expression, expr_inst_id, expr_keyframe_id, expr_m});
+    }
+
+    template<typename I0, typename I1>
+        requires is_integral_expr_v<I0> && is_integral_expr_v<I1>
+    void set_instance_motion_srt(I0 &&instance_id, I1 &&keyframe_id, Expr<MotionInstanceTransformSRT> srt) const noexcept {
+        auto expr_inst_id = detail::extract_expression(std::forward<I0>(instance_id));
+        auto expr_keyframe_id = detail::extract_expression(std::forward<I1>(keyframe_id));
+        auto expr_srt = srt.expression();
+        detail::FunctionBuilder::current()->call(
+            CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT,
+            {_expression, expr_inst_id, expr_keyframe_id, expr_srt});
+    }
+
     [[nodiscard]] auto operator->() const noexcept { return this; }
 };
 
@@ -120,6 +166,39 @@ public:
     void set_instance_opaque(Expr<uint> instance_id, Expr<bool> opaque) const noexcept;
     void set_instance_user_id(Expr<int> instance_id, Expr<uint> id) const noexcept;
     void set_instance_user_id(Expr<uint> instance_id, Expr<uint> id) const noexcept;
+
+    // motion blur support
+    template<typename I0, typename I1>
+        requires is_integral_expr_v<I0> && is_integral_expr_v<I1>
+    [[nodiscard]] auto instance_motion_matrix(I0 &&instance_id, I1 &&keyframe_id) const noexcept {
+        return Expr<Accel>{_accel}.instance_motion_matrix(
+            std::forward<I0>(instance_id),
+            std::forward<I1>(keyframe_id));
+    }
+
+    template<typename I0, typename I1>
+        requires is_integral_expr_v<I0> && is_integral_expr_v<I1>
+    [[nodiscard]] auto instance_motion_srt(I0 &&instance_id, I1 &&keyframe_id) const noexcept {
+        return Expr<Accel>{_accel}.instance_motion_srt(
+            std::forward<I0>(instance_id),
+            std::forward<I1>(keyframe_id));
+    }
+
+    template<typename I0, typename I1>
+        requires is_integral_expr_v<I0> && is_integral_expr_v<I1>
+    void set_instance_motion_matrix(I0 &&instance_id, I1 &&keyframe_id, Expr<float4x4> m) const noexcept {
+        Expr<Accel>{_accel}.set_instance_motion_matrix(
+            std::forward<I0>(instance_id),
+            std::forward<I1>(keyframe_id), m);
+    }
+
+    template<typename I0, typename I1>
+        requires is_integral_expr_v<I0> && is_integral_expr_v<I1>
+    void set_instance_motion_srt(I0 &&instance_id, I1 &&keyframe_id, Expr<MotionInstanceTransformSRT> srt) const noexcept {
+        Expr<Accel>{_accel}.set_instance_motion_srt(
+            std::forward<I0>(instance_id),
+            std::forward<I1>(keyframe_id), srt);
+    }
 };
 
 }// namespace detail

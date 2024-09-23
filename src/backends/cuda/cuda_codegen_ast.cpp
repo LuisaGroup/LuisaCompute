@@ -868,6 +868,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::TRANSPOSE: _scratch << "lc_transpose"; break;
         case CallOp::INVERSE: _scratch << "lc_inverse"; break;
         case CallOp::SYNCHRONIZE_BLOCK: _scratch << "lc_synchronize_block"; break;
+        case CallOp::ADDRESS_OF: _scratch << "lc_address_of"; break;
         case CallOp::ATOMIC_EXCHANGE: _scratch << "lc_atomic_exchange"; break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "lc_atomic_compare_exchange"; break;
         case CallOp::ATOMIC_FETCH_ADD: _scratch << "lc_atomic_fetch_add"; break;
@@ -880,6 +881,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::BUFFER_READ: _scratch << "lc_buffer_read"; break;
         case CallOp::BUFFER_WRITE: _scratch << "lc_buffer_write"; break;
         case CallOp::BUFFER_SIZE: _scratch << "lc_buffer_size"; break;
+        case CallOp::BUFFER_ADDRESS: _scratch << "lc_buffer_address"; break;
         case CallOp::BYTE_BUFFER_READ: {
             _scratch << "lc_byte_buffer_read<";
             _emit_type_name(expr->type());
@@ -925,11 +927,14 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         }
         case CallOp::BINDLESS_BUFFER_SIZE: _scratch << "lc_bindless_buffer_size"; break;
         case CallOp::BINDLESS_BUFFER_TYPE: _scratch << "lc_bindless_buffer_type"; break;
+        case CallOp::BINDLESS_BUFFER_ADDRESS: _scratch << "lc_bindless_buffer_address"; break;
 #define LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(type, tag)                      \
     case CallOp::MAKE_##tag##2: _scratch << "lc_make_" << #type "2"; break; \
     case CallOp::MAKE_##tag##3: _scratch << "lc_make_" << #type "3"; break; \
     case CallOp::MAKE_##tag##4: _scratch << "lc_make_" << #type "4"; break;
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(bool, BOOL)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(byte, BYTE)
+            LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ubyte, UBYTE)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(short, SHORT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(ushort, USHORT)
             LUISA_CUDA_CODEGEN_MAKE_VECTOR_CALL(int, INT)
@@ -977,8 +982,7 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         }
         case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: _scratch << "lc_accel_instance_transform"; break;
         case CallOp::RAY_TRACING_INSTANCE_USER_ID: _scratch << "lc_accel_instance_user_id"; break;
-        // TODO
-        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: LUISA_NOT_IMPLEMENTED(); break;
+        case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: _scratch << "lc_accel_instance_visibility_mask"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: _scratch << "lc_accel_set_instance_transform"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY: _scratch << "lc_accel_set_instance_visibility"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_OPACITY: _scratch << "lc_accel_set_instance_opacity"; break;
@@ -1040,6 +1044,24 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::WARP_READ_LANE: _scratch << "lc_warp_read_lane"; break;
         case CallOp::WARP_READ_FIRST_ACTIVE_LANE: _scratch << "lc_warp_read_first_active_lane"; break;
         case CallOp::SHADER_EXECUTION_REORDER: _scratch << "lc_shader_execution_reorder"; break;
+        case CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX: _scratch << "lc_accel_instance_motion_matrix"; break;
+        case CallOp::RAY_TRACING_INSTANCE_MOTION_SRT: _scratch << "lc_accel_instance_motion_srt"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX: _scratch << "lc_accel_set_instance_motion_matrix"; break;
+        case CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: _scratch << "lc_accel_set_instance_motion_srt"; break;
+
+        // not supported
+        case CallOp::RAY_QUERY_PROCEED: [[fallthrough]];
+        case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: [[fallthrough]];
+        case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: [[fallthrough]];
+        case CallOp::TEXTURE2D_SAMPLE: [[fallthrough]];
+        case CallOp::TEXTURE2D_SAMPLE_LEVEL: [[fallthrough]];
+        case CallOp::TEXTURE2D_SAMPLE_GRAD: [[fallthrough]];
+        case CallOp::TEXTURE2D_SAMPLE_GRAD_LEVEL: [[fallthrough]];
+        case CallOp::TEXTURE3D_SAMPLE: [[fallthrough]];
+        case CallOp::TEXTURE3D_SAMPLE_LEVEL: [[fallthrough]];
+        case CallOp::TEXTURE3D_SAMPLE_GRAD: [[fallthrough]];
+        case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL:
+            LUISA_NOT_IMPLEMENTED();
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {
@@ -1642,7 +1664,8 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
         type != _procedural_hit_type &&
         type != _committed_hit_type &&
         type != _ray_query_all_type &&
-        type != _ray_query_any_type) {
+        type != _ray_query_any_type &&
+        type != _motion_srt_type) {
 
         auto emit_decl = [type, this](bool hack_float_to_int) noexcept {
             _scratch << "struct alignas(" << type->alignment() << ") ";
@@ -1741,6 +1764,8 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
                 _scratch << "LCProceduralHit";
             } else if (type == _committed_hit_type) {
                 _scratch << "LCCommittedHit";
+            } else if (type == _motion_srt_type) {
+                _scratch << "LCMotionSRT";
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
                 if (hack_float_to_int) { _scratch << "_int"; }
@@ -2104,7 +2129,8 @@ CUDACodegenAST::CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noex
       _committed_hit_type{Type::of<CommittedHit>()},
       _ray_query_all_type{Type::of<RayQueryAll>()},
       _ray_query_any_type{Type::of<RayQueryAny>()},
-      _indirect_buffer_type{Type::of<IndirectDispatchBuffer>()} {}
+      _indirect_buffer_type{Type::of<IndirectDispatchBuffer>()},
+      _motion_srt_type{Type::of<MotionInstanceTransformSRT>()} {}
 
 CUDACodegenAST::~CUDACodegenAST() noexcept = default;
 

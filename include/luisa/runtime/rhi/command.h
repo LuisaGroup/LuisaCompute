@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cstdlib>
-
 #include <luisa/core/macro.h>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/vector.h>
@@ -13,7 +11,7 @@
 #include <luisa/runtime/rhi/sampler.h>
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/runtime/rhi/curve_basis.h>
-#include <luisa/runtime/rhi/motion_transform.h>
+#include <luisa/runtime/rtx/motion_transform.h>
 
 // for validation
 namespace lc::validation {

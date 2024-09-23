@@ -38,6 +38,9 @@ CUDAMotionInstance::CUDAMotionInstance(CUDADevice *device, const AccelMotionOpti
     auto optix_ctx = device->handle().optix_context();
     LUISA_CHECK_OPTIX(optix::api().convertPointerToTraversableHandle(
         optix_ctx, _motion_buffer, traversable_type, &_handle));
+    LUISA_VERBOSE("Created motion instance: buffer = {}, size = {}, handle = {}.",
+                  reinterpret_cast<void *>(_motion_buffer), buffer_size,
+                  reinterpret_cast<void *>(_handle));
 }
 
 CUDAMotionInstance::~CUDAMotionInstance() noexcept {
@@ -67,6 +70,7 @@ void CUDAMotionInstance::build(CUDACommandEncoder &encoder,
                 unsigned int pad[3];
                 [[no_unique_address]] float data[];
             };
+            static_assert(sizeof(MotionTransform) == 32u);
             auto p = reinterpret_cast<MotionTransform *>(view->address());
             memset(p, 0, sizeof(MotionTransform));
             {

@@ -219,6 +219,7 @@ Var<uint> Expr<Accel>::instance_user_id(Expr<int> instance_id) const noexcept {
             Type::of<uint>(), CallOp::RAY_TRACING_INSTANCE_USER_ID,
             {_expression, instance_id.expression()}));
 }
+
 Var<uint> Expr<Accel>::instance_visibility_mask(Expr<int> instance_id) const noexcept {
     return def<uint>(
         detail::FunctionBuilder::current()->call(

@@ -1,17 +1,11 @@
 #include <iostream>
 
-#include <luisa/core/clock.h>
-#include <luisa/core/logging.h>
-#include <luisa/runtime/context.h>
-#include <luisa/runtime/device.h>
-#include <luisa/runtime/stream.h>
-#include <luisa/runtime/event.h>
-#include <luisa/runtime/swapchain.h>
-#include <luisa/dsl/sugar.h>
-#include <luisa/runtime/rtx/accel.h>
-#include "common/cornell_box.h"
 #include <stb/stb_image_write.h>
-#include <luisa/gui/window.h>
+
+#include <luisa/luisa-compute.h>
+#include <luisa/dsl/sugar.h>
+
+#include "common/cornell_box.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "common/tiny_obj_loader.h"

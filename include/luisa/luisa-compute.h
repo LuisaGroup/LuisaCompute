@@ -130,7 +130,6 @@
 #include <luisa/runtime/rhi/command_encoder.h>
 #include <luisa/runtime/rhi/curve_basis.h>
 #include <luisa/runtime/rhi/device_interface.h>
-#include <luisa/runtime/rhi/motion_transform.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/resource.h>
 #include <luisa/runtime/rhi/sampler.h>
@@ -142,6 +141,7 @@
 #include <luisa/runtime/rtx/hit.h>
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/motion_instance.h>
+#include <luisa/runtime/rtx/motion_transform.h>
 #include <luisa/runtime/rtx/procedural_primitive.h>
 #include <luisa/runtime/rtx/ray.h>
 #include <luisa/runtime/rtx/triangle.h>

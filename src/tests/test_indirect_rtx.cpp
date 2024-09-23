@@ -11,6 +11,7 @@
 #include <luisa/runtime/event.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/accel.h>
 
 using namespace luisa;
