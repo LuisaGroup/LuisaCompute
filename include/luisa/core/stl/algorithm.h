@@ -3,6 +3,7 @@
 #include <luisa/core/stl/pdqsort.h>
 namespace luisa {
 using eastl::transform;
+using eastl::swap;
 template<pdqsort_detail::LinearIterable Iter>
 inline void sort(Iter begin, Iter end) {
     pdqsort(begin, end);
