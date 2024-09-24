@@ -705,7 +705,7 @@ public:
 
     class ArgumentVisitor {
     public:
-        ~ArgumentVisitor() noexcept = default;
+        virtual ~ArgumentVisitor() noexcept = default;
         virtual void visit(const Argument::Buffer &, Usage usage) noexcept = 0;
         virtual void visit(const Argument::Texture &, Usage usage) noexcept = 0;
         virtual void visit(const Argument::BindlessArray &, Usage usage) noexcept = 0;
