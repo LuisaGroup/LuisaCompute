@@ -714,7 +714,7 @@ public:
 
 public:
     explicit CustomDispatchCommand() noexcept = default;
-    virtual ~CustomDispatchCommand() noexcept override = default;
+    ~CustomDispatchCommand() noexcept override = default;
 
     virtual void traverse_arguments(ArgumentVisitor &visitor) const noexcept = 0;
 
