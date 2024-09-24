@@ -70,6 +70,9 @@ private:
     internal_t internal;
 };
 using counter = marl::WaitGroup;
+using lock = marl::lock;
+using condition_variable = marl::ConditionVariable;
+using mutex = marl::mutex;
 struct event {
 private:
     marl::Event _evt;
