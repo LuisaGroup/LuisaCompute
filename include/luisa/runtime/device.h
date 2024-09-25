@@ -122,6 +122,8 @@ public:
     explicit Device(Handle handle) noexcept : _impl{std::move(handle)} {}
     // The backend name in lower case, can be used to recognize the corresponding backend
     [[nodiscard]] auto backend_name() const noexcept { return _impl->backend_name(); }
+    // The native handle, can be used by other frontend language
+    [[nodiscard]] auto native_handle() const noexcept { return _impl->native_handle(); }
     // The backend implementation, can be used by other frontend language
     [[nodiscard]] auto impl() const noexcept { return _impl.get(); }
     [[nodiscard]] auto const &impl_shared() const & noexcept { return _impl; }
