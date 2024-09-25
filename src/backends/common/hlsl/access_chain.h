@@ -22,7 +22,9 @@ struct TemplateFunction {
 };
 class AccessChain {
 public:
-    struct AccessNode {};
+    struct AccessNode {
+        bool is_struct;
+    };
     struct MemberNode {
         uint member_index;
     };

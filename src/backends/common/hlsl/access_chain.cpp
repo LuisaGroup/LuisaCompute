@@ -86,15 +86,15 @@ vstd::vector<AccessChain::Node> AccessChain::nodes_from_exprs(luisa::span<Expres
             case Type::Tag::BUFFER:
             case Type::Tag::VECTOR:
                 type = type->element();
-                nodes.emplace_back(AccessNode{});
+                nodes.emplace_back(AccessNode{false});
                 break;
             case Type::Tag::MATRIX:
                 type = Type::vector(type->element(), type->dimension());
-                nodes.emplace_back(AccessNode{});
+                nodes.emplace_back(AccessNode{false});
                 break;
             case Type::Tag::ARRAY:
                 type = type->element();
-                nodes.emplace_back(AccessNode{});
+                nodes.emplace_back(AccessNode{true});
                 break;
             case Type::Tag::STRUCTURE: {
                 auto literal = static_cast<const LiteralExpr *>(index)->value();
@@ -119,7 +119,10 @@ void AccessChain::gen_func_impl(CodegenUtility *util, TemplateFunction const &tm
     auto build_access = [&]() {
         for (auto &&i : _nodes) {
             i.multi_visit(
-                [&](AccessNode const &) {
+                [&](AccessNode const &n) {
+                    if (n.is_struct) {
+                        chain_str << ".v";
+                    }
                     chain_str << "[a"sv;
                     vstd::to_string(arg_idx, chain_str);
                     chain_str << ']';
