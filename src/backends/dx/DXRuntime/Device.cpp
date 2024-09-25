@@ -166,16 +166,26 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             }
             if (index == std::numeric_limits<size_t>::max()) {
                 index = 0;
+                size_t max_score = 0;
                 for (size_t i = 0; i < device_names.size(); ++i) {
                     luisa::string &device_name = device_names[i];
+                    size_t score = 0;
                     if (device_name.find("geforce") != luisa::string::npos ||
-                        device_name.find("radeon") != luisa::string::npos ||
-                        device_name.find("arc") != luisa::string::npos) {
-                        LUISA_INFO("Select device: {}", device_name);
+                        device_name.find("radeon") != luisa::string::npos) {
+                        score += 1;
+                    }
+                    if (device_name.find("gtx") != luisa::string::npos ||
+                        device_name.find("rtx") != luisa::string::npos ||
+                        device_name.find("arc") != luisa::string::npos ||
+                        device_name.find("rx") != luisa::string::npos) {
+                        score += 10;
+                    }
+                    if (score > max_score) {
                         index = i;
-                        break;
+                        max_score = score;
                     }
                 }
+                LUISA_INFO("Select device: {}", device_names[index]);
             }
             auto &device_name = device_names[index];
 
