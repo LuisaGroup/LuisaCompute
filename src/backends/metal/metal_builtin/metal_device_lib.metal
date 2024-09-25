@@ -8,6 +8,13 @@ using namespace metal;
 #define lc_assume(...) __builtin_assume(__VA_ARGS__)
 #define lc_assert(...)// TODO: implement assert?
 
+template<typename Ptr>
+[[nodiscard]] inline auto lc_address_of_impl(Ptr ptr) {
+    return reinterpret_cast<ulong>(ptr);
+}
+
+#define lc_address_of(object) lc_address_of_impl(&(object))
+
 template<typename T = void>
 [[noreturn]] inline T lc_unreachable() {
     __builtin_unreachable();
@@ -98,6 +105,11 @@ inline void buffer_write(LCBuffer<T> buffer, I index, T value) {
 template<typename T>
 inline auto buffer_size(LCBuffer<T> buffer) {
     return buffer.size / sizeof(T);
+}
+
+template<typename T>
+[[nodiscard]] inline auto buffer_address(LCBuffer<T> buffer) {
+    return reinterpret_cast<ulong>(buffer.data);
 }
 
 template<typename T>
@@ -583,6 +595,10 @@ inline void bindless_buffer_write(LCBindlessArray array, uint buffer_index, uint
     return 0ull;// TODO
 }
 
+[[nodiscard]] inline auto bindless_buffer_address(LCBindlessArray array, uint buffer_index) {
+    return reinterpret_cast<ulong>(array.items[buffer_index].buffer);
+}
+
 template<typename T>
 [[nodiscard]] inline auto bindless_byte_address_buffer_read(LCBindlessArray array, uint buffer_index, uint offset) {
     return reinterpret_cast<device const T *>(static_cast<device const char *>(array.items[buffer_index].buffer) + offset);
@@ -633,13 +649,21 @@ struct alignas(16) LCInstance {
 static_assert(sizeof(LCInstance) == 64u, "");
 
 struct LCAccel {
+#ifdef LUISA_ENABLE_MOTION_BLUR
+    acceleration_structure<instancing, primitive_motion, instance_motion> handle;
+#else
     instance_acceleration_structure handle;
+#endif
     device LCInstance *__restrict__ instances;
 };
 
 [[nodiscard]] inline auto lc_intersector_base() {
 #ifdef LUISA_ENABLE_CURVE
+#ifdef LUISA_ENABLE_MOTION_BLUR
+    intersector<triangle_data, curve_data, instancing, primitive_motion, instance_motion> i;
+#else
     intersector<triangle_data, curve_data, instancing> i;
+#endif
     i.assume_geometry_type(geometry_type::triangle | geometry_type::curve);
     i.assume_curve_type(curve_type::round);
 #ifdef LUISA_ENABLE_CURVE_MULTIPLE
@@ -664,7 +688,11 @@ struct LCAccel {
     i.assume_curve_control_point_count(2u);
 #endif
 #else
+#ifdef LUISA_ENABLE_MOTION_BLUR
+    intersector<triangle_data, instancing, primitive_motion, instance_motion> i;
+#else
     intersector<triangle_data, instancing> i;
+#endif
     i.assume_geometry_type(geometry_type::triangle);
 #endif
     i.force_opacity(forced_opacity::opaque);
@@ -689,8 +717,12 @@ struct LCAccel {
     return ray{o, d, r_in.m1, r_in.m3};
 }
 
-[[nodiscard]] inline auto accel_trace_closest(LCAccel accel, LCRay r, uint mask) {
+[[nodiscard]] inline auto accel_trace_closest_impl(LCAccel accel, LCRay r, uint mask, float time = 0.f) {
+#ifdef LUISA_ENABLE_MOTION_BLUR
+    auto isect = intersector_closest().intersect(make_ray(r), accel.handle, mask, time);
+#else
     auto isect = intersector_closest().intersect(make_ray(r), accel.handle, mask);
+#endif
     return isect.type == intersection_type::none ?
                LCTriangleHit{0xffffffffu, 0xffffffffu, float2(0.f), 0.f} :
 #ifdef LUISA_ENABLE_CURVE
@@ -708,36 +740,99 @@ struct LCAccel {
 #endif
 }
 
-[[nodiscard]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
+[[nodiscard]] inline auto accel_trace_any_impl(LCAccel accel, LCRay r, uint mask, float time = 0.f) {
+#ifdef LUISA_ENABLE_MOTION_BLUR
+    auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask, time);
+#else
     auto isect = intersector_any().intersect(make_ray(r), accel.handle, mask);
+#endif
     return isect.type != intersection_type::none;
 }
 
+[[nodiscard]] inline auto accel_trace_closest(LCAccel accel, LCRay r, uint mask) {
+    return accel_trace_closest_impl(accel, r, mask, 0.f);
+}
+
+[[nodiscard]] inline auto accel_trace_any(LCAccel accel, LCRay r, uint mask) {
+    return accel_trace_any_impl(accel, r, mask, 0.f);
+}
+
+#ifdef LUISA_ENABLE_MOTION_BLUR
+[[nodiscard]] inline auto accel_trace_closest_motion_blur(LCAccel accel, LCRay r, float time, uint mask) {
+    return accel_trace_closest_impl(accel, r, mask, time);
+}
+
+[[nodiscard]] inline auto accel_trace_any_motion_blur(LCAccel accel, LCRay r, float time, uint mask) {
+    return accel_trace_any_impl(accel, r, mask, time);
+}
+#endif
+
+#ifdef LUISA_ENABLE_RAY_QUERY
+
 struct LCRayQuery {
+#ifdef LUISA_ENABLE_MOTION_BLUR
+    acceleration_structure<instancing, primitive_motion, instance_motion> accel;
+#else
     instance_acceleration_structure accel;
+#endif
     ray ray;
     uint mask;
+    float time;
     bool terminate_on_first_hit;
 #ifdef LUISA_ENABLE_CURVE
+#ifdef LUISA_ENABLE_MOTION_BLUR
+    thread intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion> *i;
+#else
     thread intersection_query<triangle_data, curve_data, instancing> *i;
+#endif
+#else
+#ifdef LUISA_ENABLE_MOTION_BLUR
+    thread intersection_query<triangle_data, instancing, primitive_motion, instance_motion> *i;
 #else
     thread intersection_query<triangle_data, instancing> *i;
 #endif
+#endif
 };
 
+[[nodiscard]] inline auto accel_query_all_impl(LCAccel accel, LCRay ray, uint mask, float time) {
+    return LCRayQuery{accel.handle, make_ray(ray), mask, time, false, nullptr};
+}
+
+[[nodiscard]] inline auto accel_query_any_impl(LCAccel accel, LCRay ray, uint mask, float time) {
+    return LCRayQuery{accel.handle, make_ray(ray), mask, time, true, nullptr};
+}
+
 [[nodiscard]] inline auto accel_query_all(LCAccel accel, LCRay ray, uint mask) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, false, nullptr};
+    return accel_query_all_impl(accel, ray, mask, 0.f);
 }
 
 [[nodiscard]] inline auto accel_query_any(LCAccel accel, LCRay ray, uint mask) {
-    return LCRayQuery{accel.handle, make_ray(ray), mask, true, nullptr};
+    return accel_query_any_impl(accel, ray, mask, 0.f);
 }
+
+#ifdef LUISA_ENABLE_MOTION_BLUR
+[[nodiscard]] inline auto accel_query_all_motion_blur(LCAccel accel, LCRay ray, float time, uint mask) {
+    return accel_query_all_impl(accel, ray, mask, time);
+}
+
+[[nodiscard]] inline auto accel_query_any_motion_blur(LCAccel accel, LCRay ray, float time, uint mask) {
+    return accel_query_any_impl(accel, ray, mask, time);
+}
+#endif
 
 void ray_query_init(thread LCRayQuery &q,
 #ifdef LUISA_ENABLE_CURVE
+#ifdef LUISA_ENABLE_MOTION_BLUR
+                    thread intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion> &i,
+#else
                     thread intersection_query<triangle_data, curve_data, instancing> &i,
+#endif
+#else
+#ifdef LUISA_ENABLE_MOTION_BLUR
+                    thread intersection_query<triangle_data, instancing, primitive_motion, instance_motion> &i,
 #else
                     thread intersection_query<triangle_data, instancing> &i,
+#endif
 #endif
                     bool has_procedural_branch) {
     intersection_params params;
@@ -778,11 +873,21 @@ void ray_query_init(thread LCRayQuery &q,
 }
 
 #ifdef LUISA_ENABLE_CURVE
+#ifdef LUISA_ENABLE_MOTION_BLUR
+#define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
+    intersection_query<triangle_data, curve_data, instancing, primitive_motion, instance_motion> q##_i
+#else
 #define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
     intersection_query<triangle_data, curve_data, instancing> q##_i
+#endif
+#else
+#ifdef LUISA_ENABLE_MOTION_BLUR
+#define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
+    intersection_query<triangle_data, instancing, primitive_motion, instance_motion> q##_i
 #else
 #define LC_RAY_QUERY_SHADOW_VARIABLE(q) \
     intersection_query<triangle_data, instancing> q##_i
+#endif
 #endif
 
 #define LC_RAY_QUERY_INIT(q) ray_query_init(q, q##_i, true)
@@ -881,6 +986,8 @@ inline void ray_query_commit_procedural(LCRayQuery q, float t) {
 inline void ray_query_terminate(LCRayQuery q) {
     q.i->abort();
 }
+
+#endif
 
 [[nodiscard]] inline auto accel_instance_transform(LCAccel accel, uint i) {
     auto m = accel.instances[i].transform;

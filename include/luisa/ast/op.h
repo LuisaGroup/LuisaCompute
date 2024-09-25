@@ -296,10 +296,10 @@ enum struct CallOp : uint32_t {
     RAY_TRACING_SET_INSTANCE_MOTION_MATRIX,// (Accel, index: uint, key: uint, transform: float4x4)
     RAY_TRACING_SET_INSTANCE_MOTION_SRT,   // (Accel, index: uint, key: uint, transform: SRT)
 
-    RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR,// (Accel, ray, mask: uint, time: float): TriangleHit
-    RAY_TRACING_TRACE_ANY_MOTION_BLUR,    // (Accel, ray, mask: uint, time: float): bool
-    RAY_TRACING_QUERY_ALL_MOTION_BLUR,    // (Accel, ray, mask: uint, time: float): RayQuery
-    RAY_TRACING_QUERY_ANY_MOTION_BLUR,    // (Accel, ray, mask: uint, time: float): RayQuery
+    RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR,// (Accel, ray, time: float, mask: uint): TriangleHit
+    RAY_TRACING_TRACE_ANY_MOTION_BLUR,    // (Accel, ray, time: float, mask: uint): bool
+    RAY_TRACING_QUERY_ALL_MOTION_BLUR,    // (Accel, ray, time: float, mask: uint): RayQuery
+    RAY_TRACING_QUERY_ANY_MOTION_BLUR,    // (Accel, ray, time: float, mask: uint): RayQuery
 
     // ray query
     RAY_QUERY_WORLD_SPACE_RAY,         // (RayQuery): Ray

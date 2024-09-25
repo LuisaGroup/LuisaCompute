@@ -11,6 +11,9 @@ class MetalCommandEncoder;
 
 class MetalPrimitive {
 
+public:
+    static constexpr auto max_motion_keyframe_count = 64u;
+
 private:
     MTL::AccelerationStructure *_handle{nullptr};
     MTL::Buffer *_update_buffer{nullptr};
@@ -24,6 +27,7 @@ private:
 protected:
     void _do_build(MetalCommandEncoder &encoder, MTL::PrimitiveAccelerationStructureDescriptor *descriptor) noexcept;
     void _do_update(MetalCommandEncoder &encoder, MTL::PrimitiveAccelerationStructureDescriptor *descriptor) noexcept;
+    void _set_motion_options(MTL::PrimitiveAccelerationStructureDescriptor *descriptor) noexcept;
     [[nodiscard]] auto &mutex() noexcept { return _mutex; }
 
 public:
@@ -33,9 +37,9 @@ public:
     [[nodiscard]] auto option() const noexcept { return _option; }
     [[nodiscard]] MTL::AccelerationStructureUsage usage() const noexcept;
     [[nodiscard]] auto pointer_to_handle() const noexcept { return const_cast<void *>(static_cast<const void *>(&_handle)); }
+    [[nodiscard]] auto motion_keyframe_count() const noexcept { return std::max<uint>(1u, _option.motion.keyframe_count); }
     void set_name(luisa::string_view name) noexcept;
     void add_resources(luisa::vector<MTL::Resource *> &resources) noexcept;
 };
 
 }// namespace luisa::compute::metal
-

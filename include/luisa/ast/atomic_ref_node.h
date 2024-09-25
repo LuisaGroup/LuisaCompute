@@ -24,4 +24,3 @@ public:
 };
 
 }// namespace luisa::compute::detail
-

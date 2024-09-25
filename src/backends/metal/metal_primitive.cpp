@@ -117,6 +117,24 @@ void MetalPrimitive::_do_update(MetalCommandEncoder &encoder,
     }));
 }
 
+void MetalPrimitive::_set_motion_options(MTL::PrimitiveAccelerationStructureDescriptor *descriptor) noexcept {
+    if (auto m = _option.motion) {
+        descriptor->setMotionKeyframeCount(m.keyframe_count);
+        descriptor->setMotionStartTime(m.time_start);
+        descriptor->setMotionEndTime(m.time_end);
+        if (m.should_vanish_start) {
+            descriptor->setMotionStartBorderMode(MTL::MotionBorderModeVanish);
+        } else {
+            descriptor->setMotionStartBorderMode(MTL::MotionBorderModeClamp);
+        }
+        if (m.should_vanish_end) {
+            descriptor->setMotionEndBorderMode(MTL::MotionBorderModeVanish);
+        } else {
+            descriptor->setMotionEndBorderMode(MTL::MotionBorderModeClamp);
+        }
+    }
+}
+
 void MetalPrimitive::set_name(luisa::string_view name) noexcept {
     std::scoped_lock lock{_mutex};
     if (_name) {
@@ -132,4 +150,3 @@ void MetalPrimitive::set_name(luisa::string_view name) noexcept {
 }
 
 }// namespace luisa::compute::metal
-
