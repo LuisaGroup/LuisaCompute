@@ -168,7 +168,7 @@ int main(int argc, char *argv[]) {
         auto u = rand(frame_index, coord);
         auto ray = generate_ray(make_float2(coord) + u.xy());
         auto time = u.z * 1.f;
-        auto hit = accel.intersect(ray, time, {.curve_bases = {curve_basis}});
+        auto hit = accel.intersect_motion(ray, time, {.curve_bases = {curve_basis}});
         $if (!hit->miss()) {
             constexpr auto red = make_float3(1.0f, 0.0f, 0.0f);
             constexpr auto green = make_float3(0.0f, 1.0f, 0.0f);
