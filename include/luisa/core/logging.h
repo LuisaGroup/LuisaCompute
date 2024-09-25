@@ -133,3 +133,11 @@ LC_CORE_API void log_flush() noexcept;
                 #x, msg);                        \
         }                                        \
     } while (false)
+
+#ifndef NDEBUG
+#define LUISA_DEBUG_ASSERT(x, fmt, ...) LUISA_ASSERT(x, fmt, __VA_ARGS__)
+#else
+#define LUISA_DEBUG_ASSERT(x, fmt, ...) \
+    do {                                \
+    } while (false)
+#endif
