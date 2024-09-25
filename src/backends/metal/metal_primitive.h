@@ -17,7 +17,7 @@ public:
 private:
     MTL::AccelerationStructure *_handle{nullptr};
     MTL::Buffer *_update_buffer{nullptr};
-    NS::String *_name;
+    NS::String *_name{nullptr};
     AccelOption _option;
     spin_mutex _mutex;
 
