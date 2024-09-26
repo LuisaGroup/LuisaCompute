@@ -62,14 +62,13 @@ bool TopAccel::GenerateNewBuffer(
     char const *name,
     ResourceStateTracker &tracker,
     CommandBufferBuilder &builder,
-    vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state,
-    GpuAllocator *allocator) {
+    vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state) {
     if (!oldBuffer) {
         newSize = CalcAlign(newSize, 65536);
         oldBuffer = vstd::create_unique(new DefaultBuffer(
             device,
             newSize,
-            allocator,
+            device->defaultAllocator.get(),
             state,
             false,
             name));
@@ -80,7 +79,7 @@ bool TopAccel::GenerateNewBuffer(
         auto newBuffer = new DefaultBuffer(
             device,
             newSize,
-            allocator,
+            device->defaultAllocator.get(),
             state);
         if (needCopy) {
             tracker.RecordState(
@@ -126,7 +125,7 @@ void TopAccel::PreProcessInst(
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     if (GenerateNewBuffer(
             "tlas-instance-buffer",
-            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc), device->defaultAllocator.get())) {
+            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         input.InstanceDescs = instBuffer->GetAddress();
     }
 }
@@ -233,11 +232,11 @@ size_t TopAccel::PreProcess(
     size_t instanceByteCount = size * sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     if (GenerateNewBuffer(
             "tlas-instance-buffer",
-            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc), device->defaultAllocator.get())) {
+            tracker, builder, instBuffer, instanceByteCount, true, tracker.ReadState(ResourceReadUsage::AccelBuildSrc))) {
         input.InstanceDescs = instBuffer->GetAddress();
     }
     device->device->GetRaytracingAccelerationStructurePrebuildInfo(&input, &topLevelPrebuildInfo);
-    if (GenerateNewBuffer("tlas-accel-buffer", tracker, builder, accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr)) {
+    if (GenerateNewBuffer("tlas-accel-buffer", tracker, builder, accelBuffer, topLevelPrebuildInfo.ResultDataMaxSizeInBytes, false, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE)) {
         update = false;
         topLevelBuildDesc.DestAccelerationStructureData = accelBuffer->GetAddress();
     }
@@ -348,10 +347,8 @@ bool TopAccel::CheckAccel(
     auto newAccelBuffer = vstd::create_unique(new DefaultBuffer(
         device,
         CalcAlign(compactSize, 65536),
-        nullptr,
-        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
-        false,
-        "tlas-accel-buffer"));
+        device->defaultAllocator.get(),
+        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE));
 
     builder.GetCB()->CmdList()->CopyRaytracingAccelerationStructure(
         newAccelBuffer->GetAddress(),

@@ -46,8 +46,7 @@ class TopAccel : public Resource {
         char const *name,
         ResourceStateTracker &tracker,
         CommandBufferBuilder &builder,
-        vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state,
-        GpuAllocator* allocator);
+        vstd::unique_ptr<DefaultBuffer> &oldBuffer, size_t newSize, bool needCopy, D3D12_RESOURCE_STATES state);
     void InitSetDesc(vstd::span<AccelBuildCommand::Modification const> const &modifications);
     void ProcessSetDesc();
     void ProcessSetMap();
