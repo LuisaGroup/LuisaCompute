@@ -129,7 +129,7 @@ size_t BottomAccel::PreProcessStates(
         accelBuffer = vstd::create_unique(new DefaultBuffer(
             device,
             CalcAlign(bottomLevelPrebuildInfo.ResultDataMaxSizeInBytes, 65536),
-            device->defaultAllocator.get(),
+            nullptr,
             D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
             false,
             "blas-accel-buffer"));
@@ -164,7 +164,7 @@ bool BottomAccel::CheckAccel(
     auto newAccelBuffer = vstd::create_unique(new DefaultBuffer(
         device,
         CalcAlign(compactSize, 65536),
-        device->defaultAllocator.get(),
+        nullptr,
         D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
         false,
         "blas-accel-buffer"));
