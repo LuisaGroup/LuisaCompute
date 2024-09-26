@@ -241,7 +241,7 @@ on_load(function(target)
             tools = { "clang_cl", "cl" }
         })
     elseif is_mode("releasedbg") then
-        target:set("runtimes", _get_or("runtime", "MD"), {
+        target:set("runtimes", _get_or("runtime", "MDd"), {
             public = true
         })
         target:set("optimize", "none")
