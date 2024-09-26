@@ -120,7 +120,7 @@ void AccessChain::gen_func_impl(CodegenUtility *util, TemplateFunction const &tm
         for (auto &&i : _nodes) {
             i.multi_visit(
                 [&](AccessNode const &n) {
-                    if (n.is_struct) {
+                    if (!_root_var.is_shared() && n.is_struct) {
                         chain_str << ".v";
                     }
                     chain_str << "[a"sv;
