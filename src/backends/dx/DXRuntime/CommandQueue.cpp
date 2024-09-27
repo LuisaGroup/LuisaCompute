@@ -16,6 +16,15 @@ CommandQueue::CommandQueue(
         D3D12_COMMAND_QUEUE_DESC queueDesc = {};
         queueDesc.Type = type;
         queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_DISABLE_GPU_TIMEOUT;
+        switch (type) {
+            case D3D12_COMMAND_LIST_TYPE_DIRECT:
+                queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_HIGH;
+                break;
+            case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+            case D3D12_COMMAND_LIST_TYPE_COPY:
+                queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
+                break;
+        }
         ThrowIfFailed(device->device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(queue.GetAddressOf())));
     };
     if (device->deviceSettings) {

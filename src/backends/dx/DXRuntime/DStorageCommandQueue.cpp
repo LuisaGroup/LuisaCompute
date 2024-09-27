@@ -271,7 +271,7 @@ DStorageCommandQueue::DStorageCommandQueue(IDStorageFactory *factory, Device *de
             DSTORAGE_QUEUE_DESC queue_desc{
                 .SourceType = DSTORAGE_REQUEST_SOURCE_FILE,
                 .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-                .Priority = DSTORAGE_PRIORITY_NORMAL,
+                .Priority = DSTORAGE_PRIORITY_LOW,
                 .Device = device->device.Get()};
             sourceType = DSTORAGE_REQUEST_SOURCE_FILE;
             ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.GetAddressOf())));
@@ -280,7 +280,7 @@ DStorageCommandQueue::DStorageCommandQueue(IDStorageFactory *factory, Device *de
             DSTORAGE_QUEUE_DESC queue_desc{
                 .SourceType = DSTORAGE_REQUEST_SOURCE_MEMORY,
                 .Capacity = DSTORAGE_MAX_QUEUE_CAPACITY,
-                .Priority = DSTORAGE_PRIORITY_NORMAL,
+                .Priority = DSTORAGE_PRIORITY_LOW,
                 .Device = device->device.Get()};
             sourceType = DSTORAGE_REQUEST_SOURCE_MEMORY;
             ThrowIfFailed(factory->CreateQueue(&queue_desc, IID_PPV_ARGS(queue.GetAddressOf())));
