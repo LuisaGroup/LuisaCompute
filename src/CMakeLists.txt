@@ -38,6 +38,7 @@ endif ()
 add_subdirectory(core)
 add_subdirectory(vstl)
 add_subdirectory(ast)
+add_subdirectory(xir)
 add_subdirectory(rust)
 add_subdirectory(runtime)
 add_subdirectory(ir)
@@ -56,6 +57,7 @@ target_link_libraries(compute INTERFACE
         luisa-compute-core
         luisa-compute-vstl
         luisa-compute-ast
+        luisa-compute-xir
         luisa-compute-dsl
         luisa-compute-osl
         luisa-compute-runtime
