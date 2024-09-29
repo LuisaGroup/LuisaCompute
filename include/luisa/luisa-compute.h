@@ -70,6 +70,7 @@
 #include <luisa/dsl/rtx/accel.h>
 #include <luisa/dsl/rtx/curve.h>
 #include <luisa/dsl/rtx/hit.h>
+#include <luisa/dsl/rtx/motion.h>
 #include <luisa/dsl/rtx/ray.h>
 #include <luisa/dsl/rtx/ray_query.h>
 #include <luisa/dsl/rtx/triangle.h>
@@ -195,4 +196,15 @@
 #include <luisa/vstl/v_guid.h>
 #include <luisa/vstl/vector.h>
 #include <luisa/vstl/vstring.h>
+
+#include <luisa/xir/argument.h>
+#include <luisa/xir/basic_block.h>
+#include <luisa/xir/constant.h>
+#include <luisa/xir/instruction.h>
+#include <luisa/xir/metadata.h>
+#include <luisa/xir/pool.h>
+#include <luisa/xir/shared.h>
+#include <luisa/xir/use.h>
+#include <luisa/xir/user.h>
+#include <luisa/xir/value.h>
 

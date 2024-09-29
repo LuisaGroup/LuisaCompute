@@ -1,4 +1,13 @@
 set(LUISA_COMPUTE_XIR_SOURCES
+        argument.cpp
+        basic_block.cpp
+        constant.cpp
+        instruction.cpp
+        metadata.cpp
+        pool.cpp
+        shared.cpp
+        use.cpp
+        user.cpp
         value.cpp
 )
 
