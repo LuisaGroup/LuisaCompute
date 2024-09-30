@@ -204,6 +204,7 @@
 #include <luisa/xir/ilist.h>
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/metadata.h>
+#include <luisa/xir/name.h>
 #include <luisa/xir/pool.h>
 #include <luisa/xir/shared.h>
 #include <luisa/xir/use.h>

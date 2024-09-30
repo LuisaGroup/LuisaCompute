@@ -12,6 +12,6 @@ private:
     BasicBlock *_block = nullptr;
 };
 
-using InstructionList = IntrusiveList<Instruction>;
+using InlineInstructionList = InlineIntrusiveList<Instruction>;
 
 }// namespace luisa::compute::xir

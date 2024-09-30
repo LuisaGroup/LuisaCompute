@@ -8,7 +8,11 @@
 
 namespace luisa::compute::xir {
 
-struct LC_XIR_API PooledObject : concepts::Noncopyable {
+struct LC_XIR_API PooledObject {
+    PooledObject(PooledObject &&) noexcept = delete;
+    PooledObject(const PooledObject &) noexcept = delete;
+    PooledObject &operator=(PooledObject &&) noexcept = delete;
+    PooledObject &operator=(const PooledObject &) noexcept = delete;
     virtual ~PooledObject() noexcept = default;
 };
 

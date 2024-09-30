@@ -11,7 +11,7 @@ class LC_XIR_API BasicBlock : public Value {
 
 private:
     Function *_function = nullptr;
-    InlineIntrusiveList<Instruction> _instructions;
+    InlineInstructionList _instructions;
 
 public:
 };
