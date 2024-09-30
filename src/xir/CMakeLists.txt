@@ -2,6 +2,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         argument.cpp
         basic_block.cpp
         constant.cpp
+        function.cpp
         instruction.cpp
         metadata.cpp
         pool.cpp

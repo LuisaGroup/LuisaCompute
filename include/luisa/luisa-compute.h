@@ -200,6 +200,8 @@
 #include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/constant.h>
+#include <luisa/xir/function.h>
+#include <luisa/xir/ilist.h>
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/metadata.h>
 #include <luisa/xir/pool.h>

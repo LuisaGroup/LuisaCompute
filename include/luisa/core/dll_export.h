@@ -108,6 +108,12 @@
 #define LC_CLANGCXX_API __declspec(dllimport)
 #endif
 
+#ifdef LC_XIR_EXPORT_DLL
+#define LC_XIR_API __declspec(dllexport)
+#else
+#define LC_XIR_API __declspec(dllimport)
+#endif
+
 #else
 #define LC_CORE_API
 #define LC_VSTL_API
@@ -122,5 +128,6 @@
 #define LC_GUI_API
 #define LC_BACKEND_API
 #define LC_CLANGCXX_API
+#define LC_XIR_API
 #endif
 
