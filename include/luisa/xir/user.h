@@ -10,6 +10,9 @@ private:
     luisa::vector<Use *> _operands;
 
 public:
+    void remove_operand_uses() noexcept;
+    void set_operands(luisa::vector<Use *> operands) noexcept;
+    void set_operands(Pool &pool, luisa::span<Value *const> operands) noexcept;
     [[nodiscard]] auto operands() noexcept { return luisa::span{_operands}; }
     [[nodiscard]] auto operands() const noexcept { return luisa::span{_operands}; }
 };

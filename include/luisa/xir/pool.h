@@ -9,11 +9,15 @@
 namespace luisa::compute::xir {
 
 struct LC_XIR_API PooledObject {
+
+    PooledObject() noexcept = default;
+    virtual ~PooledObject() noexcept = default;
+
+    // make the object pinned to its memory location
     PooledObject(PooledObject &&) noexcept = delete;
     PooledObject(const PooledObject &) noexcept = delete;
     PooledObject &operator=(PooledObject &&) noexcept = delete;
     PooledObject &operator=(const PooledObject &) noexcept = delete;
-    virtual ~PooledObject() noexcept = default;
 };
 
 class LC_XIR_API Pool : public concepts::Noncopyable {
