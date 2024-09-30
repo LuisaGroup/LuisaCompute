@@ -13,11 +13,16 @@ void Use::set_value(Value *value) noexcept {
     if (_value == value) { return; }
     remove_self();
     _value = value;
-    _value->use_list().insert_front(this);
+    if (_value) {
+        _value->use_list().insert_front(this);
+    }
 }
 
 void Use::set_user(User *user) noexcept {
     _user = user;
+    if (!is_linked() && _value != nullptr) {
+        _value->use_list().insert_front(this);
+    }
 }
 
 }// namespace luisa::compute::xir

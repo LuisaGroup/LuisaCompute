@@ -11,6 +11,7 @@ private:
 
 public:
     void remove_operand_uses() noexcept;
+    void add_operand_uses() noexcept;
     void set_operands(luisa::vector<Use *> operands) noexcept;
     void set_operands(Pool &pool, luisa::span<Value *const> operands) noexcept;
     [[nodiscard]] auto operands() noexcept { return luisa::span{_operands}; }

@@ -129,14 +129,14 @@ public:
             _next = nullptr;
         }
     }
-    void insert_before_self(T *node) noexcept {
+    virtual void insert_before_self(T *node) noexcept {
         assert(!node->is_linked() && "Inserting a linked node into a list.");
         assert(!is_head_sentinel() && "Inserting before a head sentinel.");
         node->_prev = _prev;
         node->_next = this;
         _prev = node;
     }
-    void insert_after_self(T *node) noexcept {
+    virtual void insert_after_self(T *node) noexcept {
         assert(!node->is_linked() && "Inserting a linked node into a list.");
         assert(!is_tail_sentinel() && "Inserting after a tail sentinel.");
         node->_next = _next;
@@ -216,7 +216,7 @@ public:
     [[nodiscard]] auto head() const noexcept { return const_cast<const Node *>(_head); }
     [[nodiscard]] auto &front() noexcept { return *head(); }
     [[nodiscard]] const auto &front() const noexcept { return *head(); }
-    void insert_front(Node *node) noexcept { node->_add_to_list(*this); }
+    void insert_front(Node *node) noexcept { node->add_to_list(*this); }
 
 public:
     using Iterator = IteratorBase<Node>;
@@ -231,7 +231,6 @@ public:
 // intrusive node for singly-doubly linked lists
 template<typename T, typename Base = PooledObject>
 class IntrusiveForwardNode : public Base {
-
     static_assert(std::is_base_of_v<PooledObject, Base>);
 
 private:
@@ -241,7 +240,10 @@ private:
     T *_next = nullptr;      // pointer to the next node
     T **_prev_next = nullptr;// pointer to the next pointer of the previous node
 
-    void _add_to_list(IntrusiveForwardList<T> &list) noexcept {
+public:
+    [[nodiscard]] auto is_linked() const noexcept { return _prev_next != nullptr; }
+
+    virtual void add_to_list(IntrusiveForwardList<T> &list) noexcept {
         assert(_next == nullptr && _prev_next == nullptr && "Adding a linked node to a list.");
         _next = list._head;
         _prev_next = &list._head;
@@ -251,7 +253,6 @@ private:
         list._head = static_cast<T *>(this);
     }
 
-public:
     virtual void remove_self() noexcept {
         if (_prev_next != nullptr) {
             *_prev_next = _next;

@@ -8,9 +8,18 @@ void User::remove_operand_uses() noexcept {
     }
 }
 
+void User::add_operand_uses() noexcept {
+    for (auto o : _operands) {
+        if (auto value = o->value(); value && !o->is_linked()) {
+            value->use_list().insert_front(o);
+        }
+    }
+}
+
 void User::set_operands(luisa::vector<Use *> operands) noexcept {
     remove_operand_uses();
     _operands = std::move(operands);
+    add_operand_uses();
 }
 
 void User::set_operands(Pool &pool, luisa::span<Value *const> operands) noexcept {
