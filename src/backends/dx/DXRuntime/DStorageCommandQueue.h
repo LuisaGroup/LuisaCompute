@@ -1,6 +1,7 @@
 #pragma once
 #include <dstorage/dstorage.h>
 #include <DXRuntime/Device.h>
+#include <DXRuntime/Task.h>
 #include <luisa/vstl/lockfree_array_queue.h>
 #include <DXRuntime/DxPtr.h>
 #include <DXApi/CmdQueueBase.h>
@@ -38,9 +39,8 @@ class DStorageCommandQueue : public CmdQueueBase {
     std::atomic_bool enabled = true;
     std::atomic_uint64_t executedFrame = 0;
     std::atomic_uint64_t lastFrame = 0;
-    std::mutex mtx;
     std::mutex exec_mtx;
-    std::condition_variable waitCv;
+    CondVar cond_var;
     DSTORAGE_REQUEST_SOURCE_TYPE sourceType;
     ComPtr<IDStorageQueue2> queue;
     vstd::SingleThreadArrayQueue<CallbackEvent> executedAllocators;
@@ -60,6 +60,6 @@ public:
     ~DStorageCommandQueue();
 private:
     // make sure thread always construct after all members
-    std::thread thd;
+    Thread thd;
 };
 }// namespace lc::dx

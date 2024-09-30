@@ -1,14 +1,14 @@
 #pragma once
 #include <DXRuntime/Device.h>
 #include <Resource/Resource.h>
+#include <DXRuntime/Task.h>
 namespace lc::dx {
 class CommandQueue;
 class DStorageCommandQueue;
 class LCEvent : public Resource {
 public:
     ComPtr<ID3D12Fence> fence;
-    mutable std::mutex eventMtx;
-    mutable std::condition_variable cv;
+    mutable CondVar cond_var;
     mutable uint64 finishedEvent = 0;
     mutable uint64 lastFence = 0;
     Tag GetTag() const override { return Tag::Event; }
