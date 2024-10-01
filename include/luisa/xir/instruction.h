@@ -12,7 +12,9 @@ private:
     BasicBlock *_parent_block = nullptr;
 
 public:
-    explicit Instruction(BasicBlock *parent_block = nullptr) noexcept;
+    explicit Instruction(const Type *type = nullptr,
+                         BasicBlock *parent_block = nullptr,
+                         const Name *name = nullptr) noexcept;
     void remove_self() noexcept override;
     void insert_before_self(Instruction *node) noexcept override;
     void insert_after_self(Instruction *node) noexcept override;

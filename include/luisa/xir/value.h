@@ -1,9 +1,12 @@
 #pragma once
 
-#include <luisa/ast/type.h>
 #include <luisa/xir/use.h>
 #include <luisa/xir/metadata.h>
 #include <luisa/xir/name.h>
+
+namespace luisa::compute {
+class Type;
+}// namespace luisa::compute
 
 namespace luisa::compute::xir {
 
@@ -16,6 +19,7 @@ private:
     MetadataList _metadata_list;
 
 public:
+    explicit Value(const Type *type = nullptr, const Name *name = nullptr) noexcept;
     void set_type(const Type *type) noexcept { _type = type; }
     void set_name(const Name *name) noexcept { _name = name; }
 

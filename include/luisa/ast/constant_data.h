@@ -46,9 +46,9 @@ class LC_AST_API ConstantData {
     friend class CallableLibrary;
 
 private:
-    const Type *_type;
-    const std::byte *_raw;
-    uint64_t _hash;
+    const Type *_type = nullptr;
+    const std::byte *_raw = nullptr;
+    uint64_t _hash = 0ull;
 
 private:
     ConstantData(const Type *type, const std::byte *data, uint64_t hash) noexcept;

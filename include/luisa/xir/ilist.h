@@ -100,6 +100,9 @@ public:
 template<typename T, typename Base = PooledObject>
 class IntrusiveNode : public Base {
 
+public:
+    using Super = IntrusiveNode;
+    using Base::Base;
     static_assert(std::is_base_of_v<PooledObject, Base>);
 
 private:
@@ -133,14 +136,14 @@ public:
         assert(!node->is_linked() && "Inserting a linked node into a list.");
         assert(!is_head_sentinel() && "Inserting before a head sentinel.");
         node->_prev = _prev;
-        node->_next = this;
+        node->_next = static_cast<T *>(this);
         _prev = node;
     }
     virtual void insert_after_self(T *node) noexcept {
         assert(!node->is_linked() && "Inserting a linked node into a list.");
         assert(!is_tail_sentinel() && "Inserting after a tail sentinel.");
         node->_next = _next;
-        node->_prev = this;
+        node->_prev = static_cast<T *>(this);
         _next = node;
     }
 };
@@ -231,6 +234,10 @@ public:
 // intrusive node for singly-doubly linked lists
 template<typename T, typename Base = PooledObject>
 class IntrusiveForwardNode : public Base {
+
+public:
+    using Super = IntrusiveForwardNode;
+    using Base::Base;
     static_assert(std::is_base_of_v<PooledObject, Base>);
 
 private:

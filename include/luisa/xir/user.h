@@ -10,6 +10,7 @@ private:
     luisa::vector<Use *> _operands;
 
 public:
+    using Value::Value;
     void remove_operand_uses() noexcept;
     void add_operand_uses() noexcept;
     void set_operands(luisa::vector<Use *> operands) noexcept;

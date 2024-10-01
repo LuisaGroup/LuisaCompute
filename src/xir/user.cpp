@@ -11,7 +11,7 @@ void User::remove_operand_uses() noexcept {
 void User::add_operand_uses() noexcept {
     for (auto o : _operands) {
         if (auto value = o->value(); value && !o->is_linked()) {
-            value->use_list().insert_front(o);
+            o->add_to_list(value->use_list());
         }
     }
 }
