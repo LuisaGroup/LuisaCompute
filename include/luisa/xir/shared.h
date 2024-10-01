@@ -4,7 +4,7 @@
 
 namespace luisa::compute::xir {
 
-class Shared : public Value {
+class LC_XIR_API Shared : public Value {
 public:
     using Value::Value;
 };

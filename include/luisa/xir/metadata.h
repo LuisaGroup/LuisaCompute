@@ -4,7 +4,11 @@
 
 namespace luisa::compute::xir {
 
-struct LC_XIR_API Metadata : IntrusiveForwardNode<Metadata> {};
+class LC_XIR_API Metadata : public IntrusiveForwardNode<Metadata> {
+
+public:
+    explicit Metadata(Pool *pool) noexcept;
+};
 
 using MetadataList = IntrusiveForwardList<Metadata>;
 

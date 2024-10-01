@@ -4,7 +4,7 @@
 
 namespace luisa::compute::xir {
 
-Use::Use(Value *value, User *user) noexcept {
+Use::Use(Pool *pool, Value *value, User *user) noexcept : Super{pool} {
     set_value(value);
     set_user(user);
 }

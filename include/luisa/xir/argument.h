@@ -4,13 +4,14 @@
 
 namespace luisa::compute::xir {
 
-class Argument : public Value {
+class LC_XIR_API Argument : public Value {
 
 private:
     bool _by_ref = false;
 
 public:
-    explicit Argument(const Type *type = nullptr,
+    explicit Argument(Pool *pool,
+                      const Type *type = nullptr,
                       bool by_ref = false,
                       const Name *name = nullptr) noexcept;
     void set_by_ref(bool by_ref) noexcept { _by_ref = by_ref; }

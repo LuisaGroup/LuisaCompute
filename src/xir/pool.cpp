@@ -3,7 +3,7 @@
 namespace luisa::compute::xir {
 
 Pool::Pool(size_t init_cap) noexcept {
-    if (init_cap) {
+    if (init_cap != 0u) {
         _objects.reserve(init_cap);
     }
 }

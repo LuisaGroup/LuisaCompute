@@ -2,4 +2,4 @@
 
 namespace luisa::compute::xir {
 
-}
+}// namespace luisa::compute::xir

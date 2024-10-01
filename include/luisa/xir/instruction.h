@@ -12,7 +12,8 @@ private:
     BasicBlock *_parent_block = nullptr;
 
 public:
-    explicit Instruction(const Type *type = nullptr,
+    explicit Instruction(Pool *pool,
+                         const Type *type = nullptr,
                          BasicBlock *parent_block = nullptr,
                          const Name *name = nullptr) noexcept;
     void remove_self() noexcept override;

@@ -19,7 +19,7 @@ private:
     MetadataList _metadata_list;
 
 public:
-    explicit Value(const Type *type = nullptr, const Name *name = nullptr) noexcept;
+    explicit Value(Pool *pool, const Type *type = nullptr, const Name *name = nullptr) noexcept;
     void set_type(const Type *type) noexcept { _type = type; }
     void set_name(const Name *name) noexcept { _name = name; }
 

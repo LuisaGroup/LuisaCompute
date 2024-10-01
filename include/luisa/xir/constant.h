@@ -11,8 +11,7 @@ private:
     ConstantData _data;
 
 public:
-    Constant() noexcept = default;
-    explicit Constant(ConstantData data, const Name *name = nullptr) noexcept;
+    explicit Constant(Pool *pool, ConstantData data = {}, const Name *name = nullptr) noexcept;
     void set_data(ConstantData data) noexcept;
     [[nodiscard]] auto data() const noexcept { return _data; }
 };

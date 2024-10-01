@@ -108,8 +108,10 @@ class IntrusiveNode : public Base {
 
 public:
     using Super = IntrusiveNode;
-    using Base::Base;
     static_assert(std::is_base_of_v<PooledObject, Base>);
+
+protected:
+    using Base::Base;
 
 private:
     friend IntrusiveList<T>;
@@ -162,9 +164,9 @@ private:
     Node *_tail_sentinel = nullptr;
 
 public:
-    explicit IntrusiveList(Pool &pool) noexcept {
-        _head_sentinel = pool.create<Node>();
-        _tail_sentinel = pool.create<Node>();
+    explicit IntrusiveList(Pool *pool) noexcept {
+        _head_sentinel = pool->create<Node>();
+        _tail_sentinel = pool->create<Node>();
         _head_sentinel->_next = _tail_sentinel;
         _tail_sentinel->_prev = _head_sentinel;
     }
@@ -182,7 +184,8 @@ private:
     Node _tail_sentinel;
 
 public:
-    InlineIntrusiveList() noexcept {
+    explicit InlineIntrusiveList(Pool *pool) noexcept
+        : _head_sentinel{pool}, _tail_sentinel{pool} {
         _head_sentinel._next = &_tail_sentinel;
         _tail_sentinel._prev = &_head_sentinel;
     }
@@ -243,8 +246,10 @@ class IntrusiveForwardNode : public Base {
 
 public:
     using Super = IntrusiveForwardNode;
-    using Base::Base;
     static_assert(std::is_base_of_v<PooledObject, Base>);
+
+protected:
+    using Base::Base;
 
 private:
     template<typename>

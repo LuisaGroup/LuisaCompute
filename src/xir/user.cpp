@@ -1,34 +1,69 @@
+#include <luisa/core/logging.h>
 #include <luisa/xir/user.h>
 
 namespace luisa::compute::xir {
 
 void User::remove_operand_uses() noexcept {
     for (auto o : _operands) {
-        o->remove_self();
+        if (o != nullptr) {
+            o->remove_self();
+        }
     }
 }
 
 void User::add_operand_uses() noexcept {
     for (auto o : _operands) {
-        if (auto value = o->value(); value && !o->is_linked()) {
-            o->add_to_list(value->use_list());
+        if (o != nullptr) {
+            LUISA_DEBUG_ASSERT(o->user() == this, "Use::user() should be the same as this.");
+            if (!o->is_linked() && o->value() != nullptr) {
+                o->add_to_list(o->value()->use_list());
+            }
         }
     }
 }
 
-void User::set_operands(luisa::vector<Use *> operands) noexcept {
-    remove_operand_uses();
-    _operands = std::move(operands);
-    add_operand_uses();
+void User::set_operand(size_t index, Value *value) noexcept {
+    LUISA_DEBUG_ASSERT(index < _operands.size(), "Index out of range.");
+    if (auto old = _operands[index]) {
+        old->set_value(value);
+    } else {
+        auto use = pool()->create<Use>(value, this);
+        _operands[index] = use;
+    }
 }
 
-void User::set_operands(Pool &pool, luisa::span<Value *const> operands) noexcept {
-    luisa::vector<Use *> operand_uses;
-    operand_uses.reserve(operands.size());
-    for (auto o : operands) {
-        operand_uses.emplace_back(pool.create<Use>(o, this));
+Use *User::operand_use(size_t index) noexcept {
+    LUISA_DEBUG_ASSERT(index < _operands.size(), "Index out of range.");
+    return _operands[index];
+}
+
+const Use *User::operand_use(size_t index) const noexcept {
+    LUISA_DEBUG_ASSERT(index < _operands.size(), "Index out of range.");
+    return _operands[index];
+}
+
+Value *User::operand(size_t index) noexcept {
+    return operand_use(index)->value();
+}
+
+const Value *User::operand(size_t index) const noexcept {
+    return operand_use(index)->value();
+}
+
+void User::set_operand_count(size_t n) noexcept {
+    for (auto i = n; i < _operands.size(); i++) {
+        _operands[i]->remove_self();
     }
-    set_operands(std::move(operand_uses));
+    _operands.resize(n);
+}
+
+void User::set_operands(luisa::span<Value *const> operands) noexcept {
+    remove_operand_uses();
+    _operands.clear();
+    for (auto o : operands) {
+        auto use = pool()->create<Use>(o, this);
+        _operands.emplace_back(use);
+    }
 }
 
 }// namespace luisa::compute::xir

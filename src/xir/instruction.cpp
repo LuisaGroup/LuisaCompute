@@ -2,10 +2,13 @@
 
 namespace luisa::compute::xir {
 
-Instruction::Instruction(const Type *type,
+Instruction::Instruction(Pool *pool,
+                         const Type *type,
                          BasicBlock *parent_block,
                          const Name *name) noexcept
-    : Super{type, name} { set_parent_block(parent_block); }
+    : Super{pool, type, name} {
+    set_parent_block(parent_block);
+}
 
 void Instruction::remove_self() noexcept {
     Super::remove_self();
