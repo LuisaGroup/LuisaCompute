@@ -97,6 +97,12 @@ public:
 
 }// namespace detail
 
+template<typename>
+class IntrusiveList;
+
+template<typename>
+class InlineIntrusiveList;
+
 template<typename T, typename Base = PooledObject>
 class IntrusiveNode : public Base {
 
@@ -106,8 +112,8 @@ public:
     static_assert(std::is_base_of_v<PooledObject, Base>);
 
 private:
-    template<typename>
-    friend class detail::IntrusiveListImpl;
+    friend IntrusiveList<T>;
+    friend InlineIntrusiveList<T>;
 
     T *_prev = nullptr;
     T *_next = nullptr;
