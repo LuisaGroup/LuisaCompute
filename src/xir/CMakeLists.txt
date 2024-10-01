@@ -14,6 +14,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
 
         # derived instructions
         instructions/branch.cpp
+        instructions/comment.cpp
         instructions/loop.cpp
 
         # derived metadata

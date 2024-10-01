@@ -3,7 +3,7 @@
 
 namespace luisa::compute::xir {
 
-void User::remove_operand_uses() noexcept {
+void User::_remove_operand_uses() noexcept {
     for (auto o : _operands) {
         if (o != nullptr) {
             o->remove_self();
@@ -11,7 +11,7 @@ void User::remove_operand_uses() noexcept {
     }
 }
 
-void User::add_operand_uses() noexcept {
+void User::_add_operand_uses() noexcept {
     for (auto o : _operands) {
         if (o != nullptr) {
             LUISA_DEBUG_ASSERT(o->user() == this, "Use::user() should be the same as this.");
@@ -58,12 +58,20 @@ void User::set_operand_count(size_t n) noexcept {
 }
 
 void User::set_operands(luisa::span<Value *const> operands) noexcept {
-    remove_operand_uses();
+    _remove_operand_uses();
     _operands.clear();
     for (auto o : operands) {
         auto use = pool()->create<Use>(o, this);
         _operands.emplace_back(use);
     }
+}
+
+luisa::span<Use *> User::operand_uses() noexcept {
+    return _operands;
+}
+
+luisa::span<const Use *const> User::operand_uses() const noexcept {
+    return _operands;
 }
 
 }// namespace luisa::compute::xir

@@ -204,6 +204,8 @@
 #include <luisa/xir/ilist.h>
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/comment.h>
+#include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/metadata.h>
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/name.h>

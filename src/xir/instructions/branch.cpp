@@ -2,28 +2,15 @@
 
 namespace luisa::compute::xir {
 
-BranchInst::BranchInst(Pool *pool, Value *cond,
-                       BasicBlock *true_block,
-                       BasicBlock *false_block,
-                       BasicBlock *parent_block,
-                       const Name *name) noexcept
-    : Instruction{pool, nullptr, parent_block, name} {
-    set_operand_count(3u);
-    set_cond(cond);
-    set_true_block(true_block);
-    set_false_block(false_block);
+BranchInst::BranchInst(Pool *pool, Value *cond, const Name *name) noexcept
+    : Instruction{pool, nullptr, name} {
+    auto true_block = static_cast<Value *>(pool->create<BasicBlock>());
+    auto false_block = static_cast<Value *>(pool->create<BasicBlock>());
+    set_operands(std::array{cond, true_block, false_block});
 }
 
 void BranchInst::set_cond(Value *cond) noexcept {
     set_operand(0, cond);
-}
-
-void BranchInst::set_true_block(BasicBlock *block) noexcept {
-    set_operand(1, block);
-}
-
-void BranchInst::set_false_block(BasicBlock *block) noexcept {
-    set_operand(2, block);
 }
 
 Value *BranchInst::cond() noexcept {
