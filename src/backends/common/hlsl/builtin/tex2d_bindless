@@ -9,8 +9,18 @@ SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleLevel(samp,uv,level);
 }
 template<typename T>
+float4 _SampleTex2DLevelSmp(StructuredBuffer<uint> arr,const T index,const float2 uv,const float level,uint filter,uint address){
+uint num=_ReadBdlsTex2DNum(arr,index);
+SamplerState samp=samplers[address*4+filter];
+return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleLevel(samp,uv,level);
+}
+template<typename T>
 float4 _SampleTex2D(StructuredBuffer<uint> arr,const T index,const float2 uv){
 return _SampleTex2DLevel(arr,index,uv,0);
+}
+template<typename T>
+float4 _SampleTex2DSmp(StructuredBuffer<uint> arr,const T index,const float2 uv,uint filter,uint address){
+return _SampleTex2DLevelSmp(arr,index,uv,0,filter,address);
 }
 template<typename T>
 float4 _SampleTex2DGrad(StructuredBuffer<uint> arr,const T index,const float2 uv,const float2 dx,const float2 dy){
@@ -19,9 +29,21 @@ SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy);
 }
 template<typename T>
+float4 _SampleTex2DGradSmp(StructuredBuffer<uint> arr,const T index,const float2 uv,const float2 dx,const float2 dy,uint filter,uint address){
+uint num=_ReadBdlsTex2DNum(arr,index);
+SamplerState samp=samplers[address*4+filter];
+return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy);
+}
+template<typename T>
 float4 _SampleTex2DGradLevel(StructuredBuffer<uint> arr,const T index,const float2 uv,const float2 dx,const float2 dy,const float minmip){
 uint num=_ReadBdlsTex2DNum(arr,index);
 SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
+return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy,int2(0,0),minmip);
+}
+template<typename T>
+float4 _SampleTex2DGradLevelSmp(StructuredBuffer<uint> arr,const T index,const float2 uv,const float2 dx,const float2 dy,const float minmip,uint filter,uint address){
+uint num=_ReadBdlsTex2DNum(arr,index);
+SamplerState samp=samplers[address*4+filter];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].SampleGrad(samp,uv,dx,dy,int2(0,0),minmip);
 }
 #ifdef PS
@@ -29,6 +51,12 @@ template<typename T>
 float4 _SampleTex2DPixel(StructuredBuffer<uint> arr,const T index,const float2 uv){
 uint num=_ReadBdlsTex2DNum(arr,index);
 SamplerState samp=samplers[NonUniformResourceIndex(_ReadBdlsSmp(num))];
+return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].Sample(samp,uv);
+}
+template<typename T>
+float4 _SampleTex2DPixelSmp(StructuredBuffer<uint> arr,const T index,const float2 uv,uint filter,uint address){
+uint num=_ReadBdlsTex2DNum(arr,index);
+SamplerState samp=samplers[address*4+filter];
 return _BindlessTex[NonUniformResourceIndex(_ReadBdlsTex(num))].Sample(samp,uv);
 }
 #endif

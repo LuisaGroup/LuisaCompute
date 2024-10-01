@@ -95,6 +95,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
             gDxcCompiler.create(ctx.runtime_directory());
         gDxcRefCount++;
     }
+    useFiber = false;
     if (settings) {
         index = settings->device_index;
         // auto select
@@ -103,7 +104,8 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         fileIo = settings->binary_io;
         profiler = settings->profiler;
         if (settings->extension) {
-            deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
+            deviceSettings = luisa::unique_ptr<DirectXDeviceConfigExt>(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
+            useFiber = deviceSettings->callback_thread_use_fiber();
         }
     }
     if (fileIo == nullptr) {

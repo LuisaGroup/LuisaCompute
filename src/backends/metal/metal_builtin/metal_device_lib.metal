@@ -478,30 +478,32 @@ struct LCBindlessArray {
     device const LCBindlessItem *items;
 };
 
-[[nodiscard]] sampler get_sampler(uint code) {
-    const array<sampler, 16u> samplers{
-        sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none),
-        sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none),
-        sampler(coord::normalized, address::mirrored_repeat, filter::nearest, mip_filter::none),
-        sampler(coord::normalized, address::clamp_to_zero, filter::nearest, mip_filter::none),
-        sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::none),
-        sampler(coord::normalized, address::repeat, filter::linear, mip_filter::none),
-        sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::none),
-        sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::none),
-        sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(1)),
-        sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(1)),
-        sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(1)),
-        sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(1)),
-        sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(16)),
-        sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(16)),
-        sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(16)),
-        sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(16))};
+constant const sampler lc_samplers[16] = {
+    sampler(coord::normalized, address::clamp_to_edge, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::repeat, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::mirrored_repeat, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_zero, filter::nearest, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::none),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear, max_anisotropy(1)),
+    sampler(coord::normalized, address::clamp_to_edge, filter::linear, mip_filter::linear, max_anisotropy(16)),
+    sampler(coord::normalized, address::repeat, filter::linear, mip_filter::linear),          // FIXME: max_anisotropy(16) causes ICE
+    sampler(coord::normalized, address::mirrored_repeat, filter::linear, mip_filter::linear), // FIXME: max_anisotropy(16) causes ICE
+    sampler(coord::normalized, address::clamp_to_zero, filter::linear, mip_filter::linear),   // FIXME: max_anisotropy(16) causes ICE
+};
+
+[[nodiscard]] inline sampler get_sampler(uint code) {
     __builtin_assume(code < 16u);
-    return samplers[code];
+    return lc_samplers[code];
 }
 
 [[nodiscard]] inline auto bindless_texture_sample2d(LCBindlessArray array, uint index, float2 uv) {
-    device const auto &t = array.items[index];
+    auto t = array.items[index];
     return t.tex2d.sample(get_sampler(t.sampler2d), uv);
 }
 
