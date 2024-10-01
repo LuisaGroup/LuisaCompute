@@ -1,5 +1,4 @@
 set(LUISA_COMPUTE_XIR_SOURCES
-        argument.cpp
         basic_block.cpp
         constant.cpp
         function.cpp
@@ -7,10 +6,10 @@ set(LUISA_COMPUTE_XIR_SOURCES
         metadata.cpp
         name.cpp
         pool.cpp
-        shared.cpp
         use.cpp
         user.cpp
         value.cpp
+        variable.cpp
 
         # derived instructions
         instructions/branch.cpp

@@ -7,12 +7,14 @@ namespace luisa::compute::xir {
 class BasicBlock;
 
 // do { body } while (cond)
-class LoopInst : public Instruction {
+class LC_XIR_API LoopInst : public Instruction {
 
 public:
-    explicit LoopInst(Pool *pool,
-                      Value *cond = nullptr,
+    explicit LoopInst(Pool *pool, Value *cond = nullptr,
                       const Name *name = nullptr) noexcept;
+    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept final {
+        return DerivedInstructionTag::LOOP;
+    }
 
     void set_cond(Value *cond) noexcept;
 

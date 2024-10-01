@@ -14,6 +14,9 @@ public:
     explicit Constant(Pool *pool, ConstantData data = {}, const Name *name = nullptr) noexcept;
     void set_data(ConstantData data) noexcept;
     [[nodiscard]] auto data() const noexcept { return _data; }
+    [[nodiscard]] DerivedValueTag derived_value_tag() const noexcept final {
+        return DerivedValueTag::CONSTANT;
+    }
 };
 
 }// namespace luisa::compute::xir

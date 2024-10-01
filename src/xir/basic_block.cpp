@@ -25,4 +25,13 @@ const BasicBlock *BasicBlock::parent_block() const noexcept {
     return const_cast<BasicBlock *>(this)->parent_block();
 }
 
+FunctionBodyBlock::FunctionBodyBlock(Pool *pool,
+                                     Function *parent_function,
+                                     const Name *name) noexcept
+    : BasicBlock{pool, name}, _parent_function{parent_function} {}
+
+void FunctionBodyBlock::set_parent_function(Function *function) noexcept {
+    _parent_function = function;
+}
+
 }// namespace luisa::compute::xir

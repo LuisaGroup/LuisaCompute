@@ -12,9 +12,12 @@ class BasicBlock;
 class LC_XIR_API BranchInst : public Instruction {
 
 public:
-    explicit BranchInst(Pool *pool,
-                        Value *cond = nullptr,
+    explicit BranchInst(Pool *pool, Value *cond = nullptr,
                         const Name *name = nullptr) noexcept;
+
+    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept final {
+        return DerivedInstructionTag::BRANCH;
+    }
 
     void set_cond(Value *cond) noexcept;
 

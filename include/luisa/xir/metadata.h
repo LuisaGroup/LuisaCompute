@@ -5,9 +5,8 @@
 namespace luisa::compute::xir {
 
 class LC_XIR_API Metadata : public IntrusiveForwardNode<Metadata> {
-
 public:
-    explicit Metadata(Pool *pool) noexcept;
+    using Super::Super;
 };
 
 using MetadataList = IntrusiveForwardList<Metadata>;

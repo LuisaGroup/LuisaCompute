@@ -10,6 +10,14 @@ class Type;
 
 namespace luisa::compute::xir {
 
+enum struct DerivedValueTag {
+    BASIC_BLOCK,
+    CONSTANT,
+    FUNCTION,
+    INSTRUCTION,
+    VARIABLE,
+};
+
 class LC_XIR_API Value : public PooledObject {
 
 private:
@@ -20,10 +28,11 @@ private:
 
 public:
     explicit Value(Pool *pool, const Type *type = nullptr, const Name *name = nullptr) noexcept;
+    [[nodiscard]] virtual DerivedValueTag derived_value_tag() const noexcept = 0;
+
     void set_type(const Type *type) noexcept { _type = type; }
     void set_name(const Name *name) noexcept { _name = name; }
 
-public:
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto name() const noexcept { return _name; }
     [[nodiscard]] auto &use_list() noexcept { return _use_list; }

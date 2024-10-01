@@ -197,7 +197,6 @@
 #include <luisa/vstl/vector.h>
 #include <luisa/vstl/vstring.h>
 
-#include <luisa/xir/argument.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
@@ -210,8 +209,8 @@
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/name.h>
 #include <luisa/xir/pool.h>
-#include <luisa/xir/shared.h>
 #include <luisa/xir/use.h>
 #include <luisa/xir/user.h>
 #include <luisa/xir/value.h>
+#include <luisa/xir/variable.h>
 

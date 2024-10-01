@@ -10,9 +10,12 @@ private:
     luisa::string _comment;
 
 public:
-    explicit CommentInst(Pool *pool,
-                         luisa::string comment = {},
+    explicit CommentInst(Pool *pool, luisa::string comment = {},
                          const Name *name = nullptr) noexcept;
+
+    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept final {
+        return DerivedInstructionTag::COMMENT;
+    }
 
     void set_comment(luisa::string_view comment) noexcept;
     [[nodiscard]] auto comment() const noexcept { return luisa::string_view{_comment}; }
