@@ -48,8 +48,8 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
 			dict.try_emplace("bc7_trymode_456cs", HLSLCompressedHeader{bc7_trymode_456cs, 2391, 11171});
 			dict.try_emplace("hlsl_header", HLSLCompressedHeader{hlsl_header, 1411, 5596});
 			dict.try_emplace("raytracing_header", HLSLCompressedHeader{raytracing_header, 868, 3614});
-			dict.try_emplace("tex2d_bindless", HLSLCompressedHeader{tex2d_bindless, 465, 2562});
-			dict.try_emplace("tex3d_bindless", HLSLCompressedHeader{tex3d_bindless, 466, 2586});
+			dict.try_emplace("tex2d_bindless", HLSLCompressedHeader{tex2d_bindless, 551, 4136});
+			dict.try_emplace("tex3d_bindless", HLSLCompressedHeader{tex3d_bindless, 507, 3535});
 			dict.try_emplace("compute_quad", HLSLCompressedHeader{compute_quad, 87, 138});
 			dict.try_emplace("determinant", HLSLCompressedHeader{determinant, 525, 2019});
 			dict.try_emplace("inverse", HLSLCompressedHeader{inverse, 681, 2907});

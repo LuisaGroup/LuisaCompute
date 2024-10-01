@@ -2,6 +2,7 @@
 #include <DXRuntime/Device.h>
 #include <luisa/vstl/lockfree_array_queue.h>
 #include <DXRuntime/DxPtr.h>
+#include <DXRuntime/Task.h>
 #include <dxgi1_4.h>
 namespace lc::dx {
 class CommandBuffer;
@@ -37,8 +38,7 @@ private:
     Device *device;
     GpuAllocator *resourceAllocator;
     D3D12_COMMAND_LIST_TYPE type;
-    std::mutex mtx;
-    std::condition_variable waitCv;
+    CondVar cond_var;
     DxPtr<ID3D12CommandQueue> queue;
     Microsoft::WRL::ComPtr<ID3D12Fence> cmdFence;
     vstd::LockFreeArrayQueue<AllocatorPtr> allocatorPool;
@@ -71,6 +71,6 @@ public:
     KILL_COPY_CONSTRUCT(CommandQueue)
 private:
     // make sure thread always construct after all members
-    std::thread thd;
+    Thread thd;
 };
 }// namespace lc::dx

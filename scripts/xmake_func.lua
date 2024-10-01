@@ -212,8 +212,8 @@ on_load(function(target)
             tools = { "clang", "gcc" }
         })
     end
-    local c_standard = target:values("c_standard")
-    local cxx_standard = target:values("cxx_standard")
+    local c_standard = _get_or("c_standard", nil)
+    local cxx_standard = _get_or("cxx_standard", nil)
     if type(c_standard) == "string" and type(cxx_standard) == "string" then
         target:set("languages", c_standard, cxx_standard, {
             public = true
@@ -231,11 +231,16 @@ on_load(function(target)
         target:set("exceptions", "no-cxx")
     end
 
+    local force_optimize = _get_or("force_optimize", nil)
     if is_mode("debug") then
         target:set("runtimes", _get_or("runtime", "MDd"), {
             public = true
         })
-        target:set("optimize", "none")
+        if force_optimize then
+            target:set("optimize", "aggressive")
+        else
+            target:set("optimize", "none")
+        end
         target:set("warnings", "none")
         target:add("cxflags", "/GS", "/Gd", {
             tools = { "clang_cl", "cl" }
@@ -244,7 +249,11 @@ on_load(function(target)
         target:set("runtimes", _get_or("runtime", "MDd"), {
             public = true
         })
-        target:set("optimize", "none")
+        if force_optimize then
+            target:set("optimize", "aggressive")
+        else
+            target:set("optimize", "none")
+        end
         target:set("warnings", "none")
         target:add("cxflags", "/GS-", "/Gd", {
             tools = { "clang_cl", "cl" }
