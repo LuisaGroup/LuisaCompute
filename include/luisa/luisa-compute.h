@@ -203,7 +203,9 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/ilist.h>
 #include <luisa/xir/instruction.h>
+#include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/metadata.h>
+#include <luisa/xir/metadata/location.h>
 #include <luisa/xir/name.h>
 #include <luisa/xir/pool.h>
 #include <luisa/xir/shared.h>

@@ -10,6 +10,13 @@ set(LUISA_COMPUTE_XIR_SOURCES
         use.cpp
         user.cpp
         value.cpp
+
+        # derived instructions
+        instructions/branch.cpp
+        instructions/loop.cpp
+
+        # derived metadata
+        metadata/location.cpp
 )
 
 add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})
