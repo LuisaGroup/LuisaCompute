@@ -13,8 +13,13 @@ set(LUISA_COMPUTE_XIR_SOURCES
 
         # derived instructions
         instructions/branch.cpp
+        instructions/break.cpp
         instructions/comment.cpp
+        instructions/continue.cpp
         instructions/loop.cpp
+        instructions/phi.cpp
+        instructions/return.cpp
+        instructions/switch.cpp
 
         # derived metadata
         metadata/location.cpp

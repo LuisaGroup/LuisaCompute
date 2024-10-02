@@ -1,15 +1,28 @@
 #pragma once
 
-#include "luisa/xir/basic_block.h"
-
 #include <luisa/xir/instruction.h>
 
 namespace luisa::compute::xir {
 
 class BasicBlock;
 
-// if (cond) { true_block } else { false_block }
+// Branch instruction:
+//
+// if (cond) {
+//   true_block
+// } else {
+//   false_block
+// }
+// { merge_block }
+//
+// Note: this instruction must be the terminator of a basic block.
 class LC_XIR_API BranchInst : public Instruction {
+
+public:
+    static constexpr size_t operand_index_cond = 0u;
+    static constexpr size_t operand_index_true_block = 1u;
+    static constexpr size_t operand_index_false_block = 2u;
+    static constexpr size_t operand_index_merge_block = 3u;
 
 public:
     explicit BranchInst(Pool *pool, Value *cond = nullptr,
@@ -29,6 +42,9 @@ public:
 
     [[nodiscard]] BasicBlock *false_block() noexcept;
     [[nodiscard]] const BasicBlock *false_block() const noexcept;
+
+    [[nodiscard]] BasicBlock *merge_block() noexcept;
+    [[nodiscard]] const BasicBlock *merge_block() const noexcept;
 };
 
 }// namespace luisa::compute::xir

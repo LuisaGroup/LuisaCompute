@@ -12,11 +12,9 @@ enum struct FunctionTag {
 
 class LC_XIR_API Function : public Value {
 
-public:
-
 private:
     FunctionTag _function_tag;
-    FunctionBodyBlock *_body = nullptr;
+    BasicBlock *_body = nullptr;
     ArgumentList _arguments;
     SharedVariableList _shared_variables;
     LocalVariableList _local_variables;
@@ -35,8 +33,12 @@ public:
     void add_shared_variable(SharedVariable *shared) noexcept;
     void add_local_variable(LocalVariable *local) noexcept;
 
-    [[nodiscard]] FunctionBodyBlock *body() noexcept { return _body; }
-    [[nodiscard]] const FunctionBodyBlock *body() const noexcept { return _body; }
+    Argument *create_argument(const Type *type, bool by_ref, const Name *name = nullptr) noexcept;
+    SharedVariable *create_shared_variable(const Type *type, const Name *name = nullptr) noexcept;
+    LocalVariable *create_local_variable(const Type *type, const Name *name = nullptr) noexcept;
+
+    [[nodiscard]] BasicBlock *body() noexcept { return _body; }
+    [[nodiscard]] const BasicBlock *body() const noexcept { return _body; }
 
     [[nodiscard]] auto &arguments() noexcept { return _arguments; }
     [[nodiscard]] auto &arguments() const noexcept { return _arguments; }

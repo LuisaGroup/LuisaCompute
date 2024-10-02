@@ -13,9 +13,8 @@ void Variable::set_parent_function(Function *func) noexcept {
     _parent_function = func;
 }
 
-Argument::Argument(Pool *pool,
+Argument::Argument(Pool *pool, bool by_ref,
                    Function *parent_function,
-                   bool by_ref,
                    const Type *type,
                    const Name *name) noexcept
     : Super{pool, parent_function, type, name},

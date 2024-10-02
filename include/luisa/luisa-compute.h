@@ -203,8 +203,14 @@
 #include <luisa/xir/ilist.h>
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/comment.h>
+#include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/loop.h>
+#include <luisa/xir/instructions/phi.h>
+#include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/switch.h>
+#include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/metadata.h>
 #include <luisa/xir/metadata/location.h>
 #include <luisa/xir/name.h>

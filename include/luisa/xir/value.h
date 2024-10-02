@@ -11,10 +11,11 @@ class Type;
 namespace luisa::compute::xir {
 
 enum struct DerivedValueTag {
-    BASIC_BLOCK,
-    CONSTANT,
     FUNCTION,
+    EXTERNAL_FUNCTION,
+    BASIC_BLOCK,
     INSTRUCTION,
+    CONSTANT,
     VARIABLE,
 };
 

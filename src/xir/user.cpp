@@ -66,12 +66,34 @@ void User::set_operands(luisa::span<Value *const> operands) noexcept {
     }
 }
 
+void User::add_operand(Value *value) noexcept {
+    auto use = pool()->create<Use>(value, this);
+    _operands.emplace_back(use);
+}
+
+void User::insert_operand(size_t index, Value *value) noexcept {
+    LUISA_DEBUG_ASSERT(index <= _operands.size(), "Index out of range.");
+    auto use = pool()->create<Use>(value, this);
+    _operands.insert(_operands.cbegin() + index, use);
+}
+
+void User::remove_operand(size_t index) noexcept {
+    if (index < _operands.size()) {
+        _operands[index]->remove_self();
+        _operands.erase(_operands.cbegin() + index);
+    }
+}
+
 luisa::span<Use *> User::operand_uses() noexcept {
     return _operands;
 }
 
 luisa::span<const Use *const> User::operand_uses() const noexcept {
     return _operands;
+}
+
+size_t User::operand_count() const noexcept {
+    return _operands.size();
 }
 
 }// namespace luisa::compute::xir

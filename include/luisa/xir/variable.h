@@ -32,9 +32,8 @@ private:
     bool _by_ref = false;
 
 public:
-    explicit Argument(Pool *pool,
+    explicit Argument(Pool *pool, bool by_ref = false,
                       Function *parent_function = nullptr,
-                      bool by_ref = false,
                       const Type *type = nullptr,
                       const Name *name = nullptr) noexcept;
     void set_by_ref(bool by_ref) noexcept { _by_ref = by_ref; }
