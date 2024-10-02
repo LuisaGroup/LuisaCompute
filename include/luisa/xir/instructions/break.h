@@ -14,4 +14,4 @@ public:
     }
 };
 
-}
+}// namespace luisa::compute::xir

@@ -4,6 +4,17 @@
 
 namespace luisa::compute::xir {
 
+// Switch instruction:
+//
+// switch (value) {
+//   case case_values[0]: { case_blocks[0] }
+//   case case_values[1]: { case_blocks[1] }
+//   ...
+//   default: { default_block }
+// }
+// { merge_block }
+//
+// Note: this instruction must be the terminator of a basic block.
 class LC_XIR_API SwitchInst : public Instruction {
 
 public:
