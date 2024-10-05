@@ -71,7 +71,7 @@ public:
         ~LazyLoadShader();
     };
     vstd::unique_ptr<luisa::compute::DefaultBinaryIO> serVisitor;
-    luisa::unique_ptr<luisa::compute::DirectXDeviceConfigExt> deviceSettings;
+    vstd::unique_ptr<luisa::compute::DirectXDeviceConfigExt> deviceSettings;
     bool SupportMeshShader() const;
     vstd::MD5 adapterID;
     DxPtr<IDXGIAdapter1> adapter;
@@ -79,7 +79,6 @@ public:
     DxPtr<IDXGIFactory2> dxgiFactory;
     vstd::unique_ptr<GpuAllocator> defaultAllocator;
     DXAllocatorImpl allocatorInterface;
-    bool useFiber;
     
     vstd::unique_ptr<DescriptorHeap> globalHeap;
     vstd::unique_ptr<DescriptorHeap> samplerHeap;
@@ -111,6 +110,4 @@ public:
     static hlsl::ShaderCompiler *Compiler();
     uint waveSize() const;
 };
-
-
 }// namespace lc::dx
