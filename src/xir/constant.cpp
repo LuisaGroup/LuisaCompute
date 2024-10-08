@@ -36,8 +36,7 @@ void Constant::set_type(const Type *type) noexcept {
 }
 
 void *Constant::data() noexcept {
-    if (type() == nullptr) { return nullptr; }
-    return type()->size() <= sizeof(void *) ? _small : _large;
+    return _is_small() ? _small : _large;
 }
 
 const void *Constant::data() const noexcept {
