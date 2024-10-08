@@ -20,7 +20,7 @@ struct CondVar {
     bool use_std;
     auto std_ptr() { return reinterpret_cast<STDCondVar *>(std_condvar.c); }
     auto fiber_ptr() { return reinterpret_cast<FiberCondVar *>(fiber_condvar.c); }
-    CondVar(bool use_std)
+    explicit CondVar(bool use_std)
         : use_std(use_std) {
         if (use_std) {
             new (std::launder(std_ptr())) STDCondVar();
@@ -66,12 +66,8 @@ struct CondVar {
             fiber_ptr()->mtx.lock();
         }
     }
-    void try_lock() {
-        if (use_std) {
-            std_ptr()->mtx.try_lock();
-        } else {
-            fiber_ptr()->mtx.try_lock();
-        }
+    [[nodiscard]] bool try_lock() {
+        return use_std ? std_ptr()->mtx.try_lock() : fiber_ptr()->mtx.try_lock();
     }
     void unlock() {
         if (use_std) {
