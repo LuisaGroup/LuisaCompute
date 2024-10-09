@@ -31,8 +31,8 @@ public:
     explicit Value(Pool *pool, const Type *type = nullptr, const Name *name = nullptr) noexcept;
     [[nodiscard]] virtual DerivedValueTag derived_value_tag() const noexcept = 0;
 
-    void set_type(const Type *type) noexcept { _type = type; }
-    void set_name(const Name *name) noexcept { _name = name; }
+    virtual void set_type(const Type *type) noexcept;
+    virtual void set_name(const Name *name) noexcept;
 
     [[nodiscard]] auto type() const noexcept { return _type; }
     [[nodiscard]] auto name() const noexcept { return _name; }
