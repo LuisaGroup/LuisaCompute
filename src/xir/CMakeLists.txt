@@ -14,6 +14,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         # derived instructions
         instructions/branch.cpp
         instructions/break.cpp
+        instructions/call.cpp
         instructions/comment.cpp
         instructions/continue.cpp
         instructions/loop.cpp

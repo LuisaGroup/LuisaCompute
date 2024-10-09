@@ -50,4 +50,10 @@ public:
     [[nodiscard]] auto &local_variables() const noexcept { return _local_variables; }
 };
 
+class LC_XIR_API ExternalFunction : public Value {
+
+private:
+
+};
+
 }// namespace luisa::compute::xir
