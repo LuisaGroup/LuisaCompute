@@ -127,10 +127,15 @@ public:
         _check_is_valid();
         return _size * _element_stride;
     }
+    // views
+    [[nodiscard]] auto view_unchecked() const noexcept {
+        return BufferView<T>{this->native_handle(), this->handle(), _element_stride, 0u, _size, _size};
+    }
+
     [[nodiscard]] auto view() const noexcept {
         _check_is_valid();
         return BufferView<T>{this->native_handle(), this->handle(), _element_stride, 0u, _size, _size};
-    }
+    }    
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept {
         return view().subview(offset, count);
     }
