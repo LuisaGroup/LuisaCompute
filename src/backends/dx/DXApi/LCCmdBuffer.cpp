@@ -424,6 +424,7 @@ public:
             reinterpret_cast<Buffer const *>(cmd->handle()),
             cmd->offset(),
             cmd->size());
+        cmd->call_callback();
         bd->Upload(bf, cmd->data());
     }
 
@@ -628,6 +629,7 @@ public:
         auto bfView = bd->GetCB()->GetAlloc()->GetTempUploadBuffer(copyInfo.alignedBufferSize, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
         auto uploadBuffer = static_cast<UploadBuffer const *>(bfView.buffer);
         if (copyInfo.bufferSize == copyInfo.alignedBufferSize) {
+            cmd->call_callback();
             uploadBuffer->CopyData(
                 bfView.offset,
                 {reinterpret_cast<uint8_t const *>(cmd->data()),
@@ -635,6 +637,7 @@ public:
         } else {
             size_t bufferOffset = bfView.offset;
             size_t leftedSize = copyInfo.bufferSize;
+            cmd->call_callback();
             auto dataPtr = reinterpret_cast<uint8_t const *>(cmd->data());
             while (leftedSize > 0) {
                 uploadBuffer->CopyData(
@@ -1203,8 +1206,7 @@ void LCCmdBuffer::CompressBC(
         cmdBuffer->CmdList()->SetDescriptorHeaps(vstd::array_count(h), h);
 
         BCCBuffer cbData{
-            .g_mip_level = level
-        };
+            .g_mip_level = level};
         tracker.RecordState(rt, tracker.ReadState(ResourceReadUsage::Srv, rt));
         auto RunComputeShader = [&](ComputeShader const *cs, uint dispatchCount, BufferView const &inBuffer, BufferView const &outBuffer) {
             auto cbuffer = alloc->GetTempUploadBuffer(sizeof(BCCBuffer), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);

@@ -148,6 +148,9 @@ public:
     [[nodiscard]] auto copy_from(const void *data) noexcept {
         return this->view().copy_from(data);
     }
+    [[nodiscard]] auto copy_from(const void *data, luisa::move_only_function<void(void*)>&& upload_callback) noexcept {
+        return this->view().copy_from(data, std::move(upload_callback));
+    }
     // copy source buffer's data to buffer
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
         return this->view().copy_from(source);
@@ -241,6 +244,9 @@ public:
     // copy pointer's data to buffer
     [[nodiscard]] auto copy_from(const void *data) noexcept {
         return luisa::make_unique<BufferUploadCommand>(this->handle(), this->offset_bytes(), this->size_bytes(), data);
+    }
+    [[nodiscard]] auto copy_from(const void *data, luisa::move_only_function<void(void*)>&& upload_callback) noexcept {
+        return luisa::make_unique<BufferUploadCommand>(this->handle(), this->offset_bytes(), this->size_bytes(), data, std::move(upload_callback));
     }
     // copy source buffer's data to buffer
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
