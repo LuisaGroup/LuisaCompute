@@ -16,233 +16,233 @@ struct alignas(4) __half2_raw {
 struct __half;
 struct __half2;
 
-__device__ inline __half __double2half(const double a);
-__device__ inline __half __float2half(const float a);
-__device__ inline __half __float2half_rn(const float a);
-__device__ inline __half __float2half_rz(const float a);
-__device__ inline __half __float2half_rd(const float a);
-__device__ inline __half __float2half_ru(const float a);
-__device__ inline float __half2float(const __half a);
-__device__ inline __half2 __float2half2_rn(const float a);
-__device__ inline __half2 __floats2half2_rn(const float a, const float b);
-__device__ inline float __low2float(const __half2 a);
-__device__ inline float __high2float(const __half2 a);
-__device__ inline signed char __half2char_rz(const __half h);
-__device__ inline unsigned char __half2uchar_rz(const __half h);
-__device__ inline short int __half2short_rz(const __half h);
-__device__ inline unsigned short int __half2ushort_rz(const __half h);
-__device__ inline int __half2int_rz(const __half h);
-__device__ inline unsigned int __half2uint_rz(const __half h);
-__device__ inline long long int __half2ll_rz(const __half h);
-__device__ inline unsigned long long int __half2ull_rz(const __half h);
-__device__ inline __half2 make_half2(const __half x, const __half y);
-__device__ inline __half2 __float22half2_rn(const float2 a);
-__device__ inline float2 __half22float2(const __half2 a);
-__device__ inline int __half2int_rn(const __half h);
-__device__ inline int __half2int_rd(const __half h);
-__device__ inline int __half2int_ru(const __half h);
-__device__ inline __half __int2half_rn(const int i);
-__device__ inline __half __int2half_rz(const int i);
-__device__ inline __half __int2half_rd(const int i);
-__device__ inline __half __int2half_ru(const int i);
-__device__ inline short int __half2short_rn(const __half h);
-__device__ inline short int __half2short_rd(const __half h);
-__device__ inline short int __half2short_ru(const __half h);
-__device__ inline __half __short2half_rn(const short int i);
-__device__ inline __half __short2half_rz(const short int i);
-__device__ inline __half __short2half_rd(const short int i);
-__device__ inline __half __short2half_ru(const short int i);
-__device__ inline unsigned int __half2uint_rn(const __half h);
-__device__ inline unsigned int __half2uint_rd(const __half h);
-__device__ inline unsigned int __half2uint_ru(const __half h);
-__device__ inline __half __uint2half_rn(const unsigned int i);
-__device__ inline __half __uint2half_rz(const unsigned int i);
-__device__ inline __half __uint2half_rd(const unsigned int i);
-__device__ inline __half __uint2half_ru(const unsigned int i);
-__device__ inline unsigned short int __half2ushort_rn(const __half h);
-__device__ inline unsigned short int __half2ushort_rd(const __half h);
-__device__ inline unsigned short int __half2ushort_ru(const __half h);
-__device__ inline __half __ushort2half_rn(const unsigned short int i);
-__device__ inline __half __ushort2half_rz(const unsigned short int i);
-__device__ inline __half __ushort2half_rd(const unsigned short int i);
-__device__ inline __half __ushort2half_ru(const unsigned short int i);
-__device__ inline unsigned long long int __half2ull_rn(const __half h);
-__device__ inline unsigned long long int __half2ull_rd(const __half h);
-__device__ inline unsigned long long int __half2ull_ru(const __half h);
-__device__ inline __half __ull2half_rn(const unsigned long long int i);
-__device__ inline __half __ull2half_rz(const unsigned long long int i);
-__device__ inline __half __ull2half_rd(const unsigned long long int i);
-__device__ inline __half __ull2half_ru(const unsigned long long int i);
-__device__ inline long long int __half2ll_rn(const __half h);
-__device__ inline long long int __half2ll_rd(const __half h);
-__device__ inline long long int __half2ll_ru(const __half h);
-__device__ inline __half __ll2half_rn(const long long int i);
-__device__ inline __half __ll2half_rz(const long long int i);
-__device__ inline __half __ll2half_rd(const long long int i);
-__device__ inline __half __ll2half_ru(const long long int i);
-__device__ inline __half htrunc(const __half h);
-__device__ inline __half hceil(const __half h);
-__device__ inline __half hfloor(const __half h);
-__device__ inline __half hrint(const __half h);
-__device__ inline __half2 h2trunc(const __half2 h);
-__device__ inline __half2 h2ceil(const __half2 h);
-__device__ inline __half2 h2floor(const __half2 h);
-__device__ inline __half2 h2rint(const __half2 h);
-__device__ inline __half2 __half2half2(const __half a);
-__device__ inline __half2 __lowhigh2highlow(const __half2 a);
-__device__ inline __half2 __lows2half2(const __half2 a, const __half2 b);
-__device__ inline __half2 __highs2half2(const __half2 a, const __half2 b);
-__device__ inline __half __high2half(const __half2 a);
-__device__ inline __half __low2half(const __half2 a);
-__device__ inline int __hisinf(const __half a);
-__device__ inline __half2 __halves2half2(const __half a, const __half b);
-__device__ inline __half2 __low2half2(const __half2 a);
-__device__ inline __half2 __high2half2(const __half2 a);
-__device__ inline short int __half_as_short(const __half h);
-__device__ inline unsigned short int __half_as_ushort(const __half h);
-__device__ inline __half __short_as_half(const short int i);
-__device__ inline __half __ushort_as_half(const unsigned short int i);
-__device__ inline __half __hmax(const __half a, const __half b);
-__device__ inline __half __hmin(const __half a, const __half b);
-__device__ inline __half2 __hmax2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hmin2(const __half2 a, const __half2 b);
-__device__ inline __half2 __shfl_sync(const unsigned mask, const __half2 var, const int delta, const int width = warpSize);
-__device__ inline __half2 __shfl_up_sync(const unsigned mask, const __half2 var, const unsigned int delta, const int width = warpSize);
-__device__ inline __half2 __shfl_down_sync(const unsigned mask, const __half2 var, const unsigned int delta, const int width = warpSize);
-__device__ inline __half2 __shfl_xor_sync(const unsigned mask, const __half2 var, const int delta, const int width = warpSize);
-__device__ inline __half __shfl_sync(const unsigned mask, const __half var, const int delta, const int width = warpSize);
-__device__ inline __half __shfl_up_sync(const unsigned mask, const __half var, const unsigned int delta, const int width = warpSize);
-__device__ inline __half __shfl_down_sync(const unsigned mask, const __half var, const unsigned int delta, const int width = warpSize);
-__device__ inline __half __shfl_xor_sync(const unsigned mask, const __half var, const int delta, const int width = warpSize);
-__device__ inline __half2 __ldg(const __half2 *const ptr);
-__device__ inline __half __ldg(const __half *const ptr);
-__device__ inline __half2 __ldcg(const __half2 *const ptr);
-__device__ inline __half __ldcg(const __half *const ptr);
-__device__ inline __half2 __ldca(const __half2 *const ptr);
-__device__ inline __half __ldca(const __half *const ptr);
-__device__ inline __half2 __ldcs(const __half2 *const ptr);
-__device__ inline __half __ldcs(const __half *const ptr);
-__device__ inline __half2 __ldlu(const __half2 *const ptr);
-__device__ inline __half __ldlu(const __half *const ptr);
-__device__ inline __half2 __ldcv(const __half2 *const ptr);
-__device__ inline __half __ldcv(const __half *const ptr);
-__device__ inline void __stwb(__half2 *const ptr, const __half2 value);
-__device__ inline void __stwb(__half *const ptr, const __half value);
-__device__ inline void __stcg(__half2 *const ptr, const __half2 value);
-__device__ inline void __stcg(__half *const ptr, const __half value);
-__device__ inline void __stcs(__half2 *const ptr, const __half2 value);
-__device__ inline void __stcs(__half *const ptr, const __half value);
-__device__ inline void __stwt(__half2 *const ptr, const __half2 value);
-__device__ inline void __stwt(__half *const ptr, const __half value);
-__device__ inline __half2 __heq2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hne2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hle2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hge2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hlt2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hgt2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hequ2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hneu2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hleu2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hgeu2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hltu2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hgtu2(const __half2 a, const __half2 b);
-__device__ inline unsigned __heq2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hne2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hle2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hge2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hlt2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hgt2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hequ2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hneu2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hleu2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hgeu2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hltu2_mask(const __half2 a, const __half2 b);
-__device__ inline unsigned __hgtu2_mask(const __half2 a, const __half2 b);
-__device__ inline __half2 __hisnan2(const __half2 a);
-__device__ inline __half2 __hadd2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hsub2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hmul2(const __half2 a, const __half2 b);
-__device__ inline __half2 __hadd2_rn(const __half2 a, const __half2 b);
-__device__ inline __half2 __hsub2_rn(const __half2 a, const __half2 b);
-__device__ inline __half2 __hmul2_rn(const __half2 a, const __half2 b);
-__device__ inline __half2 __h2div(const __half2 a, const __half2 b);
-__device__ inline __half2 __habs2(const __half2 a);
-__device__ inline __half2 __hadd2_sat(const __half2 a, const __half2 b);
-__device__ inline __half2 __hsub2_sat(const __half2 a, const __half2 b);
-__device__ inline __half2 __hmul2_sat(const __half2 a, const __half2 b);
-__device__ inline __half2 __hfma2(const __half2 a, const __half2 b, const __half2 c);
-__device__ inline __half2 __hfma2_sat(const __half2 a, const __half2 b, const __half2 c);
-__device__ inline __half2 __hneg2(const __half2 a);
-__device__ inline __half __habs(const __half a);
-__device__ inline __half __hadd(const __half a, const __half b);
-__device__ inline __half __hsub(const __half a, const __half b);
-__device__ inline __half __hmul(const __half a, const __half b);
-__device__ inline __half __hadd_rn(const __half a, const __half b);
-__device__ inline __half __hsub_rn(const __half a, const __half b);
-__device__ inline __half __hmul_rn(const __half a, const __half b);
-__device__ inline __half __hdiv(const __half a, const __half b);
-__device__ inline __half __hadd_sat(const __half a, const __half b);
-__device__ inline __half __hsub_sat(const __half a, const __half b);
-__device__ inline __half __hmul_sat(const __half a, const __half b);
-__device__ inline __half __hfma(const __half a, const __half b, const __half c);
-__device__ inline __half __hfma_sat(const __half a, const __half b, const __half c);
-__device__ inline __half __hneg(const __half a);
-__device__ inline bool __hbeq2(const __half2 a, const __half2 b);
-__device__ inline bool __hbne2(const __half2 a, const __half2 b);
-__device__ inline bool __hble2(const __half2 a, const __half2 b);
-__device__ inline bool __hbge2(const __half2 a, const __half2 b);
-__device__ inline bool __hblt2(const __half2 a, const __half2 b);
-__device__ inline bool __hbgt2(const __half2 a, const __half2 b);
-__device__ inline bool __hbequ2(const __half2 a, const __half2 b);
-__device__ inline bool __hbneu2(const __half2 a, const __half2 b);
-__device__ inline bool __hbleu2(const __half2 a, const __half2 b);
-__device__ inline bool __hbgeu2(const __half2 a, const __half2 b);
-__device__ inline bool __hbltu2(const __half2 a, const __half2 b);
-__device__ inline bool __hbgtu2(const __half2 a, const __half2 b);
-__device__ inline bool __heq(const __half a, const __half b);
-__device__ inline bool __hne(const __half a, const __half b);
-__device__ inline bool __hle(const __half a, const __half b);
-__device__ inline bool __hge(const __half a, const __half b);
-__device__ inline bool __hlt(const __half a, const __half b);
-__device__ inline bool __hgt(const __half a, const __half b);
-__device__ inline bool __hequ(const __half a, const __half b);
-__device__ inline bool __hneu(const __half a, const __half b);
-__device__ inline bool __hleu(const __half a, const __half b);
-__device__ inline bool __hgeu(const __half a, const __half b);
-__device__ inline bool __hltu(const __half a, const __half b);
-__device__ inline bool __hgtu(const __half a, const __half b);
-__device__ inline bool __hisnan(const __half a);
-__device__ inline __half __hmax_nan(const __half a, const __half b);
-__device__ inline __half __hmin_nan(const __half a, const __half b);
-__device__ inline __half __hfma_relu(const __half a, const __half b, const __half c);
-__device__ inline __half2 __hmax2_nan(const __half2 a, const __half2 b);
-__device__ inline __half2 __hmin2_nan(const __half2 a, const __half2 b);
-__device__ inline __half2 __hfma2_relu(const __half2 a, const __half2 b, const __half2 c);
-__device__ inline __half2 __hcmadd(const __half2 a, const __half2 b, const __half2 c);
-__device__ inline __half hsqrt(const __half a);
-__device__ inline __half hrsqrt(const __half a);
-__device__ inline __half hrcp(const __half a);
-__device__ inline __half hlog(const __half a);
-__device__ inline __half hlog2(const __half a);
-__device__ inline __half hlog10(const __half a);
-__device__ inline __half hexp(const __half a);
-__device__ inline __half hexp2(const __half a);
-__device__ inline __half hexp10(const __half a);
-__device__ inline __half hcos(const __half a);
-__device__ inline __half hsin(const __half a);
-__device__ inline __half2 h2sqrt(const __half2 a);
-__device__ inline __half2 h2rsqrt(const __half2 a);
-__device__ inline __half2 h2rcp(const __half2 a);
-__device__ inline __half2 h2log(const __half2 a);
-__device__ inline __half2 h2log2(const __half2 a);
-__device__ inline __half2 h2log10(const __half2 a);
-__device__ inline __half2 h2exp(const __half2 a);
-__device__ inline __half2 h2exp2(const __half2 a);
-__device__ inline __half2 h2exp10(const __half2 a);
-__device__ inline __half2 h2cos(const __half2 a);
-__device__ inline __half2 h2sin(const __half2 a);
-__device__ inline __half2 atomicAdd(__half2 *const address, const __half2 val);
-__device__ inline __half atomicAdd(__half *const address, const __half val);
+__device__ __half __double2half(const double a);
+__device__ __half __float2half(const float a);
+__device__ __half __float2half_rn(const float a);
+__device__ __half __float2half_rz(const float a);
+__device__ __half __float2half_rd(const float a);
+__device__ __half __float2half_ru(const float a);
+__device__ float __half2float(const __half a);
+__device__ __half2 __float2half2_rn(const float a);
+__device__ __half2 __floats2half2_rn(const float a, const float b);
+__device__ float __low2float(const __half2 a);
+__device__ float __high2float(const __half2 a);
+__device__ signed char __half2char_rz(const __half h);
+__device__ unsigned char __half2uchar_rz(const __half h);
+__device__ short int __half2short_rz(const __half h);
+__device__ unsigned short int __half2ushort_rz(const __half h);
+__device__ int __half2int_rz(const __half h);
+__device__ unsigned int __half2uint_rz(const __half h);
+__device__ long long int __half2ll_rz(const __half h);
+__device__ unsigned long long int __half2ull_rz(const __half h);
+__device__ __half2 make_half2(const __half x, const __half y);
+__device__ __half2 __float22half2_rn(const float2 a);
+__device__ float2 __half22float2(const __half2 a);
+__device__ int __half2int_rn(const __half h);
+__device__ int __half2int_rd(const __half h);
+__device__ int __half2int_ru(const __half h);
+__device__ __half __int2half_rn(const int i);
+__device__ __half __int2half_rz(const int i);
+__device__ __half __int2half_rd(const int i);
+__device__ __half __int2half_ru(const int i);
+__device__ short int __half2short_rn(const __half h);
+__device__ short int __half2short_rd(const __half h);
+__device__ short int __half2short_ru(const __half h);
+__device__ __half __short2half_rn(const short int i);
+__device__ __half __short2half_rz(const short int i);
+__device__ __half __short2half_rd(const short int i);
+__device__ __half __short2half_ru(const short int i);
+__device__ unsigned int __half2uint_rn(const __half h);
+__device__ unsigned int __half2uint_rd(const __half h);
+__device__ unsigned int __half2uint_ru(const __half h);
+__device__ __half __uint2half_rn(const unsigned int i);
+__device__ __half __uint2half_rz(const unsigned int i);
+__device__ __half __uint2half_rd(const unsigned int i);
+__device__ __half __uint2half_ru(const unsigned int i);
+__device__ unsigned short int __half2ushort_rn(const __half h);
+__device__ unsigned short int __half2ushort_rd(const __half h);
+__device__ unsigned short int __half2ushort_ru(const __half h);
+__device__ __half __ushort2half_rn(const unsigned short int i);
+__device__ __half __ushort2half_rz(const unsigned short int i);
+__device__ __half __ushort2half_rd(const unsigned short int i);
+__device__ __half __ushort2half_ru(const unsigned short int i);
+__device__ unsigned long long int __half2ull_rn(const __half h);
+__device__ unsigned long long int __half2ull_rd(const __half h);
+__device__ unsigned long long int __half2ull_ru(const __half h);
+__device__ __half __ull2half_rn(const unsigned long long int i);
+__device__ __half __ull2half_rz(const unsigned long long int i);
+__device__ __half __ull2half_rd(const unsigned long long int i);
+__device__ __half __ull2half_ru(const unsigned long long int i);
+__device__ long long int __half2ll_rn(const __half h);
+__device__ long long int __half2ll_rd(const __half h);
+__device__ long long int __half2ll_ru(const __half h);
+__device__ __half __ll2half_rn(const long long int i);
+__device__ __half __ll2half_rz(const long long int i);
+__device__ __half __ll2half_rd(const long long int i);
+__device__ __half __ll2half_ru(const long long int i);
+__device__ __half htrunc(const __half h);
+__device__ __half hceil(const __half h);
+__device__ __half hfloor(const __half h);
+__device__ __half hrint(const __half h);
+__device__ __half2 h2trunc(const __half2 h);
+__device__ __half2 h2ceil(const __half2 h);
+__device__ __half2 h2floor(const __half2 h);
+__device__ __half2 h2rint(const __half2 h);
+__device__ __half2 __half2half2(const __half a);
+__device__ __half2 __lowhigh2highlow(const __half2 a);
+__device__ __half2 __lows2half2(const __half2 a, const __half2 b);
+__device__ __half2 __highs2half2(const __half2 a, const __half2 b);
+__device__ __half __high2half(const __half2 a);
+__device__ __half __low2half(const __half2 a);
+__device__ int __hisinf(const __half a);
+__device__ __half2 __halves2half2(const __half a, const __half b);
+__device__ __half2 __low2half2(const __half2 a);
+__device__ __half2 __high2half2(const __half2 a);
+__device__ short int __half_as_short(const __half h);
+__device__ unsigned short int __half_as_ushort(const __half h);
+__device__ __half __short_as_half(const short int i);
+__device__ __half __ushort_as_half(const unsigned short int i);
+__device__ __half __hmax(const __half a, const __half b);
+__device__ __half __hmin(const __half a, const __half b);
+__device__ __half2 __hmax2(const __half2 a, const __half2 b);
+__device__ __half2 __hmin2(const __half2 a, const __half2 b);
+__device__ __half2 __shfl_sync(const unsigned mask, const __half2 var, const int delta, const int width = warpSize);
+__device__ __half2 __shfl_up_sync(const unsigned mask, const __half2 var, const unsigned int delta, const int width = warpSize);
+__device__ __half2 __shfl_down_sync(const unsigned mask, const __half2 var, const unsigned int delta, const int width = warpSize);
+__device__ __half2 __shfl_xor_sync(const unsigned mask, const __half2 var, const int delta, const int width = warpSize);
+__device__ __half __shfl_sync(const unsigned mask, const __half var, const int delta, const int width = warpSize);
+__device__ __half __shfl_up_sync(const unsigned mask, const __half var, const unsigned int delta, const int width = warpSize);
+__device__ __half __shfl_down_sync(const unsigned mask, const __half var, const unsigned int delta, const int width = warpSize);
+__device__ __half __shfl_xor_sync(const unsigned mask, const __half var, const int delta, const int width = warpSize);
+__device__ __half2 __ldg(const __half2 *const ptr);
+__device__ __half __ldg(const __half *const ptr);
+__device__ __half2 __ldcg(const __half2 *const ptr);
+__device__ __half __ldcg(const __half *const ptr);
+__device__ __half2 __ldca(const __half2 *const ptr);
+__device__ __half __ldca(const __half *const ptr);
+__device__ __half2 __ldcs(const __half2 *const ptr);
+__device__ __half __ldcs(const __half *const ptr);
+__device__ __half2 __ldlu(const __half2 *const ptr);
+__device__ __half __ldlu(const __half *const ptr);
+__device__ __half2 __ldcv(const __half2 *const ptr);
+__device__ __half __ldcv(const __half *const ptr);
+__device__ void __stwb(__half2 *const ptr, const __half2 value);
+__device__ void __stwb(__half *const ptr, const __half value);
+__device__ void __stcg(__half2 *const ptr, const __half2 value);
+__device__ void __stcg(__half *const ptr, const __half value);
+__device__ void __stcs(__half2 *const ptr, const __half2 value);
+__device__ void __stcs(__half *const ptr, const __half value);
+__device__ void __stwt(__half2 *const ptr, const __half2 value);
+__device__ void __stwt(__half *const ptr, const __half value);
+__device__ __half2 __heq2(const __half2 a, const __half2 b);
+__device__ __half2 __hne2(const __half2 a, const __half2 b);
+__device__ __half2 __hle2(const __half2 a, const __half2 b);
+__device__ __half2 __hge2(const __half2 a, const __half2 b);
+__device__ __half2 __hlt2(const __half2 a, const __half2 b);
+__device__ __half2 __hgt2(const __half2 a, const __half2 b);
+__device__ __half2 __hequ2(const __half2 a, const __half2 b);
+__device__ __half2 __hneu2(const __half2 a, const __half2 b);
+__device__ __half2 __hleu2(const __half2 a, const __half2 b);
+__device__ __half2 __hgeu2(const __half2 a, const __half2 b);
+__device__ __half2 __hltu2(const __half2 a, const __half2 b);
+__device__ __half2 __hgtu2(const __half2 a, const __half2 b);
+__device__ unsigned __heq2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hne2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hle2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hge2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hlt2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hgt2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hequ2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hneu2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hleu2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hgeu2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hltu2_mask(const __half2 a, const __half2 b);
+__device__ unsigned __hgtu2_mask(const __half2 a, const __half2 b);
+__device__ __half2 __hisnan2(const __half2 a);
+__device__ __half2 __hadd2(const __half2 a, const __half2 b);
+__device__ __half2 __hsub2(const __half2 a, const __half2 b);
+__device__ __half2 __hmul2(const __half2 a, const __half2 b);
+__device__ __half2 __hadd2_rn(const __half2 a, const __half2 b);
+__device__ __half2 __hsub2_rn(const __half2 a, const __half2 b);
+__device__ __half2 __hmul2_rn(const __half2 a, const __half2 b);
+__device__ __half2 __h2div(const __half2 a, const __half2 b);
+__device__ __half2 __habs2(const __half2 a);
+__device__ __half2 __hadd2_sat(const __half2 a, const __half2 b);
+__device__ __half2 __hsub2_sat(const __half2 a, const __half2 b);
+__device__ __half2 __hmul2_sat(const __half2 a, const __half2 b);
+__device__ __half2 __hfma2(const __half2 a, const __half2 b, const __half2 c);
+__device__ __half2 __hfma2_sat(const __half2 a, const __half2 b, const __half2 c);
+__device__ __half2 __hneg2(const __half2 a);
+__device__ __half __habs(const __half a);
+__device__ __half __hadd(const __half a, const __half b);
+__device__ __half __hsub(const __half a, const __half b);
+__device__ __half __hmul(const __half a, const __half b);
+__device__ __half __hadd_rn(const __half a, const __half b);
+__device__ __half __hsub_rn(const __half a, const __half b);
+__device__ __half __hmul_rn(const __half a, const __half b);
+__device__ __half __hdiv(const __half a, const __half b);
+__device__ __half __hadd_sat(const __half a, const __half b);
+__device__ __half __hsub_sat(const __half a, const __half b);
+__device__ __half __hmul_sat(const __half a, const __half b);
+__device__ __half __hfma(const __half a, const __half b, const __half c);
+__device__ __half __hfma_sat(const __half a, const __half b, const __half c);
+__device__ __half __hneg(const __half a);
+__device__ bool __hbeq2(const __half2 a, const __half2 b);
+__device__ bool __hbne2(const __half2 a, const __half2 b);
+__device__ bool __hble2(const __half2 a, const __half2 b);
+__device__ bool __hbge2(const __half2 a, const __half2 b);
+__device__ bool __hblt2(const __half2 a, const __half2 b);
+__device__ bool __hbgt2(const __half2 a, const __half2 b);
+__device__ bool __hbequ2(const __half2 a, const __half2 b);
+__device__ bool __hbneu2(const __half2 a, const __half2 b);
+__device__ bool __hbleu2(const __half2 a, const __half2 b);
+__device__ bool __hbgeu2(const __half2 a, const __half2 b);
+__device__ bool __hbltu2(const __half2 a, const __half2 b);
+__device__ bool __hbgtu2(const __half2 a, const __half2 b);
+__device__ bool __heq(const __half a, const __half b);
+__device__ bool __hne(const __half a, const __half b);
+__device__ bool __hle(const __half a, const __half b);
+__device__ bool __hge(const __half a, const __half b);
+__device__ bool __hlt(const __half a, const __half b);
+__device__ bool __hgt(const __half a, const __half b);
+__device__ bool __hequ(const __half a, const __half b);
+__device__ bool __hneu(const __half a, const __half b);
+__device__ bool __hleu(const __half a, const __half b);
+__device__ bool __hgeu(const __half a, const __half b);
+__device__ bool __hltu(const __half a, const __half b);
+__device__ bool __hgtu(const __half a, const __half b);
+__device__ bool __hisnan(const __half a);
+__device__ __half __hmax_nan(const __half a, const __half b);
+__device__ __half __hmin_nan(const __half a, const __half b);
+__device__ __half __hfma_relu(const __half a, const __half b, const __half c);
+__device__ __half2 __hmax2_nan(const __half2 a, const __half2 b);
+__device__ __half2 __hmin2_nan(const __half2 a, const __half2 b);
+__device__ __half2 __hfma2_relu(const __half2 a, const __half2 b, const __half2 c);
+__device__ __half2 __hcmadd(const __half2 a, const __half2 b, const __half2 c);
+__device__ __half hsqrt(const __half a);
+__device__ __half hrsqrt(const __half a);
+__device__ __half hrcp(const __half a);
+__device__ __half hlog(const __half a);
+__device__ __half hlog2(const __half a);
+__device__ __half hlog10(const __half a);
+__device__ __half hexp(const __half a);
+__device__ __half hexp2(const __half a);
+__device__ __half hexp10(const __half a);
+__device__ __half hcos(const __half a);
+__device__ __half hsin(const __half a);
+__device__ __half2 h2sqrt(const __half2 a);
+__device__ __half2 h2rsqrt(const __half2 a);
+__device__ __half2 h2rcp(const __half2 a);
+__device__ __half2 h2log(const __half2 a);
+__device__ __half2 h2log2(const __half2 a);
+__device__ __half2 h2log10(const __half2 a);
+__device__ __half2 h2exp(const __half2 a);
+__device__ __half2 h2exp2(const __half2 a);
+__device__ __half2 h2exp10(const __half2 a);
+__device__ __half2 h2cos(const __half2 a);
+__device__ __half2 h2sin(const __half2 a);
+__device__ __half2 atomicAdd(__half2 *const address, const __half2 val);
+__device__ __half atomicAdd(__half *const address, const __half val);
 
 struct alignas(2) __half {
 
@@ -366,39 +366,39 @@ public:
     }
     __device__ constexpr operator bool() const { return (__x & 0x7FFFU) != 0U; }
 };
-__device__ inline __half operator+(const __half &lh, const __half &rh) { return __hadd(lh, rh); }
-__device__ inline __half operator-(const __half &lh, const __half &rh) { return __hsub(lh, rh); }
-__device__ inline __half operator*(const __half &lh, const __half &rh) { return __hmul(lh, rh); }
-__device__ inline __half operator/(const __half &lh, const __half &rh) { return __hdiv(lh, rh); }
-__device__ inline __half &operator+=(__half &lh, const __half &rh) {
+__device__ __half operator+(const __half &lh, const __half &rh) { return __hadd(lh, rh); }
+__device__ __half operator-(const __half &lh, const __half &rh) { return __hsub(lh, rh); }
+__device__ __half operator*(const __half &lh, const __half &rh) { return __hmul(lh, rh); }
+__device__ __half operator/(const __half &lh, const __half &rh) { return __hdiv(lh, rh); }
+__device__ __half &operator+=(__half &lh, const __half &rh) {
     lh = __hadd(lh, rh);
     return lh;
 }
-__device__ inline __half &operator-=(__half &lh, const __half &rh) {
+__device__ __half &operator-=(__half &lh, const __half &rh) {
     lh = __hsub(lh, rh);
     return lh;
 }
-__device__ inline __half &operator*=(__half &lh, const __half &rh) {
+__device__ __half &operator*=(__half &lh, const __half &rh) {
     lh = __hmul(lh, rh);
     return lh;
 }
-__device__ inline __half &operator/=(__half &lh, const __half &rh) {
+__device__ __half &operator/=(__half &lh, const __half &rh) {
     lh = __hdiv(lh, rh);
     return lh;
 }
-__device__ inline __half &operator++(__half &h) {
+__device__ __half &operator++(__half &h) {
     __half_raw one;
     one.x = 0x3C00U;
     h += one;
     return h;
 }
-__device__ inline __half &operator--(__half &h) {
+__device__ __half &operator--(__half &h) {
     __half_raw one;
     one.x = 0x3C00U;
     h -= one;
     return h;
 }
-__device__ inline __half operator++(__half &h, const int ignored) {
+__device__ __half operator++(__half &h, const int ignored) {
     static_cast<void>(ignored);
     const __half ret = h;
     __half_raw one;
@@ -406,7 +406,7 @@ __device__ inline __half operator++(__half &h, const int ignored) {
     h += one;
     return ret;
 }
-__device__ inline __half operator--(__half &h, const int ignored) {
+__device__ __half operator--(__half &h, const int ignored) {
     static_cast<void>(ignored);
     const __half ret = h;
     __half_raw one;
@@ -414,14 +414,14 @@ __device__ inline __half operator--(__half &h, const int ignored) {
     h -= one;
     return ret;
 }
-__device__ inline __half operator+(const __half &h) { return h; }
-__device__ inline __half operator-(const __half &h) { return __hneg(h); }
-__device__ inline bool operator==(const __half &lh, const __half &rh) { return __heq(lh, rh); }
-__device__ inline bool operator!=(const __half &lh, const __half &rh) { return __hneu(lh, rh); }
-__device__ inline bool operator>(const __half &lh, const __half &rh) { return __hgt(lh, rh); }
-__device__ inline bool operator<(const __half &lh, const __half &rh) { return __hlt(lh, rh); }
-__device__ inline bool operator>=(const __half &lh, const __half &rh) { return __hge(lh, rh); }
-__device__ inline bool operator<=(const __half &lh, const __half &rh) { return __hle(lh, rh); }
+__device__ __half operator+(const __half &h) { return h; }
+__device__ __half operator-(const __half &h) { return __hneg(h); }
+__device__ bool operator==(const __half &lh, const __half &rh) { return __heq(lh, rh); }
+__device__ bool operator!=(const __half &lh, const __half &rh) { return __hneu(lh, rh); }
+__device__ bool operator>(const __half &lh, const __half &rh) { return __hgt(lh, rh); }
+__device__ bool operator<(const __half &lh, const __half &rh) { return __hlt(lh, rh); }
+__device__ bool operator>=(const __half &lh, const __half &rh) { return __hge(lh, rh); }
+__device__ bool operator<=(const __half &lh, const __half &rh) { return __hle(lh, rh); }
 
 struct alignas(4) __half2 {
     __half x{};
@@ -453,41 +453,41 @@ public:
         return ret;
     }
 };
-__device__ inline __half2 operator+(const __half2 &lh, const __half2 &rh) { return __hadd2(lh, rh); }
-__device__ inline __half2 operator-(const __half2 &lh, const __half2 &rh) { return __hsub2(lh, rh); }
-__device__ inline __half2 operator*(const __half2 &lh, const __half2 &rh) { return __hmul2(lh, rh); }
-__device__ inline __half2 operator/(const __half2 &lh, const __half2 &rh) { return __h2div(lh, rh); }
-__device__ inline __half2 &operator+=(__half2 &lh, const __half2 &rh) {
+__device__ __half2 operator+(const __half2 &lh, const __half2 &rh) { return __hadd2(lh, rh); }
+__device__ __half2 operator-(const __half2 &lh, const __half2 &rh) { return __hsub2(lh, rh); }
+__device__ __half2 operator*(const __half2 &lh, const __half2 &rh) { return __hmul2(lh, rh); }
+__device__ __half2 operator/(const __half2 &lh, const __half2 &rh) { return __h2div(lh, rh); }
+__device__ __half2 &operator+=(__half2 &lh, const __half2 &rh) {
     lh = __hadd2(lh, rh);
     return lh;
 }
-__device__ inline __half2 &operator-=(__half2 &lh, const __half2 &rh) {
+__device__ __half2 &operator-=(__half2 &lh, const __half2 &rh) {
     lh = __hsub2(lh, rh);
     return lh;
 }
-__device__ inline __half2 &operator*=(__half2 &lh, const __half2 &rh) {
+__device__ __half2 &operator*=(__half2 &lh, const __half2 &rh) {
     lh = __hmul2(lh, rh);
     return lh;
 }
-__device__ inline __half2 &operator/=(__half2 &lh, const __half2 &rh) {
+__device__ __half2 &operator/=(__half2 &lh, const __half2 &rh) {
     lh = __h2div(lh, rh);
     return lh;
 }
-__device__ inline __half2 &operator++(__half2 &h) {
+__device__ __half2 &operator++(__half2 &h) {
     __half2_raw one;
     one.x = 0x3C00U;
     one.y = 0x3C00U;
     h = __hadd2(h, one);
     return h;
 }
-__device__ inline __half2 &operator--(__half2 &h) {
+__device__ __half2 &operator--(__half2 &h) {
     __half2_raw one;
     one.x = 0x3C00U;
     one.y = 0x3C00U;
     h = __hsub2(h, one);
     return h;
 }
-__device__ inline __half2 operator++(__half2 &h, const int ignored) {
+__device__ __half2 operator++(__half2 &h, const int ignored) {
     static_cast<void>(ignored);
     const __half2 ret = h;
     __half2_raw one;
@@ -496,7 +496,7 @@ __device__ inline __half2 operator++(__half2 &h, const int ignored) {
     h = __hadd2(h, one);
     return ret;
 }
-__device__ inline __half2 operator--(__half2 &h, const int ignored) {
+__device__ __half2 operator--(__half2 &h, const int ignored) {
     static_cast<void>(ignored);
     const __half2 ret = h;
     __half2_raw one;
@@ -505,16 +505,16 @@ __device__ inline __half2 operator--(__half2 &h, const int ignored) {
     h = __hsub2(h, one);
     return ret;
 }
-__device__ inline __half2 operator+(const __half2 &h) { return h; }
-__device__ inline __half2 operator-(const __half2 &h) { return __hneg2(h); }
-__device__ inline bool operator==(const __half2 &lh, const __half2 &rh) { return __hbeq2(lh, rh); }
-__device__ inline bool operator!=(const __half2 &lh, const __half2 &rh) { return __hbneu2(lh, rh); }
-__device__ inline bool operator>(const __half2 &lh, const __half2 &rh) { return __hbgt2(lh, rh); }
-__device__ inline bool operator<(const __half2 &lh, const __half2 &rh) { return __hblt2(lh, rh); }
-__device__ inline bool operator>=(const __half2 &lh, const __half2 &rh) { return __hbge2(lh, rh); }
-__device__ inline bool operator<=(const __half2 &lh, const __half2 &rh) { return __hble2(lh, rh); }
+__device__ __half2 operator+(const __half2 &h) { return h; }
+__device__ __half2 operator-(const __half2 &h) { return __hneg2(h); }
+__device__ bool operator==(const __half2 &lh, const __half2 &rh) { return __hbeq2(lh, rh); }
+__device__ bool operator!=(const __half2 &lh, const __half2 &rh) { return __hbneu2(lh, rh); }
+__device__ bool operator>(const __half2 &lh, const __half2 &rh) { return __hbgt2(lh, rh); }
+__device__ bool operator<(const __half2 &lh, const __half2 &rh) { return __hblt2(lh, rh); }
+__device__ bool operator>=(const __half2 &lh, const __half2 &rh) { return __hbge2(lh, rh); }
+__device__ bool operator<=(const __half2 &lh, const __half2 &rh) { return __hble2(lh, rh); }
 
-__device__ inline __half __double2half(const double a) {
+__device__ __half __double2half(const double a) {
     {
         __half val;
         asm("{  cvt.rn.f16.f64 %0, %1;}\n"
@@ -523,42 +523,42 @@ __device__ inline __half __double2half(const double a) {
         return val;
     }
 }
-__device__ inline __half __float2half(const float a) {
+__device__ __half __float2half(const float a) {
     __half val;
     { asm("{  cvt.rn.f16.f32 %0, %1;}\n"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
           : "f"(a)); }
     return val;
 }
-__device__ inline __half __float2half_rn(const float a) {
+__device__ __half __float2half_rn(const float a) {
     __half val;
     { asm("{  cvt.rn.f16.f32 %0, %1;}\n"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
           : "f"(a)); }
     return val;
 }
-__device__ inline __half __float2half_rz(const float a) {
+__device__ __half __float2half_rz(const float a) {
     __half val;
     { asm("{  cvt.rz.f16.f32 %0, %1;}\n"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
           : "f"(a)); }
     return val;
 }
-__device__ inline __half __float2half_rd(const float a) {
+__device__ __half __float2half_rd(const float a) {
     __half val;
     { asm("{  cvt.rm.f16.f32 %0, %1;}\n"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
           : "f"(a)); }
     return val;
 }
-__device__ inline __half __float2half_ru(const float a) {
+__device__ __half __float2half_ru(const float a) {
     __half val;
     { asm("{  cvt.rp.f16.f32 %0, %1;}\n"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
           : "f"(a)); }
     return val;
 }
-__device__ inline __half2 __float2half2_rn(const float a) {
+__device__ __half2 __float2half2_rn(const float a) {
     __half2 val;
     { asm("{.reg .f16 low;\n"
           "  cvt.rn.f16.f32 low, %1;\n"
@@ -567,7 +567,7 @@ __device__ inline __half2 __float2half2_rn(const float a) {
           : "f"(a)); }
     return val;
 }
-__device__ inline __half2 __internal_device_float2_to_half2_rn(const float a, const float b) {
+__device__ __half2 __internal_device_float2_to_half2_rn(const float a, const float b) {
     __half2 val;
     { asm("{.reg .f16 low,high;\n"
           "  cvt.rn.f16.f32 low, %1;\n"
@@ -577,19 +577,19 @@ __device__ inline __half2 __internal_device_float2_to_half2_rn(const float a, co
           : "f"(a), "f"(b)); }
     return val;
 }
-__device__ inline __half2 __floats2half2_rn(const float a, const float b) {
+__device__ __half2 __floats2half2_rn(const float a, const float b) {
     __half2 val;
     { val = __internal_device_float2_to_half2_rn(a, b); }
     return val;
 }
-__device__ inline float __half2float(const __half a) {
+__device__ float __half2float(const __half a) {
     float val;
     { asm("{  cvt.f32.f16 %0, %1;}\n"
           : "=f"(val)
           : "h"(*(reinterpret_cast<const unsigned short *>(&(a))))); }
     return val;
 }
-__device__ inline float __low2float(const __half2 a) {
+__device__ float __low2float(const __half2 a) {
     float val;
     { asm("{.reg .f16 low,high;\n"
           "  mov.b32 {low,high},%1;\n"
@@ -598,7 +598,7 @@ __device__ inline float __low2float(const __half2 a) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a))))); }
     return val;
 }
-__device__ inline float __high2float(const __half2 a) {
+__device__ float __high2float(const __half2 a) {
     float val;
     { asm("{.reg .f16 low,high;\n"
           "  mov.b32 {low,high},%1;\n"
@@ -607,7 +607,7 @@ __device__ inline float __high2float(const __half2 a) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a))))); }
     return val;
 }
-__device__ inline signed char __half2char_rz(const __half h) {
+__device__ signed char __half2char_rz(const __half h) {
     signed char i;
     {
         const float f = __half2float(h);
@@ -626,7 +626,7 @@ __device__ inline signed char __half2char_rz(const __half h) {
     }
     return i;
 }
-__device__ inline unsigned char __half2uchar_rz(const __half h) {
+__device__ unsigned char __half2uchar_rz(const __half h) {
     unsigned char i;
     {
         const float f = __half2float(h);
@@ -645,59 +645,59 @@ __device__ inline unsigned char __half2uchar_rz(const __half h) {
     }
     return i;
 }
-__device__ inline short int __half2short_rz(const __half h) {
+__device__ short int __half2short_rz(const __half h) {
     short int i;
     { asm("cvt.rzi.s16.f16 %0, %1;"
           : "=h"(i)
           : "h"(*(reinterpret_cast<const unsigned short *>(&(h))))); }
     return i;
 }
-__device__ inline unsigned short int __half2ushort_rz(const __half h) {
+__device__ unsigned short int __half2ushort_rz(const __half h) {
     unsigned short int i;
     { asm("cvt.rzi.u16.f16 %0, %1;"
           : "=h"(i)
           : "h"(*(reinterpret_cast<const unsigned short *>(&(h))))); }
     return i;
 }
-__device__ inline int __half2int_rz(const __half h) {
+__device__ int __half2int_rz(const __half h) {
     int i;
     { asm("cvt.rzi.s32.f16 %0, %1;"
           : "=r"(i)
           : "h"(*(reinterpret_cast<const unsigned short *>(&(h))))); }
     return i;
 }
-__device__ inline unsigned int __half2uint_rz(const __half h) {
+__device__ unsigned int __half2uint_rz(const __half h) {
     unsigned int i;
     { asm("cvt.rzi.u32.f16 %0, %1;"
           : "=r"(i)
           : "h"(*(reinterpret_cast<const unsigned short *>(&(h))))); }
     return i;
 }
-__device__ inline long long int __half2ll_rz(const __half h) {
+__device__ long long int __half2ll_rz(const __half h) {
     long long int i;
     { asm("cvt.rzi.s64.f16 %0, %1;"
           : "=l"(i)
           : "h"(*(reinterpret_cast<const unsigned short *>(&(h))))); }
     return i;
 }
-__device__ inline unsigned long long int __half2ull_rz(const __half h) {
+__device__ unsigned long long int __half2ull_rz(const __half h) {
     unsigned long long int i;
     { asm("cvt.rzi.u64.f16 %0, %1;"
           : "=l"(i)
           : "h"(*(reinterpret_cast<const unsigned short *>(&(h))))); }
     return i;
 }
-__device__ inline __half2 make_half2(const __half x, const __half y) {
+__device__ __half2 make_half2(const __half x, const __half y) {
     __half2 t;
     t.x = x;
     t.y = y;
     return t;
 }
-__device__ inline __half2 __float22half2_rn(const float2 a) {
+__device__ __half2 __float22half2_rn(const float2 a) {
     const __half2 val = __floats2half2_rn(a.x, a.y);
     return val;
 }
-__device__ inline float2 __half22float2(const __half2 a) {
+__device__ float2 __half22float2(const __half2 a) {
     float hi_float;
     float lo_float;
     {
@@ -714,329 +714,329 @@ __device__ inline float2 __half22float2(const __half2 a) {
     }
     return make_float2(lo_float, hi_float);
 }
-__device__ inline int __half2int_rn(const __half h) {
+__device__ int __half2int_rn(const __half h) {
     int i;
     asm("cvt.rni.s32.f16 %0, %1;"
         : "=r"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline int __half2int_rd(const __half h) {
+__device__ int __half2int_rd(const __half h) {
     int i;
     asm("cvt.rmi.s32.f16 %0, %1;"
         : "=r"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline int __half2int_ru(const __half h) {
+__device__ int __half2int_ru(const __half h) {
     int i;
     asm("cvt.rpi.s32.f16 %0, %1;"
         : "=r"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline __half __int2half_rn(const int i) {
+__device__ __half __int2half_rn(const int i) {
     __half h;
     { asm("cvt.rn.f16.s32 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "r"(i)); }
     return h;
 }
-__device__ inline __half __int2half_rz(const int i) {
+__device__ __half __int2half_rz(const int i) {
     __half h;
     { asm("cvt.rz.f16.s32 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "r"(i)); }
     return h;
 }
-__device__ inline __half __int2half_rd(const int i) {
+__device__ __half __int2half_rd(const int i) {
     __half h;
     { asm("cvt.rm.f16.s32 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "r"(i)); }
     return h;
 }
-__device__ inline __half __int2half_ru(const int i) {
+__device__ __half __int2half_ru(const int i) {
     __half h;
     { asm("cvt.rp.f16.s32 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "r"(i)); }
     return h;
 }
-__device__ inline short int __half2short_rn(const __half h) {
+__device__ short int __half2short_rn(const __half h) {
     short int i;
     asm("cvt.rni.s16.f16 %0, %1;"
         : "=h"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline short int __half2short_rd(const __half h) {
+__device__ short int __half2short_rd(const __half h) {
     short int i;
     asm("cvt.rmi.s16.f16 %0, %1;"
         : "=h"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline short int __half2short_ru(const __half h) {
+__device__ short int __half2short_ru(const __half h) {
     short int i;
     asm("cvt.rpi.s16.f16 %0, %1;"
         : "=h"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline __half __short2half_rn(const short int i) {
+__device__ __half __short2half_rn(const short int i) {
     __half h;
     { asm("cvt.rn.f16.s16 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "h"(i)); }
     return h;
 }
-__device__ inline __half __short2half_rz(const short int i) {
+__device__ __half __short2half_rz(const short int i) {
     __half h;
     { asm("cvt.rz.f16.s16 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "h"(i)); }
     return h;
 }
-__device__ inline __half __short2half_rd(const short int i) {
+__device__ __half __short2half_rd(const short int i) {
     __half h;
     { asm("cvt.rm.f16.s16 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "h"(i)); }
     return h;
 }
-__device__ inline __half __short2half_ru(const short int i) {
+__device__ __half __short2half_ru(const short int i) {
     __half h;
     { asm("cvt.rp.f16.s16 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "h"(i)); }
     return h;
 }
-__device__ inline unsigned int __half2uint_rn(const __half h) {
+__device__ unsigned int __half2uint_rn(const __half h) {
     unsigned int i;
     asm("cvt.rni.u32.f16 %0, %1;"
         : "=r"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline unsigned int __half2uint_rd(const __half h) {
+__device__ unsigned int __half2uint_rd(const __half h) {
     unsigned int i;
     asm("cvt.rmi.u32.f16 %0, %1;"
         : "=r"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline unsigned int __half2uint_ru(const __half h) {
+__device__ unsigned int __half2uint_ru(const __half h) {
     unsigned int i;
     asm("cvt.rpi.u32.f16 %0, %1;"
         : "=r"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline __half __uint2half_rn(const unsigned int i) {
+__device__ __half __uint2half_rn(const unsigned int i) {
     __half h;
     { asm("cvt.rn.f16.u32 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "r"(i)); }
     return h;
 }
-__device__ inline __half __uint2half_rz(const unsigned int i) {
+__device__ __half __uint2half_rz(const unsigned int i) {
     __half h;
     { asm("cvt.rz.f16.u32 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "r"(i)); }
     return h;
 }
-__device__ inline __half __uint2half_rd(const unsigned int i) {
+__device__ __half __uint2half_rd(const unsigned int i) {
     __half h;
     { asm("cvt.rm.f16.u32 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "r"(i)); }
     return h;
 }
-__device__ inline __half __uint2half_ru(const unsigned int i) {
+__device__ __half __uint2half_ru(const unsigned int i) {
     __half h;
     { asm("cvt.rp.f16.u32 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "r"(i)); }
     return h;
 }
-__device__ inline unsigned short int __half2ushort_rn(const __half h) {
+__device__ unsigned short int __half2ushort_rn(const __half h) {
     unsigned short int i;
     asm("cvt.rni.u16.f16 %0, %1;"
         : "=h"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline unsigned short int __half2ushort_rd(const __half h) {
+__device__ unsigned short int __half2ushort_rd(const __half h) {
     unsigned short int i;
     asm("cvt.rmi.u16.f16 %0, %1;"
         : "=h"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline unsigned short int __half2ushort_ru(const __half h) {
+__device__ unsigned short int __half2ushort_ru(const __half h) {
     unsigned short int i;
     asm("cvt.rpi.u16.f16 %0, %1;"
         : "=h"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline __half __ushort2half_rn(const unsigned short int i) {
+__device__ __half __ushort2half_rn(const unsigned short int i) {
     __half h;
     { asm("cvt.rn.f16.u16 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "h"(i)); }
     return h;
 }
-__device__ inline __half __ushort2half_rz(const unsigned short int i) {
+__device__ __half __ushort2half_rz(const unsigned short int i) {
     __half h;
     { asm("cvt.rz.f16.u16 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "h"(i)); }
     return h;
 }
-__device__ inline __half __ushort2half_rd(const unsigned short int i) {
+__device__ __half __ushort2half_rd(const unsigned short int i) {
     __half h;
     { asm("cvt.rm.f16.u16 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "h"(i)); }
     return h;
 }
-__device__ inline __half __ushort2half_ru(const unsigned short int i) {
+__device__ __half __ushort2half_ru(const unsigned short int i) {
     __half h;
     { asm("cvt.rp.f16.u16 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "h"(i)); }
     return h;
 }
-__device__ inline unsigned long long int __half2ull_rn(const __half h) {
+__device__ unsigned long long int __half2ull_rn(const __half h) {
     unsigned long long int i;
     asm("cvt.rni.u64.f16 %0, %1;"
         : "=l"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline unsigned long long int __half2ull_rd(const __half h) {
+__device__ unsigned long long int __half2ull_rd(const __half h) {
     unsigned long long int i;
     asm("cvt.rmi.u64.f16 %0, %1;"
         : "=l"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline unsigned long long int __half2ull_ru(const __half h) {
+__device__ unsigned long long int __half2ull_ru(const __half h) {
     unsigned long long int i;
     asm("cvt.rpi.u64.f16 %0, %1;"
         : "=l"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline __half __ull2half_rn(const unsigned long long int i) {
+__device__ __half __ull2half_rn(const unsigned long long int i) {
     __half h;
     { asm("cvt.rn.f16.u64 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "l"(i)); }
     return h;
 }
-__device__ inline __half __ull2half_rz(const unsigned long long int i) {
+__device__ __half __ull2half_rz(const unsigned long long int i) {
     __half h;
     { asm("cvt.rz.f16.u64 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "l"(i)); }
     return h;
 }
-__device__ inline __half __ull2half_rd(const unsigned long long int i) {
+__device__ __half __ull2half_rd(const unsigned long long int i) {
     __half h;
     { asm("cvt.rm.f16.u64 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "l"(i)); }
     return h;
 }
-__device__ inline __half __ull2half_ru(const unsigned long long int i) {
+__device__ __half __ull2half_ru(const unsigned long long int i) {
     __half h;
     { asm("cvt.rp.f16.u64 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "l"(i)); }
     return h;
 }
-__device__ inline long long int __half2ll_rn(const __half h) {
+__device__ long long int __half2ll_rn(const __half h) {
     long long int i;
     asm("cvt.rni.s64.f16 %0, %1;"
         : "=l"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline long long int __half2ll_rd(const __half h) {
+__device__ long long int __half2ll_rd(const __half h) {
     long long int i;
     asm("cvt.rmi.s64.f16 %0, %1;"
         : "=l"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline long long int __half2ll_ru(const __half h) {
+__device__ long long int __half2ll_ru(const __half h) {
     long long int i;
     asm("cvt.rpi.s64.f16 %0, %1;"
         : "=l"(i)
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return i;
 }
-__device__ inline __half __ll2half_rn(const long long int i) {
+__device__ __half __ll2half_rn(const long long int i) {
     __half h;
     { asm("cvt.rn.f16.s64 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "l"(i)); }
     return h;
 }
-__device__ inline __half __ll2half_rz(const long long int i) {
+__device__ __half __ll2half_rz(const long long int i) {
     __half h;
     { asm("cvt.rz.f16.s64 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "l"(i)); }
     return h;
 }
-__device__ inline __half __ll2half_rd(const long long int i) {
+__device__ __half __ll2half_rd(const long long int i) {
     __half h;
     { asm("cvt.rm.f16.s64 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "l"(i)); }
     return h;
 }
-__device__ inline __half __ll2half_ru(const long long int i) {
+__device__ __half __ll2half_ru(const long long int i) {
     __half h;
     { asm("cvt.rp.f16.s64 %0, %1;"
           : "=h"(*(reinterpret_cast<unsigned short *>(&(h))))
           : "l"(i)); }
     return h;
 }
-__device__ inline __half htrunc(const __half h) {
+__device__ __half htrunc(const __half h) {
     __half r;
     asm("cvt.rzi.f16.f16 %0, %1;"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(r))))
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return r;
 }
-__device__ inline __half hceil(const __half h) {
+__device__ __half hceil(const __half h) {
     __half r;
     asm("cvt.rpi.f16.f16 %0, %1;"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(r))))
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return r;
 }
-__device__ inline __half hfloor(const __half h) {
+__device__ __half hfloor(const __half h) {
     __half r;
     asm("cvt.rmi.f16.f16 %0, %1;"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(r))))
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return r;
 }
-__device__ inline __half hrint(const __half h) {
+__device__ __half hrint(const __half h) {
     __half r;
     asm("cvt.rni.f16.f16 %0, %1;"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(r))))
         : "h"(*(reinterpret_cast<const unsigned short *>(&(h)))));
     return r;
 }
-__device__ inline __half2 h2trunc(const __half2 h) {
+__device__ __half2 h2trunc(const __half2 h) {
     __half2 val;
     asm("{.reg .f16 low,high;\n"
         "  mov.b32 {low,high}, %1;\n"
@@ -1047,7 +1047,7 @@ __device__ inline __half2 h2trunc(const __half2 h) {
         : "r"(*(reinterpret_cast<const unsigned int *>(&(h)))));
     return val;
 }
-__device__ inline __half2 h2ceil(const __half2 h) {
+__device__ __half2 h2ceil(const __half2 h) {
     __half2 val;
     asm("{.reg .f16 low,high;\n"
         "  mov.b32 {low,high}, %1;\n"
@@ -1058,7 +1058,7 @@ __device__ inline __half2 h2ceil(const __half2 h) {
         : "r"(*(reinterpret_cast<const unsigned int *>(&(h)))));
     return val;
 }
-__device__ inline __half2 h2floor(const __half2 h) {
+__device__ __half2 h2floor(const __half2 h) {
     __half2 val;
     asm("{.reg .f16 low,high;\n"
         "  mov.b32 {low,high}, %1;\n"
@@ -1069,7 +1069,7 @@ __device__ inline __half2 h2floor(const __half2 h) {
         : "r"(*(reinterpret_cast<const unsigned int *>(&(h)))));
     return val;
 }
-__device__ inline __half2 h2rint(const __half2 h) {
+__device__ __half2 h2rint(const __half2 h) {
     __half2 val;
     asm("{.reg .f16 low,high;\n"
         "  mov.b32 {low,high}, %1;\n"
@@ -1080,7 +1080,7 @@ __device__ inline __half2 h2rint(const __half2 h) {
         : "r"(*(reinterpret_cast<const unsigned int *>(&(h)))));
     return val;
 }
-__device__ inline __half2 __lows2half2(const __half2 a, const __half2 b) {
+__device__ __half2 __lows2half2(const __half2 a, const __half2 b) {
     __half2 val;
     { asm("{.reg .f16 alow,ahigh,blow,bhigh;\n"
           "  mov.b32 {alow,ahigh}, %1;\n"
@@ -1090,7 +1090,7 @@ __device__ inline __half2 __lows2half2(const __half2 a, const __half2 b) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a)))), "r"(*(reinterpret_cast<const unsigned int *>(&(b))))); }
     return val;
 }
-__device__ inline __half2 __highs2half2(const __half2 a, const __half2 b) {
+__device__ __half2 __highs2half2(const __half2 a, const __half2 b) {
     __half2 val;
     { asm("{.reg .f16 alow,ahigh,blow,bhigh;\n"
           "  mov.b32 {alow,ahigh}, %1;\n"
@@ -1100,7 +1100,7 @@ __device__ inline __half2 __highs2half2(const __half2 a, const __half2 b) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a)))), "r"(*(reinterpret_cast<const unsigned int *>(&(b))))); }
     return val;
 }
-__device__ inline __half __low2half(const __half2 a) {
+__device__ __half __low2half(const __half2 a) {
     __half ret;
     { asm("{.reg .f16 low,high;\n"
           " mov.b32 {low,high}, %1;\n"
@@ -1109,7 +1109,7 @@ __device__ inline __half __low2half(const __half2 a) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a))))); }
     return ret;
 }
-__device__ inline int __hisinf(const __half a) {
+__device__ int __hisinf(const __half a) {
     int retval;
     const __half_raw araw = __half_raw(a);
     if (araw.x == 0xFC00U) {
@@ -1121,7 +1121,7 @@ __device__ inline int __hisinf(const __half a) {
     }
     return retval;
 }
-__device__ inline __half2 __low2half2(const __half2 a) {
+__device__ __half2 __low2half2(const __half2 a) {
     __half2 val;
     { asm("{.reg .f16 low,high;\n"
           "  mov.b32 {low,high}, %1;\n"
@@ -1130,7 +1130,7 @@ __device__ inline __half2 __low2half2(const __half2 a) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a))))); }
     return val;
 }
-__device__ inline __half2 __high2half2(const __half2 a) {
+__device__ __half2 __high2half2(const __half2 a) {
     __half2 val;
     { asm("{.reg .f16 low,high;\n"
           "  mov.b32 {low,high}, %1;\n"
@@ -1139,7 +1139,7 @@ __device__ inline __half2 __high2half2(const __half2 a) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a))))); }
     return val;
 }
-__device__ inline __half __high2half(const __half2 a) {
+__device__ __half __high2half(const __half2 a) {
     __half ret;
     { asm("{.reg .f16 low,high;\n"
           " mov.b32 {low,high}, %1;\n"
@@ -1148,21 +1148,21 @@ __device__ inline __half __high2half(const __half2 a) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a))))); }
     return ret;
 }
-__device__ inline __half2 __halves2half2(const __half a, const __half b) {
+__device__ __half2 __halves2half2(const __half a, const __half b) {
     __half2 val;
     { asm("{  mov.b32 %0, {%1,%2};}\n"
           : "=r"(*(reinterpret_cast<unsigned int *>(&(val))))
           : "h"(*(reinterpret_cast<const unsigned short *>(&(a)))), "h"(*(reinterpret_cast<const unsigned short *>(&(b))))); }
     return val;
 }
-__device__ inline __half2 __half2half2(const __half a) {
+__device__ __half2 __half2half2(const __half a) {
     __half2 val;
     { asm("{  mov.b32 %0, {%1,%1};}\n"
           : "=r"(*(reinterpret_cast<unsigned int *>(&(val))))
           : "h"(*(reinterpret_cast<const unsigned short *>(&(a))))); }
     return val;
 }
-__device__ inline __half2 __lowhigh2highlow(const __half2 a) {
+__device__ __half2 __lowhigh2highlow(const __half2 a) {
     __half2 val;
     { asm("{.reg .f16 low,high;\n"
           "  mov.b32 {low,high}, %1;\n"
@@ -1171,27 +1171,27 @@ __device__ inline __half2 __lowhigh2highlow(const __half2 a) {
           : "r"(*(reinterpret_cast<const unsigned int *>(&(a))))); }
     return val;
 }
-__device__ inline short int __half_as_short(const __half h) {
+__device__ short int __half_as_short(const __half h) {
     { return static_cast<short int>(*(reinterpret_cast<const unsigned short *>(&(h)))); }
 }
-__device__ inline unsigned short int __half_as_ushort(const __half h) {
+__device__ unsigned short int __half_as_ushort(const __half h) {
     { return *(reinterpret_cast<const unsigned short *>(&(h))); }
 }
-__device__ inline __half __short_as_half(const short int i) {
+__device__ __half __short_as_half(const short int i) {
     {
         __half h;
         *(reinterpret_cast<unsigned short *>(&(h))) = static_cast<unsigned short int>(i);
         return h;
     }
 }
-__device__ inline __half __ushort_as_half(const unsigned short int i) {
+__device__ __half __ushort_as_half(const unsigned short int i) {
     {
         __half h;
         *(reinterpret_cast<unsigned short *>(&(h))) = i;
         return h;
     }
 }
-__device__ inline __half __internal_device_hmax(const __half a, const __half b) {
+__device__ __half __internal_device_hmax(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
@@ -1203,7 +1203,7 @@ __device__ inline __half __internal_device_hmax(const __half a, const __half b) 
         return hr;
     }
 }
-__device__ inline __half __internal_device_hmin(const __half a, const __half b) {
+__device__ __half __internal_device_hmin(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
@@ -1215,13 +1215,13 @@ __device__ inline __half __internal_device_hmin(const __half a, const __half b) 
         return hr;
     }
 }
-__device__ inline __half __hmax(const __half a, const __half b) {
+__device__ __half __hmax(const __half a, const __half b) {
     { return __internal_device_hmax(a, b); }
 }
-__device__ inline __half __hmin(const __half a, const __half b) {
+__device__ __half __hmin(const __half a, const __half b) {
     { return __internal_device_hmin(a, b); }
 }
-__device__ inline __half2 __hmax2(const __half2 a, const __half2 b) {
+__device__ __half2 __hmax2(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hmax(a.x, b.x);
@@ -1229,7 +1229,7 @@ __device__ inline __half2 __hmax2(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hmin2(const __half2 a, const __half2 b) {
+__device__ __half2 __hmin2(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hmin(a.x, b.x);
@@ -1237,7 +1237,7 @@ __device__ inline __half2 __hmin2(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __shfl(const __half2 var, const int delta, const int width) {
+__device__ __half2 __shfl(const __half2 var, const int delta, const int width) {
     unsigned int warp_size;
     asm("{mov.u32 %0, WARP_SZ;\n}"
         : "=r"(warp_size));
@@ -1252,7 +1252,7 @@ __device__ inline __half2 __shfl(const __half2 var, const int delta, const int w
         return r;
     }
 }
-__device__ inline __half2 __shfl_up(const __half2 var, const unsigned int delta, const int width) {
+__device__ __half2 __shfl_up(const __half2 var, const unsigned int delta, const int width) {
     unsigned int warp_size;
     asm("{mov.u32 %0, WARP_SZ;\n}"
         : "=r"(warp_size));
@@ -1267,7 +1267,7 @@ __device__ inline __half2 __shfl_up(const __half2 var, const unsigned int delta,
         return r;
     }
 }
-__device__ inline __half2 __shfl_down(const __half2 var, const unsigned int delta, const int width) {
+__device__ __half2 __shfl_down(const __half2 var, const unsigned int delta, const int width) {
     unsigned int warp_size;
     asm("{mov.u32 %0, WARP_SZ;\n}"
         : "=r"(warp_size));
@@ -1282,7 +1282,7 @@ __device__ inline __half2 __shfl_down(const __half2 var, const unsigned int delt
         return r;
     }
 }
-__device__ inline __half2 __shfl_xor(const __half2 var, const int delta, const int width) {
+__device__ __half2 __shfl_xor(const __half2 var, const int delta, const int width) {
     unsigned int warp_size;
     asm("{mov.u32 %0, WARP_SZ;\n}"
         : "=r"(warp_size));
@@ -1297,7 +1297,7 @@ __device__ inline __half2 __shfl_xor(const __half2 var, const int delta, const i
         return r;
     }
 }
-__device__ inline __half2 __shfl_sync(const unsigned mask, const __half2 var, const int delta, const int width) {
+__device__ __half2 __shfl_sync(const unsigned mask, const __half2 var, const int delta, const int width) {
     unsigned int warp_size;
     asm("{mov.u32 %0, WARP_SZ;\n}"
         : "=r"(warp_size));
@@ -1312,7 +1312,7 @@ __device__ inline __half2 __shfl_sync(const unsigned mask, const __half2 var, co
         return r;
     }
 }
-__device__ inline __half2 __shfl_up_sync(const unsigned mask, const __half2 var, const unsigned int delta, const int width) {
+__device__ __half2 __shfl_up_sync(const unsigned mask, const __half2 var, const unsigned int delta, const int width) {
     unsigned int warp_size;
     asm("{mov.u32 %0, WARP_SZ;\n}"
         : "=r"(warp_size));
@@ -1327,7 +1327,7 @@ __device__ inline __half2 __shfl_up_sync(const unsigned mask, const __half2 var,
         return r;
     }
 }
-__device__ inline __half2 __shfl_down_sync(const unsigned mask, const __half2 var, const unsigned int delta, const int width) {
+__device__ __half2 __shfl_down_sync(const unsigned mask, const __half2 var, const unsigned int delta, const int width) {
     unsigned int warp_size;
     asm("{mov.u32 %0, WARP_SZ;\n}"
         : "=r"(warp_size));
@@ -1342,7 +1342,7 @@ __device__ inline __half2 __shfl_down_sync(const unsigned mask, const __half2 va
         return r;
     }
 }
-__device__ inline __half2 __shfl_xor_sync(const unsigned mask, const __half2 var, const int delta, const int width) {
+__device__ __half2 __shfl_xor_sync(const unsigned mask, const __half2 var, const int delta, const int width) {
     unsigned int warp_size;
     asm("{mov.u32 %0, WARP_SZ;\n}"
         : "=r"(warp_size));
@@ -1357,103 +1357,103 @@ __device__ inline __half2 __shfl_xor_sync(const unsigned mask, const __half2 var
         return r;
     }
 }
-__device__ inline __half __shfl(const __half var, const int delta, const int width) {
+__device__ __half __shfl(const __half var, const int delta, const int width) {
     const __half2 temp1 = __halves2half2(var, var);
     const __half2 temp2 = __shfl(temp1, delta, width);
     return __low2half(temp2);
 }
-__device__ inline __half __shfl_up(const __half var, const unsigned int delta, const int width) {
+__device__ __half __shfl_up(const __half var, const unsigned int delta, const int width) {
     const __half2 temp1 = __halves2half2(var, var);
     const __half2 temp2 = __shfl_up(temp1, delta, width);
     return __low2half(temp2);
 }
-__device__ inline __half __shfl_down(const __half var, const unsigned int delta, const int width) {
+__device__ __half __shfl_down(const __half var, const unsigned int delta, const int width) {
     const __half2 temp1 = __halves2half2(var, var);
     const __half2 temp2 = __shfl_down(temp1, delta, width);
     return __low2half(temp2);
 }
-__device__ inline __half __shfl_xor(const __half var, const int delta, const int width) {
+__device__ __half __shfl_xor(const __half var, const int delta, const int width) {
     const __half2 temp1 = __halves2half2(var, var);
     const __half2 temp2 = __shfl_xor(temp1, delta, width);
     return __low2half(temp2);
 }
-__device__ inline __half __shfl_sync(const unsigned mask, const __half var, const int delta, const int width) {
+__device__ __half __shfl_sync(const unsigned mask, const __half var, const int delta, const int width) {
     const __half2 temp1 = __halves2half2(var, var);
     const __half2 temp2 = __shfl_sync(mask, temp1, delta, width);
     return __low2half(temp2);
 }
-__device__ inline __half __shfl_up_sync(const unsigned mask, const __half var, const unsigned int delta, const int width) {
+__device__ __half __shfl_up_sync(const unsigned mask, const __half var, const unsigned int delta, const int width) {
     const __half2 temp1 = __halves2half2(var, var);
     const __half2 temp2 = __shfl_up_sync(mask, temp1, delta, width);
     return __low2half(temp2);
 }
-__device__ inline __half __shfl_down_sync(const unsigned mask, const __half var, const unsigned int delta, const int width) {
+__device__ __half __shfl_down_sync(const unsigned mask, const __half var, const unsigned int delta, const int width) {
     const __half2 temp1 = __halves2half2(var, var);
     const __half2 temp2 = __shfl_down_sync(mask, temp1, delta, width);
     return __low2half(temp2);
 }
-__device__ inline __half __shfl_xor_sync(const unsigned mask, const __half var, const int delta, const int width) {
+__device__ __half __shfl_xor_sync(const unsigned mask, const __half var, const int delta, const int width) {
     const __half2 temp1 = __halves2half2(var, var);
     const __half2 temp2 = __shfl_xor_sync(mask, temp1, delta, width);
     return __low2half(temp2);
 }
-__device__ inline __half2 __ldg(const __half2 *const ptr) {
+__device__ __half2 __ldg(const __half2 *const ptr) {
     __half2 ret;
     asm("ld.global.nc.b32 %0, [%1];"
         : "=r"(*(reinterpret_cast<unsigned int *>(&(ret))))
         : "l"(ptr));
     return ret;
 }
-__device__ inline __half __ldg(const __half *const ptr) {
+__device__ __half __ldg(const __half *const ptr) {
     __half ret;
     asm("ld.global.nc.b16 %0, [%1];"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(ret))))
         : "l"(ptr));
     return ret;
 }
-__device__ inline __half2 __ldcg(const __half2 *const ptr) {
+__device__ __half2 __ldcg(const __half2 *const ptr) {
     __half2 ret;
     asm("ld.global.cg.b32 %0, [%1];"
         : "=r"(*(reinterpret_cast<unsigned int *>(&(ret))))
         : "l"(ptr));
     return ret;
 }
-__device__ inline __half __ldcg(const __half *const ptr) {
+__device__ __half __ldcg(const __half *const ptr) {
     __half ret;
     asm("ld.global.cg.b16 %0, [%1];"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(ret))))
         : "l"(ptr));
     return ret;
 }
-__device__ inline __half2 __ldca(const __half2 *const ptr) {
+__device__ __half2 __ldca(const __half2 *const ptr) {
     __half2 ret;
     asm("ld.global.ca.b32 %0, [%1];"
         : "=r"(*(reinterpret_cast<unsigned int *>(&(ret))))
         : "l"(ptr));
     return ret;
 }
-__device__ inline __half __ldca(const __half *const ptr) {
+__device__ __half __ldca(const __half *const ptr) {
     __half ret;
     asm("ld.global.ca.b16 %0, [%1];"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(ret))))
         : "l"(ptr));
     return ret;
 }
-__device__ inline __half2 __ldcs(const __half2 *const ptr) {
+__device__ __half2 __ldcs(const __half2 *const ptr) {
     __half2 ret;
     asm("ld.global.cs.b32 %0, [%1];"
         : "=r"(*(reinterpret_cast<unsigned int *>(&(ret))))
         : "l"(ptr));
     return ret;
 }
-__device__ inline __half __ldcs(const __half *const ptr) {
+__device__ __half __ldcs(const __half *const ptr) {
     __half ret;
     asm("ld.global.cs.b16 %0, [%1];"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(ret))))
         : "l"(ptr));
     return ret;
 }
-__device__ inline __half2 __ldlu(const __half2 *const ptr) {
+__device__ __half2 __ldlu(const __half2 *const ptr) {
     __half2 ret;
     asm("ld.global.lu.b32 %0, [%1];"
         : "=r"(*(reinterpret_cast<unsigned int *>(&(ret))))
@@ -1461,7 +1461,7 @@ __device__ inline __half2 __ldlu(const __half2 *const ptr) {
         : "memory");
     return ret;
 }
-__device__ inline __half __ldlu(const __half *const ptr) {
+__device__ __half __ldlu(const __half *const ptr) {
     __half ret;
     asm("ld.global.lu.b16 %0, [%1];"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(ret))))
@@ -1469,7 +1469,7 @@ __device__ inline __half __ldlu(const __half *const ptr) {
         : "memory");
     return ret;
 }
-__device__ inline __half2 __ldcv(const __half2 *const ptr) {
+__device__ __half2 __ldcv(const __half2 *const ptr) {
     __half2 ret;
     asm("ld.global.cv.b32 %0, [%1];"
         : "=r"(*(reinterpret_cast<unsigned int *>(&(ret))))
@@ -1477,7 +1477,7 @@ __device__ inline __half2 __ldcv(const __half2 *const ptr) {
         : "memory");
     return ret;
 }
-__device__ inline __half __ldcv(const __half *const ptr) {
+__device__ __half __ldcv(const __half *const ptr) {
     __half ret;
     asm("ld.global.cv.b16 %0, [%1];"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(ret))))
@@ -1485,39 +1485,39 @@ __device__ inline __half __ldcv(const __half *const ptr) {
         : "memory");
     return ret;
 }
-__device__ inline void __stwb(__half2 *const ptr, const __half2 value) {
+__device__ void __stwb(__half2 *const ptr, const __half2 value) {
     asm("st.global.wb.b32 [%0], %1;" ::"l"(ptr), "r"(*(reinterpret_cast<const unsigned int *>(&(value))))
         : "memory");
 }
-__device__ inline void __stwb(__half *const ptr, const __half value) {
+__device__ void __stwb(__half *const ptr, const __half value) {
     asm("st.global.wb.b16 [%0], %1;" ::"l"(ptr), "h"(*(reinterpret_cast<const unsigned short *>(&(value))))
         : "memory");
 }
-__device__ inline void __stcg(__half2 *const ptr, const __half2 value) {
+__device__ void __stcg(__half2 *const ptr, const __half2 value) {
     asm("st.global.cg.b32 [%0], %1;" ::"l"(ptr), "r"(*(reinterpret_cast<const unsigned int *>(&(value))))
         : "memory");
 }
-__device__ inline void __stcg(__half *const ptr, const __half value) {
+__device__ void __stcg(__half *const ptr, const __half value) {
     asm("st.global.cg.b16 [%0], %1;" ::"l"(ptr), "h"(*(reinterpret_cast<const unsigned short *>(&(value))))
         : "memory");
 }
-__device__ inline void __stcs(__half2 *const ptr, const __half2 value) {
+__device__ void __stcs(__half2 *const ptr, const __half2 value) {
     asm("st.global.cs.b32 [%0], %1;" ::"l"(ptr), "r"(*(reinterpret_cast<const unsigned int *>(&(value))))
         : "memory");
 }
-__device__ inline void __stcs(__half *const ptr, const __half value) {
+__device__ void __stcs(__half *const ptr, const __half value) {
     asm("st.global.cs.b16 [%0], %1;" ::"l"(ptr), "h"(*(reinterpret_cast<const unsigned short *>(&(value))))
         : "memory");
 }
-__device__ inline void __stwt(__half2 *const ptr, const __half2 value) {
+__device__ void __stwt(__half2 *const ptr, const __half2 value) {
     asm("st.global.wt.b32 [%0], %1;" ::"l"(ptr), "r"(*(reinterpret_cast<const unsigned int *>(&(value))))
         : "memory");
 }
-__device__ inline void __stwt(__half *const ptr, const __half value) {
+__device__ void __stwt(__half *const ptr, const __half value) {
     asm("st.global.wt.b16 [%0], %1;" ::"l"(ptr), "h"(*(reinterpret_cast<const unsigned short *>(&(value))))
         : "memory");
 }
-__device__ inline __half2 __heq2(const __half2 a, const __half2 b) {
+__device__ __half2 __heq2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __heq(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1525,7 +1525,7 @@ __device__ inline __half2 __heq2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hne2(const __half2 a, const __half2 b) {
+__device__ __half2 __hne2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hne(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1533,7 +1533,7 @@ __device__ inline __half2 __hne2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hle2(const __half2 a, const __half2 b) {
+__device__ __half2 __hle2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hle(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1541,7 +1541,7 @@ __device__ inline __half2 __hle2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hge2(const __half2 a, const __half2 b) {
+__device__ __half2 __hge2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hge(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1549,7 +1549,7 @@ __device__ inline __half2 __hge2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hlt2(const __half2 a, const __half2 b) {
+__device__ __half2 __hlt2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hlt(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1557,7 +1557,7 @@ __device__ inline __half2 __hlt2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hgt2(const __half2 a, const __half2 b) {
+__device__ __half2 __hgt2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hgt(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1565,7 +1565,7 @@ __device__ inline __half2 __hgt2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hequ2(const __half2 a, const __half2 b) {
+__device__ __half2 __hequ2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hequ(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1573,7 +1573,7 @@ __device__ inline __half2 __hequ2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hneu2(const __half2 a, const __half2 b) {
+__device__ __half2 __hneu2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hneu(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1581,7 +1581,7 @@ __device__ inline __half2 __hneu2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hleu2(const __half2 a, const __half2 b) {
+__device__ __half2 __hleu2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hleu(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1589,7 +1589,7 @@ __device__ inline __half2 __hleu2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hgeu2(const __half2 a, const __half2 b) {
+__device__ __half2 __hgeu2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hgeu(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1597,7 +1597,7 @@ __device__ inline __half2 __hgeu2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hltu2(const __half2 a, const __half2 b) {
+__device__ __half2 __hltu2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hltu(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1605,7 +1605,7 @@ __device__ inline __half2 __hltu2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline __half2 __hgtu2(const __half2 a, const __half2 b) {
+__device__ __half2 __hgtu2(const __half2 a, const __half2 b) {
     {
         __half2_raw val;
         val.x = __hgtu(a.x, b.x) ? (unsigned short)0x3C00U : (unsigned short)0U;
@@ -1613,7 +1613,7 @@ __device__ inline __half2 __hgtu2(const __half2 a, const __half2 b) {
         return __half2(val);
     }
 }
-__device__ inline unsigned __heq2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __heq2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __heq(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __heq(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1623,7 +1623,7 @@ __device__ inline unsigned __heq2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hne2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hne2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hne(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hne(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1633,7 +1633,7 @@ __device__ inline unsigned __hne2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hle2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hle2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hle(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hle(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1643,7 +1643,7 @@ __device__ inline unsigned __hle2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hge2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hge2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hge(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hge(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1653,7 +1653,7 @@ __device__ inline unsigned __hge2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hlt2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hlt2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hlt(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hlt(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1663,7 +1663,7 @@ __device__ inline unsigned __hlt2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hgt2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hgt2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hgt(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hgt(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1673,7 +1673,7 @@ __device__ inline unsigned __hgt2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hequ2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hequ2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hequ(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hequ(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1683,7 +1683,7 @@ __device__ inline unsigned __hequ2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hneu2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hneu2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hneu(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hneu(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1693,7 +1693,7 @@ __device__ inline unsigned __hneu2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hleu2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hleu2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hleu(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hleu(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1703,7 +1703,7 @@ __device__ inline unsigned __hleu2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hgeu2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hgeu2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hgeu(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hgeu(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1713,7 +1713,7 @@ __device__ inline unsigned __hgeu2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hltu2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hltu2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hltu(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hltu(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1723,7 +1723,7 @@ __device__ inline unsigned __hltu2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline unsigned __hgtu2_mask(const __half2 a, const __half2 b) {
+__device__ unsigned __hgtu2_mask(const __half2 a, const __half2 b) {
     {
         const unsigned short px = __hgtu(a.x, b.x) ? (unsigned short)0xFFFFU : (unsigned short)0U;
         const unsigned short py = __hgtu(a.y, b.y) ? (unsigned short)0xFFFFU : (unsigned short)0U;
@@ -1733,139 +1733,139 @@ __device__ inline unsigned __hgtu2_mask(const __half2 a, const __half2 b) {
         return ur;
     }
 }
-__device__ inline bool __hbeq2(const __half2 a, const __half2 b) {
+__device__ bool __hbeq2(const __half2 a, const __half2 b) {
     const unsigned mask = __heq2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbne2(const __half2 a, const __half2 b) {
+__device__ bool __hbne2(const __half2 a, const __half2 b) {
     const unsigned mask = __hne2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hble2(const __half2 a, const __half2 b) {
+__device__ bool __hble2(const __half2 a, const __half2 b) {
     const unsigned mask = __hle2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbge2(const __half2 a, const __half2 b) {
+__device__ bool __hbge2(const __half2 a, const __half2 b) {
     const unsigned mask = __hge2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hblt2(const __half2 a, const __half2 b) {
+__device__ bool __hblt2(const __half2 a, const __half2 b) {
     const unsigned mask = __hlt2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbgt2(const __half2 a, const __half2 b) {
+__device__ bool __hbgt2(const __half2 a, const __half2 b) {
     const unsigned mask = __hgt2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbequ2(const __half2 a, const __half2 b) {
+__device__ bool __hbequ2(const __half2 a, const __half2 b) {
     const unsigned mask = __hequ2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbneu2(const __half2 a, const __half2 b) {
+__device__ bool __hbneu2(const __half2 a, const __half2 b) {
     const unsigned mask = __hneu2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbleu2(const __half2 a, const __half2 b) {
+__device__ bool __hbleu2(const __half2 a, const __half2 b) {
     const unsigned mask = __hleu2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbgeu2(const __half2 a, const __half2 b) {
+__device__ bool __hbgeu2(const __half2 a, const __half2 b) {
     const unsigned mask = __hgeu2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbltu2(const __half2 a, const __half2 b) {
+__device__ bool __hbltu2(const __half2 a, const __half2 b) {
     const unsigned mask = __hltu2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __hbgtu2(const __half2 a, const __half2 b) {
+__device__ bool __hbgtu2(const __half2 a, const __half2 b) {
     const unsigned mask = __hgtu2_mask(a, b);
     return (mask == 0xFFFFFFFFU);
 }
-__device__ inline bool __heq(const __half a, const __half b) {
+__device__ bool __heq(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa == fb);
     }
 }
-__device__ inline bool __hne(const __half a, const __half b) {
+__device__ bool __hne(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa != fb) && (!__hisnan(a)) && (!__hisnan(b));
     }
 }
-__device__ inline bool __hle(const __half a, const __half b) {
+__device__ bool __hle(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa <= fb);
     }
 }
-__device__ inline bool __hge(const __half a, const __half b) {
+__device__ bool __hge(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa >= fb);
     }
 }
-__device__ inline bool __hlt(const __half a, const __half b) {
+__device__ bool __hlt(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa < fb);
     }
 }
-__device__ inline bool __hgt(const __half a, const __half b) {
+__device__ bool __hgt(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa > fb);
     }
 }
-__device__ inline bool __hequ(const __half a, const __half b) {
+__device__ bool __hequ(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa == fb) || (__hisnan(a)) || (__hisnan(b));
     }
 }
-__device__ inline bool __hneu(const __half a, const __half b) {
+__device__ bool __hneu(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa != fb);
     }
 }
-__device__ inline bool __hleu(const __half a, const __half b) {
+__device__ bool __hleu(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa <= fb) || (__hisnan(a)) || (__hisnan(b));
     }
 }
-__device__ inline bool __hgeu(const __half a, const __half b) {
+__device__ bool __hgeu(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa >= fb) || (__hisnan(a)) || (__hisnan(b));
     }
 }
-__device__ inline bool __hltu(const __half a, const __half b) {
+__device__ bool __hltu(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa < fb) || (__hisnan(a)) || (__hisnan(b));
     }
 }
-__device__ inline bool __hgtu(const __half a, const __half b) {
+__device__ bool __hgtu(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return (fa > fb) || (__hisnan(a)) || (__hisnan(b));
     }
 }
-__device__ inline __half2 __hadd2(const __half2 a, const __half2 b) {
+__device__ __half2 __hadd2(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hadd(a.x, b.x);
@@ -1873,7 +1873,7 @@ __device__ inline __half2 __hadd2(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hsub2(const __half2 a, const __half2 b) {
+__device__ __half2 __hsub2(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hsub(a.x, b.x);
@@ -1881,7 +1881,7 @@ __device__ inline __half2 __hsub2(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hmul2(const __half2 a, const __half2 b) {
+__device__ __half2 __hmul2(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hmul(a.x, b.x);
@@ -1889,7 +1889,7 @@ __device__ inline __half2 __hmul2(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hadd2_sat(const __half2 a, const __half2 b) {
+__device__ __half2 __hadd2_sat(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hadd_sat(a.x, b.x);
@@ -1897,7 +1897,7 @@ __device__ inline __half2 __hadd2_sat(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hsub2_sat(const __half2 a, const __half2 b) {
+__device__ __half2 __hsub2_sat(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hsub_sat(a.x, b.x);
@@ -1905,7 +1905,7 @@ __device__ inline __half2 __hsub2_sat(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hmul2_sat(const __half2 a, const __half2 b) {
+__device__ __half2 __hmul2_sat(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hmul_sat(a.x, b.x);
@@ -1913,7 +1913,7 @@ __device__ inline __half2 __hmul2_sat(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hadd2_rn(const __half2 a, const __half2 b) {
+__device__ __half2 __hadd2_rn(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hadd_rn(a.x, b.x);
@@ -1921,7 +1921,7 @@ __device__ inline __half2 __hadd2_rn(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hsub2_rn(const __half2 a, const __half2 b) {
+__device__ __half2 __hsub2_rn(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hsub_rn(a.x, b.x);
@@ -1929,7 +1929,7 @@ __device__ inline __half2 __hsub2_rn(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __hmul2_rn(const __half2 a, const __half2 b) {
+__device__ __half2 __hmul2_rn(const __half2 a, const __half2 b) {
     {
         __half2 val;
         val.x = __hmul_rn(a.x, b.x);
@@ -1937,7 +1937,7 @@ __device__ inline __half2 __hmul2_rn(const __half2 a, const __half2 b) {
         return val;
     }
 }
-__device__ inline __half2 __h2div(const __half2 a, const __half2 b) {
+__device__ __half2 __h2div(const __half2 a, const __half2 b) {
     __half ha = __low2half(a);
     __half hb = __low2half(b);
     const __half v1 = __hdiv(ha, hb);
@@ -1946,58 +1946,58 @@ __device__ inline __half2 __h2div(const __half2 a, const __half2 b) {
     const __half v2 = __hdiv(ha, hb);
     return __halves2half2(v1, v2);
 }
-__device__ inline __half __hadd(const __half a, const __half b) {
+__device__ __half __hadd(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return __float2half(fa + fb);
     }
 }
-__device__ inline __half __hsub(const __half a, const __half b) {
+__device__ __half __hsub(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return __float2half(fa - fb);
     }
 }
-__device__ inline __half __hmul(const __half a, const __half b) {
+__device__ __half __hmul(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return __float2half(fa * fb);
     }
 }
-__device__ inline __half __hadd_sat(const __half a, const __half b) {
+__device__ __half __hadd_sat(const __half a, const __half b) {
     { return __hmin(__hmax(__hadd(a, b), __ushort_as_half((unsigned short)0x0000U)), __ushort_as_half((unsigned short)0x3C00U)); }
 }
-__device__ inline __half __hsub_sat(const __half a, const __half b) {
+__device__ __half __hsub_sat(const __half a, const __half b) {
     { return __hmin(__hmax(__hsub(a, b), __ushort_as_half((unsigned short)0x0000U)), __ushort_as_half((unsigned short)0x3C00U)); }
 }
-__device__ inline __half __hmul_sat(const __half a, const __half b) {
+__device__ __half __hmul_sat(const __half a, const __half b) {
     { return __hmin(__hmax(__hmul(a, b), __ushort_as_half((unsigned short)0x0000U)), __ushort_as_half((unsigned short)0x3C00U)); }
 }
-__device__ inline __half __hadd_rn(const __half a, const __half b) {
+__device__ __half __hadd_rn(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return __float2half(fa + fb);
     }
 }
-__device__ inline __half __hsub_rn(const __half a, const __half b) {
+__device__ __half __hsub_rn(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return __float2half(fa - fb);
     }
 }
-__device__ inline __half __hmul_rn(const __half a, const __half b) {
+__device__ __half __hmul_rn(const __half a, const __half b) {
     {
         const float fa = __half2float(a);
         const float fb = __half2float(b);
         return __float2half(fa * fb);
     }
 }
-__device__ inline __half __hdiv(const __half a, const __half b) {
+__device__ __half __hdiv(const __half a, const __half b) {
     {
         __half v;
         __half abs;
@@ -2020,7 +2020,7 @@ __device__ inline __half __hdiv(const __half a, const __half b) {
         return v;
     }
 }
-__device__ inline __half hexp2(const __half a) {
+__device__ __half hexp2(const __half a) {
     __half val;
     asm("{.reg.b32         f, ULP;         \n"
         " .reg.b16         r;              \n"
@@ -2036,7 +2036,7 @@ __device__ inline __half hexp2(const __half a) {
         : "h"(*(reinterpret_cast<const unsigned short *>(&(a)))));
     return val;
 }
-__device__ inline __half2 h2exp2(const __half2 a) {
+__device__ __half2 h2exp2(const __half2 a) {
     __half2 val;
     asm("{.reg.b16         hl, hu;         \n"
         " .reg.b32         fl, fu, ULP;    \n"
@@ -2056,7 +2056,7 @@ __device__ inline __half2 h2exp2(const __half2 a) {
         : "r"(*(reinterpret_cast<const unsigned int *>(&(a)))));
     return val;
 }
-__device__ inline __half2 h2rcp(const __half2 a) {
+__device__ __half2 h2rcp(const __half2 a) {
     {
         __half2 val;
         asm("{.reg.b16         hl, hu;         \n"
@@ -2079,7 +2079,7 @@ __device__ inline __half2 h2rcp(const __half2 a) {
         return val;
     }
 }
-__device__ inline __half hrcp(const __half a) {
+__device__ __half hrcp(const __half a) {
     {
         __half val;
         asm("{.reg.b32         f;        \n"
@@ -2097,7 +2097,7 @@ __device__ inline __half hrcp(const __half a) {
         return val;
     }
 }
-__device__ inline __half2 h2rsqrt(const __half2 a) {
+__device__ __half2 h2rsqrt(const __half2 a) {
     {
         __half2 val;
         asm("{.reg.b16         hl, hu;         \n"
@@ -2120,7 +2120,7 @@ __device__ inline __half2 h2rsqrt(const __half2 a) {
         return val;
     }
 }
-__device__ inline __half hrsqrt(const __half a) {
+__device__ __half hrsqrt(const __half a) {
     {
         __half val;
         asm("{.reg.b32         f;        \n"
@@ -2138,7 +2138,7 @@ __device__ inline __half hrsqrt(const __half a) {
         return val;
     }
 }
-__device__ inline __half2 h2sqrt(const __half2 a) {
+__device__ __half2 h2sqrt(const __half2 a) {
     {
         __half2 val;
         asm("{.reg.b16         hl, hu;         \n"
@@ -2161,7 +2161,7 @@ __device__ inline __half2 h2sqrt(const __half2 a) {
         return val;
     }
 }
-__device__ inline __half hsqrt(const __half a) {
+__device__ __half hsqrt(const __half a) {
     {
         __half val;
         asm("{.reg.b32         f;        \n"
@@ -2179,7 +2179,7 @@ __device__ inline __half hsqrt(const __half a) {
         return val;
     }
 }
-__device__ inline __half2 __hisnan2(const __half2 a) {
+__device__ __half2 __hisnan2(const __half2 a) {
     __half2 r;
     {
         __half2_raw val;
@@ -2189,13 +2189,13 @@ __device__ inline __half2 __hisnan2(const __half2 a) {
     }
     return r;
 }
-__device__ inline bool __hisnan(const __half a) {
+__device__ bool __hisnan(const __half a) {
     {
         const __half_raw hr = static_cast<__half_raw>(a);
         return ((hr.x & (unsigned short)0x7FFFU) > (unsigned short)0x7C00U);
     }
 }
-__device__ inline __half2 __hneg2(const __half2 a) {
+__device__ __half2 __hneg2(const __half2 a) {
     __half2 r;
     {
         r.x = __hneg(a.x);
@@ -2203,13 +2203,13 @@ __device__ inline __half2 __hneg2(const __half2 a) {
     }
     return r;
 }
-__device__ inline __half __hneg(const __half a) {
+__device__ __half __hneg(const __half a) {
     {
         const float fa = __half2float(a);
         return __float2half(-fa);
     }
 }
-__device__ inline __half2 __habs2(const __half2 a) {
+__device__ __half2 __habs2(const __half2 a) {
     __half2 r;
     {
         r.x = __habs(a.x);
@@ -2217,7 +2217,7 @@ __device__ inline __half2 __habs2(const __half2 a) {
     }
     return r;
 }
-__device__ inline __half __habs(const __half a) {
+__device__ __half __habs(const __half a) {
     {
         __half_raw abs_a_raw = static_cast<__half_raw>(a);
         abs_a_raw.x &= (unsigned short)0x7FFFU;
@@ -2225,7 +2225,7 @@ __device__ inline __half __habs(const __half a) {
         return static_cast<__half>(abs_a_raw);
     }
 }
-__device__ inline __half __hmax_nan(const __half a, const __half b) {
+__device__ __half __hmax_nan(const __half a, const __half b) {
     {
         __half maxval;
         if (__hisnan(a) || __hisnan(b)) {
@@ -2236,7 +2236,7 @@ __device__ inline __half __hmax_nan(const __half a, const __half b) {
         return maxval;
     }
 }
-__device__ inline __half __hmin_nan(const __half a, const __half b) {
+__device__ __half __hmin_nan(const __half a, const __half b) {
     {
         __half minval;
         if (__hisnan(a) || __hisnan(b)) {
@@ -2247,7 +2247,7 @@ __device__ inline __half __hmin_nan(const __half a, const __half b) {
         return minval;
     }
 }
-__device__ inline __half2 __hmax2_nan(const __half2 a, const __half2 b) {
+__device__ __half2 __hmax2_nan(const __half2 a, const __half2 b) {
     {
         __half2 result = __hmax2(a, b);
         if (__hisnan(a.x) || __hisnan(b.x)) { result.x = __ushort_as_half((unsigned short)0x7FFFU); }
@@ -2255,7 +2255,7 @@ __device__ inline __half2 __hmax2_nan(const __half2 a, const __half2 b) {
         return result;
     }
 }
-__device__ inline __half2 __hmin2_nan(const __half2 a, const __half2 b) {
+__device__ __half2 __hmin2_nan(const __half2 a, const __half2 b) {
     {
         __half2 result = __hmin2(a, b);
         if (__hisnan(a.x) || __hisnan(b.x)) { result.x = __ushort_as_half((unsigned short)0x7FFFU); }
@@ -2263,7 +2263,7 @@ __device__ inline __half2 __hmin2_nan(const __half2 a, const __half2 b) {
         return result;
     }
 }
-__device__ inline __half2 atomicAdd(__half2 *const address, const __half2 val) {
+__device__ __half2 atomicAdd(__half2 *const address, const __half2 val) {
     {
         unsigned int *address_as_uint = (unsigned int *)address;
         unsigned int old = *address_as_uint;
@@ -2276,7 +2276,7 @@ __device__ inline __half2 atomicAdd(__half2 *const address, const __half2 val) {
         return *(__half2 *)&old;
     }
 }
-__device__ inline __half __hfma(const __half a, const __half b, const __half c) {
+__device__ __half __hfma(const __half a, const __half b, const __half c) {
     __half val;
     asm("{fma.rn.f16 %0,%1,%2,%3;\n}"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
@@ -2285,7 +2285,7 @@ __device__ inline __half __hfma(const __half a, const __half b, const __half c) 
           "h"(*(reinterpret_cast<const unsigned short *>(&(c)))));
     return val;
 }
-__device__ inline __half _hfma_sat(const __half a, const __half b, const __half c) {
+__device__ __half _hfma_sat(const __half a, const __half b, const __half c) {
     __half val;
     asm("{fma.rn.sat.f16 %0,%1,%2,%3;\n}"
         : "=h"(*(reinterpret_cast<unsigned short *>(&(val))))
