@@ -202,7 +202,7 @@ enum struct LCPixelStorage {
 };
 
 struct alignas(16) LCSurface {
-    cudaSurfaceObject_t handle;
+    unsigned long long handle;
     unsigned long long storage;
 };
 
@@ -1048,8 +1048,8 @@ __device__ void lc_texture_write(LCTexture3D<T> tex, lc_int3 p, V value) noexcep
 struct alignas(16) LCBindlessSlot {
     void *__restrict__ buffer;
     size_t buffer_size;
-    cudaTextureObject_t tex2d;
-    cudaTextureObject_t tex3d;
+    unsigned long long tex2d;
+    unsigned long long tex3d;
 };
 
 struct alignas(16) LCBindlessArray {

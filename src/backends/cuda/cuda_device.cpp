@@ -699,6 +699,13 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
     };
 
+    // We can safely turn on the minimal mode if using optix
+    if (_compiler->nvrtc_version() >= 120400 &&
+        _handle.driver_version() >= 12040 &&
+        kernel.requires_raytracing()) {
+        nvrtc_options.emplace_back("-minimal");
+    }
+
     luisa::string max_reg_opt;
     if (option.max_registers != 0u) {
         max_reg_opt = luisa::format(
