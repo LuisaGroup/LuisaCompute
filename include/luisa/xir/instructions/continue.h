@@ -8,7 +8,7 @@ namespace luisa::compute::xir {
 class LC_XIR_API ContinueInst final : public Instruction {
 public:
     explicit ContinueInst(Pool *pool, const Name *name = nullptr) noexcept;
-    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept final {
+    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept override {
         return DerivedInstructionTag::CONTINUE;
     }
 };

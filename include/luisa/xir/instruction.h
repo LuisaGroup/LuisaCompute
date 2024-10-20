@@ -25,11 +25,14 @@ enum struct DerivedInstructionTag {
     // variable instructions
     LOAD,
     STORE,
+    GEP,
 
     /* other instructions */
-    CALL,     // function calls
+    INTRINSIC,// intrinsic function calls
+    CALL,     // user or external function calls
     CAST,     // type casts
-    AD_SCOPE, // automatic differentiation scopes
+    PRINT,    // kernel print
+    AUTO_DIFF,// automatic differentiation
     RAY_QUERY,// ray queries
 };
 

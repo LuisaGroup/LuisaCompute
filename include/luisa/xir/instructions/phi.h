@@ -29,7 +29,7 @@ struct ConstPhiIncomingUse {
 class LC_XIR_API PhiInst final : public Instruction {
 public:
     using Instruction::Instruction;
-    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept final {
+    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept override {
         return DerivedInstructionTag::PHI;
     }
     void set_incoming_count(size_t count) noexcept;

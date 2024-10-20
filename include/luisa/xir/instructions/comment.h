@@ -13,7 +13,7 @@ public:
     explicit CommentInst(Pool *pool, luisa::string comment = {},
                          const Name *name = nullptr) noexcept;
 
-    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept final {
+    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept override {
         return DerivedInstructionTag::COMMENT;
     }
 

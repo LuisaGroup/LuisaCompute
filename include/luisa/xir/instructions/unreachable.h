@@ -8,7 +8,7 @@ namespace luisa::compute::xir {
 class LC_XIR_API UnreachableInst final : public Instruction {
 public:
     using Instruction::Instruction;
-    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept final {
+    [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept override {
         return DerivedInstructionTag::UNREACHABLE;
     }
 };

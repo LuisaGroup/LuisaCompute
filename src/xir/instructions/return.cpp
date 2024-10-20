@@ -19,7 +19,7 @@ const Value *ReturnInst::return_value() const noexcept {
     return operand(operand_index_return_value);
 }
 
-auto ReturnInst::return_type() const noexcept {
+const Type *ReturnInst::return_type() const noexcept {
     auto ret_value = return_value();
     return ret_value == nullptr ? nullptr : ret_value->type();
 }

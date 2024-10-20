@@ -19,9 +19,11 @@ set(LUISA_COMPUTE_XIR_SOURCES
         instructions/comment.cpp
         instructions/continue.cpp
         instructions/gep.cpp
+        instructions/intrinsic.cpp
         instructions/load.cpp
         instructions/loop.cpp
         instructions/phi.cpp
+        instructions/print.cpp
         instructions/return.cpp
         instructions/store.cpp
         instructions/switch.cpp
