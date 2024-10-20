@@ -26,7 +26,7 @@ struct ConstPhiIncomingUse {
     const Use *block;
 };
 
-class LC_XIR_API PhiInst : public Instruction {
+class LC_XIR_API PhiInst final : public Instruction {
 public:
     using Instruction::Instruction;
     [[nodiscard]] DerivedInstructionTag derived_instruction_tag() const noexcept final {

@@ -13,17 +13,22 @@ enum struct DerivedInstructionTag {
     COMMENT, // comments
 
     /* control flow instructions */
-    UNREACHABLE, // basic block terminator: unreachable
-    BRANCH,      // basic block terminator: conditional branches
-    SWITCH,      // basic block terminator: switch branches
-    LOOP,        // basic block terminator: loops
-    BREAK,       // basic block terminator: break (removed after control flow normalization)
-    CONTINUE,    // basic block terminator: continue (removed after control flow normalization)
-    RETURN,      // basic block terminator: return (early returns are removed after control flow normalization)
-    PHI,         // basic block beginning: phi nodes
+    UNREACHABLE,// basic block terminator: unreachable
+    BRANCH,     // basic block terminator: conditional branches
+    SWITCH,     // basic block terminator: switch branches
+    LOOP,       // basic block terminator: loops
+    BREAK,      // basic block terminator: break (removed after control flow normalization)
+    CONTINUE,   // basic block terminator: continue (removed after control flow normalization)
+    RETURN,     // basic block terminator: return (early returns are removed after control flow normalization)
+    PHI,        // basic block beginning: phi nodes
+
+    // variable instructions
+    LOAD,
+    STORE,
 
     /* other instructions */
-    CALL,        // function calls
+    CALL,     // function calls
+    CAST,     // type casts
     AD_SCOPE, // automatic differentiation scopes
     RAY_QUERY,// ray queries
 };

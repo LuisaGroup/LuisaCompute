@@ -4,7 +4,7 @@
 
 namespace luisa::compute::xir {
 
-class LC_XIR_API CommentInst : public Instruction {
+class LC_XIR_API CommentInst final : public Instruction {
 
 private:
     luisa::string _comment;

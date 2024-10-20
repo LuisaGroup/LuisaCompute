@@ -5,7 +5,7 @@
 namespace luisa::compute::xir {
 
 // Note: this instruction must be the terminator of a basic block.
-class LC_XIR_API BreakInst : public Instruction {
+class LC_XIR_API BreakInst final : public Instruction {
 
 public:
     explicit BreakInst(Pool *pool, const Name *name = nullptr) noexcept;

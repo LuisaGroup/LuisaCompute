@@ -16,7 +16,7 @@ class BasicBlock;
 // { merge_block }
 //
 // Note: this instruction must be the terminator of a basic block.
-class LC_XIR_API BranchInst : public Instruction {
+class LC_XIR_API BranchInst final : public Instruction {
 
 public:
     static constexpr size_t operand_index_cond = 0u;

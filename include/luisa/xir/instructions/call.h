@@ -4,7 +4,7 @@
 
 namespace luisa::compute::xir {
 
-class LC_XIR_API CallInst : public Instruction {
+class LC_XIR_API CallInst final : public Instruction {
 };
 
 }// namespace luisa::compute::xir

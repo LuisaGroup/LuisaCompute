@@ -15,11 +15,15 @@ set(LUISA_COMPUTE_XIR_SOURCES
         instructions/branch.cpp
         instructions/break.cpp
         instructions/call.cpp
+        instructions/cast.cpp
         instructions/comment.cpp
         instructions/continue.cpp
+        instructions/gep.cpp
+        instructions/load.cpp
         instructions/loop.cpp
         instructions/phi.cpp
         instructions/return.cpp
+        instructions/store.cpp
         instructions/switch.cpp
 
         # derived metadata
