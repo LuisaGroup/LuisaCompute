@@ -493,7 +493,7 @@ private:
         }
         _stream << _font_texture.copy_from(pixels);
         auto tex_id = register_texture(_font_texture, Sampler::linear_point_edge());
-        io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(tex_id));
+        io.Fonts->SetTexID(tex_id);
     }
 
 private:
@@ -601,7 +601,7 @@ private:
                     auto clip_idx = static_cast<uint>(_clip_rects.size());
                     _clip_rects.emplace_back(make_float4(clip_min, clip_max));
                     auto tex_id = [this, cmd] {
-                        auto t = reinterpret_cast<uint64_t>(cmd->TextureId);
+                        auto t = cmd->TextureId;
                         if (t != 0u && !_active_textures.contains(t)) {
                             LUISA_WARNING_WITH_LOCATION(
                                 "Using an unregistered texture (id = {}). "
