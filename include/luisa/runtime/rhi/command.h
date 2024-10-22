@@ -5,6 +5,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/variant.h>
+#include <luisa/core/stl/functional.h>
 #include <luisa/ast/usage.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/stream_tag.h>
@@ -164,6 +165,7 @@ private:
     size_t _offset{};
     size_t _size{};
     const void *_data{};
+    mutable luisa::move_only_function<void(void *)> _upload_callback;
 
 private:
     BufferUploadCommand() noexcept
@@ -176,10 +178,26 @@ public:
                         const void *data) noexcept
         : Command{Command::Tag::EBufferUploadCommand},
           _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data} {}
+    BufferUploadCommand(uint64_t handle,
+                        size_t offset_bytes,
+                        size_t size_bytes,
+                        const void *data,
+                        luisa::move_only_function<void(void *)> &&upload_callback) noexcept
+        : Command{Command::Tag::EBufferUploadCommand},
+          _handle{handle}, _offset{offset_bytes}, _size{size_bytes}, _data{data}, _upload_callback{std::move(upload_callback)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto offset() const noexcept { return _offset; }
     [[nodiscard]] auto size() const noexcept { return _size; }
-    [[nodiscard]] auto data() const noexcept { return _data; }
+    void call_callback() const noexcept {
+        if (_upload_callback) {
+            _upload_callback(const_cast<void *>(_data));
+            _upload_callback = nullptr;
+        }
+    }
+    [[nodiscard]] auto data() const noexcept {
+        LUISA_ASSUME(!_upload_callback);// make sure event already called
+        return _data;
+    }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 
@@ -345,6 +363,7 @@ private:
     uint _offset[3]{};
     uint _size[3]{};
     const void *_data{};
+    mutable luisa::move_only_function<void(void *)> _upload_callback;
 
 private:
     TextureUploadCommand() noexcept
@@ -358,12 +377,30 @@ public:
           _offset{offset.x, offset.y, offset.z},
           _size{size.x, size.y, size.z},
           _data{data} {}
+    TextureUploadCommand(uint64_t handle, PixelStorage storage,
+                         uint level, uint3 size, const void *data, uint3 offset,
+                         luisa::move_only_function<void(void *)> &&upload_callback) noexcept
+        : Command{Command::Tag::ETextureUploadCommand},
+          _handle{handle}, _storage{storage}, _level{level},
+          _offset{offset.x, offset.y, offset.z},
+          _size{size.x, size.y, size.z},
+          _data{data},
+          _upload_callback{std::move(upload_callback)} {}
     [[nodiscard]] auto handle() const noexcept { return _handle; }
     [[nodiscard]] auto storage() const noexcept { return _storage; }
     [[nodiscard]] auto level() const noexcept { return _level; }
     [[nodiscard]] auto size() const noexcept { return uint3(_size[0], _size[1], _size[2]); }
     [[nodiscard]] auto offset() const noexcept { return uint3(_offset[0], _offset[1], _offset[2]); }
-    [[nodiscard]] auto data() const noexcept { return _data; }
+    void call_callback() const noexcept {
+        if (_upload_callback) {
+            _upload_callback(const_cast<void *>(_data));
+            _upload_callback = nullptr;
+        }
+    }
+    [[nodiscard]] auto data() const noexcept {
+        LUISA_ASSUME(!_upload_callback);// make sure event already called
+        return _data;
+    }
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COPY)
 };
 

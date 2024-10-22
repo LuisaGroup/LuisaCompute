@@ -41,6 +41,11 @@ private:
                    const AccelMotionOption &option) noexcept;
 
 public:
+    MotionInstance(MotionInstance &&) noexcept = default;
+    MotionInstance &operator=(MotionInstance &&rhs) noexcept {
+        _move_from(std::move(rhs));
+        return *this;
+    }
     void set_keyframe(size_t index, const MotionInstanceTransform &transform) noexcept;
     void set_keyframe(size_t index, const MotionInstanceTransformMatrix &transform) noexcept;
     void set_keyframe(size_t index, const MotionInstanceTransformSRT &transform) noexcept;

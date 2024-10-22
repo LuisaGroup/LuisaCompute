@@ -127,10 +127,15 @@ public:
         _check_is_valid();
         return _size * _element_stride;
     }
+    // views
+    [[nodiscard]] auto view_unchecked() const noexcept {
+        return BufferView<T>{this->native_handle(), this->handle(), _element_stride, 0u, _size, _size};
+    }
+
     [[nodiscard]] auto view() const noexcept {
         _check_is_valid();
         return BufferView<T>{this->native_handle(), this->handle(), _element_stride, 0u, _size, _size};
-    }
+    }    
     [[nodiscard]] auto view(size_t offset, size_t count) const noexcept {
         return view().subview(offset, count);
     }
@@ -142,6 +147,9 @@ public:
     // copy pointer's data to buffer
     [[nodiscard]] auto copy_from(const void *data) noexcept {
         return this->view().copy_from(data);
+    }
+    [[nodiscard]] auto copy_from(const void *data, luisa::move_only_function<void(void*)>&& upload_callback) noexcept {
+        return this->view().copy_from(data, std::move(upload_callback));
     }
     // copy source buffer's data to buffer
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {
@@ -236,6 +244,9 @@ public:
     // copy pointer's data to buffer
     [[nodiscard]] auto copy_from(const void *data) noexcept {
         return luisa::make_unique<BufferUploadCommand>(this->handle(), this->offset_bytes(), this->size_bytes(), data);
+    }
+    [[nodiscard]] auto copy_from(const void *data, luisa::move_only_function<void(void*)>&& upload_callback) noexcept {
+        return luisa::make_unique<BufferUploadCommand>(this->handle(), this->offset_bytes(), this->size_bytes(), data, std::move(upload_callback));
     }
     // copy source buffer's data to buffer
     [[nodiscard]] auto copy_from(BufferView<T> source) noexcept {

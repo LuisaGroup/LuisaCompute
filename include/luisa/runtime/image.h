@@ -130,6 +130,10 @@ public:
         _check_is_valid();
         return this->view(0).copy_from(std::forward<U>(dst));
     }
+    [[nodiscard]] auto copy_from(const void *data, luisa::move_only_function<void(void *)> &&upload_callback) const noexcept {
+        _check_is_valid();
+        return this->view(0).copy_from(data, std::move(upload_callback));
+    }
     // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
         _check_is_valid();
@@ -184,6 +188,7 @@ public:
     // copy pointer or another image's data to image
     template<typename U>
     [[nodiscard]] auto copy_from(U &&src) const noexcept { return _as_mipmap().copy_from(std::forward<U>(src)); }
+    [[nodiscard]] auto copy_from(const void *data, luisa::move_only_function<void(void *)> &&upload_callback) const noexcept { return _as_mipmap().copy_from(data, std::move(upload_callback)); }
     // DSL interface
     [[nodiscard]] auto operator->() const noexcept {
         return reinterpret_cast<const detail::ImageExprProxy<ImageView<T>> *>(this);

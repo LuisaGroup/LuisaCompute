@@ -44,7 +44,8 @@ LCSwapChain::LCSwapChain(
     for (uint32_t n = 0; n < frameCount; n++) {
         ThrowIfFailed(swapChain->GetBuffer(n, IID_PPV_ARGS(&m_renderTargets[n].rt)));
     }
-    swapChain->SetMaximumFrameLatency(backBufferCount * 2);
+    if (!vsync)
+        swapChain->SetMaximumFrameLatency(backBufferCount * 2);
 }
 LCSwapChain::LCSwapChain(
     PixelStorage &storage,

@@ -18,7 +18,9 @@ if get_config("vk_backend") then
     includes("vk")
 end
 includes("validation")
--- includes("toy_c")
+if get_config("toy_c_backend") then
+    includes("toy_c")    
+end
 target("lc-backends-dummy")
 set_kind("phony")
 on_load(function(target)

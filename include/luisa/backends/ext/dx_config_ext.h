@@ -39,8 +39,6 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
         IDXGIFactory2 *factory;
     };
 
-    [[nodiscard]] virtual bool callback_thread_use_fiber() const noexcept { return false; }
-
     virtual luisa::optional<ExternalDevice> CreateExternalDevice() noexcept { return {}; }
     // Called during create_device
     virtual void ReadbackDX12Device(
@@ -50,7 +48,7 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
         DirectXFuncTable const *funcTable,
         luisa::BinaryIO const *shaderIo,
         IDxcCompiler3 *dxcCompiler,
-        IDxcLibrary *dxcLibrary,
+        IDxcLibrary* dxcLibrary,
         IDxcUtils *dxcUtils,
         ID3D12DescriptorHeap *shaderDescriptor,
         ID3D12DescriptorHeap *samplerDescriptor) noexcept {}
