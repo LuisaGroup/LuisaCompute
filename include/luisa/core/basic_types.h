@@ -20,7 +20,7 @@ template<typename T, size_t N>
 static constexpr size_t vector_alignment_v = vector_alignment<T, N>::value;
 
 /// Vector storage only allows size of 2, 3, 4
-template<typename T, size_t N>
+template<typename T, std::size_t N>
 struct VectorStorage {
     static_assert(always_false_v<T>, "Invalid vector storage");
 };
@@ -28,7 +28,8 @@ struct VectorStorage {
 /// Vector storage of size 2
 template<typename T>
 struct alignas(vector_alignment_v<T, 2>) VectorStorage<T, 2> {
-    T x, y;
+    T x {};
+    T y {};
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s} {}
     constexpr VectorStorage(T x, T y) noexcept : x{x}, y{y} {}
 #include <luisa/core/swizzle_2.inl.h>
@@ -37,7 +38,9 @@ struct alignas(vector_alignment_v<T, 2>) VectorStorage<T, 2> {
 /// Vector storage of size 3
 template<typename T>
 struct alignas(vector_alignment_v<T, 3>) VectorStorage<T, 3> {
-    T x, y, z;
+    T x {};
+    T y {};
+    T z {};
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s} {}
     constexpr VectorStorage(T x, T y, T z) noexcept : x{x}, y{y}, z{z} {}
 #include <luisa/core/swizzle_3.inl.h>
@@ -46,7 +49,10 @@ struct alignas(vector_alignment_v<T, 3>) VectorStorage<T, 3> {
 /// Vector storage of size 4
 template<typename T>
 struct alignas(vector_alignment_v<T, 4>) VectorStorage<T, 4> {
-    T x, y, z, w;
+    T x {};
+    T y {};
+    T z {};
+    T w {};
     explicit constexpr VectorStorage(T s = {}) noexcept : x{s}, y{s}, z{s}, w{s} {}
     constexpr VectorStorage(T x, T y, T z, T w) noexcept : x{x}, y{y}, z{z}, w{w} {}
 #include <luisa/core/swizzle_4.inl.h>
@@ -63,18 +69,37 @@ struct alignas(vector_alignment_v<T, 4>) VectorStorage<T, 4> {
  * @tparam T bool/float/int/uint
  * @tparam N 2/3/4
  */
-template<typename T, size_t N>
+template<typename T, std::size_t N>
 struct Vector : public detail::VectorStorage<T, N> {
-    static constexpr auto dimension = N;
-    static Vector<T, N> zero() noexcept { return Vector<T, N>(static_cast<T>(0)); }
-    static Vector<T, N> one() noexcept { return Vector<T, N>(static_cast<T>(1)); }
     using value_type = T;
-    using Storage = detail::VectorStorage<T, N>;
-    static_assert(is_scalar_v<T>, "Invalid vector type");
+    using size_type = std::size_t;
+    using reference = value_type &;
+    using const_reference = const value_type &;
+    using Storage = detail::VectorStorage<value_type, N>;
+    using Storage::VectorStorage; // introduce base class constructor function
+
+    static_assert(is_scalar_v<value_type>, "Invalid vector type");
     static_assert(N == 2 || N == 3 || N == 4, "Invalid vector dimension");
-    using Storage::VectorStorage;
-    [[nodiscard]] constexpr T &operator[](size_t index) noexcept { return (&(this->x))[index]; }
-    [[nodiscard]] constexpr const T &operator[](size_t index) const noexcept { return (&(this->x))[index]; }
+
+    static constexpr size_type dimension { N };
+
+    static Vector<value_type, N> zero() noexcept {
+        return Vector<value_type, N>(static_cast<value_type>(0));
+    }
+
+    static Vector<value_type, N> one() noexcept {
+        return Vector<value_type, N>(static_cast<value_type>(1));
+    }
+
+    [[nodiscard]]
+    constexpr reference operator[](size_type index) noexcept {
+        return (&(this->x))[index];
+    }
+
+    [[nodiscard]]
+    constexpr const_reference operator[](size_type index) const noexcept {
+        return (&(this->x))[index];
+    }
 };
 
 template<typename T, size_t N>
