@@ -117,6 +117,8 @@ public:
     }
 
     explicit ContextImpl(luisa::string_view program_path) noexcept {
+        using namespace std::string_view_literals;
+        
         luisa::filesystem::path program { program_path };
         LUISA_INFO(
             "Created context for program '{}'.",
@@ -137,20 +139,25 @@ public:
             DynamicModule::add_search_path(runtime_directory);
         }
 
+        const auto &extension_so = luisa::filesystem::path(".so");
+        const auto &extension_dll = luisa::filesystem::path(".dll");
+        const auto &extension_dylib = luisa::filesystem::path(".dylib");
+        constexpr std::array possible_prefixes {
+            "lc-backend-"sv,
+            "liblc-backend-"sv // Make Mingw happy
+        };
         for (auto &&p : luisa::filesystem::directory_iterator{runtime_directory}) {
+            auto &&path = p.path();
+            auto p_is_regular_file = p.is_regular_file();
+            const auto &path_extension = path.extension();
+
             if (
-                auto &&path = p.path();
-                p.is_regular_file() && (
-                    path.extension() == luisa::filesystem::path(".so") ||
-                    path.extension() == luisa::filesystem::path(".dll") ||
-                    path.extension() == luisa::filesystem::path(".dylib")
+                p_is_regular_file && (
+                    path_extension == extension_so ||
+                    path_extension == extension_dll ||
+                    path_extension == extension_dylib
                 )
             ) {
-                using namespace std::string_view_literals;
-                constexpr std::array possible_prefixes {
-                    "lc-backend-"sv,
-                    "liblc-backend-"sv // Make Mingw happy
-                };
                 auto filename = luisa::to_string(path.stem());
                 for (auto prefix : possible_prefixes) {
                     if (filename.starts_with(prefix)) {
