@@ -139,9 +139,9 @@ public:
             DynamicModule::add_search_path(runtime_directory);
         }
 
-        const auto &extension_so = luisa::filesystem::path(".so");
-        const auto &extension_dll = luisa::filesystem::path(".dll");
-        const auto &extension_dylib = luisa::filesystem::path(".dylib");
+        const auto extension_so = luisa::filesystem::path(".so");
+        const auto extension_dll = luisa::filesystem::path(".dll");
+        const auto extension_dylib = luisa::filesystem::path(".dylib");
         constexpr std::array possible_prefixes {
             "lc-backend-"sv,
             "liblc-backend-"sv // Make Mingw happy
@@ -149,7 +149,7 @@ public:
         for (auto &&p : luisa::filesystem::directory_iterator{runtime_directory}) {
             auto &&path = p.path();
             auto p_is_regular_file = p.is_regular_file();
-            const auto &path_extension = path.extension();
+            const auto path_extension = path.extension();
 
             if (
                 p_is_regular_file && (
