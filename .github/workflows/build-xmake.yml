@@ -60,10 +60,17 @@ jobs:
           fi
           brew install molten-vk ninja cmake xmake
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          sudo xcode-select -switch /Applications/Xcode_15.1.app
           echo "Check the relevant software versions"
+          echo "check brew"
           brew --version
+          echo "check brew end"
+          echo "check xcode"
           xcodebuild -version
-          clang --version
+          echo "check xcode end"
+          echo "check clang++"
+          clang++ --version
+          echo "check clang++ end"
           echo "Check End"
       - name: "Configure and Build"
         run: |
