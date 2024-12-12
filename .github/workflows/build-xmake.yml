@@ -60,6 +60,11 @@ jobs:
           fi
           brew install molten-vk ninja cmake xmake
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "Check the relevant software versions"
+          brew --version
+          xcodebuild -version
+          clang --version
+          echo "Check End"
       - name: "Configure and Build"
         run: |
           xmake lua setup.lua
