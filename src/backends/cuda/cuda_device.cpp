@@ -113,15 +113,21 @@ namespace luisa::compute::cuda {
                               luisa::to_underlying(format));
 }
 
-CUDADevice::CUDADevice(Context &&ctx,
-                       size_t device_id,
-                       const BinaryIO *io) noexcept
-    : DeviceInterface{std::move(ctx)}, _handle{device_id}, _io{io} {
+CUDADevice::CUDADevice(
+    Context &&ctx,
+    size_t device_id,
+    const BinaryIO *io
+) noexcept
+    : DeviceInterface { std::move(ctx) }
+    , _handle { device_id }
+    , _default_io { luisa::make_unique<DefaultBinaryIO>(context()) }
+    , _io { io }
+{
     // provide a default binary IO
     if (_io == nullptr) {
-        _default_io = luisa::make_unique<DefaultBinaryIO>(context());
         _io = _default_io.get();
     }
+
     _compiler = luisa::make_unique<CUDACompiler>(this);
     auto sm_option = luisa::format("-arch=compute_{}", handle().compute_capability());
     std::array options{sm_option.c_str(),
