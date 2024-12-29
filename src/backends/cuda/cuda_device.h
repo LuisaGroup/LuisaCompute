@@ -5,7 +5,6 @@
 #include <luisa/runtime/rhi/device_interface.h>
 #include "../common/default_binary_io.h"
 #include "cuda_error.h"
-#include "cuda_texture.h"
 #include "cuda_stream.h"
 #include "cuda_compiler.h"
 #include "optix_api.h"

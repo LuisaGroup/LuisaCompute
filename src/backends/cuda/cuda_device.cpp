@@ -1,7 +1,5 @@
 #include <cstring>
 #include <fstream>
-#include <future>
-#include <thread>
 #include <cstdlib>
 
 #include <nvtx3/nvToolsExtCuda.h>
@@ -42,7 +40,6 @@
 #include "cuda_builtin_embedded.h"
 
 #include "extensions/cuda_dstorage.h"
-#include "extensions/cuda_denoiser.h"
 #include "extensions/cuda_pinned_memory.h"
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
