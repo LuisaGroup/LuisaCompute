@@ -208,7 +208,7 @@ Device Context::create_device(
     interface->_backend_name = std::move(backend_name);
     auto handle = Device::Handle {
         interface,
-        [impl = _impl, deleter = m.deleter](auto p) noexcept {
+        [deleter = m.deleter](auto p) noexcept {
             deleter(p);
         }
     };
