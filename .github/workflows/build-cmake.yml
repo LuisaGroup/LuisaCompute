@@ -9,8 +9,14 @@ jobs:
       matrix:
         compiler: [ gcc, clang ]
         config: [ Release, Debug ]
-    name: Ubuntu / ${{ matrix.config }} / ${{ matrix.compiler }}
-    runs-on: ubuntu-24.04
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+
+    name: ${{ matrix.config }} / ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,16 +29,24 @@ jobs:
           sudo ./llvm.sh 18 all
           sudo apt-get -y install build-essential wget cmake ninja-build uuid-dev libxinerama-dev libxcursor-dev libxi-dev libvulkan-dev
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      - name: "Setup CUDA"
+      - name: "Download CUDA Keyring (ubuntu-24.04)"
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+      - name: "Download CUDA Keyring (ubuntu-24.04-arm)"
+        if: matrix.os == 'ubuntu-24.04-arm'
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-keyring_1.1-1_all.deb
+      - name: "Setup CUDA"
+        run: |
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           sudo apt-get update
-          sudo apt-get -y install cuda-toolkit
+          sudo apt-get -y install cuda-12.8
+          sudo apt-get -y clean # save some space
       - name: "Setup Vulkan"
-        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        uses: johnnynunez/setup-vulkan-sdk@v1
         with:
-          vulkan-query-version: 1.3.204.0
+          vulkan-query-version: 1.4.304.1
           vulkan-components: Vulkan-Headers, Vulkan-Loader
           vulkan-use-cache: true
       - name: "Configure and Build"
@@ -101,13 +115,15 @@ jobs:
         with:
           version: 1.11.1
       - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.18
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          cuda: 12.8.0
       - name: "Setup Rust"
         uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
       - name: "Setup Vulkan"
-        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        uses: johnnynunez/setup-vulkan-sdk@v1
         with:
-          vulkan-query-version: 1.3.204.0
+          vulkan-query-version: 1.4.304.1
           vulkan-components: Vulkan-Headers, Vulkan-Loader
           vulkan-use-cache: true
       - name: "Configure and Build"

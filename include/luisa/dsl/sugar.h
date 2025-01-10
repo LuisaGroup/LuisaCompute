@@ -151,7 +151,7 @@ namespace luisa::compute::dsl_detail {
     ::luisa::compute::detail::StmtBodyInvoke{} % [&]() noexcept -> void
 
 #define $comment(...) \
-    ::luisa::compute::comment(__VA_ARGS__)
+    ::luisa::compute::detail::comment(__VA_ARGS__)
 #define $comment_with_location(...)                                                                \
     $comment(luisa::string{__VA_ARGS__}                                                            \
                  .append(" [")                                                                     \
