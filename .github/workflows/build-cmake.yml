@@ -113,9 +113,9 @@ jobs:
         with:
           version: 1.11.1
       - name: "Setup CUDA"
-        uses: Jimver/cuda-toolkit@v0.2.21
+        uses: Jimver/cuda-toolkit@v0.2.22
         with:
-          cuda: 12.8.0
+          cuda: 12.8.1
           sub-packages: '[ "cudart", "nvrtc", "nvrtc_dev", "nvjitlink", "nvcc", "nvtx" ]'
       - name: "Setup Rust"
         uses: actions-rust-lang/setup-rust-toolchain@v1.10.1
