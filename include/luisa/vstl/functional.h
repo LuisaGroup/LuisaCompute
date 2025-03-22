@@ -56,7 +56,7 @@ namespace detail {
 template<typename Ret, typename... Args>
 struct ObjType {
     template<template<typename...> typename Object>
-    using Type = typename Object<Ret(Args...)>;
+    using Type = Object<Ret(Args...)>;
 };
 template<typename T>
 struct member_func_meta;
@@ -76,7 +76,7 @@ struct member_func_meta<Ret (Class::*)(Args...) noexcept> : ObjType<Ret, Args...
 }// namespace detail
 template<typename Lambda>
 inline auto make_func_ref(Lambda &lambda) noexcept {
-    return typename detail::member_func_meta<decltype(&std::remove_reference_t<Lambda>::operator())>::Type<vstd::FuncRef>{lambda};
+    return typename detail::member_func_meta<decltype(&std::remove_reference_t<Lambda>::operator())>::template Type<vstd::FuncRef>{lambda};
 }
 
 }// namespace vstd
