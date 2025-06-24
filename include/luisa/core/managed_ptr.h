@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <atomic>
 
 #include <luisa/core/stl/hash.h>
@@ -99,7 +100,7 @@ class ManagedPtr : public ManagedPtr<const T> {
 
 public:
     ManagedPtr() noexcept = default;
-    ManagedPtr(nullptr_t) noexcept {}
+    ManagedPtr(std::nullptr_t) noexcept {}
     ~ManagedPtr() noexcept = default;
 
     ManagedPtr(const ManagedPtr &) noexcept = default;
@@ -107,7 +108,7 @@ public:
     ManagedPtr &operator=(ManagedPtr &&) noexcept = default;
     ManagedPtr &operator=(const ManagedPtr &) noexcept = default;
 
-    ManagedPtr &operator=(nullptr_t) noexcept {
+    ManagedPtr &operator=(std::nullptr_t) noexcept {
         ManagedPtr<const T>::operator=(nullptr);
         return *this;
     }
@@ -176,7 +177,7 @@ protected:
 
 public:
     ManagedPtr() noexcept = default;
-    ManagedPtr(nullptr_t) noexcept {}
+    ManagedPtr(std::nullptr_t) noexcept {}
     ~ManagedPtr() noexcept { reset(); }
     ManagedPtr(ManagedPtr &&other) noexcept {
         reset(other.transfer());
@@ -200,7 +201,7 @@ public:
         return *this;
     }
 
-    ManagedPtr &operator=(nullptr_t) noexcept {
+    ManagedPtr &operator=(std::nullptr_t) noexcept {
         reset();
         return *this;
     }
@@ -254,7 +255,7 @@ public:
         return get() == rhs.get();
     }
 
-    [[nodiscard]] bool operator==(nullptr_t) const { return !is_engaged(); }
+    [[nodiscard]] bool operator==(std::nullptr_t) const { return !is_engaged(); }
 
     template<typename U>
         requires requires(T *p) { static_cast<const U *>(p); }
