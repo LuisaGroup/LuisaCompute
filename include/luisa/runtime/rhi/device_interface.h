@@ -137,7 +137,7 @@ public:
     virtual void destroy_texture(uint64_t handle) noexcept = 0;
 
     // bindless array
-    [[nodiscard]] virtual ResourceCreationInfo create_bindless_array(size_t size, BindlessType type) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo create_bindless_array(size_t size, BindlessType type = BindlessType::None) noexcept = 0;
     virtual void destroy_bindless_array(uint64_t handle) noexcept = 0;
 
     // stream
