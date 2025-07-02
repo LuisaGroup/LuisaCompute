@@ -542,7 +542,7 @@ public:
         device.destroy_texture(device.device, api::Texture{handle});
     }
 
-    ResourceCreationInfo create_bindless_array(size_t size) noexcept override {
+    ResourceCreationInfo create_bindless_array(size_t size, BindlessType type) noexcept override {
         api::CreatedResourceInfo array = device.create_bindless_array(device.device, size);
         ResourceCreationInfo info{};
         info.handle = array.handle;
