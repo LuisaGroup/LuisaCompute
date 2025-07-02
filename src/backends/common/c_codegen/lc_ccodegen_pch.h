@@ -1,3 +1,5 @@
+#pragma once
+
 #include <luisa/core/logging.h>
 #include <luisa/vstl/common.h>
 #include <luisa/vstl/md5.h>

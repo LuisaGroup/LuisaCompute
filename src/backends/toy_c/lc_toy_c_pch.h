@@ -1,3 +1,5 @@
+#pragma once
+
 #include <luisa/core/logging.h>
 #include <luisa/core/basic_traits.h>
 #include <luisa/core/basic_types.h>
