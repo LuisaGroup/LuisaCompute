@@ -42,11 +42,11 @@ int main(int argc, char *argv[]) {
 
     Callable halton = [](UInt i, UInt b) noexcept {
         Float f = def(1.0f);
-        Float invB = 1.0f / b;
+        Float invB = 1.0f / cast<Float>(b);
         Float r = def(0.0f);
         $while (i > 0u) {
             f = f * invB;
-            r = r + f * (i % b);
+            r = r + f * cast<Float>(i % b);
             i = i / b;
         };
         return r;
@@ -90,7 +90,7 @@ int main(int argc, char *argv[]) {
             color = triangle_interpolate(hit.bary, red, green, blue);
         };
         Float3 old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        Float t = 1.0f / (frame_index + 1.0f);
+        Float t = 1.0f / (cast<Float>(frame_index) + 1.0f);
         image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
     };
 

@@ -35,11 +35,11 @@ int main(int argc, char *argv[]) {
 
     Callable halton = [](UInt i, UInt b) noexcept {
         Float f = def(1.0f);
-        Float invB = 1.0f / b;
+        Float invB = 1.0f / cast<Float>(b);
         Float r = def(0.0f);
         $while (i > 0u) {
             f = f * invB;
-            r = r + f * (i % b);
+            r = r + f * cast<Float>(i % b);
             i = i / b;
         };
         return r;
