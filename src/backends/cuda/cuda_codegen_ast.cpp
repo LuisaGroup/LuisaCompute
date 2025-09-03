@@ -868,6 +868,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::TRANSPOSE: _scratch << "lc_transpose"; break;
         case CallOp::INVERSE: _scratch << "lc_inverse"; break;
         case CallOp::SYNCHRONIZE_BLOCK: _scratch << "lc_synchronize_block"; break;
+        case CallOp::DEVICE_FENCE: _scratch << "lc_device_fence"; break;
+        case CallOp::BLOCK_FENCE: _scratch << "lc_block_fence"; break;
         case CallOp::ADDRESS_OF: _scratch << "lc_address_of"; break;
         case CallOp::ATOMIC_EXCHANGE: _scratch << "lc_atomic_exchange"; break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE: _scratch << "lc_atomic_compare_exchange"; break;

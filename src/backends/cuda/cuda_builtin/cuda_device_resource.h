@@ -2418,6 +2418,15 @@ __device__ void lc_synchronize_block() noexcept {
     __syncthreads();
 }
 
+
+__device__ void lc_device_fence() noexcept {
+    __threadfence();
+}
+
+__device__ void lc_block_fence() noexcept {
+    __threadfence_block();
+}
+
 #endif
 
 // autodiff

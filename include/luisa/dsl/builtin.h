@@ -1801,6 +1801,20 @@ inline void sync_block() noexcept {
         CallOp::SYNCHRONIZE_BLOCK, {});
 }
 
+inline void device_fence() noexcept{
+    detail::FunctionBuilder::current()->call(
+        CallOp::DEVICE_FENCE, {});
+
+}
+
+inline void block_fence() noexcept{
+    detail::FunctionBuilder::current()->call(
+        CallOp::BLOCK_FENCE, {});
+
+}
+
+
+
 // warp intrinsics
 [[nodiscard]] inline auto warp_is_first_active_lane() noexcept {
     return def<bool>(

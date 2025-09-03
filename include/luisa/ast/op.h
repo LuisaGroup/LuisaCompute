@@ -160,6 +160,10 @@ enum struct CallOp : uint32_t {
 
     SYNCHRONIZE_BLOCK,// ()
 
+    DEVICE_FENCE,
+    BLOCK_FENCE,
+
+
     ATOMIC_EXCHANGE,        /// [(atomic_ref, desired) -> old]: stores desired, returns old.
     ATOMIC_COMPARE_EXCHANGE,/// [(atomic_ref, expected, desired) -> old]: stores (old == expected ? desired : old), returns old.
     ATOMIC_FETCH_ADD,       /// [(atomic_ref, val) -> old]: stores (old + val), returns old.
