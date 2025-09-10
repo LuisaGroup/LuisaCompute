@@ -1191,7 +1191,7 @@ string CUDADevice::query(luisa::string_view property) noexcept {
         with_handle([&memory]{
             size_t free_mem, total_mem;
             cuMemGetInfo(&free_mem, &total_mem);
-            memory = to_string(total_mem);
+            memory = std::to_string(total_mem);
         });
         return memory;
     }
@@ -1200,8 +1200,9 @@ string CUDADevice::query(luisa::string_view property) noexcept {
         with_handle([&memory]{
             size_t free_mem, total_mem;
             cuMemGetInfo(&free_mem, &total_mem);
-            memory = to_string(free_mem);
+            memory = std::to_string(free_mem);
         });
+    }
     LUISA_WARNING_WITH_LOCATION("Unknown device property '{}'.", property);
     return {};
 }
