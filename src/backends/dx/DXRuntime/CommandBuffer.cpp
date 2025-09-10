@@ -79,13 +79,13 @@ void CommandBufferBuilder::DispatchCompute(
         calc(dispatchId.x, blk.x),
         calc(dispatchId.y, blk.y),
         calc(dispatchId.z, blk.z)};
-    if (dispId.x > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]] {
+    if(dispId.x > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]]{
         LUISA_ERROR("Dispatch size X {} out of range {}", dispId.x, D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
     }
-    if (dispId.y > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]] {
+    if(dispId.y > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]]{
         LUISA_ERROR("Dispatch size Y {} out of range {}", dispId.y, D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
     }
-    if (dispId.z > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]] {
+    if(dispId.z > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]]{
         LUISA_ERROR("Dispatch size Z {} out of range {}", dispId.z, D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
     }
     auto c = cb->cmdList.Get();
@@ -113,15 +113,6 @@ void CommandBufferBuilder::DispatchCompute(
             calc(dispatchId.x, blk.x),
             calc(dispatchId.y, blk.y),
             calc(dispatchId.z, blk.z)};
-        if (dispId.x > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]] {
-            LUISA_ERROR("Dispatch size X {} out of range {}", dispId.x, D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
-        }
-        if (dispId.y > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]] {
-            LUISA_ERROR("Dispatch size Y {} out of range {}", dispId.y, D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
-        }
-        if (dispId.z > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION) [[unlikely]] {
-            LUISA_ERROR("Dispatch size Z {} out of range {}", dispId.z, D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION);
-        }
         uint4 constValue{dispatchId.x, dispatchId.y, dispatchId.z, kernelId};
         c->SetComputeRoot32BitConstants(constBindPos, 4, &constValue, 0);
         ++kernelId;
@@ -220,7 +211,7 @@ void CommandBufferBuilder::CopyBufferTexture(
         if ((rowPitch & (D3D12_TEXTURE_DATA_PITCH_ALIGNMENT - 1)) != 0) [[unlikely]] {
             LUISA_ERROR("Texture's row must be aligned as {}, current value row-size({}) x pixel-size({}) = {}.", D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, size.x / (Resource::IsBCtex(texture->Format()) ? 4ull : 1ull), Resource::GetTexturePixelSize(texture->Format()), rowPitch);
         }
-        if ((buffer.offset & (D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT - 1)) != 0) [[unlikely]] {
+        if((buffer.offset & (D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT - 1)) != 0) [[unlikely]] {
             LUISA_ERROR("Buffer offset must be aligned as {}, current value is {}", D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, buffer.offset);
         }
     } else {

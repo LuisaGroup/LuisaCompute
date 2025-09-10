@@ -6,8 +6,8 @@
 namespace luisa::compute::optix {
 
 // versions
-static constexpr auto VERSION = 90000u;
-static constexpr auto ABI_VERSION = 105u;
+static constexpr auto VERSION = 80000u;
+static constexpr auto ABI_VERSION = 87u;
 
 // types
 using TraversableHandle = unsigned long long;
@@ -40,7 +40,6 @@ static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_TRANSPARENT = (-1)
 static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_OPAQUE = (-2);
 static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_UNKNOWN_TRANSPARENT = (-3);
 static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_FULLY_UNKNOWN_OPAQUE = (-4);
-static constexpr auto OPACITY_MICROMAP_PREDEFINED_INDEX_CLUSTER_SKIP_OPACITY_MICROMAP = (-5);
 static constexpr auto OPACITY_MICROMAP_ARRAY_BUFFER_BYTE_ALIGNMENT = 128ull;
 static constexpr auto OPACITY_MICROMAP_MAX_SUBDIVISION_LEVEL = 12u;
 static constexpr auto DISPLACEMENT_MICROMAP_MAX_SUBDIVISION_LEVEL = 5u;
@@ -86,7 +85,6 @@ enum Result : unsigned int {
     RESULT_ERROR_ENTRY_SYMBOL_NOT_FOUND = 7805u,
     RESULT_ERROR_LIBRARY_UNLOAD_FAILURE = 7806u,
     RESULT_ERROR_DEVICE_OUT_OF_MEMORY = 7807u,
-    RESULT_ERROR_INVALID_POINTER = 7808u,
     RESULT_ERROR_CUDA_ERROR = 7900u,
     RESULT_ERROR_INTERNAL_ERROR = 7990u,
     RESULT_ERROR_UNKNOWN = 7999u,
@@ -103,11 +101,6 @@ enum DeviceProperty : unsigned int {
     DEVICE_PROPERTY_LIMIT_MAX_SBT_RECORDS_PER_GAS = 0x2008u,
     DEVICE_PROPERTY_LIMIT_MAX_SBT_OFFSET = 0x2009u,
     DEVICE_PROPERTY_SHADER_EXECUTION_REORDERING = 0x200au,
-    DEVICE_PROPERTY_COOP_VEC = 0x200bu,
-    DEVICE_PROPERTY_CLUSTER_ACCEL = 0x2020u,
-    DEVICE_PROPERTY_LIMIT_MAX_CLUSTER_VERTICES = 0x2021u,
-    DEVICE_PROPERTY_LIMIT_MAX_CLUSTER_TRIANGLES = 0x2022u,
-    DEVICE_PROPERTY_LIMIT_MAX_STRUCTURED_GRID_RESOLUTION = 0x2023u,
 };
 
 enum DeviceContextValidationMode : unsigned int {
@@ -127,11 +120,6 @@ enum DevicePropertyShaderExecutionReorderingFlags : unsigned int {
     DEVICE_PROPERTY_SHADER_EXECUTION_REORDERING_FLAG_STANDARD = 1u << 0u,
 };
 
-enum DevicePropertyClusterAccelFlags : unsigned int {
-    DEVICE_PROPERTY_CLUSTER_ACCEL_FLAG_NONE = 0u,
-    DEVICE_PROPERTY_CLUSTER_ACCEL_FLAG_STANDARD = 1u << 0u,
-};
-
 enum GeometryFlags : unsigned int {
     GEOMETRY_FLAG_NONE = 0u,
     GEOMETRY_FLAG_DISABLE_ANYHIT = 1u << 0u,
@@ -146,7 +134,6 @@ enum HitKind : unsigned int {
 
 enum IndicesFormat : unsigned int {
     INDICES_FORMAT_NONE = 0u,
-    INDICES_FORMAT_UNSIGNED_BYTE3 = 0x2101u,
     INDICES_FORMAT_UNSIGNED_SHORT3 = 0x2102u,
     INDICES_FORMAT_UNSIGNED_INT3 = 0x2103u,
 };
@@ -318,10 +305,6 @@ enum PrimitiveType : unsigned int {
     PRIMITIVE_TYPE_FLAT_QUADRATIC_BSPLINE = 0x2505u,
     PRIMITIVE_TYPE_SPHERE = 0x2506u,
     PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER = 0x2507u,
-    PRIMITIVE_TYPE_ROUND_QUADRATIC_BSPLINE_ROCAPS = 0x2508u,
-    PRIMITIVE_TYPE_ROUND_CUBIC_BSPLINE_ROCAPS = 0x2509u,
-    PRIMITIVE_TYPE_ROUND_CATMULLROM_ROCAPS = 0x250au,
-    PRIMITIVE_TYPE_ROUND_CUBIC_BEZIER_ROCAPS = 0x250bu,
     PRIMITIVE_TYPE_TRIANGLE = 0x2531u,
     PRIMITIVE_TYPE_DISPLACED_MICROMESH_TRIANGLE = 0x2532u,
 };
@@ -335,10 +318,6 @@ enum PrimitiveTypeFlags : unsigned int {
     PRIMITIVE_TYPE_FLAGS_FLAT_QUADRATIC_BSPLINE = 1u << 5u,
     PRIMITIVE_TYPE_FLAGS_SPHERE = 1u << 6u,
     PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BEZIER = 1u << 7u,
-    PRIMITIVE_TYPE_FLAGS_ROUND_QUADRATIC_BSPLINE_ROCAPS = 1u << 8u,
-    PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BSPLINE_ROCAPS = 1u << 9u,
-    PRIMITIVE_TYPE_FLAGS_ROUND_CATMULLROM_ROCAPS = 1u << 10u,
-    PRIMITIVE_TYPE_FLAGS_ROUND_CUBIC_BEZIER_ROCAPS = 1u << 11u,
     PRIMITIVE_TYPE_FLAGS_TRIANGLE = 1u << 31u,
     PRIMITIVE_TYPE_FLAGS_DISPLACED_MICROMESH_TRIANGLE = 1u << 30u,
 };
@@ -366,18 +345,18 @@ struct BuildInputCurveArray {
 };
 
 struct BuildInputSphereArray {
-  const CUdeviceptr* vertexBuffers;
-  unsigned int vertexStrideInBytes;
-  unsigned int numVertices;
-  const CUdeviceptr* radiusBuffers;
-  unsigned int radiusStrideInBytes;
-  int singleRadius;
-  const unsigned int* flags;
-  unsigned int numSbtRecords;
-  CUdeviceptr sbtIndexOffsetBuffer;
-  unsigned int sbtIndexOffsetSizeInBytes;
-  unsigned int sbtIndexOffsetStrideInBytes;
-  unsigned int primitiveIndexOffset;
+    const CUdeviceptr* vertexBuffers;
+    unsigned int vertexStrideInBytes;
+    unsigned int numVertices;
+    const CUdeviceptr* radiusBuffers;
+    unsigned int radiusStrideInBytes;
+    int singleRadius;
+    const unsigned int* flags;
+    unsigned int numSbtRecords;
+    CUdeviceptr sbtIndexOffsetBuffer;
+    unsigned int sbtIndexOffsetSizeInBytes;
+    unsigned int sbtIndexOffsetStrideInBytes;
+    unsigned int primitiveIndexOffset;
 };
 
 struct Aabb {
@@ -587,177 +566,6 @@ enum TraversableType : unsigned int {
     TRAVERSABLE_TYPE_SRT_MOTION_TRANSFORM = 0x21c3u,
 };
 
-enum ClusterAccelBuildFlags : unsigned int {
-    CLUSTER_ACCEL_BUILD_FLAG_NONE = 0u,
-    CLUSTER_ACCEL_BUILD_FLAG_PREFER_FAST_TRACE = 1u << 0u,
-    CLUSTER_ACCEL_BUILD_FLAG_PREFER_FAST_BUILD = 1u << 1u,
-    CLUSTER_ACCEL_BUILD_FLAG_ALLOW_OPACITY_MICROMAPS = 1u << 2u,
-};
-
-enum ClusterAccelClusterFlags : unsigned int {
-    CLUSTER_ACCEL_CLUSTER_FLAG_NONE = 0u,
-    CLUSTER_ACCEL_CLUSTER_FLAG_ALLOW_DISABLE_OPACITY_MICROMAPS = 1u << 0u,
-};
-
-enum ClusterAccelPrimitiveFlags : unsigned int {
-    CLUSTER_ACCEL_PRIMITIVE_FLAG_NONE = 0u,
-    CLUSTER_ACCEL_PRIMITIVE_FLAG_DISABLE_TRIANGLE_FACE_CULLING = 1u << 0u,
-    CLUSTER_ACCEL_PRIMITIVE_FLAG_REQUIRE_SINGLE_ANYHIT_CALL = 1u << 1u,
-    CLUSTER_ACCEL_PRIMITIVE_FLAG_DISABLE_ANYHIT = 1u << 2u,
-};
-
-enum ClusterAccelBuildType : unsigned int {
-    CLUSTER_ACCEL_BUILD_TYPE_GASES_FROM_CLUSTERS = 0x2545u,
-    CLUSTER_ACCEL_BUILD_TYPE_CLUSTERS_FROM_TRIANGLES = 0x2546u,
-    CLUSTER_ACCEL_BUILD_TYPE_TEMPLATES_FROM_TRIANGLES = 0x2547u,
-    CLUSTER_ACCEL_BUILD_TYPE_CLUSTERS_FROM_TEMPLATES = 0x2548u,
-    CLUSTER_ACCEL_BUILD_TYPE_TEMPLATES_FROM_GRIDS = 0x2549u,
-};
-
-enum ClusterAccelBuildMode : unsigned int {
-    CLUSTER_ACCEL_BUILD_MODE_IMPLICIT_DESTINATIONS = 0u,
-    CLUSTER_ACCEL_BUILD_MODE_EXPLICIT_DESTINATIONS = 1u,
-    CLUSTER_ACCEL_BUILD_MODE_GET_SIZES = 2u,
-};
-
-enum ClusterAccelIndicesFormat : unsigned int {
-    CLUSTER_ACCEL_INDICES_FORMAT_8BIT = 1u,
-    CLUSTER_ACCEL_INDICES_FORMAT_16BIT = 2u,
-    CLUSTER_ACCEL_INDICES_FORMAT_32BIT = 4u,
-};
-
-struct ClusterAccelBuildModeDescImplicitDest {
-    CUdeviceptr  outputBuffer;
-    size_t       outputBufferSizeInBytes;
-    CUdeviceptr  tempBuffer;
-    size_t       tempBufferSizeInBytes;
-    CUdeviceptr  outputHandlesBuffer;
-    unsigned int outputHandlesStrideInBytes;
-    CUdeviceptr  outputSizesBuffer;
-    unsigned int outputSizesStrideInBytes;
-};
-
-struct ClusterAccelBuildModeDescExplicitDest {
-    CUdeviceptr  tempBuffer;
-    size_t       tempBufferSizeInBytes;
-    CUdeviceptr  destAddressesBuffer;
-    unsigned int destAddressesStrideInBytes;
-    CUdeviceptr  outputHandlesBuffer;
-    unsigned int outputHandlesStrideInBytes;
-    CUdeviceptr  outputSizesBuffer;
-    unsigned int outputSizesStrideInBytes;
-};
-
-struct ClusterAccelBuildModeDescGetSize {
-    CUdeviceptr  outputSizesBuffer;
-    unsigned int outputSizesStrideInBytes;
-    CUdeviceptr  tempBuffer;
-    size_t       tempBufferSizeInBytes;
-};
-
-struct ClusterAccelBuildInputTriangles {
-    ClusterAccelBuildFlags flags;
-    unsigned int maxArgCount;
-    VertexFormat vertexFormat;
-    unsigned int maxSbtIndexValue;
-    unsigned int maxUniqueSbtIndexCountPerArg;
-    unsigned int maxTriangleCountPerArg;
-    unsigned int maxVertexCountPerArg;
-    unsigned int maxTotalTriangleCount;
-    unsigned int maxTotalVertexCount;
-    unsigned int minPositionTruncateBitCount;
-};
-
-struct ClusterAccelBuildInputGrids {
-    ClusterAccelBuildFlags flags;
-    unsigned int                maxArgCount;
-    VertexFormat vertexFormat;
-    unsigned int      maxSbtIndexValue;
-    unsigned int maxWidth;
-    unsigned int maxHeight;
-};
-
-struct ClusterAccelBuildInputClusters {
-    ClusterAccelBuildFlags flags;
-    unsigned int                maxArgCount;
-    unsigned int                maxTotalClusterCount;
-    unsigned int                maxClusterCountPerArg;
-};
-
-struct ClusterAccelPrimitiveInfo {
-    unsigned int sbtIndex       : 24;
-    unsigned int reserved       :  5;
-    unsigned int primitiveFlags :  3;
-};
-
-enum ClusterIDValues : unsigned int {
-    CLUSTER_ID_INVALID = 0xffffffffu,
-};
-
-struct ClusterAccelBuildInputTrianglesArgs {
-    unsigned int clusterId;
-    unsigned int clusterFlags;
-    unsigned int triangleCount              : 9;
-    unsigned int vertexCount                : 9;
-    unsigned int positionTruncateBitCount   : 6;
-    unsigned int indexFormat                : 4;
-    unsigned int opacityMicromapIndexFormat : 4;
-    ClusterAccelPrimitiveInfo basePrimitiveInfo;
-    unsigned short indexBufferStrideInBytes;
-    unsigned short vertexBufferStrideInBytes;
-    unsigned short primitiveInfoBufferStrideInBytes;
-    unsigned short opacityMicromapIndexBufferStrideInBytes;
-    CUdeviceptr indexBuffer;
-    CUdeviceptr vertexBuffer;
-    CUdeviceptr primitiveInfoBuffer;
-    CUdeviceptr opacityMicromapArray;
-    CUdeviceptr opacityMicromapIndexBuffer;
-    CUdeviceptr instantiationBoundingBoxLimit;
-};
-
-struct ClusterAccelBuildInputGridsArgs {
-    unsigned int baseClusterId;
-    unsigned int clusterFlags;
-    ClusterAccelPrimitiveInfo basePrimitiveInfo;
-    unsigned int positionTruncateBitCount :  6;
-    unsigned int reserved                 : 26;
-    unsigned char  dimensions[2];
-    unsigned short reserved2;
-};
-
-struct ClusterAccelBuildInputTemplatesArgs {
-    unsigned int clusterIdOffset;
-    unsigned int sbtIndexOffset;
-    CUdeviceptr  clusterTemplate;
-    CUdeviceptr  vertexBuffer;
-    unsigned int vertexStrideInBytes;
-    unsigned int reserved;
-};
-
-struct ClusterAccelBuildInputClustersArgs {
-    unsigned int clusterHandlesCount;
-    unsigned int clusterHandlesBufferStrideInBytes;
-    CUdeviceptr  clusterHandlesBuffer;
-};
-
-struct ClusterAccelBuildInput {
-    ClusterAccelBuildType type;
-    union {
-        ClusterAccelBuildInputClusters  clusters;
-        ClusterAccelBuildInputTriangles triangles;
-        ClusterAccelBuildInputGrids     grids;
-    };
-};
-
-struct ClusterAccelBuildModeDesc {
-    ClusterAccelBuildMode mode;
-    union {
-        ClusterAccelBuildModeDescImplicitDest implicitDest;
-        ClusterAccelBuildModeDescExplicitDest explicitDest;
-        ClusterAccelBuildModeDescGetSize      getSize;
-    };
-};
-
 enum PixelFormat : unsigned int {
     PIXEL_FORMAT_HALF1 = 0x220au,
     PIXEL_FORMAT_HALF2 = 0x2207u,
@@ -782,13 +590,13 @@ struct Image2D {
 };
 
 enum DenoiserModelKind : unsigned int {
+    DENOISER_MODEL_KIND_LDR = 0x2322u,
+    DENOISER_MODEL_KIND_HDR = 0x2323u,
     DENOISER_MODEL_KIND_AOV = 0x2324u,
+    DENOISER_MODEL_KIND_TEMPORAL = 0x2325u,
     DENOISER_MODEL_KIND_TEMPORAL_AOV = 0x2326u,
     DENOISER_MODEL_KIND_UPSCALE2X = 0x2327u,
     DENOISER_MODEL_KIND_TEMPORAL_UPSCALE2X = 0x2328u,
-    DENOISER_MODEL_KIND_LDR = 0x2322u,
-    DENOISER_MODEL_KIND_HDR = 0x2323u,
-    DENOISER_MODEL_KIND_TEMPORAL = 0x2325u,
 };
 
 enum DenoiserAlphaMode : unsigned int {
@@ -863,10 +671,6 @@ enum TransformType : unsigned int {
     TRANSFORM_TYPE_MATRIX_MOTION_TRANSFORM = 2u,
     TRANSFORM_TYPE_SRT_MOTION_TRANSFORM = 3u,
     TRANSFORM_TYPE_INSTANCE = 4u,
-};
-
-struct TraverseData {
-    unsigned int data[20];
 };
 
 enum TraversableGraphFlags : unsigned int {
@@ -956,13 +760,6 @@ struct ModuleCompileOptions {
     const PayloadType* payloadTypes;
 };
 
-struct BuiltinISOptions {
-    PrimitiveType        builtinISModuleType;
-    int                       usesMotionBlur;
-    unsigned int              buildFlags;
-    unsigned int              curveEndcapFlags;
-};
-
 enum ProgramGroupKind : unsigned int {
     PROGRAM_GROUP_KIND_RAYGEN = 0x2421u,
     PROGRAM_GROUP_KIND_MISS = 0x2422u,
@@ -1033,7 +830,6 @@ struct PipelineCompileOptions {
     const char* pipelineLaunchParamsVariableName;
     unsigned int usesPrimitiveTypeFlags;
     int allowOpacityMicromaps;
-    int allowClusteredGeometry;
 };
 
 struct PipelineLinkOptions {
@@ -1064,47 +860,30 @@ struct StackSizes {
     unsigned int dssDC;
 };
 
-enum DevicePropertyCoopVecFlags : unsigned int {
-    DEVICE_PROPERTY_COOP_VEC_FLAG_NONE = 0u,
-    DEVICE_PROPERTY_COOP_VEC_FLAG_STANDARD = 1u << 0u,
-};
-
-enum CoopVecElemType : unsigned int {
-    COOP_VEC_ELEM_TYPE_UNKNOWN = 0x2a00u,
-    COOP_VEC_ELEM_TYPE_FLOAT16 = 0x2a01u,
-    COOP_VEC_ELEM_TYPE_FLOAT32 = 0x2a03u,
-    COOP_VEC_ELEM_TYPE_UINT8 = 0x2a04u,
-    COOP_VEC_ELEM_TYPE_INT8 = 0x2a05u,
-    COOP_VEC_ELEM_TYPE_UINT32 = 0x2a08u,
-    COOP_VEC_ELEM_TYPE_INT32 = 0x2a09u,
-    COOP_VEC_ELEM_TYPE_FLOAT8_E4M3 = 0x2a0au,
-    COOP_VEC_ELEM_TYPE_FLOAT8_E5M2 = 0x2a0bu,
-};
-
-enum CoopVecMatrixLayout : unsigned int {
-    COOP_VEC_MATRIX_LAYOUT_ROW_MAJOR = 0x2a40u,
-    COOP_VEC_MATRIX_LAYOUT_COLUMN_MAJOR = 0x2a41u,
-    COOP_VEC_MATRIX_LAYOUT_INFERENCING_OPTIMAL = 0x2a42u,
-    COOP_VEC_MATRIX_LAYOUT_TRAINING_OPTIMAL = 0x2a43u,
-};
-
-struct CoopVecMatrixDescription {
-    unsigned int             N;
-    unsigned int             K;
-    unsigned int             offsetInBytes;
-    CoopVecElemType     elementType;
-    CoopVecMatrixLayout layout;
-    unsigned int             rowColumnStrideInBytes;
-    unsigned int             sizeInBytes;
-};
-
-struct NetworkDescription {
-    CoopVecMatrixDescription* layers;
-    unsigned int                   numLayers;
-};
-
 enum QueryFunctionTableOptions : unsigned int {
     QUERY_FUNCTION_TABLE_OPTION_DUMMY = 0u,
+};
+
+struct BuiltinISOptions {
+    PrimitiveType        builtinISModuleType;
+    int                       usesMotionBlur;
+    unsigned int              buildFlags;
+    unsigned int              curveEndcapFlags;
+};
+
+struct InvalidRayExceptionDetails {
+    std::array<float, 3> origin;
+    std::array<float, 3> direction;
+    float  tmin;
+    float  tmax;
+    float  time;
+};
+
+struct ParameterMismatchExceptionDetails {
+    unsigned int expectedParameterCount;
+    unsigned int passedArgumentCount;
+    unsigned int sbtIndex;
+    char*        callableName;
 };
 
 // function table
@@ -1176,10 +955,10 @@ struct FunctionTable {
     Result (*moduleDestroy)(Module module);
 
     Result(*builtinISModuleGet)(DeviceContext context,
-                                const ModuleCompileOptions* moduleCompileOptions,
-                                const PipelineCompileOptions* pipelineCompileOptions,
-                                const BuiltinISOptions* builtinISOptions,
-                                Module* builtinModule);
+                                 const ModuleCompileOptions* moduleCompileOptions,
+                                 const PipelineCompileOptions* pipelineCompileOptions,
+                                 const BuiltinISOptions* builtinISOptions,
+                                 Module* builtinModule);
 
     Result (*taskExecute)(Task task,
                           Task* additionalTasks,
@@ -1298,19 +1077,6 @@ struct FunctionTable {
                                              const DisplacementMicromapArrayBuildInput* buildInput,
                                              const MicromapBuffers* buffers);
 
-    Result (*clusterAccelComputeMemoryUsage)(DeviceContext context,
-                                             ClusterAccelBuildMode buildMode,
-                                             const ClusterAccelBuildInput* buildInput,
-                                             AccelBufferSizes* bufferSizes);
-
-    Result (*clusterAccelBuild)(DeviceContext context,
-                                CUstream stream,
-                                const ClusterAccelBuildModeDesc* buildModeDesc,
-                                const ClusterAccelBuildInput* buildInput,
-                                CUdeviceptr argsArray,
-                                CUdeviceptr argsCount,
-                                unsigned int argsStrideInBytes);
-
     Result (*sbtRecordPackHeader)(ProgramGroup programGroup,
                                   void* sbtRecordHeaderHostPointer);
 
@@ -1322,24 +1088,6 @@ struct FunctionTable {
                      unsigned int width,
                      unsigned int height,
                      unsigned int depth);
-
-    Result (*coopVecMatrixConvert)(DeviceContext context,
-                                   CUstream stream,
-                                   unsigned int numNetworks,
-                                   const NetworkDescription* inputNetworkDescription,
-                                   CUdeviceptr inputNetworks,
-                                   size_t inputNetworkStrideInBytes,
-                                   const NetworkDescription* outputNetworkDescription,
-                                   CUdeviceptr outputNetworks,
-                                   size_t outputNetworkStrideInBytes);
-
-    Result (*coopVecMatrixComputeSize)(DeviceContext context,
-                                       unsigned int N,
-                                       unsigned int K,
-                                       CoopVecElemType elementType,
-                                       CoopVecMatrixLayout layout,
-                                       size_t rowColumnStrideInBytes,
-                                       size_t* sizeInBytes);
 
     Result (*denoiserCreate)(DeviceContext context,
                              DenoiserModelKind modelKind,

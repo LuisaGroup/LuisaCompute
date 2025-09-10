@@ -4,39 +4,20 @@
 #include <luisa/core/stl/vector.h>
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) {
+    if (argc != 3) {
         std::cout << "Bad arguments.\n";
         return -1;
-    }
-    bool entry_process = false;
-    if (argc >= 4) {
-        entry_process = true;
     }
     luisa::vector<std::byte> vec;
     luisa::vector<std::byte> result;
     {
-        {
-            luisa::BinaryFileStream fs{argv[1]};
-            if (!fs.valid()) {
-                std::cout << "Bad input.\n";
-                return -1;
-            }
-            vec.push_back_uninitialized(fs.length());
-            fs.read(vec);
+        luisa::BinaryFileStream fs{argv[1]};
+        if (!fs.valid()) {
+            std::cout << "Bad input.\n";
+            return -1;
         }
-        if (entry_process) {
-            luisa::vector<std::byte> new_vec;
-            new_vec.reserve(vec.size());
-            for (auto &i : vec) {
-                if ((char)i != '\r') {
-                    new_vec.emplace_back(i);
-                }
-            }
-            vec = std::move(new_vec);
-            auto f = fopen(argv[1], "wb");
-            fwrite(vec.data(), vec.size(), 1, f);
-            fclose(f);
-        }
+        vec.push_back_uninitialized(fs.length());
+        fs.read(vec);
     }
     result.push_back_uninitialized(compressBound(vec.size()));
     uLong size = result.size();

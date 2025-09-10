@@ -3,9 +3,9 @@ local packages = import("packages", rootdir)
 local find_sdk = import("find_sdk", rootdir)
 local lib = import("lib", rootdir)
 function unzip(name, custom_dir, out_dir)
-    local sdk = packages.lc_sdks()[name]
-    local dir = packages.lc_sdk_dir(os.arch(), custom_dir)
-    find_sdk.lc_unzip_sdk(sdk['name'], dir, out_dir)
+    local sdk = packages.sdks()[name]
+    local dir = packages.sdk_dir(os.arch(), custom_dir)
+    find_sdk.unzip_sdk(sdk['name'], dir, out_dir)
 end
 function main(custom_dir, decompress_dir)
     if os.is_host("windows") then

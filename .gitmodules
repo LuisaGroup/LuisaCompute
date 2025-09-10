@@ -18,7 +18,7 @@
 	url = https://github.com/LuisaGroup/pybind11.git
 [submodule "src/ext/magic_enum"]
 	path = src/ext/magic_enum
-	url = https://github.com/LuisaGroup/magic_enum
+	url = https://github.com/Neargye/magic_enum
 [submodule "src/ext/imgui"]
 	path = src/ext/imgui
 	url = https://github.com/ocornut/imgui.git

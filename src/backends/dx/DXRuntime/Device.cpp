@@ -8,11 +8,6 @@
 #include <Shader/ComputeShader.h>
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
-#ifdef LUISA_DX_SDK
-extern "C" extern const uint32_t D3D12SDKVersion = D3D12_PREVIEW_SDK_VERSION;
-
-extern "C" extern LPCSTR D3D12SDKPath = ".\\D3D12\\";
-#endif
 
 namespace lc::dx {
 static ID3D12Device *last_device_handle = nullptr;
@@ -98,7 +93,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
     size_t index{std::numeric_limits<size_t>::max()};
     bool useRuntime = true;
     bool use_lmdb = false;
-    bool useExperimental = false;
     if (settings) {
         index = settings->device_index;
         // auto select
@@ -109,7 +103,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         profiler = settings->profiler;
         if (settings->extension) {
             deviceSettings = vstd::create_unique(static_cast<DirectXDeviceConfigExt *>(settings->extension.release()));
-            useExperimental = deviceSettings->UseExperimental();
         }
     }
     if (!deviceSettings || deviceSettings->LoadDXC()) {
@@ -124,10 +117,6 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
         fileIo = serVisitor.get();
     }
     if (useRuntime) {
-        if (useExperimental) {
-            UUID Features[] = {D3D12ExperimentalShaderModels, D3D12CooperativeVectorExperiment};
-            ThrowIfFailed(D3D12EnableExperimentalFeatures(_countof(Features), Features, nullptr, nullptr));
-        }
         auto GenAdapterGUID = [](DXGI_ADAPTER_DESC1 const &desc) {
             struct AdapterInfo {
                 WCHAR Description[128];
@@ -348,25 +337,16 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
                 samplerHeap->GetHeap());
         }
         // Test device
-        DirectXDeviceConfigExt::D3D12Features features{};
         D3D12_FEATURE_DATA_D3D12_OPTIONS12 options12 = {};
         if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &options12, sizeof(options12)))) {
-            features.enhanced_barrier = options12.EnhancedBarriersSupported;
             use_enhanced_barrier = (!deviceSettings || deviceSettings->UseEnhancedBarrier()) && options12.EnhancedBarriersSupported;
             // use_enhanced_barrier = false;
         }
-        if (useExperimental) {
-            D3D12_FEATURE_DATA_D3D12_OPTIONS_EXPERIMENTAL FeatureDataTier = {};
-            ThrowIfFailed(device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS_EXPERIMENTAL,
-                                                      &FeatureDataTier,
-                                                      sizeof(FeatureDataTier)));
-            if (FeatureDataTier.CooperativeVectorTier >= D3D12_COOPERATIVE_VECTOR_TIER_1_0) {
-                features.cooperative_vector = true;
-            }
-        }
-        if (deviceSettings) {
-            deviceSettings->FeatureSupported(features);
-        }
+        // TODO: currently there are lots of BUGS in NVIDIA's driver while using Enhanced barrier, disable it temporarily
+
+        // if (!use_enhanced_barrier) [[unlikely]] {
+        //     LUISA_WARNING("Enhanced barrier not supported, please update your Windows or GPU driver");
+        // }
     } else {
         if (deviceSettings) {
             if (gDxcCompiler) {

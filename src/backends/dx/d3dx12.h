@@ -11,7 +11,7 @@
 //*********************************************************
 #include <luisa/vstl/common.h>
 #include <Windows.h>
-#include <LCAgilitySDK/d3d12.h>
+#include <d3d12.h>
 #include <comdef.h>
 #include <luisa/vstl/functional.h>
 #include <dxgi.h>
@@ -22,7 +22,6 @@ using lcdx_pchar = LPCWSTR;
 #else
 using lcdx_pchar = LPCSTR;
 #endif
-
 namespace lc::dx {
 void process_dxgi_error(HRESULT hr);
 

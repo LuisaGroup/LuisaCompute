@@ -27,7 +27,7 @@ on_load(function(target)
             public = true
         })
     end
-    if get_config("lc_enable_dsl") then
+    if get_config("enable_dsl") then
         target:add("defines", "LUISA_ENABLE_DSL", {
             public = true
         })
@@ -43,7 +43,7 @@ on_load(function(target)
         })
     end
     local marl_path = path.join(os.scriptdir(), "../ext/marl")
-    if (not get_config("lc_external_marl")) and (os.exists(marl_path)) then
+    if (not get_config("external_marl")) and (os.exists(marl_path)) then
         target:add("defines", "MARL_DLL", {
             public = true
         })

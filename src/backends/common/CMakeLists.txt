@@ -156,5 +156,3 @@ if (LUISA_COMPUTE_ENABLE_CPU OR
         add_library(luisa-compute-vulkan-swapchain INTERFACE)
     endif ()
 endif ()
-
-add_subdirectory(hlsl)

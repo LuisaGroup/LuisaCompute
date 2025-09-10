@@ -46,7 +46,6 @@ namespace lc::dx {
 using namespace lc::dx;
 static constexpr uint kShaderModel = 65u;
 static constexpr uint kHighShaderModel = 66u;
-static constexpr uint kTensorShaderModel = 69u;
 LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
     : DeviceInterface(std::move(ctx)),
       nativeDevice(Context{_ctx_impl}, settings) {
@@ -375,7 +374,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             kernel,
             code,
             kernel.block_size(),
-            kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+            kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel,
             option.name,
             option.enable_fast_math,
             option.enable_debug_info);
@@ -406,7 +405,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             checkMD5,
             hlsl::binding_to_arg(kernel.bound_arguments()),
             kernel.block_size(),
-            kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+            kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel,
             file_name,
             cacheType,
             option.enable_fast_math,

@@ -239,9 +239,3 @@ install(TARGETS luisa-compute-ext EXPORT LuisaComputeTargets)
 # if (LUISA_COMPUTE_ENABLE_RUST)
 #     add_subdirectory(corrosion)
 # endif ()
-
-
-# volk
-if (LUISA_COMPUTE_ENABLE_VULKAN)
-    add_subdirectory(volk)
-endif()

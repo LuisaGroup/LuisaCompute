@@ -1,4 +1,4 @@
-if get_config("lc_cuda_ext_lcub") then
+if get_config("cuda_ext_lcub") then
     includes("lcub")
 end
 target("lc-cuda-base")
@@ -51,11 +51,11 @@ _config_project({
     batch_size = 4
 })
 add_deps("lc-runtime", "lc-cuda-base", "reproc")
-if get_config("lc_enable_ir") then
+if get_config("enable_ir") then
     add_deps("lc-ir")
 end
 
-if get_config("lc_cuda_ext_lcub") then
+if get_config("cuda_ext_lcub") then
     add_deps("luisa-compute-cuda-ext-lcub")
 end
 
@@ -84,23 +84,15 @@ add_links("cuda")
 --     local cuda = find_cuda(cuda_sdkdir())
 --     if cuda then
 --         local linkdirs = cuda["linkdirs"]
---         local lc_bin_dir = target:targetdir()
+--         local bin_dir = target:targetdir()
 --         if is_plat("windows") then
 --             for i, v in ipairs(linkdirs) do
---                 os.cp(path.join(v, "cudadevrt.lib"), lc_bin_dir)
+--                 os.cp(path.join(v, "cudadevrt.lib"), bin_dir)
 --             end
 --         end
 --         -- TODO: linux
 --     end
 -- end)
-if get_config("lc_xrepo_dir") then
-    add_packages("zlib", {
-        public = false,
-        inherit = false
-    })
-else
-    add_deps("zlib")
-end
 target_end()
 
 target("lc-nvrtc")

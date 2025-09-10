@@ -281,33 +281,7 @@ struct TypeVisitor {
     virtual void visit(const Type *) noexcept = 0;
     virtual ~TypeVisitor() noexcept = default;
 };
-enum struct CoopRefVecType : uint32_t {
-    UINT8,
-    INT8,
-    UINT32,
-    INT32,
-    FLOAT16,
-    FLOAT32,
-    FLOAT8_E4M3,
-    FLOAT8_E5M2
-};
-constexpr size_t coop_ref_vec_type_size(CoopRefVecType type) {
-    switch (type) {
-        case CoopRefVecType::FLOAT8_E4M3: [[fallthrough]];
-        case CoopRefVecType::FLOAT8_E5M2: [[fallthrough]];
-        case CoopRefVecType::UINT8: [[fallthrough]];
-        case CoopRefVecType::INT8:
-            return 1;
-        case CoopRefVecType::FLOAT16:
-            return 2;
-        case CoopRefVecType::FLOAT32: [[fallthrough]];
-        case CoopRefVecType::INT32: [[fallthrough]];
-        case CoopRefVecType::UINT32:
-            return 4;
-        default:
-            return 0;
-    }
-}
+
 /// Type class
 class LC_AST_API Type {
     friend class ::luisa::MemorySanitizer;
@@ -343,17 +317,12 @@ public:
         BINDLESS_ARRAY,
         ACCEL,
 
-        COOPERATIVE_VECTOR,
-        COOPERATIVE_VECTOR_REF,// should be uint32 for backend, only for meta data
-        COOPERATIVE_MATRIX_REF,// should be uint32 for backend, only for meta data
         CUSTOM
     };
-
 
 public:
     static constexpr auto custom_struct_size = static_cast<size_t>(4u);
     static constexpr auto custom_struct_alignment = static_cast<size_t>(4u);
-    static constexpr auto coop_ref_type_size = static_cast<size_t>(CoopRefVecType::FLOAT8_E5M2) + 1;
 
 protected:
     Type() noexcept = default;
@@ -375,12 +344,6 @@ public:
     [[nodiscard]] static auto of(T &&) noexcept { return of<std::remove_cvref_t<T>>(); }
     /// Return array type of type T
     [[nodiscard]] static const Type *array(const Type *elem, size_t n) noexcept;
-    /// Return cooperative_vector type of type T
-    [[nodiscard]] static const Type *cooperative_vector(const Type *elem, size_t n) noexcept;
-    /// Return cooperative_vector type of type T
-    [[nodiscard]] static const Type *cooperative_vector_ref(CoopRefVecType type, size_t n) noexcept;
-    /// Return cooperative_vector type of type T
-    [[nodiscard]] static const Type *cooperative_matrix_ref(CoopRefVecType type, size_t n, size_t m) noexcept;
     /// Return vector type of type T
     [[nodiscard]] static const Type *vector(const Type *elem, size_t n) noexcept;
     /// Return matrix type of type T
@@ -460,8 +423,6 @@ public:
     [[nodiscard]] luisa::span<const Type *const> members() const noexcept;
     [[nodiscard]] luisa::span<const Attribute> member_attributes() const noexcept;
     [[nodiscard]] const Type *element() const noexcept;
-    [[nodiscard]] CoopRefVecType coop_vec_ref_type() const noexcept;
-    [[nodiscard]] uint2 coop_matrix_dimension() const noexcept;
 
     /// Scalar = bool || float || int || uint
     [[nodiscard]] bool is_scalar() const noexcept;
@@ -482,9 +443,6 @@ public:
 
     /// Basic = scalar || vector || matrix
     [[nodiscard]] bool is_basic() const noexcept;
-    [[nodiscard]] bool is_cooperative_vector() const noexcept;
-    [[nodiscard]] bool is_cooperative_matrix_ref() const noexcept;
-    [[nodiscard]] bool is_cooperative_vector_ref() const noexcept;
     [[nodiscard]] bool is_array() const noexcept;
     [[nodiscard]] bool is_vector() const noexcept;
     [[nodiscard]] bool is_bool_vector() const noexcept;

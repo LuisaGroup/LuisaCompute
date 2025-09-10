@@ -71,17 +71,17 @@ after_build(function(target)
     end
     local function copy_dll(str)
         local lib_path = path.absolute(path.join("../../rust/target", str), os.scriptdir())
-        local lc_bin_dir = target:targetdir()
+        local bin_dir = target:targetdir()
         for i, v in ipairs(dlls) do
             if is_plat("windows") then
-                os.cp(path.join(lib_path, v .. ".dll"), lc_bin_dir)
+                os.cp(path.join(lib_path, v .. ".dll"), bin_dir)
             elseif is_plat("linux") then
-                os.cp(path.join(lib_path, 'lib' .. v .. ".so"), lc_bin_dir)
+                os.cp(path.join(lib_path, 'lib' .. v .. ".so"), bin_dir)
             else
                 -- macOS compiles from source, so ignore the copy error if any
                 local dylib = path.join(lib_path, 'lib' .. v .. ".dylib")
                 if os.isfile(dylib) then
-                    os.cp(dylib, lc_bin_dir)
+                    os.cp(dylib, bin_dir)
                 end
             end
         end

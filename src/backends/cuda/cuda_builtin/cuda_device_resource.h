@@ -1667,7 +1667,7 @@ __device__ lc_float2 lc_hit_object_triangle_bary() noexcept {
 }
 
 __device__ lc_float lc_hit_object_curve_parameter() noexcept {
-    lc_uint u_bits;
+    lc_uint u_bits, v_bits;
     asm volatile(
         "call (%0), _optix_hitobject_get_attribute, (%1);"
         : "=r"(u_bits)

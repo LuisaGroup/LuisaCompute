@@ -1,5 +1,5 @@
 #pragma once
-#include <LCAgilitySDK/d3d12.h>
+#include <d3d12.h>
 #include <stdint.h>
 struct SparseHeap {
     uint64_t allocation;

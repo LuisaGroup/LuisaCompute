@@ -800,61 +800,7 @@ void CUDACodegenAST::visit(const RefExpr *expr) {
 }
 
 void CUDACodegenAST::visit(const CallExpr *expr) {
-    auto args = expr->arguments();
-    auto to_coopvec_elemtype = [&]<typename T>(T type) {
-        if constexpr (std::is_same_v<T, CoopRefVecType>) {
-            switch (type) {
-                case CoopRefVecType::UINT8:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_UINT8";
-                    break;
-                case CoopRefVecType::INT8:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_INT8";
-                    break;
-                case CoopRefVecType::UINT32:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_UINT32";
-                    break;
-                case CoopRefVecType::INT32:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_INT32";
-                    break;
-                case CoopRefVecType::FLOAT16:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_FLOAT16";
-                    break;
-                case CoopRefVecType::FLOAT32:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_FLOAT32";
-                    break;
-                case CoopRefVecType::FLOAT8_E4M3:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_FLOAT8_E4M3";
-                    break;
-                case CoopRefVecType::FLOAT8_E5M2:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_FLOAT8_E5M2";
-                    break;
-            }
-        } else {
-            switch (type->tag()) {
-                case Type::Tag::UINT8:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_UINT8";
-                    break;
-                case Type::Tag::INT8:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_INT8";
-                    break;
-                case Type::Tag::UINT32:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_UINT32";
-                    break;
-                case Type::Tag::INT32:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_INT32";
-                    break;
-                case Type::Tag::FLOAT16:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_FLOAT16";
-                    break;
-                case Type::Tag::FLOAT32:
-                    _scratch << "OPTIX_COOP_VEC_ELEM_TYPE_FLOAT32";
-                    break;
-                default:
-                    LUISA_ERROR("Coop type unsupported.");
-            }
-        }
-    };
-    check_builtin_call_valid(expr->op(), expr->type(), args);
+
     switch (expr->op()) {
         case CallOp::PACK: _scratch << "lc_pack_to"; break;
         case CallOp::UNPACK: {
@@ -1106,95 +1052,8 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::RAY_TRACING_INSTANCE_MOTION_SRT: _scratch << "lc_accel_instance_motion_srt"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX: _scratch << "lc_accel_set_instance_motion_matrix"; break;
         case CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: _scratch << "lc_accel_set_instance_motion_srt"; break;
-        case CallOp::COOPERATIVE_MUL_ADD: {
-            auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
-            _scratch << "optixCoopVecMatMul<";
-            _emit_type_name(expr->type());// VecTOut;
-            _scratch << ",";
-            _emit_type_name(args[4]->type());// VecTIn
-            _scratch << ",";
-            to_coopvec_elemtype(args[1]->type()->coop_vec_ref_type());
-            _scratch << ",OPTIX_COOP_VEC_MATRIX_LAYOUT_INFERENCING_OPTIMAL,false,";
-            _scratch << luisa::format("{},{},", matrix_dimension.y, matrix_dimension.x);
-            to_coopvec_elemtype(args[1]->type()->coop_vec_ref_type());
-            _scratch << ",";
-            to_coopvec_elemtype(args[3]->type()->coop_vec_ref_type());
-            _scratch << ">(";
-            args[4]->accept(*this);       // const VecTIn& inputVector
-            _scratch << ",(CUdeviceptr)(";// CUdeviceptr matrix
-            args[0]->accept(*this);
-            _scratch << ".ptr),";
-            args[1]->accept(*this);       //unsigned  matrixOffsetInBytes
-            _scratch << ",(CUdeviceptr)(";// CUdeviceptr bias
-            args[2]->accept(*this);
-            _scratch << ".ptr),";
-            args[3]->accept(*this);// unsigned biasOffsetInBytes
-            _scratch << ")";
-        }
-            return;
-        case CallOp::BINDLESS_COOPERATIVE_MUL_ADD: {
-            auto matrix_dimension = args[2]->type()->coop_matrix_dimension();// weight is KxN
-            _scratch << "optixCoopVecMatMul<";
-            _emit_type_name(expr->type());// VecTOut;
-            _scratch << ",";
-            _emit_type_name(args[5]->type());// VecTIn
-            _scratch << ",";
-            to_coopvec_elemtype(args[2]->type()->coop_vec_ref_type());
-            _scratch << ",OPTIX_COOP_VEC_MATRIX_LAYOUT_INFERENCING_OPTIMAL,false,";
-            _scratch << luisa::format("{},{},", matrix_dimension.y, matrix_dimension.x);
-            to_coopvec_elemtype(args[2]->type()->coop_vec_ref_type());
-            _scratch << ",";
-            to_coopvec_elemtype(args[4]->type()->coop_vec_ref_type());
-            _scratch << ">(";
-            args[5]->accept(*this);                                  // const VecTIn& inputVector
-            _scratch << ",(CUdeviceptr)lc_bindless_buffer_address(";// CUdeviceptr matrix
-            args[0]->accept(*this);
-            _scratch << ",";
-            args[1]->accept(*this);
-            _scratch << "),";
-            args[2]->accept(*this);                                  //unsigned  matrixOffsetInBytes
-            _scratch << ",(CUdeviceptr)lc_bindless_buffer_address(";// CUdeviceptr bias
-            args[0]->accept(*this);
-            _scratch << ",";
-            args[3]->accept(*this);
-            _scratch << "),";
-            args[4]->accept(*this);// unsigned biasOffsetInBytes
-            _scratch << ")";
-        }
-            return;
-        case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: {
-            auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
-            _scratch << "optixCoopVecOuterProductAccumulate<";
-            _emit_type_name(args[2]->type());
-            _scratch << ",";
-            _emit_type_name(args[3]->type());
-            _scratch << ">(";
-            args[2]->accept(*this);
-            _scratch << ",";
-            args[3]->accept(*this);
-            _scratch << ",(CUdeviceptr)(";// CUdeviceptr bias
-            args[0]->accept(*this);
-            _scratch << ".ptr),";
-            args[1]->accept(*this);
-            _scratch << ")";
-        }
-            return;
-        case CallOp::COOPERATIVE_VECTOR_ACCUMULATE: {
-            _scratch << "optixCoopVecReduceSumAccumulate<";
-            _emit_type_name(args[2]->type());
-            _scratch << ">(";
-            args[2]->accept(*this);
-            _scratch << ",(CUdeviceptr)(";// CUdeviceptr bias
-            args[0]->accept(*this);
-            _scratch << ".ptr),";
-            args[1]->accept(*this);
-            _scratch << ")";
-        }
-            return;
+
         // not supported
-        case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL: [[fallthrough]];
-        case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD: [[fallthrough]];
-        case CallOp::COOPERATIVE_MUL: [[fallthrough]];
         case CallOp::RAY_QUERY_PROCEED: [[fallthrough]];
         case CallOp::RAY_QUERY_IS_TRIANGLE_CANDIDATE: [[fallthrough]];
         case CallOp::RAY_QUERY_IS_PROCEDURAL_CANDIDATE: [[fallthrough]];
@@ -1205,20 +1064,21 @@ void CUDACodegenAST::visit(const CallExpr *expr) {
         case CallOp::TEXTURE3D_SAMPLE: [[fallthrough]];
         case CallOp::TEXTURE3D_SAMPLE_LEVEL: [[fallthrough]];
         case CallOp::TEXTURE3D_SAMPLE_GRAD: [[fallthrough]];
-        case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: [[fallthrough]];
-        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: [[fallthrough]];
+        case CallOp::TEXTURE3D_SAMPLE_GRAD_LEVEL: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER: LUISA_NOT_IMPLEMENTED();
+        case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER: LUISA_NOT_IMPLEMENTED();
         case CallOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: LUISA_NOT_IMPLEMENTED();
         case CallOp::CLOCK: _scratch << "clock64"; break;
     }
     _scratch << "(";
     if (auto op = expr->op(); is_atomic_operation(op)) {
         // lower access chain to atomic operation
+        auto args = expr->arguments();
         auto access_chain = args.subspan(
             0u,
             op == CallOp::ATOMIC_COMPARE_EXCHANGE ?
@@ -1443,12 +1303,6 @@ void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
 void CUDACodegenAST::emit(Function f,
                           luisa::string_view device_lib,
                           luisa::string_view native_include) {
-    emit(f, [device_lib](StringScratch &scratch) { scratch << device_lib; }, native_include);
-}
-
-void CUDACodegenAST::emit(Function f,
-                          luisa::move_only_function<void(StringScratch &)> const &get_device_lib,
-                          luisa::string_view native_include) {
 
     _requires_printing = f.requires_printing();
     _requires_optix = f.requires_raytracing();
@@ -1474,9 +1328,9 @@ void CUDACodegenAST::emit(Function f,
              << f.block_size().x << ", "
              << f.block_size().y << ", "
              << f.block_size().z << ")\n"
-             << "\n/* built-in device library begin */\n";
-    get_device_lib(_scratch);
-    _scratch << "\n/* built-in device library end */\n\n";
+             << "\n/* built-in device library begin */\n"
+             << device_lib
+             << "\n/* built-in device library end */\n\n";
 
     _emit_type_decl(f);
 
@@ -1886,8 +1740,6 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
         case Type::Tag::INT16: _scratch << "lc_short"; break;
         case Type::Tag::UINT16: _scratch << "lc_ushort"; break;
         case Type::Tag::INT32: _scratch << "lc_int"; break;
-        case Type::Tag::COOPERATIVE_MATRIX_REF:
-        case Type::Tag::COOPERATIVE_VECTOR_REF:
         case Type::Tag::UINT32: _scratch << "lc_uint"; break;
         case Type::Tag::INT64: _scratch << "lc_long"; break;
         case Type::Tag::UINT64: _scratch << "lc_ulong"; break;
@@ -1911,12 +1763,6 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
             break;
         case Type::Tag::ARRAY:
             _scratch << "lc_array<";
-            _emit_type_name(type->element(), hack_float_to_int);
-            _scratch << ", ";
-            _scratch << type->dimension() << ">";
-            break;
-        case Type::Tag::COOPERATIVE_VECTOR:
-            _scratch << "OptixCoopVec<";
             _emit_type_name(type->element(), hack_float_to_int);
             _scratch << ", ";
             _scratch << type->dimension() << ">";

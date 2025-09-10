@@ -121,12 +121,7 @@ LUISA_STRUCT(luisa::compute::detail::GUIVertex, px, py, pz, clip_idx, uv, packed
 namespace luisa::compute {
 
 class ImGuiWindow::Impl {
-public:
-    ImGuiWindow::MouseButtonCallback _mouse_button_callback;
-    ImGuiWindow::CursorPositionCallback _cursor_position_callback;
-    ImGuiWindow::WindowSizeCallback _window_size_callback;
-    ImGuiWindow::KeyCallback _key_callback;
-    ImGuiWindow::ScrollCallback _scroll_callback;
+
 private:
     class CtxGuard {
 
@@ -286,49 +281,6 @@ public:
                                         nullptr, nullptr);
         LUISA_ASSERT(_main_window != nullptr, "Failed to create GLFW window.");
         glfwSetWindowUserPointer(_main_window, this);
-        // TODO: imgui
-        glfwSetMouseButtonCallback(_main_window, [](GLFWwindow *window, int button, int action, int mods) noexcept {
-            // if (ImGui::GetIO().WantCaptureMouse) {// ImGui is handling the mouse
-            //     ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
-            // } else {
-            auto self = static_cast<Impl *>(glfwGetWindowUserPointer(window));
-            auto x = 0.0;
-            auto y = 0.0;
-            glfwGetCursorPos(self->_main_window, &x, &y);
-            if (auto &&cb = self->_mouse_button_callback) {
-                cb(static_cast<MouseButton>(button), static_cast<Action>(action),
-                   make_float2(static_cast<float>(x), static_cast<float>(y)));
-            }
-            // }
-        });
-        glfwSetCursorPosCallback(_main_window, [](GLFWwindow *window, double x, double y) noexcept {
-            auto self = static_cast<Impl *>(glfwGetWindowUserPointer(window));
-            if (auto &&cb = self->_cursor_position_callback) { cb(make_float2(static_cast<float>(x), static_cast<float>(y))); }
-        });
-        glfwSetWindowSizeCallback(_main_window, [](GLFWwindow *window, int width, int height) noexcept {
-            auto self = static_cast<Impl *>(glfwGetWindowUserPointer(window));
-            if (auto &&cb = self->_window_size_callback) { cb(make_uint2(width, height)); }
-        });
-        glfwSetKeyCallback(_main_window, [](GLFWwindow *window, int key, int scancode, int action, int mods) noexcept {
-            // if (ImGui::GetIO().WantCaptureKeyboard) {// ImGui is handling the keyboard
-            //     ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
-            // } else {
-            auto self = static_cast<Impl *>(glfwGetWindowUserPointer(window));
-            if (auto &&cb = self->_key_callback) {
-                cb(static_cast<Key>(key), mods, static_cast<Action>(action));
-            }
-            // }
-        });
-        glfwSetScrollCallback(_main_window, [](GLFWwindow *window, double dx, double dy) noexcept {
-            // if (ImGui::GetIO().WantCaptureMouse) {// ImGui is handling the mouse
-            //     ImGui_ImplGlfw_ScrollCallback(window, dx, dy);
-            // } else {
-            auto self = static_cast<Impl *>(glfwGetWindowUserPointer(window));
-            if (auto &&cb = self->_scroll_callback) {
-                cb(make_float2(static_cast<float>(dx), static_cast<float>(dy)));
-            }
-            // }
-        });
 
         // create main swapchain
         _rebuild_swapchain_if_changed(_main_window, _main_swapchain, _main_framebuffer);
@@ -819,31 +771,6 @@ void ImGuiWindow::pop_context() noexcept {
     } else {
         LUISA_WARNING_WITH_LOCATION("Invalid ImGui context stack.");
     }
-}
-
-ImGuiWindow &ImGuiWindow::set_mouse_callback(ImGuiWindow::MouseButtonCallback cb) noexcept {
-    static_cast<ImGuiWindow::Impl *>(_impl.get())->_mouse_button_callback = std::move(cb);
-    return *this;
-}
-
-ImGuiWindow &ImGuiWindow::set_cursor_position_callback(ImGuiWindow::CursorPositionCallback cb) noexcept {
-    static_cast<ImGuiWindow::Impl *>(_impl.get())->_cursor_position_callback = std::move(cb);
-    return *this;
-}
-
-ImGuiWindow &ImGuiWindow::set_window_size_callback(ImGuiWindow::WindowSizeCallback cb) noexcept {
-    static_cast<ImGuiWindow::Impl *>(_impl.get())->_window_size_callback = std::move(cb);
-    return *this;
-}
-
-ImGuiWindow &ImGuiWindow::set_key_callback(ImGuiWindow::KeyCallback cb) noexcept {
-    static_cast<ImGuiWindow::Impl *>(_impl.get())->_key_callback = std::move(cb);
-    return *this;
-}
-
-ImGuiWindow &ImGuiWindow::set_scroll_callback(ImGuiWindow::ScrollCallback cb) noexcept {
-    static_cast<ImGuiWindow::Impl *>(_impl.get())->_scroll_callback = std::move(cb);
-    return *this;
 }
 
 uint64_t ImGuiWindow::register_texture(const Image<float> &image, const Sampler &sampler) noexcept {

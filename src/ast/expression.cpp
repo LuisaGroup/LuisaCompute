@@ -69,8 +69,6 @@ void CallExpr::_mark() const noexcept {
             case CallOp::ATOMIC_FETCH_MAX:
             case CallOp::INDIRECT_SET_DISPATCH_KERNEL:
             case CallOp::INDIRECT_SET_DISPATCH_COUNT:
-            case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE:
-            case CallOp::COOPERATIVE_VECTOR_ACCUMULATE:
                 _arguments[0]->mark(Usage::WRITE);
                 for (auto i = 1u; i < _arguments.size(); i++) {
                     _arguments[i]->mark(Usage::READ);

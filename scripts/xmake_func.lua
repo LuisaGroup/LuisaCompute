@@ -11,9 +11,9 @@ option_end()
 option("_lc_vk_sdk_dir")
 set_default(false)
 set_showmenu(false)
-add_deps("lc_vk_support")
+add_deps("vk_support")
 after_check(function(option)
-    if not option:dep("lc_vk_support"):enabled() then
+    if not option:dep("vk_support"):enabled() then
         option:set_value(false)
         return
     end
@@ -50,10 +50,10 @@ option_end()
 option("_lc_bin_dir")
 set_default(false)
 set_showmenu(false)
-add_deps("lc_dx_backend", "lc_vk_backend", "lc_cuda_backend",
-    "lc_metal_backend", "lc_cpu_backend", "lc_enable_tests", "lc_py_include",
-    "lc_cuda_ext_lcub", "lc_enable_ir", "lc_enable_dsl", "lc_enable_clangcxx",
-    "lc_enable_gui", "lc_bin_dir", "lc_enable_custom_malloc", "lc_external_marl", "lc_dx_cuda_interop", "_lc_enable_py", "_lc_enable_rust")
+add_deps("dx_backend", "vk_backend", "cuda_backend",
+    "metal_backend", "cpu_backend", "enable_tests", "py_include",
+    "cuda_ext_lcub", "enable_ir", "enable_dsl", "enable_clangcxx",
+    "enable_gui", "bin_dir", "_lc_enable_py", "_lc_enable_rust")
 before_check(function(option)
     if path.absolute(path.join(os.projectdir(), "scripts")) == path.absolute(os.scriptdir()) then
         local v = import("options", {
@@ -71,7 +71,7 @@ before_check(function(option)
                 end
             end
         end
-        local bin_dir = option:dep("lc_bin_dir"):enabled()
+        local bin_dir = option:dep("bin_dir"):enabled()
         if is_mode("debug") then
             bin_dir = path.join(bin_dir, "debug")
         elseif is_mode("releasedbg") then
@@ -81,9 +81,9 @@ before_check(function(option)
         end
         option:set_value(bin_dir)
     end
-    local lc_enable_tests = option:dep("lc_enable_tests")
-    if lc_enable_tests:enabled() then
-        option:dep("lc_enable_dsl"):enable(true, {
+    local enable_tests = option:dep("enable_tests")
+    if enable_tests:enabled() then
+        option:dep("enable_dsl"):enable(true, {
             force = true
         })
     end
@@ -92,65 +92,60 @@ before_check(function(option)
     local function non_empty_str(s)
         return type(s) == "string" and s:len() > 0
     end
-    if non_empty_str(option:dep("lc_py_include"):enabled()) then
+    if non_empty_str(option:dep("py_include"):enabled()) then
         enable_py:enable(true)
     end
     local is_win = is_plat("windows")
     -- checking dx
-    local lc_dx_backend = option:dep("lc_dx_backend")
-    if lc_dx_backend:enabled() and not is_win then
-        lc_dx_backend:enable(false, {
+    local dx_backend = option:dep("dx_backend")
+    if dx_backend:enabled() and not is_win then
+        dx_backend:enable(false, {
             force = true
         })
-        if lc_dx_backend:enabled() then
+        if dx_backend:enabled() then
             utils.error("DX backend not supported in this platform, force disabled.")
         end
     end
     -- checking metal
-    local lc_metal_backend = option:dep("lc_metal_backend")
-    if lc_metal_backend:enabled() and not is_plat("macosx") then
-        lc_metal_backend:enable(false, {
+    local metal_backend = option:dep("metal_backend")
+    if metal_backend:enabled() and not is_plat("macosx") then
+        metal_backend:enable(false, {
             force = true
         })
-        if lc_metal_backend:enabled() then
+        if metal_backend:enabled() then
             utils.error("Metal backend not supported in this platform, force disabled.")
         end
     end
     -- checking cuda
-    local lc_cuda_ext_lcub = option:dep("lc_cuda_ext_lcub")
-    local lc_cuda_backend = option:dep("lc_cuda_backend")
-    if lc_cuda_backend:enabled() and not (is_win or is_plat("linux")) then
-        lc_cuda_backend:enable(false, {
+    local cuda_ext_lcub = option:dep("cuda_ext_lcub")
+    local cuda_backend = option:dep("cuda_backend")
+    if cuda_backend:enabled() and not (is_win or is_plat("linux")) then
+        cuda_backend:enable(false, {
             force = true
         })
-        if lc_cuda_backend:enabled() then
+        if cuda_backend:enabled() then
             utils.error("CUDA backend not supported in this platform, force disabled.")
         end
     end
-    if lc_cuda_ext_lcub:enabled() and not lc_cuda_backend:enabled() then
-        lc_cuda_ext_lcub:enable(false, {
+    if cuda_ext_lcub:enabled() and not cuda_backend:enabled() then
+        cuda_ext_lcub:enable(false, {
             force = true
         })
-        if lc_cuda_ext_lcub:enabled() then
+        if cuda_ext_lcub:enabled() then
             utils.error("CUDA lcub extension not supported when cuda is disabled")
         end
     end
     if enable_py:enabled() then
-        option:dep("lc_enable_gui"):enable(true, {
+        option:dep("enable_gui"):enable(true, {
             force = true
         })
     end
-    -- dx cuda interop
-    local lc_dx_cuda_interop = option:dep("lc_dx_cuda_interop")
-    if lc_cuda_backend:enabled() and lc_dx_backend:enabled() then
-        lc_dx_cuda_interop:enable(true)
-    end
     -- checking rust
-    local lc_enable_ir = option:dep("lc_enable_ir")
-    local lc_cpu_backend = option:dep("lc_cpu_backend")
-    if not lc_enable_ir:enabled() then
+    local enable_ir = option:dep("enable_ir")
+    local cpu_backend = option:dep("cpu_backend")
+    if not enable_ir:enabled() then
         option:dep("_lc_enable_rust"):set_value(false)
-        lc_cpu_backend:enable(false, {
+        cpu_backend:enable(false, {
             force = true
         })
     else
@@ -158,17 +153,17 @@ before_check(function(option)
         local rust_cargo = find_tool("cargo") ~= nil
         option:dep("_lc_enable_rust"):set_value(rust_cargo)
         if not rust_cargo then
-            lc_enable_ir:enable(false)
-            lc_cpu_backend:enable(false)
-            if lc_enable_ir:enabled() then
+            enable_ir:enable(false)
+            cpu_backend:enable(false)
+            if enable_ir:enabled() then
                 utils.error("Cargo not installed, IR module force disabled.")
-                lc_enable_ir:enable(false, {
+                enable_ir:enable(false, {
                     force = true
                 })
             end
-            if lc_cpu_backend:enabled() then
+            if cpu_backend:enabled() then
                 utils.error("Cargo not installed, CPU backend force disabled.")
-                lc_cpu_backend:enable(false, {
+                cpu_backend:enable(false, {
                     force = true
                 })
             end
@@ -310,7 +305,7 @@ on_load(function(target)
         tools = "cl",
         public = true
     });
-    if _get_or("use_simd", get_config("lc_enable_simd")) then
+    if _get_or("use_simd", get_config("enable_simd")) then
         if is_arch("arm64") then
             target:add("vectorexts", "neon", {
                 public = true
@@ -411,7 +406,7 @@ rule_end()
 
 rule('lc_install_sdk')
 on_load(function(target)
-    local custom_sdk_dir = get_config("lc_sdk_dir")
+    local custom_sdk_dir = get_config("sdk_dir")
     if type(custom_sdk_dir ) == "string" and not os.exists(custom_sdk_dir) then
         return
     end
@@ -434,7 +429,7 @@ on_load(function(target)
     end
 end)
 on_clean(function(target)
-    local custom_sdk_dir = get_config("lc_sdk_dir")
+    local custom_sdk_dir = get_config("sdk_dir")
     if type(custom_sdk_dir ) == "string" and not os.exists(custom_sdk_dir) then
         return
     end
@@ -452,7 +447,7 @@ on_clean(function(target)
     end
 end)
 before_build(function(target)
-    local custom_sdk_dir = get_config("lc_sdk_dir")
+    local custom_sdk_dir = get_config("sdk_dir")
     if type(custom_sdk_dir ) == "string" and not os.exists(custom_sdk_dir) then
         return
     end
@@ -485,7 +480,7 @@ if _config_rules == nil then
     _config_rules = {"lc_basic_settings"}
 end
 if _disable_unity_build == nil then
-    local unity_build = get_config("lc_enable_unity_build")
+    local unity_build = get_config("enable_unity_build")
     if unity_build ~= nil then
         _disable_unity_build = not unity_build
     end

@@ -12,8 +12,8 @@ if get_config("_lc_vk_sdk_dir") then
     add_files("volk.c")
     on_load(function(target)
         if is_plat("windows") then
-            local lc_sdk_dir = get_config("_lc_vk_sdk_dir")
-            target:add("includedirs", path.join(lc_sdk_dir, "Include"), {
+            local sdk_dir = get_config("_lc_vk_sdk_dir")
+            target:add("includedirs", path.join(sdk_dir, "Include"), {
                 public = true
             })
         end

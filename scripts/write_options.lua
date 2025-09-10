@@ -106,8 +106,8 @@ function main(...)
 	if py then
 		args["python"] = nil
 	end
-	if os.is_host("linux") and not args["lc_enable_mimalloc"] then
-		args["lc_enable_mimalloc"] = "false"
+	if os.is_host("linux") and not args["enable_mimalloc"] then
+		args["enable_mimalloc"] = "false"
 	end
 	sort_key(args, function(k, v)
 		if not (v == "true" or v == "false") then
@@ -117,24 +117,24 @@ function main(...)
 	end)
 	-- python
 
-	if py and args["lc_py_include"] == nil and os.is_host("windows") then
+	if py and args["py_include"] == nil and os.is_host("windows") then
 		local py_path = find_process_path("python.exe")
 		if py_path then
-			sb:add("\tlc_py_include = \""):add(lib.string_replace(path.join(py_path, "include"), "\\", "/")):add(
-							"\",\n\tlc_py_linkdir = \"")
-			local lc_py_linkdir = path.join(py_path, "libs")
-			sb:add(lib.string_replace(lc_py_linkdir, "\\", "/"))
+			sb:add("\tpy_include = \""):add(lib.string_replace(path.join(py_path, "include"), "\\", "/")):add(
+							"\",\n\tpy_linkdir = \"")
+			local py_linkdir = path.join(py_path, "libs")
+			sb:add(lib.string_replace(py_linkdir, "\\", "/"))
 			local py = "python"
 			sb:add("\",\n")
 			local files = {}
-			for _, filepath in ipairs(os.files(path.join(lc_py_linkdir, "*.lib"))) do
+			for _, filepath in ipairs(os.files(path.join(py_linkdir, "*.lib"))) do
 				local lib_name = path.basename(filepath)
 				if #lib_name >= #py and lib_name:sub(1, #py):lower() == py then
 					table.insert(files, lib_name)
 				end
 			end
 			if #files > 0 then
-				sb:add("\tlc_py_libs = \"")
+				sb:add("\tpy_libs = \"")
 				for i, v in ipairs(files) do
 					sb:add(v .. ";")
 				end

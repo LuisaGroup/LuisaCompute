@@ -253,7 +253,7 @@ enum struct CallOp : uint32_t {
     TYPED_UNIFORM_BINDLESS_BUFFER_SIZE,     // (bindless_array, index: uint, stride: uint) -> size
     TYPED_UNIFORM_BINDLESS_BUFFER_TYPE,     // (bindless_array, index: uint) -> uint64 (type id of the element); the returned value
     TYPED_UNIFORM_BINDLESS_BUFFER_ADDRESS,  // (bindless_array, index: uint) -> uint64 (address of the buffer)
-
+    
     // Non uniform typed
     TYPED_BINDLESS_TEXTURE2D_SAMPLE,           // (bindless_array, index: uint, uv: float2): float4
     TYPED_BINDLESS_TEXTURE2D_SAMPLE_LEVEL,     // (bindless_array, index: uint, uv: float2, level: float): float4
@@ -337,8 +337,8 @@ enum struct CallOp : uint32_t {
     // optimization hints
     ASSUME,     // ()
     UNREACHABLE,// ()
-    FLATTEN,    // for if-statement
-    BRANCH,     // for if-statement
+    FLATTEN, // for if-statement
+    BRANCH, // for if-statement
     FORCE_CASE, // for switch-statement
 
     // used by the IR module
@@ -444,17 +444,6 @@ enum struct CallOp : uint32_t {
     // SER
     SHADER_EXECUTION_REORDER,// (uint hint, uint hint_bits): void
 
-    // cooperative
-    COOPERATIVE_MUL_ADD,               // (coop_vec<OutType, M> (matrix_buffer: byte_buffer, matrix_offset: coop_mat_ref<N, M, CoopRefType>, bias_buffer: byte_buffer, bias_offset: coop_vec_ref<M, CoopRefType>, input_vector: coop_vec<N>)
-    BINDLESS_COOPERATIVE_MUL_ADD,      // (coop_vec<OutType, M> (bindless_array, matrix_buffer: uint, matrix_offset: coop_mat_ref<N, M, CoopRefType>, bias_buffer: uint, bias_offset: coop_vec_ref<M, CoopRefType>, input_vector: coop_vec<N>)
-    TYPED_BINDLESS_COOPERATIVE_MUL_ADD,// (coop_vec<OutType, M> (bindless_array, matrix_buffer: uint, matrix_offset: coop_mat_ref<N, M, CoopRefType>, bias_buffer: uint, bias_offset: coop_vec_ref<M, CoopRefType>, input_vector: coop_vec<N>)
-    COOPERATIVE_MUL,                   // (coop_vec<OutType, M> (matrix_buffer: byte_buffer, matrix_offset: coop_mat_ref<N, M, CoopRefType>input_vector: coop_vec<N>)
-    BINDLESS_COOPERATIVE_MUL,          // (coop_vec<OutType, M> (bindless_array, matrix_buffer: uint, matrix_offset: coop_mat_ref<N, M, CoopRefType>input_vector: coop_vec<N>)
-    TYPED_BINDLESS_COOPERATIVE_MUL,    // (coop_vec<OutType, M> (bindless_array, matrix_buffer: uint, matrix_offset: coop_mat_ref<N, M, CoopRefType>input_vector: coop_vec<N>)
-    COOPERATIVE_OUTER_PRODUCT_ACCUMULATE,    // ResultMatrix += InputVector1 * Transpose(InputVector2);
-    // void(matrix_buffer: byte_buffer, matrix_offset: coop_mat_ref, input_vec1 : coop_vector, input_vec2 : coop_vector, )
-    COOPERATIVE_VECTOR_ACCUMULATE,// void(vector_buffer: byte_buffer, vector_offset: coop_vec_ref, input_vec: coop_vector)
-
     // Clock
     CLOCK,// (): uint64
 };
@@ -485,8 +474,6 @@ static constexpr size_t call_op_count = to_underlying(CallOp::CLOCK) + 1u;
            op == CallOp::MAKE_FLOAT3X3 ||
            op == CallOp::MAKE_FLOAT4X4;
 }
-class Expression;
-LC_AST_API void check_builtin_call_valid(CallOp op, const Type *return_type, luisa::span<const Expression *const> args) noexcept;
 
 /**
  * @brief Set of call operations.
@@ -577,18 +564,8 @@ public:
                test(CallOp::BACKWARD) ||
                test(CallOp::DETACH);
     }
-    [[nodiscard]] auto uses_cooperative() const noexcept {
-        return test(CallOp::COOPERATIVE_MUL_ADD) ||
-               test(CallOp::BINDLESS_COOPERATIVE_MUL_ADD) ||
-               test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) ||
-               test(CallOp::COOPERATIVE_MUL) ||
-               test(CallOp::BINDLESS_COOPERATIVE_MUL) ||
-               test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) ||
-               test(CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE) ||
-               test(CallOp::COOPERATIVE_VECTOR_ACCUMULATE);
-    }
 };
 
 }// namespace luisa::compute
 
-LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, CLOCK)
+LUISA_MAGIC_ENUM_RANGE(luisa::compute::CallOp, CUSTOM, SHADER_EXECUTION_REORDER)

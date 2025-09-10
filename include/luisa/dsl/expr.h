@@ -13,7 +13,6 @@
 #include <luisa/ast/function_builder.h>
 #include <luisa/dsl/expr_traits.h>
 #include <luisa/dsl/arg.h>
-#include <luisa/dsl/coop_vector.h>
 
 namespace luisa::compute {
 
@@ -145,13 +144,6 @@ struct Expr<std::array<T, N>>
       detail::ExprEnableSubscriptAccess<Expr<std::array<T, N>>>,
       detail::ExprEnableGetMemberByIndex<Expr<std::array<T, N>>> {
     LUISA_EXPR_COMMON(std::array<T, N>)
-};
-
-template<typename T>
-struct Expr<CoopVector<T>>
-    : detail::ExprEnableSubscriptAccess<Expr<CoopVector<T>>>,
-      detail::ExprEnableGetMemberByIndex<Expr<CoopVector<T>>> {
-    LUISA_EXPR_COMMON(CoopVector<T>);
 };
 
 /// Class of Expr<T[N]>
@@ -316,50 +308,7 @@ struct ExprEnableGetMemberByIndex {
 };
 
 }// namespace detail
-/// Access at index
-template<typename T>
-template<typename U>
-    requires is_integral_expr_v<U>
-[[nodiscard]] auto &CoopVector<T>::operator[](U &&index) const noexcept {
-    auto i = def(std::forward<U>(index));
-    auto f = detail::FunctionBuilder::current();
-    auto expr = f->access(
-        Type::of<T>(), _expression, i.expression());
-    return *f->create_temporary<Var<T>>(expr);
-}
 
-[[nodiscard]] inline Expr<uint> CoopVectorRef::byte_offset() const noexcept {
-    return Expr<uint>{_expression};
-}
-[[nodiscard]] inline Expr<uint> CoopMatrixRef::byte_offset() const noexcept {
-    return Expr<uint>{_expression};
-}
-[[nodiscard]] inline CoopVectorRef::operator Expr<uint>() const noexcept {
-    return Expr<uint>{_expression};
-}
-[[nodiscard]] inline CoopMatrixRef::operator Expr<uint>() const noexcept {
-    return Expr<uint>{_expression};
-}
-template<typename T>
-[[nodiscard]] inline CoopVector<T>::operator Expr<CoopVector<T>>() const noexcept {
-    return Expr<CoopVector<T>>{_expression};
-}
-inline void CoopVectorRef::set_byte_offset(uint value) noexcept {
-    detail::FunctionBuilder::current()->assign(
-        _expression, detail::FunctionBuilder::current()->literal(Type::of<uint>(), value));
-}
-inline void CoopVectorRef::set_byte_offset(Expr<uint> value) noexcept {
-    detail::FunctionBuilder::current()->assign(
-        _expression, value.expression());
-}
-inline void CoopMatrixRef::set_byte_offset(uint value) noexcept {
-    detail::FunctionBuilder::current()->assign(
-        _expression, detail::FunctionBuilder::current()->literal(Type::of<uint>(), value));
-}
-inline void CoopMatrixRef::set_byte_offset(Expr<uint> value) noexcept {
-    detail::FunctionBuilder::current()->assign(
-        _expression, value.expression());
-}
 // deduction guides
 template<typename T>
 Expr(Expr<T>) -> Expr<T>;

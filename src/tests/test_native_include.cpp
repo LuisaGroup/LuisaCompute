@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
         image->write(coord, make_float4(uv, 0.5f, 1.0f));
     };
     ShaderOption option;
-    if (device_name == "dx" || device_name == "vk") {
+    if (device_name == "dx") {
         // native HLSL code
         option.native_include = R"(
 float2 get_uv(float2 coord, float2 size){

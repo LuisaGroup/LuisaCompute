@@ -1,4 +1,4 @@
-local lc_enable_gui = get_config("lc_enable_gui")
+local enable_gui = get_config("enable_gui")
 -- TEST MAIN with doctest
 ------------------------------------
 
@@ -27,16 +27,16 @@ local function lc_add_app(appname, folder, name, deps)
     add_deps(deps)
 
     -- extra defs 
-    if get_config("lc_dx_backend") then
+    if get_config("dx_backend") then
         add_defines("LUISA_TEST_DX_BACKEND")
     end
-    if get_config("lc_cuda_backend") then
+    if get_config("cuda_backend") then
         add_defines("LUISA_TEST_CUDA_BACKEND")
-        if get_config("lc_cuda_ext_lcub") then
+        if get_config("cuda_ext_lcub") then
             add_deps("luisa-compute-cuda-ext-lcub")
         end
     end
-    if get_config("lc_metal_backend") then
+    if get_config("metal_backend") then
         add_defines("LUISA_TEST_METAL_BACKEND")
     end
 
@@ -48,16 +48,16 @@ lc_add_app("test_next_tensor", "test", "tensor") -- tensor test
 lc_add_app("test_feat", "test", "feat") -- core feature test
 lc_add_app("test_ext_core", "test", "ext/core") -- core extensions
 -- extensions for different backends
-if get_config("lc_dx_backend") then
+if get_config("dx_backend") then
     lc_add_app("test_ext_dx", "test", "ext/dx")
 end
-if get_config("lc_cuda_backend") then
-    if get_config("lc_cuda_ext_lcub") then
+if get_config("cuda_backend") then
+    if get_config("cuda_ext_lcub") then
         lc_add_app("test_ext_cuda", "test", "ext/cuda")
     end
 end
 -- examples & gallery
-if get_config("lc_enable_gui") then
+if get_config("enable_gui") then
     add_defines("ENABLE_DISPLAY")
     -- example app 
     lc_add_app("gallery", "example", "gallery", {"lc-gui"}) -- demo
@@ -72,7 +72,7 @@ end
 -- OLD TESTS
 
 local function test_proj(name, gui_dep, callable)
-    if gui_dep and not lc_enable_gui then
+    if gui_dep and not enable_gui then
         return
     end
     target(name)
@@ -81,11 +81,11 @@ local function test_proj(name, gui_dep, callable)
     })
     add_files(name .. ".cpp")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image", "lc-backends-dummy")
-    if get_config("lc_enable_ir") then
+    if get_config("enable_ir") then
         add_deps("lc-ir")
         add_deps("lc-rust")
     end
-    if get_config("lc_enable_gui") then
+    if get_config("enable_gui") then
         add_deps("lc-gui")
     end
     if gui_dep then
@@ -98,7 +98,7 @@ local function test_proj(name, gui_dep, callable)
 end
 
 -- FIXME: @Maxwell please use the doctest framework
-if get_config("lc_enable_ir") then
+if get_config("enable_ir") then
     test_proj('test_autodiff')
     test_proj('test_autodiff_full')
 end
@@ -171,9 +171,9 @@ else
     add_deps("zlib")
 end
 target_end()
-if get_config("lc_dx_backend") then
+if get_config("dx_backend") then
     test_proj("test_raster", true)
-    if get_config("lc_cuda_backend") then
+    if get_config("cuda_backend") then
         test_proj("test_cuda_dx_interop")
     end
     test_proj("test_dml")
@@ -186,7 +186,7 @@ if get_config("lc_dx_backend") then
 end
 test_proj("test_manual_ast")
 if not is_mode("debug") then
-    if get_config("lc_enable_clangcxx") then
+    if get_config("enable_clangcxx") then
         test_proj("test_clang_cxx", true, function()
             add_deps("lc-clangcxx")
             set_pcxxheader("lc_test_pch.h")
@@ -206,7 +206,7 @@ if not is_mode("debug") then
     end
 end
 
-if get_config("lc_cuda_ext_lcub") then
+if get_config("cuda_ext_lcub") then
     test_proj("test_cuda_lcub", false, function()
         add_deps("luisa-compute-cuda-ext-lcub")
     end)
@@ -221,7 +221,7 @@ local enable_xess
 -- For XeSS, you need to clone https://github.com/intel/xess release package into this directory
 -- enable_fsr2 = true
 -- enable_xess = true
-if get_config("lc_dx_backend") and (enable_fsr2 or enable_xess) then
+if get_config("dx_backend") and (enable_fsr2 or enable_xess) then
     test_proj("test_dx_supersampling", true, function()
         if enable_fsr2 then
             set_values("option", 1)
@@ -249,26 +249,26 @@ if get_config("lc_dx_backend") and (enable_fsr2 or enable_xess) then
             end
         end)
         after_build(function(target)
-            local lc_bin_dir = target:targetdir()
+            local bin_dir = target:targetdir()
             local option = target:values("option")
             if option == 1 then
                 local src_dir = path.join(os.scriptdir(), "FidelityFX-FSR2/bin")
                 if is_mode("debug") then
-                    os.cp(path.join(src_dir, "ffx_fsr2_api_dx12_x64d.dll"), lc_bin_dir)
-                    os.cp(path.join(src_dir, "ffx_fsr2_api_x64d.dll"), lc_bin_dir)
+                    os.cp(path.join(src_dir, "ffx_fsr2_api_dx12_x64d.dll"), bin_dir)
+                    os.cp(path.join(src_dir, "ffx_fsr2_api_x64d.dll"), bin_dir)
                 else
-                    os.cp(path.join(src_dir, "ffx_fsr2_api_dx12_x64.dll"), lc_bin_dir)
-                    os.cp(path.join(src_dir, "ffx_fsr2_api_x64.dll"), lc_bin_dir)
+                    os.cp(path.join(src_dir, "ffx_fsr2_api_dx12_x64.dll"), bin_dir)
+                    os.cp(path.join(src_dir, "ffx_fsr2_api_x64.dll"), bin_dir)
                 end
             else
                 local src_dir = path.join(os.scriptdir(), "xess/bin")
-                os.cp(path.join(src_dir, "*.dll"), lc_bin_dir)
+                os.cp(path.join(src_dir, "*.dll"), bin_dir)
             end
         end)
     end)
 end
 -- includes("amd")
-if get_config("lc_dx_backend") and enable_fsr3 then
+if get_config("dx_backend") and enable_fsr3 then
     test_proj("test_fsr3", true, function()
         set_pcxxheader("lc_test_pch.h")
         on_load(function(target)
@@ -279,19 +279,19 @@ if get_config("lc_dx_backend") and enable_fsr3 then
             target:add("syslinks", "Advapi32", "User32")
         end)
         after_build(function(target)
-            local lc_bin_dir = target:targetdir()
+            local bin_dir = target:targetdir()
             local src_dir = path.join(os.scriptdir(), "FidelityFX-SDK-FSR3-v3.0.3/bin")
             local tab = {"ffx_fsr3_x64", "ffx_opticalflow_x64", "ffx_fsr3upscaler_x64", "ffx_frameinterpolation_x64"}
             if is_mode("debug") then
                 table.insert(tab, "ffx_backend_dx12_x64d")
                 for _, v in ipairs(tab) do
-                    os.cp(path.join(src_dir, v .. ".pdb"), lc_bin_dir)
+                    os.cp(path.join(src_dir, v .. ".pdb"), bin_dir)
                 end
             else
                 table.insert(tab, "ffx_backend_dx12_x64")
             end
             for _, v in ipairs(tab) do
-                os.cp(path.join(src_dir, v .. ".dll"), lc_bin_dir)
+                os.cp(path.join(src_dir, v .. ".dll"), bin_dir)
             end
         end)
     end)

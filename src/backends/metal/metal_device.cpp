@@ -670,17 +670,6 @@ void MetalDevice::destroy_accel(uint64_t handle) noexcept {
 }
 
 string MetalDevice::query(luisa::string_view property) noexcept {
-
-    if (property == "total_memory") {
-        string memory = "0";
-        memory = std::to_string(_handle->recommendedMaxWorkingSetSize());
-        return memory;
-    }
-    if (property == "free_memory") {
-        string memory = "0";
-        memory = std::to_string(_handle->recommendedMaxWorkingSetSize());
-        return memory;
-    }
     LUISA_WARNING_WITH_LOCATION("Device property \"{}\" is not supported on Metal.", property);
     return {};
 }

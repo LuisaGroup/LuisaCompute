@@ -1,5 +1,5 @@
 #pragma once
-#include <LCAgilitySDK/d3d12.h>
+#include <d3d12.h>
 #include <luisa/vstl/common.h>
 namespace lc::dx {
 class UpdateTileTracker {

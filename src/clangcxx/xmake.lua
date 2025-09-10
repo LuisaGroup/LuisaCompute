@@ -8,13 +8,13 @@ if not is_mode("debug") then
     add_files("src/**.cpp")
     on_load(function(target, opt)
         local libs = {}
-        local lc_llvm_path = get_config("lc_llvm_path")
-        if (not lc_llvm_path) or (lc_llvm_path == "") then
-            lc_llvm_path = path.join(os.scriptdir(), "llvm")
+        local llvm_path = get_config("llvm_path")
+        if (not llvm_path) or (llvm_path == "") then
+            llvm_path = path.join(os.scriptdir(), "llvm")
         end
-        local p = path.join(lc_llvm_path, "lib/*.lib")
-        target:add("linkdirs", path.join(lc_llvm_path, "lib"))
-        target:add("includedirs", path.join(lc_llvm_path, "include"))
+        local p = path.join(llvm_path, "lib/*.lib")
+        target:add("linkdirs", path.join(llvm_path, "lib"))
+        target:add("includedirs", path.join(llvm_path, "include"))
         for __, filepath in ipairs(os.files(p)) do
             local basename = path.basename(filepath)
             table.insert(libs, basename)

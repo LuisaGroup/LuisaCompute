@@ -186,7 +186,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         // clang-format off
 #define TYPE_CASE_FLOAT(TYPE, COND)\
     else if (COND) {\
-        auto lcArray = LC_Local(fb, lcType, Usage::NONE);\
+        auto lcArray = LC_Local(fb, lcType, Usage::READ);\
         for (uint32_t i = 0; i < DIM; i++) \
             fb->assign(\
                 fb->access(Type::of<TYPE>(), lcArray, fb->literal(Type::of<uint32_t>(), i)),\
@@ -196,7 +196,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
 
 #define TYPE_CASE_INT(TYPE, COND)\
     else if (COND) {\
-        auto lcArray = LC_Local(fb, lcType, Usage::NONE);\
+        auto lcArray = LC_Local(fb, lcType, Usage::READ);\
         for (uint32_t i = 0; i < DIM; i++) \
             fb->assign(\
                 fb->access(Type::of<TYPE>(), lcArray, fb->literal(Type::of<uint32_t>(), i)),\
@@ -239,7 +239,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
         auto Y = VEC_ARRAY.getArraySize();
         auto X = (Y == 3) ? 4 : Y;
         const luisa::compute::Type *VecTypeLUT[] = {nullptr, nullptr, Type::of<float2>(), Type::of<float3>(), Type::of<float4>()};
-        auto lcMatrix = LC_Local(fb, lcType, Usage::NONE);
+        auto lcMatrix = LC_Local(fb, lcType, Usage::READ);
         for (uint32_t y = 0; y < Y; y++) {
             fb->assign(
                 fb->access(VecTypeLUT[X], lcMatrix, fb->literal(Type::of<uint32_t>(), y)),
@@ -331,7 +331,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                     } else if (lcType->is_matrix()) {
                         return TraverseAPMatrix(APV, lcType);
                     } else {
-                        auto constant = LC_Local(fb, lcType, Usage::NONE);
+                        auto constant = LC_Local(fb, lcType, Usage::READ);
                         auto fields = what->fields();
                         uint32_t i = 0;
                         for (auto field : fields) {
@@ -534,7 +534,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
             if (auto cxxLambda = llvm::dyn_cast<LambdaExpr>(x)) {
                 auto cxxCallee = cxxLambda->getLambdaClass()->getLambdaCallOperator();
                 auto methodThisType = cxxCallee->getThisType()->getPointeeType();
-                current = LC_Local(fb, db->FindOrAddType(methodThisType, x->getBeginLoc()), Usage::READ);// msut
+                current = LC_Local(fb, db->FindOrAddType(methodThisType, x->getBeginLoc()), Usage::READ);
             } else if (auto cxxDecl = llvm::dyn_cast<clang::DeclStmt>(x)) {
                 auto _ = db->CommentStmt(fb, cxxDecl);
 
@@ -565,14 +565,14 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                         stack->SetLocal(varDecl, static_cast<RefExpr const *>(lcInit));
                                         current = lcInit;
                                     } else {
-                                        auto lcVar = LC_Local(fb, lcType, Usage::NONE);
+                                        auto lcVar = LC_Local(fb, lcType, Usage::WRITE);
                                         fb->assign(lcVar, lcInit);
                                         stack->SetLocal(varDecl, lcVar);
                                         current = lcVar;
                                     }
                                 }
                             } else {
-                                auto lcVar = LC_Local(fb, lcType, Usage::NONE);
+                                auto lcVar = LC_Local(fb, lcType, Usage::WRITE);
                                 stack->SetLocal(varDecl, lcVar);
                                 current = lcVar;
                             }
@@ -652,7 +652,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                 const compute::RefExpr *constructed = nullptr;
                 SKR_DEFER({  stack->SetExprAsCtor(constructed); current = constructed; });
                 if (!moveCtor) {
-                    constructed = LC_Local(fb, db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()), Usage::READ);
+                    constructed = LC_Local(fb, db->FindOrAddType(cxxCtorCall->getType(), x->getBeginLoc()), Usage::WRITE);
                     // args
                     lcArgs.emplace_back(constructed);
                     for (auto arg : cxxCtorCall->arguments()) {
@@ -745,12 +745,10 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 clangcxx_log_error("???");
                         } else if (builtinName == "half") {
                             auto lcType = Type::of<half>();
-                            if (lcArgs.size() > 1) {
-                                if ((*lcArgs.begin())->type() != Type::of<half>()) {
-                                    fb->assign(constructed, fb->cast(Type::of<half>(), CastOp::STATIC, lcArgs.begin()[1]));
-                                } else {
-                                    fb->assign(constructed, lcArgs.begin()[1]);
-                                }
+                            if ((*lcArgs.begin())->type() != Type::of<half>()) {
+                                fb->assign(constructed, fb->cast(Type::of<half>(), CastOp::STATIC, lcArgs.begin()[1]));
+                            } else {
+                                fb->assign(constructed, lcArgs.begin()[1]);
                             }
                         } else if (builtinName == "array" || builtinName == "shared_array") {
                             if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
@@ -778,17 +776,6 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                         clangcxx_log_error("unexpected move array constructor!");
                                     else
                                         clangcxx_log_error("unhandled array constructor: {}", cxxCtor->getNameAsString());
-                                }
-                            }
-                        } else if (builtinName == "coop_vec") {
-                            // Coop vec no constructor currently
-                        } else if (builtinName == "coop_vec_ref" || builtinName == "coop_mat_ref") {
-                            // if (auto TSD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(Ty->getAs<clang::RecordType>()->getDecl())) {
-                            if (lcArgs.size() > 1) {
-                                if (lcArgs[1]->type() != Type::of<uint>()) {
-                                    fb->assign(constructed, fb->cast(Type::of<uint>(), CastOp::STATIC, lcArgs.begin()[1]));
-                                } else {
-                                    fb->assign(constructed, lcArgs.begin()[1]);
                                 }
                             }
                         } else {
@@ -849,7 +836,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         case clang::UO_PostInc:
                         case clang::UO_PostDec: {
                             auto lcBinop = (cxx_op == clang::UO_PostInc) ? LCBinOp::ADD : LCBinOp::SUB;
-                            auto old = LC_Local(fb, lcType, Usage::NONE);
+                            auto old = LC_Local(fb, lcType, Usage::WRITE);
                             fb->assign(old, lhs);
                             auto ca_expr = fb->binary(lcType, lcBinop, lhs, typed_one);
                             fb->assign(lhs, ca_expr);
@@ -1102,13 +1089,9 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                         if (call->getCallReturnType(*astContext)->isVoidType())
                             fb->call(op, lcArgs);
                         else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
-                            if (lcReturnType->is_basic() || lcReturnType->is_structure() || lcReturnType->is_array()) {
-                                auto ret_value = LC_Local(fb, lcReturnType, Usage::NONE);
-                                fb->assign(ret_value, fb->call(lcReturnType, op, lcArgs));
-                                current = ret_value;
-                            } else {
-                                current = fb->call(lcReturnType, op, lcArgs);
-                            }
+                            auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
+                            fb->assign(ret_value, fb->call(lcReturnType, op, lcArgs));
+                            current = ret_value;
                         } else
                             clangcxx_log_error(
                                 "unfound return type: {}",
@@ -1134,7 +1117,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                             auto ext_func = get_ext_func(ExternalFunction(luisa::string(extCallName.data(), extCallName.size()), Type::of<void>(), std::move(arg_types), std::move(argument_usages)));
                             fb->call(std::move(ext_func), lcArgs);
                         } else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
-                            auto ret_value = LC_Local(fb, lcReturnType, Usage::NONE);
+                            auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
                             auto ext_func = get_ext_func(ExternalFunction(luisa::string(extCallName.data(), extCallName.size()), lcReturnType, std::move(arg_types), std::move(argument_usages)));
                             fb->assign(ret_value, fb->call(lcReturnType, std::move(ext_func), lcArgs));
                             current = ret_value;
@@ -1165,7 +1148,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (!FuncIsEmpty(func))
                                     fb->call(func, lcArgs);
                             } else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
-                                auto ret_value = LC_Local(fb, lcReturnType, Usage::NONE);
+                                auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
                                 fb->assign(ret_value, fb->call(lcReturnType, luisa::compute::Function(func_callable.get()), lcArgs));
                                 current = ret_value;
                             } else
@@ -1177,7 +1160,7 @@ struct ExprTranslator : public clang::RecursiveASTVisitor<ExprTranslator> {
                                 if (!FuncIsEmpty(func))
                                     fb->call(func, lambda_args);
                             } else if (auto lcReturnType = db->FindOrAddType(call->getCallReturnType(*astContext), x->getBeginLoc())) {
-                                auto ret_value = LC_Local(fb, lcReturnType, Usage::NONE);
+                                auto ret_value = LC_Local(fb, lcReturnType, Usage::WRITE);
                                 fb->assign(ret_value, fb->call(lcReturnType, luisa::compute::Function(lambda_callable.get()), lambda_args));
                                 current = ret_value;
                             } else

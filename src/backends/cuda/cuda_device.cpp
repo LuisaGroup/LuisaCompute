@@ -12,11 +12,7 @@
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/ast/function_builder.h>
-#if __has_include(<zlib.h>)
-#include <zlib.h>
-#else
-#include <zlib/zlib.h>
-#endif
+
 #ifdef LUISA_ENABLE_IR
 #include <luisa/ir/ir2ast.h>
 #include <luisa/ir/ast2ir.h>
@@ -215,80 +211,13 @@ namespace luisa::compute::cuda {
                               luisa::to_underlying(format));
 }
 
-const luisa::string &CUDADevice::get_builtin_code(luisa::string const &name) const noexcept {
-    auto iter = _builtin_codes.find(name);
-    if (iter == _builtin_codes.end()) [[unlikely]] {
-        LUISA_ERROR("Can-not find builtin code {}", name);
-    }
-    auto &code = iter->second;
-    std::lock_guard lck{code._mutex};
-    if (code.uncompressed_data.empty()) {
-        code.uncompressed_data.resize(code.uncompressed_size);
-        uLong dest_len = code.uncompressed_size;
-        auto r = uncompress((Bytef *)code.uncompressed_data.data(), &dest_len, (Bytef const *)code.compressed_ptr, code.compressed_size);
-        if (r != Z_OK) [[unlikely]] {
-            LUISA_ERROR("Uncompress header failed. {}", r);
-        }
-    }
-    return code.uncompressed_data;
-}
-
-CUDADevice::BuiltinCode::BuiltinCode(uint64_t uncompressed_size, uint64_t compressed_size, const unsigned char *compressed_ptr) noexcept
-    : uncompressed_size(uncompressed_size),
-      compressed_size(compressed_size),
-      compressed_ptr(compressed_ptr) {}
-CUDADevice::BuiltinCode::~BuiltinCode() noexcept = default;
-CUDADevice::BuiltinCode::BuiltinCode(BuiltinCode &&rhs) noexcept
-    : uncompressed_size(rhs.uncompressed_size),
-      compressed_size(rhs.compressed_size),
-      compressed_ptr(rhs.compressed_ptr),
-      uncompressed_data(std::move(rhs.uncompressed_data)) {
-}
-
 CUDADevice::CUDADevice(Context &&ctx,
                        size_t device_id,
-                       const BinaryIO *io,
-                       bool use_lmdb) noexcept
+                       const BinaryIO *io) noexcept
     : DeviceInterface{std::move(ctx)}, _handle{device_id}, _io{io} {
-    _builtin_codes.try_emplace(
-        "cuda_builtin_kernels",
-        BuiltinCode{
-            luisa_cuda_builtin_cuda_builtin_kernels_size,
-            sizeof(luisa_cuda_builtin_cuda_builtin_kernels),
-            luisa_cuda_builtin_cuda_builtin_kernels});
-    _builtin_codes.try_emplace(
-        "cuda_device_half",
-        BuiltinCode{
-            luisa_cuda_builtin_cuda_device_half_size,
-            sizeof(luisa_cuda_builtin_cuda_device_half),
-            luisa_cuda_builtin_cuda_device_half});
-    _builtin_codes.try_emplace(
-        "cuda_device_math",
-        BuiltinCode{
-            luisa_cuda_builtin_cuda_device_math_size,
-            sizeof(luisa_cuda_builtin_cuda_device_math),
-            luisa_cuda_builtin_cuda_device_math});
-    _builtin_codes.try_emplace(
-        "cuda_device_resource",
-        BuiltinCode{
-            luisa_cuda_builtin_cuda_device_resource_size,
-            sizeof(luisa_cuda_builtin_cuda_device_resource),
-            luisa_cuda_builtin_cuda_device_resource});
-    _builtin_codes.try_emplace(
-        "cuda_device_coop",
-        BuiltinCode{
-            luisa_cuda_builtin_cuda_device_coop_size,
-            sizeof(luisa_cuda_builtin_cuda_device_coop),
-            luisa_cuda_builtin_cuda_device_coop});
-    // _builtin_codes.try_emplace(
-    //     "coop_vec_builtin",
-    //     BuiltinCode{
-    //         luisa_cuda_builtin_coop_vec_builtin_size,
-    //         sizeof(luisa_cuda_builtin_coop_vec_builtin),
-    //         luisa_cuda_builtin_coop_vec_builtin});
     // provide a default binary IO
     if (_io == nullptr) {
-        _default_io = luisa::make_unique<DefaultBinaryIO>(context(), false, use_lmdb);
+        _default_io = luisa::make_unique<DefaultBinaryIO>(context());
         _io = _default_io.get();
     }
     _compiler = luisa::make_unique<CUDACompiler>(this);
@@ -302,8 +231,11 @@ CUDADevice::CUDADevice(Context &&ctx,
                        "-dw",
                        "-w",
                        "-ewp"};
-    luisa::string builtin_kernel_src = get_builtin_code("cuda_builtin_kernels");
+    luisa::string builtin_kernel_src{
+        luisa_cuda_builtin_cuda_builtin_kernels,
+        sizeof(luisa_cuda_builtin_cuda_builtin_kernels)};
     auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, "luisa_builtin.cu", options);
+
     // prepare default shaders
     with_handle([&] {
         auto error = cuModuleLoadData(&_builtin_kernel_module, builtin_kernel_ptx.data());
@@ -818,13 +750,8 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
             auto xir_module = luisa_cuda_backend_translate_ast_to_xir(kernel, option);
             Clock clk;
             CUDACodegenXIR codegen{scratch, !_cudadevrt_library.empty()};
-            StringScratch s;
             codegen.emit(xir_module.get(), kernel.bound_arguments(),
-                         ([&] {
-                             _compiler->get_device_library()(s);
-                             return s.string_view();
-                         })(),
-                         option.native_include);
+                         _compiler->device_library(), option.native_include);
             LUISA_INFO("CUDA Codegen XIR generated source in {} ms.", clk.toc());
             // dump for debugging
             {
@@ -837,9 +764,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
 #endif
         Clock clk;
         CUDACodegenAST codegen{scratch, !_cudadevrt_library.empty()};
-        codegen.emit(kernel, [&](StringScratch &scratch) {
-            _compiler->get_device_library()(scratch);
-            _compiler->get_device_optional_library()(scratch, kernel); }, option.native_include);
+        codegen.emit(kernel, _compiler->device_library(), option.native_include);
         LUISA_VERBOSE("Generated CUDA source in {} ms.", clk.toc());
         return std::move(codegen).move_print_formats();
     }();
@@ -1186,22 +1111,6 @@ string CUDADevice::query(luisa::string_view property) noexcept {
     if (property == "device_name") {
         return "cuda";
     }
-    if (property == "total_memory") {
-        string memory = "0";
-        with_handle([&memory]{
-            size_t free_mem, total_mem;
-            cuMemGetInfo(&free_mem, &total_mem);
-            memory = to_string(total_mem);
-        });
-        return memory;
-    }
-    if (property == "free_memory") {
-        string memory = "0";
-        with_handle([&memory]{
-            size_t free_mem, total_mem;
-            cuMemGetInfo(&free_mem, &total_mem);
-            memory = to_string(free_mem);
-        });
     LUISA_WARNING_WITH_LOCATION("Unknown device property '{}'.", property);
     return {};
 }
@@ -1411,16 +1320,14 @@ LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context
                                                          const luisa::compute::DeviceConfig *config) noexcept {
     auto device_id = 0ull;
     auto binary_io = static_cast<const luisa::BinaryIO *>(nullptr);
-    auto use_lmdb = false;
     if (config != nullptr) {
         device_id = config->device_index;
         binary_io = config->binary_io;
         LUISA_ASSERT(!config->headless,
                      "Headless mode is not implemented yet for CUDA backend.");
-        use_lmdb = config->use_lmdb;
     }
     return luisa::new_with_allocator<luisa::compute::cuda::CUDADevice>(
-        std::move(ctx), device_id, binary_io, use_lmdb);
+        std::move(ctx), device_id, binary_io);
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {

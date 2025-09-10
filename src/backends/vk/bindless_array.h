@@ -1,7 +1,6 @@
 #pragma once
 #include "default_buffer.h"
 #include <luisa/runtime/rhi/command.h>
-#include <luisa/runtime/rhi/device_interface.h>
 #include <luisa/core/first_fit.h>
 
 namespace lc::vk {

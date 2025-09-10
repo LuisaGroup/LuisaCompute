@@ -5,7 +5,6 @@
 #include <luisa/core/basic_types.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/core/stl/string.h>
-#include <luisa/gui/input.h>
 
 struct GLFWwindow;
 struct ImGuiContext;
@@ -22,11 +21,6 @@ class Sampler;
 class LC_GUI_API ImGuiWindow {
 
 public:
-    using MouseButtonCallback = luisa::move_only_function<void(MouseButton button, Action action, float2 xy)>;
-    using CursorPositionCallback = luisa::move_only_function<void(float2 xy)>;
-    using WindowSizeCallback = luisa::move_only_function<void(uint2 size)>;
-    using KeyCallback = luisa::move_only_function<void(Key key, KeyModifiers modifiers, Action action)>;
-    using ScrollCallback = luisa::move_only_function<void(float2 dxdy)>;
     struct Config {
 
         uint2 size{800, 600};
@@ -75,12 +69,6 @@ public:
     ImGuiWindow &operator=(const ImGuiWindow &) noexcept = delete;
 
 public:
-
-    ImGuiWindow &set_mouse_callback(MouseButtonCallback cb) noexcept;
-    ImGuiWindow &set_cursor_position_callback(CursorPositionCallback cb) noexcept;
-    ImGuiWindow &set_window_size_callback(WindowSizeCallback cb) noexcept;
-    ImGuiWindow &set_key_callback(KeyCallback cb) noexcept;
-    ImGuiWindow &set_scroll_callback(ScrollCallback cb) noexcept;
     void create(Device &device, Stream &stream,
                 luisa::string name,
                 const Config &config = Config::make_default()) noexcept;

@@ -1996,6 +1996,7 @@ inline void reorder_shader_execution(Expr<uint> hint, Expr<uint> hint_bits) noex
 inline void reorder_shader_execution() noexcept {
     reorder_shader_execution(0u, 0u);
 }
+
 #undef LUISA_EXPR
 
 }// namespace dsl

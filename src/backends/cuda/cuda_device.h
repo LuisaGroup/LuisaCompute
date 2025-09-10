@@ -97,17 +97,6 @@ private:
     luisa::unique_ptr<DefaultBinaryIO> _default_io;
     const BinaryIO *_io{nullptr};
     luisa::string _cudadevrt_library;
-    struct BuiltinCode {
-        uint64_t uncompressed_size{};
-        uint64_t compressed_size{};
-        const unsigned char *compressed_ptr{};
-        luisa::string uncompressed_data{};
-        spin_mutex _mutex{};
-        BuiltinCode(uint64_t uncompressed_size, uint64_t compressed_size, const unsigned char *compressed_ptr) noexcept;
-        ~BuiltinCode() noexcept;
-        BuiltinCode(BuiltinCode &&rhs) noexcept;
-    };
-    mutable luisa::unordered_map<luisa::string, BuiltinCode> _builtin_codes;
 
     mutable spin_mutex _event_manager_mutex;
     mutable luisa::unique_ptr<CUDAEventManager> _event_manager;
@@ -135,9 +124,9 @@ private:
         luisa::vector<ShaderDispatchCommand::Argument> bound_arguments) noexcept;
 
 public:
-    CUDADevice(Context &&ctx, size_t device_id, const BinaryIO *io, bool use_lmdb) noexcept;
+    CUDADevice(Context &&ctx, size_t device_id, const BinaryIO *io) noexcept;
     ~CUDADevice() noexcept override;
-    [[nodiscard]] auto const &handle() const noexcept { return _handle; }
+    [[nodiscard]] auto &handle() const noexcept { return _handle; }
     template<typename F>
     decltype(auto) with_handle(F &&f) const noexcept {
         ContextGuard guard{_handle.context()};
@@ -147,7 +136,6 @@ public:
     [[nodiscard]] uint compute_warp_size() const noexcept override { return 32u; }
 
 public:
-    [[nodiscard]] const luisa::string &get_builtin_code(luisa::string const &name) const noexcept;
     [[nodiscard]] auto accel_update_function() const noexcept { return _accel_update_function; }
     [[nodiscard]] auto instance_handle_update_function() const noexcept { return _instance_handle_update_function; }
     [[nodiscard]] auto bindless_array_update_function() const noexcept { return _bindless_array_update_function; }
@@ -161,7 +149,7 @@ public:
     BufferCreationInfo create_buffer(const ir::CArc<ir::Type> *element, size_t elem_count, void *external_memory) noexcept override;
     void destroy_buffer(uint64_t handle) noexcept override;
     ResourceCreationInfo create_texture(PixelFormat format, uint dimension, uint width, uint height, uint depth, uint mipmap_levels,
-                                        void *external_native_handle, bool simultaneous_access, bool allow_raster_target) noexcept override;
+                                        void* external_native_handle, bool simultaneous_access, bool allow_raster_target) noexcept override;
     void destroy_texture(uint64_t handle) noexcept override;
     ResourceCreationInfo create_bindless_array(size_t size, BindlessSlotType type) noexcept override;
     void destroy_bindless_array(uint64_t handle) noexcept override;

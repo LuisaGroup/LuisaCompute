@@ -6,7 +6,7 @@ _config_project({
 add_deps("lc-ast")
 set_pcxxheader("lc_runtime_pch.h")
 add_defines("LC_RUNTIME_EXPORT_DLL")
-if get_config("lc_enable_ir") then
+if get_config("enable_ir") then
 	add_defines("LUISA_ENABLE_IR", {
 		public = true
 	})

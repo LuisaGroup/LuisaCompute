@@ -30,9 +30,9 @@ struct Bbox {
     float3 max;
 };
 
-LUISA_STRUCT(PerlinSettings, octave, power, frequency) {};
-LUISA_STRUCT(TRay, origin, direction) {};
-LUISA_STRUCT(Bbox, min, max) {};
+LUISA_STRUCT(PerlinSettings, octave, power, frequency){};
+LUISA_STRUCT(TRay, origin, direction){};
+LUISA_STRUCT(Bbox, min, max){};
 
 // credit: https://github.com/nvpro-samples/vk_mini_samples/tree/main/samples/texture_3d/shaders (Apache License 2.0)
 int main(int argc, char *argv[]) {
@@ -118,8 +118,8 @@ int main(int argc, char *argv[]) {
 
         Float3 fade_xyz = fade(Pf0);
         Float4 n_z = lerp(make_float4(n000, n100, n010, n110),
-                          make_float4(n001, n101, n011, n111),
-                          fade_xyz.z);
+                        make_float4(n001, n101, n011, n111),
+                        fade_xyz.z);
         Float2 n_yz = lerp(n_z.xy(), n_z.zw(), fade_xyz.y);
         Float n_xyz = lerp(n_yz.x, n_yz.y, fade_xyz.x);
         return 2.2f * n_xyz;
@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
         Float v = def(0.f);
         Float scale = settings.power;
         Float freq = settings.frequency / cast<float>(dispatch_size_x());
-        $for (oct, settings.octave) {
+        $for(oct, settings.octave) {
             v += perlin(make_float3(dispatch_id()) * freq) / scale;
             freq *= 2.f;
             scale *= settings.power;
@@ -147,17 +147,17 @@ int main(int argc, char *argv[]) {
 
         // Diffuse + Specular
         Float light_intensity = max(dot(surface_normal, light_direction) +
-                                        pow(max(0.f, dot(reflected_light_direction,
-                                                         view_direction)),
-                                            32.f),
-                                    0.f);
+                                       pow(max(0.f, dot(reflected_light_direction,
+                                                        view_direction)),
+                                           32.f),
+                                   0.f);
         shaded_color *= light_intensity;
 
         // Ambient term (sky effect)
         Float3 sky_ambient_color = lerp(make_float3(.1f, .1f, .4f),
-                                        make_float3(.8f, .6f, .2f),
-                                        dot(surface_normal, world_up_direction) * .5f + .5f) *
-                                   .2f;
+                                      make_float3(.8f, .6f, .2f),
+                                      dot(surface_normal, world_up_direction) * .5f + .5f) *
+                                 .2f;
         return shaded_color + sky_ambient_color;
     };
 
@@ -171,7 +171,7 @@ int main(int argc, char *argv[]) {
         Float t_near = max(max(t1.x, t1.y), t1.z);
         Float t_far = min(min(t2.x, t2.y), t2.z);
         Bool hit = t_near <= t_far & t_far > 0.f;
-        $if (hit) {
+        $if(hit) {
             p1 = ray.origin + ray.direction * max(t_near, 0.f);
             p2 = ray.origin + ray.direction * t_far;
         };
@@ -199,8 +199,8 @@ int main(int argc, char *argv[]) {
         Float value = v(hit_point);
         Float prev_value = value;
         Bool hit = def(false);
-        $for (i, num_steps) {
-            $if (value > threshold) {
+        $for(i, num_steps) {
+            $if(value > threshold) {
                 Float t = clamp((threshold - prev_value) / (value - prev_value), 0.f, 1.f);
                 hit_point = lerp(prev_point, hit_point, t);
                 hit = true;
@@ -235,17 +235,17 @@ int main(int argc, char *argv[]) {
 
         Float3 albedo = make_float3(.5f);
         Float3 color = def(make_float3(.2f, .4f, .6f));
-        $if (intersect_cube(ray, bbox, p1, p2)) {
+        $if(intersect_cube(ray, bbox, p1, p2)) {
             p1 = p1 - bbox.min / (bbox.max - bbox.min);
             p2 = p2 - bbox.min / (bbox.max - bbox.min);
             Float3 hit_point = def(make_float3(0.f));
-            constexpr int steps = 256;
+            constexpr int steps = 100;
             constexpr float threshold = 5e-3f;
-            $if (ray_marching(bindless, p1, p2, steps, threshold, hit_point)) {
+            $if(ray_marching(bindless, p1, p2, steps, threshold, hit_point)) {
                 Float volume_size = cast<float>(bindless.tex3d(0u).size().x);
                 Float3 normal = -compute_volume_gradient(bindless, hit_point, 1.f / volume_size);
                 Float3 to_light = normalize(make_float3(1.f));
-                $if (dot(normal, ray.direction) > 0.f & dot(normal, to_light) > 0.f) {
+                $if(dot(normal, ray.direction) > 0.f & dot(normal, to_light) > 0.f) {
                     color = calculate_shading(albedo, -ray.direction, normal, to_light);
                 }
                 $else {
@@ -338,27 +338,6 @@ int main(int argc, char *argv[]) {
     float fov = 30.f;
     float3 camera_pos = make_float3(2.f, -2.f, -2.f);
     Clock clk;
-    float2 last_mouse_pos{};
-    float2 mouse_motion{};
-    bool mouse_pressed{};
-    window.set_mouse_callback([&](MouseButton button, Action action, float2 xy) {
-        if (button == MouseButton::MOUSE_BUTTON_2) {
-            last_mouse_pos = xy / make_float2(resolution);
-            if (action == ACTION_PRESSED) {
-                mouse_pressed = true;
-            } else if (action == ACTION_RELEASED) {
-                mouse_pressed = false;
-            }
-        }
-    });
-    window.set_cursor_position_callback([&](float2 cursor_pos) {
-        if (mouse_pressed) {
-            cursor_pos = cursor_pos / make_float2(resolution);
-            mouse_motion = cursor_pos - last_mouse_pos;
-            last_mouse_pos = cursor_pos;
-        }
-    });
-    const float mouse_scale = 2.5f;
     while (!window.should_close()) {
         window.poll_events();
         float dt = static_cast<float>(clk.toc() * 1e-3f);
@@ -366,19 +345,6 @@ int main(int argc, char *argv[]) {
         float3 front = normalize(camera_pos);
         float3 right = normalize(cross(front, make_float3(0.f, 1.f, 0.f)));
         float3 up = normalize(cross(right, front));
-        if (abs(dot(mouse_motion, float2(1.f))) > std::numeric_limits<float>::epsilon()) {
-            mouse_motion *= mouse_scale;
-            if ((front.y > -.95f && mouse_motion.y < 0) || (front.y < .95f && mouse_motion.y > 0)) {
-                float4x4 R = rotation(right, mouse_motion.y);
-                camera_pos = make_float3x3(R) * camera_pos;
-            }
-            {
-                float4x4 R = rotation(up, mouse_motion.x);
-                camera_pos = make_float3x3(R) * camera_pos;
-            }
-            mouse_motion = float2();
-            dirty = true;
-        }
         if (window.is_key_down(KEY_W) && front.y < .95f) {
             float4x4 R = rotation(right, dt);
             camera_pos = make_float3x3(R) * camera_pos;
@@ -421,3 +387,4 @@ int main(int argc, char *argv[]) {
     }
     stream << synchronize();
 }
+

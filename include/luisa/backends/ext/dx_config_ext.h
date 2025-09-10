@@ -4,11 +4,7 @@
 #ifdef byte
 #undef byte
 #endif
-#ifdef LUISA_DX_SDK
-#include <LCAgilitySDK/d3d12.h>
-#else
 #include <d3d12.h>
-#endif
 #include <dxgi1_2.h>
 #include <luisa/runtime/rhi/device_interface.h>
 
@@ -49,18 +45,11 @@ struct DirectXDeviceConfigExt : public DeviceConfigExt {
         size_t sparse_image_block_size;
     };
 
-    struct D3D12Features {
-        bool enhanced_barrier : 1 {};
-        bool cooperative_vector : 1 {};
-    };
-
     virtual luisa::optional<ExternalDevice> CreateExternalDevice() noexcept { return {}; }
     virtual luisa::optional<GPUAllocatorSettings> GetGPUAllocatorSettings() noexcept { return {}; }
     virtual bool UseDRED() const noexcept { return false; }
     virtual bool LoadDXC() const noexcept { return true; }
     virtual bool UseEnhancedBarrier() const noexcept { return true; }
-    virtual bool UseExperimental() const noexcept { return false; }
-    virtual void FeatureSupported(D3D12Features &features) noexcept {}
     // Called during create_device
     virtual void ReadbackDX12Device(
         ID3D12Device *device,

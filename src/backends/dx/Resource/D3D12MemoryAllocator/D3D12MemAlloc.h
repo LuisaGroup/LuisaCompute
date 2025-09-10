@@ -68,7 +68,7 @@ Documentation of all members: D3D12MemAlloc.h
 #include <directx/d3d12.h>
 #include <dxguids/dxguids.h>
 #else
-#include <LCAgilitySDK/d3d12.h>
+#include <d3d12.h>
 #endif
 
 #include <dxgi1_4.h>

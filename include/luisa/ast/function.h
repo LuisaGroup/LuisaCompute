@@ -158,8 +158,6 @@ public:
     [[nodiscard]] CurveBasisSet required_curve_bases() const noexcept;
     // warp size
     [[nodiscard]] luisa::optional<uint8_t> allowed_warp_size() const noexcept;
-    // cooperative
-    [[nodiscard]] bool use_cooperative_operations() const noexcept;
     /// Return function builder
     [[nodiscard]] auto builder() const noexcept { return _builder; }
     /// Return shared pointer to function builder

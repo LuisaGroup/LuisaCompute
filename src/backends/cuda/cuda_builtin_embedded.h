@@ -1,10 +1,6 @@
-extern "C" const unsigned char luisa_cuda_builtin_cuda_builtin_kernels[1294];
-constexpr uint64_t luisa_cuda_builtin_cuda_builtin_kernels_size = 6094ull;
-extern "C" const unsigned char luisa_cuda_builtin_cuda_device_half[7025];
-constexpr uint64_t luisa_cuda_builtin_cuda_device_half_size = 81134ull;
-extern "C" const unsigned char luisa_cuda_builtin_cuda_device_math[26337];
-constexpr uint64_t luisa_cuda_builtin_cuda_device_math_size = 500416ull;
-extern "C" const unsigned char luisa_cuda_builtin_cuda_device_resource[14612];
-constexpr uint64_t luisa_cuda_builtin_cuda_device_resource_size = 118097ull;
-extern "C" const unsigned char luisa_cuda_builtin_cuda_device_coop[9465];
-constexpr uint64_t luisa_cuda_builtin_cuda_device_coop_size = 76548ull;
+#pragma once
+
+extern "C" const char luisa_cuda_builtin_cuda_builtin_kernels[6094];
+extern "C" const char luisa_cuda_builtin_cuda_device_half[81134];
+extern "C" const char luisa_cuda_builtin_cuda_device_math[500416];
+extern "C" const char luisa_cuda_builtin_cuda_device_resource[118105];

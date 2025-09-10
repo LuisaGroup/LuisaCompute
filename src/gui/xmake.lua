@@ -26,14 +26,8 @@ target_end()
 target("imgui")
 set_basename("lc-ext-imgui")
 _config_project({
-    project_kind = "shared"
+    project_kind = "static"
 })
-on_load(function(target)
-    if os.is_host("windows") then
-        target:add("defines", "IMGUI_API=__declspec(dllexport)");
-        target:add("defines", "IMGUI_API=__declspec(dllimport)", { interface = true });
-    end
-end)
 add_headerfiles("../ext/imgui/*.h", "../ext/imgui/backends/*.h")
 add_files("../ext/imgui/*.cpp", "../ext/imgui/backends/imgui_impl_glfw.cpp")
 add_includedirs("../ext/imgui", "../ext/imgui/backends", {

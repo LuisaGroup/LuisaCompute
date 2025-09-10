@@ -5,19 +5,19 @@ on_load(function(target)
 			func(part)
 		end
 	end
-	local lc_py_include = get_config("lc_py_include")
-	split_str(lc_py_include, ';', function(v)
+	local py_include = get_config("py_include")
+	split_str(py_include, ';', function(v)
 		target:add("includedirs", v)
 	end)
-	local lc_py_linkdir = get_config("lc_py_linkdir")
-	local lc_py_libs = get_config("lc_py_libs")
-	if type(lc_py_linkdir) == "string" then
-		split_str(lc_py_linkdir, ';', function(v)
+	local py_linkdir = get_config("py_linkdir")
+	local py_libs = get_config("py_libs")
+	if type(py_linkdir) == "string" then
+		split_str(py_linkdir, ';', function(v)
 			target:add("linkdirs", v)
 		end)
 	end
-	if type(lc_py_libs) == "string" then
-		split_str(lc_py_libs, ';', function(v)
+	if type(py_libs) == "string" then
+		split_str(py_libs, ';', function(v)
 			target:add("links", v)
 		end)
 	end

@@ -179,22 +179,35 @@ size_t CUDACompiler::type_size(const Type *type) noexcept {
 
 CUDACompiler::CUDACompiler(const CUDADevice *device) noexcept
     : _device{device},
-      _get_device_library{[device](StringScratch &scratch) {
-          auto const &device_half = device->get_builtin_code("cuda_device_half");
-          auto const &device_math = device->get_builtin_code("cuda_device_math");
-          auto const &device_resource = device->get_builtin_code("cuda_device_resource");
-          scratch << device_half << device_math << device_resource;
-      }},
-      _get_device_optional_library([device](StringScratch &scratch, Function func) {
-          if (func.use_cooperative_operations() || func.propagated_builtin_callables().uses_cooperative()) {
-              scratch << device->get_builtin_code("cuda_device_coop");
-          }
-      }),
+      _device_library{[] {
+          luisa::string device_library;
+          auto device_half = luisa::string_view{
+              luisa_cuda_builtin_cuda_device_half,
+              sizeof(luisa_cuda_builtin_cuda_device_half)};
+          auto device_math = luisa::string_view{
+              luisa_cuda_builtin_cuda_device_math,
+              sizeof(luisa_cuda_builtin_cuda_device_math)};
+          auto device_resource = luisa::string_view{
+              luisa_cuda_builtin_cuda_device_resource,
+              sizeof(luisa_cuda_builtin_cuda_device_resource)};
+
+          device_library.resize(device_half.size() +
+                                device_math.size() +
+                                device_resource.size());
+          std::memcpy(device_library.data(),
+                      device_half.data(), device_half.size());
+          std::memcpy(device_library.data() + device_half.size(),
+                      device_math.data(), device_math.size());
+          std::memcpy(device_library.data() + device_half.size() + device_math.size(),
+                      device_resource.data(), device_resource.size());
+          return device_library;
+      }()},
       _cache{Cache::create(max_cache_item_count)},
       _nvrtc_path{luisa::to_string(find_standalone_nvrtc(
           device->context().runtime_directory()))},
       _nvrtc_version{query_nvrtc_version(_nvrtc_path.c_str())} {
     LUISA_VERBOSE("CUDA NVRTC compiler version = {}.", _nvrtc_version);
+    LUISA_VERBOSE("CUDA device library size = {} bytes.", _device_library.size());
 }
 
 uint64_t CUDACompiler::compute_hash(const string &src,

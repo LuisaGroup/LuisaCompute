@@ -93,9 +93,6 @@ public:
     CUDACodegenAST(StringScratch &scratch, bool allow_indirect) noexcept;
     ~CUDACodegenAST() noexcept override;
     void emit(Function f,
-              luisa::move_only_function<void(StringScratch &)> const &get_device_lib,
-              luisa::string_view native_include);
-    void emit(Function f,
               luisa::string_view device_lib,
               luisa::string_view native_include);
 

@@ -12,10 +12,10 @@
 #pragma once
 
 #include <unknwn.h>
-#include <LCAgilitySDK/d3d12.h>
+#include <d3d12.h>
 #include "dstorageerr.h"
 
-#define DSTORAGE_SDK_VERSION 300
+#define DSTORAGE_SDK_VERSION 202
 
 interface ID3D12Resource;
 interface ID3D12Fence;
@@ -96,14 +96,7 @@ enum DSTORAGE_REQUEST_DESTINATION_TYPE : UINT64 {
     /// The destination of the DirectStorage request is an ID3D12Resource
     /// that is tiled.
     /// </summary>
-    DSTORAGE_REQUEST_DESTINATION_TILES = 4,
-
-    /// <summary>
-    /// The destination of the DirectStorage request is an ID3D12Resource
-    /// that is a texture that will receive the number of subresources
-    /// specified in a single request.
-    /// </summary>
-    DSTORAGE_REQUEST_DESTINATION_MULTIPLE_SUBRESOURCES_RANGE = 5
+    DSTORAGE_REQUEST_DESTINATION_TILES = 4
 };
 
 /// <summary>
@@ -388,33 +381,6 @@ struct DSTORAGE_DESTINATION_MULTIPLE_SUBRESOURCES {
 
 /// <summary>
 /// Describes the destination for a request with DestinationType
-/// DSTORAGE_REQUEST_DESTINATION_MULTIPLE_SUBRESOURCES_RANGE.
-/// </summary>
-struct DSTORAGE_DESTINATION_MULTIPLE_SUBRESOURCES_RANGE
-{
-    /// <summary>
-    /// Address of the resource to receive the final result of this request. The
-    /// source is expected to contain full data for all subresources, starting
-    /// from FirstSubresource.
-    /// </summary>
-    ID3D12Resource* Resource;
-
-    /// <summary>
-    /// Describes the first subresource of the destination texture copy
-    /// location. The subresource referred to must be in the
-    /// D3D12_RESOURCE_STATE_COMMON state.
-    /// </summary>
-    UINT FirstSubresource;
-
-    /// <summary>
-    /// Describes the number of subresources to copy to the destination
-    /// resource starting from the FirstSubresource specified.
-    /// </summary>
-    UINT NumSubresources;
-};
-
-/// <summary>
-/// Describes the destination for a request with DestinationType
 /// DSTORAGE_REQUEST_DESTINATION_TILES.
 /// </summary>
 struct DSTORAGE_DESTINATION_TILES {
@@ -457,7 +423,6 @@ union DSTORAGE_DESTINATION {
     DSTORAGE_DESTINATION_TEXTURE_REGION Texture;
     DSTORAGE_DESTINATION_MULTIPLE_SUBRESOURCES MultipleSubresources;
     DSTORAGE_DESTINATION_TILES Tiles;
-    DSTORAGE_DESTINATION_MULTIPLE_SUBRESOURCES_RANGE MultipleSubresourcesRange;
 };
 
 /// <summary>
@@ -504,33 +469,6 @@ struct DSTORAGE_REQUEST {
     /// string should be accessible until the request completes.
     /// </summary>
     _In_opt_z_ const CHAR *Name;
-};
-
-/// <summary>
-/// Flags controlling the behavior of requests enqueued using EnqueueRequests.
-/// </summary>
-enum DSTORAGE_ENQUEUE_REQUEST_FLAGS : UINT32
-{
-    /// <summary>
-    /// Requests wait on the ID3D12Fence before writing to the destination.
-    /// All processing required for the requests before the write can be
-    /// completed asynchronously once submitted. This is the default behavior.
-    /// </summary>
-    DSTORAGE_ENQUEUE_REQUEST_FLAG_NONE = 0,
-
-    /// <summary>
-    /// Requests wait on the ID3D12Fence before utilizing the GPU for any of
-    /// the requests and before writing to the destination. All processing
-    /// required for the requests, except GPU work or writing to the
-    /// destination, can be completed asynchronously once submitted.
-    /// </summary>
-    DSTORAGE_ENQUEUE_REQUEST_FLAG_FENCE_WAIT_BEFORE_GPU_WORK = 1,
-
-    /// <summary>
-    /// Requests wait on the ID3D12Fence before reading from the source. No
-    /// processing occurs until the ID3D12Fence is set.
-    /// </summary>
-    DSTORAGE_ENQUEUE_REQUEST_FLAG_FENCE_WAIT_BEFORE_SOURCE_ACCESS = 2
 };
 
 /// <summary>
@@ -1110,34 +1048,6 @@ DECLARE_INTERFACE_IID_(IDStorageQueue2, IDStorageQueue1, "b1c9d643-3a49-44a2-b46
     /// <param name="format">Specifies the compression format to retrieve information
     /// about.</param>
     virtual DSTORAGE_COMPRESSION_SUPPORT STDMETHODCALLTYPE GetCompressionSupport(DSTORAGE_COMPRESSION_FORMAT format) = 0;
-};
-
-/// <summary>
-/// Represents a DirectStorage queue to perform read operations.
-/// </summary>
-DECLARE_INTERFACE_IID_(IDStorageQueue3, IDStorageQueue2, "deb54c52-eca8-46b3-82a7-031b72262653")
-{
-    /// <summary>
-    /// Enqueues an array of requests to the queue. The requests will be synchronized
-    /// with the specified `ID3D12Fence` and processed after the synchronization point.
-    /// </summary>
-    /// <param name="requests">A pointer to an array of requests that will be synchronized
-    /// with the `ID3D12Fence`.</param>
-    /// <param name="numRequests">The number of requests in the array pointed to by
-    /// `requests`.</param>
-    /// <param name="fence">A pointer to an `ID3D12Fence` that will be used to synchronize
-    /// the processing of the requests pointed to by `requests`.</param>
-    /// <param name="value">The value the `fence` will wait for. Once the `fence` reaches
-    /// the specified `value`, the `requests` will start processing past the
-    /// synchronization point.</param>
-    /// <param name="flag">A flag that specifies the synchronization point for the
-    /// `requests`.</param>
-    virtual void STDMETHODCALLTYPE EnqueueRequests(
-        _In_reads_(numRequests) const DSTORAGE_REQUEST * requests,
-        UINT numRequests,
-        _In_opt_ ID3D12Fence* fence,
-        UINT64 value,
-        DSTORAGE_ENQUEUE_REQUEST_FLAGS flag) = 0;
 };
 
 /// <summary>

@@ -93,7 +93,7 @@ vstd::string_view CodegenUtility::ReadInternalHLSLFile(vstd::string_view name) {
     return {v.result.data(), v.result.size()};
 }
 namespace detail {
-static size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback, bool linalg) {
+static size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRaster, bool is_spirv, bool fallback) {
     builder << CodegenUtility::ReadInternalHLSLFile(fallback ? "hlsl_header_fallback" : "hlsl_header");
     size_t immutable_size = builder.size();
     if (ops.uses_raytracing()) {
@@ -111,14 +111,6 @@ static size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool
     if (ops.test(CallOp::BUFFER_SIZE) || ops.test(CallOp::TEXTURE_SIZE) || ops.test(CallOp::BYTE_BUFFER_SIZE)) {
         builder << CodegenUtility::ReadInternalHLSLFile("resource_size");
     }
-    if (linalg ||
-        ops.uses_cooperative()) {
-        if (!is_spirv) {
-            builder << CodegenUtility::ReadInternalHLSLFile("dx_linalg");
-        } else {
-            LUISA_ERROR("Vulkan tensor not supported yet.");
-        }
-    }
     bool useBindless = false;
     for (auto i : vstd::range(
              luisa::to_underlying(CallOp::BINDLESS_TEXTURE2D_SAMPLE),
@@ -127,13 +119,6 @@ static size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool
             useBindless = true;
             break;
         }
-    }
-    if (
-        ops.test(CallOp::BINDLESS_COOPERATIVE_MUL_ADD) ||
-        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) ||
-        ops.test(CallOp::BINDLESS_COOPERATIVE_MUL) ||
-        ops.test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL)) {
-        useBindless = true;
     }
     if (useBindless) {
         builder << CodegenUtility::ReadInternalHLSLFile("bindless_common");
@@ -338,8 +323,6 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
         case Type::Tag::INT32:
             str << "int"sv;
             return;
-        case Type::Tag::COOPERATIVE_MATRIX_REF:
-        case Type::Tag::COOPERATIVE_VECTOR_REF:
         case Type::Tag::UINT32:
             str << "uint"sv;
             return;
@@ -360,11 +343,6 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             return;
         case Type::Tag::UINT64:
             str << "uint64_t"sv;
-            return;
-        case Type::Tag::COOPERATIVE_VECTOR:
-            str << "vector<";
-            GetTypeName(*type.element(), str, usage);
-            str << luisa::format(",{}>", type.dimension());
             return;
         case Type::Tag::MATRIX: {
             GetTypeName(*type.element(), str, usage);
@@ -527,37 +505,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         args.back()->accept(vis);
     };
-    auto TypeToCoop = [](CoopRefVecType type, vstd::StringBuilder &sb) {
-        switch (type) {
-            case CoopRefVecType::UINT8:
-                sb << "dx::linalg::DATA_TYPE_UINT8";
-                break;
-            case CoopRefVecType::INT8:
-                sb << "dx::linalg::DATA_TYPE_SINT8";
-                break;
-            case CoopRefVecType::UINT32:
-                sb << "dx::linalg::DATA_TYPE_UINT32";
-                break;
-            case CoopRefVecType::INT32:
-                sb << "dx::linalg::DATA_TYPE_SINT32";
-                break;
-            case CoopRefVecType::FLOAT16:
-                sb << "dx::linalg::DATA_TYPE_FLOAT16";
-                break;
-            case CoopRefVecType::FLOAT32:
-                sb << "dx::linalg::DATA_TYPE_FLOAT32";
-                break;
-            case CoopRefVecType::FLOAT8_E4M3:
-                sb << "dx::linalg::DATA_TYPE_FLOAT8_E4M3";
-                break;
-            case CoopRefVecType::FLOAT8_E5M2:
-                sb << "dx::linalg::DATA_TYPE_FLOAT8_E5M2";
-                break;
-            default:
-                LUISA_ERROR("Illegal coop type.");
-        }
-    };
-    check_builtin_call_valid(expr->op(), expr->type(), args);
     switch (expr->op()) {
         case CallOp::CUSTOM:
             str << "custom_"sv << vstd::to_string((opt->GetFuncCount(expr->custom())));
@@ -1604,128 +1551,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         case CallOp::SHADER_EXECUTION_REORDER:
             str << "(void)";
             break;
-        case CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE: {
-            auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
-            str << "dx::linalg::CoopOuterProductAccum<";
-            GetTypeName(*args[0]->type(), str, args[0]->usage());
-            str << ',';
-            GetTypeName(*args[2]->type()->element(), str, args[2]->usage());
-            str << luisa::format(",{},{},", matrix_dimension.x, matrix_dimension.y);
-            TypeToCoop(args[1]->type()->coop_vec_ref_type(), str);
-            str << '>';
-        } break;
-        case CallOp::COOPERATIVE_VECTOR_ACCUMULATE: {
-            str << "dx::linalg::CoopVectorAccumulate<";
-            GetTypeName(*args[2]->type()->element(), str, args[2]->usage());
-            str << luisa::format(",{}>", args[2]->type()->dimension());
-        } break;
-        case CallOp::COOPERATIVE_MUL_ADD: {
-            auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
-            str << "dx::linalg::CoopMulAdd<";
-            GetTypeName(*args[0]->type(), str, args[0]->usage());
-            str << ',';
-            GetTypeName(*args[2]->type(), str, args[2]->usage());
-            str << ',';
-            GetTypeName(*args[4]->type()->element(), str, Usage::NONE);
-            str << ',';
-            GetTypeName(*expr->type()->element(), str, Usage::NONE);
-            str << ',';
-            TypeToCoop(args[1]->type()->coop_vec_ref_type(), str);
-            str << ',';
-            TypeToCoop(args[3]->type()->coop_vec_ref_type(), str);
-            str << luisa::format(",{},{}>", matrix_dimension.x, matrix_dimension.y);
-        } break;
-        case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD:
-        case CallOp::BINDLESS_COOPERATIVE_MUL_ADD: {
-            opt->useBufferBindless = true;
-            auto matrix_dimension = args[2]->type()->coop_matrix_dimension();// weight is KxN
-            str << "dx::linalg::CoopMulAdd<ByteAddressBuffer,ByteAddressBuffer,";
-            GetTypeName(*args[5]->type()->element(), str, Usage::NONE);
-            str << ',';
-            GetTypeName(*expr->type()->element(), str, Usage::NONE);
-            str << ',';
-            TypeToCoop(args[2]->type()->coop_vec_ref_type(), str);
-            str << ',';
-            TypeToCoop(args[4]->type()->coop_vec_ref_type(), str);
-            str << luisa::format(",{},{}>(", matrix_dimension.x, matrix_dimension.y);
-            str << "bdls[NonUniformResourceIndex(";
-            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) {
-                args[0]->accept(vis);
-                str << "[0]+";
-                args[1]->accept(vis);
-            } else {
-                str << "_ReadBdlsBuffer(";
-                args[0]->accept(vis);
-                str << ',';
-                args[1]->accept(vis);
-                str << ')';
-            }
-            str << ")],";
-            args[2]->accept(vis);
-            str << ",bdls[NonUniformResourceIndex(";
-            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL_ADD) {
-                args[0]->accept(vis);
-                str << "[0]+";
-                args[3]->accept(vis);
-            } else {
-                str << "_ReadBdlsBuffer(";
-                args[0]->accept(vis);
-                str << ',';
-                args[3]->accept(vis);
-                str << ')';
-            }
-            str << ")]";
-            for (auto &i : args.subspan(4)) {
-                str << ',';
-                i->accept(vis);
-            }
-            str << ')';
-        }
-            return;
-        case CallOp::COOPERATIVE_MUL: {
-            auto matrix_dimension = args[1]->type()->coop_matrix_dimension();// weight is KxN
-            str << "dx::linalg::CoopMul<";
-            GetTypeName(*args[0]->type(), str, args[0]->usage());
-            str << ',';
-            GetTypeName(*args[2]->type()->element(), str, Usage::NONE);
-            str << ',';
-            GetTypeName(*expr->type()->element(), str, Usage::NONE);
-            str << ',';
-            TypeToCoop(args[1]->type()->coop_vec_ref_type(), str);
-            str << luisa::format(",{},{}>", matrix_dimension.x, matrix_dimension.y);
-        } break;
-        case CallOp::TYPED_BINDLESS_COOPERATIVE_MUL:
-        case CallOp::BINDLESS_COOPERATIVE_MUL: {
-            opt->useBufferBindless = true;
-            auto matrix_dimension = args[2]->type()->coop_matrix_dimension();// weight is KxN
-            str << "dx::linalg::CoopMul<ByteAddressBuffer,";
-            GetTypeName(*args[3]->type()->element(), str, Usage::NONE);
-            str << ',';
-            GetTypeName(*expr->type()->element(), str, Usage::NONE);
-            str << ',';
-            TypeToCoop(args[2]->type()->coop_vec_ref_type(), str);
-            str << luisa::format(",{},{}>(", matrix_dimension.x, matrix_dimension.y);
-
-            str << "bdls[NonUniformResourceIndex(";
-            if (expr->op() == CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) {
-                args[0]->accept(vis);
-                str << "[0]+";
-                args[1]->accept(vis);
-            } else {
-                str << "_ReadBdlsBuffer(";
-                args[0]->accept(vis);
-                str << ',';
-                args[1]->accept(vis);
-                str << ')';
-            }
-            str << ")]";
-            for (auto &i : args.subspan(2)) {
-                str << ',';
-                i->accept(vis);
-            }
-            str << ')';
-        }
-            return;
         default:
             LUISA_ERROR("Bad op.");
             break;
@@ -2571,7 +2396,7 @@ CodegenResult CodegenUtility::Codegen(
     vstd::StringBuilder finalResult;
     opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
-    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations());
+    uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister);
     finalResult << native_code << "\n//"sv;
     static_cast<void>(vstd::to_string(custom_mask));
     finalResult << '\n';
@@ -2658,7 +2483,7 @@ CodegenResult CodegenUtility::RasterCodegen(
     finalResult.reserve(65500);
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
-    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister, vertFunc.use_cooperative_operations() || pixelFunc.use_cooperative_operations());
+    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister);
     finalResult << native_code << "\n//"sv;
     static_cast<void>(vstd::to_string(custom_mask));
     finalResult << '\n';

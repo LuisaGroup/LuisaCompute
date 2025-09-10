@@ -117,7 +117,7 @@ struct AccelOption {
     };
 
     UsageHint hint{UsageHint::FAST_TRACE};
-    bool allow_compaction{false};
+    bool allow_compaction{true};
     bool allow_update{false};
 
     // motion blur

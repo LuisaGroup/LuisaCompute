@@ -1,6 +1,6 @@
 #include <DXApi/dx_hdr_ext.hpp>
 #include <DXApi/TypeCheck.h>
-#include <LCAgilitySDK/d3d12.h>
+#include <d3d12.h>
 #include <dxgi1_5.h>
 #include <DXApi/LCSwapChain.h>
 #include <Resource/TextureBase.h>

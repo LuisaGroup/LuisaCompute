@@ -121,7 +121,6 @@ private:
     bool _hash_computed{false};
     bool _requires_atomic_float{false};
     bool _requires_printing{false};
-    bool _use_cooperative_operations{false};
     luisa::string _name;
 
 protected:
@@ -298,8 +297,6 @@ public:
     [[nodiscard]] const RefExpr *warp_lane_count() noexcept;
     /// Return warp lane count
     [[nodiscard]] const RefExpr *warp_lane_id() noexcept;
-    // cooperative
-    bool use_cooperative_operations() const noexcept { return _use_cooperative_operations; }
 
     // variables
     /// Add local variable of type

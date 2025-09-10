@@ -83,7 +83,6 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/syntax.h>
 #include <luisa/dsl/var.h>
-#include <luisa/dsl/coop_vector.h>
 #endif
 
 #ifdef LUISA_ENABLE_GUI

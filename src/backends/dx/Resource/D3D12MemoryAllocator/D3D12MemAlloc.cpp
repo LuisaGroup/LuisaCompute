@@ -5603,7 +5603,7 @@ HRESULT AllocatorPimpl::Init(const ALLOCATOR_DESC &desc) {
 #endif
 
 // You must define this macro to like `#define D3D12MA_OPTIONS16_SUPPORTED 1` to enable GPU Upload Heaps!
-// Unfortunately there is no way to programmatically check if the included <LCAgilitySDK/d3d12.h> defines D3D12_FEATURE_DATA_D3D12_OPTIONS16 or not.
+// Unfortunately there is no way to programmatically check if the included <d3d12.h> defines D3D12_FEATURE_DATA_D3D12_OPTIONS16 or not.
 // Main interfaces have respective macros like __ID3D12Device4_INTERFACE_DEFINED__, but structures like this do not.
 #if D3D12MA_OPTIONS16_SUPPORTED
     {
