@@ -1,3 +1,4 @@
+#include "luisa/dsl/struct.h"
 #include <iostream>
 #include <chrono>
 #include <numeric>
@@ -50,6 +51,18 @@ LUISA_STRUCT(Test3, a, b, c) {};
 LUISA_STRUCT(Point3D, v) {};
 LUISA_STRUCT(MDArray, v) {};
 
+template<typename IndexType, typename ValueType>
+struct KeyValuePair {
+    IndexType key;
+    ValueType value;
+};
+
+#define LUISA_KEY_VALUE_PAIR_TEMPLATE() \
+    template<typename IndexType, typename ValueType>
+#define LUISA_KEY_VALUE_PAIR() KeyValuePair<IndexType, ValueType>
+
+LUISA_TEMPLATE_STRUCT(LUISA_KEY_VALUE_PAIR_TEMPLATE, LUISA_KEY_VALUE_PAIR, key, value){};
+
 int main(int argc, char *argv[]) {
 
     constexpr auto f = 10;
@@ -76,6 +89,7 @@ int main(int argc, char *argv[]) {
         Var<Test1> t1;
         Var<Test2> t2;
         Var<Test3> t3;
+        Var<KeyValuePair<int, float>> kvp1;
         return buffer->read(a + thread_x());// captures buffer
     };
 
@@ -184,6 +198,8 @@ int main(int argc, char *argv[]) {
 
         Var vt_copy = vt;
         Var c = 0.5f + vt.a * 1.0f;
+
+        Var<KeyValuePair<int, float>> kvp2{vt.a, 0.5f};
 
         Var vec4 = buffer->read(10);           // indexing into captured buffer (with literal)
         Var another_vec4 = buffer->read(v_int);// indexing into captured buffer (with Var)
