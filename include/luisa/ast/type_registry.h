@@ -327,7 +327,7 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
     luisa::compute::detail::TypeDesc<                     \
         std::remove_cvref_t<decltype(std::declval<LUISA_MACRO_EVAL(S())>().m)>>::description()
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE_TEMPLATE(m, S) \
-    typename std::remove_cvref_t<decltype(std::declval<LUISA_MACRO_EVAL(S())>().m)>
+    std::remove_cvref_t<decltype(std::declval<LUISA_MACRO_EVAL(S())>().m)>
 
 #ifdef _MSC_VER// force the built-in offsetof(), otherwise clangd would complain that it's not constant
 #define LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET_TEMPLATE(m, S) \
@@ -383,7 +383,7 @@ constexpr auto is_valid_reflection_v = is_valid_reflection<S, M, O>::value;
     struct luisa::compute::struct_member_tuple<LUISA_MACRO_EVAL(S())> {                                         \
         using this_type = LUISA_MACRO_EVAL(S());                                                                \
         using type =                                                                                            \
-            std::tuple<LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE, ##__VA_ARGS__)>;                      \
+            std::tuple<LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_TYPE, __VA_ARGS__)>;                        \
         using offset =                                                                                          \
             std::integer_sequence<size_t, LUISA_MAP_LIST(LUISA_STRUCTURE_MAP_MEMBER_TO_OFFSET, ##__VA_ARGS__)>; \
         static_assert(alignof(LUISA_MACRO_EVAL(S())) >= 4);                                                     \

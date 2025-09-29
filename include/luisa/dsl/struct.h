@@ -309,7 +309,7 @@ struct luisa_compute_extension {};
     class AtomicRef<LUISA_MACRO_EVAL(S())> : private AtomicRefBase {                                             \
     private:                                                                                                     \
         using this_type = LUISA_MACRO_EVAL(S());                                                                 \
-        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, ##__VA_ARGS__)                                                  \
+        LUISA_MAP(LUISA_STRUCT_MAKE_MEMBER_TYPE, __VA_ARGS__)                                                    \
         [[nodiscard]] static constexpr size_t _member_index(std::string_view name) noexcept {                    \
             constexpr const std::string_view member_names[]{                                                     \
                 LUISA_MAP_LIST(LUISA_STRINGIFY, __VA_ARGS__)};                                                   \
