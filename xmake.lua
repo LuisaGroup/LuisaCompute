@@ -1,4 +1,4 @@
-set_xmakever("2.8.7")
+set_xmakever("3.0.2")
 add_rules("mode.release", "mode.debug", "mode.releasedbg")
 set_policy("build.ccache", not is_plat("windows"))
 set_policy("check.auto_ignore_flags", false)
@@ -48,6 +48,12 @@ set_showmenu(true)
 option_end()
 
 option("lc_dx_cuda_interop")
+set_values(true, false)
+set_default(false)
+set_showmenu(true)
+option_end()
+
+option("lc_vk_cuda_interop")
 set_values(true, false)
 set_default(false)
 set_showmenu(true)
@@ -205,3 +211,11 @@ if get_config('_lc_check_env') then
     end
     includes("src")
 end
+
+target("lc_embed_codegen")
+add_rules("lc_basic_settings", {
+    project_kind = "binary"
+})
+add_files("utils/embed_codegen.cpp")
+set_policy("build.fence", true)
+target_end()

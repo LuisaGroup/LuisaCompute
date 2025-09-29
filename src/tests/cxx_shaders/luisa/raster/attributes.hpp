@@ -6,6 +6,7 @@
 #define UV1 clang::annotate("luisa-shader", "uv1")
 #define UV2 clang::annotate("luisa-shader", "uv2")
 #define UV3 clang::annotate("luisa-shader", "uv3")
+#define COLOR clang::annotate("luisa-shader", "color")
 #define VERTEX_ID clang::annotate("luisa-shader", "vertex_id")
 #define INSTANCE_ID clang::annotate("luisa-shader", "instance_id")
 #define IS_FRONTFACE clang::annotate("luisa-shader", "is_front_face")

@@ -70,29 +70,43 @@ bool ReadbackBuffer::flush_host() const {
     return true;
 }
 
+DefaultBuffer::DefaultBuffer(Device *device, VkBuffer vk_buffer, VkDeviceMemory memory, size_t size_bytes) 
+: Buffer{device, size_bytes} 
+{
+    _buffer = vk_buffer;
+    _allocated_memory = memory;
+    _external_allocation = true;
+}
+
 DefaultBuffer::DefaultBuffer(Device *device, size_t size_bytes, bool used_as_accel, VkBufferUsageFlagBits extra_bit)
-    : Buffer{device, size_bytes},
-      _res{
-          device->allocator()
-              .allocate_buffer(
-                  size_bytes,
-                  static_cast<VkBufferUsageFlagBits>(
-                      extra_bit |
-                      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                      VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                      VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                      VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                      VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-                      VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT |
-                      VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT |
-                      VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT |
-                      (used_as_accel ? (VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR) :
-                                       0)),
-                  AccessType::None)} {
+    : Buffer{device, size_bytes} {
+    auto res = device->allocator()
+                   .allocate_buffer(
+                       size_bytes,
+                       static_cast<VkBufferUsageFlagBits>(
+                           extra_bit |
+                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                           VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                           VK_BUFFER_USAGE_2_VERTEX_BUFFER_BIT |
+                           VK_BUFFER_USAGE_2_INDEX_BUFFER_BIT |
+                           VK_BUFFER_USAGE_2_SHADER_DEVICE_ADDRESS_BIT |
+                           (used_as_accel ? (VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR) :
+                                            0)),
+                       AccessType::None);
+    _buffer = res.buffer;
+    _allocation = res.allocation;
 }
 DefaultBuffer::~DefaultBuffer() {
-    if (_res.buffer)
-        device()->allocator().destroy_buffer(_res);
+    if (!_buffer) return;
+    if (_external_allocation) {
+        vkDestroyBuffer(device()->logic_device(), _buffer, Device::alloc_callbacks());
+        vkFreeMemory(device()->logic_device(), _allocated_memory, Device::alloc_callbacks());
+    } else if (_allocation) {
+        device()->allocator().destroy_buffer({_buffer, _allocation});
+    }
 }
 uint64_t Buffer::get_device_address() const {
     VkBufferDeviceAddressInfoKHR buffer_device_address_info{};
@@ -102,8 +116,13 @@ uint64_t Buffer::get_device_address() const {
 }
 DefaultBuffer::DefaultBuffer(DefaultBuffer &&rhs)
     : Buffer(std::move(rhs)) {
-    _res = rhs._res;
-    rhs._res.buffer = nullptr;
+    _buffer = rhs._buffer;
+    _external_allocation = rhs._external_allocation;
+    if (_external_allocation)
+        _allocated_memory = rhs._allocated_memory;
+    else
+        _allocation = rhs._allocation;
+    rhs._buffer = nullptr;
 }
 SparseBuffer::SparseBuffer(Device *device, size_t size_bytes, bool used_as_accel, VkBufferUsageFlagBits extra_bit)
     : Buffer(device, size_bytes) {

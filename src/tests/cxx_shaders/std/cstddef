@@ -1,0 +1,86 @@
+#pragma once
+
+#include "internal/common.hpp"
+
+using ptrdiff_t = long long;
+using size_t = unsigned long long;
+
+namespace std {
+using ::ptrdiff_t;
+using ::size_t;
+using max_align_t = long double;
+using nullptr_t = decltype(nullptr);
+
+enum class byte : unsigned char {};
+
+template<class IntType>
+	requires(::std::is_integral_v<IntType>)
+[[nodiscard]] constexpr byte operator<<(const byte b, const IntType shift) noexcept {
+	// every static_cast is intentional
+	return static_cast<byte>(static_cast<unsigned char>(static_cast<unsigned int>(b) << shift));
+}
+
+template<class IntType>
+	requires(::std::is_integral_v<IntType>)
+[[nodiscard]] constexpr byte operator>>(const byte b, const IntType shift) noexcept {
+	// every static_cast is intentional
+	return static_cast<byte>(static_cast<unsigned char>(static_cast<unsigned int>(b) >> shift));
+}
+
+[[nodiscard]] constexpr byte operator|(const byte l, const byte r) noexcept {
+	// every static_cast is intentional
+	return static_cast<byte>(
+		static_cast<unsigned char>(static_cast<unsigned int>(l) | static_cast<unsigned int>(r)));
+}
+
+[[nodiscard]] constexpr byte operator&(const byte l, const byte r) noexcept {
+	// every static_cast is intentional
+	return static_cast<byte>(
+		static_cast<unsigned char>(static_cast<unsigned int>(l) & static_cast<unsigned int>(r)));
+}
+
+[[nodiscard]] constexpr byte operator^(const byte l, const byte r) noexcept {
+	// every static_cast is intentional
+	return static_cast<byte>(
+		static_cast<unsigned char>(static_cast<unsigned int>(l) ^ static_cast<unsigned int>(r)));
+}
+
+[[nodiscard]] constexpr byte operator~(const byte b) noexcept {
+	// every static_cast is intentional
+	return static_cast<byte>(static_cast<unsigned char>(~static_cast<unsigned int>(b)));
+}
+
+template<class IntType>
+	requires(::std::is_integral_v<IntType>)
+constexpr byte& operator<<=(byte& b, const IntType shift) noexcept {
+	return b = b << shift;
+}
+
+template<class IntType>
+	requires(::std::is_integral_v<IntType>)
+constexpr byte& operator>>=(byte& b, const IntType shift) noexcept {
+	return b = b >> shift;
+}
+
+constexpr byte& operator|=(byte& l, const byte r) noexcept {
+	return l = l | r;
+}
+
+constexpr byte& operator&=(byte& l, const byte r) noexcept {
+	return l = l & r;
+}
+
+constexpr byte& operator^=(byte& l, const byte r) noexcept {
+	return l = l ^ r;
+}
+
+template<class IntType>
+	requires(::std::is_integral_v<IntType>)
+[[nodiscard]] constexpr IntType to_integer(const byte b) noexcept {
+	return static_cast<IntType>(b);
+}
+
+}// namespace std
+
+#define NULL 0
+#define offsetof(P, D) __builtin_offsetof(P, D)

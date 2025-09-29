@@ -30,6 +30,17 @@ private:
         size_t structIdx,
         Callback const &visitor,
         bool isSpirv);
+    void InitAsStructAlised(
+        Type const *originType,
+        vstd::span<Type const *const> const &vars,
+        size_t structIdx,
+        Callback const &visitor,
+        bool isSpirv);
+    void InitAsArrayAliased(
+        Type const *structureType,
+        size_t structIdx,
+        Callback const &visitor,
+        bool isSpirv);
 
 public:
     static void ProvideAlignVariable(size_t tarAlign, size_t &align, size_t &structSize, vstd::StringBuilder &structDesc);
@@ -45,6 +56,7 @@ public:
         size_t structIdx,
         CodegenUtility *util);
     void Init(Callback const &visitor, bool isSpirv);
+    void InitAliased(Callback const &visitor, bool isSpirv);
     ~StructGenerator();
 };
 }// namespace lc::hlsl

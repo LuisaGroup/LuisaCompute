@@ -22,7 +22,7 @@ function sdk_dir(arch, custom_dir)
             custom_dir = path.absolute(custom_dir, os.projectdir())
         end
     else
-        custom_dir = path.join(os.projectdir(), 'SDKs/')
+        custom_dir = path.join(os.scriptdir(), 'SDKs/')
     end
     return path.join(custom_dir, arch)
 end

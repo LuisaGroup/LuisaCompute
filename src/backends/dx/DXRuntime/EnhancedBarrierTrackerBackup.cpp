@@ -148,17 +148,29 @@ void EnhancedBarrierTrackerBackup::UpdateResourceState(Resource const *resPtr, R
         auto before_state = bf.first_time ? resPtr->GetInitState() : ToStates(bf.before_sync, bf.before_access, D3D12_BARRIER_LAYOUT_UNDEFINED);
         auto after_state = ToStates(bf.after_sync, bf.after_access, D3D12_BARRIER_LAYOUT_UNDEFINED);
         bool emplace = true;
-        if ((before_state & D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) != 0 || (after_state & D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) != 0 || (before_state == after_state && (before_state & (D3D12_RESOURCE_STATE_UNORDERED_ACCESS)) != 0)) {
+        auto uav_state = D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE | D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        if (before_state != after_state) {
+            if ((before_state & uav_state) != 0 && (before_state & uav_state) != 0) {
+                D3D12_RESOURCE_BARRIER extra_barrier{};
+                extra_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+                extra_barrier.UAV.pResource = resPtr->GetResource();
+                barriers.emplace_back(extra_barrier);
+                after_state = D3D12_RESOURCE_STATE_COMMON;
+            }
+            if ((before_state & D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) == 0 && (after_state & D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE) == 0) {
+                barrier.Transition.Subresource = UINT32_MAX;
+                barrier.Transition.pResource = resPtr->GetResource();
+                barrier.Transition.StateBefore = before_state;
+                barrier.Transition.StateAfter = after_state;
+            } else
+                emplace = false;
+        } else if ((before_state & uav_state) != 0) {
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
             barrier.UAV.pResource = resPtr->GetResource();
-        } else if (before_state != after_state) {
-            barrier.Transition.Subresource = UINT32_MAX;
-            barrier.Transition.pResource = resPtr->GetResource();
-            barrier.Transition.StateBefore = before_state;
-            barrier.Transition.StateAfter = after_state;
         } else {
             emplace = false;
         }
+
         if (emplace)
             barriers.emplace_back(barrier);
         is_write |= (bf.after_access & detail::write_access) != 0;

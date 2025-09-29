@@ -24,6 +24,9 @@
 #include "vk_raster_ext.h"
 #include "vk_native_res_ext.h"
 #include <luisa/backends/ext/raster_ext_interface.h>
+#ifdef LCVK_ENABLE_CUDA
+#include "vk_cuda_interop_ext.h"
+#endif
 namespace lc::vk {
 static constexpr uint k_shader_model = 65u;
 
@@ -390,6 +393,21 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         [](DeviceExtension *ext) {
             delete static_cast<VkNativeResourceExt *>(ext);
         });
+
+#ifdef LCVK_ENABLE_CUDA
+    exts.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{VkCudaInterop::name},
+#else
+        VkCudaInterop::name,
+#endif
+        [](Device *device) -> DeviceExtension * {
+            return new VkCudaInteropImpl(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<VkCudaInteropImpl *>(ext);
+        });
+#endif
     // auto exts = detail::supported_exts(physical_device());
     // for(auto&& i : exts){
     //     LUISA_INFO("{}", i.extensionName);
@@ -464,6 +482,17 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         _enable_device_exts.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
         _enable_device_exts.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
         _enable_device_exts.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+#ifdef LCVK_ENABLE_CUDA
+        _enable_device_exts.emplace_back(VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME);
+        _enable_device_exts.emplace_back(VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME);
+#ifdef LUISA_PLATFORM_WINDOWS
+        _enable_device_exts.emplace_back(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
+        _enable_device_exts.emplace_back(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
+#else
+        _enable_device_exts.emplace_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+        _enable_device_exts.emplace_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
+#endif
+#endif
     }
 
     VkPhysicalDeviceBufferDeviceAddressFeatures device_buffer_feature{
@@ -753,6 +782,9 @@ Device::~Device() {
 }
 void *Device::native_handle() const noexcept { return _vk_device->logicalDevice; }
 BufferCreationInfo Device::create_buffer(const Type *element, size_t elem_count, void *external_ptr) noexcept {
+    if (element->is_custom()) [[unlikely]] {
+        LUISA_ERROR("Indirect buffer not supported.");
+    }
     BufferCreationInfo info;
     info.element_stride = (element == Type::of<void>()) ? 1 : element->size();
     auto ptr = new DefaultBuffer(this, info.element_stride * elem_count, true);
@@ -1094,6 +1126,9 @@ void Device::update_sparse_resources(
     reinterpret_cast<Stream *>(stream_handle)->update_sparse_resources(std::move(textures_update));
 }
 SparseBufferCreationInfo Device::create_sparse_buffer(const Type *element, size_t elem_count) noexcept {
+    if (element->is_custom()) [[unlikely]] {
+        LUISA_ERROR("Indirect buffer not supported.");
+    }
     SparseBufferCreationInfo info;
     auto ptr = new SparseBuffer(this, element->size() * elem_count, true);
     info.element_stride = (element == Type::of<void>()) ? 1 : element->size();

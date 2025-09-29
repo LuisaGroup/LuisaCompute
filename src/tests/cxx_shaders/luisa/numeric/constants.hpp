@@ -9,6 +9,8 @@ constexpr float pi = 3.14159265358979323846264338327950288f;
 /// pi/2
 constexpr float pi_over_two = 1.57079632679489661923132169163975144f;
 
+constexpr float euler = 2.718281828459045f;
+
 /// pi/4
 constexpr float pi_over_four = 0.785398163397448309615660845819875721f;
 

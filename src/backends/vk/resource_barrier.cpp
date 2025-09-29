@@ -78,9 +78,9 @@ static std::pair<VkAccessFlagBits2, VkImageLayout> combine(
     bool first_is_write = (first.first & detail::write_access) != 0;
     bool second_is_write = (second.first & detail::write_access) != 0;
     if (first_is_write && second_is_write && (first.first != second.first)) {
-        LUISA_ERROR("Shader error, can not be writen in different way in same pass.");
-    }
-    if (first_is_write) {
+        access = first.first | second.first;
+        // LUISA_ERROR("Shader error, can not be writen in different way in same pass.");
+    } else if (first_is_write) {
         access = first.first;
         layout = first.second;
     } else if (second_is_write) {

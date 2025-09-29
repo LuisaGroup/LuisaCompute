@@ -28,6 +28,14 @@ CUDACodegenLLVMImpl::CUDACodegenLLVMImpl(CUDACodegenLLVMConfig config) noexcept
     LUISA_VERBOSE_WITH_LOCATION("CUDA LLVM codegen initialized in {} ms.", clk.toc());
 }
 
+CUDACodegenLLVMImpl::FunctionContext::FunctionContext(llvm::Function *f) noexcept
+    : llvm_func{f},
+      llvm_alloca_block{llvm::BasicBlock::Create(llvm_func->getContext(), "alloca", llvm_func)},
+      llvm_entry_block{llvm::BasicBlock::Create(llvm_func->getContext(), "entry", llvm_func)} {
+    IB b{llvm_alloca_block};
+    b.CreateBr(llvm_entry_block);
+}
+
 const llvm::Target *CUDACodegenLLVMImpl::_get_nvptx_target() noexcept {
     // initialize NVPTX target
     static std::once_flag once_flag;
@@ -83,26 +91,26 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
             case CUDACodegenLLVMConfig::OptLevel::LEVEL_DEFAULT: opt_level = llvm::CodeGenOptLevel::Default; break;
             case CUDACodegenLLVMConfig::OptLevel::LEVEL_AGGRESSIVE: opt_level = llvm::CodeGenOptLevel::Aggressive; break;
         }
+        auto cpu_name = luisa::format("sm_{}", _config.cuda_arch);
         return _get_nvptx_target()->createTargetMachine(
-            nvptx_target_triple, luisa::format("sm_{}", _config.cuda_arch), {},
+            nvptx_target_triple, llvm::StringRef{cpu_name}, {},
             options, llvm::Reloc::Static, llvm::CodeModel::Small, opt_level);
     }();
 
-    _data_layout = _target_machine->createDataLayout();
+    _data_layout = std::make_unique<llvm::DataLayout>(_target_machine->createDataLayout());
 
     // parse libdevice bitcode
     _llvm_module = [&] {
         llvm::SMDiagnostic error;
-        auto bc = _wrap_bitcode_array("libdevice.bc", luisa_cuda_codegen_libdevice_bitcode);
-        if (auto m = llvm::parseIR(bc, error, _llvm_context)) {
-            return m;
-        }
+        llvm::StringRef bc{reinterpret_cast<const char *>(luisa_compute_cuda_libdevice_10),
+                           luisa_compute_cuda_libdevice_10_size};
+        if (auto m = llvm::parseIR({bc, "libdevice.10.bc"}, error, _llvm_context)) { return m; }
         LUISA_ERROR_WITH_LOCATION("Failed to parse libdevice bitcode: {}", error.getMessage());
     }();
 
     // set the target triple
     _llvm_module->setTargetTriple(nvptx_target_triple);
-    _llvm_module->setDataLayout(_data_layout);
+    _llvm_module->setDataLayout(*_data_layout);
 
     // internalize all device functions
     for (auto &&f : *_llvm_module) {
@@ -211,16 +219,6 @@ luisa::string CUDACodegenLLVMImpl::_generate_ptx() const noexcept {
 }
 
 luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
-    {
-        Type::traverse([this](auto t) noexcept {
-            if (!t->is_custom()) {
-                auto llvm_type = _get_llvm_type(t);
-                llvm::errs() << "Mapping: " << t->description() << " -> ";
-                llvm_type->llvm_type->print(llvm::errs());
-                llvm::errs() << "\n";
-            }
-        });
-    }
     _llvm_module->setSourceFileName(xir_module.name().value_or("cuda_kernel.cu"));
     _run_optimization_passes();
     return _generate_ptx();

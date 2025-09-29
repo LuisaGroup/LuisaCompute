@@ -8,55 +8,13 @@ local files_list = {'hlsl_header', 'dx_linalg', 'hlsl_header_fallback', 'raytrac
                     'load_bdls.dxil', 'load_bdls_vk.dxil', 'set_accel4.dxil', 'bc6_encodeblock.dxil',
                     'bc6_trymodeg10.dxil', 'bc6_trymodele10.dxil', 'bc7_encodeblock.dxil', 'bc7_trymode02.dxil',
                     'bc7_trymode137.dxil', 'bc7_trymode456.dxil'}
+
 local lib = import("lib")
 
-local hlsl_builtin_path = path.join(os.projectdir(), "src/backends/common/hlsl/builtin")
-
-function main()
-    local sb = lib.StringBuilder()
-    local ss = lib.StringBuilder()
-    local arr_ss = lib.StringBuilder()
-    local func_ss = lib.StringBuilder()
-    arr_ss:add("#pragma once\n#include <luisa/core/stl/string.h>\nnamespace lc_hlsl{\n")
-    func_ss:add([[
-struct HLSLCompressedHeader {
-    void const* ptr{};
-    size_t size{};
-};
-static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
-    struct Dict {
-        luisa::unordered_map<luisa::string_view, HLSLCompressedHeader> dict;
-        Dict(){
-]])
-    for i, file in ipairs(files_list) do
-        -- make this file ignored by git
-        ss:clear()
-        sb:clear()
-        local f = io.open(path.join(hlsl_builtin_path, file), "rb")
-        ss:add(f:read("*a"))
-        f:close()
-        local replaced_file = lib.string_replace(file, ".dxil", "_dxil")
-        sb:add('namespace lc_hlsl{\nunsigned char '):add(replaced_file):add("[")
-            :add(tostring(math.tointeger(ss:size()))):add("]={")
-        local array_len = tostring(math.tointeger(lib.to_byte_array(ss, sb)))
-        sb:add("};\n}")
-        sb:write_to(path.join(hlsl_builtin_path, file .. ".cpp"))
-        arr_ss:add('extern unsigned char '):add(replaced_file):add('[];\n')
-        func_ss:add('\t\t\tdict.try_emplace("'):add(file):add('", HLSLCompressedHeader{'):add(replaced_file):add(', ')
-            :add(array_len):add('});\n')
-    end
-    func_ss:add([[		}
-	};
-	static Dict dict;
-	auto iter = dict.dict.find(ss);
-	if (iter == dict.dict.end()) return {};
-	return iter->second;
-}
-}]])
-    ss:dispose()
-    sb:dispose()
-    arr_ss:add(func_ss)
-    arr_ss:write_to(path.join(hlsl_builtin_path, "hlsl_builtin.hpp"))
-    arr_ss:dispose()
-    func_ss:dispose()
+for i,v in ipairs(files_list) do
+    print("LC_HLSL_DECL_VARNAME(" .. lib.string_replace(v, ".dxil", "_dxil") .. ")")
+end
+print()
+for i,v in ipairs(files_list) do
+    print("LC_HLSL_INSERT_VARNAME(" .. lib.string_replace(v, ".dxil", "_dxil") .. ", \"" .. v .. "\")")
 end

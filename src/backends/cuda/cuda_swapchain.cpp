@@ -81,7 +81,7 @@ private:
     static constexpr std::array required_extensions{
         VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
         VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
-#ifdef _WIN64
+#ifdef LUISA_PLATFORM_WINDOWS
         VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
         VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
 #else
@@ -332,7 +332,7 @@ private:
         };
 
         CUDA_EXTERNAL_MEMORY_HANDLE_DESC cuda_ext_memory_handle{};
-#ifdef _WIN64
+#ifdef LUISA_PLATFORM_WINDOWS
         cuda_ext_memory_handle.type = IsWindows8OrGreater() ?
                                           CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32 :
                                           CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT;
@@ -400,7 +400,7 @@ private:
         };
 
         CUDA_EXTERNAL_SEMAPHORE_HANDLE_DESC cuda_ext_semaphore_handle_desc{};
-#ifdef _WIN64
+#ifdef LUISA_PLATFORM_WINDOWS
         cuda_ext_semaphore_handle_desc.type =
             IsWindows8OrGreater() ?
                 CU_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32 :

@@ -1,73 +1,84 @@
 #pragma once
 #include <luisa/core/stl/string.h>
-namespace lc_hlsl{
-extern unsigned char hlsl_header[];
-extern unsigned char dx_linalg[];
-extern unsigned char hlsl_header_fallback[];
-extern unsigned char raytracing_header[];
-extern unsigned char tex2d_bindless[];
-extern unsigned char tex3d_bindless[];
-extern unsigned char compute_quad[];
-extern unsigned char determinant[];
-extern unsigned char inverse[];
-extern unsigned char indirect[];
-extern unsigned char resource_size[];
-extern unsigned char accel_header[];
-extern unsigned char copy_sign[];
-extern unsigned char bindless_common[];
-extern unsigned char auto_diff[];
-extern unsigned char reduce[];
-extern unsigned char accel_process_vk_dxil[];
-extern unsigned char load_bdls_dxil[];
-extern unsigned char load_bdls_vk_dxil[];
-extern unsigned char set_accel4_dxil[];
-extern unsigned char bc6_encodeblock_dxil[];
-extern unsigned char bc6_trymodeg10_dxil[];
-extern unsigned char bc6_trymodele10_dxil[];
-extern unsigned char bc7_encodeblock_dxil[];
-extern unsigned char bc7_trymode02_dxil[];
-extern unsigned char bc7_trymode137_dxil[];
-extern unsigned char bc7_trymode456_dxil[];
+#define LC_HLSL_DECL_VARNAME(VAR_NAME) \
+    extern const unsigned char VAR_NAME[];   \
+    extern const unsigned long long VAR_NAME##_size;
+
+#define LC_HLSL_INSERT_VARNAME(VAR_NAME, KEY_NAME) \
+    dict.try_emplace(KEY_NAME, HLSLCompressedHeader{VAR_NAME, VAR_NAME##_size});
+extern "C" {
+LC_HLSL_DECL_VARNAME(hlsl_header)
+LC_HLSL_DECL_VARNAME(dx_linalg)
+LC_HLSL_DECL_VARNAME(hlsl_header_fallback)
+LC_HLSL_DECL_VARNAME(raytracing_header)
+LC_HLSL_DECL_VARNAME(tex2d_bindless)
+LC_HLSL_DECL_VARNAME(tex3d_bindless)
+LC_HLSL_DECL_VARNAME(compute_quad)
+LC_HLSL_DECL_VARNAME(determinant)
+LC_HLSL_DECL_VARNAME(inverse)
+LC_HLSL_DECL_VARNAME(indirect)
+LC_HLSL_DECL_VARNAME(resource_size)
+LC_HLSL_DECL_VARNAME(accel_header)
+LC_HLSL_DECL_VARNAME(copy_sign)
+LC_HLSL_DECL_VARNAME(bindless_common)
+LC_HLSL_DECL_VARNAME(auto_diff)
+LC_HLSL_DECL_VARNAME(reduce)
+LC_HLSL_DECL_VARNAME(accel_process_vk_dxil)
+LC_HLSL_DECL_VARNAME(load_bdls_dxil)
+LC_HLSL_DECL_VARNAME(load_bdls_vk_dxil)
+LC_HLSL_DECL_VARNAME(set_accel4_dxil)
+LC_HLSL_DECL_VARNAME(bc6_encodeblock_dxil)
+LC_HLSL_DECL_VARNAME(bc6_trymodeg10_dxil)
+LC_HLSL_DECL_VARNAME(bc6_trymodele10_dxil)
+LC_HLSL_DECL_VARNAME(bc7_encodeblock_dxil)
+LC_HLSL_DECL_VARNAME(bc7_trymode02_dxil)
+LC_HLSL_DECL_VARNAME(bc7_trymode137_dxil)
+LC_HLSL_DECL_VARNAME(bc7_trymode456_dxil)
+LC_HLSL_DECL_VARNAME(spv_alias)
+}
+
+namespace lc_hlsl {
 struct HLSLCompressedHeader {
-    void const* ptr{};
+    void const *ptr{};
     size_t size{};
 };
 static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
     struct Dict {
         luisa::unordered_map<luisa::string_view, HLSLCompressedHeader> dict;
-        Dict(){
-			dict.try_emplace("hlsl_header", HLSLCompressedHeader{hlsl_header, 5699});
-			dict.try_emplace("dx_linalg", HLSLCompressedHeader{dx_linalg, 8047});
-			dict.try_emplace("hlsl_header_fallback", HLSLCompressedHeader{hlsl_header_fallback, 6256});
-			dict.try_emplace("raytracing_header", HLSLCompressedHeader{raytracing_header, 3045});
-			dict.try_emplace("tex2d_bindless", HLSLCompressedHeader{tex2d_bindless, 8883});
-			dict.try_emplace("tex3d_bindless", HLSLCompressedHeader{tex3d_bindless, 7738});
-			dict.try_emplace("compute_quad", HLSLCompressedHeader{compute_quad, 138});
-			dict.try_emplace("determinant", HLSLCompressedHeader{determinant, 2019});
-			dict.try_emplace("inverse", HLSLCompressedHeader{inverse, 2907});
-			dict.try_emplace("indirect", HLSLCompressedHeader{indirect, 494});
-			dict.try_emplace("resource_size", HLSLCompressedHeader{resource_size, 1374});
-			dict.try_emplace("accel_header", HLSLCompressedHeader{accel_header, 1160});
-			dict.try_emplace("copy_sign", HLSLCompressedHeader{copy_sign, 765});
-			dict.try_emplace("bindless_common", HLSLCompressedHeader{bindless_common, 1615});
-			dict.try_emplace("auto_diff", HLSLCompressedHeader{auto_diff, 1795});
-			dict.try_emplace("reduce", HLSLCompressedHeader{reduce, 6372});
-			dict.try_emplace("accel_process_vk.dxil", HLSLCompressedHeader{accel_process_vk_dxil, 3604});
-			dict.try_emplace("load_bdls.dxil", HLSLCompressedHeader{load_bdls_dxil, 4168});
-			dict.try_emplace("load_bdls_vk.dxil", HLSLCompressedHeader{load_bdls_vk_dxil, 1556});
-			dict.try_emplace("set_accel4.dxil", HLSLCompressedHeader{set_accel4_dxil, 5512});
-			dict.try_emplace("bc6_encodeblock.dxil", HLSLCompressedHeader{bc6_encodeblock_dxil, 24120});
-			dict.try_emplace("bc6_trymodeg10.dxil", HLSLCompressedHeader{bc6_trymodeg10_dxil, 14072});
-			dict.try_emplace("bc6_trymodele10.dxil", HLSLCompressedHeader{bc6_trymodele10_dxil, 17396});
-			dict.try_emplace("bc7_encodeblock.dxil", HLSLCompressedHeader{bc7_encodeblock_dxil, 33400});
-			dict.try_emplace("bc7_trymode02.dxil", HLSLCompressedHeader{bc7_trymode02_dxil, 14032});
-			dict.try_emplace("bc7_trymode137.dxil", HLSLCompressedHeader{bc7_trymode137_dxil, 15088});
-			dict.try_emplace("bc7_trymode456.dxil", HLSLCompressedHeader{bc7_trymode456_dxil, 13692});
-		}
-	};
-	static Dict dict;
-	auto iter = dict.dict.find(ss);
-	if (iter == dict.dict.end()) return {};
-	return iter->second;
+        Dict() {
+            LC_HLSL_INSERT_VARNAME(hlsl_header, "hlsl_header")
+            LC_HLSL_INSERT_VARNAME(spv_alias, "spv_alias")
+            LC_HLSL_INSERT_VARNAME(dx_linalg, "dx_linalg")
+            LC_HLSL_INSERT_VARNAME(hlsl_header_fallback, "hlsl_header_fallback")
+            LC_HLSL_INSERT_VARNAME(raytracing_header, "raytracing_header")
+            LC_HLSL_INSERT_VARNAME(tex2d_bindless, "tex2d_bindless")
+            LC_HLSL_INSERT_VARNAME(tex3d_bindless, "tex3d_bindless")
+            LC_HLSL_INSERT_VARNAME(compute_quad, "compute_quad")
+            LC_HLSL_INSERT_VARNAME(determinant, "determinant")
+            LC_HLSL_INSERT_VARNAME(inverse, "inverse")
+            LC_HLSL_INSERT_VARNAME(indirect, "indirect")
+            LC_HLSL_INSERT_VARNAME(resource_size, "resource_size")
+            LC_HLSL_INSERT_VARNAME(accel_header, "accel_header")
+            LC_HLSL_INSERT_VARNAME(copy_sign, "copy_sign")
+            LC_HLSL_INSERT_VARNAME(bindless_common, "bindless_common")
+            LC_HLSL_INSERT_VARNAME(auto_diff, "auto_diff")
+            LC_HLSL_INSERT_VARNAME(reduce, "reduce")
+            LC_HLSL_INSERT_VARNAME(accel_process_vk_dxil, "accel_process_vk.dxil")
+            LC_HLSL_INSERT_VARNAME(load_bdls_dxil, "load_bdls.dxil")
+            LC_HLSL_INSERT_VARNAME(load_bdls_vk_dxil, "load_bdls_vk.dxil")
+            LC_HLSL_INSERT_VARNAME(set_accel4_dxil, "set_accel4.dxil")
+            LC_HLSL_INSERT_VARNAME(bc6_encodeblock_dxil, "bc6_encodeblock.dxil")
+            LC_HLSL_INSERT_VARNAME(bc6_trymodeg10_dxil, "bc6_trymodeg10.dxil")
+            LC_HLSL_INSERT_VARNAME(bc6_trymodele10_dxil, "bc6_trymodele10.dxil")
+            LC_HLSL_INSERT_VARNAME(bc7_encodeblock_dxil, "bc7_encodeblock.dxil")
+            LC_HLSL_INSERT_VARNAME(bc7_trymode02_dxil, "bc7_trymode02.dxil")
+            LC_HLSL_INSERT_VARNAME(bc7_trymode137_dxil, "bc7_trymode137.dxil")
+            LC_HLSL_INSERT_VARNAME(bc7_trymode456_dxil, "bc7_trymode456.dxil")
+        }
+    };
+    static Dict dict;
+    auto iter = dict.dict.find(ss);
+    if (iter == dict.dict.end()) return {};
+    return iter->second;
 }
-}
+}// namespace lc_hlsl

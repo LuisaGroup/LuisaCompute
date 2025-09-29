@@ -39,3 +39,45 @@
     &zzx,
     &zzy,
     &zzz;
+
+[[swizzle]] T r, g, b;
+
+[[swizzle]] vec<T, 2>
+    &rr,
+    &rg,
+    &rb,
+    &gr,
+    &gg,
+    &gb,
+    &br,
+    &bg,
+    &bb;
+
+[[swizzle]] vec<T, 3>
+    &rrr,
+    &rrg,
+    &rrb,
+    &rgr,
+    &rgg,
+    &rgb,
+    &rbr,
+    &rbg,
+    &rbb,
+    &grr,
+    &grg,
+    &grb,
+    &ggr,
+    &ggg,
+    &ggb,
+    &gbr,
+    &gbg,
+    &gbb,
+    &brr,
+    &brg,
+    &brb,
+    &bgr,
+    &bgg,
+    &bgb,
+    &bbr,
+    &bbg,
+    &bbb;

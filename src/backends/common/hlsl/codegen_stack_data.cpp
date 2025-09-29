@@ -7,6 +7,10 @@ CodegenStackData::CodegenStackData()
     : generateStruct(
           [this](Type const *t) {
               CreateStruct(t);
+          }),
+      generateAliasedStruct(
+          [this](Type const *t) {
+              CreateAliasedStruct(t);
           }) {
     Clear();
 }
@@ -20,6 +24,10 @@ void CodegenStackData::Clear() {
     funcTypes.clear();
     customStruct.clear();
     customStructVector.clear();
+    customStructAliased.clear();
+    customStructVectorAliased.clear();
+    originToAliasedTypes.clear();
+    aliasedToOriginTypes.clear();
     atomicsFuncs.clear();
     sharedVariable.clear();
     printer.clear();
@@ -33,10 +41,32 @@ void CodegenStackData::Clear() {
     useTex2DBindless = false;
     useTex3DBindless = false;
     useBufferBindless = false;
+    atomicFloatToInt = false;
     internalStruct.clear();
     internalStruct.emplace(Type::of<CommittedHit>(), "_Hit0");
     internalStruct.emplace(Type::of<TriangleHit>(), "_Hit1");
     internalStruct.emplace(Type::of<ProceduralHit>(), "_Hit2");
+}
+
+std::pair<vstd::string_view, bool> CodegenStackData::CreateAliasedStruct(Type const *t) {
+    if (!util->TypeIsAliased(t)) {
+        return {CreateStruct(t), false};
+    }
+    auto ite = customStructAliased.try_emplace(
+        t,
+        vstd::lazy_eval([&] {
+            auto newPtr = new StructGenerator(
+                t,
+                structCount++,
+                util);
+            return vstd::create_unique(newPtr);
+        }));
+    if (ite.second) {
+        auto newPtr = ite.first.value().get();
+        newPtr->InitAliased(generateAliasedStruct, isSpirv);
+        customStructVectorAliased.emplace_back(ite.first.value().get());
+    }
+    return {ite.first.value()->GetStructName(), true};
 }
 
 vstd::string_view CodegenStackData::CreateStruct(Type const *t) {
@@ -125,6 +155,8 @@ static vstd::string_view _atomic_compare_exchange =
     R"(# r;InterlockedCompareExchange($,@,r);return r;)"sv;
 static vstd::string_view _atomic_compare_exchange_float =
     R"(# r;InterlockedCompareExchangeFloatBitwise($,@,r);return r;)"sv;
+static vstd::string_view _atomic_compare_exchange_float_spirv =
+    R"(# r;InterlockedCompareExchange($,asint(@),r);return asfloat(r);)"sv;
 static vstd::string_view _atomic_add =
     R"(# r;InterlockedAdd($,@,r);return r;)"sv;
 static vstd::string_view _atomic_add_float =
@@ -133,6 +165,13 @@ static vstd::string_view _atomic_add_float =
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,old+@,r);
 if(old==r)return old;
+})"sv;
+static vstd::string_view _atomic_add_float_spirv =
+    R"(while(true){
+# old=asint($);
+# r;
+InterlockedCompareExchange($,old,asint(asfloat(old)+@),r);
+if(old==r)return asfloat(old);
 })"sv;
 static vstd::string_view _atomic_sub =
     R"(# r;
@@ -144,6 +183,13 @@ static vstd::string_view _atomic_sub_float =
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,old-@,r);
 if(old==r)return old;
+})"sv;
+static vstd::string_view _atomic_sub_float_spirv =
+    R"(while(true){
+# old=asint($);
+# r;
+InterlockedCompareExchange($,old,asint(asfloat(old)-@),r);
+if(old==r)return asfloat(old);
 })"sv;
 static vstd::string_view _atomic_and =
     R"(# r;InterlockedAnd($,@,r);return r;)"sv;
@@ -161,6 +207,14 @@ if(old<=@){
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
 }})"sv;
+static vstd::string_view _atomic_min_float_spirv =
+    R"(while(true){
+# old=asint($);
+if(asfloat(old)<=@){
+# r;
+InterlockedCompareExchange($,old,asint(@),r);
+if(r==old) return asfloat(old);
+}})"sv;
 static vstd::string_view _atomic_max =
     R"(# r;InterlockedMax($,@,r);return r;)"sv;
 static vstd::string_view _atomic_max_float =
@@ -171,6 +225,14 @@ if(old>=@){
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
 }})"sv;
+static vstd::string_view _atomic_max_float_spirv =
+    R"(while(true){
+# old=asint($);
+if(asfloat(old)>=@){
+# r;
+InterlockedCompareExchange($,old,asint(@),r);
+if(r==old) return asfloat(old);
+}})"sv;
 AccessChain const &CodegenStackData::GetAtomicFunc(
     CallOp op,
     Variable const &rootVar,
@@ -178,7 +240,15 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
     luisa::span<Expression const *const> exprs) {
     size_t extra_arg_size = (op == CallOp::ATOMIC_COMPARE_EXCHANGE) ? 2 : 1;
     vstd::StringBuilder retTypeName;
-    util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
+    if (atomicFloatToInt && (retType->is_float32() || retType->is_float64())) {
+        if (retType->is_float32()) {
+            util->GetTypeName(*Type::of<int>(), retTypeName, Usage::NONE, true);
+        } else {
+            util->GetTypeName(*Type::of<int64_t>(), retTypeName, Usage::NONE, true);
+        }
+    } else {
+        util->GetTypeName(*retType, retTypeName, Usage::NONE, true);
+    }
     TemplateFunction tmp{
         .ret_type = retTypeName.view(),
         .tmp_type_name = retTypeName.view(),
@@ -191,21 +261,21 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
             if (retType->is_float32()) {
-                tmp.body = _atomic_compare_exchange_float;
+                tmp.body = isSpirv ? _atomic_compare_exchange_float_spirv : _atomic_compare_exchange_float;
             } else {
                 tmp.body = _atomic_compare_exchange;
             }
             break;
         case CallOp::ATOMIC_FETCH_ADD:
             if (retType->is_float32()) {
-                tmp.body = _atomic_add_float;
+                tmp.body = isSpirv ? _atomic_add_float_spirv : _atomic_add_float;
             } else {
                 tmp.body = _atomic_add;
             }
             break;
         case CallOp::ATOMIC_FETCH_SUB:
             if (retType->is_float32()) {
-                tmp.body = _atomic_sub_float;
+                tmp.body = isSpirv ? _atomic_sub_float_spirv : _atomic_sub_float;
             } else {
                 tmp.body = _atomic_sub;
             }
@@ -221,14 +291,14 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             break;
         case CallOp::ATOMIC_FETCH_MIN:
             if (retType->is_float32()) {
-                tmp.body = _atomic_min_float;
+                tmp.body = isSpirv ? _atomic_min_float_spirv : _atomic_min_float;
             } else {
                 tmp.body = _atomic_min;
             }
             break;
         case CallOp::ATOMIC_FETCH_MAX:
             if (retType->is_float32()) {
-                tmp.body = _atomic_max_float;
+                tmp.body = isSpirv ? _atomic_max_float_spirv : _atomic_max_float;
             } else {
                 tmp.body = _atomic_max;
             }

@@ -16,10 +16,20 @@ struct alignas(16) Ray {
 	[[nodiscard]] float3 dir() const {
 		return float3(_dir[0], _dir[1], _dir[2]);
 	}
+	void set_origin(float3 o) {
+		_origin[0] = o.x;
+		_origin[1] = o.y;
+		_origin[2] = o.z;
+	}
+	void set_dir(float3 d) {
+		_dir[0] = d.x;
+		_dir[1] = d.y;
+		_dir[2] = d.z;
+	}
 
-	Array<float, 3> _origin;
+	std::array<float, 3> _origin;
 	float t_min = 0.0f;
-	Array<float, 3> _dir;
+	std::array<float, 3> _dir;
 	float t_max = 1e30f;
 };
 
@@ -32,7 +42,7 @@ enum struct HitType : uint32 {
 */
 
 using HitType = uint32;
-trait HitTypes {
+trait_struct HitTypes {
 	static constexpr HitType Miss = 0;
 	static constexpr HitType HitTriangle = 1;
 	static constexpr HitType HitProcedural = 2;
@@ -70,6 +80,10 @@ struct TriangleHit {
 	[[nodiscard]] bool hitted() const {
 		return inst != max_uint32;
 	}
+	[[nodiscard]] operator bool() const noexcept {
+		return hitted();
+	}
+
 	template<concepts::float_family T>
 	T interpolate(const T& a, const T& b, const T& c) {
 		return T(1.0f - bary.x - bary.y) * a + T(bary.x) * b + T(bary.y) * c;
@@ -80,7 +94,7 @@ T interpolate(float2 bary, const T& a, const T& b, const T& c) {
 	return T(1.0f - bary.x - bary.y) * a + T(bary.x) * b + T(bary.y) * c;
 }
 
-struct ProceduralHit {
+struct alignas(8) ProceduralHit {
 	uint32 inst;
 	uint32 prim;
 };

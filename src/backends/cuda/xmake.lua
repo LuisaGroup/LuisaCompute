@@ -69,14 +69,26 @@ end
 if get_config("lc_cuda_ext_lcub") then
     add_deps("luisa-compute-cuda-ext-lcub")
 end
-
+add_deps("lc_embed_codegen", {
+    inherit = false,
+    public = false
+})
+add_rules("lc_compile_codegen", {
+    remove_ext = true,
+    remove_slash_r = true,
+    var_name_prefix = "luisa_compute_"
+})
+add_files("cuda_builtin.lua")
 set_pcxxheader("lc_cuda_pch.h")
 add_headerfiles("*.h", "../common/default_binary_io.h")
 on_load(function(target)
     local src_path = os.scriptdir()
+    local exclude_files = {}
+    exclude_files["cuda_nvrtc_compiler.cpp"] = true
+    exclude_files["cuda_builtin_embedded.cpp"] = true
     for _, filepath in ipairs(os.files(path.join(src_path, "*.cpp"))) do
         local file_name = path.filename(filepath)
-        if file_name ~= "cuda_nvrtc_compiler.cpp" then
+        if not exclude_files[file_name] then
             target:add("files", filepath)
         end
     end

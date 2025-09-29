@@ -23,7 +23,9 @@ struct TemplateFunction {
 class AccessChain {
 public:
     struct AccessNode {
-        bool is_struct;
+        bool is_struct : 1;
+        bool is_matrix : 1;
+        bool is_vector3 : 1;
     };
     struct MemberNode {
         uint member_index;

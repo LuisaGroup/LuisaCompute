@@ -145,6 +145,11 @@ CompileResult ShaderCompiler::compile_compute(
     if (spirv) {
         args.emplace_back(L"-spirv");
         args.emplace_back(L"/DSPV");
+        if (shaderModel > 60) {
+            args.emplace_back(L"-fspv-target-env=vulkan1.1");
+        } else if (shaderModel > 65) {
+            args.emplace_back(L"-fspv-target-env=vulkan1.3");
+        }
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());
@@ -174,6 +179,11 @@ RasterBin ShaderCompiler::compile_raster(
     if (spirv) {
         args.emplace_back(L"/DSPV");
         args.emplace_back(L"-spirv");
+        if (shaderModel > 60) {
+            args.emplace_back(L"-fspv-target-env=vulkan1.1");
+        } else if (shaderModel > 65) {
+            args.emplace_back(L"-fspv-target-env=vulkan1.3");
+        }
     }
     if (enableUnsafeMath) {
         AddUnsafeMathFlags(args);

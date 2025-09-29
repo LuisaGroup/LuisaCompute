@@ -1,1 +1,3 @@
 !cuda_builtin/cuda_builtin_kernels.ptx
+cuda_builtin_embedded.cpp
+llvm_codegen/cuda_codegen_llvm_device_bitcode.cpp

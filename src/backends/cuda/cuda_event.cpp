@@ -68,7 +68,7 @@ bool CUDAEvent::is_completed(uint64_t value) noexcept {
     return signaled_value() >= value;
 }
 
-CUDAEventManager::CUDAEventManager(const CUuuid &uuid) noexcept
+CUDAEventManager::CUDAEventManager(const CUuuid &uuid, VkPhysicalDevice physical_device, VkDevice device) noexcept
     : _instance{VulkanInstance::retain()} {
 
     auto check_uuid = [uuid = luisa::bit_cast<VulkanDeviceUUID>(uuid)](auto device) noexcept {
@@ -94,62 +94,66 @@ CUDAEventManager::CUDAEventManager(const CUuuid &uuid) noexcept
         }
         return 0u;
     };
-
-    // find the physical device
-    auto device_count = 0u;
-    LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(
-        _instance->handle(), &device_count, nullptr));
-    LUISA_ASSERT(device_count > 0u, "Failed to find GPUs with Vulkan support.");
-    luisa::vector<VkPhysicalDevice> devices(device_count);
-    LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(
-        _instance->handle(), &device_count, devices.data()));
-    for (auto device : devices) {
-        if (check_uuid(device)) {
-            _physical_device = device;
-            break;
+    if (!physical_device || !device) {
+        // find the physical device
+        auto device_count = 0u;
+        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(
+            _instance->handle(), &device_count, nullptr));
+        LUISA_ASSERT(device_count > 0u, "Failed to find GPUs with Vulkan support.");
+        luisa::vector<VkPhysicalDevice> devices(device_count);
+        LUISA_CHECK_VULKAN(vkEnumeratePhysicalDevices(
+            _instance->handle(), &device_count, devices.data()));
+        for (auto device : devices) {
+            if (check_uuid(device)) {
+                _physical_device = device;
+                break;
+            }
         }
-    }
-    LUISA_ASSERT(_physical_device != nullptr,
-                 "Failed to find a GPU with matching UUID.");
+        LUISA_ASSERT(_physical_device != nullptr,
+                     "Failed to find a GPU with matching UUID.");
 
-    // create the logical device
-    VkDeviceQueueCreateInfo queue_create_info{};
-    auto queue_priority = 1.f;
-    queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info.queueFamilyIndex = find_queue_family(_physical_device);
-    queue_create_info.queueCount = 1;
-    queue_create_info.pQueuePriorities = &queue_priority;
+        // create the logical device
+        VkDeviceQueueCreateInfo queue_create_info{};
+        auto queue_priority = 1.f;
+        queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_create_info.queueFamilyIndex = find_queue_family(_physical_device);
+        queue_create_info.queueCount = 1;
+        queue_create_info.pQueuePriorities = &queue_priority;
 
-    VkPhysicalDeviceVulkan12Features features{};
-    features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    features.timelineSemaphore = true;
+        VkPhysicalDeviceVulkan12Features features{};
+        features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        features.timelineSemaphore = true;
 
-    VkDeviceCreateInfo device_create_info{};
-    device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.pNext = &features;
-    device_create_info.queueCreateInfoCount = 1;
-    device_create_info.pQueueCreateInfos = &queue_create_info;
+        VkDeviceCreateInfo device_create_info{};
+        device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        device_create_info.pNext = &features;
+        device_create_info.queueCreateInfoCount = 1;
+        device_create_info.pQueueCreateInfos = &queue_create_info;
 
-    static constexpr std::array required_extensions{
-        VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
-        VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
+        static constexpr std::array required_extensions{
+            VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,
+            VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,
 #ifdef _WIN64
-        VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,
 #else
-        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
 #endif
-    };
-    device_create_info.enabledExtensionCount = static_cast<uint32_t>(required_extensions.size());
-    device_create_info.ppEnabledExtensionNames = required_extensions.data();
+        };
+        device_create_info.enabledExtensionCount = static_cast<uint32_t>(required_extensions.size());
+        device_create_info.ppEnabledExtensionNames = required_extensions.data();
 
-    constexpr std::array validation_layers{"VK_LAYER_KHRONOS_validation"};
-    if (_instance->has_debug_layer()) {
-        device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
-        device_create_info.ppEnabledLayerNames = validation_layers.data();
+        constexpr std::array validation_layers{"VK_LAYER_KHRONOS_validation"};
+        if (_instance->has_debug_layer()) {
+            device_create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
+            device_create_info.ppEnabledLayerNames = validation_layers.data();
+        }
+        LUISA_CHECK_VULKAN(vkCreateDevice(_physical_device, &device_create_info, nullptr, &_device));
+        LUISA_ASSERT(_device != nullptr, "Failed to create Vulkan device.");
+    } else {
+        _external_vk_device = true;
+        _device = device;
+        _physical_device = physical_device;
     }
-    LUISA_CHECK_VULKAN(vkCreateDevice(_physical_device, &device_create_info, nullptr, &_device));
-    LUISA_ASSERT(_device != nullptr, "Failed to create Vulkan device.");
-
 #ifdef LUISA_PLATFORM_WINDOWS
     _addr_vkGetSemaphoreHandle = reinterpret_cast<uint64_t>(
         vkGetDeviceProcAddr(_device, "vkGetSemaphoreWin32HandleKHR"));
@@ -169,7 +173,8 @@ CUDAEventManager::~CUDAEventManager() noexcept {
             "CUDAEventManager destroyed with {} events remaining.",
             count);
     }
-    vkDestroyDevice(_device, nullptr);
+    if (!_external_vk_device)
+        vkDestroyDevice(_device, nullptr);
 }
 
 CUDAEvent *CUDAEventManager::create() noexcept {

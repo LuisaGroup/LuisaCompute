@@ -25,6 +25,7 @@ public:
               VkSemaphore vk_semaphore,
               CUexternalSemaphore cuda_semaphore) noexcept;
     [[nodiscard]] auto handle() const noexcept { return _cuda_semaphore; }
+    [[nodiscard]] auto vk_semaphore() const noexcept { return _vk_semaphore; }
     void notify(uint64_t value) noexcept;
     void signal(CUstream stream, uint64_t value) noexcept;
     void wait(CUstream stream, uint64_t value) noexcept;
@@ -39,11 +40,12 @@ private:
     luisa::shared_ptr<VulkanInstance> _instance;
     VkPhysicalDevice _physical_device{nullptr};
     VkDevice _device{nullptr};
+    bool _external_vk_device : 1 {false};
     uint64_t _addr_vkGetSemaphoreHandle{0u};
     std::atomic<size_t> _count{0u};
 
 public:
-    explicit CUDAEventManager(const CUuuid &uuid) noexcept;
+    explicit CUDAEventManager(const CUuuid &uuid, VkPhysicalDevice physical_device, VkDevice device) noexcept;
     ~CUDAEventManager() noexcept;
     CUDAEventManager(CUDAEventManager &&) noexcept = delete;
     CUDAEventManager(const CUDAEventManager &) noexcept = delete;

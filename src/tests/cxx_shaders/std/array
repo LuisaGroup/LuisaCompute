@@ -1,0 +1,152 @@
+#pragma once
+
+#include <std/type_traits>
+
+namespace std {
+
+// class template array
+template<class T, size_t N>
+struct [[builtin("array")]] array {
+private:
+	T v[N];
+
+public:
+	// types
+	using value_type = T;
+	using reference = T&;
+	using const_reference = T;
+	using size_type = size_t;
+	using difference_type = ptrdiff_t;
+	// using iterator = /* implementation-defined */;
+	// using const_iterator = /* implementation-defined */;
+	// using reverse_iterator = std::reverse_iterator<iterator>;
+	// using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+	// no explicit construct/copy/destroy for aggregate type
+
+	template<typename... Args>
+	[[noignore]] constexpr array(Args... args) {
+		set<0>(args...);
+	}
+	constexpr array() = default;
+
+	template<size_t start, typename... Args>
+	[[noignore]] constexpr void set(T v, Args... args) {
+		set(start, v);
+		set<start + 1>(args...);
+	}
+	template<size_t start>
+	[[noignore]] constexpr void set(T v) { set(start, v); }
+	[[noignore]] constexpr void set(size_t loc, T v) { operator[](loc) = v; }
+
+	[[noignore]] constexpr void fill(const T& u) {
+		for (size_t i = 0; i < N; ++i) {
+			v[i] = u;
+		}
+	}
+	// constexpr void swap(array&) noexcept(is_nothrow_swappable_v<T>);
+
+	// iterators
+	// constexpr iterator begin() noexcept;
+	// constexpr const_iterator begin() const noexcept;
+	// constexpr iterator end() noexcept;
+	// constexpr const_iterator end() const noexcept;
+
+	// constexpr reverse_iterator rbegin() noexcept;
+	// constexpr const_reverse_iterator rbegin() const noexcept;
+	// constexpr reverse_iterator rend() noexcept;
+	// constexpr const_reverse_iterator rend() const noexcept;
+
+	// constexpr const_iterator cbegin() const noexcept;
+	// constexpr const_iterator cend() const noexcept;
+	// constexpr const_reverse_iterator crbegin() const noexcept;
+	// constexpr const_reverse_iterator crend() const noexcept;
+
+	// capacity
+	[[nodiscard]] [[noignore]] constexpr bool empty() noexcept {
+		return false;
+	}
+	[[nodiscard]] [[noignore]] constexpr size_type size() noexcept {
+		return N;
+	}
+	[[nodiscard]] [[noignore]] constexpr size_type max_size() noexcept {
+		return N;
+	}
+
+	// element access
+	[[nodiscard]] [[access]] constexpr reference operator[](size_type n) {
+		return v[n];
+	}
+	[[nodiscard]] [[access]] constexpr const_reference operator[](size_type n) const {
+		return v[n];
+	}
+	[[nodiscard]] [[access]] constexpr reference at(size_type n) {
+		return v[n];
+	}
+	[[nodiscard]] [[access]] constexpr const_reference at(size_type n) const {
+		return v[n];
+	}
+	[[nodiscard]] [[access]] constexpr reference front() {
+		return v[0];
+	}
+	[[nodiscard]] [[access]] constexpr const_reference front() const {
+		return v[0];
+	}
+	[[nodiscard]] [[access]] constexpr reference back() {
+		return v[N - 1];
+	}
+	[[nodiscard]] [[access]] constexpr const_reference back() const {
+		return v[N - 1];
+	}
+
+	// constexpr T* data() noexcept;
+	// constexpr const T* data() const noexcept;
+};
+
+template<class T, class... U>
+array(T, U...) -> array<T, 1 + sizeof...(U)>;
+
+template<class>
+constexpr bool is_std_array_v = false;
+
+template<class T, size_t N>
+constexpr bool is_std_array_v<array<T, N>> = true;
+
+// template<class T, size_t N>
+// constexpr bool operator==(const array<T, N>& x, const array<T, N>& y);
+// template<class T, size_t N>
+// constexpr /*synth-three-way-result*/<T> operator<=>(const array<T, N>& x,
+// 													const array<T, N>& y);
+
+// // specialized algorithms
+// template<class T, size_t N>
+// constexpr void swap(array<T, N>& x, array<T, N>& y) noexcept(noexcept(x.swap(y)));
+
+// array creation functions
+template<class T, size_t N>
+constexpr array<remove_cv_t<T>, N> to_array(T (&a)[N]) {
+	return array<remove_cv_t<T>, N>{a};
+}
+// template<class T, size_t N>
+// constexpr array<remove_cv_t<T>, N> to_array(T (&&a)[N]) {
+// 	return array<remove_cv_t<T>, N>{std::move(a)};
+// }
+
+// // tuple interface
+// template<class T>
+// struct tuple_size;
+// template<size_t I, class T>
+// struct tuple_element;
+// template<class T, size_t N>
+// struct tuple_size<array<T, N>>;
+// template<size_t I, class T, size_t N>
+// struct tuple_element<I, array<T, N>>;
+// template<size_t I, class T, size_t N>
+// constexpr T& get(array<T, N>&) noexcept;
+// template<size_t I, class T, size_t N>
+// constexpr T&& get(array<T, N>&&) noexcept;
+// template<size_t I, class T, size_t N>
+// constexpr const T& get(const array<T, N>&) noexcept;
+// template<size_t I, class T, size_t N>
+// constexpr const T&& get(const array<T, N>&&) noexcept;
+}// namespace std

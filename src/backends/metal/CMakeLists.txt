@@ -5,6 +5,19 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 
     message(STATUS "Build with Metal backend")
 
+    # embed Metal built-in library sources with luisa_embed_device_lib
+    file(GLOB LUISA_COMPUTE_METAL_DEVICE_LIB_SOURCES CONFIGURE_DEPENDS metal_builtin/*.metal)
+    file(GLOB LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCES CONFIGURE_DEPENDS metal-tex-compress/*.patched.metal)
+    add_custom_target(luisa-compute-backend-metal-embed
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib> ${LUISA_COMPUTE_METAL_DEVICE_LIB_SOURCES} --prefix luisa_compute_ -o metal_builtin_embedded.cpp -h metal_builtin_embedded.h
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib> ${LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCES} --prefix luisa_compute_metal_texture_compress_ -o metal_tex_compress_embedded.cpp -h metal_tex_compress_embedded.h
+            BYPRODUCTS ${CMAKE_CURRENT_LIST_DIR}/metal_builtin_embedded.cpp ${CMAKE_CURRENT_LIST_DIR}/metal_builtin_embedded.h ${CMAKE_CURRENT_LIST_DIR}/metal_tex_compress_embedded.cpp ${CMAKE_CURRENT_LIST_DIR}/metal_tex_compress_embedded.h
+            DEPENDS luisa_embed_device_lib ${CMAKE_CURRENT_LIST_FILE}
+            SOURCES ${LUISA_COMPUTE_METAL_DEVICE_LIB_SOURCES}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+            COMMENT "Embedding metal built-in sources..."
+            VERBATIM)
+
     set(METAL_SOURCES
 
             # common
@@ -14,9 +27,12 @@ if (APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             # metal-cpp
             metal-cpp/SingleHeader/Metal.hpp
 
+            # device lib
+            metal_builtin_embedded.cpp metal_builtin_embedded.h
+            metal_tex_compress_embedded.cpp metal_tex_compress_embedded.h
+
             # metal
             metal_api.cpp metal_api.h
-            metal_builtin_embedded.cpp metal_builtin_embedded.h
             metal_device.cpp metal_device.h
             metal_compiler.cpp metal_compiler.h
             metal_codegen_ast.cpp metal_codegen_ast.h

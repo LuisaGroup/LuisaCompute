@@ -11,9 +11,11 @@ namespace detail {
     return pool;
 }
 }// namespace detail
+
 void FirstFit::dispose_first_fit_node_pool() {
     detail::first_fit_node_pool() = Pool<FirstFit::Node>{};
 }
+
 inline FirstFit::Node::Node() noexcept = default;
 
 FirstFit::FirstFit(size_t size, size_t alignment) noexcept

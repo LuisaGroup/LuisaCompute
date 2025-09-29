@@ -92,13 +92,17 @@ static constexpr D3D12_BARRIER_LAYOUT BarrierLayoutMap[] = {
 };
 static std::pair<D3D12_BARRIER_ACCESS, D3D12_BARRIER_LAYOUT> combine(
     std::pair<D3D12_BARRIER_ACCESS, D3D12_BARRIER_LAYOUT> first,
-    std::pair<D3D12_BARRIER_ACCESS, D3D12_BARRIER_LAYOUT> second) {
+    std::pair<D3D12_BARRIER_ACCESS, D3D12_BARRIER_LAYOUT> second,
+    bool &dual_write_combined) {
     D3D12_BARRIER_ACCESS access = D3D12_BARRIER_ACCESS_COMMON;
     D3D12_BARRIER_LAYOUT layout = D3D12_BARRIER_LAYOUT_COMMON;
     bool first_is_write = (first.first & detail::write_access) != 0;
     bool second_is_write = (second.first & detail::write_access) != 0;
+    dual_write_combined = false;
     if (first_is_write && second_is_write && (first.first != second.first)) {
-        LUISA_ERROR("Shader error, can not be writen in different way in same pass.");
+        access = first.first | second.first;
+        dual_write_combined = true;
+        // LUISA_ERROR("Shader error, can not be writen in different way in same pass.");
     }
     if (first_is_write) {
         access = first.first;
@@ -470,11 +474,17 @@ void EnhancedBarrierTracker::Record(
                 // vec.emplace_back(new_range);
                 // vec.before_access |= new_range.before_access;
                 // vec.before_sync |= new_range.before_sync;
+                bool dual_write_combined;
                 auto result = detail::combine(
                     {vec.after_access, D3D12_BARRIER_LAYOUT_COMMON},
-                    {new_range.after_access, D3D12_BARRIER_LAYOUT_COMMON});
+                    {new_range.after_access, D3D12_BARRIER_LAYOUT_COMMON},
+                    dual_write_combined);
                 vec.after_access = result.first;
-                vec.after_sync |= new_range.after_sync;
+                if (dual_write_combined) {
+                    vec.after_sync = D3D12_BARRIER_SYNC_ALL;
+                } else {
+                    vec.after_sync |= new_range.after_sync;
+                }
             } else {
                 LUISA_DEBUG_ASSERT(resRange.index() == 1);
                 auto current_level = resRange.template get<1>();
@@ -490,9 +500,14 @@ void EnhancedBarrierTracker::Record(
                                D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE)) != 0) {
                     allow_simul_access = false;
                 }
+                bool dual_write_combined;
                 auto result = detail::combine(
                     {tex_range.after_access, tex_range.after_layout},
-                    {access, allow_simul_access ? D3D12_BARRIER_LAYOUT_COMMON : layout});
+                    {access, allow_simul_access ? D3D12_BARRIER_LAYOUT_COMMON : layout},
+                    dual_write_combined);
+                if (dual_write_combined) {
+                    tex_range.after_sync = D3D12_BARRIER_SYNC_ALL;
+                }
                 tex_range.after_access = result.first;
                 tex_range.after_layout = result.second;
             }

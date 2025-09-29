@@ -89,6 +89,7 @@ private:
     friend class Device;
     friend class ResourceGenerator;
     friend class DxCudaInterop;
+    friend class VkCudaInterop;
     friend class PinnedMemoryExt;
     Buffer(DeviceInterface *device, const BufferCreationInfo &info) noexcept
         : Resource{device, Tag::BUFFER, info},

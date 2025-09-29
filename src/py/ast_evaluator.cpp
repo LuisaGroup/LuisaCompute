@@ -55,9 +55,9 @@ struct ScalarType<Vector<T, N>> {
     static constexpr bool is_vector = true;
 };
 
-template<size_t N>
-struct ScalarType<Matrix<N>> {
-    using type = float;
+template<typename T, size_t N>
+struct ScalarType<Matrix<T, N>> {
+    using type = T;
     static constexpr size_t size = N;
     static constexpr bool is_scalar = false;
     static constexpr bool is_matrix = true;
@@ -192,11 +192,11 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                             },
                                   rr);
 
-                        } else if constexpr (TTA::is_matrix) {
+                        } else if constexpr (TTA::is_matrix && std::same_as<typename TTA::type, float>) {
                             visit([&]<typename B>(B b) {
                                 using TTB = ScalarType<B>;
                                 if constexpr (!std::is_same_v<B, monostate> && TTB::is_scalar) {
-                                    using VecType = Matrix<TTA::size>;
+                                    using VecType = Matrix<float, TTA::size>;
                                     VecType b_result;
                                     for (auto x : range(TTA::size))
                                         for (auto y : range(TTA::size)) {
@@ -212,8 +212,8 @@ ASTEvaluator::Result ASTEvaluator::try_eval(BinaryExpr const *expr) {
                         else if constexpr (TTA::is_scalar) {
                             visit([&]<typename B>(B b) {
                                 using TTB = ScalarType<B>;
-                                if constexpr (!std::is_same_v<B, monostate> && TTB::is_matrix) {
-                                    using VecType = Matrix<TTB::size>;
+                                if constexpr (!std::is_same_v<B, monostate> && TTB::is_matrix && std::same_as<typename TTB::type, float>) {
+                                    using VecType = Matrix<float, TTB::size>;
                                     VecType a_result;
                                     for (auto x : range(TTA::size))
                                         for (auto y : range(TTA::size)) {

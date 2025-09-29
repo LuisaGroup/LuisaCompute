@@ -3,6 +3,17 @@ find_package(CUDAToolkit 12.1 COMPONENTS cuda_driver nvrtc_static)
 if (CUDAToolkit_FOUND)
     message(STATUS "Build with CUDA backend: ${CUDAToolkit_VERSION}")
 
+    # embed CUDA sources with luisa_embed_device_lib
+    file(GLOB LUISA_COMPUTE_CUDA_DEVICE_LIB_SOURCES CONFIGURE_DEPENDS cuda_builtin/*.cu cuda_builtin/*.h)
+    add_custom_target(luisa-compute-backend-cuda-embed
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib> ${LUISA_COMPUTE_CUDA_DEVICE_LIB_SOURCES} --unsigned --prefix luisa_compute_ -o cuda_builtin_embedded.cpp -h cuda_builtin_embedded.h
+            BYPRODUCTS ${CMAKE_CURRENT_LIST_DIR}/cuda_builtin_embedded.cpp ${CMAKE_CURRENT_LIST_DIR}/cuda_builtin_embedded.h
+            DEPENDS luisa_embed_device_lib ${CMAKE_CURRENT_LIST_FILE}
+            SOURCES ${LUISA_COMPUTE_CUDA_DEVICE_LIB_SOURCES}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+            COMMENT "Embedding CUDA built-in sources..."
+            VERBATIM)
+
     set(LUISA_COMPUTE_CUDA_SOURCES
             cuda_error.h
             cuda_bindless_array.cpp cuda_bindless_array.h
@@ -54,19 +65,7 @@ if (CUDAToolkit_FOUND)
             reproc reproc++)
 
     # LLVM
-    luisa_compute_link_llvm_into_backend(cuda
-            COMPONENTS core ir nvptxcodegen support irreader passes analysis
-            DEFINITIONS LUISA_COMPUTE_ENABLE_LLVM=1)
-    if (LUISA_COMPUTE_CUDA_LINKED_LLVM)
-        message(STATUS "Linking LLVM into the CUDA backend")
-        target_sources(luisa-compute-backend-cuda PRIVATE
-                llvm_codegen/cuda_codegen_llvm_device_bitcode.cpp llvm_codegen/cuda_codegen_llvm_device_bitcode.h
-                llvm_codegen/cuda_codegen_llvm_config.h
-                llvm_codegen/cuda_codegen_llvm.cpp llvm_codegen/cuda_codegen_llvm.h
-                llvm_codegen/cuda_codegen_llvm_impl.cpp llvm_codegen/cuda_codegen_llvm_impl.h
-                llvm_codegen/cuda_codegen_llvm_impl_type.cpp
-        )
-    endif ()
+    add_subdirectory(llvm_codegen)
 
     # device runtime library
     find_library(CUDA_DEVICE_RUNTIME_LIBRARY cudadevrt ${CUDAToolkit_LIBRARY_DIR})

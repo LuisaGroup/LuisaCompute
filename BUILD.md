@@ -15,7 +15,7 @@
 
 ### C++ with XMake
 
-- [XMake](https://xmake.io/) 2.7.8+
+- [XMake](https://xmake.io/) 3.0.2+
 - The LLVM toolchain is recommended and well-tested
 - Building with XMake on Linux and macOS is experimental. You may encounter with RPATH issues. Please use CMake instead.
 
@@ -52,7 +52,7 @@
 ### XMake Build Commands
 
 ```bash
-xmake f -c
+xmake f -m release -c
 xmake
 ```
 
@@ -62,25 +62,23 @@ All xmake options declared in ./xmake.lua clearly, you can create ./scripts/opti
 
 ```lua
 -- for xmake internal arguments
-lc_toolchain = {
-	toolchain = "llvm",
+lc_options = {
+    toolchain = "llvm",
+    lc_enable_tests = true,
+    lc_cpu_backend = false,
+    lc_cuda_backend = true,
+    lc_dx_backend = false,
 }
--- for LC's custom options
-function get_options()
-	return {
-		enable_dsl = true,
-		enable_gui = true,
-	}
-end
+
 ```
 Options in options.lua can be covered by command-line config, for example:
 
 ```bash
-xmake f --enable_dsl=false --enable_gui=false -c
+xmake f --lc_enable_dsl=false --lc_enable_gui=false -c
 xmake
 ```
 
-Now both "enable_dsl" and "enable_gui" are false values so the DSL and GUI modules will not be built.
+Now both "lc_enable_dsl" and "lc_enable_gui" are false values so the DSL and GUI modules will not be built.
 
 You can use ./scripts/write_options.lua to generate a default options.lua:
 ```bash

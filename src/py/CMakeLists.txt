@@ -27,6 +27,9 @@ endif ()
 target_link_libraries(lcapi PRIVATE luisa::compute)
 target_precompile_headers(lcapi PRIVATE lcpy_pch.h)
 
+# disable PCH for lcapi
+set_target_properties(lcapi PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+
 if (SKBUILD)
     install(DIRECTORY luisa
             DESTINATION ${SKBUILD_PLATLIB_DIR})

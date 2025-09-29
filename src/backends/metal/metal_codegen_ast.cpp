@@ -692,8 +692,7 @@ void MetalCodegenAST::emit(Function kernel, luisa::string_view native_include) n
     }
 
     // emit device library
-    _scratch << luisa::string_view{luisa_metal_builtin_metal_device_lib,
-                                   sizeof(luisa_metal_builtin_metal_device_lib)}
+    _scratch << luisa::string_view{luisa_compute_metal_device_lib, luisa_compute_metal_device_lib_size}
              << "\n";
 
     // emit types

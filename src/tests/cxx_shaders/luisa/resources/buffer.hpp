@@ -4,7 +4,7 @@
 #include "./../types/vec.hpp"
 
 namespace luisa::shader {
-template<typename Type>
+template<typename Type, uint32 cache_flags = CacheFlags::None>
 struct [[builtin("buffer")]] Buffer {
 	using ElementType = Type;
 
@@ -14,8 +14,8 @@ struct [[builtin("buffer")]] Buffer {
 	[[ignore]] Buffer(Buffer const&) = delete;
 	[[ignore]] Buffer& operator=(Buffer const&) = delete;
 };
-template<>
-struct [[builtin("buffer")]] Buffer<int32> {
+template<uint32 cache_flags>
+struct [[builtin("buffer")]] Buffer<int32, cache_flags> {
 	using ElementType = int32;
 
 	[[callop("BUFFER_READ")]] int32 load(uint32 loc);
@@ -33,8 +33,8 @@ struct [[builtin("buffer")]] Buffer<int32> {
 	[[ignore]] Buffer(Buffer const&) = delete;
 	[[ignore]] Buffer& operator=(Buffer const&) = delete;
 };
-template<>
-struct [[builtin("buffer")]] Buffer<uint32> {
+template<uint32 cache_flags>
+struct [[builtin("buffer")]] Buffer<uint32, cache_flags> {
 	using ElementType = uint32;
 
 	[[callop("BUFFER_READ")]] uint32 load(uint32 loc);
@@ -52,24 +52,25 @@ struct [[builtin("buffer")]] Buffer<uint32> {
 	[[ignore]] Buffer(Buffer const&) = delete;
 	[[ignore]] Buffer& operator=(Buffer const&) = delete;
 };
-template<>
-struct [[builtin("buffer")]] Buffer<float> {
+template<uint32 cache_flags>
+struct [[builtin("buffer")]] Buffer<float, cache_flags> {
 	using ElementType = float;
 
 	[[callop("BUFFER_READ")]] float load(uint32 loc);
 	[[callop("BUFFER_WRITE")]] void store(uint32 loc, float value);
 	[[callop("ATOMIC_EXCHANGE")]] float atomic_exchange(uint32 loc, float desired);
 	[[callop("ATOMIC_COMPARE_EXCHANGE")]] float atomic_compare_exchange(uint32 loc, float expected, float desired);
-	[[callop("ATOMIC_FETCH_ADD")]] float atomic_fetch_add(uint32 loc, float val);
-	[[callop("ATOMIC_FETCH_SUB")]] float atomic_fetch_sub(uint32 loc, float val);
-	[[callop("ATOMIC_FETCH_MIN")]] float atomic_fetch_min(uint32 loc, float val);
-	[[callop("ATOMIC_FETCH_MAX")]] float atomic_fetch_max(uint32 loc, float val);
+	////////// Atomic float operation is risky, cull it currently
+	// [[callop("ATOMIC_FETCH_ADD")]] float atomic_fetch_add(uint32 loc, float val);
+	// [[callop("ATOMIC_FETCH_SUB")]] float atomic_fetch_sub(uint32 loc, float val);
+	// [[callop("ATOMIC_FETCH_MIN")]] float atomic_fetch_min(uint32 loc, float val);
+	// [[callop("ATOMIC_FETCH_MAX")]] float atomic_fetch_max(uint32 loc, float val);
 	[[ignore]] Buffer() = delete;
 	[[ignore]] Buffer(Buffer const&) = delete;
 	[[ignore]] Buffer& operator=(Buffer const&) = delete;
 };
-template<>
-struct [[builtin("buffer")]] Buffer<void> {
+template<uint32 cache_flags>
+struct [[builtin("buffer")]] Buffer<void, cache_flags> {
 	template<typename T>
 	[[callop("BYTE_BUFFER_READ")]] T byte_load(uint32 byte_index);
 	template<typename T>
@@ -78,5 +79,6 @@ struct [[builtin("buffer")]] Buffer<void> {
 	[[ignore]] Buffer(Buffer const&) = delete;
 	[[ignore]] Buffer& operator=(Buffer const&) = delete;
 };
-using ByteBuffer = Buffer<void>;
+template<uint32 cache_flags = CacheFlags::None>
+using ByteBuffer = Buffer<void, cache_flags>;
 }// namespace luisa::shader

@@ -64,9 +64,9 @@ void Event::signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
     // ... Enqueue initial device work here.
     info1.commandBufferCount = cmdbuffer ? 1 : 0;
     info1.pCommandBuffers = cmdbuffer;
-    device()->queue_mtx().lock();
+    stream.queue_mtx().lock();
     VK_CHECK_RESULT(vkQueueSubmit(stream.queue(), 1, &info1, VK_NULL_HANDLE));
-    device()->queue_mtx().unlock();
+    stream.queue_mtx().unlock();
 }
 void Event::wait(Stream &stream, uint64_t value) {
     if (device()->config_ext() && device()->config_ext()->wait_semaphore(stream.queue(), _semaphore, value))
@@ -91,9 +91,9 @@ void Event::wait(Stream &stream, uint64_t value) {
     // ... Enqueue initial device work here.
     info1.commandBufferCount = 0;
     info1.pCommandBuffers = nullptr;
-    device()->queue_mtx().lock();
+    stream.queue_mtx().lock();
     VK_CHECK_RESULT(vkQueueSubmit(stream.queue(), 1, &info1, VK_NULL_HANDLE));
-    device()->queue_mtx().unlock();
+    stream.queue_mtx().unlock();
 }
 void Event::host_wait(uint64_t value) {
     if (device()->config_ext() && device()->config_ext()->sync_semaphore(_semaphore, value))

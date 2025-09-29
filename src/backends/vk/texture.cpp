@@ -5,6 +5,7 @@ namespace lc::vk {
 using namespace luisa::compute;
 Texture::Texture(Device *device)
     : Resource(device) {
+    _allocation = nullptr;
 }
 Texture::Texture(
     Device *device,
@@ -13,16 +14,24 @@ Texture::Texture(
     VkFormat format,
     uint3 size,
     uint mip,
-    bool simultaneous_access)
+    bool simultaneous_access,
+    VkDeviceMemory external_memory)
     : Resource(device),
-      _img(external_image),
+      _vk_img(external_image),
       _format(
           static_cast<compute::PixelFormat>(static_cast<uint>(format) | (1u << 31u))),
       _size(size),
       _mip(mip),
       _dimension(dimension),
       _contained{false},
-      _simultaneous_access(simultaneous_access) {}
+      _simultaneous_access(simultaneous_access) {
+    if (external_memory) {
+        _allocated_memory = external_memory;
+        _external_allocation = true;
+    } else {
+        _allocation = nullptr;
+    }
+}
 
 Texture::Texture(
     Device *device,
@@ -33,30 +42,32 @@ Texture::Texture(
     bool simultaneous_access,
     bool allow_raster_target)
     : Resource(device),
-      _img(device->allocator().allocate_image(
-          [&]() {
-              switch (dimension) {
-                  case 1:
-                      return VK_IMAGE_TYPE_1D;
-                  case 2:
-                      return VK_IMAGE_TYPE_2D;
-                  case 3:
-                      return VK_IMAGE_TYPE_3D;
-              };
-          }(),
-          to_vk_format(format),
-          size,
-          mip,
-          VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-              VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-              VK_IMAGE_USAGE_SAMPLED_BIT |
-              (allow_raster_target ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
-              (is_srgb(format) ? 0 : VK_IMAGE_USAGE_STORAGE_BIT))),
       _format(format),
       _size(size),
       _mip(mip),
       _dimension(dimension),
       _simultaneous_access(simultaneous_access) {
+    auto allocation = device->allocator().allocate_image(
+        [&]() {
+            switch (dimension) {
+                case 1:
+                    return VK_IMAGE_TYPE_1D;
+                case 2:
+                    return VK_IMAGE_TYPE_2D;
+                case 3:
+                    return VK_IMAGE_TYPE_3D;
+            };
+        }(),
+        to_vk_format(format),
+        size,
+        mip,
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            (allow_raster_target ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
+            (is_srgb(format) ? 0 : VK_IMAGE_USAGE_STORAGE_BIT));
+    _vk_img = allocation.image;
+    _allocation = allocation.allocation;
     _layouts.resize(mip);
 }
 
@@ -81,27 +92,33 @@ Texture::Texture(
     compute::DepthFormat format,
     uint2 size)
     : Resource(device),
-      _img(device->allocator().allocate_image(
-          VK_IMAGE_TYPE_2D,
-          to_vk_format(static_cast<compute::PixelFormat>(static_cast<uint>(format) | (1u << 16u))),
-          make_uint3(size, 1),
-          1,
-          VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-              VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-              VK_IMAGE_USAGE_SAMPLED_BIT |
-              VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)),
       _format(static_cast<compute::PixelFormat>(static_cast<uint>(format) | (1u << 16u))),
       _size(make_uint3(size, 1)),
       _mip(1),
       _dimension(2),
       _simultaneous_access(false) {
+
+    auto allocation = device->allocator().allocate_image(
+        VK_IMAGE_TYPE_2D,
+        to_vk_format(static_cast<compute::PixelFormat>(static_cast<uint>(format) | (1u << 16u))),
+        make_uint3(size, 1),
+        1,
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+    _vk_img = allocation.image;
+    _allocation = allocation.allocation;
     _layouts.resize(1);
 }
 Texture::~Texture() {
-    if (_img.allocation)
-        device()->allocator().destroy_image(_img);
+    if (_external_allocation) {
+        vkDestroyImage(device()->logic_device(), _vk_img, Device::alloc_callbacks());
+        vkFreeMemory(device()->logic_device(), _allocated_memory, Device::alloc_callbacks());
+    } else if (_allocation)
+        device()->allocator().destroy_image({_vk_img, _allocation});
     else if (_contained)
-        vkDestroyImage(device()->logic_device(), _img.image, Device::alloc_callbacks());
+        vkDestroyImage(device()->logic_device(), _vk_img, Device::alloc_callbacks());
 }
 
 void Texture::init_as_sparse(
@@ -135,7 +152,7 @@ void Texture::init_as_sparse(
     if (!is_srgb(format)) {
         img_create_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     }
-    VK_CHECK_RESULT(vkCreateImage(device()->logic_device(), &img_create_info, Device::alloc_callbacks(), &_img.image));
+    VK_CHECK_RESULT(vkCreateImage(device()->logic_device(), &img_create_info, Device::alloc_callbacks(), &_vk_img));
     _format = format;
     _size = size;
     _mip = mip;

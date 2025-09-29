@@ -14,9 +14,9 @@ namespace luisa::shader {
 [[callop("WARP_IS_FIRST_ACTIVE_LANE")]] extern bool wave_is_first_lane();
 
 template<concepts::arithmetic T>
-[[callop("WARP_ACTIVE_ALL_EQUAL")]] extern vec<bool, vec_dim_v<T>> warp_active_all_equal();
+[[callop("WARP_ACTIVE_ALL_EQUAL")]] extern vec<bool, vec_dim_v<T>> warp_active_all_equal(T value);
 template<concepts::arithmetic T>
-[[callop("WARP_ACTIVE_ALL_EQUAL")]] extern vec<bool, vec_dim_v<T>> wave_active_all_equal();
+[[callop("WARP_ACTIVE_ALL_EQUAL")]] extern vec<bool, vec_dim_v<T>> wave_active_all_equal(T value);
 
 template<concepts::int_family T>
 [[callop("WARP_ACTIVE_BIT_AND")]] extern T warp_active_bit_and(T v);
@@ -79,15 +79,15 @@ template<concepts::arithmetic T>
 [[callop("WARP_PREFIX_SUM")]] extern T wave_prefix_sum(T v);
 
 template<concepts::primitive T>
-[[callop("WARP_READ_LANE")]] extern T warp_read_lane(uint32 lane_index);
+[[callop("WARP_READ_LANE")]] extern T warp_read_lane(T value, uint32 lane_index);
 template<concepts::primitive T>
-[[callop("WARP_READ_LANE")]] extern T wave_read_lane_at(uint32 lane_index);
+[[callop("WARP_READ_LANE")]] extern T wave_read_lane_at(T value, uint32 lane_index);
 
 template<concepts::primitive T>
-[[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T warp_read_first_active_lane(uint32 lane_index);
+[[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T warp_read_first_active_lane(T value);
 
 template<concepts::primitive T>
-[[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T wave_read_lane_first(uint32 lane_index);
+[[callop("WARP_READ_FIRST_ACTIVE_LANE")]] extern T wave_read_lane_first(T value);
 
 // cuda
 [[callop("SHADER_EXECUTION_REORDER")]] extern void shader_execution_reorder();

@@ -6,16 +6,23 @@
 #include <luisa/runtime/depth_format.h>
 namespace lc::vk {
 class Texture : public Resource {
-    AllocatedImage _img;
+    VkImage _vk_img;
+    union {
+        VmaAllocation _allocation;
+        VkDeviceMemory _allocated_memory;
+    };
     compute::PixelFormat _format;
     uint3 _size;
     uint _mip;
     uint _dimension;
     bool _contained : 1 {true};
-    bool _simultaneous_access : 1;
+    bool _simultaneous_access : 1 {false};
+    bool _external_allocation : 1 {false};
     mutable luisa::spin_mutex _layout_mtx;
     mutable vstd::fixed_vector<VkImageLayout, 1> _layouts;
 public:
+    VkDeviceMemory external_device_memory() const { return _allocated_memory; }
+    bool is_external_allocation() const { return _external_allocation; }
     static VkImageAspectFlags get_aspect_from_format(VkFormat format);
     auto simultaneous_access() const { return _simultaneous_access; }
     auto dimension() const { return _dimension; }
@@ -28,7 +35,8 @@ public:
         VkFormat format,
         uint3 size,
         uint mip,
-        bool simultaneous_access);
+        bool simultaneous_access,
+        VkDeviceMemory external_memory = nullptr);
     Texture(
         Device *device,
         uint dimension,
@@ -64,7 +72,7 @@ public:
     auto size() const { return _size; }
 
     auto mip() const { return _mip; }
-    auto vk_image() const { return _img.image; }
+    auto vk_image() const { return _vk_img; }
     auto format() const {
         return _format;
     }

@@ -40,7 +40,6 @@ float2 _Mul(float2x2 b,float2 a){return mul(a,b);}
 float16_t4 _Mul(float16_t4x4 b,float16_t4 a){return mul(a,b);}
 float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
 float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
-struct _wbool3 {bool3 v; bool a;};
 struct _wfloat3 {float3 v; float a;};
 struct _wfloat16_t3 {float16_t3 v; float16_t a;};
 struct _wfloat64_t3 {float64_t3 v; float64_t a;};
@@ -98,5 +97,11 @@ float4x4 _outer_product(float4 a,float4 b){return float4x4(a*b.x,a*b.y,a*b.z,a*b
 float2x2 _mat_comp_mul(float2x2 a,float2x2 b){return float2x2(a[0]*b[0],a[1]*b[1]);}
 float3x4 _mat_comp_mul(float3x4 a,float3x4 b){return float3x4(float4(a[0].xyz*b[0].xyz,0),float4(a[1].xyz*b[1].xyz,0),float4(a[2].xyz*b[2].xyz,0));}
 float4x4 _mat_comp_mul(float4x4 a,float4x4 b){return float4x4(a[0]*b[0],a[1]*b[1],a[2]*b[2],a[3]*b[3]);}
+bool2 to_bool2(int v){return bool2((v&255)!=0,((v>>8)&255)!=0);}
+bool3 to_bool3(int v){return bool3((v&255)!=0,((v>>8)&255)!=0,((v>>16)&255)!=0);}
+bool4 to_bool4(int v){return bool4((v&255)!=0,((v>>8)&255)!=0,((v>>16)&255)!=0,((v>>24)&255)!=0);}
+int to_Alsbool2(bool2 v){return (v.x?1:0)|(v.y?256:0);}
+int to_Alsbool3(bool3 v){return (v.x?1:0)|(v.y?256:0)|(v.z?65536:0);}
+int to_Alsbool4(bool4 v){return (v.x?1:0)|(v.y?256:0)|(v.z?65536:0)|(v.w?16777216:0);}
 #define _zero(type) ((type)0)
 #define _one(type) ((type)1)

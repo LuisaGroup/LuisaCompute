@@ -21,6 +21,7 @@ struct CUDACodegenLLVMConfig {
     OptLevel opt_level{OptLevel::LEVEL_AGGRESSIVE};
     bool enable_fast_math{true};
     bool enable_debug_info{false};
+    bool enable_ray_tracing{false};
 };
 
 }// namespace luisa::compute::cuda

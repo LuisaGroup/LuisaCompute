@@ -2,7 +2,7 @@
 if (WIN32)
     message(STATUS "Build with DirectX backend")
 
-    file(GLOB_RECURSE LC_BACKEND_DX_SOURCES CONFIGURE_DEPENDS "*.cpp" "../common/hlsl/*.cpp")
+    file(GLOB_RECURSE LC_BACKEND_DX_SOURCES CONFIGURE_DEPENDS "*.cpp")
 
     # download support SDK files
     set(LUISA_COMPUTE_DOWNLOADED_SDK_FILE "${CMAKE_CURRENT_LIST_DIR}/../../../scripts/downloaded_sdks.cmake")
@@ -53,7 +53,7 @@ if (WIN32)
             SUPPORT_DIR ${LUISA_COMPUTE_DX_SDK_DIR})
     target_precompile_headers(luisa-compute-backend-dx PRIVATE lc_dx_pch.h)
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-    target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi DirectML)
+    target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi DirectML luisa-compute-hlsl-codegen)
     target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_definitions(luisa-compute-backend-dx PRIVATE

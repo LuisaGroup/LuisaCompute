@@ -12,7 +12,7 @@ namespace luisa::compute::metal {
 
 namespace {
 
-#include "metal_tex_compress.inl.h"
+#include "metal_tex_compress_embedded.h"
 
 constexpr auto metal_texture_compress_thread_group_size = 64u;
 constexpr auto metal_texture_compress_format_bc6h_uf16 = 95u;
@@ -95,13 +95,16 @@ MetalTexCompressExt::MetalTexCompressExt(MetalDevice *device) noexcept : _device
         LUISA_ASSERT(pipeline, "Failed to create texture compression pipeline.");
         return pipeline;
     };
-    _bc7_encode_try_mode_456 = compile_shader("TryMode456CS", metal_tex_compress_BC7Encode_TryMode456CS);
-    _bc7_encode_try_mode_137 = compile_shader("TryMode137CS", metal_tex_compress_BC7Encode_TryMode137CS);
-    _bc7_encode_try_mode_02 = compile_shader("TryMode02CS", metal_tex_compress_BC7Encode_TryMode02CS);
-    _bc7_encode_encode_block = compile_shader("EncodeBlockCS", metal_tex_compress_BC7Encode_EncodeBlockCS);
-    _bc6h_encode_try_mode_g10 = compile_shader("TryModeG10CS", metal_tex_compress_BC6HEncode_TryModeG10CS);
-    _bc6h_encode_try_mode_le10 = compile_shader("TryModeLE10CS", metal_tex_compress_BC6HEncode_TryModeLE10CS);
-    _bc6h_encode_encode_block = compile_shader("EncodeBlockCS", metal_tex_compress_BC6HEncode_EncodeBlockCS);
+#define LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(name)                    \
+    luisa::string_view{luisa_compute_metal_texture_compress_##name##_patched, \
+                       luisa_compute_metal_texture_compress_##name##_patched_size}
+    _bc7_encode_try_mode_456 = compile_shader("TryMode456CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode456CS));
+    _bc7_encode_try_mode_137 = compile_shader("TryMode137CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode137CS));
+    _bc7_encode_try_mode_02 = compile_shader("TryMode02CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode02CS));
+    _bc7_encode_encode_block = compile_shader("EncodeBlockCS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_EncodeBlockCS));
+    _bc6h_encode_try_mode_g10 = compile_shader("TryModeG10CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_TryModeG10CS));
+    _bc6h_encode_try_mode_le10 = compile_shader("TryModeLE10CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_TryModeLE10CS));
+    _bc6h_encode_encode_block = compile_shader("EncodeBlockCS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC6HEncode_EncodeBlockCS));
 }
 
 TexCompressExt::Result MetalTexCompressExt::check_builtin_shader() noexcept {

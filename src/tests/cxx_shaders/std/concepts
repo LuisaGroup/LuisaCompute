@@ -1,0 +1,132 @@
+#pragma once
+
+#include <std/type_traits>
+#include <std/utility>
+
+// all freestanding
+namespace std {
+
+template<class T, template<class...> class Z, class... Ts>
+concept require = Z<T, Ts...>::value;
+
+// language-related concepts
+// concept same_as
+template<class T, class U>
+concept same_as = is_same_v<T, U> && is_same_v<U, T>;
+
+// // concept derived_from
+// template<class Derived, class Base>
+// concept derived_from = /* see description */;
+
+// // concept convertible_to
+template<class From, class To>
+concept convertible_to =
+	std::is_convertible_v<From, To> &&
+	requires {
+		static_cast<To>(std::declval<From>());
+	};
+
+// // concept common_reference_with
+// template<class T, class U>
+// concept common_reference_with = /* see description */;
+
+// // concept common_with
+// template<class T, class U>
+// concept common_with = /* see description */;
+
+// // arithmetic concepts
+// template<class T>
+// concept integral = /* see description */;
+// template<class T>
+// concept signed_integral = /* see description */;
+// template<class T>
+// concept unsigned_integral = /* see description */;
+// template<class T>
+// concept floating_point = /* see description */;
+
+// // concept assignable_from
+// template<class LHS, class RHS>
+// concept assignable_from = /* see description */;
+
+// // concept swappable
+// namespace ranges {
+// inline namespace /* unspecified */ {
+// inline constexpr /* unspecified */ swap = /* unspecified */;
+// }
+// }// namespace ranges
+// template<class T>
+// concept swappable = /* see description */;
+// template<class T, class U>
+// concept swappable_with = /* see description */;
+
+// // concept destructible
+// template<class T>
+// concept destructible = /* see description */;
+
+// // concept constructible_from
+// template<class T, class... Args>
+// concept constructible_from = /* see description */;
+
+// // concept default_initializable
+// template<class T>
+// concept default_initializable = /* see description */;
+
+// // concept move_constructible
+// template<class T>
+// concept move_constructible = /* see description */;
+
+// // concept copy_constructible
+// template<class T>
+// concept copy_constructible = /* see description */;
+
+// // comparison concepts
+// // concept equality_comparable
+// template<class T>
+// concept equality_comparable = /* see description */;
+// template<class T, class U>
+// concept equality_comparable_with = /* see description */;
+
+// // concept totally_ordered
+// template<class T>
+// concept totally_ordered = /* see description */;
+// template<class T, class U>
+// concept totally_ordered_with = /* see description */;
+
+// // object concepts
+// template<class T>
+// concept movable = /* see description */;
+// template<class T>
+// concept copyable = /* see description */;
+// template<class T>
+// concept semiregular = /* see description */;
+// template<class T>
+// concept regular = /* see description */;
+
+// // callable concepts
+// // concept invocable
+template<class F, class... Args>
+concept invocable = is_invocable_v<F, Args...>;
+
+template<typename F, typename R, typename... Args>
+concept invocable_r = is_invocable_r_v<R, F, Args...>;
+
+// // concept regular_invocable
+// template<class F, class... Args>
+// concept regular_invocable = /* see description */;
+
+// // concept predicate
+// template<class F, class... Args>
+// concept predicate = /* see description */;
+
+// // concept relation
+// template<class R, class T, class U>
+// concept relation = /* see description */;
+
+// // concept equivalence_relation
+// template<class R, class T, class U>
+// concept equivalence_relation = /* see description */;
+
+// // concept strict_weak_order
+// template<class R, class T, class U>
+// concept strict_weak_order = /* see description */;
+}// namespace std

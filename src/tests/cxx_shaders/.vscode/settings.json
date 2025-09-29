@@ -14,8 +14,7 @@
     "--background-index", 
     "--background-index-priority=normal",
     "--header-insertion=never",
-    "--pch-storage=disk",
-    "--offset-encoding=utf-8"
+    "--pch-storage=memory"
   ],
   "files.eol":"\n",
   "xmake.runningTargetsArguments": {

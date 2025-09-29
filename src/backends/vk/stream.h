@@ -71,7 +71,7 @@ struct CommandBufferState {
     CommandBufferState();
     ~CommandBufferState();
     void init(Device &device, StreamTag tag);
-    void reset(Stream* stream, Device &device);
+    void reset(Stream *stream, Device &device);
     template<typename TT>
         requires(!std::is_trivially_destructible_v<TT> && !std::is_reference_v<TT>)
     void dispose_after_flush(TT &&value) {
@@ -164,6 +164,7 @@ class Stream : public Resource {
     vstd::vector<VkWriteDescriptorSet> write_desc_sets;
     vstd::vector<uint4> bindless_cache;
     StreamTag _stream_tag;
+    luisa::spin_mutex *_queue_mtx;
 public:
     luisa::function<void(luisa::string_view)> logger;
     CommandReorderVisitor<ReorderFuncTable, true> reorder;
@@ -171,6 +172,8 @@ public:
     [[nodiscard]] auto stream_tag() const { return _stream_tag; }
     Stream(Device *device, StreamTag tag);
     ~Stream();
+    luisa::spin_mutex &queue_mtx() { return *_queue_mtx; };
+
     void dispatch(
         vstd::span<const luisa::unique_ptr<Command>> cmds,
         Callbacks &&callbacks,

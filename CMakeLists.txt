@@ -196,4 +196,5 @@ if (WIN32)
     target_compile_definitions(luisa-compute-include INTERFACE _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
 endif ()
 
+add_subdirectory(utils)
 add_subdirectory(src)

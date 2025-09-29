@@ -67,6 +67,7 @@
 #include <luisa/dsl/expr_traits.h>
 #include <luisa/dsl/func.h>
 #include <luisa/dsl/local.h>
+#include <luisa/dsl/matrix.h>
 #include <luisa/dsl/operators.h>
 #include <luisa/dsl/polymorphic.h>
 #include <luisa/dsl/raster/raster_func.h>

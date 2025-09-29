@@ -36,7 +36,7 @@ PYBIND11_MODULE(lcapi, m) {
 
     // log
     m.def("set_log_callback", [](const luisa::function<void(const char *level, const char *message)> &callback) {
-        luisa::detail::set_sink(luisa::detail::create_sink_with_callback(callback));
+        luisa::detail::default_logger_set_sink(luisa::detail::create_sink_with_callback(callback));
     });
     m.def("log_verbose", [](const char *msg) { LUISA_VERBOSE("{}", msg); });
     m.def("log_info", [](const char *msg) { LUISA_INFO("{}", msg); });

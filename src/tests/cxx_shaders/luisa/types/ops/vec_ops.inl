@@ -1,11 +1,11 @@
 // clang-format off
 using ElementType = T;
 
-[[nodiscard, access]] constexpr T const &access_(uint32 idx) const noexcept {
+[[nodiscard, access]] constexpr T access_(uint32 idx) const noexcept {
     return _v[idx];
 }
 
-[[nodiscard, access]] constexpr T const &operator[](uint32 idx) const noexcept {
+[[nodiscard, access]] constexpr T operator[](uint32 idx) const noexcept {
     return _v[idx];
 }
 [[nodiscard, access]] constexpr T &access_(uint32 idx) noexcept {
@@ -41,11 +41,13 @@ constexpr void set(U v, Args...args) {
 }
 
 template<typename X>
-static constexpr bool operatable = is_same_v<X, ThisType> || is_same_v<X, ElementType>;
+static constexpr bool operatable = std::is_same_v<X, ThisType> || std::is_same_v<X, ElementType>;
 
 [[unaop("PLUS")]] ThisType operator+() const;
 [[unaop("MINUS")]] ThisType operator-() const;
 
+template <typename U> requires(std::is_same_v<U, matrix<dim>>)
+[[binop("MUL")]] ThisType operator*(const U&) const;
 template <typename U> requires(operatable<U>)
 [[binop("ADD")]] ThisType operator+(const U&) const;
 template <typename U> requires(operatable<U>)

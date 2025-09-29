@@ -84,17 +84,20 @@ vstd::vector<AccessChain::Node> AccessChain::nodes_from_exprs(luisa::span<Expres
     for (auto index : luisa::span{args}.subspan(1)) {
         switch (type->tag()) {
             case Type::Tag::BUFFER:
+                type = type->element();
+                nodes.emplace_back(AccessNode{false, false, false});
+                break;
             case Type::Tag::VECTOR:
                 type = type->element();
-                nodes.emplace_back(AccessNode{false});
+                nodes.emplace_back(AccessNode{false, false, type->dimension() == 3});
                 break;
             case Type::Tag::MATRIX:
                 type = Type::vector(type->element(), type->dimension());
-                nodes.emplace_back(AccessNode{false});
+                nodes.emplace_back(AccessNode{false, true, false});
                 break;
             case Type::Tag::ARRAY:
                 type = type->element();
-                nodes.emplace_back(AccessNode{true});
+                nodes.emplace_back(AccessNode{true, false, false});
                 break;
             case Type::Tag::STRUCTURE: {
                 auto literal = static_cast<const LiteralExpr *>(index)->value();
@@ -120,8 +123,10 @@ void AccessChain::gen_func_impl(CodegenUtility *util, TemplateFunction const &tm
         for (auto &&i : _nodes) {
             i.multi_visit(
                 [&](AccessNode const &n) {
-                    if (!_root_var.is_shared() && n.is_struct) {
-                        chain_str << ".v";
+                    if (n.is_matrix) {
+                        chain_str << ".m"sv;
+                    } else if ((!_root_var.is_shared() && n.is_struct) || n.is_vector3) {
+                        chain_str << ".v"sv;
                     }
                     chain_str << "[a"sv;
                     vstd::to_string(arg_idx, chain_str);
@@ -205,7 +210,7 @@ void AccessChain::gen_func_impl(CodegenUtility *util, TemplateFunction const &tm
 }
 void AccessChain::call_this_func(luisa::span<Expression const *const> args, vstd::StringBuilder &builder, ExprVisitor &visitor) const {
     builder << _func_name << '(';
-    LUISA_ASSUME(!args.empty() && !_nodes.empty() && args.size() > _nodes.size());
+    LUISA_DEBUG_ASSERT(!args.empty() && !_nodes.empty() && args.size() > _nodes.size());
     if (!_root_var.is_shared()) {
         args[0]->accept(visitor);
         builder << ',';

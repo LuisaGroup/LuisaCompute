@@ -12,6 +12,9 @@
 #include <luisa/runtime/bindless_array.h>
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/ast/function_builder.h>
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
+#include <luisa/backends/ext/cuda_config_ext.h>
+#endif
 #include "cuda_sparse_heap.h"
 
 #ifdef LUISA_ENABLE_IR
@@ -226,11 +229,12 @@ namespace luisa::compute::cuda {
                               luisa::to_underlying(format));
 }
 
-CUDADevice::CUDADevice(Context &&ctx,
-                       size_t device_id,
-                       const BinaryIO *io,
-                       bool use_lmdb) noexcept
-    : DeviceInterface{std::move(ctx)}, _handle{device_id}, _io{io} {
+CUDADevice::CUDADevice(Context &&ctx, size_t device_id,
+                       const BinaryIO *io, bool use_lmdb,
+                       luisa::unique_ptr<DeviceConfigExt> device_ext) noexcept
+    : DeviceInterface{std::move(ctx)},
+      _handle{device_id}, _io{io},
+      _device_ext{std::move(device_ext)} {
     // provide a default binary IO
     if (_io == nullptr) {
         _default_io = luisa::make_unique<DefaultBinaryIO>(context(), false, use_lmdb);
@@ -247,7 +251,7 @@ CUDADevice::CUDADevice(Context &&ctx,
                        "-dw",
                        "-w",
                        "-ewp"};
-    luisa::string builtin_kernel_src{luisa_cuda_builtin_cuda_builtin_kernels, sizeof(luisa_cuda_builtin_cuda_builtin_kernels)};
+    luisa::string builtin_kernel_src{reinterpret_cast<const char *>(luisa_compute_cuda_builtin_kernels), luisa_compute_cuda_builtin_kernels_size};
     auto builtin_kernel_ptx = _compiler->compile(builtin_kernel_src, "luisa_builtin.cu", options);
     with_handle([&] {
         CUmemAllocationProp prop = {};
@@ -361,11 +365,22 @@ CUDADevice::~CUDADevice() noexcept {
 }
 
 CUDAEventManager *CUDADevice::event_manager() const noexcept {
+#ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
     std::scoped_lock lock{_event_manager_mutex};
     if (_event_manager == nullptr) [[unlikely]] {
-        _event_manager = luisa::make_unique<CUDAEventManager>(handle().handle_uuid());
+        VkDevice device{};
+        VkPhysicalDevice physical_device{};
+        if (_device_ext) {
+            auto ext_device = static_cast<CudaDeviceConfigExt *>(_device_ext.get())->get_external_vk_device();
+            device = ext_device.device;
+            physical_device = ext_device.physical_device;
+        }
+        _event_manager = luisa::make_unique<CUDAEventManager>(handle().handle_uuid(), physical_device, device);
     }
     return _event_manager.get();
+#else
+    return nullptr;
+#endif
 }
 
 BufferCreationInfo CUDADevice::create_buffer(const Type *element,
@@ -772,6 +787,7 @@ ShaderCreationInfo CUDADevice::create_shader(const ShaderOption &option, Functio
                 .cuda_arch = _handle.compute_capability(),
                 .enable_fast_math = option.enable_fast_math,
                 .enable_debug_info = option.enable_debug_info,
+                .enable_ray_tracing = kernel.requires_raytracing(),
             };
             auto ptx = luisa_compute_cuda_codegen_llvm(*xir_module, config);
         }
@@ -1447,15 +1463,17 @@ LUISA_EXPORT_API luisa::compute::DeviceInterface *create(luisa::compute::Context
     auto device_id = 0ull;
     auto binary_io = static_cast<const luisa::BinaryIO *>(nullptr);
     auto use_lmdb = false;
+    luisa::unique_ptr<luisa::compute::DeviceConfigExt> ext;
     if (config != nullptr) {
         device_id = config->device_index;
         binary_io = config->binary_io;
         LUISA_ASSERT(!config->headless,
                      "Headless mode is not implemented yet for CUDA backend.");
         use_lmdb = config->use_lmdb;
+        ext = std::move(config->extension);
     }
     return luisa::new_with_allocator<luisa::compute::cuda::CUDADevice>(
-        std::move(ctx), device_id, binary_io, use_lmdb);
+        std::move(ctx), device_id, binary_io, use_lmdb, std::move(ext));
 }
 
 LUISA_EXPORT_API void destroy(luisa::compute::DeviceInterface *device) noexcept {

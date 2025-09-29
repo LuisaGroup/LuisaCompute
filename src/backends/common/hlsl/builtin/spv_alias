@@ -1,0 +1,66 @@
+struct _Alsuint64_t3 {uint64_t2 v0; uint64_t v1; uint64_t a;};
+struct _Alsuint64_t4 {uint64_t2 v0; uint64_t2 v1;};
+struct _Alsfloat64_t3 {float64_t2 v0; float64_t v1; float64_t a;};
+struct _Alsfloat64_t4 {float64_t2 v0; float64_t2 v1;};
+struct _Alsint64_t3 {int64_t2 v0; int64_t v1; int64_t a;};
+struct _Alsint64_t4 {int64_t2 v0; int64_t2 v1;};
+_Alsuint64_t3 to_Alsuint64_t3(_wuint64_t3 a){
+_Alsuint64_t3 r;
+r.v0=a.v.xy;
+r.v1=a.v.z;
+return r;
+}
+_Alsuint64_t4 to_Alsuint64_t4(uint64_t4 a){
+_Alsuint64_t4 r;
+r.v0=a.xy;
+r.v1=a.zw;
+return r;
+}
+_Alsfloat64_t3 to_Alsfloat64_t3(_wfloat64_t3 a){
+_Alsfloat64_t3 r;
+r.v0=a.v.xy;
+r.v1=a.v.z;
+return r;
+}
+_Alsfloat64_t4 to_Alsfloat64_t4(float64_t4 a){
+_Alsfloat64_t4 r;
+r.v0=a.xy;
+r.v1=a.zw;
+return r;
+}
+_Alsint64_t3 to_Alsint64_t3(_wint64_t3 a){
+_Alsint64_t3 r;
+r.v0=a.v.xy;
+r.v1=a.v.z;
+return r;
+}
+_Alsint64_t4 to_Alsint64_t4(int64_t4 a){
+_Alsint64_t4 r;
+r.v0=a.xy;
+r.v1=a.zw;
+return r;
+}
+_wuint64_t3 to_uint64_t3(_Alsuint64_t3 a){
+_wuint64_t3 r;
+r.v=uint64_t3(a.v0,a.v1);
+return r;
+}
+uint64_t4 to_uint64_t4(_Alsuint64_t4 a){
+return uint64_t4(a.v0,a.v1);
+}
+_wfloat64_t3 to_float64_t3(_Alsfloat64_t3 a){
+_wfloat64_t3 r;
+r.v=float64_t3(a.v0,a.v1);
+return r;
+}
+float64_t4 to_float64_t4(_Alsfloat64_t4 a){
+return float64_t4(a.v0,a.v1);
+}
+_wint64_t3 to_int64_t3(_Alsint64_t3 a){
+_wint64_t3 r;
+r.v=int64_t3(a.v0,a.v1);
+return r;
+}
+int64_t4 to_int64_t4(_Alsint64_t4 a){
+return int64_t4(a.v0,a.v1);
+}

@@ -41,6 +41,7 @@ struct CodegenResult {
     CodegenResult(CodegenResult const &) = delete;
     CodegenResult(CodegenResult &&) = default;
 };
+#undef AddPrinter
 struct RegisterIndexer;
 class CodegenUtility {
 public:
@@ -107,6 +108,10 @@ public:
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
     uint AddPrinter(vstd::string_view name, Type const *structType);
     vstd::StringBuilder GetNewTempVarName();
+    bool TypeIsAliased(Type const *t) const;
+    bool VectorShouldBeAliased(Type const *t) const;
+    void OriginToAliased(Type const *t, vstd::StringBuilder &sb);
+    void AliasedToOrigin(Type const *t, vstd::StringBuilder &sb);
 };
 class StringStateVisitor final : public StmtVisitor, public ExprVisitor {
     Function f;

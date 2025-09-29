@@ -42,6 +42,7 @@ private:
     friend class Device;
     friend class ResourceGenerator;
     friend class DxCudaInterop;
+    friend class VkCudaInterop;
     Volume(DeviceInterface *device,
            const ResourceCreationInfo &create_info,
            PixelStorage storage,

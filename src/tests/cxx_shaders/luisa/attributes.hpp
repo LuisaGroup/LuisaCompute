@@ -17,11 +17,12 @@
 #define bypass clang::annotate("luisa-shader", "bypass")
 #define swizzle clang::annotate("luisa-shader", "swizzle")
 #define access clang::annotate("luisa-shader", "access")
+#define cast clang::annotate("luisa-shader", "cast")
 #define builtin(name) clang::annotate("luisa-shader", "builtin", (name))
 #define unaop(name) clang::annotate("luisa-shader", "unaop", (name))
 #define binop(name) clang::annotate("luisa-shader", "binop", (name))
 #define callop(name) clang::annotate("luisa-shader", "callop", (name))
+#define ext_call(name) clang::annotate("luisa-shader", "ext_call", (name))
 #define expr(name) clang::annotate("luisa-shader", "expr", (name))
 
-
-#define trait struct [[ignore]]
+#define trait_struct struct [[ignore]]

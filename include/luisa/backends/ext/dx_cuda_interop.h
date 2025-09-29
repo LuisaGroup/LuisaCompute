@@ -56,17 +56,23 @@ public:
         vstd::construct_at(this, std::move(rhs));
         return *this;
     }
-    [[nodiscard]] auto signal(uint64_t fence) noexcept {
+    [[nodiscard]] auto cuda_signal(uint64_t fence) const noexcept {
         return dx_cuda_interop::Signal{
             .ext = _ext,
             .handle = _cuda_event,
             .fence = fence};
     }
-    [[nodiscard]] auto wait(uint64_t fence) noexcept {
+    [[nodiscard]] auto cuda_wait(uint64_t fence) const noexcept {
         return dx_cuda_interop::Wait{
             .ext = _ext,
             .handle = _cuda_event,
             .fence = fence};
+    }
+    [[nodiscard]] auto dx_signal(uint64_t fence) const noexcept {
+        return dx_event.signal(fence);
+    }
+    [[nodiscard]] auto dx_wait(uint64_t fence) const noexcept {
+        return dx_event.wait(fence);
     }
 };
 class DxCudaInterop : public DeviceExtension {
@@ -145,18 +151,10 @@ private:
     }
 };
 inline void dx_cuda_interop::Signal::operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept {
-    if (device != ext->device()) {
-        ext->cuda_signal(device, stream_handle, handle, fence);
-    } else {
-        device->signal_event(handle, stream_handle, fence);
-    }
+    ext->cuda_signal(device, stream_handle, handle, fence);
 }
 inline void dx_cuda_interop::Wait::operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept {
-    if (device != ext->device()) {
-        ext->cuda_wait(device, stream_handle, handle, fence);
-    } else {
-        device->wait_event(handle, stream_handle, fence);
-    }
+    ext->cuda_wait(device, stream_handle, handle, fence);
 }
 LUISA_MARK_STREAM_EVENT_TYPE(dx_cuda_interop::Signal)
 LUISA_MARK_STREAM_EVENT_TYPE(dx_cuda_interop::Wait)

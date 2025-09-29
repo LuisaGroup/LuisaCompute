@@ -20,6 +20,11 @@
 
 namespace lc::validation {
 Stream::Stream(uint64_t handle, StreamTag stream_tag) : RWResource{handle, Tag::STREAM, false}, _stream_tag{stream_tag} {}
+void check_align(uint64_t offset, uint64_t align = 16) {
+    if ((offset & (align - 1)) != 0) [[unlikely]] {
+        LUISA_ERROR("Buffer offset {} must be aligned to {}", offset, align);
+    }
+}
 std::recursive_mutex stream_global_lock;
 void Stream::signal(Event *evt, uint64_t fence) {
     std::lock_guard lck{stream_global_lock};
@@ -129,6 +134,7 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
                 if (arg.buffer.handle == invalid_resource_handle) [[unlikely]] {
                     LUISA_ERROR("Invalid shader dispatch buffer argument.");
                 }
+                check_align(arg.buffer.offset);
                 mark_handle(arg.buffer.handle, Range{arg.buffer.offset, arg.buffer.size}, "buffer");
             } break;
             case Argument::Tag::TEXTURE: {
@@ -165,6 +171,7 @@ void Stream::mark_shader_dispatch(DeviceInterface *dev, ShaderDispatchCommandBas
                     if constexpr (std::is_same_v<T, Function::BufferBinding>) {
                         arg.tag = Argument::Tag::BUFFER;
                         arg.buffer = a;
+                        check_align(arg.buffer.offset);
                     } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
                         arg.tag = Argument::Tag::TEXTURE;
                         arg.texture = a;
@@ -387,6 +394,14 @@ void Stream::dispatch(DeviceInterface *dev, CommandList &cmd_list) {
             case CmdTag::EBindlessArrayUpdateCommand: {
                 Device::check_stream(handle(), StreamFunc::Compute);
                 auto c = static_cast<BindlessArrayUpdateCommand *>(cmd);
+                c->visit_modifications([&]<typename T>(T const &t) {
+                    if constexpr (std::is_same_v<T, luisa::vector<BindlessArrayUpdateCommand::Modification>> || std::is_same_v<T, luisa::vector<BindlessArrayUpdateCommand::BufferModification>>) {
+                        for (auto &i : t) {
+                            if (i.buffer.op == BindlessArrayUpdateCommand::Operation::EMPLACE)
+                                check_align(i.buffer.offset_bytes);
+                        }
+                    }
+                });
                 mark_handle(c->handle(), Usage::WRITE, Range{});
             } break;
             case CmdTag::ECustomCommand: {

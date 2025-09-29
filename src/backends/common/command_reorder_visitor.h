@@ -196,12 +196,15 @@ public:
     };
 
 private:
-    static Range copy_range(int64_t offset, int64_t size) {
+    static Range copy_buffer_range(int64_t offset, int64_t size) {
         if constexpr (supportConcurrentCopy) {
             return Range(offset, size);
         } else {
             return Range();
         }
+    }
+    static Range copy_tex_range(int64_t offset) {
+        return Range(offset, 1);
     }
     vstd::DefaultMallocVisitor malloc_visitor;
     vstd::StackAllocator _arena;
@@ -683,11 +686,13 @@ private:
             switch (i.tag) {
                 case Tag::BUFFER: {
                     auto &&bf = i.buffer;
+                    bool is_write = ((uint)_func_table.get_usage(shader_handle, arg_idx) & (uint)Usage::WRITE) != 0;
+                    Range buffer_range(bf.offset, bf.size);
                     add_dispatch_handle(
                         bf.handle,
                         ResourceType::Texture_Buffer,
-                        Range(bf.offset, bf.size),
-                        ((uint)_func_table.get_usage(shader_handle, arg_idx) & (uint)Usage::WRITE) != 0);
+                        buffer_range,
+                        is_write);
                     ++arg_idx;
                 } break;
                 case Tag::TEXTURE: {
@@ -796,18 +801,18 @@ public:
 
     // Buffer : resource
     void visit(const BufferUploadCommand *command) noexcept override {
-        add_command(command, set_write(command->handle(), copy_range(command->offset(), command->size()), ResourceType::Texture_Buffer));
+        add_command(command, set_write(command->handle(), copy_buffer_range(command->offset(), command->size()), ResourceType::Texture_Buffer));
     }
     void visit(const BufferDownloadCommand *command) noexcept override {
-        add_command(command, set_read(command->handle(), copy_range(command->offset(), command->size()), ResourceType::Texture_Buffer));
+        add_command(command, set_read(command->handle(), copy_buffer_range(command->offset(), command->size()), ResourceType::Texture_Buffer));
     }
     void visit(const BufferCopyCommand *command) noexcept override {
-        add_command(command, set_rw(command->src_handle(), copy_range(command->src_offset(), command->size()), ResourceType::Texture_Buffer, command->dst_handle(), copy_range(command->dst_offset(), command->size()), ResourceType::Texture_Buffer));
+        add_command(command, set_rw(command->src_handle(), copy_buffer_range(command->src_offset(), command->size()), ResourceType::Texture_Buffer, command->dst_handle(), copy_buffer_range(command->dst_offset(), command->size()), ResourceType::Texture_Buffer));
     }
     void visit(const BufferToTextureCopyCommand *command) noexcept override {
         auto sz = command->size();
         auto bin_size = pixel_storage_size(command->storage(), sz);
-        add_command(command, set_rw(command->buffer(), copy_range(command->buffer_offset(), bin_size), ResourceType::Texture_Buffer, command->texture(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
+        add_command(command, set_rw(command->buffer(), copy_buffer_range(command->buffer_offset(), bin_size), ResourceType::Texture_Buffer, command->texture(), copy_tex_range(command->level()), ResourceType::Texture_Buffer));
     }
     // Shader : function, read/write multi resources
     void visit(const ShaderDispatchCommand *command) noexcept override {
@@ -848,18 +853,18 @@ public:
 
     // Texture : resource
     void visit(const TextureUploadCommand *command) noexcept override {
-        add_command(command, set_write(command->handle(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
+        add_command(command, set_write(command->handle(), copy_tex_range(command->level()), ResourceType::Texture_Buffer));
     }
     void visit(const TextureDownloadCommand *command) noexcept override {
-        add_command(command, set_read(command->handle(), copy_range(command->level(), 1), ResourceType::Texture_Buffer));
+        add_command(command, set_read(command->handle(), copy_tex_range(command->level()), ResourceType::Texture_Buffer));
     }
     void visit(const TextureCopyCommand *command) noexcept override {
-        add_command(command, set_rw(command->src_handle(), copy_range(command->src_level(), 1), ResourceType::Texture_Buffer, command->dst_handle(), copy_range(command->dst_level(), 1), ResourceType::Texture_Buffer));
+        add_command(command, set_rw(command->src_handle(), copy_tex_range(command->src_level()), ResourceType::Texture_Buffer, command->dst_handle(), copy_tex_range(command->dst_level()), ResourceType::Texture_Buffer));
     }
     void visit(const TextureToBufferCopyCommand *command) noexcept override {
         auto sz = command->size();
         auto bin_size = pixel_storage_size(command->storage(), sz);
-        add_command(command, set_rw(command->texture(), copy_range(command->level(), 1), ResourceType::Texture_Buffer, command->buffer(), copy_range(command->buffer_offset(), bin_size), ResourceType::Texture_Buffer));
+        add_command(command, set_rw(command->texture(), copy_tex_range(command->level()), ResourceType::Texture_Buffer, command->buffer(), copy_buffer_range(command->buffer_offset(), bin_size), ResourceType::Texture_Buffer));
     }
     void visit(const ClearDepthCommand *command) noexcept {
         add_command(command, set_write(command->handle(), Range{}, ResourceType::Texture_Buffer));
@@ -867,7 +872,7 @@ public:
 
     // BindlessArray : read multi resources
     void visit(const BindlessArrayUpdateCommand *command) noexcept override {
-        command->visit_modifications([&](auto&& mods){
+        command->visit_modifications([&](auto &&mods) {
             _func_table.update_bindless(command->handle(), luisa::span{mods});
         });
         add_command(command, set_write(command->handle(), Range(), ResourceType::Bindless));

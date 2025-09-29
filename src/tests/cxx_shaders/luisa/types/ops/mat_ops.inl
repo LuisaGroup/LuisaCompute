@@ -22,9 +22,9 @@
 [[unaop("PLUS")]] ThisType operator+() const;
 [[unaop("MINUS")]] ThisType operator-() const;
 
-template <typename U> requires(is_same_v<U, ThisType>)
+template <typename U> requires(std::is_same_v<U, ThisType>)
 [[binop("MUL")]] ThisType operator*(const U&) const;
-template <typename U> requires(is_same_v<U, vec<T, N>>)
+template <typename U> requires(std::is_same_v<U, vec<T, N>>)
 [[binop("MUL")]] vec<T, N> operator*(const U&) const;
 
 // clang-format on

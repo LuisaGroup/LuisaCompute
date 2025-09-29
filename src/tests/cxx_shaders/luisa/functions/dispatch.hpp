@@ -16,4 +16,7 @@ namespace luisa::shader {
 
 // raster
 [[callop("RASTER_DISCARD")]] extern void discard();
-}
+[[callop("FLATTEN")]] extern void flatten();	  // try flatten next if-stmt
+[[callop("BRANCH")]] extern void branch();		  // try un-flatten next if-stmt
+[[callop("FORCE_CASE")]] extern void force_case();// make next switch force-case (no if else)
+}// namespace luisa::shader

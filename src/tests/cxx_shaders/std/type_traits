@@ -1,0 +1,644 @@
+#pragma once
+
+#include <std/cstddef>
+
+namespace std {
+// helper class
+// template<class T, T v>
+// trait_struct integral_constant;
+
+// template<bool B>
+// using bool_constant = integral_constant<bool, B>;
+// using true_type = bool_constant<true>;
+// using false_type = bool_constant<false>;
+
+template<class T>
+inline constexpr bool is_void_v = __is_void(T);
+
+template<class F>
+constexpr auto invoke(F&& f) noexcept(noexcept(static_cast<F&&>(f)()))
+	-> decltype(static_cast<F&&>(f)()) {
+	return static_cast<F&&>(f)();
+}
+
+template<class F, class T1, class... Ts>
+constexpr auto invoke(F&& f, T1&& arg1, Ts&&... args2) noexcept(noexcept(
+	static_cast<F&&>(f)(static_cast<T1&&>(arg1), static_cast<Ts&&>(args2)...)))
+	-> decltype(static_cast<F&&>(f)(static_cast<T1&&>(arg1), static_cast<Ts&&>(args2)...)) {
+	return static_cast<F&&>(f)(static_cast<T1&&>(arg1), static_cast<Ts&&>(args2)...);
+}
+
+template<class R, class F, class... Args>
+constexpr R invoke_r(F&& f, Args&&... args) noexcept(noexcept(
+	std::invoke(static_cast<F&&>(f), static_cast<Args&&>(args)...))) {
+	if constexpr (std::is_void_v<R>)
+		std::invoke(static_cast<F&&>(f), static_cast<Args&&>(args)...);
+	else
+		return std::invoke(static_cast<F&&>(f), static_cast<Args&&>(args)...);
+}
+
+template<class...>
+using void_t = void;
+// reference modifications
+// template<class T>
+// trait_struct remove_reference;
+
+template<class T, class = void>
+trait_struct add_reference {// add reference (non-referenceable type)
+	using lvalue = T;
+	using rvalue = T;
+};
+
+template<class T>
+trait_struct add_reference<T, void_t<T&>> {// (referenceable type)
+	using lvalue = T&;
+	using rvalue = T&&;
+};
+
+template<class T>
+trait_struct add_lvalue_reference {
+	using type = typename add_reference<T>::lvalue;
+};
+template<class T>
+trait_struct add_rvalue_reference {
+	using type = typename add_reference<T>::rvalue;
+};
+
+// template<class T>
+// using remove_reference_t = typename remove_reference<T>::type;
+template<class T>
+using add_lvalue_reference_t = typename add_lvalue_reference<T>::type;
+template<class T>
+using add_rvalue_reference_t = typename add_rvalue_reference<T>::type;
+
+// primary type categories
+template<class T>
+trait_struct is_void : bool_constant<__is_void(T)>{};
+template<class T>
+trait_struct is_null_pointer;
+// template<class T>
+// trait_struct is_integral;
+template<class T>
+trait_struct is_floating_point;
+template<class>
+constexpr bool is_array_v = false;// determine whether type argument is an array
+template<class T, size_t N>
+constexpr bool is_array_v<T[N]> = true;
+template<class T>
+constexpr bool is_array_v<T[]> = true;
+template<class T>
+trait_struct is_array : bool_constant<is_array_v<T>>{};
+template<class T>
+trait_struct is_pointer;
+template<class T>
+trait_struct is_member_object_pointer;
+template<class T>
+trait_struct is_member_function_pointer;
+template<class T>
+trait_struct is_enum : bool_constant<__is_enum(T)>{};
+template<class T>
+trait_struct is_union : bool_constant<__is_union(T)>{};
+template<class T>
+trait_struct is_class : bool_constant<__is_class(T)>{};
+template<class T>
+trait_struct is_function : bool_constant<__is_function(T)>{};
+
+// composite type categories
+template<class T>
+trait_struct is_reference : bool_constant<__is_reference(T)>{};
+template<class T>
+trait_struct is_arithmetic;
+template<class T>
+trait_struct is_fundamental;
+template<class T>
+trait_struct is_object;
+template<class T>
+trait_struct is_scalar;
+template<class T>
+trait_struct is_compound;
+template<class T>
+trait_struct is_member_pointer;
+
+// type properties
+template<class T>
+trait_struct is_const : bool_constant<__is_const(T)>{};
+template<class T>
+trait_struct is_volatile : bool_constant<__is_volatile(T)>{};
+template<class T>
+trait_struct is_trivial : bool_constant<__is_trivial(T)>{};
+template<class T>
+trait_struct is_trivially_copyable : bool_constant<__is_trivially_copyable(T)>{};
+template<class T>
+trait_struct is_standard_layout : bool_constant<__is_standard_layout(T)>{};
+template<class T>
+trait_struct is_empty : bool_constant<__is_empty(T)>{};
+template<class T>
+trait_struct is_polymorphic : bool_constant<__is_polymorphic(T)>{};
+template<class T>
+trait_struct is_abstract : bool_constant<__is_abstract(T)>{};
+template<class T>
+trait_struct is_final : bool_constant<__is_final(T)>{};
+template<class T>
+trait_struct is_aggregate : bool_constant<__is_aggregate(T) && !is_array_v<T>>{};
+
+template<class T>
+trait_struct is_signed : bool_constant<__is_signed(T)>{};
+template<class T>
+trait_struct is_unsigned : bool_constant<__is_unsigned(T)>{};
+template<class T>
+trait_struct is_bounded_array;
+template<class T>
+trait_struct is_unbounded_array;
+template<class T>
+trait_struct is_scoped_enum;
+
+template<class T, class... Args>
+trait_struct is_constructible : bool_constant<__is_constructible(T, Args...)>{};
+template<class T>
+trait_struct is_default_constructible : bool_constant<__is_constructible(T)>{};
+template<class T>
+trait_struct is_copy_constructible : bool_constant<__is_constructible(T, add_lvalue_reference_t<const T>)>{};
+template<class T>
+trait_struct is_move_constructible : bool_constant<__is_constructible(T, T)>{};
+
+template<class T, class U>
+trait_struct is_assignable : bool_constant<__is_assignable(T, U)>{};
+template<class T>
+trait_struct is_copy_assignable : bool_constant<__is_assignable(add_lvalue_reference_t<T>, add_lvalue_reference_t<const T>)>{};
+template<class T>
+trait_struct is_move_assignable : bool_constant<__is_assignable(add_lvalue_reference_t<T>, T)>{};
+
+template<class T, class U>
+trait_struct is_swappable_with;
+template<class T>
+trait_struct is_swappable;
+
+template<class T>
+trait_struct is_destructible;
+
+template<class T, class... Args>
+trait_struct is_trivially_constructible;
+template<class T>
+trait_struct is_trivially_default_constructible;
+template<class T>
+trait_struct is_trivially_copy_constructible;
+template<class T>
+trait_struct is_trivially_move_constructible;
+
+template<class T, class U>
+trait_struct is_trivially_assignable;
+template<class T>
+trait_struct is_trivially_copy_assignable;
+template<class T>
+trait_struct is_trivially_move_assignable;
+template<class T>
+trait_struct is_trivially_destructible;
+
+template<class T, class... Args>
+trait_struct is_nothrow_constructible;
+template<class T>
+trait_struct is_nothrow_default_constructible;
+template<class T>
+trait_struct is_nothrow_copy_constructible;
+template<class T>
+trait_struct is_nothrow_move_constructible;
+
+template<class T, class U>
+trait_struct is_nothrow_assignable;
+template<class T>
+trait_struct is_nothrow_copy_assignable;
+template<class T>
+trait_struct is_nothrow_move_assignable;
+
+template<class T, class U>
+trait_struct is_nothrow_swappable_with;
+template<class T>
+trait_struct is_nothrow_swappable;
+
+template<class T>
+trait_struct is_nothrow_destructible;
+
+template<class T>
+trait_struct has_virtual_destructor;
+
+template<class T>
+trait_struct has_unique_object_representations;
+
+template<class T, class U>
+trait_struct reference_constructs_from_temporary;
+template<class T, class U>
+trait_struct reference_converts_from_temporary;
+
+// type property queries
+template<class T>
+trait_struct alignment_of;
+template<class T>
+trait_struct rank;
+template<class T, unsigned I = 0>
+trait_struct extent;
+
+// type relations
+template<class T, class U>
+trait_struct is_same;
+template<class Base, class Derived>
+trait_struct is_base_of;
+template<class Base, class Derived>
+trait_struct is_virtual_base_of;
+template<class From, class To>
+trait_struct is_convertible : bool_constant<__is_convertible_to(From, To)>{};
+template<class From, class To>
+trait_struct is_nothrow_convertible;
+template<class T, class U>
+trait_struct is_layout_compatible;
+template<class Base, class Derived>
+trait_struct is_pointer_interconvertible_base_of;
+
+template<class Fn, class... ArgTypes>
+trait_struct is_invocable {
+	static constexpr bool value = requires(Fn&& fn, ArgTypes&&... args) {
+		invoke(static_cast<Fn &&>(fn), static_cast<ArgTypes &&>(args)...);
+	};
+};
+template<class R, class Fn, class... ArgTypes>
+trait_struct is_invocable_r {
+	static constexpr bool value =
+		requires(Fn&& fn, ArgTypes&&... args) {
+			invoke_r<R>(static_cast<Fn &&>(fn), static_cast<ArgTypes &&>(args)...);
+		};
+};
+
+template<class Fn, class... ArgTypes>
+trait_struct is_nothrow_invocable;
+template<class R, class Fn, class... ArgTypes>
+trait_struct is_nothrow_invocable_r;
+
+// const-volatile modifications
+template<class T>
+trait_struct remove_const {
+	using type = __remove_const(T);
+};
+template<class T>
+trait_struct remove_volatile {
+	using type = __remove_volatile(T);
+};
+template<class T>
+trait_struct add_const {
+	using type = const T;
+};
+template<class T>
+trait_struct add_volatile {
+	using type = volatile T;
+};
+template<class T>
+trait_struct add_cv {
+	using type = const volatile T;
+};
+
+template<class T>
+using remove_const_t = __remove_const(T);
+template<class T>
+using remove_volatile_t = __remove_volatile(T);
+// template<class T>
+// using remove_cv_t = typename remove_cv<T>::type;
+template<class T>
+using add_const_t = typename add_const<T>::type;
+template<class T>
+using add_volatile_t = typename add_volatile<T>::type;
+template<class T>
+using add_cv_t = typename add_cv<T>::type;
+
+// sign modifications
+template<class T>
+trait_struct make_signed {
+	using type = __make_signed(T);
+};
+template<class T>
+trait_struct make_unsigned {
+	using type = __make_unsigned(T);
+};
+
+template<class T>
+using make_signed_t = __make_signed(T);
+template<class T>
+using make_unsigned_t = __make_unsigned(T);
+
+// array modifications
+template<class T>
+trait_struct remove_extent {// remove array extent
+	using type = T;
+};
+
+template<class T, size_t I>
+trait_struct remove_extent<T[I]> {
+	using type = T;
+};
+
+template<class T>
+trait_struct remove_extent<T[]> {
+	using type = T;
+};
+
+template<class T>
+using remove_extent_t = typename remove_extent<T>::type;
+
+template<class T>
+trait_struct remove_all_extents {// remove all array extents
+	using type = T;
+};
+
+template<class T, size_t I>
+trait_struct remove_all_extents<T[I]> {
+	using type = typename remove_all_extents<T>::type;
+};
+
+template<class T>
+trait_struct remove_all_extents<T[]> {
+	using type = typename remove_all_extents<T>::type;
+};
+
+template<class T>
+using remove_all_extents_t = typename remove_all_extents<T>::type;
+
+// pointer modifications
+template<class T>
+trait_struct remove_pointer;
+template<class T>
+trait_struct add_pointer;
+
+template<class T>
+using remove_pointer_t = typename remove_pointer<T>::type;
+template<class T>
+using add_pointer_t = typename add_pointer<T>::type;
+
+// other transformations
+template<class T>
+trait_struct type_identity;
+template<class T>
+trait_struct remove_cvref {
+	using type = remove_cv_t<remove_reference_t<T>>;
+};
+template<class T>
+trait_struct decay {
+	using type = __decay(T);
+};
+template<bool, class T = void>
+trait_struct enable_if{};// no member "type" when !test
+
+template<class T>
+trait_struct enable_if<true, T> {// type is T for test
+	using type = T;
+};
+
+template<bool B, class T, class F>
+trait_struct conditional {
+	using type = T;
+};
+template<class T, class F>
+trait_struct conditional<false, T, F> {
+	using type = F;
+};
+template<class... T>
+trait_struct common_type;
+template<class T, class U, template<class> class TQual, template<class> class UQual>
+trait_struct basic_common_reference{};
+template<class... T>
+trait_struct common_reference;
+template<class T>
+trait_struct underlying_type {
+	using type = __underlying_type(T);
+};
+template<class Fn, class... ArgTypes>
+trait_struct invoke_result;
+template<class T>
+trait_struct unwrap_reference;
+template<class T>
+trait_struct unwrap_ref_decay;
+
+template<class T>
+using type_identity_t = typename type_identity<T>::type;
+template<class T>
+using remove_cvref_t = typename remove_cvref<T>::type;
+template<class T>
+using decay_t = __decay(T);
+template<bool b, class T = void>
+using enable_if_t = typename enable_if<b, T>::type;
+template<bool b, class T, class F>
+using conditional_t = typename conditional<b, T, F>::type;
+template<class... T>
+using common_type_t = typename common_type<T...>::type;
+template<class... T>
+using common_reference_t = typename common_reference<T...>::type;
+template<class T>
+using underlying_type_t = typename underlying_type<T>::type;
+template<class Fn, class... ArgTypes>
+using invoke_result_t = typename invoke_result<Fn, ArgTypes...>::type;
+template<class T>
+using unwrap_reference_t = typename unwrap_reference<T>::type;
+template<class T>
+using unwrap_ref_decay_t = typename unwrap_ref_decay<T>::type;
+
+// logical operator traits
+template<class... B>
+trait_struct conjunction;
+template<class... B>
+trait_struct disjunction;
+template<class B>
+trait_struct negation;
+
+// primary type categories
+template<class T>
+inline constexpr bool is_null_pointer_v = is_null_pointer<T>::value;
+// template<class T>
+// inline constexpr bool is_integral_v = is_integral<T>::value;
+template<class T>
+inline constexpr bool is_floating_point_v = is_floating_point<T>::value;
+
+template<class T>
+inline constexpr bool is_pointer_v = is_pointer<T>::value;
+template<class>
+constexpr bool is_lvalue_reference_v = false;// determine whether type argument is an lvalue reference
+template<class T>
+constexpr bool is_lvalue_reference_v<T&> = true;
+template<class T>
+trait_struct is_lvalue_reference : bool_constant<is_lvalue_reference_v<T>>{};
+template<class>
+constexpr bool is_rvalue_reference_v = false;// determine whether type argument is an rvalue reference
+template<class T>
+constexpr bool is_rvalue_reference_v<T&&> = true;
+template<class T>
+trait_struct is_rvalue_reference : bool_constant<is_rvalue_reference_v<T>>{};
+template<class T>
+inline constexpr bool is_member_object_pointer_v = is_member_object_pointer<T>::value;
+template<class T>
+inline constexpr bool is_member_function_pointer_v = is_member_function_pointer<T>::value;
+template<class T>
+inline constexpr bool is_enum_v = is_enum<T>::value;
+template<class T>
+inline constexpr bool is_union_v = is_union<T>::value;
+template<class T>
+inline constexpr bool is_class_v = is_class<T>::value;
+template<class T>
+inline constexpr bool is_function_v = is_function<T>::value;
+
+// composite type categories
+template<class T>
+inline constexpr bool is_reference_v = __is_reference(T);
+template<class T>
+inline constexpr bool is_arithmetic_v = is_arithmetic<T>::value;
+template<class T>
+inline constexpr bool is_fundamental_v = is_fundamental<T>::value;
+template<class T>
+inline constexpr bool is_object_v = is_object<T>::value;
+template<class T>
+inline constexpr bool is_scalar_v = is_scalar<T>::value;
+template<class T>
+inline constexpr bool is_compound_v = is_compound<T>::value;
+template<class T>
+inline constexpr bool is_member_pointer_v = is_member_pointer<T>::value;
+
+// type properties
+template<class T>
+inline constexpr bool is_const_v = __is_const(T);
+template<class T>
+inline constexpr bool is_volatile_v = __is_volatile(T);
+template<class T>
+inline constexpr bool is_trivial_v = is_trivial<T>::value;
+template<class T>
+inline constexpr bool is_trivially_copyable_v = is_trivially_copyable<T>::value;
+template<class T>
+inline constexpr bool is_standard_layout_v = is_standard_layout<T>::value;
+template<class T>
+inline constexpr bool is_empty_v = is_empty<T>::value;
+template<class T>
+inline constexpr bool is_polymorphic_v = is_polymorphic<T>::value;
+template<class T>
+inline constexpr bool is_abstract_v = is_abstract<T>::value;
+template<class T>
+inline constexpr bool is_final_v = is_final<T>::value;
+template<class T>
+inline constexpr bool is_aggregate_v = is_aggregate<T>::value;
+template<class T>
+inline constexpr bool is_signed_v = is_signed<T>::value;
+template<class T>
+inline constexpr bool is_unsigned_v = is_unsigned<T>::value;
+template<class T>
+inline constexpr bool is_bounded_array_v = is_bounded_array<T>::value;
+template<class T>
+inline constexpr bool is_unbounded_array_v = is_unbounded_array<T>::value;
+template<class T>
+inline constexpr bool is_scoped_enum_v = is_scoped_enum<T>::value;
+template<class T, class... Args>
+inline constexpr bool is_constructible_v = is_constructible<T, Args...>::value;
+template<class T>
+inline constexpr bool is_default_constructible_v = is_default_constructible<T>::value;
+template<class T>
+inline constexpr bool is_copy_constructible_v = is_copy_constructible<T>::value;
+template<class T>
+inline constexpr bool is_move_constructible_v = is_move_constructible<T>::value;
+template<class T, class U>
+inline constexpr bool is_assignable_v = is_assignable<T, U>::value;
+template<class T>
+inline constexpr bool is_copy_assignable_v = is_copy_assignable<T>::value;
+template<class T>
+inline constexpr bool is_move_assignable_v = is_move_assignable<T>::value;
+template<class T, class U>
+inline constexpr bool is_swappable_with_v = is_swappable_with<T, U>::value;
+template<class T>
+inline constexpr bool is_swappable_v = is_swappable<T>::value;
+template<class T>
+inline constexpr bool is_destructible_v = is_destructible<T>::value;
+template<class T, class... Args>
+inline constexpr bool is_trivially_constructible_v = is_trivially_constructible<T, Args...>::value;
+template<class T>
+inline constexpr bool is_trivially_default_constructible_v = is_trivially_default_constructible<T>::value;
+template<class T>
+inline constexpr bool is_trivially_copy_constructible_v = is_trivially_copy_constructible<T>::value;
+template<class T>
+inline constexpr bool is_trivially_move_constructible_v = is_trivially_move_constructible<T>::value;
+template<class T, class U>
+inline constexpr bool is_trivially_assignable_v = is_trivially_assignable<T, U>::value;
+template<class T>
+inline constexpr bool is_trivially_copy_assignable_v = is_trivially_copy_assignable<T>::value;
+template<class T>
+inline constexpr bool is_trivially_move_assignable_v = is_trivially_move_assignable<T>::value;
+template<class T>
+inline constexpr bool is_trivially_destructible_v = is_trivially_destructible<T>::value;
+template<class T, class... Args>
+inline constexpr bool is_nothrow_constructible_v = is_nothrow_constructible<T, Args...>::value;
+template<class T>
+inline constexpr bool is_nothrow_default_constructible_v = is_nothrow_default_constructible<T>::value;
+template<class T>
+inline constexpr bool is_nothrow_copy_constructible_v = is_nothrow_copy_constructible<T>::value;
+template<class T>
+inline constexpr bool is_nothrow_move_constructible_v = is_nothrow_move_constructible<T>::value;
+template<class T, class U>
+inline constexpr bool is_nothrow_assignable_v = is_nothrow_assignable<T, U>::value;
+template<class T>
+inline constexpr bool is_nothrow_copy_assignable_v = is_nothrow_copy_assignable<T>::value;
+template<class T>
+inline constexpr bool is_nothrow_move_assignable_v = is_nothrow_move_assignable<T>::value;
+template<class T, class U>
+inline constexpr bool is_nothrow_swappable_with_v = is_nothrow_swappable_with<T, U>::value;
+template<class T>
+inline constexpr bool is_nothrow_swappable_v = is_nothrow_swappable<T>::value;
+template<class T>
+inline constexpr bool is_nothrow_destructible_v = is_nothrow_destructible<T>::value;
+template<class T>
+inline constexpr bool has_virtual_destructor_v = has_virtual_destructor<T>::value;
+template<class T>
+inline constexpr bool has_unique_object_representations_v = has_unique_object_representations<T>::value;
+template<class T, class U>
+inline constexpr bool reference_constructs_from_temporary_v = reference_constructs_from_temporary<T, U>::value;
+template<class T, class U>
+inline constexpr bool reference_converts_from_temporary_v = reference_converts_from_temporary<T, U>::value;
+
+// type property queries
+template<class T>
+inline constexpr size_t alignment_of_v = alignment_of<T>::value;
+template<class T>
+inline constexpr size_t rank_v = rank<T>::value;
+template<class T, unsigned I = 0>
+inline constexpr size_t extent_v = extent<T, I>::value;
+
+// type relations
+// template<class T, class U>
+// inline constexpr bool is_same_v = is_same<T, U>::value;
+template<class Base, class Derived>
+inline constexpr bool is_base_of_v = is_base_of<Base, Derived>::value;
+template<class Base, class Derived>
+inline constexpr bool is_virtual_base_of_v = is_virtual_base_of<Base, Derived>::value;
+template<class From, class To>
+inline constexpr bool is_convertible_v = is_convertible<From, To>::value;
+template<class From, class To>
+inline constexpr bool is_nothrow_convertible_v = is_nothrow_convertible<From, To>::value;
+template<class T, class U>
+inline constexpr bool is_layout_compatible_v = is_layout_compatible<T, U>::value;
+template<class Base, class Derived>
+inline constexpr bool is_pointer_interconvertible_base_of_v = is_pointer_interconvertible_base_of<Base, Derived>::value;
+template<class Fn, class... ArgTypes>
+inline constexpr bool is_invocable_v = is_invocable<Fn, ArgTypes...>::value;
+template<class R, class Fn, class... ArgTypes>
+inline constexpr bool is_invocable_r_v = is_invocable_r<R, Fn, ArgTypes...>::value;
+template<class Fn, class... ArgTypes>
+inline constexpr bool is_nothrow_invocable_v = is_nothrow_invocable<Fn, ArgTypes...>::value;
+template<class R, class Fn, class... ArgTypes>
+inline constexpr bool is_nothrow_invocable_r_v = is_nothrow_invocable_r<R, Fn, ArgTypes...>::value;
+
+// logical operator traits
+template<class... B>
+inline constexpr bool conjunction_v = conjunction<B...>::value;
+template<class... B>
+inline constexpr bool disjunction_v = disjunction<B...>::value;
+template<class B>
+inline constexpr bool negation_v = negation<B>::value;
+
+// member relationships
+template<class S, class M>
+constexpr bool is_pointer_interconvertible_with_class(M S::* m) noexcept;
+template<class S1, class S2, class M1, class M2>
+constexpr bool is_corresponding_member(M1 S1::* m1, M2 S2::* m2) noexcept;
+
+// constant evaluation context
+constexpr bool is_constant_evaluated() noexcept;
+consteval bool is_within_lifetime(const auto*) noexcept;
+}// namespace std

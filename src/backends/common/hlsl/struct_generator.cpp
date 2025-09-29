@@ -50,6 +50,79 @@ void StructGenerator::ProvideAlignVariable(size_t tarAlign, size_t &alignCount, 
     structSize = alignedSize;
 }
 
+void StructGenerator::InitAsStructAlised(
+    Type const *originType,
+    vstd::span<Type const *const> const &vars,
+    size_t structIdx,
+    Callback const &visitor,
+    bool isSpirv) {
+    size_t alignCount = 0;
+    size_t structSize = 0;
+    structDesc.reserve(256);
+
+    auto Align = [&](size_t tarAlign) {
+        ProvideAlignVariable(tarAlign, alignCount, structSize, structDesc);
+    };
+    size_t varIdx = 0;
+    for (auto &&i : vars) {
+        Align(i->alignment());
+        switch (i->tag()) {
+            case Type::Tag::STRUCTURE:
+            case Type::Tag::ARRAY:
+                visitor(i);
+                break;
+            default:
+                break;
+        }
+        structSize += i->size();
+        if (i->is_structure() || i->is_array()) {
+            auto name = util->opt->CreateAliasedStruct(i);
+            structDesc << name.first;
+        } else if (i->is_vector() && i->dimension() >= 3 && i->element()->size() > 4) {
+            structDesc << "_Als";
+            util->GetTypeName(*i->element(), structDesc, Usage::READ);
+            structDesc << luisa::format("{}", i->dimension());
+        } else if (i->is_bool_vector()) {
+            structDesc << "int"sv;
+        } else {
+            util->GetTypeName(*i, structDesc, Usage::READ, false);
+        }
+        structDesc << " v"sv << vstd::to_string(varIdx);
+        varIdx++;
+        if (i->tag() == Type::Tag::BOOL) {
+            structDesc << ":8"sv;
+        } else if (i->is_bool_vector()) {
+            if (i->dimension() < 4)
+                structDesc << luisa::format(":{}", 8 * i->dimension());
+        }
+        structDesc << ";\n"sv;
+        Align(i->alignment());
+    }
+    Align(originType->alignment());
+}
+
+void StructGenerator::InitAsArrayAliased(
+    Type const *t,
+    size_t structIdx,
+    Callback const &visitor,
+    bool isSpirv) {
+    if (t->alignment() < 4) [[unlikely]] {
+        LUISA_ERROR("HLSL do not support member's type {} which alignment less than 4-bytes.", t->description());
+    }
+    auto i = t->element();
+    if (i->is_structure() || i->is_array()) {
+        auto name = util->opt->CreateAliasedStruct(i);
+        structDesc << name.first;
+    } else if (i->is_vector() && i->dimension() >= 3 && i->element()->size() > 4) {
+        structDesc << "_Als";
+        util->GetTypeName(*i->element(), structDesc, Usage::READ);
+        structDesc << luisa::format("{}", i->dimension());
+    } else {
+        util->GetTypeName(*i, structDesc, Usage::READ, false);
+    }
+    structDesc << " v["sv << vstd::to_string(t->dimension()) << "];\n";
+}
+
 void StructGenerator::InitAsStruct(
     Type const *originType,
     vstd::span<Type const *const> const &vars,
@@ -65,10 +138,6 @@ void StructGenerator::InitAsStruct(
     };
     size_t varIdx = 0;
     for (auto &&i : vars) {
-        if (isSpirv) [[unlikely]] {
-            if (i->alignment() < 4 && i->tag() != Type::Tag::BOOL)
-                LUISA_ERROR("Spirv do not support member's alignment less than 4-bytes.");
-        }
         Align(i->alignment());
         switch (i->tag()) {
             case Type::Tag::STRUCTURE:
@@ -96,11 +165,18 @@ void StructGenerator::InitAsArray(
     Callback const &visitor,
     bool isSpirv) {
     auto &&ele = t->element();
-    if (isSpirv && t->alignment() < 4) [[unlikely]] {
-        LUISA_ERROR("Spirv do not support member's alignment less than 4-bytes.");
+    if (t->alignment() < 4) [[unlikely]] {
+        LUISA_ERROR("HLSL do not support member's type {} which alignment less than 4-bytes.", t->description());
     }
     util->GetTypeName(*ele, structDesc, Usage::READ, false);
     structDesc << " v["sv << vstd::to_string(t->dimension()) << "];\n";
+}
+void StructGenerator::InitAliased(Callback const &visitor, bool isSpirv) {
+    if (structureType->tag() == Type::Tag::STRUCTURE) {
+        InitAsStructAlised(structureType, structureType->members(), idx, visitor, isSpirv);
+    } else {
+        InitAsArrayAliased(structureType, idx, visitor, isSpirv);
+    }
 }
 void StructGenerator::Init(Callback const &visitor, bool isSpirv) {
     if (structureType->tag() == Type::Tag::STRUCTURE) {
@@ -109,6 +185,7 @@ void StructGenerator::Init(Callback const &visitor, bool isSpirv) {
         InitAsArray(structureType, idx, visitor, isSpirv);
     }
 }
+
 StructGenerator::StructGenerator(
     Type const *structureType,
     size_t structIdx,

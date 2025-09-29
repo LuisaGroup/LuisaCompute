@@ -1,0 +1,266 @@
+#pragma once
+
+#include <std/cstddef>
+#include <std/type_traits>
+
+// #include <compare>
+// #include <initializer_list>
+
+namespace std {
+// // swap
+// template<class T>
+// constexpr void swap(T& a, T& b) noexcept(/* see description */);
+// template<class T, size_t N>
+// constexpr void swap(T (&a)[N], T (&b)[N]) noexcept(is_nothrow_swappable_v<T>);
+
+// // exchange
+// template<class T, class U = T>
+// constexpr T exchange(T& obj, U&& new_val);
+
+// forward/move
+// template<class T>
+// constexpr T forward(remove_reference_t<T>& t) noexcept {
+// 	return static_cast<T&&>(t);
+// }
+// template<class T>
+// constexpr T forward(remove_reference_t<T>&& t) noexcept {
+// 	static_assert(!is_lvalue_reference_v<T>, "Cannot forward an rvalue as an lvalue.");
+// 	return static_cast<T&&>(t);
+// }
+// template<class T, class U>
+// constexpr /* see description */ forward_like(U&& x) noexcept {
+// 	if constexpr (is_lvalue_reference_v<T>) {
+// 		return static_cast<remove_reference_t<T>&>(x);
+// 	} else {
+// 		return static_cast<remove_reference_t<T>&&>(x);
+// 	}
+// }
+// template<class T>
+// constexpr remove_reference_t<T>&& move(T&& t) noexcept {
+// 	return static_cast<remove_reference_t<T>&&>(t);
+// }
+// template<class T>
+// constexpr conditional_t<
+// 	!is_nothrow_move_constructible_v<T> && is_copy_constructible_v<T>, const T&, T&&>
+// move_if_noexcept(T& x) noexcept {
+// 	if constexpr (is_nothrow_move_constructible_v<T>) {
+// 		return static_cast<T&&>(x);
+// 	} else {
+// 		return static_cast<const T&>(x);
+// 	}
+// }
+
+// // as_const
+// template<class T>
+// constexpr add_const_t<T>& as_const(T& t) noexcept {
+// 	return t;
+// }
+// template<class T>
+// void as_const(const T&&) = delete;
+
+// declval
+template<class T>
+[[ignore]] add_rvalue_reference_t<T> declval() noexcept /* as unevaluated operand*/ {
+	static_assert(false, "Calling declval is ill-formed, see N4950 [declval]/2.");
+}
+
+// // integer comparison functions
+// template<class T, class U>
+// constexpr bool cmp_equal(T t, U u) noexcept;
+// template<class T, class U>
+// constexpr bool cmp_not_equal(T t, U u) noexcept;
+
+// template<class T, class U>
+// constexpr bool cmp_less(T t, U u) noexcept;
+// template<class T, class U>
+// constexpr bool cmp_greater(T t, U u) noexcept;
+// template<class T, class U>
+// constexpr bool cmp_less_equal(T t, U u) noexcept;
+// template<class T, class U>
+// constexpr bool cmp_greater_equal(T t, U u) noexcept;
+
+// template<class R, class T>
+// constexpr bool in_range(T t) noexcept;
+
+// to_underlying
+template<class T>
+constexpr underlying_type_t<T> to_underlying(T value) noexcept {
+	return static_cast<underlying_type_t<T>>(value);
+}
+
+// unreachable
+[[noreturn]] void unreachable() {
+	__builtin_unreachable();
+}
+
+// compile-time integer sequences
+template<class T, T... I>
+trait_struct integer_sequence {
+	static_assert(is_integral_v<T>, "integer_sequence<T, I...> requires T to be an integral type.");
+	using value_type = T;
+	static constexpr size_t size() noexcept { return sizeof...(I); }
+};
+template<size_t... I>
+using index_sequence = integer_sequence<size_t, I...>;
+
+template<class T, T N>
+using make_integer_sequence = __make_integer_seq<integer_sequence, T, N>;
+template<size_t N>
+using make_index_sequence = make_integer_sequence<size_t, N>;
+
+template<class... T>
+using index_sequence_for = make_index_sequence<sizeof...(T)>;
+
+// // class template pair
+template<class T1, class T2>
+struct pair {
+	using first_type = T1;
+	using second_type = T2;
+
+	T1 first;
+	T2 second;
+
+	// pair(pair const&) = default;
+	// pair(pair&&) = default;
+
+	constexpr pair() noexcept(is_constructible_v<first_type> && is_constructible_v<second_type>)
+		: first(), second() {}
+
+	template<class U1 = T1, class U2 = T2>
+	constexpr pair(
+		U1&& val1,
+		U2&& val2) noexcept(is_constructible_v<first_type, U1> && is_constructible_v<second_type, U2>)
+		: first(static_cast<U1&&>(val1)), second(static_cast<U2&&>(val2)) {}
+
+	template<size_t I>
+	auto get() const -> conditional_t<I == 1, second_type, first_type> {
+		if constexpr (I == 1) {
+			return second;
+		} else {
+			return first;
+		}
+	}
+
+	// constexpr explicit(/* see description */) pair();
+	// constexpr explicit(/* see description */) pair(const T1& x, const T2& y);
+	// template<class U1 = T1, class U2 = T2>
+	// constexpr explicit(/* see description */) pair(U1&& x, U2&& y);
+	// template<class U1, class U2>
+	// constexpr explicit(/* see description */) pair(const pair<U1, U2>& p);
+	// template<class U1, class U2>
+	// constexpr explicit(/* see description */) pair(pair<U1, U2>&& p);
+	// template<class... Args1, class... Args2>
+	// constexpr pair(piecewise_construct_t,
+	// 			   tuple<Args1...> first_args, tuple<Args2...> second_args);
+
+	// constexpr pair& operator=(const pair& p);
+	// template<class U1, class U2>
+	// constexpr pair& operator=(const pair<U1, U2>& p);
+	// constexpr pair& operator=(pair&& p) noexcept(/* see description */);
+	// template<class U1, class U2>
+	// constexpr pair& operator=(pair<U1, U2>&& p);
+
+	// constexpr void swap(pair& p) noexcept(/* see description */);
+};
+
+template<class T1, class T2>
+pair(T1, T2) -> pair<T1, T2>;
+
+// // pair specialized algorithms
+// template<class T1, class T2>
+// constexpr bool operator==(const pair<T1, T2>&, const pair<T1, T2>&);
+// template<class T1, class T2>
+// constexpr common_comparison_category_t</*synth-three-way-result*/<T1>,
+// 									   /*synth-three-way-result*/<T2>>
+// operator<=>(const pair<T1, T2>&, const pair<T1, T2>&);
+
+// template<class T1, class T2>
+// constexpr void swap(pair<T1, T2>& x, pair<T1, T2>& y) noexcept(noexcept(x.swap(y)));
+
+// template<class T1, class T2>
+// constexpr /* see description */ make_pair(T1&&, T2&&);
+
+template<class first_type, class second_type>
+constexpr pair<remove_cvref_t<first_type>, remove_cvref_t<second_type>> make_pair(first_type&& first, second_type&& second) {
+	return {static_cast<first_type&&>(first), static_cast<second_type&&>(second)};
+}
+
+// tuple-like access to pair
+template<class T>
+trait_struct tuple_size;
+template<size_t I, class T>
+trait_struct tuple_element;
+
+template<class T1, class T2>
+trait_struct tuple_size<pair<T1, T2>> : integral_constant<size_t, 2>{};
+
+template<class T1, class T2>
+trait_struct tuple_element<0, pair<T1, T2>> {
+	using type = T1;
+};
+template<class T1, class T2>
+trait_struct tuple_element<1, pair<T1, T2>> {
+	using type = T2;
+};
+
+// template<size_t I, class T1, class T2>
+// constexpr tuple_element_t<I, pair<T1, T2>>& get(pair<T1, T2>&) noexcept;
+// template<size_t I, class T1, class T2>
+// constexpr tuple_element_t<I, pair<T1, T2>>&& get(pair<T1, T2>&&) noexcept;
+// template<size_t I, class T1, class T2>
+// constexpr const tuple_element_t<I, pair<T1, T2>>& get(const pair<T1, T2>&) noexcept;
+// template<size_t I, class T1, class T2>
+// constexpr const tuple_element_t<I, pair<T1, T2>>&& get(const pair<T1, T2>&&) noexcept;
+// template<class T1, class T2>
+// constexpr T1& get(pair<T1, T2>& p) noexcept;
+// template<class T1, class T2>
+// constexpr const T1& get(const pair<T1, T2>& p) noexcept;
+// template<class T1, class T2>
+// constexpr T1&& get(pair<T1, T2>&& p) noexcept;
+// template<class T1, class T2>
+// constexpr const T1&& get(const pair<T1, T2>&& p) noexcept;
+// template<class T2, class T1>
+// constexpr T2& get(pair<T1, T2>& p) noexcept;
+// template<class T2, class T1>
+// constexpr const T2& get(const pair<T1, T2>& p) noexcept;
+// template<class T2, class T1>
+// constexpr T2&& get(pair<T1, T2>&& p) noexcept;
+// template<class T2, class T1>
+// constexpr const T2&& get(const pair<T1, T2>&& p) noexcept;
+
+// pair piecewise construction
+trait_struct piecewise_construct_t {
+	explicit piecewise_construct_t() = default;
+};
+inline constexpr piecewise_construct_t piecewise_construct{};
+template<class... Types>
+class tuple;// defined in <tuple>
+
+// in-place construction
+trait_struct in_place_t {
+	explicit in_place_t() = default;
+};
+inline constexpr in_place_t in_place{};
+
+template<class T>
+trait_struct in_place_type_t {
+	explicit in_place_type_t() = default;
+};
+template<class T>
+inline constexpr in_place_type_t<T> in_place_type{};
+
+template<size_t I>
+trait_struct in_place_index_t {
+	explicit in_place_index_t() = default;
+};
+template<size_t I>
+inline constexpr in_place_index_t<I> in_place_index{};
+
+// nontype argument tag
+template<auto V>
+trait_struct nontype_t {
+	explicit nontype_t() = default;
+};
+template<auto V>
+inline constexpr nontype_t<V> nontype{};
+}// namespace std

@@ -14,8 +14,7 @@
     "--background-index", 
     "--background-index-priority=normal",
     "--header-insertion=never",
-    "--pch-storage=memory",
-    "--offset-encoding=utf-8"
+    "--pch-storage=memory"
   ],
   "files.eol":"\n",
   "ccls.misc.compilationDatabaseDirectory": ".vscode",
