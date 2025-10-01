@@ -1231,11 +1231,11 @@ impl Backward {
                     }
                     Func::Clamp => {
                         // clamp(x, a, b) = min(max(x, a), b)
-                        let min_x_a = builder.call(Func::Min, &[args[0], args[1]], type_.clone());
-                        let (max_grad, b_grad) =
-                            self.backward_min(min_x_a, args[2], out_grad, builder);
+                        let max_x_a = builder.call(Func::Max, &[args[0], args[1]], type_.clone());
+                        let (min_grad, b_grad) =
+                            self.backward_min(max_x_a, args[2], out_grad, builder);
                         let (x_grad, a_grad) =
-                            self.backward_max(args[0], args[1], max_grad, builder);
+                            self.backward_max(args[0], args[1], min_grad, builder);
                         self.accumulate_grad(args[0], x_grad, builder);
                         self.accumulate_grad(args[1], a_grad, builder);
                         self.accumulate_grad(args[2], b_grad, builder);
