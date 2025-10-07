@@ -8,21 +8,37 @@
 
 #pragma once
 
-/* Version information */
-#define LUISA_COMPUTE_VERSION_MAJOR @LUISA_COMPUTE_VERSION_MAJOR@
-#define LUISA_COMPUTE_VERSION_MINOR @LUISA_COMPUTE_VERSION_MINOR@
-#define LUISA_COMPUTE_VERSION_PATCH @LUISA_COMPUTE_VERSION_PATCH@
-#define LUISA_COMPUTE_VERSION_STRING "@LUISA_COMPUTE_VERSION@"
+/* Version information - use the existing version header */
+#include "version.h"
 
-/* Feature flags */
+/* Feature flags - Core features */
 #cmakedefine01 LUISA_ENABLE_IR
 #cmakedefine01 LUISA_ENABLE_DSL
-#cmakedefine01 LUISA_ENABLE_WAYLAND
+#cmakedefine01 LUISA_ENABLE_GUI
+#cmakedefine01 LUISA_ENABLE_API
+#cmakedefine01 LUISA_ENABLE_XIR
+#cmakedefine01 LUISA_ENABLE_CLANGCXX
+#cmakedefine01 LUISA_ENABLE_TENSOR
 
 /* Platform detection */
 #cmakedefine01 LUISA_PLATFORM_WINDOWS
 #cmakedefine01 LUISA_PLATFORM_UNIX
 #cmakedefine01 LUISA_PLATFORM_APPLE
+
+/* Platform-specific features */
+#cmakedefine01 LUISA_ENABLE_WAYLAND
+
+/* System library usage flags */
+#cmakedefine01 LUISA_USE_SYSTEM_STL
+#cmakedefine01 LUISA_USE_SYSTEM_SPDLOG
+#cmakedefine01 LUISA_USE_SYSTEM_XXHASH
+#cmakedefine01 LUISA_USE_SYSTEM_MAGIC_ENUM
+#cmakedefine01 LUISA_USE_SYSTEM_GLFW
+#cmakedefine01 LUISA_USE_SYSTEM_REPROC
+#cmakedefine01 LUISA_USE_SYSTEM_YYJSON
+#cmakedefine01 LUISA_USE_SYSTEM_MARL
+#cmakedefine01 LUISA_USE_SYSTEM_LMDB
+#cmakedefine01 LUISA_USE_SYSTEM_VULKAN
 
 /* Windows-specific definitions */
 #if LUISA_PLATFORM_WINDOWS

@@ -185,13 +185,30 @@ if (LUISA_COMPUTE_ENABLE_DSL)
 endif ()
 
 # Generate luisa-config.h
+# Collect all configuration flags for export
 set(LUISA_ENABLE_IR 0)
 set(LUISA_ENABLE_DSL 0)
+set(LUISA_ENABLE_GUI 0)
+set(LUISA_ENABLE_API 0)
+set(LUISA_ENABLE_XIR 0)
+set(LUISA_ENABLE_CLANGCXX 0)
+set(LUISA_ENABLE_TENSOR 0)
 set(LUISA_ENABLE_WAYLAND 0)
 set(LUISA_PLATFORM_WINDOWS 0)
 set(LUISA_PLATFORM_UNIX 0)
 set(LUISA_PLATFORM_APPLE 0)
+set(LUISA_USE_SYSTEM_STL 0)
+set(LUISA_USE_SYSTEM_SPDLOG 0)
+set(LUISA_USE_SYSTEM_XXHASH 0)
+set(LUISA_USE_SYSTEM_MAGIC_ENUM 0)
+set(LUISA_USE_SYSTEM_GLFW 0)
+set(LUISA_USE_SYSTEM_REPROC 0)
+set(LUISA_USE_SYSTEM_YYJSON 0)
+set(LUISA_USE_SYSTEM_MARL 0)
+set(LUISA_USE_SYSTEM_LMDB 0)
+set(LUISA_USE_SYSTEM_VULKAN 0)
 
+# Core feature flags
 if (LUISA_COMPUTE_ENABLE_RUST)
     set(LUISA_ENABLE_IR 1)
 endif ()
@@ -200,10 +217,31 @@ if (LUISA_COMPUTE_ENABLE_DSL)
     set(LUISA_ENABLE_DSL 1)
 endif ()
 
+if (LUISA_COMPUTE_ENABLE_GUI)
+    set(LUISA_ENABLE_GUI 1)
+endif ()
+
+# Note: LUISA_ENABLE_API, LUISA_ENABLE_XIR, LUISA_ENABLE_CLANGCXX, LUISA_ENABLE_TENSOR
+# are set as PUBLIC definitions on their respective component targets, not on luisa-compute-include.
+# They are always available when those components are built, so we set them based on whether
+# the components are enabled.
+set(LUISA_ENABLE_API 1)  # Always built
+set(LUISA_ENABLE_XIR 1)  # Always built
+
+if (LUISA_COMPUTE_ENABLE_CLANG_CXX)
+    set(LUISA_ENABLE_CLANGCXX 1)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_TENSOR)
+    set(LUISA_ENABLE_TENSOR 1)
+endif ()
+
+# Platform-specific features
 if (UNIX AND NOT APPLE AND LUISA_COMPUTE_ENABLE_WAYLAND)
     set(LUISA_ENABLE_WAYLAND 1)
 endif ()
 
+# Platform detection
 if (WIN32)
     set(LUISA_PLATFORM_WINDOWS 1)
 elseif (UNIX)
@@ -211,6 +249,47 @@ elseif (UNIX)
     if (APPLE)
         set(LUISA_PLATFORM_APPLE 1)
     endif ()
+endif ()
+
+# System library usage flags
+if (LUISA_COMPUTE_USE_SYSTEM_STL)
+    set(LUISA_USE_SYSTEM_STL 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_SPDLOG)
+    set(LUISA_USE_SYSTEM_SPDLOG 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_XXHASH)
+    set(LUISA_USE_SYSTEM_XXHASH 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_MAGIC_ENUM)
+    set(LUISA_USE_SYSTEM_MAGIC_ENUM 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_GLFW)
+    set(LUISA_USE_SYSTEM_GLFW 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_REPROC)
+    set(LUISA_USE_SYSTEM_REPROC 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_YYJSON)
+    set(LUISA_USE_SYSTEM_YYJSON 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_MARL)
+    set(LUISA_USE_SYSTEM_MARL 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_LMDB)
+    set(LUISA_USE_SYSTEM_LMDB 1)
+endif ()
+
+if (LUISA_COMPUTE_USE_SYSTEM_VOLK)
+    set(LUISA_USE_SYSTEM_VULKAN 1)
 endif ()
 
 configure_file(
@@ -222,25 +301,44 @@ configure_file(
 set(LUISA_COMPUTE_PKGCONFIG_CFLAGS "")
 set(LUISA_COMPUTE_PKGCONFIG_LIBS "")
 
-if (LUISA_ENABLE_IR)
-    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_ENABLE_IR=1")
-endif ()
-
-if (LUISA_ENABLE_DSL)
-    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_ENABLE_DSL=1")
-endif ()
-
-if (LUISA_ENABLE_WAYLAND)
-    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_ENABLE_WAYLAND=1")
-endif ()
-
-if (LUISA_PLATFORM_WINDOWS)
-    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_PLATFORM_WINDOWS=1" "-D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR")
-elseif (LUISA_PLATFORM_UNIX)
-    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_PLATFORM_UNIX=1")
-    if (LUISA_PLATFORM_APPLE)
-        list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_PLATFORM_APPLE=1")
+# Helper function to add compile flag to pkg-config
+function(add_pkgconfig_cflag flag_name flag_value)
+    if (${flag_value})
+        list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-D${flag_name}=${flag_value}")
+        set(LUISA_COMPUTE_PKGCONFIG_CFLAGS "${LUISA_COMPUTE_PKGCONFIG_CFLAGS}" PARENT_SCOPE)
     endif ()
+endfunction()
+
+# Core feature flags
+add_pkgconfig_cflag(LUISA_ENABLE_IR ${LUISA_ENABLE_IR})
+add_pkgconfig_cflag(LUISA_ENABLE_DSL ${LUISA_ENABLE_DSL})
+add_pkgconfig_cflag(LUISA_ENABLE_GUI ${LUISA_ENABLE_GUI})
+add_pkgconfig_cflag(LUISA_ENABLE_API ${LUISA_ENABLE_API})
+add_pkgconfig_cflag(LUISA_ENABLE_XIR ${LUISA_ENABLE_XIR})
+add_pkgconfig_cflag(LUISA_ENABLE_CLANGCXX ${LUISA_ENABLE_CLANGCXX})
+add_pkgconfig_cflag(LUISA_ENABLE_TENSOR ${LUISA_ENABLE_TENSOR})
+add_pkgconfig_cflag(LUISA_ENABLE_WAYLAND ${LUISA_ENABLE_WAYLAND})
+
+# Platform flags
+add_pkgconfig_cflag(LUISA_PLATFORM_WINDOWS ${LUISA_PLATFORM_WINDOWS})
+add_pkgconfig_cflag(LUISA_PLATFORM_UNIX ${LUISA_PLATFORM_UNIX})
+add_pkgconfig_cflag(LUISA_PLATFORM_APPLE ${LUISA_PLATFORM_APPLE})
+
+# System library flags
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_STL ${LUISA_USE_SYSTEM_STL})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_SPDLOG ${LUISA_USE_SYSTEM_SPDLOG})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_XXHASH ${LUISA_USE_SYSTEM_XXHASH})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_MAGIC_ENUM ${LUISA_USE_SYSTEM_MAGIC_ENUM})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_GLFW ${LUISA_USE_SYSTEM_GLFW})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_REPROC ${LUISA_USE_SYSTEM_REPROC})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_YYJSON ${LUISA_USE_SYSTEM_YYJSON})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_MARL ${LUISA_USE_SYSTEM_MARL})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_LMDB ${LUISA_USE_SYSTEM_LMDB})
+add_pkgconfig_cflag(LUISA_USE_SYSTEM_VULKAN ${LUISA_USE_SYSTEM_VULKAN})
+
+# Add Windows-specific flag
+if (LUISA_PLATFORM_WINDOWS)
+    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR")
 endif ()
 
 # Convert lists to space-separated strings
