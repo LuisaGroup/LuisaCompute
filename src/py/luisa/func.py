@@ -142,6 +142,11 @@ class func:
         if len(argtypes) > len(self.parameters):
             raise Exception(
                 f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} or less expected).")
+        # Check for too few arguments (considering default values)
+        min_required_args = sum(1 for p in self.parameters.values() if p.default is inspect.Parameter.empty)
+        if len(argtypes) < min_required_args:
+            raise Exception(
+                f"calling {self.__name__} with {len(argtypes)} arguments ({min_required_args} or more expected).")
         annotation_type_check(self.__name__, self.parameters, argtypes)
         f = FuncInstanceInfo(self, True, argtypes)
 
@@ -305,6 +310,11 @@ class func:
         if len(argtypes) > len(self.parameters):
             raise Exception(
                 f"calling {self.__name__} with {len(argtypes)} arguments ({len(self.parameters)} or less expected).")
+        # Check for too few arguments (considering default values)
+        min_required_args = sum(1 for p in self.parameters.values() if p.default is inspect.Parameter.empty)
+        if len(argtypes) < min_required_args:
+            raise Exception(
+                f"calling {self.__name__} with {len(argtypes)} arguments ({min_required_args} or more expected).")
         annotation_type_check(self.__name__, self.parameters, argtypes)
         f = FuncInstanceInfo(self, call_from_host, argtypes)
 
