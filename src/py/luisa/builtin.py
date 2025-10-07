@@ -128,10 +128,15 @@ def builtin_bin_op(op, lhs, rhs):
                 if exponential == 2:
                     return builtin_bin_op(ast.Mult, lhs, lhs)
                 elif exponential == 3:
-                    return builtin_bin_op(ast.Mult, lhs, builtin_bin_op(ast.Mult, lhs, lhs))
+                    # Wrap intermediate result in SimpleNamespace
+                    lhs_squared = SimpleNamespace()
+                    lhs_squared.dtype, lhs_squared.expr = builtin_bin_op(ast.Mult, lhs, lhs)
+                    return builtin_bin_op(ast.Mult, lhs, lhs_squared)
                 elif exponential == 4:
-                    return builtin_bin_op(ast.Mult, builtin_bin_op(ast.Mult, lhs, lhs),
-                                          builtin_bin_op(ast.Mult, lhs, lhs))
+                    # Wrap intermediate results in SimpleNamespace
+                    lhs_squared = SimpleNamespace()
+                    lhs_squared.dtype, lhs_squared.expr = builtin_bin_op(ast.Mult, lhs, lhs)
+                    return builtin_bin_op(ast.Mult, lhs_squared, lhs_squared)
         return builtin_func("pow", lhs, rhs)
     dtype0, dtype1 = lhs.dtype, rhs.dtype
     length0, length1 = length_of(dtype0), length_of(dtype1)
