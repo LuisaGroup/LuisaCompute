@@ -1,0 +1,13 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: LuisaCompute
+Description: High-performance cross-platform compute framework
+Version: @LUISA_COMPUTE_VERSION@
+URL: https://github.com/LuisaGroup/LuisaCompute
+
+Requires:
+Cflags: -I${includedir} @LUISA_COMPUTE_PKGCONFIG_CFLAGS@
+Libs: -L${libdir} @LUISA_COMPUTE_PKGCONFIG_LIBS@

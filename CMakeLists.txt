@@ -144,7 +144,9 @@ file(GLOB_RECURSE LUISA_COMPUTE_HEADERS CONFIGURE_DEPENDS
         "include/luisa/*.hpp")
 add_library(luisa-compute-include INTERFACE ${LUISA_COMPUTE_HEADERS})
 target_include_directories(luisa-compute-include INTERFACE
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(luisa-compute-include INTERFACE c_std_11 cxx_std_20)
 
 if (LUISA_COMPUTE_ENABLE_RUST)
@@ -182,12 +184,90 @@ if (LUISA_COMPUTE_ENABLE_DSL)
     target_compile_definitions(luisa-compute-include INTERFACE LUISA_ENABLE_DSL=1)
 endif ()
 
+# Generate luisa-config.h
+set(LUISA_ENABLE_IR 0)
+set(LUISA_ENABLE_DSL 0)
+set(LUISA_ENABLE_WAYLAND 0)
+set(LUISA_PLATFORM_WINDOWS 0)
+set(LUISA_PLATFORM_UNIX 0)
+set(LUISA_PLATFORM_APPLE 0)
+
+if (LUISA_COMPUTE_ENABLE_RUST)
+    set(LUISA_ENABLE_IR 1)
+endif ()
+
+if (LUISA_COMPUTE_ENABLE_DSL)
+    set(LUISA_ENABLE_DSL 1)
+endif ()
+
+if (UNIX AND NOT APPLE AND LUISA_COMPUTE_ENABLE_WAYLAND)
+    set(LUISA_ENABLE_WAYLAND 1)
+endif ()
+
+if (WIN32)
+    set(LUISA_PLATFORM_WINDOWS 1)
+elseif (UNIX)
+    set(LUISA_PLATFORM_UNIX 1)
+    if (APPLE)
+        set(LUISA_PLATFORM_APPLE 1)
+    endif ()
+endif ()
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/luisa/luisa-config.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/include/luisa/luisa-config.h
+    @ONLY)
+
+# Generate pkg-config file
+set(LUISA_COMPUTE_PKGCONFIG_CFLAGS "")
+set(LUISA_COMPUTE_PKGCONFIG_LIBS "")
+
+if (LUISA_ENABLE_IR)
+    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_ENABLE_IR=1")
+endif ()
+
+if (LUISA_ENABLE_DSL)
+    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_ENABLE_DSL=1")
+endif ()
+
+if (LUISA_ENABLE_WAYLAND)
+    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_ENABLE_WAYLAND=1")
+endif ()
+
+if (LUISA_PLATFORM_WINDOWS)
+    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_PLATFORM_WINDOWS=1" "-D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR")
+elseif (LUISA_PLATFORM_UNIX)
+    list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_PLATFORM_UNIX=1")
+    if (LUISA_PLATFORM_APPLE)
+        list(APPEND LUISA_COMPUTE_PKGCONFIG_CFLAGS "-DLUISA_PLATFORM_APPLE=1")
+    endif ()
+endif ()
+
+# Convert lists to space-separated strings
+string(REPLACE ";" " " LUISA_COMPUTE_PKGCONFIG_CFLAGS "${LUISA_COMPUTE_PKGCONFIG_CFLAGS}")
+string(REPLACE ";" " " LUISA_COMPUTE_PKGCONFIG_LIBS "${LUISA_COMPUTE_PKGCONFIG_LIBS}")
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/luisacompute.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/luisacompute.pc
+    @ONLY)
+
 install(TARGETS luisa-compute-include
         EXPORT LuisaComputeTargets)
 
 install(DIRECTORY include/luisa
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp")
+
+# Install generated luisa-config.h
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/luisa/luisa-config.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/luisa)
+
+# Install pkg-config file
+if (NOT SKBUILD)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/luisacompute.pc
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+endif ()
 
 # Global definition to avoid MSVC ABI break.
 # See https://github.com/microsoft/STL/releases/tag/vs-2022-17.10 for details.
