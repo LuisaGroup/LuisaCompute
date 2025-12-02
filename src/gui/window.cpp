@@ -179,8 +179,9 @@ void Window::set_should_close(bool should_close) noexcept {
     glfwSetWindowShouldClose(static_cast<detail::WindowImpl *>(_impl.get())->window, should_close);
 }
 
-void Window::set_window_title(const char *title) noexcept {
-    glfwSetWindowTitle(static_cast<detail::WindowImpl *>(_impl.get())->window, title);
+void Window::set_window_name(string name) noexcept {
+    _name = std::move(name);
+    glfwSetWindowTitle(static_cast<detail::WindowImpl *>(_impl.get())->window, _name.c_str());
 }
 
 bool Window::is_key_down(Key key) const noexcept {
