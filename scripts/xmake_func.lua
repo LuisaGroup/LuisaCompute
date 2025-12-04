@@ -3,14 +3,6 @@ option("_lc_enable_py", {
     showmenu = false
 })
 
-option("_lc_script_path")
-set_showmenu(false)
-set_default(false)
-after_check(function(option)
-    option:set_value(os.scriptdir())
-end)
-option_end()
-
 option("_lc_check_env")
 set_showmenu(false)
 set_default(false)

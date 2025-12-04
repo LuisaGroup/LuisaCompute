@@ -60,6 +60,21 @@ option("lc_lmdb_use_xrepo", {default = false})
 option("lc_imgui_use_xrepo", {default = false})
 option("lc_glfw_use_xrepo", {default = false})
 option("lc_yyjson_use_xrepo", {default = false})
+-- xmake file paths
+option("lc_scripts_path")
+set_showmenu(false)
+set_default(false)
+after_check(function(option)
+    option:set_value(path.join(os.scriptdir(), 'scripts'))
+end)
+option_end()
+option("lc_ext_path")
+set_showmenu(false)
+set_default(false)
+after_check(function(option)
+    option:set_value(path.join(os.scriptdir(), 'src/ext'))
+end)
+option_end()
 
 -- pre-defined options end
 -- try options.lua

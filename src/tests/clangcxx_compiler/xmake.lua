@@ -14,7 +14,8 @@ end)
 add_files("*.cpp")
 add_deps("lc-clangcxx", "lc-runtime", "lc-vstl", "reproc")
 add_deps("lc-backends-dummy", {
-    inherit = false
+    inherit = false,
+    links = false
 })
 after_build(function(target)
     -- TODO: macos and linux

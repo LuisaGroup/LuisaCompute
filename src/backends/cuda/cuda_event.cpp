@@ -30,9 +30,29 @@ void CUDAEvent::signal(CUstream stream, uint64_t value) noexcept {
     CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS params{};
     params.params.fence.value = value;
     LUISA_CHECK_CUDA(cuSignalExternalSemaphoresAsync(&_cuda_semaphore, &params, 1, stream));
+#ifndef NDEBUG
+    _mark_signal_fence(value);
+#endif
 }
 
+#ifndef NDEBUG
+void CUDAEvent::_mark_signal_fence(uint64_t fence) noexcept {
+    uint64_t old_val = _signaled_fence.load(std::memory_order_relaxed);
+    while (fence > old_val &&
+           !_signaled_fence.compare_exchange_weak(
+               old_val, fence,
+               std::memory_order_release,
+               std::memory_order_relaxed)) {
+        LUISA_INTRIN_PAUSE();
+    }
+}
+#endif
 void CUDAEvent::wait(CUstream stream, uint64_t value) noexcept {
+#ifndef NDEBUG
+    auto evt_value = _signaled_fence.load();
+    if (evt_value < value)
+        LUISA_ERROR("Waiting for fence {} greater than last signaled-fence {}", value, evt_value);
+#endif
     CUDA_EXTERNAL_SEMAPHORE_WAIT_PARAMS params{};
     params.params.fence.value = value;
     LUISA_CHECK_CUDA(cuWaitExternalSemaphoresAsync(&_cuda_semaphore, &params, 1, stream));

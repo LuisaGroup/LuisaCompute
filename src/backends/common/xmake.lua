@@ -40,7 +40,7 @@ if has_config("lc_cuda_backend") or has_config('lc_dx_cuda_interop') or has_conf
     set_kind('phony')
     on_load(function(target)
         import("cuda_sdkdir", {
-            rootdir = get_config('_lc_script_path')
+            rootdir = get_config('lc_scripts_path')
         })
         import("detect.sdks.find_cuda")
         local cuda = find_cuda(cuda_sdkdir())

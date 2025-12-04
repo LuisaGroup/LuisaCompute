@@ -6,8 +6,7 @@ _config_project({
 })
 add_deps("lc-vstl")
 add_deps("lc_embed_codegen", {
-    inherit = false,
-    public = false
+    inherit = false
 })
 on_load(function(target)
     if not target:is_plat("windows") then

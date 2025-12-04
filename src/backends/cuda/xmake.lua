@@ -32,8 +32,7 @@ _config_project({
 add_deps("lc-runtime", "lc-cuda-backend-base")
 
 add_deps("lc_embed_codegen", {
-    inherit = false,
-    public = false
+    inherit = false
 })
 add_rules("lc_compile_codegen", {
     remove_ext = true,

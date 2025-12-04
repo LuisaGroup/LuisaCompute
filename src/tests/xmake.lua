@@ -1,25 +1,16 @@
 local lc_enable_gui = has_config("lc_enable_gui")
 -- TEST MAIN with doctest
 ------------------------------------
-function tool_target_with_lc(name)
-    local bin_name = name .. "_b"
-    target(name)
-    set_kind("phony")
-    add_rules("lc_run_target")
-    add_deps(bin_name, "lc-backends-dummy", {
-        inherit = false
-    })
-    target_end()
-
-    target(bin_name)
-    set_basename(name)
-end
 
 local function lc_add_app(appname, folder, name, deps)
 
-    tool_target_with_lc(appname)
+    target(appname)
     _config_project({
         project_kind = "binary"
+    })
+    add_deps("lc-backends-dummy", {
+        inherit = false,
+        links = false
     })
     set_pcxxheader("lc_test_pch.h")
     add_files("common/test_main.cpp")
@@ -90,7 +81,11 @@ local function test_proj(name, gui_dep, callable, kind)
     if gui_dep and not lc_enable_gui then
         return
     end
-    tool_target_with_lc(name)
+    target(name)
+    add_deps("lc-backends-dummy", {
+        inherit = false,
+        links = false
+    })
     _config_project({
         project_kind = kind or "binary"
     })

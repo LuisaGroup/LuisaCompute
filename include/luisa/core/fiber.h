@@ -160,6 +160,25 @@ template<class F>
     }
     return evt;
 }
+template<class F>
+    requires(std::is_invocable_v<F, uint32_t>)
+[[nodiscard]] void async_parallel(luisa::fiber::counter &evt, uint32_t job_count, F &&lambda, uint32_t internal_jobs = 1) noexcept {
+    auto thread_count = std::clamp<uint32_t>(job_count / internal_jobs, 1u, worker_thread_count());
+    evt.add(thread_count);
+    luisa::SharedFunction<void()> func{[counter = detail::NonMovableAtomic<uint32_t>(0), job_count, internal_jobs, evt, lambda = std::forward<F>(lambda)]() mutable noexcept {
+        uint32_t i = 0u;
+        while ((i = counter.value.fetch_add(internal_jobs)) < job_count) {
+            auto end = std::min<uint32_t>(i + internal_jobs, job_count);
+            for (uint32_t v = i; v < end; ++v) {
+                lambda(v);
+            }
+        }
+        evt.done();
+    }};
+    for (uint32_t i = 0; i < thread_count; ++i) {
+        marl::schedule(func);
+    }
+}
 
 template<class F>
     requires(std::is_invocable_v<F, uint32_t> || std::is_invocable_v<F, uint32_t, uint32_t>)
@@ -263,6 +282,27 @@ auto async_parallel(Iter begin, Iter end, size_t batch, F f, size_t inplace_batc
         marl::schedule(shared_func);
     }
     return counter;
+}
+template<class F, class Iter>
+    requires(std::is_invocable_v<F, Iter, Iter>)
+void async_parallel(luisa::fiber::counter &counter, Iter begin, Iter end, size_t batch, F f, size_t inplace_batch_threahold = 1ull) {
+    auto n = _distance(begin, end);
+    size_t batchCount = (n + batch - 1) / batch;
+
+    auto thread_count = std::clamp<size_t>(batchCount, 1u, std::thread::hardware_concurrency());
+    counter.add(thread_count);
+    luisa::SharedFunction<void()> shared_func{[atomic_fence = detail::NonMovableAtomic<size_t>(0), counter, batchCount, batch, n, begin, f = std::forward<F>(f)]() mutable {
+        size_t i = 0ull;
+        while ((i = atomic_fence.value.fetch_add(1)) < batchCount) {
+            auto begin_idx = i * batch;
+            auto end_idx = std::min<size_t>((i + 1) * batch, static_cast<size_t>(n));
+            f(begin + begin_idx, begin + end_idx);
+        }
+        counter.done();
+    }};
+    for (size_t i = 0; i < thread_count; ++i) {
+        marl::schedule(shared_func);
+    }
 }
 
 }// namespace luisa::fiber

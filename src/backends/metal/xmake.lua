@@ -23,8 +23,7 @@ add_frameworks("Foundation", "Metal", "QuartzCore", "AppKit")
 add_syslinks("compression")
 
 add_deps("lc_embed_codegen", {
-    inherit = false,
-    public = false
+    inherit = false
 })
 add_rules("lc_compile_codegen", {
     remove_ext = true,

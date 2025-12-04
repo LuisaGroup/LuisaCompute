@@ -19,6 +19,10 @@ private:
     VkDevice _device;
     VkSemaphore _vk_semaphore;
     CUexternalSemaphore _cuda_semaphore;
+#ifndef NDEBUG
+    std::atomic_uint64_t _signaled_fence{};
+    void _mark_signal_fence(uint64_t fence) noexcept;
+#endif
 
 public:
     CUDAEvent(VkDevice device,

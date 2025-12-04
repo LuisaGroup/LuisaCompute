@@ -919,6 +919,7 @@ void Stream::update_sparse_resources(luisa::vector<SparseUpdateTile> &&textures_
         &info,
         VK_NULL_HANDLE));
     _queue_mtx->unlock();
+    _evt.mark_signal_fence(fence);
     _mtx.lock();
     _exec.push(NotifyEvt{
         .evt = &_evt,

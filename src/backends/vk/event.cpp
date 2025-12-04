@@ -33,6 +33,18 @@ VkTimelineSemaphoreSubmitInfo Event::get_timeline_submit(uint64_t const *value_p
 
     return timelineInfo1;
 }
+void Event::mark_signal_fence(uint64_t fence) {
+#ifndef NDEBUG
+    uint64_t old_val = signaledEvent.load(std::memory_order_relaxed);
+    while (fence > old_val &&
+           !signaledEvent.compare_exchange_weak(
+               old_val, fence,
+               std::memory_order_release,
+               std::memory_order_relaxed)) {
+        LUISA_INTRIN_PAUSE();
+    }
+#endif
+}
 void Event::signal_sparse(Stream &stream, uint64_t const *value_ptr, VkBindSparseInfo *sparse_info, VkTimelineSemaphoreSubmitInfo *timeline_ptr) {
     {
         std::lock_guard lck(eventMtx);
@@ -67,8 +79,14 @@ void Event::signal(Stream &stream, uint64_t value, VkCommandBuffer *cmdbuffer) {
     stream.queue_mtx().lock();
     VK_CHECK_RESULT(vkQueueSubmit(stream.queue(), 1, &info1, VK_NULL_HANDLE));
     stream.queue_mtx().unlock();
+    mark_signal_fence(value);
 }
 void Event::wait(Stream &stream, uint64_t value) {
+#ifndef NDEBUG
+    auto evt_value = signaledEvent.load();
+    if (evt_value < value)
+        LUISA_ERROR("Waiting for fence {} greater than last signaled-fence {}", value, evt_value);
+#endif
     if (device()->config_ext() && device()->config_ext()->wait_semaphore(stream.queue(), _semaphore, value))
         return;
     VkTimelineSemaphoreSubmitInfo timelineInfo1{};
