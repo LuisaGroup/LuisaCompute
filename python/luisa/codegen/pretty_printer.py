@@ -72,12 +72,16 @@ class PrettyPrinter:
         """Print an IR function."""
         # Function signature
         ret_type = self._type_to_str(func.ret_type) if func.ret_type else 'void'
-        arg_types = [self._type_to_str(t) for t in func.arg_types]
         
-        kernel_marker = '[kernel] ' if func.is_kernel else ''
-        block_size = f" block_size={func.block_size}" if func.block_size else ''
+        # Format arguments: type arg_name
+        args_formatted = []
+        for i, t in enumerate(func.arg_types):
+            args_formatted.append(f"{self._type_to_str(t)} arg{i}")
         
-        self._write_line(f"{kernel_marker}func {func.name}({', '.join(arg_types)}) -> {ret_type}{block_size} {{")
+        kernel_marker = 'kernel ' if func.is_kernel else ''
+        block_size = f" /* block_size={func.block_size} */" if func.block_size else ''
+        
+        self._write_line(f"{kernel_marker}{ret_type} {func.name}({', '.join(args_formatted)}){block_size} {{")
         
         self._increase_indent()
         
@@ -144,12 +148,21 @@ class PrettyPrinter:
                 self._write_line("}")
             self._decrease_indent()
             self._write_line("}")
+        elif inst.op == IROp.RETURN:
+            if inst.args:
+                self._write_line(f"return {self._arg_to_str(inst.args[0])};")
+            else:
+                self._write_line("return;")
+        elif inst.op == IROp.BREAK:
+            self._write_line("break;")
+        elif inst.op == IROp.CONTINUE:
+            self._write_line("continue;")
         else:
             args_str = self._args_to_str(inst.args)
             if inst.result:
-                self._write_line(f"{inst.result}: {type_str} = {op_str} {args_str}")
+                self._write_line(f"{type_str} {inst.result} = {op_str}({args_str});")
             else:
-                self._write_line(f"{op_str} {args_str}")
+                self._write_line(f"{op_str}({args_str});")
 
     def _print_block_inline(self, block: Any) -> None:
         """Print instructions of a block without the label and additional indent."""
@@ -228,7 +241,7 @@ class PrettyPrinter:
         """Convert a single argument to string."""
         if hasattr(arg, 'name') and hasattr(arg, 'instructions'):
             # IRBasicBlock
-            return f"%{arg.name}"
+            return f"{arg.name}"
         elif hasattr(arg, 'name') and hasattr(arg, 'type'):
             # Value (InstructionValue, ArgumentValue, ConstantValue)
             if hasattr(arg, 'value'):
@@ -238,12 +251,12 @@ class PrettyPrinter:
                 # ArgumentValue
                 return f"arg{arg.index}"
             elif arg.name:
-                return f"%{arg.name}"
+                return f"{arg.name}"
             else:
                 return str(arg)
         elif hasattr(arg, 'name'):
             # IRBasicBlock
-            return f"%{arg.name}"
+            return f"{arg.name}"
         else:
             # String or other literal
             return repr(arg)
