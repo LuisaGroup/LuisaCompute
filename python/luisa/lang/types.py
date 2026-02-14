@@ -56,6 +56,19 @@ class Type:
 
 
 @dataclass(frozen=True)
+class Ref(Type):
+    """Reference type (e.g., for mutable function arguments)."""
+    element: Type
+    
+    def __repr__(self) -> str:
+        return f"ref<{self.element}>"
+    
+    def __class_getitem__(cls, item):
+        """Support Ref[float32] syntax."""
+        return cls(element=item)
+
+
+@dataclass(frozen=True)
 class Scalar(Type):
     """Scalar type."""
     dtype: ScalarType
@@ -294,7 +307,7 @@ class Void(Type):
 AnyType = Union[
     Scalar, Vector, Matrix, Array, Struct,
     Buffer, Texture2D, Texture3D, BindlessArray,
-    Accel, RayQuery, Callable, Void
+    Accel, RayQuery, Callable, Void, Ref
 ]
 
 

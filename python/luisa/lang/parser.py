@@ -95,6 +95,13 @@ def annotation_to_type(ann: Any) -> Optional[Type]:
     args = getattr(ann, '__args__', None)
     
     if origin is not None and args is not None:
+        # Handle Ref[T]
+        if origin.__name__ == 'Ref' or getattr(origin, '__name__', None) == 'Ref':
+            elem_type = annotation_to_type(args[0])
+            if elem_type is not None:
+                from .types import Ref
+                return Ref(element=elem_type)
+
         # Handle Buffer[T]
         if origin.__name__ == 'Buffer' or getattr(origin, '__name__', None) == 'buffer':
             elem_type = annotation_to_type(args[0])

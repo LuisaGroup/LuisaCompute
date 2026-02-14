@@ -190,8 +190,12 @@ class PrettyPrinter:
         
         from ..lang.types import (
             Scalar, Vector, Matrix, Array, Struct, Buffer,
-            Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void
+            Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void, Ref
         )
+        
+        if isinstance(t, Ref):
+            elem = self._type_to_str(t.element)
+            return f"Ref<{elem}>"
         
         if isinstance(t, Void):
             return 'void'

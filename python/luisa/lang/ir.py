@@ -272,6 +272,7 @@ class ConstantValue(Value):
 class ArgumentValue(Value):
     """Function argument value."""
     index: int = 0
+    is_reference: bool = False
 
     def __post_init__(self):
         if self.name is None:

@@ -26,6 +26,7 @@ class ASTRewriter(ast.NodeTransformer):
         self.template_params = set(template_params or [])
         self._in_loop = 0
         self.rt_alias = "__luisa_rt"
+        self.ref_vars = set() # Variables that are of Ref type
 
     def rewrite(self, node: ast.AST) -> ast.AST:
         """Entry point for rewriting."""
@@ -46,13 +47,36 @@ class ASTRewriter(ast.NodeTransformer):
         return None
 
     def visit_Name(self, node: ast.Name) -> Any:
-        """Handle names, preserving template parameters."""
+        """Handle names, preserving template parameters and handling Ref loads."""
         if node.id in self.template_params:
             return node
+        
+        if isinstance(node.ctx, ast.Load) and node.id in self.ref_vars:
+            # Automatic load for Ref types: builder.load(name)
+            return ast.Call(
+                func=ast.Attribute(
+                    value=ast.Name(id=self.builder_name, ctx=ast.Load()),
+                    attr="load",
+                    ctx=ast.Load()
+                ),
+                args=[node],
+                keywords=[]
+            )
+            
         return self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Rewrite function definition."""
+        # Detect Ref arguments
+        for arg in node.args.args:
+            # Check if annotation is Ref[...]
+            ann = arg.annotation
+            if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name) and ann.value.id == 'Ref':
+                self.ref_vars.add(arg.arg)
+            # Handle from luisa import Ref; a: Ref[i32]
+            elif isinstance(ann, ast.Name) and ann.id == 'Ref': # unlikely to be used like this without subscript
+                self.ref_vars.add(arg.arg)
+
         # Create a new argument for the builder
         builder_arg = ast.arg(arg=self.builder_name, annotation=None)
         
@@ -208,6 +232,18 @@ class ASTRewriter(ast.NodeTransformer):
             target = node.targets[0]
             if isinstance(target, ast.Subscript):
                 return ast.Expr(value=self._rt_call("l_subscript_assign", self.visit(target.value), self.visit(target.slice), self.visit(node.value)))
+            
+            if isinstance(target, ast.Name) and target.id in self.ref_vars:
+                # Automatic store for Ref types: builder.store(name, value)
+                return ast.Expr(value=ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id=self.builder_name, ctx=ast.Load()),
+                        attr="store",
+                        ctx=ast.Load()
+                    ),
+                    args=[ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)],
+                    keywords=[]
+                ))
         
         # Standard assignment is fine
         return ast.Assign(

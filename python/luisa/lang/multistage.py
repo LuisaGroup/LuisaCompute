@@ -427,9 +427,16 @@ class StagedFunction:
     
     def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> IRFunction:
         arg_types = []
+        from .types import Ref
         for i, arg in enumerate(args):
             if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
-                arg_types.append(self.parsed.arg_annotations[i])
+                ann = self.parsed.arg_annotations[i]
+                if isinstance(ann, Ref):
+                    arg_types.append(ann)
+                else:
+                    # For non-Ref, we might still want to use inferred type if it's more specific?
+                    # No, follow the annotation if present.
+                    arg_types.append(ann)
             else:
                 arg_types.append(self._get_arg_type(arg))
         arg_types = tuple(arg_types)

@@ -46,8 +46,10 @@ class IRBuilder:
         self.current_loc: Optional[SourceLocation] = None
         
         # Initialize argument values
+        from .types import Ref
         for i, arg_typ in enumerate(arg_types):
-            arg_val = ArgumentValue(typ=arg_typ, index=i)
+            is_ref = isinstance(arg_typ, Ref)
+            arg_val = ArgumentValue(typ=arg_typ, index=i, is_reference=is_ref)
             self.arg_values.append(arg_val)
     
     # ========================================================================
@@ -310,8 +312,12 @@ class IRBuilder:
     
     def load(self, ptr: Value, typ: Optional[Type] = None) -> InstructionValue:
         """Emit a load instruction."""
+        from .types import Ref
         if typ is None:
-            typ = ptr.type
+            if isinstance(ptr.type, Ref):
+                typ = ptr.type.element
+            else:
+                typ = ptr.type
         return self._emit(IROp.LOAD, typ, [ptr])
     
     def store(self, ptr: Value, value: Value) -> InstructionValue:
