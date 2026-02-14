@@ -1,8 +1,8 @@
 """
 Tests for the LuisaCompute Python DSL v2.
 
-Run with: python -m pytest luisa/test_dsl.py -v
-Or: python -m luisa.test_dsl
+Run with: python -m pytest tests/test_dsl.py -v
+Or: python -m tests.test_dsl
 """
 
 import sys

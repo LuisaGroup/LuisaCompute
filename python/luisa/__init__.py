@@ -43,6 +43,17 @@ from .builder import IRBuilder
 # Staged functions
 from .staged import StagedFunction, kernel, callable
 
+# Builtins
+from .builtins import (
+    sqrt, abs, sin, cos, tan, asin, acos, atan, atan2,
+    exp, exp2, log, log2, log10,
+    floor, ceil, round, trunc, fract, saturate,
+    normalize, length, length_squared,
+    min, max, clamp, lerp, step, smoothstep, pow,
+    dot, cross, distance, reflect, refract, faceforward,
+    transpose, inverse, determinant,
+)
+
 # Version
 __version__ = "2.0.0-alpha"
 
@@ -79,4 +90,13 @@ __all__ = [
     
     # Staged
     "StagedFunction", "kernel", "callable",
+    
+    # Builtins - Math
+    "sqrt", "abs", "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+    "exp", "exp2", "log", "log2", "log10",
+    "floor", "ceil", "round", "trunc", "fract", "saturate",
+    "normalize", "length", "length_squared",
+    "min", "max", "clamp", "lerp", "step", "smoothstep", "pow",
+    "dot", "cross", "distance", "reflect", "refract", "faceforward",
+    "transpose", "inverse", "determinant",
 ]
