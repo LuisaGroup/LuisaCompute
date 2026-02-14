@@ -482,3 +482,82 @@ def get_broadcast_type(t1: Type, t2: Type) -> Optional[Type]:
             return t1
     
     return None
+
+
+# ============================================================================
+# Struct Decorator
+# ============================================================================
+
+# Registry of defined struct types
+_struct_registry: dict[str, type] = {}
+
+
+def struct(cls: type) -> type:
+    """
+    Decorator to define a struct type for the DSL.
+    
+    Usage:
+        @struct
+        class Particle:
+            position: float3
+            velocity: float3
+            mass: float
+        
+        # Use in kernel
+        @kernel
+        def update(particles: Buffer[Particle]) -> None:
+            p = particles[dispatch_id().x]
+            p.position = p.position + p.velocity * dt
+            particles[dispatch_id().x] = p
+    
+    The decorated class becomes a proper DSL type that can be used in
+    buffers, arrays, and as kernel arguments.
+    """
+    import inspect
+    
+    # Get annotations
+    annotations = getattr(cls, '__annotations__', {})
+    if not annotations:
+        raise TypeError(f"Struct {cls.__name__} must have annotated fields")
+    
+    # Build field list
+    fields = []
+    for name, ann_type in annotations.items():
+        if isinstance(ann_type, type):
+            # Convert Python type to DSL type
+            dsl_type = python_type_to_dsl(ann_type)
+            if dsl_type is None:
+                raise TypeError(f"Field '{name}' has unsupported type: {ann_type}")
+            fields.append((name, dsl_type))
+        elif isinstance(ann_type, Type):
+            fields.append((name, ann_type))
+        else:
+            raise TypeError(f"Field '{name}' has unsupported type annotation: {ann_type}")
+    
+    # Create Struct type
+    struct_type = Struct(
+        name=cls.__name__,
+        fields=tuple(fields),
+        alignment=16  # Default alignment
+    )
+    
+    # Store in registry
+    _struct_registry[cls.__name__] = cls
+    
+    # Attach type info to class
+    cls._dsl_type = struct_type
+    cls._dsl_fields = {name: typ for name, typ in fields}
+    
+    # Add methods
+    def get_dsl_type(self) -> Struct:
+        """Get the DSL type for this struct."""
+        return self._dsl_type
+    
+    cls.get_dsl_type = get_dsl_type
+    
+    return cls
+
+
+def get_struct_type(name: str) -> Optional[type]:
+    """Get a registered struct type by name."""
+    return _struct_registry.get(name)

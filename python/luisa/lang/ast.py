@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 
 if TYPE_CHECKING:
-    from .dsl_types import Type
+    from .types import Type
 
 
 # ============================================================================
@@ -154,15 +154,26 @@ class IROp(Enum):
     ATOMIC_CMP_EXCH = auto()
     
     # Warp operations
+    WARP_IS_FIRST_ACTIVE_LANE = auto()
+    WARP_FIRST_ACTIVE_LANE = auto()
+    WARP_ACTIVE_COUNT_BITS = auto()
     WARP_SUM = auto()
     WARP_PRODUCT = auto()
     WARP_MIN = auto()
     WARP_MAX = auto()
     WARP_ALL = auto()
     WARP_ANY = auto()
+    WARP_ACTIVE_ALL_EQUAL = auto()
+    WARP_ACTIVE_BIT_AND = auto()
+    WARP_ACTIVE_BIT_OR = auto()
+    WARP_ACTIVE_BIT_XOR = auto()
+    WARP_ACTIVE_BIT_MASK = auto()
     WARP_BROADCAST = auto()
     WARP_PREFIX_SUM = auto()
     WARP_PREFIX_PRODUCT = auto()
+    WARP_PREFIX_COUNT_BITS = auto()
+    WARP_READ_LANE = auto()
+    WARP_READ_FIRST_ACTIVE_LANE = auto()
     
     # Synchronization
     SYNC_BLOCK = auto()
@@ -172,6 +183,31 @@ class IROp(Enum):
     
     # Swizzle
     SWIZZLE = auto()
+    
+    # Additional resource operations
+    TEXTURE2D_SIZE = auto()
+    TEXTURE3D_SIZE = auto()
+    BUFFER_DEVICE_ADDRESS = auto()
+    DEVICE_ADDRESS_READ = auto()
+    DEVICE_ADDRESS_WRITE = auto()
+    
+    # Additional ray tracing
+    RAY_QUERY_WORLD_RAY = auto()
+    RAY_QUERY_PROCEED = auto()
+    RAY_QUERY_COMMITTED_HIT = auto()
+    RAY_QUERY_CANDIDATE_TRIANGLE_HIT = auto()
+    RAY_QUERY_CANDIDATE_PROCEDURAL_HIT = auto()
+    RAY_QUERY_COMMIT_TRIANGLE = auto()
+    RAY_QUERY_COMMIT_PROCEDURAL = auto()
+    RAY_QUERY_TERMINATE = auto()
+    ACCEL_INSTANCE_TRANSFORM = auto()
+    ACCEL_INSTANCE_USER_ID = auto()
+    ACCEL_INSTANCE_VISIBILITY_MASK = auto()
+    
+    # Additional operations
+    ASSERT = auto()
+    ASSUME = auto()
+    CLOCK = auto()
 
 
 # ============================================================================

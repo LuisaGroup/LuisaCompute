@@ -13,15 +13,14 @@ from typing import Callable, Optional, Any, TYPE_CHECKING, Union
 from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
-    from .dsl_types import Type
-    from .ir import Value
-
-from .dsl_types import (
-    Type, Scalar, Vector, Matrix, Array, Struct, Buffer, Void,
-    bool_, int32, uint32, float32, float64, float3,
-    python_type_to_dsl
-)
-
+    from .types import Type
+    from .ast import Value
+    
+    from .types import (
+        Type, Scalar, Vector, Matrix, Array, Struct, Buffer, Void,
+        bool_, int32, uint32, float32, float64, float3,
+        python_type_to_dsl
+    )
 
 # ============================================================================
 # Parsed Function Representation

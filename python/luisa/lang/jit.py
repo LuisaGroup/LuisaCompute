@@ -12,14 +12,15 @@ from typing import Callable, Optional, Any, TYPE_CHECKING
 from dataclasses import dataclass
 
 if TYPE_CHECKING:
-    from .dsl_types import Type
-    from .ir import IRFunction, Value
+    from .types import Type
+    from .ast import IRFunction, Value
     from .parser import ParsedFunction
 
-from .dsl_types import Type, value_to_type, int32
-from .ir import IRFunction
+from .types import Type, value_to_type, int32
+from .ast import IRFunction
 from .builder import IRBuilder
 from .parser import parse_function, CapturedVar
+from ..util import UnrolledRange
 
 
 # ============================================================================
@@ -196,34 +197,39 @@ class BuilderExecutor:
             self.builder.return_(value)
     
     def visit_If(self, node: ast.If) -> None:
-        """Visit an if statement using IfScope."""
+        """Visit an if statement using structured IfStmt."""
         cond = self.visit(node.test)
         
-        with self.builder.if_(cond) as if_scope:
-            # True branch
+        if_ = self.builder.if_(cond)
+        
+        # True branch
+        with if_.true_scope():
             for stmt in node.body:
                 self.visit(stmt)
-            
-            # False branch (if exists)
-            if node.orelse:
-                with if_scope.otherwise():
-                    for stmt in node.orelse:
-                        self.visit(stmt)
+        
+        # False branch (if exists)
+        if node.orelse:
+            with if_.false_scope():
+                for stmt in node.orelse:
+                    self.visit(stmt)
     
     def visit_While(self, node: ast.While) -> None:
-        """Visit a while loop using WhileScope."""
-        # Note: For proper while loops, we need to handle the condition
-        # evaluation at the header block. This is a simplified version.
-        
-        # For now, only handle constant conditions
+        """Visit a while loop using structured WhileStmt."""
         cond = self.visit(node.test)
         
-        with self.builder.while_(cond):
+        while_ = self.builder.while_(cond)
+        with while_.body_scope():
             for stmt in node.body:
                 self.visit(stmt)
     
     def visit_For(self, node: ast.For) -> None:
         """Visit a for loop."""
+        # Check if this is an unrolled loop
+        if isinstance(node.iter, ast.Call):
+            if isinstance(node.iter.func, ast.Name) and node.iter.func.id == "unrolled":
+                self._visit_for_unrolled(node)
+                return
+        
         # Check if this is a range() loop
         if isinstance(node.iter, ast.Call):
             if isinstance(node.iter.func, ast.Name) and node.iter.func.id == "range":
@@ -233,7 +239,7 @@ class BuilderExecutor:
         raise NotImplementedError(f"Unsupported for loop iterator: {node.iter}")
     
     def _visit_for_range(self, node: ast.For) -> None:
-        """Visit a for-range loop."""
+        """Visit a for-range loop (dynamic device-side loop)."""
         # Get range arguments
         call = node.iter
         args = [self.visit(arg) for arg in call.args]
@@ -260,13 +266,96 @@ class BuilderExecutor:
         loop_var = node.target.id
         
         # Use dynamic for-range scope
-        with self.builder.for_range(start, stop, step, loop_var):
+        for_ = self.builder.for_range(start, stop, step, loop_var)
+        with for_.body_scope():
+            for stmt in node.body:
+                self.visit(stmt)
+    
+    def _visit_for_unrolled(self, node: ast.For) -> None:
+        """Visit an unrolled for loop (compile-time unrolling)."""
+        # Get unrolled arguments - unrolled(range(...))
+        unrolled_call = node.iter
+        if not unrolled_call.args:
+            raise ValueError("unrolled() requires a range argument")
+        
+        range_call = unrolled_call.args[0]
+        if not isinstance(range_call, ast.Call):
+            raise ValueError("unrolled() argument must be a range() call")
+        
+        # Get range arguments - these must be constants for unrolling
+        range_args = range_call.args
+        
+        # Evaluate constant range arguments
+        def eval_const(node):
+            if isinstance(node, ast.Constant):
+                return node.value
+            raise ValueError(f"unrolled() requires constant arguments, got {ast.dump(node)}")
+        
+        # Determine start, stop, step
+        if len(range_args) == 1:
+            start_val = 0
+            stop_val = eval_const(range_args[0])
+            step_val = 1
+        elif len(range_args) == 2:
+            start_val = eval_const(range_args[0])
+            stop_val = eval_const(range_args[1])
+            step_val = 1
+        elif len(range_args) == 3:
+            start_val = eval_const(range_args[0])
+            stop_val = eval_const(range_args[1])
+            step_val = eval_const(range_args[2])
+        else:
+            raise ValueError("range() takes 1-3 arguments")
+        
+        # Get loop variable name
+        if not isinstance(node.target, ast.Name):
+            raise NotImplementedError("Only simple loop variables supported")
+        loop_var = node.target.id
+        
+        # Use unrolled for-range scope
+        for_ = self.builder.for_unrolled(start_val, stop_val, step_val, loop_var)
+        for _ in for_.body_scope():
+            # Execute body for each unrolled iteration
             for stmt in node.body:
                 self.visit(stmt)
     
     def visit_Pass(self, node: ast.Pass) -> None:
         """Visit a pass statement (no-op)."""
         pass
+    
+    def visit_Break(self, node: ast.Break) -> None:
+        """Visit a break statement."""
+        self.builder.break_()
+    
+    def visit_Continue(self, node: ast.Continue) -> None:
+        """Visit a continue statement."""
+        self.builder.continue_()
+    
+    def visit_Match(self, node: ast.Match) -> None:
+        """Visit a match statement (Python 3.10+)."""
+        # Evaluate the subject
+        subject = self.visit(node.subject)
+        
+        # Use structured switch
+        switch = self.builder.switch(subject)
+        
+        for case in node.cases:
+            # Handle case pattern
+            if isinstance(case.pattern, ast.MatchValue):
+                # Single value case
+                case_value = case.pattern.value.value
+                with switch.case_scope(case_value):
+                    for stmt in case.body:
+                        self.visit(stmt)
+            
+            elif isinstance(case.pattern, ast.MatchAs) and case.pattern.pattern is None:
+                # Default case (case _)
+                with switch.default_scope():
+                    for stmt in case.body:
+                        self.visit(stmt)
+            
+            else:
+                raise NotImplementedError(f"Unsupported case pattern: {type(case.pattern)}")
     
     # ========================================================================
     # Expressions
@@ -302,6 +391,24 @@ class BuilderExecutor:
             return self.builder.mul(left, right)
         elif isinstance(node.op, ast.Div):
             return self.builder.div(left, right)
+        elif isinstance(node.op, ast.Mod):
+            return self.builder.mod(left, right)
+        elif isinstance(node.op, ast.Pow):
+            return self.builder.pow(left, right)
+        elif isinstance(node.op, ast.FloorDiv):
+            # Floor division: convert to floor(a / b)
+            div_result = self.builder.div(left, right)
+            return self.builder.floor(div_result)
+        elif isinstance(node.op, ast.BitAnd):
+            return self.builder.bit_and(left, right)
+        elif isinstance(node.op, ast.BitOr):
+            return self.builder.bit_or(left, right)
+        elif isinstance(node.op, ast.BitXor):
+            return self.builder.bit_xor(left, right)
+        elif isinstance(node.op, ast.LShift):
+            return self.builder.shl(left, right)
+        elif isinstance(node.op, ast.RShift):
+            return self.builder.shr(left, right)
         elif isinstance(node.op, ast.Eq):
             return self.builder.eq(left, right)
         elif isinstance(node.op, ast.NotEq):
@@ -378,9 +485,12 @@ class BuilderExecutor:
         if isinstance(node.func, ast.Name):
             func_name = node.func.id
             
-            # Handle built-in functions
-            # This would be extended with a registry of built-in functions
-            raise NotImplementedError(f"Function calls not yet implemented: {func_name}")
+            # Handle built-in functions - they need to be imported
+            # For now, raise a more informative error
+            raise NotImplementedError(
+                f"Direct function calls not yet implemented: {func_name}. "
+                f"Use 'from luisa import {func_name}' and ensure it's a staged builtin."
+            )
         
         raise NotImplementedError(f"Unsupported function call: {node.func}")
     
@@ -389,8 +499,16 @@ class BuilderExecutor:
         value = self.visit(node.value)
         attr = node.attr
         
-        # Handle vector swizzles
-        # This would check if value is a vector and attr is a swizzle pattern
+        # Check for vector swizzle pattern
+        from .types import Vector
+        if isinstance(value.type, Vector):
+            # Check if attr is a valid swizzle
+            valid_swizzle_chars = set('xyzwrgba0123')
+            if all(c in valid_swizzle_chars for c in attr):
+                # Return a swizzle operation
+                return self.builder.swizzle(value, attr)
+        
+        # Regular attribute access (for struct fields, etc.)
         raise NotImplementedError(f"Attribute access not yet implemented: {attr}")
     
     def visit_Subscript(self, node: ast.Subscript) -> Any:
@@ -398,8 +516,13 @@ class BuilderExecutor:
         value = self.visit(node.value)
         index = self.visit(node.slice)
         
-        # This would emit a load instruction
-        raise NotImplementedError("Subscript not yet implemented")
+        # Handle buffer/array indexing
+        from .types import Buffer, Array
+        if isinstance(value.type, (Buffer, Array)):
+            # Emit a buffer read
+            return self.builder.buffer_read(value, index, value.type.element)
+        
+        raise NotImplementedError(f"Subscript not yet implemented for type: {value.type}")
 
 
 # ============================================================================

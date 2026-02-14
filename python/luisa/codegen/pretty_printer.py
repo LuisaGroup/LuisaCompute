@@ -1,0 +1,240 @@
+"""
+Pretty Printer CodeGen for the LuisaCompute Python DSL v2.
+
+Provides human-readable output of IR for debugging purposes.
+"""
+
+from __future__ import annotations
+from typing import Any, TYPE_CHECKING
+from io import StringIO
+
+if TYPE_CHECKING:
+    from ..ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value, IROp
+    from ..dsl_types import Type
+
+
+class PrettyPrinter:
+    """Pretty printer for IR."""
+    
+    def __init__(self, indent_size: int = 2):
+        self.indent_size = indent_size
+        self._output = StringIO()
+        self._indent_level = 0
+    
+    def _indent(self) -> str:
+        """Get current indentation string."""
+        return ' ' * (self.indent_size * self._indent_level)
+    
+    def _write(self, s: str) -> None:
+        """Write a string to output."""
+        self._output.write(s)
+    
+    def _write_line(self, s: str = '') -> None:
+        """Write a line with proper indentation."""
+        if s:
+            self._write(self._indent() + s + '\n')
+        else:
+            self._write('\n')
+    
+    def _increase_indent(self) -> None:
+        """Increase indentation level."""
+        self._indent_level += 1
+    
+    def _decrease_indent(self) -> None:
+        """Decrease indentation level."""
+        self._indent_level -= 1
+    
+    def print(self, obj: IRFunction | IRModule) -> str:
+        """Print an IR object and return the result."""
+        self._output = StringIO()
+        self._indent_level = 0
+        
+        from ..ir import IRFunction, IRModule
+        
+        if isinstance(obj, IRFunction):
+            self._print_function(obj)
+        elif isinstance(obj, IRModule):
+            self._print_module(obj)
+        else:
+            raise TypeError(f"Cannot print object of type {type(obj)}")
+        
+        return self._output.getvalue()
+    
+    def _print_module(self, module: IRModule) -> None:
+        """Print an IR module."""
+        self._write_line(f"Module with {len(module.functions)} function(s):")
+        self._increase_indent()
+        for i, func in enumerate(module.functions):
+            if i > 0:
+                self._write_line()
+            self._print_function(func)
+        self._decrease_indent()
+    
+    def _print_function(self, func: IRFunction) -> None:
+        """Print an IR function."""
+        # Function signature
+        ret_type = self._type_to_str(func.ret_type) if func.ret_type else 'void'
+        arg_types = [self._type_to_str(t) for t in func.arg_types]
+        
+        kernel_marker = '[kernel] ' if func.is_kernel else ''
+        block_size = f" block_size={func.block_size}" if func.block_size else ''
+        
+        self._write_line(f"{kernel_marker}func {func.name}({', '.join(arg_types)}) -> {ret_type}{block_size} {{")
+        
+        self._increase_indent()
+        
+        # Print each block
+        for i, block in enumerate(func.blocks):
+            if i > 0:
+                self._write_line()
+            self._print_block(block)
+        
+        self._decrease_indent()
+        self._write_line('}')
+    
+    def _print_block(self, block: IRBasicBlock) -> None:
+        """Print a basic block."""
+        self._write_line(f"{block.name}:")
+        self._increase_indent()
+        
+        for inst in block.instructions:
+            self._print_instruction(inst)
+        
+        if not block.instructions:
+            self._write_line('(empty)')
+        
+        self._decrease_indent()
+    
+    def _print_instruction(self, inst: IRInstruction) -> None:
+        """Print an instruction."""
+        op_str = self._op_to_str(inst.op)
+        type_str = self._type_to_str(inst.type)
+        args_str = self._args_to_str(inst.args)
+        
+        if inst.result:
+            self._write_line(f"{inst.result}: {type_str} = {op_str} {args_str}")
+        else:
+            self._write_line(f"{op_str} {args_str}")
+    
+    def _op_to_str(self, op: IROp) -> str:
+        """Convert an IROp to a string."""
+        return op.name.lower()
+    
+    def _type_to_str(self, t: Type | None) -> str:
+        """Convert a Type to a string."""
+        if t is None:
+            return 'void'
+        
+        from ..dsl_types import (
+            Scalar, Vector, Matrix, Array, Struct, Buffer,
+            Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void
+        )
+        
+        if isinstance(t, Void):
+            return 'void'
+        
+        if isinstance(t, Scalar):
+            return t.dtype.name.lower()
+        
+        if isinstance(t, Vector):
+            elem = self._type_to_str(t.element)
+            return f"{elem}{t.size}"
+        
+        if isinstance(t, Matrix):
+            elem = self._type_to_str(t.element)
+            return f"{elem}{t.size}x{t.size}"
+        
+        if isinstance(t, Array):
+            elem = self._type_to_str(t.element)
+            return f"{elem}[{t.size}]"
+        
+        if isinstance(t, Struct):
+            return f"struct {t.name}"
+        
+        if isinstance(t, Buffer):
+            elem = self._type_to_str(t.element)
+            return f"Buffer<{elem}>"
+        
+        if isinstance(t, Texture2D):
+            elem = self._type_to_str(t.element)
+            return f"Texture2D<{elem}>"
+        
+        if isinstance(t, Texture3D):
+            elem = self._type_to_str(t.element)
+            return f"Texture3D<{elem}>"
+        
+        if isinstance(t, BindlessArray):
+            return "BindlessArray"
+        
+        if isinstance(t, Accel):
+            return "Accel"
+        
+        if isinstance(t, RayQuery):
+            return "RayQueryAny" if t.query_any else "RayQueryAll"
+        
+        if isinstance(t, Callable):
+            args = [self._type_to_str(at) for at in t.arg_types]
+            ret = self._type_to_str(t.ret_type) if t.ret_type else 'void'
+            return f"({', '.join(args)}) -> {ret}"
+        
+        return str(t)
+    
+    def _args_to_str(self, args: list[Any]) -> str:
+        """Convert instruction arguments to a string."""
+        parts = []
+        for arg in args:
+            if hasattr(arg, 'name') and hasattr(arg, 'instructions'):
+                # IRBasicBlock
+                parts.append(f"%{arg.name}")
+            elif hasattr(arg, 'name') and hasattr(arg, 'type'):
+                # Value (InstructionValue, ArgumentValue, ConstantValue)
+                if hasattr(arg, 'value'):
+                    # ConstantValue
+                    parts.append(f"{arg.value}")
+                elif hasattr(arg, 'index'):
+                    # ArgumentValue
+                    parts.append(f"arg{arg.index}")
+                elif arg.name:
+                    parts.append(f"%{arg.name}")
+                else:
+                    parts.append(str(arg))
+            elif hasattr(arg, 'name'):
+                # IRBasicBlock
+                parts.append(f"%{arg.name}")
+            else:
+                # String or other literal
+                parts.append(repr(arg))
+        
+        return ', '.join(parts)
+
+
+# Convenience functions
+def pprint(obj: IRFunction | IRModule, indent_size: int = 2) -> str:
+    """
+    Pretty print an IR object.
+    
+    Args:
+        obj: The IR function or module to print
+        indent_size: Number of spaces per indentation level
+    
+    Returns:
+        Pretty-printed string representation
+    
+    Example:
+        >>> func = my_kernel.compile()
+        >>> print(pprint(func))
+        [kernel] func my_kernel(Buffer<float>) -> void {
+          entry:
+            %0: uint3 = dispatch_id 
+            %1: uint32 = extract %0, 0
+            ...
+        }
+    """
+    printer = PrettyPrinter(indent_size)
+    return printer.print(obj)
+
+
+def pprint_to_file(obj: IRFunction | IRModule, path: str, indent_size: int = 2) -> None:
+    """Pretty print an IR object to a file."""
+    with open(path, 'w') as f:
+        f.write(pprint(obj, indent_size))
