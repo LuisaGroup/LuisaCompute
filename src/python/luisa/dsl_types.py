@@ -451,6 +451,19 @@ def python_type_to_dsl(py_type: type) -> Optional[Type]:
     return mapping.get(py_type)
 
 
+def value_to_type(value: Any) -> Optional[Type]:
+    """Infer DSL type from a Python value."""
+    if value is None:
+        return Void()
+    if isinstance(value, bool):
+        return bool_
+    if isinstance(value, int):
+        return int32
+    if isinstance(value, float):
+        return float32
+    return None
+
+
 def get_broadcast_type(t1: Type, t2: Type) -> Optional[Type]:
     """
     Get the broadcast type for two types.
