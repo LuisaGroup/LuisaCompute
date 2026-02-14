@@ -40,7 +40,7 @@ from .lang.types import (
 from .lang.types import struct
 
 # lang - utilities
-from .lang.util import unrolled, UnrolledRange
+from .lang.util import UnrolledRange
 
 # Code generation
 from .codegen import (
