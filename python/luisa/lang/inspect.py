@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Optional, Any, Callable
 import ast
 
-from .ast import IRFunction, IRInstruction, IROp
+from .ir import IRFunction, IRInstruction, IROp
 from .types import Type, Scalar, Vector, Matrix
 
 

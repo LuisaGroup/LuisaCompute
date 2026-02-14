@@ -9,7 +9,7 @@ from typing import Any
 from io import StringIO
 
 # Runtime imports
-from ..lang.ast import IRFunction, IRModule, IRBasicBlock, IRInstruction, IROp
+from ..lang.ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, IROp
 from ..lang.types import Type
 
 

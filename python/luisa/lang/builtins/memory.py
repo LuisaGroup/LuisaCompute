@@ -8,10 +8,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ast import Value, InstructionValue
+    from ..ir import Value, InstructionValue
     from ..types import Type
 
-from ..ast import IROp
+from ..ir import IROp
 from ..types import uint, uint2, uint3, uint64
 from .math import _get_builder
 

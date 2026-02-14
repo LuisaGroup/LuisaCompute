@@ -13,11 +13,11 @@ from typing import Callable, Optional, Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .types import Type
-    from .ast import IRFunction, Value
+    from .ir import IRFunction, Value
     from .parser import ParsedFunction
 
 from .types import Type, value_to_type, int32
-from .ast import IRFunction
+from .ir import IRFunction
 from .builder import IRBuilder
 from .parser import parse_function, CapturedVar
 
@@ -577,7 +577,7 @@ class BuilderExecutor:
                     else:
                         raise ValueError(f"Type cast takes exactly one argument, got {len(args)}")
             
-            # Check if this is a captured variable (likely a builtin)
+            # Check if this is a captured variable (likely a builtin or callable)
             if func_name in self.captured_vars:
                 captured = self.captured_vars[func_name]
                 func = captured.value
@@ -589,6 +589,28 @@ class BuilderExecutor:
                         return self.builder.cast(args[0], func)
                     else:
                         raise ValueError(f"Type cast takes exactly one argument, got {len(args)}")
+                
+                # Handle StagedFunction (callable from kernel)
+                if isinstance(func, StagedFunction):
+                    # Evaluate arguments
+                    args = [self.visit(arg) for arg in node.args]
+                    arg_types = tuple(a.type for a in args)
+                    
+                    # Compile the callable if needed
+                    if arg_types not in func._cache:
+                        # Temporarily set up builder context for nested compilation
+                        from .builtins.math import set_builder as set_math_builder
+                        set_math_builder(self.builder)
+                        try:
+                            callee_ir = func(*args)
+                        finally:
+                            set_math_builder(None)
+                        func._cache[arg_types] = callee_ir
+                    
+                    callee_ir = func._cache[arg_types]
+                    
+                    # Emit call instruction
+                    return self.builder.call(callee_ir, args)
                 
                 # Evaluate arguments
                 args = [self.visit(arg) for arg in node.args]
@@ -606,8 +628,30 @@ class BuilderExecutor:
                         return self.builder.cast(args[0], func_val)
                     else:
                         raise ValueError(f"Type cast takes exactly one argument, got {len(args)}")
-                # TODO: Handle callable values
-                raise NotImplementedError(f"Calling local functions not yet implemented: {func_name}")
+                
+                # Handle StagedFunction (callable from kernel)
+                if isinstance(func_val, StagedFunction):
+                    # Evaluate arguments
+                    args = [self.visit(arg) for arg in node.args]
+                    arg_types = tuple(a.type for a in args)
+                    
+                    # Compile the callable if needed
+                    if arg_types not in func_val._cache:
+                        # Temporarily set up builder context for nested compilation
+                        from .builtins.math import set_builder as set_math_builder
+                        set_math_builder(self.builder)
+                        try:
+                            callee_ir = func_val(*args)
+                        finally:
+                            set_math_builder(None)
+                        func_val._cache[arg_types] = callee_ir
+                    
+                    callee_ir = func_val._cache[arg_types]
+                    
+                    # Emit call instruction
+                    return self.builder.call(callee_ir, args)
+                
+                raise NotImplementedError(f"Calling local values not yet implemented: {func_name}")
             
             raise NotImplementedError(
                 f"Unknown function call: {func_name}. "

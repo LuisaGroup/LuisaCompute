@@ -109,7 +109,7 @@ def test_find_operations_no_match():
     print("Test: find_operations no match")
     print("="*60)
     
-    from luisa.lang.ast import IROp
+    from luisa.lang.ir import IROp
     
     @callable
     def simple() -> int32:

@@ -16,7 +16,7 @@ from typing import Optional
 
 
 # Runtime imports
-from .ast import Value, IRBasicBlock, ConstantValue
+from .ir import Value, IRBasicBlock, ConstantValue
 from .builder import IRBuilder
 
 

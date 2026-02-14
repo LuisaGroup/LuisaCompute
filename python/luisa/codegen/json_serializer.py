@@ -10,7 +10,7 @@ from typing import Any, TYPE_CHECKING
 from dataclasses import asdict, is_dataclass
 
 if TYPE_CHECKING:
-    from ..lang.ast import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
+    from ..lang.ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
     from ..lang.types import Type
 
 
@@ -124,7 +124,7 @@ def type_to_dict(t: Type) -> dict[str, Any]:
 
 def value_to_dict(v: Value) -> dict[str, Any]:
     """Convert a Value to a dictionary representation."""
-    from ..lang.ast import ConstantValue, ArgumentValue, InstructionValue
+    from ..lang.ir import ConstantValue, ArgumentValue, InstructionValue
     
     result = {
         'type': type_to_dict(v.type),

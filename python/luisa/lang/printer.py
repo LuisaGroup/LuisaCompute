@@ -8,7 +8,7 @@ It's a simpler alternative to the full pretty printer.
 from __future__ import annotations
 
 
-from .ast import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
+from .ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
 from .types import Type
 
 

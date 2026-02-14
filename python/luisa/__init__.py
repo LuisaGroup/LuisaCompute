@@ -6,7 +6,7 @@ type hinting support and automatic constant folding.
 """
 
 # lang
-from .lang.ast import (
+from .lang.ir import (
     IROp, Value, ConstantValue, ArgumentValue, InstructionValue,
     IRInstruction, IRBasicBlock, IRFunction, IRModule,
 )

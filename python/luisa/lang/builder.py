@@ -15,7 +15,7 @@ from .types import Type
 from .types import (
     Void, bool_, promote_types
 )
-from .ast import (
+from .ir import (
     IROp, Value, ConstantValue, InstructionValue, ArgumentValue,
     IRInstruction, IRBasicBlock, IRFunction, IRModule
 )
@@ -327,6 +327,14 @@ class IRBuilder:
         if value is None:
             return self._emit(IROp.RETURN, Void(), [])
         return self._emit(IROp.RETURN, value.type, [value])
+    
+    def call(self, func: 'IRFunction', args: list[Value]) -> InstructionValue:
+        """Emit a function call instruction."""
+        # Determine return type
+        ret_type = func.ret_type if func.ret_type else Void()
+        # Include function name as first argument, then actual args
+        call_args = [func.name] + args
+        return self._emit(IROp.CALL, ret_type, call_args)
     
     def cast(self, value: Value, target_typ: Type) -> InstructionValue:
         """Emit a type cast instruction."""
