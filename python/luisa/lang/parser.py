@@ -46,6 +46,7 @@ class ParsedFunction:
     ret_annotation: Optional[Type]
     captured_vars: dict[str, CapturedVar]
     source: str
+    pyfunc: Optional[Callable] = None
     
     def get_arg_type(self, index: int) -> Optional[Type]:
         """Get the type annotation for an argument."""
@@ -184,7 +185,8 @@ class Parser:
             arg_annotations=arg_annotations,
             ret_annotation=ret_annotation,
             captured_vars=captured_vars,
-            source=source
+            source=source,
+            pyfunc=func
         )
     
     def _analyze_captured_vars(self, func: Callable) -> dict[str, CapturedVar]:

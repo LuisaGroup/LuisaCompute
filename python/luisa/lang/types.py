@@ -48,7 +48,21 @@ class Scalar(Type):
     dtype: ScalarType
     
     def __repr__(self) -> str:
-        return f"{self.dtype.name.lower()}"
+        mapping = {
+            ScalarType.BOOL: "i1",
+            ScalarType.INT8: "i8",
+            ScalarType.UINT8: "i8",
+            ScalarType.INT16: "i16",
+            ScalarType.UINT16: "i16",
+            ScalarType.INT32: "i32",
+            ScalarType.UINT32: "i32",
+            ScalarType.INT64: "i64",
+            ScalarType.UINT64: "i64",
+            ScalarType.FLOAT16: "f16",
+            ScalarType.FLOAT32: "f32",
+            ScalarType.FLOAT64: "f64",
+        }
+        return mapping.get(self.dtype, self.dtype.name.lower())
     
     # Predefined scalar type constructors
     @classmethod
@@ -111,7 +125,7 @@ class Vector(Type):
             raise ValueError(f"Vector size must be 2, 3, or 4, got {self.size}")
     
     def __repr__(self) -> str:
-        return f"{self.element}[{self.size}]"
+        return f"<{self.size} x {self.element}>"
 
 
 @dataclass(frozen=True)
@@ -125,7 +139,7 @@ class Matrix(Type):
             raise ValueError(f"Matrix size must be 2, 3, or 4, got {self.size}")
     
     def __repr__(self) -> str:
-        return f"{self.element}[{self.size}]x[{self.size}]"
+        return f"[ {self.size} x <{self.size} x {self.element}> ]"
 
 
 @dataclass(frozen=True)
@@ -139,7 +153,7 @@ class Array(Type):
             raise ValueError(f"Array size must be positive, got {self.size}")
     
     def __repr__(self) -> str:
-        return f"array<{self.element}, {self.size}>"
+        return f"[{self.size} x {self.element}]"
 
 
 @dataclass(frozen=True)
@@ -150,8 +164,8 @@ class Struct(Type):
     alignment: int = 4
     
     def __repr__(self) -> str:
-        field_strs = [f"{name}: {typ}" for name, typ in self.fields]
-        return f"struct {self.name} {{{', '.join(field_strs)}}}"
+        field_types = [str(typ) for name, typ in self.fields]
+        return f"{{ {', '.join(field_types)} }}"
     
     def get_field_type(self, field_name: str) -> Optional[Type]:
         """Get the type of a field by name."""
@@ -241,7 +255,18 @@ class Callable(Type):
     def __repr__(self) -> str:
         arg_str = ', '.join(str(t) for t in self.arg_types)
         ret_str = str(self.ret_type) if self.ret_type else "void"
-        return f"({arg_str}) -> {ret_str}"
+        return f"{ret_str} ({arg_str})"
+
+    def __class_getitem__(cls, item):
+        """Support Callable[[arg_types], ret_type] syntax."""
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise TypeError("Callable requires [[arg_types], ret_type]")
+        arg_types, ret_type = item
+        if isinstance(arg_types, list):
+            arg_types = tuple(arg_types)
+        else:
+            arg_types = (arg_types,)
+        return cls(arg_types=arg_types, ret_type=ret_type)
 
 
 @dataclass(frozen=True)
