@@ -89,6 +89,7 @@ from luisa.staged import (
 )
 
 from luisa.builtins import (
+    # Math
     sqrt as sqrt,
     abs as abs,
     sin as sin,
@@ -128,6 +129,97 @@ from luisa.builtins import (
     transpose as transpose,
     inverse as inverse,
     determinant as determinant,
+    # Special registers
+    dispatch_id as dispatch_id,
+    dispatch_idx as dispatch_idx,
+    thread_id as thread_id,
+    block_id as block_id,
+    dispatch_size as dispatch_size,
+    kernel_id as kernel_id,
+    object_id as object_id,
+    # Synchronization
+    sync_block as sync_block,
+    # Type casting
+    cast as cast,
+    bitcast as bitcast,
+    # Print
+    print_msg as print_msg,
+    # Assertions
+    assume as assume,
+    assert_ as assert_,
+    # Profiling
+    clock as clock,
+    # Buffer
+    buffer_read as buffer_read,
+    buffer_write as buffer_write,
+    buffer_size as buffer_size,
+    buffer_device_address as buffer_device_address,
+    # Texture2D
+    texture2d_read as texture2d_read,
+    texture2d_write as texture2d_write,
+    texture2d_sample as texture2d_sample,
+    texture2d_sample_level as texture2d_sample_level,
+    texture2d_size as texture2d_size,
+    # Texture3D
+    texture3d_read as texture3d_read,
+    texture3d_write as texture3d_write,
+    texture3d_sample as texture3d_sample,
+    texture3d_size as texture3d_size,
+    # Device address
+    device_address_load as device_address_load,
+    device_address_store as device_address_store,
+    # Atomic
+    atomic_exchange as atomic_exchange,
+    atomic_compare_exchange as atomic_compare_exchange,
+    atomic_add as atomic_add,
+    atomic_sub as atomic_sub,
+    atomic_and as atomic_and,
+    atomic_or as atomic_or,
+    atomic_xor as atomic_xor,
+    atomic_min as atomic_min,
+    atomic_max as atomic_max,
+    # Warp
+    warp_is_first_active_lane as warp_is_first_active_lane,
+    warp_first_active_lane as warp_first_active_lane,
+    warp_active_count_bits as warp_active_count_bits,
+    warp_sum as warp_sum,
+    warp_product as warp_product,
+    warp_min as warp_min,
+    warp_max as warp_max,
+    warp_all as warp_all,
+    warp_any as warp_any,
+    warp_all_equal as warp_all_equal,
+    warp_prefix_sum as warp_prefix_sum,
+    warp_prefix_product as warp_prefix_product,
+    warp_prefix_count_bits as warp_prefix_count_bits,
+    warp_read_lane as warp_read_lane,
+    warp_read_first_lane as warp_read_first_lane,
+    warp_bit_and as warp_bit_and,
+    warp_bit_or as warp_bit_or,
+    warp_bit_xor as warp_bit_xor,
+    warp_bit_mask as warp_bit_mask,
+    # Ray tracing types
+    Ray as Ray,
+    TriangleHit as TriangleHit,
+    ProceduralHit as ProceduralHit,
+    CommittedHit as CommittedHit,
+    # Ray tracing functions
+    trace_closest as trace_closest,
+    trace_any as trace_any,
+    ray_query_all as ray_query_all,
+    ray_query_any as ray_query_any,
+    ray_query_world_space_ray as ray_query_world_space_ray,
+    ray_query_proceed as ray_query_proceed,
+    ray_query_committed_hit as ray_query_committed_hit,
+    ray_query_candidate_triangle_hit as ray_query_candidate_triangle_hit,
+    ray_query_candidate_procedural_hit as ray_query_candidate_procedural_hit,
+    ray_query_commit_triangle as ray_query_commit_triangle,
+    ray_query_commit_procedural as ray_query_commit_procedural,
+    ray_query_terminate as ray_query_terminate,
+    accel_instance_transform as accel_instance_transform,
+    accel_instance_user_id as accel_instance_user_id,
+    accel_instance_visibility_mask as accel_instance_visibility_mask,
+    make_ray as make_ray,
 )
 
 __version__: str
