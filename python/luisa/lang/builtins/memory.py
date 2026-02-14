@@ -8,11 +8,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
-    from ..dsl_types import Type
+    from ..ast import Value, InstructionValue
+    from ..types import Type
 
-from ..ir import IROp
-from ..dsl_types import uint, uint2, uint3, uint64
+from ..ast import IROp
+from ..types import uint, uint2, uint3, uint64
 from .math import _get_builder
 
 
@@ -45,7 +45,7 @@ def buffer_write(buffer: Value, index: Value, value: Value) -> InstructionValue:
         index: Element index (uint)
         value: Value to write
     """
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.BUFFER_WRITE, Void(), [buffer, index, value])
 
 
@@ -90,9 +90,7 @@ def texture2d_read(texture: Value, coord: Value) -> InstructionValue:
     Returns:
         The texture value at the specified coordinates
     """
-    # Get element type from texture type
-    elem_type = texture.type.element
-    from ..dsl_types import float4
+    from ..types import float4
     return _get_builder()._emit(IROp.TEXTURE2D_READ, float4, [texture, coord])
 
 
@@ -105,7 +103,7 @@ def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
         coord: Integer coordinates (uint2)
         value: Value to write
     """
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.TEXTURE2D_WRITE, Void(), [texture, coord, value])
 
 
@@ -120,7 +118,7 @@ def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
     Returns:
         The sampled value (float4)
     """
-    from ..dsl_types import float4
+    from ..types import float4
     return _get_builder()._emit(IROp.TEXTURE2D_SAMPLE, float4, [texture, uv])
 
 
@@ -136,7 +134,7 @@ def texture2d_sample_level(texture: Value, uv: Value, level: Value) -> Instructi
     Returns:
         The sampled value (float4)
     """
-    from ..dsl_types import float4
+    from ..types import float4
     return _get_builder()._emit(IROp.TEXTURE2D_SAMPLE_LEVEL, float4, [texture, uv, level])
 
 
@@ -168,7 +166,7 @@ def texture3d_read(texture: Value, coord: Value) -> InstructionValue:
     Returns:
         The texture value at the specified coordinates
     """
-    from ..dsl_types import float4
+    from ..types import float4
     return _get_builder()._emit(IROp.TEXTURE3D_READ, float4, [texture, coord])
 
 
@@ -181,7 +179,7 @@ def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
         coord: Integer coordinates (uint3)
         value: Value to write
     """
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.TEXTURE3D_WRITE, Void(), [texture, coord, value])
 
 
@@ -196,7 +194,7 @@ def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
     Returns:
         The sampled value (float4)
     """
-    from ..dsl_types import float4
+    from ..types import float4
     return _get_builder()._emit(IROp.TEXTURE3D_SAMPLE, float4, [texture, uvw])
 
 
@@ -239,5 +237,5 @@ def device_address_store(address: Value, value: Value) -> InstructionValue:
         address: Device address (uint64)
         value: Value to store
     """
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.DEVICE_ADDRESS_WRITE, Void(), [address, value])

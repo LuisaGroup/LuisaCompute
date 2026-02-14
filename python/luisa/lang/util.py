@@ -1,5 +1,7 @@
 """
 Utility functions and helpers for the LuisaCompute Python DSL v2.
+
+This module provides language-level utilities like unrolled loops.
 """
 
 from __future__ import annotations

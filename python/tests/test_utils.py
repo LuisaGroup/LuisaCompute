@@ -1,73 +1,104 @@
-"""Tests for utility functions."""
+"""Tests for utility functions - with IR building and pretty printing."""
 
 import pytest
 from luisa import (
+    kernel, callable, pprint,
     unrolled, UnrolledRange,
     struct,
     int32, float32, float3,
+    Buffer, dispatch_id,
 )
+from luisa.lang.inspect import count_instructions
+
+from luisa.lang.inspect import get_ir_ast
+import ast as python_ast
+
+
+def print_ast(staged_func, title="Parsed AST"):
+    """Helper to print the parsed AST of a staged function."""
+    print(f"\n{title}:")
+    tree = get_ir_ast(staged_func)
+    if tree:
+        print(python_ast.dump(tree, indent=2))
+    else:
+        print("  (No AST available)")
+
 
 
 def test_unrolled_range():
     """Test UnrolledRange class."""
-    print("Testing UnrolledRange...")
+    print("\n" + "="*60)
+    print("Test: UnrolledRange")
+    print("="*60)
     
-    # Test with single argument
     ur = UnrolledRange(4)
     assert ur.start == 0
     assert ur.stop == 4
     assert ur.step == 1
     assert len(ur) == 4
     
-    # Test with all arguments
     ur = UnrolledRange(1, 10, 2)
     assert ur.start == 1
     assert ur.stop == 10
     assert ur.step == 2
     
-    print("  ✓ UnrolledRange OK")
+    print("✓ UnrolledRange works correctly")
+    print("="*60)
 
 
-def test_unrolled_helper():
-    """Test unrolled() helper function."""
-    print("Testing unrolled helper...")
+def test_unrolled_builds_ir():
+    """Test unrolled loop actually builds IR."""
+    print("\n" + "="*60)
+    print("Test: unrolled loop builds IR")
+    print("="*60)
     
-    r = range(0, 8, 2)
-    ur = unrolled(r)
+    @callable
+    def sum_unrolled() -> int32:
+        total = 0
+        for i in unrolled(range(4)):
+            total = total + i
+        return total
     
-    assert isinstance(ur, UnrolledRange)
-    assert ur.start == 0
-    assert ur.stop == 8
-    assert ur.step == 2
+    ir = sum_unrolled()
+    print_ast(sum_unrolled, "AST: sum_unrolled")
     
-    print("  ✓ unrolled helper OK")
+    print("\nGenerated IR:")
+    print(pprint(ir))
+    
+    counts = count_instructions(ir)
+    # Should have multiple ADDs (unrolled)
+    assert 'ADD' in counts
+    assert counts['ADD'] >= 3  # At least 3 adds for 4 iterations
+    
+    print(f"✓ Unrolled loop built with {len(ir.blocks)} blocks, ADD={counts.get('ADD',0)}")
+    print("="*60)
 
 
 def test_struct_decorator():
     """Test @struct decorator."""
-    print("Testing @struct decorator...")
+    print("\n" + "="*60)
+    print("Test: @struct decorator")
+    print("="*60)
     
     @struct
     class Particle:
         position: float3
         mass: float32
     
-    # Check that struct was created
     assert hasattr(Particle, '_dsl_type')
     assert Particle._dsl_type.name == 'Particle'
-    
-    # Check fields
     assert 'position' in Particle._dsl_fields
     assert 'mass' in Particle._dsl_fields
     
-    print("  ✓ @struct decorator OK")
+    print("✓ @struct decorator works correctly")
+    print("="*60)
 
 
-def test_struct_with_buffer():
-    """Test using struct with buffer."""
-    print("Testing struct with buffer...")
-    
-    from luisa import Buffer, kernel
+def test_struct_with_buffer_kernel():
+    """Test using struct with buffer in kernel."""
+    print("\n" + "="*60)
+    print("Test: struct with buffer kernel")
+    print("="*60)
     
     @struct
     class Particle:
@@ -77,13 +108,64 @@ def test_struct_with_buffer():
     
     @kernel
     def update_particles(particles: Buffer(Particle)) -> None:
-        # Just a placeholder - actual indexing would need full implementation
-        pass
+        idx = dispatch_id().x
+        # Read particle
+        p = particles[idx]
+        # Simple update (in real code would do physics)
+        particles[idx] = p
     
-    # Should be able to create kernel
     buf_type = Buffer(Particle)
-    ir_func = update_particles(buf_type)
+    ir = update_particles(buf_type)
     
-    assert ir_func.name == 'update_particles'
+    print("\nGenerated IR:")
+    print(pprint(ir))
     
-    print("  ✓ Struct with buffer OK")
+    assert ir.name == 'update_particles'
+    assert ir.is_kernel
+    assert len(ir.blocks) > 0
+    
+    print(f"✓ Struct buffer kernel built with {len(ir.blocks)} blocks")
+    print("="*60)
+
+
+def test_nested_unrolled():
+    """Test nested unrolled loops."""
+    print("\n" + "="*60)
+    print("Test: nested unrolled loops")
+    print("="*60)
+    
+    @callable
+    def nested_sum() -> int32:
+        total = 0
+        for i in unrolled(range(3)):
+            for j in unrolled(range(3)):
+                total = total + i + j
+        return total
+    
+    ir = nested_sum()
+    
+    print("\nGenerated IR:")
+    print(pprint(ir))
+    
+    counts = count_instructions(ir)
+    # Should have many ADDs from unrolled nested loops
+    assert 'ADD' in counts
+    
+    print(f"✓ Nested unrolled loops: {len(ir.blocks)} blocks, {counts.get('ADD',0)} ADDs")
+    print("="*60)
+
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("Running test_utils.py tests")
+    print("="*70)
+    
+    test_unrolled_range()
+    test_unrolled_builds_ir()
+    test_struct_decorator()
+    test_struct_with_buffer_kernel()
+    test_nested_unrolled()
+    
+    print("\n" + "="*70)
+    print("All test_utils.py tests passed!")
+    print("="*70)

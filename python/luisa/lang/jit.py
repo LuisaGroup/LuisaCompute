@@ -9,7 +9,7 @@ This module implements the multistage programming system:
 from __future__ import annotations
 import ast
 from typing import Callable, Optional, Any, TYPE_CHECKING
-from dataclasses import dataclass
+
 
 if TYPE_CHECKING:
     from .types import Type
@@ -20,7 +20,8 @@ from .types import Type, value_to_type, int32
 from .ast import IRFunction
 from .builder import IRBuilder
 from .parser import parse_function, CapturedVar
-from ..util import UnrolledRange
+
+from .builtins.math import set_builder as set_math_builder
 
 
 # ============================================================================
@@ -64,8 +65,16 @@ class StagedFunction:
         - Execute builder to generate IR
         - Return the generated IR function
         """
-        # Get actual argument types from runtime values
-        arg_types = tuple(self._get_arg_type(arg) for arg in args)
+        # Get argument types - prefer annotations, fall back to runtime types
+        arg_types = []
+        for i, arg in enumerate(args):
+            # First check if we have a type annotation
+            if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
+                arg_types.append(self.parsed.arg_annotations[i])
+            else:
+                # Fall back to inferring from runtime value
+                arg_types.append(self._get_arg_type(arg))
+        arg_types = tuple(arg_types)
         
         # Check cache
         if arg_types in self._cache:
@@ -79,13 +88,19 @@ class StagedFunction:
         )
         
         # Execute the builder (this is where the magic happens)
-        executor = BuilderExecutor(
-            builder=builder,
-            parsed=self.parsed,
-            captured_vars=self.parsed.captured_vars,
-            arg_values=args
-        )
-        executor.execute()
+        # Set the builder context for builtins
+        set_math_builder(builder)
+        try:
+            executor = BuilderExecutor(
+                builder=builder,
+                parsed=self.parsed,
+                captured_vars=self.parsed.captured_vars,
+                arg_values=args
+            )
+            executor.execute()
+        finally:
+            # Clear the builder context
+            set_math_builder(None)
         
         # Get the generated IR
         ir_func = builder.build()
@@ -138,7 +153,7 @@ class BuilderExecutor:
         self.builder.set_insert_point(entry)
         
         # Bind arguments
-        for i, (name, value) in enumerate(zip(self.parsed.arg_names, self.arg_values)):
+        for i, name in enumerate(self.parsed.arg_names):
             arg_val = self.builder.get_argument(i)
             self.local_vars[name] = arg_val
         
@@ -149,6 +164,9 @@ class BuilderExecutor:
         
         # Visit function body
         for stmt in func_def.body:
+            # Skip if current block is already terminated
+            if self.builder.current_block.is_terminated():
+                break
             self.visit(stmt)
     
     def visit(self, node: ast.AST) -> Optional[Any]:
@@ -157,6 +175,28 @@ class BuilderExecutor:
         visitor = getattr(self, method_name, self.generic_visit)
         return visitor(node)
     
+    def visit_BoolOp(self, node: ast.BoolOp) -> Any:
+        """Visit a boolean operation (and/or)."""
+        # Evaluate all values
+        values = [self.visit(v) for v in node.values]
+
+        if isinstance(node.op, ast.And):
+            # For 'and', we need to short-circuit
+            # Simplified: just fold all together with logical_and
+            result = values[0]
+            for v in values[1:]:
+                result = self.builder.logical_and(result, v)
+            return result
+        elif isinstance(node.op, ast.Or):
+            # For 'or', we need to short-circuit
+            # Simplified: just fold all together with logical_or
+            result = values[0]
+            for v in values[1:]:
+                result = self.builder.logical_or(result, v)
+            return result
+        else:
+            raise NotImplementedError(f"Unsupported boolean operator: {node.op}")
+
     def generic_visit(self, node: ast.AST) -> None:
         """Default visitor for unhandled nodes."""
         raise NotImplementedError(f"Unsupported AST node: {node.__class__.__name__}")
@@ -176,6 +216,16 @@ class BuilderExecutor:
         for target in node.targets:
             if isinstance(target, ast.Name):
                 self.local_vars[target.id] = value
+            elif isinstance(target, ast.Subscript):
+                # Handle buffer[i] = value or array[i] = value
+                target_value = self.visit(target.value)
+                index = self.visit(target.slice)
+                
+                from .types import Buffer, Array
+                if isinstance(target_value.type, (Buffer, Array)):
+                    self.builder.buffer_write(target_value, index, value)
+                else:
+                    raise NotImplementedError(f"Subscript assignment not implemented for type: {target_value.type}")
             else:
                 raise NotImplementedError(f"Unsupported assignment target: {target}")
     
@@ -199,27 +249,36 @@ class BuilderExecutor:
     def visit_If(self, node: ast.If) -> None:
         """Visit an if statement using structured IfStmt."""
         cond = self.visit(node.test)
-        
+
         if_ = self.builder.if_(cond)
-        
+
         # True branch
         with if_.true_scope():
             for stmt in node.body:
+                # Stop if block is already terminated (e.g., by return)
+                if self.builder.current_block.is_terminated():
+                    break
                 self.visit(stmt)
-        
+
         # False branch (if exists)
         if node.orelse:
             with if_.false_scope():
                 for stmt in node.orelse:
+                    # Stop if block is already terminated (e.g., by return)
+                    if self.builder.current_block.is_terminated():
+                        break
                     self.visit(stmt)
     
     def visit_While(self, node: ast.While) -> None:
         """Visit a while loop using structured WhileStmt."""
         cond = self.visit(node.test)
-        
+
         while_ = self.builder.while_(cond)
         with while_.body_scope():
             for stmt in node.body:
+                # Stop if block is already terminated (e.g., by break/return)
+                if self.builder.current_block.is_terminated():
+                    break
                 self.visit(stmt)
     
     def visit_For(self, node: ast.For) -> None:
@@ -289,6 +348,11 @@ class BuilderExecutor:
         def eval_const(node):
             if isinstance(node, ast.Constant):
                 return node.value
+            # Handle captured variables (e.g., UNROLL_COUNT)
+            if isinstance(node, ast.Name):
+                if node.id in self.captured_vars:
+                    captured = self.captured_vars[node.id]
+                    return captured.value
             raise ValueError(f"unrolled() requires constant arguments, got {ast.dump(node)}")
         
         # Determine start, stop, step
@@ -319,15 +383,14 @@ class BuilderExecutor:
             for stmt in node.body:
                 self.visit(stmt)
     
-    def visit_Pass(self, node: ast.Pass) -> None:
+    def visit_Pass(self, _node: ast.Pass) -> None:
         """Visit a pass statement (no-op)."""
-        pass
     
-    def visit_Break(self, node: ast.Break) -> None:
+    def visit_Break(self, _node: ast.Break) -> None:
         """Visit a break statement."""
         self.builder.break_()
     
-    def visit_Continue(self, node: ast.Continue) -> None:
+    def visit_Continue(self, _node: ast.Continue) -> None:
         """Visit a continue statement."""
         self.builder.continue_()
     
@@ -364,6 +427,17 @@ class BuilderExecutor:
     def visit_Constant(self, node: ast.Constant) -> Any:
         """Visit a constant."""
         value = node.value
+        
+        # Handle None (for buffer/resource placeholders in demos)
+        if value is None:
+            # Return a placeholder None value - in real usage, 
+            # buffers would be actual objects
+            return None
+        
+        # Handle strings (e.g., docstrings) - ignore them for now
+        if isinstance(value, str):
+            return None
+        
         typ = value_to_type(value)
         if typ is None:
             raise ValueError(f"Unsupported constant type: {type(value)}")
@@ -375,6 +449,11 @@ class BuilderExecutor:
         
         if name in self.local_vars:
             return self.local_vars[name]
+        
+        # Check builder's local vars (for loop variables, etc.)
+        builder_val = self.builder.lookup_local(name)
+        if builder_val is not None:
+            return builder_val
         
         raise NameError(f"Undefined variable: {name}")
     
@@ -485,12 +564,64 @@ class BuilderExecutor:
         if isinstance(node.func, ast.Name):
             func_name = node.func.id
             
-            # Handle built-in functions - they need to be imported
-            # For now, raise a more informative error
+            # Check if this is a type cast (e.g., float32(x))
+            from .types import Type
+            if func_name in self.captured_vars:
+                captured = self.captured_vars[func_name]
+                if isinstance(captured.value, Type):
+                    # This is a type cast
+                    target_type = captured.value
+                    args = [self.visit(arg) for arg in node.args]
+                    if len(args) == 1:
+                        return self.builder.cast(args[0], target_type)
+                    else:
+                        raise ValueError(f"Type cast takes exactly one argument, got {len(args)}")
+            
+            # Check if this is a captured variable (likely a builtin)
+            if func_name in self.captured_vars:
+                captured = self.captured_vars[func_name]
+                func = captured.value
+                
+                # Check if it's a type (for casting)
+                if isinstance(func, Type):
+                    args = [self.visit(arg) for arg in node.args]
+                    if len(args) == 1:
+                        return self.builder.cast(args[0], func)
+                    else:
+                        raise ValueError(f"Type cast takes exactly one argument, got {len(args)}")
+                
+                # Evaluate arguments
+                args = [self.visit(arg) for arg in node.args]
+                
+                # Call the builtin function - it will use _get_builder() internally
+                return func(*args)
+            
+            # Check if this is a local callable (e.g., another staged function)
+            if func_name in self.local_vars:
+                func_val = self.local_vars[func_name]
+                # Check if it's a type
+                if isinstance(func_val, Type):
+                    args = [self.visit(arg) for arg in node.args]
+                    if len(args) == 1:
+                        return self.builder.cast(args[0], func_val)
+                    else:
+                        raise ValueError(f"Type cast takes exactly one argument, got {len(args)}")
+                # TODO: Handle callable values
+                raise NotImplementedError(f"Calling local functions not yet implemented: {func_name}")
+            
             raise NotImplementedError(
-                f"Direct function calls not yet implemented: {func_name}. "
-                f"Use 'from luisa import {func_name}' and ensure it's a staged builtin."
+                f"Unknown function call: {func_name}. "
+                f"Make sure to import it from luisa."
             )
+        
+        # Handle method calls (e.g., obj.method())
+        if isinstance(node.func, ast.Attribute):
+            _value = self.visit(node.func.value)
+            method_name = node.func.attr
+            _args = [self.visit(arg) for arg in node.args]
+            
+            # TODO: Handle method calls on values
+            raise NotImplementedError(f"Method calls not yet implemented: {method_name}")
         
         raise NotImplementedError(f"Unsupported function call: {node.func}")
     

@@ -73,6 +73,11 @@ class IROp(Enum):
     COSH = auto()
     TANH = auto()
     ABS = auto()
+    FLOOR = auto()
+    CEIL = auto()
+    ROUND = auto()
+    TRUNC = auto()
+    FRACT = auto()
     MIN = auto()
     MAX = auto()
     CLAMP = auto()
@@ -217,24 +222,29 @@ class IROp(Enum):
 @dataclass
 class Value:
     """Base class for IR values."""
-    type: Type
+    typ: Type  # Renamed from 'type' to avoid builtin shadowing
     name: Optional[str] = None
-    
+
     def __repr__(self) -> str:
         if self.name:
             return f"%{self.name}"
-        return f"%<unnamed>"
+        return "%<unnamed>"
+
+    @property
+    def type(self) -> Type:
+        """Backward compatibility accessor for type."""
+        return self.typ
 
 
 @dataclass
 class ConstantValue(Value):
     """Constant value in IR."""
     value: Any = None
-    
+
     def __post_init__(self):
         if self.name is None:
             self.name = str(self.value)
-    
+
     def __repr__(self) -> str:
         return f"const {self.value}"
 
@@ -243,7 +253,7 @@ class ConstantValue(Value):
 class ArgumentValue(Value):
     """Function argument value."""
     index: int = 0
-    
+
     def __post_init__(self):
         if self.name is None:
             self.name = f"arg{self.index}"
@@ -253,7 +263,7 @@ class ArgumentValue(Value):
 class InstructionValue(Value):
     """Value produced by an instruction."""
     instruction: Optional[IRInstruction] = None
-    
+
     def __repr__(self) -> str:
         if self.name:
             return f"%{self.name}"
@@ -265,15 +275,20 @@ class InstructionValue(Value):
 class IRInstruction:
     """IR instruction."""
     op: IROp
-    type: Type
+    typ: Type  # Renamed from 'type' to avoid builtin shadowing
     args: list[Union[int, str, Value]] = field(default_factory=list)
     result: Optional[str] = None
-    
+
     def __repr__(self) -> str:
         args_str = ", ".join(str(a) for a in self.args)
         if self.result:
             return f"%{self.result} = {self.op.name}({args_str})"
         return f"{self.op.name}({args_str})"
+
+    @property
+    def type(self) -> Type:
+        """Backward compatibility accessor for type."""
+        return self.typ
 
 
 # Update the forward reference

@@ -8,10 +8,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
+    from ..ast import Value, InstructionValue
 
-from ..ir import IROp
-from ..dsl_types import bool_, uint, float3, float4
+from ..ast import IROp
+from ..types import bool_, uint, float3, float4
 from .math import _get_builder
 
 
@@ -110,8 +110,8 @@ def ray_query_all(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue
     Returns:
         RayQuery object for iterative traversal
     """
-    from ..dsl_types import RayQuery
-    return _get_builder()._emit(IROp.RAY_QUERY_ALL, RayQuery(False), [accel, mask])
+    from ..types import RayQuery
+    return _get_builder()._emit(IROp.RAY_QUERY_ALL, RayQuery(query_any=False), [accel, mask])
 
 
 def ray_query_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
@@ -126,8 +126,8 @@ def ray_query_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue
     Returns:
         RayQuery object for iterative traversal
     """
-    from ..dsl_types import RayQuery
-    return _get_builder()._emit(IROp.RAY_QUERY_ANY, RayQuery(True), [accel, mask])
+    from ..types import RayQuery
+    return _get_builder()._emit(IROp.RAY_QUERY_ANY, RayQuery(query_any=True), [accel, mask])
 
 
 # ============================================================================
@@ -165,7 +165,7 @@ def ray_query_candidate_procedural_hit(query: Value) -> InstructionValue:
 
 def ray_query_commit_triangle(query: Value) -> InstructionValue:
     """Commit the current triangle candidate as the closest hit."""
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.RAY_QUERY_COMMIT_TRIANGLE, Void(), [query])
 
 
@@ -177,13 +177,13 @@ def ray_query_commit_procedural(query: Value, t: Value) -> InstructionValue:
         query: Ray query
         t: Hit distance along the ray
     """
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.RAY_QUERY_COMMIT_PROCEDURAL, Void(), [query, t])
 
 
 def ray_query_terminate(query: Value) -> InstructionValue:
     """Terminate the ray query early."""
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.RAY_QUERY_TERMINATE, Void(), [query])
 
 
@@ -202,7 +202,7 @@ def accel_instance_transform(accel: Value, instance_id: Value) -> InstructionVal
     Returns:
         4x4 transformation matrix (float4x4)
     """
-    from ..dsl_types import float4x4
+    from ..types import float4x4
     return _get_builder()._emit(IROp.ACCEL_INSTANCE_TRANSFORM, float4x4, [accel, instance_id])
 
 

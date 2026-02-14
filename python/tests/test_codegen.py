@@ -14,9 +14,10 @@ from luisa import (
 
 def test_json_serialization_basic():
     """Test basic JSON serialization."""
-    print("Testing JSON serialization basic...")
+    print("\n" + "="*60)
+    print("Test: JSON serialization basic")
+    print("="*60)
     
-    # Create a simple function
     builder = IRBuilder('simple_func', (float32,), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
@@ -24,22 +25,25 @@ def test_json_serialization_basic():
     builder.return_(a)
     func = builder.build()
     
-    # Serialize to JSON
-    json_str = serialize_function(func)
+    print("\nPretty printed IR:")
+    print(pprint(func))
     
-    # Verify it's valid JSON
+    json_str = serialize_function(func)
     data = json.loads(json_str)
+    
     assert data['name'] == 'simple_func'
     assert len(data['blocks']) == 1
     
-    print("  ✓ JSON serialization basic OK")
+    print(f"✓ JSON serialization works, {len(data['blocks'])} blocks")
+    print("="*60)
 
 
 def test_json_serialization_with_ops():
     """Test JSON serialization with operations."""
-    print("Testing JSON serialization with ops...")
+    print("\n" + "="*60)
+    print("Test: JSON serialization with ops")
+    print("="*60)
     
-    # Create a function with operations
     builder = IRBuilder('math_func', (float32, float32), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
@@ -49,20 +53,24 @@ def test_json_serialization_with_ops():
     builder.return_(sum_val)
     func = builder.build()
     
-    # Serialize to JSON
-    json_str = serialize_function(func, indent=None)  # Compact
+    print("\nPretty printed IR:")
+    print(pprint(func))
     
-    # Verify it's valid JSON
+    json_str = serialize_function(func, indent=None)
     data = json.loads(json_str)
+    
     assert data['name'] == 'math_func'
     assert len(data['arg_types']) == 2
     
-    print("  ✓ JSON serialization with ops OK")
+    print(f"✓ JSON with ops works, {len(data['blocks'])} blocks")
+    print("="*60)
 
 
 def test_json_serialization_control_flow():
     """Test JSON serialization with control flow."""
-    print("Testing JSON serialization control flow...")
+    print("\n" + "="*60)
+    print("Test: JSON serialization control flow")
+    print("="*60)
     
     builder = IRBuilder('if_func', (float32,), float32)
     entry = builder.create_block('entry')
@@ -81,22 +89,25 @@ def test_json_serialization_control_flow():
     
     func = builder.build()
     
-    # Serialize to JSON
-    json_str = serialize_function(func)
+    print("\nPretty printed IR (with control flow):")
+    print(pprint(func))
     
-    # Verify it's valid JSON
+    json_str = serialize_function(func)
     data = json.loads(json_str)
+    
     assert data['name'] == 'if_func'
     assert len(data['blocks']) >= 2
     
-    print("  ✓ JSON serialization control flow OK")
+    print(f"✓ JSON with control flow works, {len(data['blocks'])} blocks")
+    print("="*60)
 
 
 def test_pprint_basic():
     """Test pretty printing basic function."""
-    print("Testing pprint basic...")
+    print("\n" + "="*60)
+    print("Test: pprint basic")
+    print("="*60)
     
-    # Create a simple function
     builder = IRBuilder('simple_func', (float32,), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
@@ -104,21 +115,24 @@ def test_pprint_basic():
     builder.return_(a)
     func = builder.build()
     
-    # Pretty print
     output = pprint(func)
     
-    # Verify output contains expected elements
+    print("\nPretty printed output:")
+    print(output)
+    
     assert 'func simple_func' in output
     assert 'entry:' in output
     assert 'return' in output
     
-    print("  ✓ pprint basic OK")
-    print(f"    Output:\n{output}")
+    print("✓ pprint basic works")
+    print("="*60)
 
 
 def test_pprint_with_ops():
     """Test pretty printing with operations."""
-    print("Testing pprint with ops...")
+    print("\n" + "="*60)
+    print("Test: pprint with ops")
+    print("="*60)
     
     builder = IRBuilder('math_func', (float32, float32), float32)
     entry = builder.create_block('entry')
@@ -129,20 +143,23 @@ def test_pprint_with_ops():
     builder.return_(sum_val)
     func = builder.build()
     
-    # Pretty print
     output = pprint(func)
     
-    # Verify output
-    assert 'func math_func' in output
-    assert 'add' in output
+    print("\nPretty printed output:")
+    print(output)
     
-    print("  ✓ pprint with ops OK")
-    print(f"    Output:\n{output}")
+    assert 'func math_func' in output
+    assert 'add' in output.lower()
+    
+    print("✓ pprint with ops works")
+    print("="*60)
 
 
 def test_pprint_control_flow():
     """Test pretty printing with control flow."""
-    print("Testing pprint control flow...")
+    print("\n" + "="*60)
+    print("Test: pprint control flow")
+    print("="*60)
     
     builder = IRBuilder('if_func', (float32,), float32)
     entry = builder.create_block('entry')
@@ -161,22 +178,24 @@ def test_pprint_control_flow():
     
     func = builder.build()
     
-    # Pretty print
     output = pprint(func)
     
-    # Verify output contains multiple blocks
+    print("\nPretty printed output (control flow):")
+    print(output)
+    
     assert 'func if_func' in output
     assert 'if_true' in output or 'entry' in output
     
-    print("  ✓ pprint control flow OK")
-    print(f"    Output:\n{output}")
+    print("✓ pprint control flow works")
+    print("="*60)
 
 
 def test_serialize_module():
     """Test JSON serialization of a module."""
-    print("Testing serialize module...")
+    print("\n" + "="*60)
+    print("Test: serialize module")
+    print("="*60)
     
-    # Create functions
     builder1 = IRBuilder('func1', (float32,), float32)
     entry1 = builder1.create_block('entry')
     builder1.set_insert_point(entry1)
@@ -191,14 +210,82 @@ def test_serialize_module():
     builder2.return_(b)
     func2 = builder2.build()
     
-    # Create module
     module = IRModule(functions=[func1, func2])
     
-    # Serialize
-    json_str = serialize_module(module)
+    print("\nModule functions:")
+    for func in module.functions:
+        print(f"  - {func.name}")
     
-    # Verify
+    json_str = serialize_module(module)
     data = json.loads(json_str)
+    
     assert len(data['functions']) == 2
     
-    print("  ✓ serialize module OK")
+    print(f"✓ Module serialization works, {len(data['functions'])} functions")
+    print("="*60)
+
+
+def test_complex_ir_pprint():
+    """Test pretty printing complex IR."""
+    print("\n" + "="*60)
+    print("Test: pprint complex IR")
+    print("="*60)
+    
+    builder = IRBuilder('complex_func', (float32, float32, int32), float32)
+    entry = builder.create_block('entry')
+    builder.set_insert_point(entry)
+    
+    x = builder.get_argument(0)
+    y = builder.get_argument(1)
+    n = builder.get_argument(2)
+    
+    # Compute x*x + y*y
+    x2 = builder.mul(x, x)
+    y2 = builder.mul(y, y)
+    sum_sq = builder.add(x2, y2)
+    
+    # Loop condition
+    const_0 = builder.constant(int32, 0)
+    cond = builder.gt(n, const_0)
+    
+    while_ = builder.while_(cond)
+    with while_.body_scope():
+        # Decrement n
+        const_1 = builder.constant(int32, 1)
+        new_n = builder.sub(n, const_1)
+        n = new_n
+        # Update condition
+        cond = builder.gt(n, const_0)
+    
+    builder.return_(sum_sq)
+    func = builder.build()
+    
+    output = pprint(func)
+    
+    print("\nComplex IR pretty printed:")
+    print(output)
+    
+    assert 'func complex_func' in output
+    assert len(func.blocks) >= 3  # entry, while_header, while_body, etc.
+    
+    print(f"✓ Complex IR pprint works, {len(func.blocks)} blocks")
+    print("="*60)
+
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("Running test_codegen.py tests")
+    print("="*70)
+    
+    test_json_serialization_basic()
+    test_json_serialization_with_ops()
+    test_json_serialization_control_flow()
+    test_pprint_basic()
+    test_pprint_with_ops()
+    test_pprint_control_flow()
+    test_serialize_module()
+    test_complex_ir_pprint()
+    
+    print("\n" + "="*70)
+    print("All test_codegen.py tests passed!")
+    print("="*70)

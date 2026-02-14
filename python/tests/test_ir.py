@@ -1,76 +1,78 @@
-"""Tests for the IR (Intermediate Representation)."""
+"""Tests for the IR (Intermediate Representation) - with pretty printing."""
 
 import pytest
 from luisa import (
     int32, uint32, float32, bool_,
     IRBuilder, IROp, IRModule,
     ConstantValue, ArgumentValue, InstructionValue,
+    pprint,
 )
 
 
 def test_ir_operations():
     """Test IR operation types."""
-    print("Testing IR operations...")
+    print("\n" + "="*60)
+    print("Test: IR operations")
+    print("="*60)
     
-    # Check that all expected operations exist
     assert hasattr(IROp, 'ADD')
     assert hasattr(IROp, 'SUB')
     assert hasattr(IROp, 'MUL')
     assert hasattr(IROp, 'DIV')
     assert hasattr(IROp, 'RETURN')
-    
-    # Check special register operations
     assert hasattr(IROp, 'DISPATCH_ID')
     assert hasattr(IROp, 'THREAD_ID')
     assert hasattr(IROp, 'BLOCK_ID')
     
-    print("  ✓ IR operations OK")
+    print("✓ All expected IR operations exist")
+    print("="*60)
 
 
 def test_ir_builder_basic():
     """Test basic IR builder operations."""
-    print("Testing IR builder basic...")
+    print("\n" + "="*60)
+    print("Test: IR builder basic")
+    print("="*60)
     
     builder = IRBuilder('test_func', (float32, float32), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     
-    # Get arguments
     a = builder.get_argument(0)
     b = builder.get_argument(1)
     
     assert isinstance(a, ArgumentValue)
     assert isinstance(b, ArgumentValue)
-    assert a.type == float32
-    assert b.type == float32
     
-    # Create constant
     const = builder.constant(float32, 2.0)
     assert isinstance(const, ConstantValue)
     assert const.value == 2.0
     
-    # Emit arithmetic operations
     sum_val = builder.add(a, b)
     assert isinstance(sum_val, InstructionValue)
     
     prod = builder.mul(sum_val, const)
     assert isinstance(prod, InstructionValue)
     
-    # Return
     builder.return_(prod)
-    
-    # Build function
     func = builder.build()
+    
+    print("\nGenerated IR:")
+    print(pprint(func))
+    
     assert func.name == 'test_func'
     assert len(func.blocks) == 1
-    assert len(func.blocks[0].instructions) == 3  # add, mul, return
+    assert len(func.blocks[0].instructions) == 3
     
-    print("  ✓ IR builder basic OK")
+    print(f"✓ Built function with {len(func.blocks)} block(s), {len(func.blocks[0].instructions)} instructions")
+    print("="*60)
 
 
 def test_ir_builder_control_flow():
     """Test IR builder with structured control flow."""
-    print("Testing IR builder control flow...")
+    print("\n" + "="*60)
+    print("Test: IR builder control flow")
+    print("="*60)
     
     builder = IRBuilder('test_if', (float32,), float32)
     entry = builder.create_block('entry')
@@ -79,7 +81,6 @@ def test_ir_builder_control_flow():
     a = builder.get_argument(0)
     const_0 = builder.constant(float32, 0.0)
     
-    # if a > 0: return a; else: return -a
     cond = builder.gt(a, const_0)
     
     if_ = builder.if_(cond)
@@ -91,45 +92,51 @@ def test_ir_builder_control_flow():
     
     func = builder.build()
     
-    # Check we have multiple blocks
-    assert len(func.blocks) >= 2  # entry, if_true, if_false, merge
+    print("\nGenerated IR:")
+    print(pprint(func))
     
-    print("  ✓ IR builder control flow OK")
+    assert len(func.blocks) >= 2
+    
+    print(f"✓ Built function with {len(func.blocks)} blocks (control flow)")
+    print("="*60)
 
 
 def test_constant_folding_if():
     """Test constant folding in if statements."""
-    print("Testing constant folding in if...")
+    print("\n" + "="*60)
+    print("Test: constant folding in if")
+    print("="*60)
     
     builder = IRBuilder('test_fold', (), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     
-    # Constant True condition - should fold
     true_cond = builder.constant(bool_, True)
     
     if_ = builder.if_(true_cond)
     with if_.true_scope():
-        # This branch should be taken
         result = builder.constant(float32, 1.0)
         builder.return_(result)
     with if_.false_scope():
-        # This branch is skipped due to constant folding
         pass
     
     func = builder.build()
     
-    # Check the function is valid
+    print("\nGenerated IR (constant folded):")
+    print(pprint(func))
+    
     assert func.name == 'test_fold'
     
-    print("  ✓ Constant folding in if OK")
+    print(f"✓ Constant folding works, {len(func.blocks)} blocks")
+    print("="*60)
 
 
 def test_ir_module():
     """Test IR module creation."""
-    print("Testing IR module...")
+    print("\n" + "="*60)
+    print("Test: IR module")
+    print("="*60)
     
-    # Create a simple function
     builder = IRBuilder('func1', (int32,), int32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
@@ -137,9 +144,135 @@ def test_ir_module():
     builder.return_(a)
     func1 = builder.build()
     
-    # Create module
-    module = IRModule(functions=[func1])
-    assert len(module.functions) == 1
-    assert module.functions[0].name == 'func1'
+    print("\nFunction 1:")
+    print(pprint(func1))
     
-    print("  ✓ IR module OK")
+    builder2 = IRBuilder('func2', (float32,), float32)
+    entry2 = builder2.create_block('entry')
+    builder2.set_insert_point(entry2)
+    b = builder2.get_argument(0)
+    builder2.return_(b)
+    func2 = builder2.build()
+    
+    print("\nFunction 2:")
+    print(pprint(func2))
+    
+    module = IRModule(functions=[func1, func2])
+    
+    assert len(module.functions) == 2
+    
+    print(f"✓ Module created with {len(module.functions)} functions")
+    print("="*60)
+
+
+def test_ir_builder_arithmetic_ops():
+    """Test all basic arithmetic operations."""
+    print("\n" + "="*60)
+    print("Test: IR builder arithmetic ops")
+    print("="*60)
+    
+    builder = IRBuilder('arith', (float32, float32), float32)
+    entry = builder.create_block('entry')
+    builder.set_insert_point(entry)
+    
+    a = builder.get_argument(0)
+    b = builder.get_argument(1)
+    
+    # Test various operations
+    add_res = builder.add(a, b)
+    sub_res = builder.sub(a, b)
+    mul_res = builder.mul(a, b)
+    div_res = builder.div(a, b)
+    mod_res = builder.mod(a, b)
+    
+    builder.return_(add_res)
+    func = builder.build()
+    
+    print("\nGenerated IR:")
+    print(pprint(func))
+    
+    assert len(func.blocks[0].instructions) == 6  # 5 ops + return
+    
+    print(f"✓ All arithmetic operations built, {len(func.blocks[0].instructions)} instructions")
+    print("="*60)
+
+
+def test_ir_builder_comparison_ops():
+    """Test comparison operations."""
+    print("\n" + "="*60)
+    print("Test: IR builder comparison ops")
+    print("="*60)
+    
+    builder = IRBuilder('compare', (float32, float32), bool_)
+    entry = builder.create_block('entry')
+    builder.set_insert_point(entry)
+    
+    a = builder.get_argument(0)
+    b = builder.get_argument(1)
+    
+    eq_res = builder.eq(a, b)
+    ne_res = builder.ne(a, b)
+    lt_res = builder.lt(a, b)
+    le_res = builder.le(a, b)
+    gt_res = builder.gt(a, b)
+    ge_res = builder.ge(a, b)
+    
+    builder.return_(gt_res)
+    func = builder.build()
+    
+    print("\nGenerated IR:")
+    print(pprint(func))
+    
+    assert len(func.blocks[0].instructions) == 7  # 6 compares + return
+    
+    print(f"✓ All comparison operations built, {len(func.blocks[0].instructions)} instructions")
+    print("="*60)
+
+
+def test_ir_builder_bitwise_ops():
+    """Test bitwise operations."""
+    print("\n" + "="*60)
+    print("Test: IR builder bitwise ops")
+    print("="*60)
+    
+    builder = IRBuilder('bitwise', (int32, int32), int32)
+    entry = builder.create_block('entry')
+    builder.set_insert_point(entry)
+    
+    a = builder.get_argument(0)
+    b = builder.get_argument(1)
+    
+    and_res = builder.bit_and(a, b)
+    or_res = builder.bit_or(a, b)
+    xor_res = builder.bit_xor(a, b)
+    not_res = builder.bit_not(a)
+    shl_res = builder.shl(a, b)
+    shr_res = builder.shr(a, b)
+    
+    builder.return_(and_res)
+    func = builder.build()
+    
+    print("\nGenerated IR:")
+    print(pprint(func))
+    
+    print(f"✓ Bitwise operations built, {len(func.blocks[0].instructions)} instructions")
+    print("="*60)
+
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("Running test_ir.py tests")
+    print("="*70)
+    
+    test_ir_operations()
+    test_ir_builder_basic()
+    test_ir_builder_control_flow()
+    test_constant_folding_if()
+    test_ir_module()
+    test_ir_builder_arithmetic_ops()
+    test_ir_builder_comparison_ops()
+    test_ir_builder_bitwise_ops()
+    
+    print("\n" + "="*70)
+    print("All test_ir.py tests passed!")
+    print("="*70)

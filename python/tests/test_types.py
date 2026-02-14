@@ -113,3 +113,19 @@ def test_type_promotion():
     assert result.size == 3
     
     print("  ✓ Type promotion OK")
+
+
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("Running test_types.py tests")
+    print("="*70)
+    
+    test_scalar_types()
+    test_vector_types()
+    test_matrix_types()
+    test_buffer_type()
+    test_type_promotion()
+    
+    print("\n" + "="*70)
+    print("All test_types.py tests passed!")
+    print("="*70)

@@ -8,11 +8,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
-    from ..dsl_types import Type
+    from ..ast import Value, InstructionValue
+    from ..types import Type
 
-from ..ir import IROp
-from ..dsl_types import uint3, uint, bool_, float3
+from ..ast import IROp
+from ..types import uint3, uint, bool_, float3
 from .math import _get_builder
 
 
@@ -62,7 +62,7 @@ def object_id() -> InstructionValue:
 
 def sync_block() -> InstructionValue:
     """Synchronize all threads in a block."""
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.SYNC_BLOCK, Void(), [])
 
 
@@ -92,7 +92,7 @@ def print_msg(fmt: str, *values: Value) -> InstructionValue:
         fmt: Format string with {} placeholders
         *values: Values to print
     """
-    from ..dsl_types import Void
+    from ..types import Void
     args = [fmt] + list(values)
     return _get_builder()._emit(IROp.PRINT, Void(), args)
 
@@ -103,13 +103,13 @@ def print_msg(fmt: str, *values: Value) -> InstructionValue:
 
 def assume(condition: Value, message: str = "") -> InstructionValue:
     """Provide a compiler assumption for optimization."""
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.ASSUME, Void(), [condition, message])
 
 
 def assert_(condition: Value, message: str = "") -> InstructionValue:
     """Runtime assertion (may be disabled in release)."""
-    from ..dsl_types import Void
+    from ..types import Void
     return _get_builder()._emit(IROp.ASSERT, Void(), [condition, message])
 
 
@@ -119,5 +119,5 @@ def assert_(condition: Value, message: str = "") -> InstructionValue:
 
 def clock() -> InstructionValue:
     """Get current clock value (for timing)."""
-    from ..dsl_types import uint64
+    from ..types import uint64
     return _get_builder()._emit(IROp.CLOCK, uint64, [])

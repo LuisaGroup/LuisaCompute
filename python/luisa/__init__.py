@@ -39,8 +39,8 @@ from .lang.types import (
 # Struct decorator
 from .lang.types import struct
 
-# util
-from .util import unrolled, UnrolledRange
+# lang - utilities
+from .lang.util import unrolled, UnrolledRange
 
 # Code generation
 from .codegen import (
@@ -50,8 +50,8 @@ from .codegen import (
     pprint_to_file,
 )
 
-# Builtins
-from .builtins import (
+# Builtins (language operations)
+from .lang.builtins import (
     # Math
     sqrt, abs, sin, cos, tan, asin, acos, atan, atan2,
     exp, exp2, log, log2, log10,

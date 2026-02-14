@@ -12,12 +12,12 @@ Similar patterns for loops and switches.
 """
 
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
-from dataclasses import dataclass
+from typing import Optional
 
-if TYPE_CHECKING:
-    from .ast import Value, IRBasicBlock, ConstantValue
-    from .builder import IRBuilder
+
+# Runtime imports
+from .ast import Value, IRBasicBlock, ConstantValue
+from .builder import IRBuilder
 
 
 # ============================================================================
@@ -46,14 +46,11 @@ class IfStmt:
         self._merge_block: Optional['IRBasicBlock'] = None
         self._has_false_branch = False
         # Check for constant folding at runtime
-        from .ast import ConstantValue
         self._constant_fold = isinstance(condition, ConstantValue)
         self._fold_true = condition.value if self._constant_fold else None
         
     def true_scope(self):
         """Get context manager for the true branch."""
-        from .ast import ConstantValue
-        
         # Check for constant folding
         if isinstance(self.condition, ConstantValue):
             if self.condition.value == True:
@@ -85,8 +82,6 @@ class IfStmt:
     
     def false_scope(self):
         """Get context manager for the false branch."""
-        from .ast import ConstantValue
-        
         # Check for constant folding
         if isinstance(self.condition, ConstantValue):
             if self.condition.value == True:
@@ -142,8 +137,6 @@ class WhileStmt:
         
     def body_scope(self):
         """Get context manager for the loop body."""
-        from .ast import ConstantValue
-        
         # Check for constant folding - if False, skip entire loop
         if isinstance(self.condition, ConstantValue) and self.condition.value == False:
             return _NoOpScope()
@@ -204,8 +197,6 @@ class ForRangeStmt:
         
     def body_scope(self):
         """Get context manager for the loop body."""
-        from .types import int32
-        
         # Create blocks
         self._header_block = self.builder.create_block("for_header")
         self._body_block = self.builder.create_block("for_body")
@@ -295,7 +286,6 @@ class SwitchStmt:
         self._default_block: Optional[IRBasicBlock] = None
         self._exit_block: Optional[IRBasicBlock] = None
         
-        from .ast import ConstantValue
         self._folded = isinstance(value, ConstantValue)
         self._constant_value = value.value if self._folded else None
         

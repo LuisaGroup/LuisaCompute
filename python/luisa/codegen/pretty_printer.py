@@ -5,12 +5,12 @@ Provides human-readable output of IR for debugging purposes.
 """
 
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING
+from typing import Any
 from io import StringIO
 
-if TYPE_CHECKING:
-    from ..ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value, IROp
-    from ..dsl_types import Type
+# Runtime imports
+from ..lang.ast import IRFunction, IRModule, IRBasicBlock, IRInstruction, IROp
+from ..lang.types import Type
 
 
 class PrettyPrinter:
@@ -48,8 +48,6 @@ class PrettyPrinter:
         """Print an IR object and return the result."""
         self._output = StringIO()
         self._indent_level = 0
-        
-        from ..ir import IRFunction, IRModule
         
         if isinstance(obj, IRFunction):
             self._print_function(obj)
@@ -125,7 +123,7 @@ class PrettyPrinter:
         if t is None:
             return 'void'
         
-        from ..dsl_types import (
+        from ..lang.types import (
             Scalar, Vector, Matrix, Array, Struct, Buffer,
             Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void
         )
@@ -234,7 +232,7 @@ def pprint(obj: IRFunction | IRModule, indent_size: int = 2) -> str:
     return printer.print(obj)
 
 
-def pprint_to_file(obj: IRFunction | IRModule, path: str, indent_size: int = 2) -> None:
+def pprint_to_file(obj, path: str, indent_size: int = 2) -> None:  # type: ignore
     """Pretty print an IR object to a file."""
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         f.write(pprint(obj, indent_size))

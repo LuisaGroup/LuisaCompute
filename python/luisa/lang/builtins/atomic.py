@@ -8,9 +8,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
+    from ..ast import Value, InstructionValue
 
-from ..ir import IROp
+from ..ast import IROp
 from .math import _get_builder
 
 

@@ -9,18 +9,16 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
-from typing import Callable, Optional, Any, TYPE_CHECKING, Union
-from dataclasses import dataclass, field
+from typing import Callable, Optional, Any
+from dataclasses import dataclass
 
-if TYPE_CHECKING:
-    from .types import Type
-    from .ast import Value
-    
-    from .types import (
-        Type, Scalar, Vector, Matrix, Array, Struct, Buffer, Void,
-        bool_, int32, uint32, float32, float64, float3,
-        python_type_to_dsl
-    )
+# Runtime imports
+from .types import Type
+from .types import (
+    Scalar, Vector, Buffer, Texture2D, Texture3D, Array, Void,
+    bool_, int32, uint32, float32,
+    python_type_to_dsl
+)
 
 # ============================================================================
 # Parsed Function Representation
@@ -81,7 +79,7 @@ def annotation_to_type(ann: Any) -> Optional[Type]:
     if ann is None or ann is inspect.Parameter.empty:
         return None
     
-    # Handle direct type references
+    # Handle direct type references (including Buffer[float32] which returns a Buffer instance)
     if isinstance(ann, Type):
         return ann
     
@@ -101,6 +99,18 @@ def annotation_to_type(ann: Any) -> Optional[Type]:
             elem_type = annotation_to_type(args[0])
             if elem_type is not None:
                 return Buffer(element=elem_type)
+        
+        # Handle Texture2D[T]
+        if origin.__name__ == 'Texture2D' or getattr(origin, '__name__', None) == 'Texture2D':
+            elem_type = annotation_to_type(args[0])
+            if elem_type is not None and isinstance(elem_type, Scalar):
+                return Texture2D(element=elem_type)
+        
+        # Handle Texture3D[T]
+        if origin.__name__ == 'Texture3D' or getattr(origin, '__name__', None) == 'Texture3D':
+            elem_type = annotation_to_type(args[0])
+            if elem_type is not None and isinstance(elem_type, Scalar):
+                return Texture3D(element=elem_type)
         
         # Handle list[T] for arrays
         if origin is list and len(args) == 1:
@@ -132,7 +142,7 @@ class Parser:
         try:
             source = inspect.getsource(func)
         except (OSError, TypeError) as e:
-            raise RuntimeError(f"Cannot get source for {func}: {e}")
+            raise RuntimeError(f"Cannot get source for {func}: {e}") from e
         
         # Dedent source to handle nested function definitions
         source = textwrap.dedent(source)
@@ -141,7 +151,7 @@ class Parser:
         try:
             tree = ast.parse(source)
         except SyntaxError as e:
-            raise RuntimeError(f"Syntax error in {func}: {e}")
+            raise RuntimeError(f"Syntax error in {func}: {e}") from e
         
         # Get function definition
         if not tree.body or not isinstance(tree.body[0], ast.FunctionDef):
@@ -291,18 +301,18 @@ class TypeChecker:
         self.errors.append(f"Cannot subscript type {value_type}")
         return None
     
-    def check_call(self, func_type: Type, arg_types: list[Type]) -> Optional[Type]:
+    def check_call(self, func_typ: Type, _arg_types: list[Type]) -> Optional[Type]:
         """Check a function call and return the result type."""
-        if isinstance(func_type, type(lambda: None)):
+        if isinstance(func_typ, type(lambda: None)):
             # Python callable - need to handle this differently
             return None
         
-        if not hasattr(func_type, 'arg_types'):
-            self.errors.append(f"Cannot call non-callable type {func_type}")
+        if not hasattr(func_typ, 'arg_types'):
+            self.errors.append(f"Cannot call non-callable type {func_typ}")
             return None
-        
+
         # For now, just return the return type if it exists
-        return getattr(func_type, 'ret_type', None)
+        return getattr(func_typ, 'ret_type', None)
 
 
 # ============================================================================
@@ -315,14 +325,13 @@ def parse_function(func: Callable) -> ParsedFunction:
     return parser.parse_function(func)
 
 
-def check_types(node: ast.AST, 
-               type_env: Optional[dict[str, Type]] = None) -> Optional[Type]:
+def check_types(_node: ast.AST,
+               _type_env: Optional[dict[str, Type]] = None) -> Optional[Type]:
     """
     Check types for an AST node.
-    
+
     This is a simplified entry point. Full type checking is done
     during the builder execution phase.
     """
-    checker = TypeChecker()
     # Type checking happens during builder execution
     return None

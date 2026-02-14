@@ -6,22 +6,19 @@ a fluent API with context managers for control flow.
 """
 
 from __future__ import annotations
-from typing import Optional, Union, Any, TYPE_CHECKING, Callable
-from contextlib import contextmanager
-from dataclasses import dataclass, field
+from typing import Optional, Any
 
-if TYPE_CHECKING:
-    from .types import Type
-    from .ast import Value, ConstantValue, IRInstruction, IRBasicBlock, IRFunction, IROp
-    
-    from .types import (
-        Scalar, Vector, Matrix, Void, bool_, int32, uint32, float32,
-        is_integer_type, is_float_type, is_bool_type, promote_types
-    )
-    from .ast import (
-        IROp, Value, ConstantValue, InstructionValue, ArgumentValue,
-        IRInstruction, IRBasicBlock, IRFunction, IRModule
-    )
+from dataclasses import dataclass
+
+# Runtime imports
+from .types import Type
+from .types import (
+    Void, bool_, promote_types
+)
+from .ast import (
+    IROp, Value, ConstantValue, InstructionValue, ArgumentValue,
+    IRInstruction, IRBasicBlock, IRFunction, IRModule
+)
 
 # ============================================================================
 # Loop Context
@@ -59,17 +56,17 @@ class IRBuilder:
         self.arg_values: list[ArgumentValue] = []
         
         # Initialize argument values
-        for i, arg_type in enumerate(arg_types):
-            arg_val = ArgumentValue(type=arg_type, index=i)
+        for i, arg_typ in enumerate(arg_types):
+            arg_val = ArgumentValue(typ=arg_typ, index=i)
             self.arg_values.append(arg_val)
     
     # ========================================================================
     # Value Creation
     # ========================================================================
     
-    def constant(self, type: Type, value: Any) -> ConstantValue:
+    def constant(self, typ: Type, value: Any) -> ConstantValue:
         """Create a constant value."""
-        return ConstantValue(type=type, value=value)
+        return ConstantValue(typ=typ, value=value)
     
     def get_argument(self, index: int) -> ArgumentValue:
         """Get an argument value by index."""
@@ -112,7 +109,7 @@ class IRBuilder:
     # Instruction Emission
     # ========================================================================
     
-    def _emit(self, op: IROp, type: Type, args: list, 
+    def _emit(self, op: IROp, typ: Type, args: list,
               name: Optional[str] = None) -> InstructionValue:
         """Emit an instruction and return its result value."""
         if self.current_block is None:
@@ -127,11 +124,11 @@ class IRBuilder:
         self.instruction_counter += 1
         
         # Create instruction
-        inst = IRInstruction(op=op, type=type, args=args, result=name)
+        inst = IRInstruction(op=op, typ=typ, args=args, result=name)
         self.current_block.add_instruction(inst)
-        
+
         # Create and return result value
-        result = InstructionValue(type=type, name=name, instruction=inst)
+        result = InstructionValue(typ=typ, name=name, instruction=inst)
         return result
     
     # ========================================================================
@@ -215,13 +212,13 @@ class IRBuilder:
     def swizzle(self, vector: Value, pattern: str) -> InstructionValue:
         """
         Emit a vector swizzle operation.
-        
+
         Args:
             vector: The vector to swizzle
             pattern: Swizzle pattern like 'x', 'xy', 'xyz', 'xyzw', 'rgba', etc.
         """
-        from .dsl_types import Vector
-        
+        from .types import Vector
+
         if not isinstance(vector.type, Vector):
             raise TypeError(f"Can only swizzle vectors, got {vector.type}")
         
@@ -230,10 +227,15 @@ class IRBuilder:
         if result_size < 1 or result_size > 4:
             raise ValueError(f"Invalid swizzle pattern length: {len(pattern)}")
         
+        # Single component swizzle returns scalar, not Vector(1)
+        if result_size == 1:
+            result_type = vector.type.element
+        else:
+            result_type = Vector(vector.type.element, result_size)
+        
         # For now, emit as a generic swizzle - the backend handles the pattern
         # In a full implementation, we'd parse the pattern into component indices
-        return self._emit(IROp.SWIZZLE, Vector(vector.type.element, result_size), 
-                         [vector, pattern])
+        return self._emit(IROp.SWIZZLE, result_type, [vector, pattern])
     
     # ========================================================================
     # Comparison Operations
@@ -283,15 +285,15 @@ class IRBuilder:
     # Memory Operations
     # ========================================================================
     
-    def alloca(self, type: Type, name: Optional[str] = None) -> InstructionValue:
+    def alloca(self, typ: Type, name: Optional[str] = None) -> InstructionValue:
         """Emit an alloca instruction (allocate local variable)."""
-        return self._emit(IROp.ALLOCA, type, [], name)
+        return self._emit(IROp.ALLOCA, typ, [], name)
     
-    def load(self, ptr: Value, type: Optional[Type] = None) -> InstructionValue:
+    def load(self, ptr: Value, typ: Optional[Type] = None) -> InstructionValue:
         """Emit a load instruction."""
-        if type is None:
-            type = ptr.type
-        return self._emit(IROp.LOAD, type, [ptr])
+        if typ is None:
+            typ = ptr.type
+        return self._emit(IROp.LOAD, typ, [ptr])
     
     def store(self, ptr: Value, value: Value) -> InstructionValue:
         """Emit a store instruction."""
@@ -325,6 +327,14 @@ class IRBuilder:
         if value is None:
             return self._emit(IROp.RETURN, Void(), [])
         return self._emit(IROp.RETURN, value.type, [value])
+    
+    def cast(self, value: Value, target_typ: Type) -> InstructionValue:
+        """Emit a type cast instruction."""
+        return self._emit(IROp.CAST, target_typ, [value])
+
+    def bitcast(self, value: Value, target_typ: Type) -> InstructionValue:
+        """Emit a bitcast instruction (preserves bit pattern)."""
+        return self._emit(IROp.BITCAST, target_typ, [value])
     
     # ========================================================================
     # Control Flow - Structured API (New Style)

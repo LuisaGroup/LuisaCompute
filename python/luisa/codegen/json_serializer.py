@@ -10,14 +10,15 @@ from typing import Any, TYPE_CHECKING
 from dataclasses import asdict, is_dataclass
 
 if TYPE_CHECKING:
-    from ..ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
-    from ..dsl_types import Type
+    from ..lang.ast import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
+    from ..lang.types import Type
 
 
 class IRJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for IR types."""
     
-    def default(self, obj: Any) -> Any:
+    def default(self, o: Any) -> Any:
+        obj = o  # Keep original variable name for compatibility
         # Handle dataclasses
         if is_dataclass(obj):
             result = asdict(obj)
@@ -41,7 +42,7 @@ class IRJSONEncoder(json.JSONEncoder):
 
 def type_to_dict(t: Type) -> dict[str, Any]:
     """Convert a Type to a dictionary representation."""
-    from ..dsl_types import (
+    from ..lang.types import (
         Scalar, Vector, Matrix, Array, Struct, Buffer,
         Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void
     )
@@ -123,7 +124,7 @@ def type_to_dict(t: Type) -> dict[str, Any]:
 
 def value_to_dict(v: Value) -> dict[str, Any]:
     """Convert a Value to a dictionary representation."""
-    from ..ir import ConstantValue, ArgumentValue, InstructionValue
+    from ..lang.ast import ConstantValue, ArgumentValue, InstructionValue
     
     result = {
         'type': type_to_dict(v.type),
@@ -224,11 +225,11 @@ def serialize_module(module: IRModule, indent: int | None = 2) -> str:
 
 def save_function_to_file(func: IRFunction, path: str, indent: int | None = 2) -> None:
     """Save an IRFunction to a JSON file."""
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         f.write(serialize_function(func, indent))
 
 
 def save_module_to_file(module: IRModule, path: str, indent: int | None = 2) -> None:
     """Save an IRModule to a JSON file."""
-    with open(path, 'w') as f:
+    with open(path, 'w', encoding='utf-8') as f:
         f.write(serialize_module(module, indent))

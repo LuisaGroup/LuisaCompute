@@ -6,12 +6,15 @@ vector types, matrix types, arrays, structs, and resource types.
 """
 
 from __future__ import annotations
-from typing import Optional, Union, Any, TYPE_CHECKING
-from dataclasses import dataclass, field
+from typing import Optional, Union, Any, TypeVar, TYPE_CHECKING
+from dataclasses import dataclass
 from enum import Enum, auto
 
 if TYPE_CHECKING:
     pass
+
+# Type variable for generic types
+T = TypeVar('T', bound='Type')
 
 
 class ScalarType(Enum):
@@ -172,6 +175,10 @@ class Buffer(Type):
     
     def __repr__(self) -> str:
         return f"buffer<{self.element}>"
+    
+    def __class_getitem__(cls, item):
+        """Support Buffer[float32] syntax."""
+        return cls(element=item)
 
 
 @dataclass(frozen=True)
@@ -181,6 +188,10 @@ class Texture2D(Type):
     
     def __repr__(self) -> str:
         return f"texture2d<{self.element}>"
+    
+    def __class_getitem__(cls, item):
+        """Support Texture2D[float32] syntax."""
+        return cls(element=item)
 
 
 @dataclass(frozen=True)
@@ -190,6 +201,10 @@ class Texture3D(Type):
     
     def __repr__(self) -> str:
         return f"texture3d<{self.element}>"
+    
+    def __class_getitem__(cls, item):
+        """Support Texture3D[float32] syntax."""
+        return cls(element=item)
 
 
 @dataclass(frozen=True)
@@ -513,8 +528,6 @@ def struct(cls: type) -> type:
     The decorated class becomes a proper DSL type that can be used in
     buffers, arrays, and as kernel arguments.
     """
-    import inspect
-    
     # Get annotations
     annotations = getattr(cls, '__annotations__', {})
     if not annotations:
@@ -545,13 +558,14 @@ def struct(cls: type) -> type:
     _struct_registry[cls.__name__] = cls
     
     # Attach type info to class
-    cls._dsl_type = struct_type
-    cls._dsl_fields = {name: typ for name, typ in fields}
+    # Store type info on class (using _dsl prefix to avoid conflicts)
+    cls._dsl_type = struct_type  # pylint: disable=protected-access
+    cls._dsl_fields = {name: typ for name, typ in fields}  # pylint: disable=protected-access
     
     # Add methods
     def get_dsl_type(self) -> Struct:
         """Get the DSL type for this struct."""
-        return self._dsl_type
+        return self._dsl_type  # pylint: disable=protected-access
     
     cls.get_dsl_type = get_dsl_type
     

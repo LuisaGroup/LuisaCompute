@@ -8,10 +8,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
-    from ..dsl_types import Type
+    from ..ast import Value, InstructionValue
+    from ..types import Type
 
-from ..ir import IROp
+from ..ast import IROp
 from ..builder import IRBuilder
 
 # Global builder reference (set during execution)
@@ -143,13 +143,13 @@ def normalize(x: Value) -> InstructionValue:
 def length(x: Value) -> InstructionValue:
     """Compute vector length."""
     # Length returns scalar
-    from ..dsl_types import Scalar, ScalarType
+    from ..types import Scalar, ScalarType
     return _get_builder()._emit(IROp.LENGTH, Scalar(ScalarType.FLOAT32), [x])
 
 
 def length_squared(x: Value) -> InstructionValue:
     """Compute squared vector length."""
-    from ..dsl_types import Scalar, ScalarType
+    from ..types import Scalar, ScalarType
     return _get_builder()._emit(IROp.LENGTH_SQUARED, Scalar(ScalarType.FLOAT32), [x])
 
 
@@ -194,8 +194,8 @@ def pow(base: Value, exp: Value) -> InstructionValue:
 
 def dot(a: Value, b: Value) -> InstructionValue:
     """Compute dot product."""
-    from ..dsl_types import Scalar, ScalarType
-    return _get_builder()._emit(IROp.DOT, Scalar(ScalarType.FLOAT32), [a, b])
+    from ..types import float32
+    return _get_builder()._emit(IROp.DOT, float32, [a, b])
 
 
 def cross(a: Value, b: Value) -> InstructionValue:
@@ -205,8 +205,8 @@ def cross(a: Value, b: Value) -> InstructionValue:
 
 def distance(a: Value, b: Value) -> InstructionValue:
     """Compute distance between two points."""
-    from ..dsl_types import Scalar, ScalarType
-    return _get_builder()._emit(IROp.DISTANCE, Scalar(ScalarType.FLOAT32), [a, b])
+    from ..types import float32
+    return _get_builder()._emit(IROp.DISTANCE, float32, [a, b])
 
 
 def reflect(i: Value, n: Value) -> InstructionValue:
@@ -240,5 +240,5 @@ def inverse(m: Value) -> InstructionValue:
 
 def determinant(m: Value) -> InstructionValue:
     """Compute matrix determinant."""
-    from ..dsl_types import Scalar, ScalarType
-    return _get_builder()._emit(IROp.MATRIX_DETERMINANT, Scalar(ScalarType.FLOAT32), [m])
+    from ..types import float32
+    return _get_builder()._emit(IROp.MATRIX_DETERMINANT, float32, [m])
