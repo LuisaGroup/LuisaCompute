@@ -1138,10 +1138,16 @@ class BuilderExecutor:
                             self.execute(stmt)
 ```
 
-### Constant Folding Example
+### Constant Folding in Multistage Programming
+
+A key advantage of multistage programming is that constant folding works not just for literals, but for **any value known at IR construction time**. This includes:
+
+1. **Literal constants**: `True`, `42`, `3.14`
+2. **Captured variables**: Values captured from the Python closure that are known when the builder executes
+3. **Compile-time computed values**: Results of operations on constants
 
 ```python
-# Example 1: Constant condition folding
+# Example 1: Literal constant folding
 @kernel
 def example1(x: buffer[float]):
     if True:  # Folded - always executes
@@ -1149,36 +1155,141 @@ def example1(x: buffer[float]):
     else:     # Folded - never executes (dead code eliminated)
         x[0] = 2.0
 
-# Example 2: Variable condition - generates branch
+# Example 2: Captured variable folding
+# The threshold value is captured and known at IR construction time
+threshold = 0.5  # Python variable, known at stage 3
+
 @kernel
-def example2(x: buffer[float], cond: bool):
-    if cond:  # Generates conditional branch
+def example2(x: buffer[float]):
+    if threshold > 0.0:  # Can be folded because threshold is known!
         x[0] = 1.0
     else:
-        x[0] = 2.0
+        x[0] = 0.0  # Dead code eliminated
 
-# Example 3: Constant switch folding
+# Example 3: Kernel argument - NOT foldable
 @kernel
-def example3(x: buffer[float]):
-    match 2:  # Constant value
-        case 1:  # Skipped
-            x[0] = 1.0
-        case 2:  # Executed
-            x[0] = 2.0
-        case _:  # Skipped
-            x[0] = 0.0
+def example3(x: buffer[float], threshold: float):
+    if threshold > 0.0:  # CANNOT fold - threshold is a runtime argument
+        x[0] = 1.0
+    else:
+        x[0] = 0.0  # Both branches must be generated
 
-# Example 4: Dynamic vs unrolled loops
+# Example 4: Captured computation folding
+size = 64
+block_size = 8
+num_blocks = size // block_size  # Computed at Python runtime, known at stage 3
+
 @kernel
 def example4(x: buffer[float]):
-    # Dynamic loop - runs on device
-    for i in range(100):  # Generates loop instructions
-        x[i] = float(i)
+    # num_blocks is a constant (8) known at IR construction time
+    for b in unrolled(range(num_blocks)):  # Fully unrolled to 8 iterations
+        for t in range(block_size):  # Dynamic loop (could also be unrolled)
+            idx = b * block_size + t
+            x[idx] = float(idx)
+
+# Example 5: Constant switch folding
+mode = 2  # Captured constant
+
+@kernel
+def example5(x: buffer[float]):
+    match mode:  # mode=2 is known at IR construction time
+        case 1:  # Skipped - dead code eliminated
+            x[0] = 1.0
+        case 2:  # Executed - only this branch generates IR
+            x[0] = 2.0
+        case _:  # Skipped - dead code eliminated
+            x[0] = 0.0
+
+# Example 6: Dynamic vs unrolled loops with captured bounds
+n_device = 1024  # Runtime parameter (buffer size)
+n_tiles = 4      # Captured constant (tiling factor)
+
+@kernel
+def example6(x: buffer[float]):
+    tile_size = n_device // n_tiles  # Can be computed at stage 3!
     
-    # Unrolled loop - unrolled at compile time
-    for i in unrolled(range(4)):  # Generates 4 stores
-        x[i] = float(i)
+    # tile_size is constant (256), n_tiles is constant (4)
+    # This loop can be unrolled because n_tiles is known
+    for tile in unrolled(range(n_tiles)):
+        start = tile * tile_size
+        
+        # This is a dynamic loop - runs on device
+        # Even though tile_size is known, we don't unroll to avoid code bloat
+        for i in range(tile_size):
+            idx = start + i
+            x[idx] = float(tile)
 ```
+
+### How Constant Folding Works in Multistaging
+
+```python
+class StagedFunction:
+    def __call__(self, *args, **kwargs):
+        # Stage 3: Execute builder with actual captured values
+        # Captured variables are available as Python values here!
+        
+        builder = IRBuilder(self.name, actual_types, self.ret_type)
+        
+        # Pass captured_vars to the executor - these are actual Python values
+        # e.g., {'threshold': 0.5, 'n_tiles': 4, 'mode': 2}
+        executor = BuilderExecutor(builder, self.captured_vars)
+        executor.execute(self.ast)
+        
+        return builder.build()
+
+class BuilderExecutor:
+    def visit_Name(self, node):
+        """Lookup variable - may return a constant if captured"""
+        name = node.id
+        
+        if name in self.captured_vars:
+            # This is a captured variable - we have its Python value!
+            value = self.captured_vars[name]
+            
+            # If it's a primitive constant, create a ConstantValue
+            if isinstance(value, (bool, int, float)):
+                return ConstantValue(value=value, type=self._get_type(value))
+            
+            # If it's a buffer/texture/etc, create a reference
+            elif self._is_resource(value):
+                return ResourceReference(value=value)
+            
+        # Otherwise, it's a local variable or kernel argument
+        return self.builder.lookup_local(name)
+```
+
+### The Power of Stage 3 Constant Folding
+
+This multistage approach enables powerful optimizations:
+
+```python
+# Configuration captured from Python
+USE_AO = True
+AO_SAMPLES = 8
+MAX_BOUNCES = 3
+
+@kernel
+def path_tracer(image: buffer[float3], accel: Accel) -> None:
+    # All these conditions are folded at IR construction time!
+    
+    if USE_AO:  # Always True - ambient occlusion code included
+        ao = compute_ao(...)
+    else:
+        ao = 1.0  # Dead code eliminated
+    
+    # Unrolled because AO_SAMPLES is known
+    for i in unrolled(range(AO_SAMPLES)):
+        ...
+    
+    # Switch folded to just the MAX_BOUNCES case
+    match MAX_BOUNCES:
+        case 1: ...  # Dead code
+        case 2: ...  # Dead code
+        case 3: ...  # Only this generates IR
+        case _: ...  # Dead code
+```
+
+This is essentially **zero-cost abstraction** - the configuration is resolved at "compile time" (stage 3), and only the relevant code paths appear in the final IR.
 
 ## Multistage Programming
 
