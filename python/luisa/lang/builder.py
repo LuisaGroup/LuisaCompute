@@ -18,7 +18,7 @@ from .types import (
 )
 from .ir import (
     IROp, Value, ConstantValue, InstructionValue, ArgumentValue,
-    IRInstruction, IRBasicBlock, IRFunction, IRModule
+    IRInstruction, IRBasicBlock, IRFunction, IRModule, SourceLocation
 )
 
 # ============================================================================
@@ -43,11 +43,24 @@ class IRBuilder:
         self.instruction_counter = 0
         self.local_vars: dict[str, Value] = {}  # name -> Value
         self.arg_values: list[ArgumentValue] = []
+        self.current_loc: Optional[SourceLocation] = None
         
         # Initialize argument values
         for i, arg_typ in enumerate(arg_types):
             arg_val = ArgumentValue(typ=arg_typ, index=i)
             self.arg_values.append(arg_val)
+    
+    # ========================================================================
+    # Location Management
+    # ========================================================================
+    
+    def set_location(self, file: str, line: int) -> None:
+        """Set the current source location for debugging."""
+        self.current_loc = SourceLocation(file=file, line=line)
+    
+    def clear_location(self) -> None:
+        """Clear the current source location."""
+        self.current_loc = None
     
     # ========================================================================
     # Value Creation
@@ -73,7 +86,7 @@ class IRBuilder:
     # Block Management
     # ========================================================================
     
-    def create_block(self, name: str) -> IRBasicBlock:
+    def create_block(self, name: str, loc: Optional[SourceLocation] = None) -> IRBasicBlock:
         """Create a new basic block."""
         # Ensure unique name
         base_name = name
@@ -82,7 +95,10 @@ class IRBuilder:
             name = f"{base_name}_{counter}"
             counter += 1
         
-        block = IRBasicBlock(name=name)
+        if loc is None:
+            loc = self.current_loc
+            
+        block = IRBasicBlock(name=name, loc=loc)
         self.blocks.append(block)
         return block
     
@@ -109,7 +125,8 @@ class IRBuilder:
     # ========================================================================
     
     def _emit(self, op: IROp, typ: Type, args: list,
-              name: Optional[str] = None) -> InstructionValue:
+              name: Optional[str] = None,
+              loc: Optional[SourceLocation] = None) -> InstructionValue:
         """Emit an instruction and return its result value."""
         if self.current_block is None:
             raise RuntimeError("No current block set")
@@ -122,8 +139,11 @@ class IRBuilder:
             name = f"t{self.instruction_counter}"
         self.instruction_counter += 1
         
+        if loc is None:
+            loc = self.current_loc
+            
         # Create instruction
-        inst = IRInstruction(op=op, typ=typ, args=args, result=name)
+        inst = IRInstruction(op=op, typ=typ, args=args, result=name, loc=loc)
         self.current_block.add_instruction(inst)
 
         # Create and return result value
@@ -425,5 +445,6 @@ class IRBuilder:
             arg_types=self.arg_types,
             ret_type=self.ret_type,
             blocks=self.blocks,
-            is_kernel=False  # Set by caller if needed
+            is_kernel=False,  # Set by caller if needed
+            loc=self.current_loc
         )

@@ -16,6 +16,20 @@ if TYPE_CHECKING:
 
 
 # ============================================================================
+# Source Location
+# ============================================================================
+
+@dataclass(frozen=True)
+class SourceLocation:
+    """Source code location for debugging."""
+    file: str
+    line: int
+
+    def __repr__(self) -> str:
+        return f"{self.file}:{self.line}"
+
+
+# ============================================================================
 # IR Operations
 # ============================================================================
 
@@ -283,6 +297,7 @@ class IRInstruction:
     typ: Type  # Renamed from 'type' to avoid builtin shadowing
     args: list[Union[int, str, Value, 'IRBasicBlock']] = field(default_factory=list)
     result: Optional[str] = None
+    loc: Optional[SourceLocation] = None
 
     def __repr__(self) -> str:
         args_str = ", ".join(str(a) for a in self.args)
@@ -309,6 +324,7 @@ class IRBasicBlock:
     """Basic block in IR."""
     name: str
     instructions: list[IRInstruction] = field(default_factory=list)
+    loc: Optional[SourceLocation] = None
     
     def __repr__(self) -> str:
         lines = [f"{self.name}:"]
@@ -341,6 +357,7 @@ class IRFunction:
     blocks: list[IRBasicBlock] = field(default_factory=list)
     is_kernel: bool = False
     block_size: Optional[tuple[int, int, int]] = None
+    loc: Optional[SourceLocation] = None
     
     def __repr__(self) -> str:
         args_str = ", ".join(str(t) for t in self.arg_types)

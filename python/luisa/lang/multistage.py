@@ -359,7 +359,11 @@ class StagedFunction:
             self.parsed = parse_function(func)
         self._cache: dict[tuple[Type, ...], IRFunction] = {}
         
-        rewriter = ASTRewriter()
+        # Get filename for source location
+        import inspect
+        self.filename = inspect.getsourcefile(func) or "<unknown>"
+        
+        rewriter = ASTRewriter(file=self.filename)
         self.rewritten_ast = rewriter.rewrite(self.parsed.ast_node)
         ast.fix_missing_locations(self.rewritten_ast)
         
@@ -403,25 +407,14 @@ class StagedFunction:
         builder = IRBuilder(name=self.parsed.name, arg_types=arg_types, ret_type=self.parsed.ret_annotation)
         set_math_builder(builder)
         try:
+            # Set initial location
+            builder.set_location(self.filename, self.parsed.ast_node.lineno)
+            
             entry = builder.create_block("entry")
             builder.set_insert_point(entry)
             
-            namespace = {
-                "__luisa_rt": sys.modules[__name__],
-                "ast": ast,
-                "static_range": static_range,
-                **{name: var.value for name, var in self.parsed.captured_vars.items()}
-            }
-            if self.pyfunc and hasattr(self.pyfunc, "__globals__"):
-                for name, val in self.pyfunc.__globals__.items():
-                    if name not in namespace:
-                        namespace[name] = val
-            
-            exec(self.compiled_code, namespace)
-            builder_func = namespace[f"__luisa_built_{self.name}"]
-            
             arg_values = [builder.get_argument(i) for i in range(len(arg_types))]
-            builder_func(builder, *arg_values)
+            self.builder_func(builder, *arg_values)
             
         finally:
             set_math_builder(None)

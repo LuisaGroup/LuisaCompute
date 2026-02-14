@@ -141,11 +141,15 @@ class Parser:
         """
         # Get source code
         try:
-            source = inspect.getsource(func)
+            lines, start_line = inspect.getsourcelines(func)
+            source = "".join(lines)
         except (OSError, TypeError) as e:
             raise RuntimeError(f"Cannot get source for {func}: {e}") from e
         
         # Dedent source to handle nested function definitions
+        # Note: we need to handle start_line adjustment if dedent changes anything,
+        # but usually dedent preserves relative line numbers.
+        # However, ast.parse will start at line 1.
         source = textwrap.dedent(source)
         
         # Parse AST
@@ -159,6 +163,10 @@ class Parser:
             raise RuntimeError(f"Expected function definition, got {type(tree.body[0])}")
         
         func_def = tree.body[0]
+        
+        # Adjust line numbers to be global
+        # ast.parse starts at line 1, so we add (start_line - 1)
+        ast.increment_lineno(func_def, start_line - 1)
         
         # Get signature
         sig = inspect.signature(func)

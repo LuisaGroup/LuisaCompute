@@ -7,7 +7,7 @@ builder function that generates the equivalent IR.
 
 from __future__ import annotations
 import ast
-from typing import Any
+from typing import Any, Optional
 
 
 class ASTRewriter(ast.NodeTransformer):
@@ -18,33 +18,29 @@ class ASTRewriter(ast.NodeTransformer):
         a + b  =>  l_binop(builder, ast.Add(), a, b)
     """
     
-    def __init__(self, builder_name: str = "__luisa_builder"):
+    def __init__(self, file: str = "<unknown>", builder_name: str = "__luisa_builder"):
+        self.file = file
         self.builder_name = builder_name
+        self._in_loop = 0
         self.rt_alias = "__luisa_rt"
 
     def rewrite(self, node: ast.AST) -> ast.AST:
         """Entry point for rewriting."""
         return self.visit(node)
 
-    def _termination_check(self) -> ast.If:
-        """Create a check to return if the current block is terminated."""
-        return ast.If(
-            test=ast.Call(
+    def _set_loc(self, node: ast.AST) -> Optional[ast.Expr]:
+        """Create a call to builder.set_location based on node lineno."""
+        if hasattr(node, 'lineno'):
+            return ast.Expr(value=ast.Call(
                 func=ast.Attribute(
-                    value=ast.Attribute(
-                        value=ast.Name(id=self.builder_name, ctx=ast.Load()),
-                        attr="current_block",
-                        ctx=ast.Load()
-                    ),
-                    attr="is_terminated",
+                    value=ast.Name(id=self.builder_name, ctx=ast.Load()),
+                    attr="set_location",
                     ctx=ast.Load()
                 ),
-                args=[],
+                args=[ast.Constant(value=self.file), ast.Constant(value=node.lineno)],
                 keywords=[]
-            ),
-            body=[ast.Return(value=None)],
-            orelse=[]
-        )
+            ))
+        return None
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Rewrite function definition."""
@@ -63,6 +59,10 @@ class ASTRewriter(ast.NodeTransformer):
         # Rewrite body
         new_body = []
         for stmt in node.body:
+            loc_call = self._set_loc(stmt)
+            if loc_call:
+                new_body.append(loc_call)
+                
             rewritten = self.visit(stmt)
             if isinstance(rewritten, list):
                 new_body.extend(rewritten)
@@ -135,6 +135,14 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite if statements."""
         if_var = "__luisa_if"
         
+        def visit_body(body):
+            visited = []
+            for s in body:
+                loc_call = self._set_loc(s)
+                if loc_call: visited.append(loc_call)
+                visited.append(self.visit(s))
+            return visited or [ast.Pass()]
+
         return ast.With(
             items=[ast.withitem(
                 context_expr=self._rt_call("l_if", 
@@ -148,13 +156,13 @@ class ASTRewriter(ast.NodeTransformer):
                     items=[ast.withitem(
                         context_expr=ast.Call(func=ast.Attribute(value=ast.Name(id=if_var, ctx=ast.Load()), attr="true_scope", ctx=ast.Load()), args=[], keywords=[]),
                     )],
-                    body=[self.visit(s) for s in node.body] or [ast.Pass()]
+                    body=visit_body(node.body)
                 ),
                 ast.With(
                     items=[ast.withitem(
                         context_expr=ast.Call(func=ast.Attribute(value=ast.Name(id=if_var, ctx=ast.Load()), attr="false_scope", ctx=ast.Load()), args=[], keywords=[]),
                     )],
-                    body=[self.visit(s) for s in node.orelse] or [ast.Pass()]
+                    body=visit_body(node.orelse)
                 ) if node.orelse else ast.Pass()
             ]
         )
@@ -219,17 +227,15 @@ class ASTRewriter(ast.NodeTransformer):
         loop_var = "__luisa_loop"
         target_name = node.target.id if isinstance(node.target, ast.Name) else "__loop_var"
         
-        def process_body(body):
-            new_body = []
-            for stmt in body:
-                rewritten = self.visit(stmt)
-                if isinstance(rewritten, list):
-                    new_body.extend(rewritten)
-                else:
-                    new_body.append(rewritten)
-            return new_body
+        def visit_body(body):
+            visited = []
+            for s in body:
+                loc_call = self._set_loc(s)
+                if loc_call: visited.append(loc_call)
+                visited.append(self.visit(s))
+            return visited or [ast.Pass()]
 
-        body = process_body(node.body)
+        body = visit_body(node.body)
         
         return ast.For(
             target=ast.Name(id=loop_var, ctx=ast.Store()),
@@ -248,10 +254,18 @@ class ASTRewriter(ast.NodeTransformer):
 
     def _rewrite_for_static_range(self, node: ast.For) -> Any:
         """Rewrite static_range loop."""
+        def visit_body(body):
+            visited = []
+            for s in body:
+                loc_call = self._set_loc(s)
+                if loc_call: visited.append(loc_call)
+                visited.append(self.visit(s))
+            return visited or [ast.Pass()]
+
         return ast.For(
             target=node.target,
             iter=self._rt_call("l_call", self.visit(node.iter.func), *[self.visit(a) for a in node.iter.args]),
-            body=[self.visit(s) for s in node.body],
+            body=visit_body(node.body),
             orelse=[]
         )
 
@@ -259,17 +273,15 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite while loops."""
         loop_var = "__luisa_while"
         
-        def process_body(body):
-            new_body = []
-            for stmt in body:
-                rewritten = self.visit(stmt)
-                if isinstance(rewritten, list):
-                    new_body.extend(rewritten)
-                else:
-                    new_body.append(rewritten)
-            return new_body
+        def visit_body(body):
+            visited = []
+            for s in body:
+                loc_call = self._set_loc(s)
+                if loc_call: visited.append(loc_call)
+                visited.append(self.visit(s))
+            return visited or [ast.Pass()]
 
-        body = process_body(node.body)
+        body = visit_body(node.body)
         
         return ast.For(
             target=ast.Name(id=loop_var, ctx=ast.Store()),
@@ -290,6 +302,14 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite match statements to SWITCH."""
         switch_var = "__luisa_switch"
         
+        def visit_body(body):
+            visited = []
+            for s in body:
+                loc_call = self._set_loc(s)
+                if loc_call: visited.append(loc_call)
+                visited.append(self.visit(s))
+            return visited or [ast.Pass()]
+
         cases = []
         for case in node.cases:
             if isinstance(case.pattern, ast.MatchValue):
@@ -301,7 +321,7 @@ class ASTRewriter(ast.NodeTransformer):
                             keywords=[]
                         )
                     )],
-                    body=[self.visit(s) for s in case.body] or [ast.Pass()]
+                    body=visit_body(case.body)
                 ))
             elif isinstance(case.pattern, ast.MatchAs) and case.pattern.name is None:
                 cases.append(ast.With(
@@ -312,7 +332,7 @@ class ASTRewriter(ast.NodeTransformer):
                             keywords=[]
                         )
                     )],
-                    body=[self.visit(s) for s in case.body] or [ast.Pass()]
+                    body=visit_body(case.body)
                 ))
             else:
                 raise NotImplementedError(f"Unsupported match pattern: {type(case.pattern)}")

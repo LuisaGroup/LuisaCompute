@@ -80,8 +80,9 @@ class PrettyPrinter:
         
         kernel_marker = 'kernel ' if func.is_kernel else ''
         block_size = f" /* block_size={func.block_size} */" if func.block_size else ''
+        loc_str = f" // {func.loc}" if func.loc else ""
         
-        self._write_line(f"{kernel_marker}{ret_type} {func.name}({', '.join(args_formatted)}){block_size} {{")
+        self._write_line(f"{kernel_marker}{ret_type} {func.name}({', '.join(args_formatted)}){block_size}{loc_str} {{")
         
         self._increase_indent()
         
@@ -114,7 +115,8 @@ class PrettyPrinter:
         # Handle structured instructions specially
         if inst.op == IROp.IF:
             cond_str = self._arg_to_str(inst.args[0])
-            self._write_line(f"if ({cond_str}) {{")
+            loc_str = f" // {inst.loc}" if inst.loc else ""
+            self._write_line(f"if ({cond_str}) {{ {loc_str}")
             self._increase_indent()
             self._print_block_inline(inst.args[1])
             self._decrease_indent()
@@ -124,14 +126,16 @@ class PrettyPrinter:
             self._decrease_indent()
             self._write_line("}")
         elif inst.op == IROp.LOOP:
-            self._write_line("while (true) {")
+            loc_str = f" // {inst.loc}" if inst.loc else ""
+            self._write_line(f"while (true) {{ {loc_str}")
             self._increase_indent()
             self._print_block_inline(inst.args[0])
             self._decrease_indent()
             self._write_line("}")
         elif inst.op == IROp.SWITCH:
             val_str = self._arg_to_str(inst.args[0])
-            self._write_line(f"switch ({val_str}) {{")
+            loc_str = f" // {inst.loc}" if inst.loc else ""
+            self._write_line(f"switch ({val_str}) {{ {loc_str}")
             self._increase_indent()
             cases = inst.args[1]
             for vals, block in cases:
@@ -159,10 +163,11 @@ class PrettyPrinter:
             self._write_line("continue;")
         else:
             args_str = self._args_to_str(inst.args)
+            loc_str = f" // {inst.loc}" if inst.loc else ""
             if inst.result:
-                self._write_line(f"{type_str} {inst.result} = {op_str}({args_str});")
+                self._write_line(f"{type_str} {inst.result} = {op_str}({args_str});{loc_str}")
             else:
-                self._write_line(f"{op_str}({args_str});")
+                self._write_line(f"{op_str}({args_str});{loc_str}")
 
     def _print_block_inline(self, block: Any) -> None:
         """Print instructions of a block without the label and additional indent."""
