@@ -21,6 +21,8 @@ class Polymorphic:
     
     def register(self, func):
         tag = len(self.impls)
+        # Ensure it's compiled so builder_func is available
+        func._do_compile()
         self.impls.append(func)
         return tag
     

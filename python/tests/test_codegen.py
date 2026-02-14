@@ -120,7 +120,7 @@ def test_pprint_basic():
     print("\nPretty printed output:")
     print(output)
     
-    assert 'func simple_func' in output
+    assert 'float32 simple_func(float32 arg0)' in output
     assert 'entry:' in output
     assert 'return' in output
     
@@ -148,7 +148,7 @@ def test_pprint_with_ops():
     print("\nPretty printed output:")
     print(output)
     
-    assert 'func math_func' in output
+    assert 'float32 math_func(float32 arg0, float32 arg1)' in output
     assert 'add' in output.lower()
     
     print("✓ pprint with ops works")
@@ -183,7 +183,7 @@ def test_pprint_control_flow():
     print("\nPretty printed output (control flow):")
     print(output)
     
-    assert 'func if_func' in output
+    assert 'float32 if_func(float32 arg0)' in output
     assert 'if_true' in output or 'entry' in output
     
     print("✓ pprint control flow works")
@@ -265,7 +265,7 @@ def test_complex_ir_pprint():
     print("\nComplex IR pretty printed:")
     print(output)
     
-    assert 'func complex_func' in output
+    assert 'float32 complex_func(float32 arg0, float32 arg1, int32 arg2)' in output
     assert len(func.blocks) >= 3  # entry, while_header, while_body, etc.
     
     print(f"✓ Complex IR pprint works, {len(func.blocks)} blocks")

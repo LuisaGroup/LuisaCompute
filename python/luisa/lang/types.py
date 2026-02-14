@@ -41,6 +41,19 @@ class Type:
     def __repr__(self) -> str:
         return self.__class__.__name__
 
+    def __call__(self, arg: Any) -> Any:
+        """Support casting syntax like float32(x)."""
+        from .ir import Value
+        from .builtins.math import _get_builder
+        
+        builder = _get_builder()
+        
+        if not isinstance(arg, Value):
+            from .multistage import to_ir_value
+            arg = to_ir_value(builder, arg)
+            
+        return builder.cast(arg, self)
+
 
 @dataclass(frozen=True)
 class Scalar(Type):

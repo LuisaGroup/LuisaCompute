@@ -277,21 +277,9 @@ def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
         ir_args = [to_ir_value(builder, a) for a in arg_values]
         arg_types = tuple(a.type for a in ir_args)
         
-        # 1. Generate IR function for the callee if not already cached
         if arg_types not in func._cache:
-            # We call the pyfunc which will trigger a new __call__ and full IR build
-            # but we want to avoid infinite recursion if it's already being built.
-            # StagedFunction.__call__ creates its own builder.
             func._cache[arg_types] = func(*ir_args)
         
-        # 2. Call the builder_func of the callee to inline/add instructions to CURRENT builder
-        # Wait, if we want a CALL instruction, we don't inline.
-        # If we want to support nested calls in the IR tree, we use builder.call.
-        # But we need to make sure the callee IR exists.
-        
-        # IMPORTANT: To make the IR nested and structured, we use builder.call.
-        # If the user wants inlining, we'd call builder_func directly.
-        # Let's use CALL for now as it's standard.
         return builder.call(func._cache[arg_types], ir_args)
     
     if callable(func):
@@ -344,26 +332,54 @@ def l_return(builder: IRBuilder, value: Any = None) -> None:
         builder.return_(None)
 
 # ============================================================================
+# Specialization
+# ============================================================================
+
+class Specialization:
+    """Helper to manage specialized parameters."""
+    def __init__(self, names: tuple[str, ...], values: tuple[Any, ...]):
+        self.params = dict(zip(names, values))
+
+    def __repr__(self) -> str:
+        return f"Specialization({self.params})"
+
+
+# ============================================================================
 # Staged Function
 # ============================================================================
 
 class StagedFunction:
     """A staged function that generates IR when called."""
     
-    def __init__(self, func: Callable, is_kernel: bool = False, parsed: Optional[ParsedFunction] = None):
+    def __init__(self, func: Callable, is_kernel: bool = False, 
+                 parsed: Optional[ParsedFunction] = None,
+                 template_params: Optional[tuple[str, ...]] = None):
         self.pyfunc = func
         self.is_kernel = is_kernel
         if parsed is not None:
             self.parsed = parsed
         else:
             self.parsed = parse_function(func)
-        self._cache: dict[tuple[Type, ...], IRFunction] = {}
         
-        # Get filename for source location
+        self.template_params = template_params or ()
+        # Cache for compiled versions (keyed by argument types AND specialization values)
+        self._cache: dict[tuple[tuple[Type, ...], tuple[Any, ...]], IRFunction] = {}
+        
         import inspect
         self.filename = inspect.getsourcefile(func) or "<unknown>"
         
-        rewriter = ASTRewriter(file=self.filename)
+        self.compiled_code = None
+        
+        # If it's NOT a template, we can rewrite now.
+        if not self.template_params:
+            self._do_compile()
+
+    def _do_compile(self):
+        """Perform AST rewrite and compilation."""
+        if self.compiled_code is not None:
+            return
+            
+        rewriter = ASTRewriter(file=self.filename, template_params=self.template_params)
         self.rewritten_ast = rewriter.rewrite(self.parsed.ast_node)
         ast.fix_missing_locations(self.rewritten_ast)
         
@@ -372,27 +388,44 @@ class StagedFunction:
             filename=f"<luisa-built-{self.name}>", 
             mode="exec"
         )
+
+    def builder_func(self, builder: IRBuilder, *args, specialization_values: tuple = ()):
+        """The internal function that populates the IR builder."""
+        self._do_compile()
         
-        # Define builder_func
+        # Prepare namespace with specializations
+        spec_dict = dict(zip(self.template_params, specialization_values))
+        
         namespace = {
             "__luisa_rt": sys.modules[__name__],
             "ast": ast,
             "static_range": static_range,
-            **{name: var.value for name, var in self.parsed.captured_vars.items()}
+            **{name: var.value for name, var in self.parsed.captured_vars.items()},
+            **spec_dict # Inject template parameters
         }
         if self.pyfunc and hasattr(self.pyfunc, "__globals__"):
             for name, val in self.pyfunc.__globals__.items():
                 if name not in namespace:
                     namespace[name] = val
         
+        # Execute to define the built function
         exec(self.compiled_code, namespace)
-        self.builder_func = namespace[f"__luisa_built_{self.name}"]
+        built_func = namespace[f"__luisa_built_{self.name}"]
+        
+        # Call it
+        return built_func(builder, *args)
     
     @property
     def name(self) -> str:
         return self.parsed.name
+
+    def __getitem__(self, items) -> SpecializedFunctionProxy:
+        """Support func[int32, 2](x) syntax."""
+        if not isinstance(items, tuple):
+            items = (items,)
+        return SpecializedFunctionProxy(self, items)
     
-    def __call__(self, *args, **kwargs) -> IRFunction:
+    def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> IRFunction:
         arg_types = []
         for i, arg in enumerate(args):
             if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
@@ -401,8 +434,9 @@ class StagedFunction:
                 arg_types.append(self._get_arg_type(arg))
         arg_types = tuple(arg_types)
         
-        if arg_types in self._cache:
-            return self._cache[arg_types]
+        cache_key = (arg_types, specialization_values)
+        if cache_key in self._cache:
+            return self._cache[cache_key]
         
         builder = IRBuilder(name=self.parsed.name, arg_types=arg_types, ret_type=self.parsed.ret_annotation)
         set_math_builder(builder)
@@ -414,14 +448,14 @@ class StagedFunction:
             builder.set_insert_point(entry)
             
             arg_values = [builder.get_argument(i) for i in range(len(arg_types))]
-            self.builder_func(builder, *arg_values)
+            self.builder_func(builder, *arg_values, specialization_values=specialization_values)
             
         finally:
             set_math_builder(None)
         
         ir_func = builder.build()
         ir_func.is_kernel = self.is_kernel
-        self._cache[arg_types] = ir_func
+        self._cache[cache_key] = ir_func
         return ir_func
 
     def _get_arg_type(self, arg: Any) -> Type:
@@ -430,8 +464,42 @@ class StagedFunction:
             return inferred
         return arg.type if hasattr(arg, 'type') else arg.__class__.__name__
 
-def kernel(func: Callable) -> StagedFunction:
-    return StagedFunction(func, is_kernel=True)
 
-def callable(func: Callable) -> StagedFunction:
-    return StagedFunction(func, is_kernel=False)
+class SpecializedFunctionProxy:
+    """Proxy for a staged function with applied specialization values."""
+    def __init__(self, staged: StagedFunction, values: tuple):
+        self.staged = staged
+        self.values = values
+    
+    def __call__(self, *args, **kwargs) -> IRFunction:
+        return self.staged(*args, specialization_values=self.values, **kwargs)
+
+
+class StagedFunctionDecorator:
+    """Wrapper for kernel/callable decorators to support indexing."""
+    def __init__(self, is_kernel: bool):
+        self.is_kernel = is_kernel
+        self.params = None
+
+    def __getitem__(self, params) -> StagedFunctionDecorator:
+        if not isinstance(params, tuple):
+            params = (params,)
+        
+        param_names = []
+        for p in params:
+            if isinstance(p, str):
+                param_names.append(p)
+            elif hasattr(p, '__name__'):
+                param_names.append(p.__name__)
+            else:
+                param_names.append(str(p))
+        
+        self.params = tuple(param_names)
+        return self
+
+    def __call__(self, func: Callable) -> StagedFunction:
+        return StagedFunction(func, is_kernel=self.is_kernel, template_params=self.params)
+
+
+kernel = StagedFunctionDecorator(is_kernel=True)
+callable = StagedFunctionDecorator(is_kernel=False)

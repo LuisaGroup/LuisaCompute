@@ -18,9 +18,12 @@ class ASTRewriter(ast.NodeTransformer):
         a + b  =>  l_binop(builder, ast.Add(), a, b)
     """
     
-    def __init__(self, file: str = "<unknown>", builder_name: str = "__luisa_builder"):
+    def __init__(self, file: str = "<unknown>", 
+                 builder_name: str = "__luisa_builder",
+                 template_params: Optional[tuple[str, ...]] = None):
         self.file = file
         self.builder_name = builder_name
+        self.template_params = set(template_params or [])
         self._in_loop = 0
         self.rt_alias = "__luisa_rt"
 
@@ -41,6 +44,12 @@ class ASTRewriter(ast.NodeTransformer):
                 keywords=[]
             ))
         return None
+
+    def visit_Name(self, node: ast.Name) -> Any:
+        """Handle names, preserving template parameters."""
+        if node.id in self.template_params:
+            return node
+        return self.generic_visit(node)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Rewrite function definition."""

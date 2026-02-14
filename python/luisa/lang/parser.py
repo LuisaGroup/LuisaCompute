@@ -169,19 +169,26 @@ class Parser:
         ast.increment_lineno(func_def, start_line - 1)
         
         # Get signature
-        sig = inspect.signature(func)
-        
-        # Extract argument names and annotations
-        arg_names = []
-        arg_annotations = []
-        
-        for name, param in sig.parameters.items():
-            arg_names.append(name)
-            ann = annotation_to_type(param.annotation)
-            arg_annotations.append(ann)
-        
-        # Extract return annotation
-        ret_annotation = annotation_to_type(sig.return_annotation)
+        try:
+            sig = inspect.signature(func)
+            
+            # Extract argument names and annotations
+            arg_names = []
+            arg_annotations = []
+            
+            for name, param in sig.parameters.items():
+                arg_names.append(name)
+                ann = annotation_to_type(param.annotation)
+                arg_annotations.append(ann)
+            
+            # Extract return annotation
+            ret_annotation = annotation_to_type(sig.return_annotation)
+        except NameError:
+            # Fallback for specialized functions where types are not yet defined
+            # We'll extract names from AST and use None for annotations for now
+            arg_names = [arg.arg for arg in func_def.args.args]
+            arg_annotations = [None] * len(arg_names)
+            ret_annotation = None
         
         # Analyze captured variables
         captured_vars = self._analyze_captured_vars(func)
