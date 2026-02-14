@@ -8,6 +8,7 @@ that can generate IR when called with actual arguments.
 from __future__ import annotations
 import ast
 import inspect
+import textwrap
 from typing import Callable, Optional, Any, TYPE_CHECKING, Union
 from dataclasses import dataclass, field
 
@@ -133,6 +134,9 @@ class Parser:
             source = inspect.getsource(func)
         except (OSError, TypeError) as e:
             raise RuntimeError(f"Cannot get source for {func}: {e}")
+        
+        # Dedent source to handle nested function definitions
+        source = textwrap.dedent(source)
         
         # Parse AST
         try:
