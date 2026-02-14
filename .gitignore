@@ -340,3 +340,12 @@ xess/
 src/backends/common/hlsl/builtin_embed
 mnist_data/
 *.pth
+# Python packaging
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.so
+*.pyd
+dist/
+build/
