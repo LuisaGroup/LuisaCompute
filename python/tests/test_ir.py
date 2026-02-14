@@ -259,6 +259,40 @@ def test_ir_builder_bitwise_ops():
     print("="*60)
 
 
+def test_ir_builder_switch():
+    """Test IR builder with structured switch statement."""
+    print("\n" + "="*60)
+    print("Test: IR builder switch")
+    print("="*60)
+    
+    builder = IRBuilder('test_switch', (int32,), int32)
+    entry = builder.create_block('entry')
+    builder.set_insert_point(entry)
+    
+    tag = builder.get_argument(0)
+    
+    with builder.switch(tag) as sw:
+        with sw.case_scope(1):
+            builder.return_(builder.constant(int32, 10))
+        with sw.case_scope(2):
+            builder.return_(builder.constant(int32, 20))
+        with sw.default_scope():
+            builder.return_(builder.constant(int32, -1))
+            
+    func = builder.build()
+    
+    print("\nGenerated IR:")
+    print(pprint(func))
+    
+    # Check if SWITCH instruction exists
+    # It should be the first instruction in entry block
+    inst = func.blocks[0].instructions[0]
+    assert inst.op == IROp.SWITCH
+    
+    print(f"✓ Built function with structured switch statement")
+    print("="*60)
+
+
 if __name__ == "__main__":
     print("\n" + "="*70)
     print("Running test_ir.py tests")
@@ -272,6 +306,7 @@ if __name__ == "__main__":
     test_ir_builder_arithmetic_ops()
     test_ir_builder_comparison_ops()
     test_ir_builder_bitwise_ops()
+    test_ir_builder_switch()
     
     print("\n" + "="*70)
     print("All test_ir.py tests passed!")

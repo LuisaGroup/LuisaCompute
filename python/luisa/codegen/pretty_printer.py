@@ -81,11 +81,10 @@ class PrettyPrinter:
         
         self._increase_indent()
         
-        # Print each block
-        for i, block in enumerate(func.blocks):
-            if i > 0:
-                self._write_line()
-            self._print_block(block)
+        # In structured IR, we only need to print the entry block
+        # Nested blocks are printed as part of structured instructions
+        if func.blocks:
+            self._print_block(func.blocks[0])
         
         self._decrease_indent()
         self._write_line('}')
@@ -107,13 +106,61 @@ class PrettyPrinter:
         """Print an instruction."""
         op_str = self._op_to_str(inst.op)
         type_str = self._type_to_str(inst.type)
-        args_str = self._args_to_str(inst.args)
         
-        if inst.result:
-            self._write_line(f"{inst.result}: {type_str} = {op_str} {args_str}")
+        # Handle structured instructions specially
+        if inst.op == IROp.IF:
+            cond_str = self._arg_to_str(inst.args[0])
+            self._write_line(f"if ({cond_str}) {{")
+            self._increase_indent()
+            self._print_block_inline(inst.args[1])
+            self._decrease_indent()
+            self._write_line("} else {")
+            self._increase_indent()
+            self._print_block_inline(inst.args[2])
+            self._decrease_indent()
+            self._write_line("}")
+        elif inst.op == IROp.LOOP:
+            self._write_line("while (true) {")
+            self._increase_indent()
+            self._print_block_inline(inst.args[0])
+            self._decrease_indent()
+            self._write_line("}")
+        elif inst.op == IROp.SWITCH:
+            val_str = self._arg_to_str(inst.args[0])
+            self._write_line(f"switch ({val_str}) {{")
+            self._increase_indent()
+            cases = inst.args[1]
+            for vals, block in cases:
+                self._write_line(f"case {', '.join(map(str, vals))}: {{")
+                self._increase_indent()
+                self._print_block_inline(block)
+                self._decrease_indent()
+                self._write_line("}")
+            if inst.args[2]:
+                self._write_line("default: {")
+                self._increase_indent()
+                self._print_block_inline(inst.args[2])
+                self._decrease_indent()
+                self._write_line("}")
+            self._decrease_indent()
+            self._write_line("}")
         else:
-            self._write_line(f"{op_str} {args_str}")
-    
+            args_str = self._args_to_str(inst.args)
+            if inst.result:
+                self._write_line(f"{inst.result}: {type_str} = {op_str} {args_str}")
+            else:
+                self._write_line(f"{op_str} {args_str}")
+
+    def _print_block_inline(self, block: Any) -> None:
+        """Print instructions of a block without the label and additional indent."""
+        if not hasattr(block, 'instructions'):
+            self._write_line(repr(block))
+            return
+        for inst in block.instructions:
+            self._print_instruction(inst)
+        if not block.instructions:
+            self._write_line('(empty)')
+
     def _op_to_str(self, op: IROp) -> str:
         """Convert an IROp to a string."""
         return op.name.lower()
@@ -176,34 +223,34 @@ class PrettyPrinter:
             return f"({', '.join(args)}) -> {ret}"
         
         return str(t)
-    
+
+    def _arg_to_str(self, arg: Any) -> str:
+        """Convert a single argument to string."""
+        if hasattr(arg, 'name') and hasattr(arg, 'instructions'):
+            # IRBasicBlock
+            return f"%{arg.name}"
+        elif hasattr(arg, 'name') and hasattr(arg, 'type'):
+            # Value (InstructionValue, ArgumentValue, ConstantValue)
+            if hasattr(arg, 'value'):
+                # ConstantValue
+                return f"{arg.value}"
+            elif hasattr(arg, 'index'):
+                # ArgumentValue
+                return f"arg{arg.index}"
+            elif arg.name:
+                return f"%{arg.name}"
+            else:
+                return str(arg)
+        elif hasattr(arg, 'name'):
+            # IRBasicBlock
+            return f"%{arg.name}"
+        else:
+            # String or other literal
+            return repr(arg)
+
     def _args_to_str(self, args: list[Any]) -> str:
         """Convert instruction arguments to a string."""
-        parts = []
-        for arg in args:
-            if hasattr(arg, 'name') and hasattr(arg, 'instructions'):
-                # IRBasicBlock
-                parts.append(f"%{arg.name}")
-            elif hasattr(arg, 'name') and hasattr(arg, 'type'):
-                # Value (InstructionValue, ArgumentValue, ConstantValue)
-                if hasattr(arg, 'value'):
-                    # ConstantValue
-                    parts.append(f"{arg.value}")
-                elif hasattr(arg, 'index'):
-                    # ArgumentValue
-                    parts.append(f"arg{arg.index}")
-                elif arg.name:
-                    parts.append(f"%{arg.name}")
-                else:
-                    parts.append(str(arg))
-            elif hasattr(arg, 'name'):
-                # IRBasicBlock
-                parts.append(f"%{arg.name}")
-            else:
-                # String or other literal
-                parts.append(repr(arg))
-        
-        return ', '.join(parts)
+        return ', '.join(self._arg_to_str(a) for a in args)
 
 
 # Convenience functions

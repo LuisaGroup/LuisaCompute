@@ -11,7 +11,7 @@ from .lang.ir import (
     IRInstruction, IRBasicBlock, IRFunction, IRModule,
 )
 from .lang.builder import IRBuilder
-from .lang.jit import StagedFunction, kernel, callable
+from .lang.multistage import StagedFunction, kernel, callable, static_range, unrolled, StaticIf, StaticWhile
 from .lang.types import (
     # Base types
     Type, Scalar, Vector, Matrix, Array, Struct,
@@ -110,7 +110,7 @@ __all__ = [
     "IROp", "Value", "ConstantValue", "ArgumentValue", "InstructionValue",
     "IRInstruction", "IRBasicBlock", "IRFunction", "IRModule",
     "IRBuilder",
-    "StagedFunction", "kernel", "callable",
+    "StagedFunction", "kernel", "callable", "static_range", "unrolled", "StaticIf", "StaticWhile",
     "Type", "Scalar", "Vector", "Matrix", "Array", "Struct",
     "Buffer", "Texture2D", "Texture3D", "BindlessArray", "Accel", "RayQuery", "Callable", "Void",
     "bool_", "int8", "uint8", "int16", "uint16", "int32", "uint32",

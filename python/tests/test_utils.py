@@ -54,9 +54,9 @@ def test_unrolled_builds_ir():
     
     @callable
     def sum_unrolled() -> int32:
-        total = 0
+        total = int32(0)
         for i in unrolled(range(4)):
-            total = total + i
+            total = total + int32(i)
         return total
     
     ir = sum_unrolled()
@@ -136,10 +136,10 @@ def test_nested_unrolled():
     
     @callable
     def nested_sum() -> int32:
-        total = 0
+        total = int32(0)
         for i in unrolled(range(3)):
             for j in unrolled(range(3)):
-                total = total + i + j
+                total = total + int32(i) + int32(j)
         return total
     
     ir = nested_sum()

@@ -7,6 +7,7 @@ a fluent API with context managers for control flow.
 
 from __future__ import annotations
 from typing import Optional, Any
+from contextlib import contextmanager
 
 from dataclasses import dataclass
 
@@ -19,17 +20,6 @@ from .ir import (
     IROp, Value, ConstantValue, InstructionValue, ArgumentValue,
     IRInstruction, IRBasicBlock, IRFunction, IRModule
 )
-
-# ============================================================================
-# Loop Context
-# ============================================================================
-
-@dataclass
-class LoopContext:
-    """Context for a loop, used by break and continue."""
-    header_block: IRBasicBlock
-    exit_block: IRBasicBlock
-
 
 # ============================================================================
 # IR Builder
@@ -52,7 +42,6 @@ class IRBuilder:
         self.current_block: Optional[IRBasicBlock] = None
         self.instruction_counter = 0
         self.local_vars: dict[str, Value] = {}  # name -> Value
-        self.loop_stack: list[LoopContext] = []  # Stack for break/continue
         self.arg_values: list[ArgumentValue] = []
         
         # Initialize argument values
@@ -104,6 +93,16 @@ class IRBuilder:
     def get_insert_point(self) -> Optional[IRBasicBlock]:
         """Get the current insertion point."""
         return self.current_block
+    
+    @contextmanager
+    def scope(self, block: IRBasicBlock):
+        """Context manager to set insertion point to a block."""
+        old_block = self.current_block
+        self.set_insert_point(block)
+        try:
+            yield block
+        finally:
+            self.set_insert_point(old_block)
     
     # ========================================================================
     # Instruction Emission
@@ -308,25 +307,22 @@ class IRBuilder:
         return self._emit(IROp.BUFFER_WRITE, Void(), [buffer, index, value])
     
     # ========================================================================
-    # Control Flow - Branches
+    # Control Flow
     # ========================================================================
     
-    def branch(self, target: IRBasicBlock) -> IRInstruction:
-        """Emit an unconditional branch."""
-        return self._emit(IROp.BR, Void(), [target.name])
-    
-    def branch_conditional(self, cond: Value, 
-                          true_target: IRBasicBlock,
-                          false_target: IRBasicBlock) -> IRInstruction:
-        """Emit a conditional branch."""
-        return self._emit(IROp.COND_BR, Void(), 
-                         [cond, true_target.name, false_target.name])
-    
-    def return_(self, value: Optional[Value] = None) -> IRInstruction:
+    def return_(self, value: Optional[Value] = None) -> InstructionValue:
         """Emit a return instruction."""
         if value is None:
             return self._emit(IROp.RETURN, Void(), [])
         return self._emit(IROp.RETURN, value.type, [value])
+    
+    def break_(self) -> InstructionValue:
+        """Emit a break instruction."""
+        return self._emit(IROp.BREAK, Void(), [])
+    
+    def continue_(self) -> InstructionValue:
+        """Emit a continue instruction."""
+        return self._emit(IROp.CONTINUE, Void(), [])
     
     def call(self, func: 'IRFunction', args: list[Value]) -> InstructionValue:
         """Emit a function call instruction."""
@@ -417,29 +413,6 @@ class IRBuilder:
         """
         from . import control_flow
         return control_flow.SwitchStmt(self, value)
-    
-    def break_(self) -> None:
-        """Emit a break instruction."""
-        if not self.loop_stack:
-            raise RuntimeError("break outside of loop")
-        loop_ctx = self.loop_stack[-1]
-        self.branch(loop_ctx.exit_block)
-    
-    def continue_(self) -> None:
-        """Emit a continue instruction."""
-        if not self.loop_stack:
-            raise RuntimeError("continue outside of loop")
-        loop_ctx = self.loop_stack[-1]
-        self.branch(loop_ctx.header_block)
-    
-    def push_loop(self, header: IRBasicBlock, exit_block: IRBasicBlock) -> None:
-        """Push a loop context onto the stack."""
-        self.loop_stack.append(LoopContext(header, exit_block))
-    
-    def pop_loop(self) -> None:
-        """Pop a loop context from the stack."""
-        if self.loop_stack:
-            self.loop_stack.pop()
     
     # ========================================================================
     # Build

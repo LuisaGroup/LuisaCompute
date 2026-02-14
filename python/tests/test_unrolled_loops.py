@@ -24,7 +24,7 @@ def test_unrolled_simple():
     @callable
     def unrolled_sum(buf: Buffer[float32]) -> None:
         total = 0.0
-        for i in unrolled(range(4)):
+        for i in static_range(4):
             total = total + float32(i)
         buf[0] = total
     
@@ -42,7 +42,7 @@ def test_unrolled_with_captured_constant():
     
     @callable
     def unrolled_with_capture(buf: Buffer[float32]) -> None:
-        for i in unrolled(range(UNROLL_COUNT)):
+        for i in static_range(UNROLL_COUNT):
             buf[i] = float32(i)
     
     ir = unrolled_with_capture(0)
@@ -57,7 +57,7 @@ def test_unrolled_with_computation():
     """Test unrolled loop with computation."""
     @callable
     def unrolled_compute(buf: Buffer[float32]) -> None:
-        for i in unrolled(range(4)):
+        for i in static_range(4):
             buf[i] = float32(i) * 2.0 + 1.0
     
     ir = unrolled_compute(0)
@@ -74,7 +74,7 @@ def test_unrolled_with_step():
     """Test unrolled loop with step."""
     @callable
     def unrolled_step(buf: Buffer[float32]) -> None:
-        for i in unrolled(range(0, 8, 2)):  # 0, 2, 4, 6
+        for i in static_range(0, 8, 2):  # 0, 2, 4, 6
             buf[i // 2] = float32(i)
     
     ir = unrolled_step(0)
@@ -88,8 +88,8 @@ def test_nested_unrolled():
     """Test nested unrolled loops."""
     @callable
     def nested_unrolled(buf: Buffer[float32]) -> None:
-        for i in unrolled(range(2)):
-            for j in unrolled(range(2)):
+        for i in static_range(2):
+            for j in static_range(2):
                 idx = i * 2 + j
                 buf[idx] = float32(i + j)
     

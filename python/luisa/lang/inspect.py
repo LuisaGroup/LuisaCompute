@@ -76,10 +76,25 @@ def count_instructions(ir: IRFunction) -> dict[str, int]:
     """
     counts: dict[str, int] = {}
     
-    for block in ir.blocks:
+    def scan_block(block):
+        if not hasattr(block, 'instructions'): return
         for inst in block.instructions:
             op_name = inst.op.name
             counts[op_name] = counts.get(op_name, 0) + 1
+            # Scan nested blocks
+            for arg in inst.args:
+                if hasattr(arg, 'instructions'):
+                    scan_block(arg)
+                elif isinstance(arg, list):
+                    for item in arg:
+                        if hasattr(item, 'instructions'):
+                            scan_block(item)
+                        elif isinstance(item, tuple) and len(item) == 2 and hasattr(item[1], 'instructions'):
+                            # Switch cases
+                            scan_block(item[1])
+
+    for block in ir.blocks:
+        scan_block(block)
     
     return counts
 
@@ -91,7 +106,8 @@ def get_basic_block_count(ir: IRFunction) -> int:
 
 def get_instruction_count(ir: IRFunction) -> int:
     """Get the total number of instructions in a function."""
-    return sum(len(block.instructions) for block in ir.blocks)
+    counts = count_instructions(ir)
+    return sum(counts.values())
 
 
 def find_operations(ir: IRFunction, op: IROp) -> list[IRInstruction]:
@@ -106,10 +122,25 @@ def find_operations(ir: IRFunction, op: IROp) -> list[IRInstruction]:
         List of matching instructions
     """
     results = []
-    for block in ir.blocks:
+    def scan_block(block):
+        if not hasattr(block, 'instructions'): return
         for inst in block.instructions:
             if inst.op == op:
                 results.append(inst)
+            # Scan nested blocks
+            for arg in inst.args:
+                if hasattr(arg, 'instructions'):
+                    scan_block(arg)
+                elif isinstance(arg, list):
+                    for item in arg:
+                        if hasattr(item, 'instructions'):
+                            scan_block(item)
+                        elif isinstance(item, tuple) and len(item) == 2 and hasattr(item[1], 'instructions'):
+                            # Switch cases (values, block)
+                            scan_block(item[1])
+
+    for block in ir.blocks:
+        scan_block(block)
     return results
 
 
@@ -120,16 +151,20 @@ def analyze_control_flow(ir: IRFunction) -> dict[str, Any]:
     Returns:
         Dictionary with control flow analysis
     """
-    branches = len(find_operations(ir, IROp.BR))
-    cond_branches = len(find_operations(ir, IROp.COND_BR))
+    ifs = len(find_operations(ir, IROp.IF))
+    loops = len(find_operations(ir, IROp.LOOP))
+    switches = len(find_operations(ir, IROp.SWITCH))
     returns = len(find_operations(ir, IROp.RETURN))
     
     return {
         'blocks': len(ir.blocks),
-        'branches': branches,
-        'conditional_branches': cond_branches,
+        'branches': 0, # Structured IR has no explicit branches
+        'ifs': ifs,
+        'loops': loops,
+        'switches': switches,
+        'conditional_branches': ifs + switches,
         'returns': returns,
-        'has_loops': cond_branches > 0  # Simplified check
+        'has_loops': loops > 0
     }
 
 

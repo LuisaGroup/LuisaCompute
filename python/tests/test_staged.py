@@ -90,7 +90,8 @@ def test_staged_function_control_flow():
         else:
             return -x
     
-    ir_func = abs_value(1.0)
+    from luisa.lang.ir import ArgumentValue
+    ir_func = abs_value(ArgumentValue(typ=float32, index=0))
     
     # Print AST
     print("\nParsed AST:")
@@ -123,7 +124,8 @@ def test_staged_function_captured_vars():
         else:
             return 0
     
-    ir_func = threshold_check(1.0)
+    from luisa.lang.ir import ArgumentValue
+    ir_func = threshold_check(ArgumentValue(typ=float32, index=0))
     
     print("\nGenerated IR:")
     print(pprint(ir_func))
@@ -142,7 +144,7 @@ def test_staged_function_while_loop():
     
     @callable
     def count_up() -> int32:
-        i = 0
+        i = int32(0)
         while i < 10:
             i = i + 1
         return i
@@ -168,12 +170,13 @@ def test_staged_function_for_range():
     
     @callable
     def sum_range(n: int32) -> int32:
-        total = 0
+        total = int32(0)
         for i in range(n):
             total = total + i
         return total
     
-    ir_func = sum_range(10)
+    from luisa.lang.ir import ArgumentValue
+    ir_func = sum_range(ArgumentValue(typ=int32, index=0))
     
     print("\nGenerated IR:")
     print(pprint(ir_func))
@@ -201,7 +204,7 @@ def test_staged_function_complex():
         if sum_sq > 0.0:
             return sum_sq
         else:
-            return 0.0
+            return float32(0.0)
     
     ir_func = compute(3.0, 4.0)
     

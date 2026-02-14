@@ -66,16 +66,17 @@ def test_if_elif_else_chain():
     
     @callable
     def if_chain(x: int32) -> int32:
-        if x < 0:
+        if x < int32(0):
             return -1
         else:
-            if x == 0:
+            if x == int32(0):
                 return 0
             else:
                 return 1
-    
-    ir = if_chain(0)
-    
+
+    from luisa.lang.ir import ArgumentValue
+    # Use an ArgumentValue to ensure it's not folded
+    ir = if_chain(ArgumentValue(typ=int32, index=0))
     print("\nGenerated IR:")
     print(pprint(ir))
     
@@ -94,7 +95,7 @@ def test_while_loop_with_break():
     
     @callable
     def while_with_break(x: int32) -> int32:
-        i = 0
+        i = int32(0)
         while i < 100:
             if i == x:
                 break
@@ -121,8 +122,8 @@ def test_while_loop_with_continue():
     
     @callable
     def while_with_continue(x: int32) -> int32:
-        i = 0
-        sum = 0
+        i = int32(0)
+        sum = int32(0)
         while i < 10:
             i = i + 1
             if i == x:
@@ -155,7 +156,8 @@ def test_for_range_loop():
             total = total + i
         return total
     
-    ir = for_range_sum(10)
+    from luisa.lang.ir import ArgumentValue
+    ir = for_range_sum(ArgumentValue(typ=int32, index=0))
     
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -180,7 +182,8 @@ def test_for_range_with_step():
             total = total + i
         return total
     
-    ir = for_range_step(10)
+    from luisa.lang.ir import ArgumentValue
+    ir = for_range_step(ArgumentValue(typ=int32, index=0))
     
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -304,13 +307,13 @@ def test_loop_with_multiple_exits():
     
     @callable
     def multi_exit_loop(x: int32) -> int32:
-        i = 0
+        i = int32(0)
         while i < 100:
             if i == x:
                 break
-            if i > x * 2:
+            if i > x * int32(2):
                 break
-            i = i + 1
+            i = i + int32(1)
         return i
     
     ir = multi_exit_loop(25)

@@ -120,10 +120,15 @@ class IROp(Enum):
     TEXTURE3D_SAMPLE = auto()
     
     # Control flow
-    BR = auto()  # Unconditional branch
-    COND_BR = auto()  # Conditional branch
     PHI = auto()  # Phi node for SSA
     RETURN = auto()
+    
+    # Structured Control Flow
+    IF = auto()
+    LOOP = auto()
+    BREAK = auto()
+    CONTINUE = auto()
+    SWITCH = auto()
     
     # Function calls
     CALL = auto()
@@ -276,7 +281,7 @@ class IRInstruction:
     """IR instruction."""
     op: IROp
     typ: Type  # Renamed from 'type' to avoid builtin shadowing
-    args: list[Union[int, str, Value]] = field(default_factory=list)
+    args: list[Union[int, str, Value, 'IRBasicBlock']] = field(default_factory=list)
     result: Optional[str] = None
 
     def __repr__(self) -> str:
@@ -317,7 +322,7 @@ class IRBasicBlock:
             return False
         last = self.instructions[-1]
         return last.op in (
-            IROp.BR, IROp.COND_BR, IROp.RETURN
+            IROp.RETURN, IROp.BREAK, IROp.CONTINUE
         )
     
     def add_instruction(self, inst: IRInstruction) -> None:
@@ -412,7 +417,7 @@ def is_logical_op(op: IROp) -> bool:
 
 def is_terminator_op(op: IROp) -> bool:
     """Check if an operation is a terminator."""
-    return op in (IROp.BR, IROp.COND_BR, IROp.RETURN)
+    return op in (IROp.RETURN, IROp.BREAK, IROp.CONTINUE)
 
 
 def is_memory_op(op: IROp) -> bool:
