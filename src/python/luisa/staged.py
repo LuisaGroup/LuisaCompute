@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from .ir import IRFunction, Value
     from .parser import ParsedFunction
 
-from .dsl_types import Type, value_to_type
+from .dsl_types import Type, value_to_type, int32
 from .ir import IRFunction
 from .builder import IRBuilder
 from .parser import parse_function, CapturedVar
