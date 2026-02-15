@@ -324,10 +324,54 @@ def l_while_scope(loop_item: Any):
 
 
 # ============================================================================
-# Static Constructs
+# Static Constructs (Meta-programming)
 # ============================================================================
 
+class UnrolledRange:
+    """
+    Marker class for unrolled loops.
+    
+    Usage:
+        for i in unrolled(range(4)):
+            ...  # This loop is unrolled at compile time
+    
+    The loop body will be replicated for each iteration.
+    Use only for small iteration counts to avoid code bloat!
+    """
+
+    def __init__(self, start: int, stop: Optional[int] = None, step: int = 1):
+        if stop is None:
+            start, stop = 0, start
+        self.start = start
+        self.stop = stop
+        self.step = step
+
+    def __iter__(self):
+        """Python-side iteration (for reference)."""
+        return iter(range(self.start, self.stop, self.step))
+
+    def __len__(self) -> int:
+        """Return the number of iterations."""
+        return max(0, (self.stop - self.start + self.step - 1) // self.step)
+
+
+def unrolled(r: range | int) -> UnrolledRange:
+    """
+    Mark a range for compile-time unrolling.
+    
+    Usage:
+        for i in unrolled(range(4)):      # Unrolled: 0, 1, 2, 3
+        for i in unrolled(4):             # Equivalent to above
+    
+    The loop body will be replicated for each iteration at compile time.
+    """
+    if isinstance(r, int):
+        return UnrolledRange(r)
+    return UnrolledRange(r.start, r.stop, r.step)
+
+
 class StaticRange:
+    """Range for host-side (static) iteration."""
     def __init__(self, *args):
         self.rng = range(*args)
 
@@ -338,9 +382,6 @@ class StaticRange:
 def static_range(*args):
     """Static range for meta-programming loops."""
     return StaticRange(*args)
-
-
-unrolled = static_range  # Legacy alias
 
 
 # ============================================================================

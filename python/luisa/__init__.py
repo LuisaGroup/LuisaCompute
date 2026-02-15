@@ -11,7 +11,7 @@ from .lang.ir import (
     Instruction, BasicBlock, Function, Module,
 )
 from .lang.builder import Builder
-from .lang.multistage import StagedFunction, kernel, callable, static_range, unrolled, StaticIf, StaticWhile
+from .lang.multistage import StagedFunction, kernel, callable, static_range, unrolled, UnrolledRange, StaticIf, StaticWhile
 from .lang.types import (
     # Base types
     Type, Scalar, Vector, Matrix, Array, Struct,
@@ -38,9 +38,6 @@ from .lang.types import (
 )
 # Struct decorator
 from .lang.types import struct
-
-# lang - utilities
-from .lang.util import UnrolledRange
 
 # Code generation
 from .codegen import (
@@ -110,7 +107,7 @@ __all__ = [
     "Op", "Value", "ConstantValue", "ArgumentValue", "InstructionValue",
     "Instruction", "BasicBlock", "Function", "Module",
     "Builder",
-    "StagedFunction", "kernel", "callable", "static_range", "unrolled", "StaticIf", "StaticWhile",
+    "StagedFunction", "kernel", "callable", "static_range", "unrolled", "UnrolledRange", "StaticIf", "StaticWhile",
     "Type", "Scalar", "Vector", "Matrix", "Array", "Struct",
     "Buffer", "Texture2D", "Texture3D", "BindlessArray", "Accel", "RayQuery", "Callable", "Void", "Ref",
     "bool_", "int8", "uint8", "int16", "uint16", "int32", "uint32",
@@ -125,9 +122,6 @@ __all__ = [
     "is_scalar_type", "is_vector_type", "is_integer_type", "is_float_type",
     "promote_types",
     "struct",
-
-    # util
-    "unrolled", "UnrolledRange",
 
     # codegen
     "serialize_function", "serialize_module",
