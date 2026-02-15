@@ -144,6 +144,12 @@ class Vector(Type):
     def __repr__(self) -> str:
         return f"<{self.size} x {self.element}>"
 
+    def __class_getitem__(cls, item):
+        """Support Vector[type, dim] syntax."""
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise TypeError("Vector requires [type, size]")
+        return cls(element=item[0], size=item[1])
+
 
 @dataclass(frozen=True)
 class Matrix(Type):
@@ -157,6 +163,12 @@ class Matrix(Type):
 
     def __repr__(self) -> str:
         return f"[ {self.size} x <{self.size} x {self.element}> ]"
+
+    def __class_getitem__(cls, item):
+        """Support Matrix[type, dim] syntax."""
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise TypeError("Matrix requires [type, size]")
+        return cls(element=item[0], size=item[1])
 
 
 @dataclass(frozen=True)
@@ -172,6 +184,12 @@ class Array(Type):
     def __repr__(self) -> str:
         return f"[{self.size} x {self.element}]"
 
+    def __class_getitem__(cls, item):
+        """Support Array[type, size] syntax."""
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise TypeError("Array requires [type, size]")
+        return cls(element=item[0], size=item[1])
+
 
 @dataclass(frozen=True)
 class Struct(Type):
@@ -183,6 +201,34 @@ class Struct(Type):
     def __repr__(self) -> str:
         field_types = [str(typ) for name, typ in self.fields]
         return f"{{ {', '.join(field_types)} }}"
+
+    def __class_getitem__(cls, items):
+        """
+        Support Struct[T1, T2, ..., align] syntax for anonymous structs.
+        If the last item is an integer, it's used as alignment.
+        """
+        if not isinstance(items, tuple):
+            items = (items,)
+        
+        fields = []
+        alignment = None
+        
+        # Check if last item is alignment
+        if len(items) > 0 and isinstance(items[-1], int):
+            alignment = items[-1]
+            types = items[:-1]
+        else:
+            types = items
+            
+        for i, t in enumerate(types):
+            if not is_data_type(t):
+                raise TypeError(f"Struct member must be a data type, got {t}")
+            fields.append((f"_{i}", t))
+            
+        if alignment is None:
+            alignment = max((get_alignment(t) for _, t in fields), default=4)
+            
+        return cls(name="anonymous_struct", fields=tuple(fields), alignment=alignment)
 
     def get_field_type(self, field_name: str) -> Optional[Type]:
         """Get the type of a field by name."""
@@ -365,6 +411,34 @@ def get_length(t: Type) -> int:
         raise TypeError(f"Type {t} has no length")
 
 
+def get_alignment(t: Type) -> int:
+    """Get the alignment of a type in bytes."""
+    if isinstance(t, Scalar):
+        mapping = {
+            ScalarType.BOOL: 1,
+            ScalarType.INT8: 1, ScalarType.UINT8: 1,
+            ScalarType.INT16: 2, ScalarType.UINT16: 2,
+            ScalarType.INT32: 4, ScalarType.UINT32: 4,
+            ScalarType.INT64: 8, ScalarType.UINT64: 8,
+            ScalarType.FLOAT16: 2,
+            ScalarType.FLOAT32: 4,
+            ScalarType.FLOAT64: 8,
+        }
+        return mapping.get(t.dtype, 4)
+    if isinstance(t, Vector):
+        # 2 elements -> 2 * align, 3 or 4 elements -> 4 * align
+        base = get_alignment(t.element)
+        return (2 if t.size == 2 else 4) * base
+    if isinstance(t, Matrix):
+        # Alignment of a matrix is the alignment of its columns
+        return get_alignment(Vector(t.element, t.size))
+    if isinstance(t, Array):
+        return get_alignment(t.element)
+    if isinstance(t, Struct):
+        return t.alignment
+    return 4
+
+
 def is_scalar_type(t: Type) -> bool:
     """Check if type is a scalar."""
     return isinstance(t, Scalar)
@@ -378,6 +452,11 @@ def is_vector_type(t: Type) -> bool:
 def is_matrix_type(t: Type) -> bool:
     """Check if type is a matrix."""
     return isinstance(t, Matrix)
+
+
+def is_data_type(t: Type) -> bool:
+    """Check if type is a data type (scalar, vector, matrix, array, struct)."""
+    return isinstance(t, (Scalar, Vector, Matrix, Array, Struct))
 
 
 def is_arithmetic_type(t: Type) -> bool:
@@ -456,8 +535,7 @@ def promote_types(t1: Type, t2: Type) -> Type:
             ScalarType.INT16, ScalarType.UINT16,
             ScalarType.INT32, ScalarType.UINT32,
             ScalarType.INT64, ScalarType.UINT64,
-            ScalarType.FLOAT16,
-            ScalarType.FLOAT32,
+            ScalarType.FLOAT16, ScalarType.FLOAT32,
             ScalarType.FLOAT64,
         ]
         idx1 = precedence.index(t1.dtype)
@@ -518,7 +596,62 @@ def get_broadcast_type(t1: Type, t2: Type) -> Optional[Type]:
 _struct_registry: dict[str, type] = {}
 
 
-def struct(cls: type) -> type:
+def _struct_impl(cls: type, align: Optional[int] = None) -> type:
+    """Implementation of the struct decorator."""
+    # Get annotations
+    annotations = getattr(cls, '__annotations__', {})
+    if not annotations:
+        raise TypeError(f"Struct {cls.__name__} must have annotated fields")
+
+    # Build field list
+    fields = []
+    for name, ann_type in annotations.items():
+        dsl_type = None
+        if isinstance(ann_type, type):
+            # Convert Python type to DSL type
+            dsl_type = python_type_to_dsl(ann_type)
+            if dsl_type is None:
+                raise TypeError(f"Field '{name}' has unsupported type: {ann_type}")
+        elif isinstance(ann_type, Type):
+            dsl_type = ann_type
+        else:
+            raise TypeError(f"Field '{name}' has unsupported type annotation: {ann_type}")
+            
+        if not is_data_type(dsl_type):
+            raise TypeError(f"Struct member '{name}' must be a data type, got {dsl_type}")
+            
+        fields.append((name, dsl_type))
+
+    # Compute alignment if not specified
+    if align is None:
+        align = max((get_alignment(typ) for _, typ in fields), default=4)
+
+    # Create Struct type
+    struct_type = Struct(
+        name=cls.__name__,
+        fields=tuple(fields),
+        alignment=align
+    )
+
+    # Store in registry
+    _struct_registry[cls.__name__] = cls
+
+    # Attach type info to class
+    cls._dsl_type = struct_type  # pylint: disable=protected-access
+    cls._dsl_fields = {name: typ for name, typ in fields}  # pylint: disable=protected-access
+
+    # Add methods
+    @classmethod
+    def get_dsl_type(cls) -> Struct:
+        """Get the DSL type for this struct."""
+        return cls._dsl_type  # pylint: disable=protected-access
+
+    cls.get_dsl_type = get_dsl_type
+
+    return cls
+
+
+def struct(arg=None, *, align: Optional[int] = None):
     """
     Decorator to define a struct type for the DSL.
     
@@ -528,59 +661,19 @@ def struct(cls: type) -> type:
             position: Float3
             velocity: Float3
             mass: Float
-        
-        # Use in kernel
-        @kernel
-        def update(particles: Buffer[Particle]) -> None:
-            p = particles[dispatch_id().x]
-            p.position = p.position + p.velocity * dt
-            particles[dispatch_id().x] = p
-    
-    The decorated class becomes a proper DSL type that can be used in
-    buffers, arrays, and as kernel arguments.
+            
+        @struct(align=16)
+        class AlignedStruct:
+            x: Int
     """
-    # Get annotations
-    annotations = getattr(cls, '__annotations__', {})
-    if not annotations:
-        raise TypeError(f"Struct {cls.__name__} must have annotated fields")
-
-    # Build field list
-    fields = []
-    for name, ann_type in annotations.items():
-        if isinstance(ann_type, type):
-            # Convert Python type to DSL type
-            dsl_type = python_type_to_dsl(ann_type)
-            if dsl_type is None:
-                raise TypeError(f"Field '{name}' has unsupported type: {ann_type}")
-            fields.append((name, dsl_type))
-        elif isinstance(ann_type, Type):
-            fields.append((name, ann_type))
-        else:
-            raise TypeError(f"Field '{name}' has unsupported type annotation: {ann_type}")
-
-    # Create Struct type
-    struct_type = Struct(
-        name=cls.__name__,
-        fields=tuple(fields),
-        alignment=16  # Default alignment
-    )
-
-    # Store in registry
-    _struct_registry[cls.__name__] = cls
-
-    # Attach type info to class
-    # Store type info on class (using _dsl prefix to avoid conflicts)
-    cls._dsl_type = struct_type  # pylint: disable=protected-access
-    cls._dsl_fields = {name: typ for name, typ in fields}  # pylint: disable=protected-access
-
-    # Add methods
-    def get_dsl_type(self) -> Struct:
-        """Get the DSL type for this struct."""
-        return self._dsl_type  # pylint: disable=protected-access
-
-    cls.get_dsl_type = get_dsl_type
-
-    return cls
+    if arg is not None and not isinstance(arg, int) and callable(arg):
+        # Used as @struct
+        return _struct_impl(arg)
+    
+    # Used as @struct(align=n)
+    def decorator(cls):
+        return _struct_impl(cls, align=align)
+    return decorator
 
 
 def get_struct_type(name: str) -> Optional[type]:

@@ -40,6 +40,7 @@ from .lang.types import (
     # Utilities
     get_element_type, get_length,
     is_scalar_type, is_vector_type, is_integer_type, is_float_type,
+    get_alignment, is_data_type,
     promote_types,
 )
 # Struct decorator
@@ -132,6 +133,7 @@ __all__ = [
     "Half2x2", "Half3x3", "Half4x4",
     "get_element_type", "get_length",
     "is_scalar_type", "is_vector_type", "is_integer_type", "is_float_type",
+    "get_alignment", "is_data_type",
     "promote_types",
     "struct",
 
