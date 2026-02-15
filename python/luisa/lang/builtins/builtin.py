@@ -25,12 +25,6 @@ def dispatch_id() -> InstructionValue:
     return get_current_builder()._emit(IROp.DISPATCH_ID, uint3, [])
 
 
-def dispatch_idx() -> InstructionValue:
-    """Get the linearized 1D dispatch index."""
-    # This would typically be computed from dispatch_id() in a real implementation
-    return get_current_builder()._emit(IROp.DISPATCH_ID, uint, [])
-
-
 def thread_id() -> InstructionValue:
     """Get the local thread ID within a block (3D)."""
     return get_current_builder()._emit(IROp.THREAD_ID, uint3, [])

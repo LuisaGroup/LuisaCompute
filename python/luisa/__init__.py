@@ -61,7 +61,7 @@ from .lang.builtins import (
     dot, cross, distance, reflect, refract, faceforward,
     transpose, inverse, determinant,
     # Special registers
-    dispatch_id, dispatch_idx, thread_id, block_id, dispatch_size,
+    dispatch_id, thread_id, block_id, dispatch_size,
     kernel_id, object_id,
     # Synchronization
     sync_block,
@@ -141,7 +141,7 @@ __all__ = [
     "min", "max", "clamp", "lerp", "step", "smoothstep", "pow",
     "dot", "cross", "distance", "reflect", "refract", "faceforward",
     "transpose", "inverse", "determinant",
-    "dispatch_id", "dispatch_idx", "thread_id", "block_id", "dispatch_size",
+    "dispatch_id", "thread_id", "block_id", "dispatch_size",
     "kernel_id", "object_id",
     "sync_block",
     "cast", "bitcast",

@@ -19,7 +19,7 @@ from .math import (
 # Core builtins (special registers, sync, etc.)
 from .builtin import (
     # Special registers
-    dispatch_id, dispatch_idx, thread_id, block_id, dispatch_size,
+    dispatch_id, thread_id, block_id, dispatch_size,
     kernel_id, object_id,
     # Synchronization
     sync_block,
@@ -96,7 +96,7 @@ __all__ = [
     'transpose', 'inverse', 'determinant',
 
     # Core - Special registers
-    'dispatch_id', 'dispatch_idx', 'thread_id', 'block_id', 'dispatch_size',
+    'dispatch_id', 'thread_id', 'block_id', 'dispatch_size',
     'kernel_id', 'object_id',
     # Core - Synchronization
     'sync_block',
