@@ -16,14 +16,12 @@ class ASTRewriter(ast.NodeTransformer):
     Transforms Python AST into IR-building code.
     
     Example:
-        a + b  =>  l_binop(builder, ast.Add(), a, b)
+        a + b  =>  l_binop(ast.Add(), a, b)
     """
 
     def __init__(self, file: str = "<unknown>",
-                 builder_name: str = "__luisa_builder",
                  template_params: Optional[tuple[str, ...]] = None):
         self.file = file
-        self.builder_name = builder_name
         self.template_params = set(template_params or [])
         self._in_loop = 0
         self.rt_alias = "__luisa_rt"
@@ -36,16 +34,12 @@ class ASTRewriter(ast.NodeTransformer):
         return self.visit(node)
 
     def _set_loc(self, node: ast.AST) -> Optional[ast.Expr]:
-        """Create a call to builder.set_location based on node lineno."""
+        """Create a call to l_set_location based on node lineno."""
         if hasattr(node, 'lineno'):
-            return ast.Expr(value=ast.Call(
-                func=ast.Attribute(
-                    value=ast.Name(id=self.builder_name, ctx=ast.Load()),
-                    attr="set_location",
-                    ctx=ast.Load()
-                ),
-                args=[ast.Constant(value=self.file), ast.Constant(value=node.lineno)],
-                keywords=[]
+            return ast.Expr(value=self._rt_call(
+                "l_set_location",
+                ast.Constant(value=self.file),
+                ast.Constant(value=node.lineno)
             ))
         return None
 
@@ -55,16 +49,8 @@ class ASTRewriter(ast.NodeTransformer):
             return node
 
         if isinstance(node.ctx, ast.Load) and node.id in self.ref_vars:
-            # Automatic load for Ref types: builder.load(name)
-            return ast.Call(
-                func=ast.Attribute(
-                    value=ast.Name(id=self.builder_name, ctx=ast.Load()),
-                    attr="load",
-                    ctx=ast.Load()
-                ),
-                args=[node],
-                keywords=[]
-            )
+            # Automatic load for Ref types: l_load(name)
+            return self._rt_call("l_load", node)
 
         return self.generic_visit(node)
 
@@ -161,13 +147,10 @@ class ASTRewriter(ast.NodeTransformer):
             elif isinstance(ann, ast.Name) and ann.id == 'Ref':
                 self.ref_vars.add(arg.arg)
 
-        # Create a new argument for the builder
-        builder_arg = ast.arg(arg=self.builder_name, annotation=None)
-
-        # New arguments: builder, then original arguments
+        # New arguments: original arguments (builder is now global context)
         new_args = ast.arguments(
             posonlyargs=[],
-            args=[builder_arg] + [ast.arg(arg=a.arg, annotation=None) for a in node.args.args],
+            args=[ast.arg(arg=a.arg, annotation=None) for a in node.args.args],
             kwonlyargs=[],
             kw_defaults=[],
             defaults=[]
@@ -204,7 +187,7 @@ class ASTRewriter(ast.NodeTransformer):
                 attr=name,
                 ctx=ast.Load()
             ),
-            args=[ast.Name(id=self.builder_name, ctx=ast.Load())] + list(args),
+            args=list(args),
             keywords=[]
         )
 
@@ -262,7 +245,8 @@ class ASTRewriter(ast.NodeTransformer):
             visited = []
             for s in body:
                 loc_call = self._set_loc(s)
-                if loc_call: visited.append(loc_call)
+                if loc_call:
+                    visited.append(loc_call)
                 visited.append(self.visit(s))
             return visited or [ast.Pass()]
 
@@ -340,16 +324,8 @@ class ASTRewriter(ast.NodeTransformer):
 
             if isinstance(target, ast.Name):
                 if target.id in self.ref_vars:
-                    # Automatic store for Ref types: builder.store(name, value)
-                    return ast.Expr(value=ast.Call(
-                        func=ast.Attribute(
-                            value=ast.Name(id=self.builder_name, ctx=ast.Load()),
-                            attr="store",
-                            ctx=ast.Load()
-                        ),
-                        args=[ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)],
-                        keywords=[]
-                    ))
+                    # Automatic store for Ref types: l_store(name, value)
+                    return ast.Expr(value=self._rt_call("l_store", ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)))
                 else:
                     # Standard assignment wrapped in l_local_assign
                     return ast.Assign(
@@ -388,7 +364,8 @@ class ASTRewriter(ast.NodeTransformer):
             visited = []
             for s in body:
                 loc_call = self._set_loc(s)
-                if loc_call: visited.append(loc_call)
+                if loc_call:
+                    visited.append(loc_call)
                 visited.append(self.visit(s))
             return visited or [ast.Pass()]
 
@@ -416,7 +393,8 @@ class ASTRewriter(ast.NodeTransformer):
             visited = []
             for s in body:
                 loc_call = self._set_loc(s)
-                if loc_call: visited.append(loc_call)
+                if loc_call:
+                    visited.append(loc_call)
                 visited.append(self.visit(s))
             return visited or [ast.Pass()]
 
@@ -435,7 +413,8 @@ class ASTRewriter(ast.NodeTransformer):
             visited = []
             for s in body:
                 loc_call = self._set_loc(s)
-                if loc_call: visited.append(loc_call)
+                if loc_call:
+                    visited.append(loc_call)
                 visited.append(self.visit(s))
             return visited or [ast.Pass()]
 
@@ -466,7 +445,8 @@ class ASTRewriter(ast.NodeTransformer):
             visited = []
             for s in body:
                 loc_call = self._set_loc(s)
-                if loc_call: visited.append(loc_call)
+                if loc_call:
+                    visited.append(loc_call)
                 visited.append(self.visit(s))
             return visited or [ast.Pass()]
 
@@ -501,12 +481,7 @@ class ASTRewriter(ast.NodeTransformer):
 
         return ast.With(
             items=[ast.withitem(
-                context_expr=ast.Call(
-                    func=ast.Attribute(value=ast.Name(id=self.builder_name, ctx=ast.Load()), attr="switch",
-                                       ctx=ast.Load()),
-                    args=[self.visit(node.subject)],
-                    keywords=[]
-                ),
+                context_expr=self._rt_call("l_switch", self.visit(node.subject)),
                 optional_vars=ast.Name(id=switch_var, ctx=ast.Store())
             )],
             body=cases

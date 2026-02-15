@@ -13,12 +13,11 @@ import os
 from typing import Callable, Optional, Any, TYPE_CHECKING
 from contextlib import contextmanager
 
-from .builder import Builder
+from .builder import Builder, get_current_builder, set_current_builder
 from .ir import Value, Op, Function
 from .types import Type, value_to_type, bool_, int32, float32, Scalar, Vector, Buffer, Array
 from .parser import parse_function, CapturedVar, ParsedFunction
 from .rewriter import ASTRewriter
-from .builder import set_current_builder
 
 
 # ============================================================================
@@ -30,7 +29,7 @@ def is_ir_value(val: Any) -> bool:
     return isinstance(val, Value)
 
 
-def to_ir_value(builder: Builder, val: Any) -> Value:
+def to_ir_value(val: Any) -> Value:
     """Ensure a value is an IR Value, converting literals if necessary."""
     if isinstance(val, Value):
         return val
@@ -40,99 +39,148 @@ def to_ir_value(builder: Builder, val: Any) -> Value:
     typ = value_to_type(val)
     if typ is None:
         raise TypeError(f"Cannot convert {type(val)} to Luisa type")
-    return builder.constant(typ, val)
+    return get_current_builder().constant(typ, val)
 
 
-def _try_to_ir_value(builder: Builder, val: Any) -> Any:
+def _try_to_ir_value(val: Any) -> Any:
     """Try to convert to IR value, return original if not possible."""
     try:
-        return to_ir_value(builder, val)
+        return to_ir_value(val)
     except TypeError:
         return val
 
 
-def l_binop(builder: Builder, op: ast.operator, left: Any, right: Any) -> Any:
+def l_binop(op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
     if is_ir_value(left) or is_ir_value(right):
-        left = to_ir_value(builder, left)
-        right = to_ir_value(builder, right)
-        if isinstance(op, ast.Add): return builder.add(left, right)
-        if isinstance(op, ast.Sub): return builder.sub(left, right)
-        if isinstance(op, ast.Mult): return builder.mul(left, right)
-        if isinstance(op, ast.Div): return builder.div(left, right)
-        if isinstance(op, ast.Mod): return builder.mod(left, right)
-        if isinstance(op, ast.Pow): return builder.pow(left, right)
+        left = to_ir_value(left)
+        right = to_ir_value(right)
+        builder = get_current_builder()
+        if isinstance(op, ast.Add):
+            return builder.add(left, right)
+        if isinstance(op, ast.Sub):
+            return builder.sub(left, right)
+        if isinstance(op, ast.Mult):
+            return builder.mul(left, right)
+        if isinstance(op, ast.Div):
+            return builder.div(left, right)
+        if isinstance(op, ast.Mod):
+            return builder.mod(left, right)
+        if isinstance(op, ast.Pow):
+            return builder.pow(left, right)
         if isinstance(op, ast.FloorDiv):
             return builder.floor(builder.div(left, right))
-        if isinstance(op, ast.BitAnd): return builder.bit_and(left, right)
-        if isinstance(op, ast.BitOr): return builder.bit_or(left, right)
-        if isinstance(op, ast.BitXor): return builder.bit_xor(left, right)
-        if isinstance(op, ast.LShift): return builder.shl(left, right)
-        if isinstance(op, ast.RShift): return builder.shr(left, right)
+        if isinstance(op, ast.BitAnd):
+            return builder.bit_and(left, right)
+        if isinstance(op, ast.BitOr):
+            return builder.bit_or(left, right)
+        if isinstance(op, ast.BitXor):
+            return builder.bit_xor(left, right)
+        if isinstance(op, ast.LShift):
+            return builder.shl(left, right)
+        if isinstance(op, ast.RShift):
+            return builder.shr(left, right)
         raise NotImplementedError(f"Unsupported binary operator for IR: {type(op)}")
     else:
         # Host side
-        if isinstance(op, ast.Add): return left + right
-        if isinstance(op, ast.Sub): return left - right
-        if isinstance(op, ast.Mult): return left * right
-        if isinstance(op, ast.Div): return left / right
-        if isinstance(op, ast.Mod): return left % right
-        if isinstance(op, ast.Pow): return left ** right
-        if isinstance(op, ast.FloorDiv): return left // right
-        if isinstance(op, ast.BitAnd): return left & right
-        if isinstance(op, ast.BitOr): return left | right
-        if isinstance(op, ast.BitXor): return left ^ right
-        if isinstance(op, ast.LShift): return left << right
-        if isinstance(op, ast.RShift): return left >> right
+        if isinstance(op, ast.Add):
+            return left + right
+        if isinstance(op, ast.Sub):
+            return left - right
+        if isinstance(op, ast.Mult):
+            return left * right
+        if isinstance(op, ast.Div):
+            return left / right
+        if isinstance(op, ast.Mod):
+            return left % right
+        if isinstance(op, ast.Pow):
+            return left ** right
+        if isinstance(op, ast.FloorDiv):
+            return left // right
+        if isinstance(op, ast.BitAnd):
+            return left & right
+        if isinstance(op, ast.BitOr):
+            return left | right
+        if isinstance(op, ast.BitXor):
+            return left ^ right
+        if isinstance(op, ast.LShift):
+            return left << right
+        if isinstance(op, ast.RShift):
+            return left >> right
         raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
 
 
-def l_unaryop(builder: Builder, op: ast.unaryop, operand: Any) -> Any:
+def l_unaryop(op: ast.unaryop, operand: Any) -> Any:
     """Handle unary operations."""
     if is_ir_value(operand):
-        operand = to_ir_value(builder, operand)
-        if isinstance(op, ast.USub): return builder.neg(operand)
-        if isinstance(op, ast.Not): return builder.logical_not(operand)
-        if isinstance(op, ast.Invert): return builder.bit_not(operand)
+        operand = to_ir_value(operand)
+        builder = get_current_builder()
+        if isinstance(op, ast.USub):
+            return builder.neg(operand)
+        if isinstance(op, ast.Not):
+            return builder.logical_not(operand)
+        if isinstance(op, ast.Invert):
+            return builder.bit_not(operand)
         raise NotImplementedError(f"Unsupported unary operator for IR: {type(op)}")
     else:
-        if isinstance(op, ast.USub): return -operand
-        if isinstance(op, ast.Not): return not operand
-        if isinstance(op, ast.Invert): return ~operand
+        if isinstance(op, ast.USub):
+            return -operand
+        if isinstance(op, ast.Not):
+            return not operand
+        if isinstance(op, ast.Invert):
+            return ~operand
         raise NotImplementedError(f"Unsupported unary operator: {type(op)}")
 
 
-def l_compare(builder: Builder, op: ast.cmpop, left: Any, right: Any) -> Any:
+def l_compare(op: ast.cmpop, left: Any, right: Any) -> Any:
     """Handle comparison operations."""
     if is_ir_value(left) or is_ir_value(right):
-        left = to_ir_value(builder, left)
-        right = to_ir_value(builder, right)
-        if isinstance(op, ast.Eq): return builder.eq(left, right)
-        if isinstance(op, ast.NotEq): return builder.ne(left, right)
-        if isinstance(op, ast.Lt): return builder.lt(left, right)
-        if isinstance(op, ast.LtE): return builder.le(left, right)
-        if isinstance(op, ast.Gt): return builder.gt(left, right)
-        if isinstance(op, ast.GtE): return builder.ge(left, right)
+        left = to_ir_value(left)
+        right = to_ir_value(right)
+        builder = get_current_builder()
+        if isinstance(op, ast.Eq):
+            return builder.eq(left, right)
+        if isinstance(op, ast.NotEq):
+            return builder.ne(left, right)
+        if isinstance(op, ast.Lt):
+            return builder.lt(left, right)
+        if isinstance(op, ast.LtE):
+            return builder.le(left, right)
+        if isinstance(op, ast.Gt):
+            return builder.gt(left, right)
+        if isinstance(op, ast.GtE):
+            return builder.ge(left, right)
         raise NotImplementedError(f"Unsupported comparison operator for IR: {type(op)}")
     else:
-        if isinstance(op, ast.Eq): return left == right
-        if isinstance(op, ast.NotEq): return left != right
-        if isinstance(op, ast.Lt): return left < right
-        if isinstance(op, ast.LtE): return left <= right
-        if isinstance(op, ast.Gt): return left > right
-        if isinstance(op, ast.GtE): return left >= right
-        if isinstance(op, ast.Is): return left is right
-        if isinstance(op, ast.IsNot): return left is not right
-        if isinstance(op, ast.In): return left in right
-        if isinstance(op, ast.NotIn): return left not in right
+        if isinstance(op, ast.Eq):
+            return left == right
+        if isinstance(op, ast.NotEq):
+            return left != right
+        if isinstance(op, ast.Lt):
+            return left < right
+        if isinstance(op, ast.LtE):
+            return left <= right
+        if isinstance(op, ast.Gt):
+            return left > right
+        if isinstance(op, ast.GtE):
+            return left >= right
+        if isinstance(op, ast.Is):
+            return left is right
+        if isinstance(op, ast.IsNot):
+            return left is not right
+        if isinstance(op, ast.In):
+            return left in right
+        if isinstance(op, ast.NotIn):
+            return left not in right
         raise NotImplementedError(f"Unsupported comparison operator: {type(op)}")
 
 
-def l_boolop(builder: Builder, op: ast.boolop, values: list[Any]) -> Any:
+def l_boolop(op: ast.boolop, values: list[Any]) -> Any:
     """Handle boolean operations (and/or)."""
     is_ir = any(is_ir_value(v) for v in values)
     if is_ir:
-        ir_values = [to_ir_value(builder, v) for v in values]
+        ir_values = [to_ir_value(v) for v in values]
+        builder = get_current_builder()
         result = ir_values[0]
         if isinstance(op, ast.And):
             for v in ir_values[1:]:
@@ -176,10 +224,6 @@ class StaticIf:
         if self.cond:
             yield self.cond
         else:
-            # We still need to yield but maybe something that indicates skip?
-            # Actually if we are not in the scope, the body shouldn't run.
-            # But 'with' always runs the body unless __enter__ raises or we use a generator.
-            # StagedFunction uses @contextmanager which handles this.
             pass
 
     @contextmanager
@@ -204,16 +248,25 @@ class StaticWhile:
 HostIf = StaticIf  # Legacy alias
 
 
-def l_if(builder: Builder, cond_func: Callable[[], Any]) -> Any:
+def l_if(cond_func: Callable[[], Any]) -> Any:
     """Handle if statements."""
     cond = cond_func()
     if is_ir_value(cond):
-        return builder.if_(cond)
+        return get_current_builder().if_(cond)
     else:
         return StaticIf(cond)
 
 
-def l_for(builder: Builder, iter_obj: Any, loop_var_name: Any) -> Any:
+def l_switch(value: Any) -> Any:
+    """Handle switch statements."""
+    if is_ir_value(value):
+        return get_current_builder().switch(value)
+    else:
+        # Fallback for host-side switch
+        raise NotImplementedError("Host-side switch not yet supported")
+
+
+def l_for(iter_obj: Any, loop_var_name: Any) -> Any:
     """Handle for loops (returns iterable)."""
     if isinstance(iter_obj, (range, LuisaRange)):
         if isinstance(iter_obj, range):
@@ -227,11 +280,11 @@ def l_for(builder: Builder, iter_obj: Any, loop_var_name: Any) -> Any:
             else:
                 start_val, stop_val, step_val = args[0], args[1], args[2]
 
-        start = to_ir_value(builder, start_val)
-        stop = to_ir_value(builder, stop_val)
-        step = to_ir_value(builder, step_val)
+        start = to_ir_value(start_val)
+        stop = to_ir_value(stop_val)
+        step = to_ir_value(step_val)
         name = loop_var_name
-        stmt = builder.for_range(start, stop, step, name)
+        stmt = get_current_builder().for_range(start, stop, step, name)
         return [stmt]
 
     if isinstance(iter_obj, StaticRange):
@@ -241,7 +294,7 @@ def l_for(builder: Builder, iter_obj: Any, loop_var_name: Any) -> Any:
 
 
 @contextmanager
-def l_loop_scope(builder: Builder, loop_item: Any):
+def l_loop_scope(loop_item: Any):
     if hasattr(loop_item, 'body_scope'):
         with loop_item.body_scope() as scope:
             yield scope
@@ -249,11 +302,11 @@ def l_loop_scope(builder: Builder, loop_item: Any):
         yield loop_item
 
 
-def l_while(builder: Builder, test_func: Callable[[], Any]) -> Any:
+def l_while(test_func: Callable[[], Any]) -> Any:
     """Handle while loops (returns generator)."""
     cond = test_func()
     if is_ir_value(cond):
-        stmt = builder.while_(cond)
+        stmt = get_current_builder().while_(cond)
         yield stmt
     else:
         while cond:
@@ -262,7 +315,7 @@ def l_while(builder: Builder, test_func: Callable[[], Any]) -> Any:
 
 
 @contextmanager
-def l_while_scope(builder: Builder, loop_item: Any):
+def l_while_scope(loop_item: Any):
     if loop_item is not None and hasattr(loop_item, 'body_scope'):
         with loop_item.body_scope() as scope:
             yield scope
@@ -301,7 +354,7 @@ class LuisaRange:
         self.args = args
 
 
-def l_call(builder: Builder, func: Any, *args, **kwargs) -> Any:
+def l_call(func: Any, *args, **kwargs) -> Any:
     """Handle function calls."""
     from .types import Type
 
@@ -314,11 +367,11 @@ def l_call(builder: Builder, func: Any, *args, **kwargs) -> Any:
     if isinstance(func, Type):
         if len(args) != 1:
             raise ValueError(f"Type cast takes exactly one argument, got {len(args)}")
-        val = to_ir_value(builder, args[0])
-        return builder.cast(val, func)
+        val = to_ir_value(args[0])
+        return get_current_builder().cast(val, func)
 
     if isinstance(func, StagedFunction):
-        return builder.call(func, *args)
+        return get_current_builder().call(func, *args)
 
     import builtins
     if builtins.callable(func):
@@ -328,37 +381,37 @@ def l_call(builder: Builder, func: Any, *args, **kwargs) -> Any:
                 if isinstance(a, str):
                     new_args.append(a)
                 else:
-                    new_args.append(_try_to_ir_value(builder, a))
+                    new_args.append(_try_to_ir_value(a))
             return func(*new_args, **kwargs)
         return func(*args, **kwargs)
 
     raise TypeError(f"Object {func} is not callable")
 
 
-def l_subscript(builder: Builder, value: Any, index: Any) -> Any:
+def l_subscript(value: Any, index: Any) -> Any:
     if is_ir_value(value) or is_ir_value(index):
-        value = to_ir_value(builder, value)
-        index = to_ir_value(builder, index)
+        value = to_ir_value(value)
+        index = to_ir_value(index)
         if isinstance(value.type, (Buffer, Array)):
-            return builder.buffer_read(value, index, value.type.element)
+            return get_current_builder().buffer_read(value, index, value.type.element)
         raise TypeError(f"Cannot subscript IR type {value.type}")
     return value[index]
 
 
-def l_subscript_assign(builder: Builder, value: Any, index: Any, rhs: Any) -> None:
+def l_subscript_assign(value: Any, index: Any, rhs: Any) -> None:
     if is_ir_value(value) or is_ir_value(index) or is_ir_value(rhs):
-        value = to_ir_value(builder, value)
-        index = to_ir_value(builder, index)
-        rhs = to_ir_value(builder, rhs)
+        value = to_ir_value(value)
+        index = to_ir_value(index)
+        rhs = to_ir_value(rhs)
         if isinstance(value.type, (Buffer, Array)):
-            builder.buffer_write(value, index, rhs)
+            get_current_builder().buffer_write(value, index, rhs)
         else:
             raise TypeError(f"Cannot assign to subscript of IR type {value.type}")
     else:
         value[index] = rhs
 
 
-def l_attribute(builder: Builder, value: Any, attr: str) -> Any:
+def l_attribute(value: Any, attr: str) -> Any:
     if is_ir_value(value):
         # Allow accessing standard attributes of Value/InstructionValue
         if attr in ('type', 'typ', 'name', 'instruction'):
@@ -366,26 +419,38 @@ def l_attribute(builder: Builder, value: Any, attr: str) -> Any:
 
         from .types import Vector
         if isinstance(value.type, Vector):
-            return builder.swizzle(value, attr)
+            return get_current_builder().swizzle(value, attr)
         raise AttributeError(f"IR type {value.type} has no attribute {attr}")
     # Host side
     return getattr(value, attr)
 
 
-def l_return(builder: Builder, value: Any = None) -> None:
+def l_return(value: Any = None) -> None:
     if value is not None:
-        val = to_ir_value(builder, value)
-        builder.return_(val)
+        val = to_ir_value(value)
+        get_current_builder().return_(val)
     else:
-        builder.return_(None)
+        get_current_builder().return_(None)
 
 
-def l_local_assign(builder: Builder, name: str, value: Any) -> Any:
+def l_local_assign(name: str, value: Any) -> Any:
     """Helper to store a value in the builder's local namespace."""
-    # This ensures that even if we rewrite an assignment, 
-    # we can still track the name if needed.
-    # For now, it just returns the value so standard Python assignment works.
     return value
+
+
+def l_set_location(file: str, line: int) -> None:
+    """Helper to set the current source location."""
+    get_current_builder().set_location(file, line)
+
+
+def l_load(ptr: Any) -> Any:
+    """Helper to load from a reference."""
+    return get_current_builder().load(ptr)
+
+
+def l_store(ptr: Any, value: Any) -> None:
+    """Helper to store to a reference."""
+    get_current_builder().store(ptr, value)
 
 
 # ============================================================================
@@ -457,7 +522,7 @@ class StagedFunction:
             mode="exec"
         )
 
-    def builder_func(self, builder: Builder, *args, specialization_values: tuple = ()):
+    def builder_func(self, *args, specialization_values: tuple = ()):
         """The internal function that populates the IR builder."""
         self._do_compile()
 
@@ -481,7 +546,7 @@ class StagedFunction:
         built_func = namespace[f"__luisa_built_{self.name}"]
 
         # Call it
-        return built_func(builder, *args)
+        return built_func(*args)
 
     @property
     def name(self) -> str:
@@ -496,15 +561,17 @@ class StagedFunction:
     def compile(self, builder: Builder, *args, specialization_values: tuple = ()) -> Function:
         """Compile the function for given arguments and return the Function."""
         arg_values = list(args)
-        ir_args = [to_ir_value(builder, a) for a in arg_values]
-        arg_types = tuple(a.type for a in ir_args)
+        # Use provided builder for compile entry point
+        with set_current_builder(builder):
+            ir_args = [to_ir_value(a) for a in arg_values]
+            arg_types = tuple(a.type for a in ir_args)
 
-        cache_key = (arg_types, specialization_values)
-        if cache_key not in self._cache:
-            # This will populate self._cache[cache_key]
-            self(*ir_args, specialization_values=specialization_values)
+            cache_key = (arg_types, specialization_values)
+            if cache_key not in self._cache:
+                # This will populate self._cache[cache_key]
+                self(*ir_args, specialization_values=specialization_values)
 
-        return self._cache[cache_key]
+            return self._cache[cache_key]
 
     def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> Function:
         arg_types = []
@@ -530,8 +597,7 @@ class StagedFunction:
             ret_type=self.parsed.ret_annotation,
             arg_is_reference=arg_is_reference
         )
-        set_current_builder(builder)
-        try:
+        with set_current_builder(builder):
             # Set initial location
             builder.set_location(self.filename, self.parsed.ast_node.lineno)
 
@@ -539,10 +605,7 @@ class StagedFunction:
             builder.set_insert_point(entry)
 
             arg_values = [builder.get_argument(i) for i in range(len(arg_types))]
-            self.builder_func(builder, *arg_values, specialization_values=specialization_values)
-
-        finally:
-            set_current_builder(None)
+            self.builder_func(*arg_values, specialization_values=specialization_values)
 
         ir_func = builder.build()
         ir_func.is_kernel = self.is_kernel

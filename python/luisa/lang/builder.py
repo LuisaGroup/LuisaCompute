@@ -35,10 +35,16 @@ def get_current_builder() -> Builder:
     return _current_builder
 
 
-def set_current_builder(builder: Builder | None) -> None:
-    """Set the current builder (called by executor)."""
+@contextmanager
+def set_current_builder(builder: Builder | None):
+    """Set the current builder (as a context manager)."""
     global _current_builder
+    old_builder = _current_builder
     _current_builder = builder
+    try:
+        yield
+    finally:
+        _current_builder = old_builder
 
 
 # ============================================================================

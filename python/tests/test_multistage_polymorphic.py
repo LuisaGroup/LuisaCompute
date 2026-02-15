@@ -28,18 +28,20 @@ class Polymorphic:
         self.impls.append(func)
         return tag
 
-    def dispatch(self, builder, tag_value, *args):
+    def dispatch(self, tag_value, *args):
         """
         Multistage dispatch:
         Loop over registered implementations on the host
         and generate a case for each in the IR.
         """
+        from luisa.lang.builder import get_current_builder
+        builder = get_current_builder()
         sw = builder.switch(tag_value)
         # Host-side loop: expanded during IR generation
         for i, impl in enumerate(self.impls):
             with sw.case_scope(i):
                 # Call the internal builder_func to add instructions to this case
-                impl.builder_func(builder, *args)
+                impl.builder_func(*args)
 
         with sw.default_scope():
             # Optional: handle invalid tags
@@ -82,12 +84,8 @@ def test_multistage_polymorphic_dispatch():
         tag = tags[idx]
 
         # Use the host-side helper to generate IR dispatch
-        # We need access to the builder. In the rewritten AST, 
-        # the builder is passed as the first argument to the built function.
         # But we can also use a helper that knows how to get the builder.
-        from luisa.lang.builder import get_current_builder
-
-        poly.dispatch(get_current_builder(), tag, buf, idx)
+        poly.dispatch(tag, buf, idx)
 
     # Build IR
     ir = dispatch_kernel(None, None)
