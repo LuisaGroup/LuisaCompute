@@ -230,6 +230,8 @@ def compare(op: ast.cmpop, left: Any, right: Any) -> Any:
 
 def boolop(op: ast.boolop, values: list[Any]) -> Any:
     """Handle boolean operations (and/or)."""
+    # Note: rewriter now uses and_ and or_ for short-circuiting
+    # This is kept for backward compatibility or direct calls
     is_ir = any(is_ir_value(v) for v in values)
     if is_ir:
         ir_values = [to_ir_value(v) for v in values]
@@ -254,6 +256,68 @@ def boolop(op: ast.boolop, values: list[Any]) -> Any:
                 res = res or v
             return res
         raise NotImplementedError(f"Unsupported boolean operator: {type(op)}")
+
+
+def and_(lhs_func: Callable[[], Any], rhs_func: Callable[[], Any]) -> Any:
+    """Logical AND with short-circuiting."""
+    lhs = lhs_func()
+    
+    # Constant folding for IR ConstantValue or Python literals
+    from ..transform.ir import ConstantValue
+    if isinstance(lhs, ConstantValue):
+        if lhs.value:
+            return rhs_func()
+        return lhs
+        
+    if is_ir_value(lhs):
+        builder = get_current_builder()
+        # Create a variable for the result
+        from .types import Bool
+        res_ptr = builder.alloca(Bool)
+        builder.store(res_ptr, lhs)
+        
+        if_ = builder.if_(lhs)
+        with if_.true_scope():
+            rhs = rhs_func()
+            builder.store(res_ptr, to_ir_value(rhs))
+        # false branch: already has lhs (which is false)
+        
+        return builder.load(res_ptr)
+    else:
+        if lhs:
+            return rhs_func()
+        return lhs
+
+
+def or_(lhs_func: Callable[[], Any], rhs_func: Callable[[], Any]) -> Any:
+    """Logical OR with short-circuiting."""
+    lhs = lhs_func()
+    
+    # Constant folding for IR ConstantValue or Python literals
+    from ..transform.ir import ConstantValue
+    if isinstance(lhs, ConstantValue):
+        if lhs.value:
+            return lhs
+        return rhs_func()
+
+    if is_ir_value(lhs):
+        builder = get_current_builder()
+        # Create a variable for the result
+        from .types import Bool
+        res_ptr = builder.alloca(Bool)
+        builder.store(res_ptr, lhs)
+        
+        if_ = builder.if_(lhs)
+        # true branch: already has lhs (which is true)
+        with if_.false_scope():
+            rhs = rhs_func()
+            builder.store(res_ptr, to_ir_value(rhs))
+            
+        return builder.load(res_ptr)
+    else:
+        if lhs:
+            return lhs
+        return rhs_func()
 
 
 # ============================================================================

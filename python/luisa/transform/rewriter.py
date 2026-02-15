@@ -249,29 +249,50 @@ class ASTRewriter(ast.NodeTransformer):
         )
 
     def visit_Compare(self, node: ast.Compare) -> Any:
-        """Rewrite comparison operations."""
-        if len(node.ops) != 1:
-            # TODO: handle chained comparisons
-            raise NotImplementedError("Chained comparisons not yet supported in rewriter")
+        """Rewrite comparison operations, including chained comparisons."""
+        if len(node.ops) == 1:
+            op_name = node.ops[0].__class__.__name__
+            return self._rt_call(
+                "compare",
+                ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
+                         args=[], keywords=[]),
+                self.visit(node.left),
+                self.visit(node.comparators[0])
+            )
+        
+        # Chained comparisons: a < b < c => (a < b) and (b < c)
+        comparisons = []
+        left = node.left
+        for op, right in zip(node.ops, node.comparators):
+            # Create a simple comparison node
+            comp = ast.Compare(
+                left=left,
+                ops=[op],
+                comparators=[right]
+            )
+            comparisons.append(comp)
+            left = right
+            
+        # Use the same logic as visit_BoolOp but without double-visiting
+        return self._make_short_circuit_op("and_", comparisons)
 
-        op_name = node.ops[0].__class__.__name__
+    def _make_short_circuit_op(self, op_name: str, exprs: list[ast.expr]) -> ast.expr:
+        """Helper to create nested short-circuiting calls."""
+        if len(exprs) == 1:
+            return self.visit(exprs[0])
+        
         return self._rt_call(
-            "compare",
-            ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
-                     args=[], keywords=[]),
-            self.visit(node.left),
-            self.visit(node.comparators[0])
+            op_name,
+            ast.Lambda(args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
+                       body=self.visit(exprs[0])),
+            ast.Lambda(args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
+                       body=self._make_short_circuit_op(op_name, exprs[1:]))
         )
 
     def visit_BoolOp(self, node: ast.BoolOp) -> ast.Call:
-        """Rewrite boolean operations."""
-        op_name = node.op.__class__.__name__
-        return self._rt_call(
-            "boolop",
-            ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
-                     args=[], keywords=[]),
-            ast.List(elts=[self.visit(v) for v in node.values], ctx=ast.Load())
-        )
+        """Rewrite boolean operations with short-circuiting."""
+        op_name = "and_" if isinstance(node.op, ast.And) else "or_"
+        return self._make_short_circuit_op(op_name, node.values)
 
     def visit_If(self, node: ast.If) -> ast.With:
         """Rewrite if statements."""
