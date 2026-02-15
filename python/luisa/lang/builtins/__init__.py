@@ -26,9 +26,9 @@ from .builtin import (
     # Type casting
     cast, bitcast,
     # Print
-    print_msg,
+    device_print,
     # Assertions
-    assume, assert_,
+    assume, device_assert, unreachable,
     # Profiling
     clock,
 )
@@ -103,9 +103,9 @@ __all__ = [
     # Core - Type casting
     'cast', 'bitcast',
     # Core - Print
-    'print_msg',
+    'device_print',
     # Core - Assertions
-    'assume', 'assert_',
+    'assume', 'device_assert', 'unreachable',
     # Core - Profiling
     'clock',
 

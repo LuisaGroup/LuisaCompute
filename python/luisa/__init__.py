@@ -68,9 +68,9 @@ from .lang.builtins import (
     # Type casting
     cast, bitcast,
     # Print
-    print_msg,
+    device_print,
     # Assertions
-    assume, assert_,
+    assume, device_assert, unreachable,
     # Profiling
     clock,
     # Buffer
@@ -145,8 +145,8 @@ __all__ = [
     "kernel_id", "object_id",
     "sync_block",
     "cast", "bitcast",
-    "print_msg",
-    "assume", "assert_",
+    "device_print",
+    "assume", "device_assert", "unreachable",
     "clock",
     "buffer_read", "buffer_write", "buffer_size", "buffer_device_address",
     "texture2d_read", "texture2d_write", "texture2d_sample", "texture2d_sample_level", "texture2d_size",

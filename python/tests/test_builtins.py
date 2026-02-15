@@ -18,9 +18,9 @@ from luisa import (
     # Type casting
     cast, bitcast,
     # Print
-    print_msg,
+    device_print,
     # Assertions
-    assume, assert_,
+    assume, device_assert, unreachable,
     # Profiling
     clock,
     # Types
@@ -182,15 +182,15 @@ def test_cast_builds_ir():
     print("=" * 60)
 
 
-def test_print_msg_builds_ir():
-    """Test print_msg actually builds IR."""
+def test_device_print_builds_ir():
+    """Test device_print actually builds IR."""
     print("\n" + "=" * 60)
-    print("Test: print_msg builds IR")
+    print("Test: device_print builds IR")
     print("=" * 60)
 
     @kernel
     def print_kernel(x: int32):
-        print_msg("Value: {}", x)
+        device_print("Value: {}", x)
 
     ir = print_kernel(42)
 
@@ -235,7 +235,7 @@ def test_clock_builds_ir():
 
 
 def test_assertions_build_ir():
-    """Test assume/assert_ actually build IR."""
+    """Test assume/device_assert actually build IR."""
     print("\n" + "=" * 60)
     print("Test: assertions build IR")
     print("=" * 60)
@@ -244,7 +244,7 @@ def test_assertions_build_ir():
     def checked_function(x: int32) -> int32:
         assume(x > 0, "x must be positive")
         result = x * 2
-        assert_(result > x, "result should be greater than x")
+        device_assert(result > x, "result should be greater than x")
         return result
 
     ir = checked_function(5)
@@ -333,6 +333,28 @@ def test_clamp_lerp_build_ir():
     print("=" * 60)
 
 
+def test_unreachable_builds_ir():
+    """Test unreachable actually builds IR."""
+    print("\n" + "=" * 60)
+    print("Test: unreachable builds IR")
+    print("=" * 60)
+
+    @kernel
+    def unreachable_kernel():
+        unreachable("this should not happen")
+
+    ir = unreachable_kernel()
+
+    print("\nGenerated IR:")
+    print(pprint(ir))
+
+    counts = count_instructions(ir)
+    assert 'UNREACHABLE' in counts
+
+    print(f"✓ Built kernel with UNREACHABLE instruction")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("Running test_builtins.py tests")
@@ -343,9 +365,10 @@ if __name__ == "__main__":
     test_dispatch_id_in_computation()
     test_sync_block_builds_ir()
     test_cast_builds_ir()
-    test_print_msg_builds_ir()
+    test_device_print_builds_ir()
     test_clock_builds_ir()
     test_assertions_build_ir()
+    test_unreachable_builds_ir()
     test_matrix_ops_build_ir()
     test_vector_math_builds_ir()
     test_clamp_lerp_build_ir()

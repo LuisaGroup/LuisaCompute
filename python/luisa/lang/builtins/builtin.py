@@ -84,7 +84,7 @@ def bitcast(value: Value, target_type: Type) -> InstructionValue:
 # Print
 # ============================================================================
 
-def print_msg(fmt: str, *values: Value) -> InstructionValue:
+def device_print(fmt: str, *values: Value) -> InstructionValue:
     """
     Print a message from the kernel.
     
@@ -107,10 +107,16 @@ def assume(condition: Value, message: str = "") -> InstructionValue:
     return get_current_builder()._emit(IROp.ASSUME, Void(), [condition, message])
 
 
-def assert_(condition: Value, message: str = "") -> InstructionValue:
+def device_assert(condition: Value, message: str = "") -> InstructionValue:
     """Runtime assertion (may be disabled in release)."""
     from ..types import Void
     return get_current_builder()._emit(IROp.ASSERT, Void(), [condition, message])
+
+
+def unreachable(message: str = "") -> InstructionValue:
+    """Mark a code path as unreachable."""
+    from ..types import Void
+    return get_current_builder()._emit(IROp.UNREACHABLE, Void(), [message])
 
 
 # ============================================================================

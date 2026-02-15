@@ -231,6 +231,7 @@ class IROp(Enum):
     # Additional operations
     ASSERT = auto()
     ASSUME = auto()
+    UNREACHABLE = auto()
     CLOCK = auto()
 
 
