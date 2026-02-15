@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import sys
 import copy
+import os
 from typing import Callable, Optional, Any, TYPE_CHECKING
 from contextlib import contextmanager
 
@@ -422,6 +423,9 @@ class StagedFunction:
         rewriter = ASTRewriter(file=self.filename, template_params=self.template_params)
         self.rewritten_ast = rewriter.rewrite(self.parsed.ast_node)
         ast.fix_missing_locations(self.rewritten_ast)
+        
+        if os.environ.get("LUISA_DUMP_REWRITTEN_AST") in ("1", "ON", "TRUE", "true", "yes"):
+            print(f"DEBUG: Rewritten AST for {self.name}:\n{ast.unparse(self.rewritten_ast)}")
         
         self.compiled_code = compile(
             ast.Module(body=[self.rewritten_ast], type_ignores=[]), 
