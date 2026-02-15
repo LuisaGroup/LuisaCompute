@@ -50,7 +50,7 @@ def _try_to_ir_value(val: Any) -> Any:
         return val
 
 
-def l_binop(op: ast.operator, left: Any, right: Any) -> Any:
+def dsl_binop(op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
     if is_ir_value(left) or is_ir_value(right):
         left = to_ir_value(left)
@@ -110,7 +110,7 @@ def l_binop(op: ast.operator, left: Any, right: Any) -> Any:
         raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
 
 
-def l_unaryop(op: ast.unaryop, operand: Any) -> Any:
+def dsl_unaryop(op: ast.unaryop, operand: Any) -> Any:
     """Handle unary operations."""
     if is_ir_value(operand):
         operand = to_ir_value(operand)
@@ -132,7 +132,7 @@ def l_unaryop(op: ast.unaryop, operand: Any) -> Any:
         raise NotImplementedError(f"Unsupported unary operator: {type(op)}")
 
 
-def l_compare(op: ast.cmpop, left: Any, right: Any) -> Any:
+def dsl_compare(op: ast.cmpop, left: Any, right: Any) -> Any:
     """Handle comparison operations."""
     if is_ir_value(left) or is_ir_value(right):
         left = to_ir_value(left)
@@ -167,7 +167,7 @@ def l_compare(op: ast.cmpop, left: Any, right: Any) -> Any:
         if isinstance(op, ast.Is):
             return left is right
         if isinstance(op, ast.IsNot):
-            return left is not right
+            return left is right
         if isinstance(op, ast.In):
             return left in right
         if isinstance(op, ast.NotIn):
@@ -175,7 +175,7 @@ def l_compare(op: ast.cmpop, left: Any, right: Any) -> Any:
         raise NotImplementedError(f"Unsupported comparison operator: {type(op)}")
 
 
-def l_boolop(op: ast.boolop, values: list[Any]) -> Any:
+def dsl_boolop(op: ast.boolop, values: list[Any]) -> Any:
     """Handle boolean operations (and/or)."""
     is_ir = any(is_ir_value(v) for v in values)
     if is_ir:
@@ -248,7 +248,7 @@ class StaticWhile:
 HostIf = StaticIf  # Legacy alias
 
 
-def l_if(cond_func: Callable[[], Any]) -> Any:
+def dsl_if(cond_func: Callable[[], Any]) -> Any:
     """Handle if statements."""
     cond = cond_func()
     if is_ir_value(cond):
@@ -257,7 +257,7 @@ def l_if(cond_func: Callable[[], Any]) -> Any:
         return StaticIf(cond)
 
 
-def l_switch(value: Any) -> Any:
+def dsl_switch(value: Any) -> Any:
     """Handle switch statements."""
     if is_ir_value(value):
         return get_current_builder().switch(value)
@@ -266,7 +266,7 @@ def l_switch(value: Any) -> Any:
         raise NotImplementedError("Host-side switch not yet supported")
 
 
-def l_for(iter_obj: Any, loop_var_name: Any) -> Any:
+def dsl_for(iter_obj: Any, loop_var_name: Any) -> Any:
     """Handle for loops (returns iterable)."""
     if isinstance(iter_obj, (range, LuisaRange)):
         if isinstance(iter_obj, range):
@@ -294,7 +294,7 @@ def l_for(iter_obj: Any, loop_var_name: Any) -> Any:
 
 
 @contextmanager
-def l_loop_scope(loop_item: Any):
+def dsl_loop_scope(loop_item: Any):
     if hasattr(loop_item, 'body_scope'):
         with loop_item.body_scope() as scope:
             yield scope
@@ -302,7 +302,7 @@ def l_loop_scope(loop_item: Any):
         yield loop_item
 
 
-def l_while(test_func: Callable[[], Any]) -> Any:
+def dsl_while(test_func: Callable[[], Any]) -> Any:
     """Handle while loops (returns generator)."""
     cond = test_func()
     if is_ir_value(cond):
@@ -315,7 +315,7 @@ def l_while(test_func: Callable[[], Any]) -> Any:
 
 
 @contextmanager
-def l_while_scope(loop_item: Any):
+def dsl_while_scope(loop_item: Any):
     if loop_item is not None and hasattr(loop_item, 'body_scope'):
         with loop_item.body_scope() as scope:
             yield scope
@@ -395,7 +395,7 @@ class LuisaRange:
         self.args = args
 
 
-def l_call(func: Any, *args, **kwargs) -> Any:
+def dsl_call(func: Any, *args, **kwargs) -> Any:
     """Handle function calls."""
     from .types import Type
 
@@ -429,7 +429,7 @@ def l_call(func: Any, *args, **kwargs) -> Any:
     raise TypeError(f"Object {func} is not callable")
 
 
-def l_subscript(value: Any, index: Any) -> Any:
+def dsl_subscript(value: Any, index: Any) -> Any:
     if is_ir_value(value) or is_ir_value(index):
         value = to_ir_value(value)
         index = to_ir_value(index)
@@ -439,7 +439,7 @@ def l_subscript(value: Any, index: Any) -> Any:
     return value[index]
 
 
-def l_subscript_assign(value: Any, index: Any, rhs: Any) -> None:
+def dsl_subscript_assign(value: Any, index: Any, rhs: Any) -> None:
     if is_ir_value(value) or is_ir_value(index) or is_ir_value(rhs):
         value = to_ir_value(value)
         index = to_ir_value(index)
@@ -452,7 +452,7 @@ def l_subscript_assign(value: Any, index: Any, rhs: Any) -> None:
         value[index] = rhs
 
 
-def l_attribute(value: Any, attr: str) -> Any:
+def dsl_attribute(value: Any, attr: str) -> Any:
     if is_ir_value(value):
         # Allow accessing standard attributes of Value/InstructionValue
         if attr in ('type', 'typ', 'name', 'instruction'):
@@ -466,7 +466,7 @@ def l_attribute(value: Any, attr: str) -> Any:
     return getattr(value, attr)
 
 
-def l_return(value: Any = None) -> None:
+def dsl_return(value: Any = None) -> None:
     if value is not None:
         val = to_ir_value(value)
         get_current_builder().return_(val)
@@ -474,22 +474,22 @@ def l_return(value: Any = None) -> None:
         get_current_builder().return_(None)
 
 
-def l_local_assign(name: str, value: Any) -> Any:
+def dsl_local_assign(name: str, value: Any) -> Any:
     """Helper to store a value in the builder's local namespace."""
     return value
 
 
-def l_set_location(file: str, line: int) -> None:
+def dsl_set_location(file: str, line: int) -> None:
     """Helper to set the current source location."""
     get_current_builder().set_location(file, line)
 
 
-def l_load(ptr: Any) -> Any:
+def dsl_load(ptr: Any) -> Any:
     """Helper to load from a reference."""
     return get_current_builder().load(ptr)
 
 
-def l_store(ptr: Any, value: Any) -> None:
+def dsl_store(ptr: Any, value: Any) -> None:
     """Helper to store to a reference."""
     get_current_builder().store(ptr, value)
 
