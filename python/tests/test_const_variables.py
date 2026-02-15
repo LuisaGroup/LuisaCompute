@@ -5,7 +5,7 @@ from luisa import (
     kernel, callable, pprint, Float, Int, Buffer, Const, static,
     sin, cos, sqrt
 )
-from luisa.lang.ir import ConstantValue
+from luisa.transform.ir import ConstantValue
 from luisa.lang.inspect import count_instructions
 
 

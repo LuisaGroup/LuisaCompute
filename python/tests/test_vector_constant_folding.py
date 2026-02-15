@@ -6,7 +6,7 @@ from luisa import (
     kernel, callable, pprint, Float, Float3, Buffer,
     normalize, length, length_squared, dot, cross, distance, reflect,
 )
-from luisa.lang.ir import ConstantValue
+from luisa.transform.ir import ConstantValue
 
 
 def test_vector_tuple_constants():

@@ -16,8 +16,9 @@ from typing import Optional, Any
 from contextlib import contextmanager
 
 # Runtime imports
-from .ir import Value, BasicBlock, ConstantValue, Op
-from .builder import Builder
+from ..transform.ir import Value, BasicBlock, ConstantValue
+from ..transform.op import Op
+from ..transform.builder import Builder
 
 
 # ============================================================================
@@ -47,7 +48,7 @@ class IfStmt:
         self._fold_true = condition.value if self._constant_fold else None
 
         if not self._constant_fold:
-            from .type import Void
+            from .types import Void
             self.builder._emit(Op.IF, Void, [self.condition, self.true_block, self.false_block])
 
     def __enter__(self):
@@ -94,7 +95,7 @@ class WhileStmt:
         self._constant_fold = isinstance(condition, ConstantValue) and condition.value == False
 
         if not self._constant_fold:
-            from .type import Void
+            from .types import Void
             # We emit a LOOP instruction that contains the body.
             # In Luisa IR, structured loops usually have the condition at the beginning of the body.
             # Our WhileStmt will handle this by injecting an IF BREAK at the start of body_block.
@@ -115,7 +116,7 @@ class WhileStmt:
         def loop_body_wrapper():
             with self.builder.scope(self.body_block):
                 # Inject condition check: if !condition: break
-                from .type import Void, Bool
+                from .types import Void, Bool
                 not_cond = self.builder._emit(Op.LOGICAL_NOT, Bool, [self.condition])
                 break_block = self.builder.create_block("while_break")
                 with self.builder.scope(break_block):
@@ -156,7 +157,7 @@ class ForRangeStmt:
         self.loop_var_ptr = self.builder.alloca(self.start.type, name=self.loop_var_name)
         self.builder.store(self.loop_var_ptr, self.start)
 
-        from .type import Void
+        from .types import Void
         self.builder._emit(Op.LOOP, Void, [self.body_block])
 
     def __enter__(self):
@@ -176,7 +177,7 @@ class ForRangeStmt:
                 self.builder.bind_local(self.loop_var_name, current_val)
 
                 # 2. Check condition: if i >= stop: break
-                from .type import Void, Bool
+                from .types import Void, Bool
                 cond = self.builder.lt(current_val, self.stop)
                 not_cond = self.builder._emit(Op.LOGICAL_NOT, Bool, [cond])
 
@@ -252,7 +253,7 @@ class SwitchStmt:
         self._constant_value = value.value if self._folded else None
 
         if not self._folded:
-            from .type import Void
+            from .types import Void
             self.cases: list[tuple[list[int], BasicBlock]] = []
             self.default_block: Optional[BasicBlock] = None
             self.inst = self.builder._emit(Op.SWITCH, Void, [self.value, self.cases, None])
@@ -324,7 +325,7 @@ class _UnrolledScope:
         for val in self.iterations:
             # Bind loop variable to constant for each iteration
             # We need to find the correct scalar type for the iteration value
-            from .type import Int
+            from .types import Int
             const_val = self.builder.constant(Int, val)
             self.builder.bind_local(self.loop_var_name, const_val)
             yield const_val

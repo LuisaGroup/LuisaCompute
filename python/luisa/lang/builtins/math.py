@@ -12,12 +12,13 @@ import math
 from typing import TYPE_CHECKING, Any, Callable, Tuple
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
-    from ..type import Type
+    from ...transform.ir import Value, InstructionValue
+    from ..types import Type
 
-from ..ir import Op, ConstantValue
-from ..builder import get_current_builder
-from ..type import Float, value_to_type, promote_types
+from ...transform.op import Op
+from ...transform.ir import ConstantValue
+from ...transform.builder import get_current_builder
+from ..types import Float, value_to_type, promote_types
 from ..router import router, RoutedFunction, is_constant_value, extract_constant_value, is_vector_constant, extract_vector_components
 
 

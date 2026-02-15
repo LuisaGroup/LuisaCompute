@@ -90,7 +90,7 @@ def test_staged_function_control_flow():
         else:
             return -x
 
-    from luisa.lang.ir import ArgumentValue
+    from luisa.transform.ir import ArgumentValue
     ir_func = abs_value(ArgumentValue(typ=Float, index=0))
 
     # Print AST
@@ -124,7 +124,7 @@ def test_staged_function_captured_vars():
         else:
             return 0
 
-    from luisa.lang.ir import ArgumentValue
+    from luisa.transform.ir import ArgumentValue
     ir_func = threshold_check(ArgumentValue(typ=Float, index=0))
 
     print("\nGenerated IR:")
@@ -175,7 +175,7 @@ def test_staged_function_for_range():
             total = total + i
         return total
 
-    from luisa.lang.ir import ArgumentValue
+    from luisa.transform.ir import ArgumentValue
     ir_func = sum_range(ArgumentValue(typ=Int, index=0))
 
     print("\nGenerated IR:")

@@ -19,12 +19,13 @@ from typing import Callable, Any, Optional, TYPE_CHECKING, Union
 from functools import wraps
 
 if TYPE_CHECKING:
-    from .ir import Op, Value, InstructionValue, ConstantValue
-    from .type import Type
+    from ..transform.op import Op
+    from ..transform.ir import Value, InstructionValue, ConstantValue
 
-from .ir import Op, ConstantValue, InstructionValue
-from .builder import get_current_builder
-from .type import (
+from ..transform.op import Op
+from ..transform.ir import ConstantValue, InstructionValue
+from ..transform.builder import get_current_builder
+from .types import (
     Type, Scalar, Vector, Matrix, 
     Bool, Int, Float, Double,
     value_to_type, is_data_type
@@ -146,7 +147,7 @@ def is_foldable_to_vector(val: Any) -> bool:
     if isinstance(val, (list, tuple)) and len(val) in (2, 3, 4):
         return True
     if isinstance(val, ConstantValue):
-        from .type import Vector
+        from .types import Vector
         return isinstance(val.type, Vector)
     return False
 

@@ -8,7 +8,7 @@ from luisa import (
     isinf, isnan, copysign, fma,
     clz, ctz, popcount, reverse,
 )
-from luisa.lang.ir import ConstantValue
+from luisa.transform.ir import ConstantValue
 
 
 def test_rsqrt_constant_folding():

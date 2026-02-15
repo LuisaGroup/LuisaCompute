@@ -8,10 +8,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
+    from ...transform.ir import Value, InstructionValue
 
-from ..ir import Op
-from ..builder import get_current_builder
+from ...transform.op import Op
+from ...transform.builder import get_current_builder
 
 
 # ============================================================================

@@ -7,7 +7,7 @@ from luisa.lang.inspect import (
     count_instructions, get_basic_block_count, get_instruction_count,
     find_operations, analyze_control_flow, is_kernel, format_ir_summary
 )
-from luisa.lang.ir import Op
+from luisa.transform.op import Op
 
 
 def test_get_ir_source():

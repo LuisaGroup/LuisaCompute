@@ -8,12 +8,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
-    from ..type import Type
+    from ...transform.ir import Value, InstructionValue
+    from ..types import Type
 
-from ..ir import Op
-from ..type import UInt, UInt2, UInt3, ULong, Float4
-from ..builder import get_current_builder
+from ...transform.op import Op
+from ..types import UInt, UInt2, UInt3, ULong, Float4
+from ...transform.builder import get_current_builder
 
 
 # ============================================================================

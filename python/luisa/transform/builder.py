@@ -12,12 +12,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 # Runtime imports
-from .type import Type
-from .type import promote_types
+from .op import Op
 from .ir import (
-    Op, Value, ConstantValue, InstructionValue, ArgumentValue,
+    Value, ConstantValue, InstructionValue, ArgumentValue,
     Instruction, BasicBlock, Function, Module, SourceLocation
 )
+
 
 # ============================================================================
 # Global Builder Context
@@ -57,8 +57,8 @@ class Builder:
     When executed, it constructs the IR data structures.
     """
 
-    def __init__(self, name: str, arg_types: tuple[Type, ...],
-                 ret_type: Optional[Type],
+    def __init__(self, name: str, arg_types: tuple[Any, ...],
+                 ret_type: Optional[Any],
                  arg_is_reference: Optional[list[bool]] = None):
         self.name = name
         self.arg_types = list(arg_types)
@@ -92,7 +92,7 @@ class Builder:
     # Value Creation
     # ========================================================================
 
-    def constant(self, typ: Type, value: Any) -> ConstantValue:
+    def constant(self, typ: Any, value: Any) -> ConstantValue:
         """Create a constant value."""
         return ConstantValue(typ=typ, value=value)
 
@@ -150,7 +150,7 @@ class Builder:
     # Instruction Emission
     # ========================================================================
 
-    def _emit(self, op: Op, typ: Type, args: list,
+    def _emit(self, op: Op, typ: Any, args: list,
               name: Optional[str] = None,
               loc: Optional[SourceLocation] = None) -> InstructionValue:
         """Emit an instruction and return its result value."""
@@ -183,30 +183,34 @@ class Builder:
     # ========================================================================
 
     def add(self, left: Value, right: Value,
-            result_type: Optional[Type] = None) -> InstructionValue:
+            result_type: Optional[Any] = None) -> InstructionValue:
         """Emit an add instruction."""
         if result_type is None:
+            from ..lang.types import promote_types
             result_type = promote_types(left.type, right.type)
         return self._emit(Op.ADD, result_type, [left, right])
 
     def sub(self, left: Value, right: Value,
-            result_type: Optional[Type] = None) -> InstructionValue:
+            result_type: Optional[Any] = None) -> InstructionValue:
         """Emit a sub instruction."""
         if result_type is None:
+            from ..lang.types import promote_types
             result_type = promote_types(left.type, right.type)
         return self._emit(Op.SUB, result_type, [left, right])
 
     def mul(self, left: Value, right: Value,
-            result_type: Optional[Type] = None) -> InstructionValue:
+            result_type: Optional[Any] = None) -> InstructionValue:
         """Emit a mul instruction."""
         if result_type is None:
+            from ..lang.types import promote_types
             result_type = promote_types(left.type, right.type)
         return self._emit(Op.MUL, result_type, [left, right])
 
     def div(self, left: Value, right: Value,
-            result_type: Optional[Type] = None) -> InstructionValue:
+            result_type: Optional[Any] = None) -> InstructionValue:
         """Emit a div instruction."""
         if result_type is None:
+            from ..lang.types import promote_types
             result_type = promote_types(left.type, right.type)
         return self._emit(Op.DIV, result_type, [left, right])
 
@@ -215,16 +219,18 @@ class Builder:
         return self._emit(Op.NEG, operand.type, [operand])
 
     def mod(self, left: Value, right: Value,
-            result_type: Optional[Type] = None) -> InstructionValue:
+            result_type: Optional[Any] = None) -> InstructionValue:
         """Emit a modulo instruction."""
         if result_type is None:
+            from ..lang.types import promote_types
             result_type = promote_types(left.type, right.type)
         return self._emit(Op.MOD, result_type, [left, right])
 
     def pow(self, left: Value, right: Value,
-            result_type: Optional[Type] = None) -> InstructionValue:
+            result_type: Optional[Any] = None) -> InstructionValue:
         """Emit a power instruction."""
         if result_type is None:
+            from ..lang.types import promote_types
             result_type = promote_types(left.type, right.type)
         return self._emit(Op.POW, result_type, [left, right])
 
@@ -264,7 +270,7 @@ class Builder:
             vector: The vector to swizzle
             pattern: Swizzle pattern like 'x', 'xy', 'xyz', 'xyzw', 'rgba', etc.
         """
-        from .type import Vector
+        from ..lang.types import Vector
 
         if not isinstance(vector.type, Vector):
             raise TypeError(f"Can only swizzle vectors, got {vector.type}")
@@ -290,32 +296,32 @@ class Builder:
 
     def eq(self, left: Value, right: Value) -> InstructionValue:
         """Emit an equality comparison."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.EQ, Bool, [left, right])
 
     def ne(self, left: Value, right: Value) -> InstructionValue:
         """Emit a not-equal comparison."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.NE, Bool, [left, right])
 
     def lt(self, left: Value, right: Value) -> InstructionValue:
         """Emit a less-than comparison."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.LT, Bool, [left, right])
 
     def le(self, left: Value, right: Value) -> InstructionValue:
         """Emit a less-than-or-equal comparison."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.LE, Bool, [left, right])
 
     def gt(self, left: Value, right: Value) -> InstructionValue:
         """Emit a greater-than comparison."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.GT, Bool, [left, right])
 
     def ge(self, left: Value, right: Value) -> InstructionValue:
         """Emit a greater-than-or-equal comparison."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.GE, Bool, [left, right])
 
     # ========================================================================
@@ -324,30 +330,30 @@ class Builder:
 
     def logical_and(self, left: Value, right: Value) -> InstructionValue:
         """Emit a logical AND."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.LOGICAL_AND, Bool, [left, right])
 
     def logical_or(self, left: Value, right: Value) -> InstructionValue:
         """Emit a logical OR."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.LOGICAL_OR, Bool, [left, right])
 
     def logical_not(self, operand: Value) -> InstructionValue:
         """Emit a logical NOT."""
-        from .type import Bool
+        from ..lang.types import Bool
         return self._emit(Op.LOGICAL_NOT, Bool, [operand])
 
     # ========================================================================
     # Memory Operations
     # ========================================================================
 
-    def alloca(self, typ: Type, name: Optional[str] = None) -> InstructionValue:
+    def alloca(self, typ: Any, name: Optional[str] = None) -> InstructionValue:
         """Emit an alloca instruction (allocate local variable)."""
         if name is not None and not name.startswith('v'):
             name = f"v{name}"
         return self._emit(Op.ALLOCA, typ, [], name)
 
-    def load(self, ptr: Value, typ: Optional[Type] = None) -> InstructionValue:
+    def load(self, ptr: Value, typ: Optional[Any] = None) -> InstructionValue:
         """Emit a load instruction."""
         if typ is None:
             typ = ptr.type
@@ -357,7 +363,7 @@ class Builder:
         """Emit a store instruction."""
         return self._emit(Op.STORE, None, [ptr, value])
 
-    def buffer_read(self, buffer: Value, index: Value, elem_type: Type) -> InstructionValue:
+    def buffer_read(self, buffer: Value, index: Value, elem_type: Any) -> InstructionValue:
         """Emit a buffer read instruction."""
         return self._emit(Op.BUFFER_READ, elem_type, [buffer, index])
 
@@ -395,11 +401,11 @@ class Builder:
         call_args = [func.name] + list(args)
         return self._emit(Op.CALL, ret_type, call_args)
 
-    def cast(self, value: Value, target_typ: Type) -> InstructionValue:
+    def cast(self, value: Value, target_typ: Any) -> InstructionValue:
         """Emit a type cast instruction."""
         return self._emit(Op.CAST, target_typ, [value])
 
-    def bitcast(self, value: Value, target_typ: Type) -> InstructionValue:
+    def bitcast(self, value: Value, target_typ: Any) -> InstructionValue:
         """Emit a bitcast instruction (preserves bit pattern)."""
         return self._emit(Op.BITCAST, target_typ, [value])
 
@@ -418,8 +424,8 @@ class Builder:
             with if_.false_scope():  # optional
                 ...  # false branch
         """
-        from . import control_flow
-        return control_flow.IfStmt(self, cond)
+        from ..lang.control_flow import IfStmt
+        return IfStmt(self, cond)
 
     def while_(self, cond: Value) -> 'WhileStmt':
         """
@@ -430,8 +436,8 @@ class Builder:
             with while_.body_scope():
                 ...  # loop body
         """
-        from . import control_flow
-        return control_flow.WhileStmt(self, cond)
+        from ..lang.control_flow import WhileStmt
+        return WhileStmt(self, cond)
 
     def for_range(self, start: Value, stop: Value,
                   step: Value, loop_var: str) -> 'ForRangeStmt':
@@ -443,8 +449,8 @@ class Builder:
             with for_.body_scope():
                 ...  # loop body, 'i' is bound to loop variable
         """
-        from . import control_flow
-        return control_flow.ForRangeStmt(self, start, stop, step, loop_var)
+        from ..lang.control_flow import ForRangeStmt
+        return ForRangeStmt(self, start, stop, step, loop_var)
 
     def for_unrolled(self, start: int, stop: int,
                      step: int, loop_var: str) -> 'UnrolledForStmt':
@@ -458,8 +464,8 @@ class Builder:
         
         Use only for small iteration counts!
         """
-        from . import control_flow
-        return control_flow.UnrolledForStmt(self, start, stop, step, loop_var)
+        from ..lang.control_flow import UnrolledForStmt
+        return UnrolledForStmt(self, start, stop, step, loop_var)
 
     def switch(self, value: Value) -> 'SwitchStmt':
         """
@@ -474,8 +480,8 @@ class Builder:
             with switch.default_scope():
                 ...  # default case
         """
-        from . import control_flow
-        return control_flow.SwitchStmt(self, value)
+        from ..lang.control_flow import SwitchStmt
+        return SwitchStmt(self, value)
 
     # ========================================================================
     # Build

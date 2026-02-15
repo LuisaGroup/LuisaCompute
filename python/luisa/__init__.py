@@ -9,14 +9,15 @@ performance, and advanced meta-programming features.
 from __future__ import annotations
 
 # Export core DSL components
-from .lang.staged import StagedFunction, kernel, callable, static_range, unrolled, UnrolledRange
+from .lang.jit import StagedFunction, kernel, callable, static_range, unrolled, UnrolledRange
 from .lang.ops import StaticIf, StaticWhile
-from .lang.builder import Builder, set_current_builder
-from .lang.ir import (
-    Op, Module, Function,
+from .transform.builder import Builder, set_current_builder
+from .transform.op import Op
+from .transform.ir import (
+    Module, Function,
     Value, ConstantValue, ArgumentValue, InstructionValue
 )
-from .lang.type import (
+from .lang.types import (
     # Base types
     Type, Scalar, Vector, Matrix, Array, Struct, Ref,
     Buffer, Texture2D, Texture3D, BindlessArray, Accel, RayQuery,
@@ -44,7 +45,8 @@ from .lang.type import (
 )
 
 # Export builtins
-from .lang.builtin import *
+from .lang import builtins
+from .lang.builtins import *
 
 # Export router utilities
 from .lang.router import (
@@ -54,11 +56,11 @@ from .lang.router import (
 )
 
 # Export Const, static, and Shared
-from .lang.dsl_types import Const, static, Shared, is_const_value as _is_const_value
+from .lang.types import Const, static, Shared, is_const_value as _is_const_value
 
 # Export codegen utilities
-from .codegen.pretty_printer import pprint
-from .codegen.json_serializer import serialize_function, serialize_module
+from .printer import pprint
+from .serialize import serialize_function, serialize_module
 
 # Version info
 from .version import __version__
@@ -110,5 +112,6 @@ __all__ = [
     
     # Builtins
 ]
-from .lang import builtin
-__all__ += builtin.__all__
+
+# Add all builtins to __all__
+__all__ += builtins.__all__

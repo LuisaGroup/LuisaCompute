@@ -11,12 +11,13 @@ from typing import Callable, Any, Optional, TYPE_CHECKING
 from contextlib import contextmanager
 
 if TYPE_CHECKING:
-    from ..builder import Builder
-    from ..ir import Value
+    from ..transform.builder import Builder
+    from ..transform.ir import Value
 
-from .builder import get_current_builder
-from .ir import Op, Value
-from .type import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
+from ..transform.builder import get_current_builder
+from ..transform.op import Op
+from ..transform.ir import Value
+from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
 
 
 # ============================================================================
@@ -36,7 +37,7 @@ def to_ir_value(val: Any) -> Value:
         return val
     
     # Unwrap _ConstValue
-    from .dsl_types import _ConstValue
+    from .types import _ConstValue
     if isinstance(val, _ConstValue):
         val = val.value
 
@@ -61,8 +62,8 @@ def try_to_ir_value(val: Any) -> Any:
 def binop(op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
     # Check if both operands are constants - if so, do host-side computation
-    from .ir import ConstantValue
-    from .dsl_types import _ConstValue
+    from ..transform.ir import ConstantValue
+    from .types import _ConstValue
     left_is_const = isinstance(left, (ConstantValue, _ConstValue)) or left is None or isinstance(left, (bool, int, float, str))
     right_is_const = isinstance(right, (ConstantValue, _ConstValue)) or right is None or isinstance(right, (bool, int, float, str))
     
@@ -500,8 +501,7 @@ def local_var_assign(name: str, value: Any) -> Any:
     If the value is not a DSL-compatible type (e.g., Builder, str, etc.),
     just return the value as-is (it's a Python variable).
     """
-    from .ir import ConstantValue
-    from .builder import Builder
+    from ..transform.ir import ConstantValue
     
     # If it's already a Value (including InstructionValue, ConstantValue, etc.),
     # create a DSL variable for it
@@ -512,7 +512,6 @@ def local_var_assign(name: str, value: Any) -> Any:
         return var_ptr
     
     # If it's a Python primitive that can be converted to a DSL type, do so
-    from .type import value_to_type
     typ = value_to_type(value)
     if typ is not None:
         builder = get_current_builder()

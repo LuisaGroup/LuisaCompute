@@ -12,18 +12,12 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 if TYPE_CHECKING:
-    from .ir import Op
+    from ..transform.op import Op
 
-# Runtime import for Vector.__call__
-_ir_module = None
 
-def _get_ir_op():
-    """Lazy import of Op to avoid circular imports."""
-    global _ir_module
-    if _ir_module is None:
-        from . import ir as _ir_module
-    return _ir_module.Op
-
+# ============================================================================
+# Scalar Type Enum
+# ============================================================================
 
 class ScalarType(Enum):
     """Scalar data types."""
@@ -41,7 +35,10 @@ class ScalarType(Enum):
     FLOAT64 = auto()
 
 
-# Base type class
+# ============================================================================
+# Base Type Class
+# ============================================================================
+
 @dataclass(frozen=True)
 class Type:
     """Base class for all types in the DSL."""
@@ -54,13 +51,12 @@ class Type:
 
     def __call__(self, arg: Any) -> Any:
         """Support casting syntax like Float(x)."""
-        from .ir import Value
-        from .builder import get_current_builder
+        from ..transform.builder import get_current_builder
+        from .ops import to_ir_value
 
         builder = get_current_builder()
 
-        if not isinstance(arg, Value):
-            from .ops import to_ir_value
+        if not hasattr(arg, 'type') or arg.type is None:
             arg = to_ir_value(arg)
 
         return builder.cast(arg, self)
@@ -80,6 +76,10 @@ class classproperty:
     def __get__(self, owner_self, owner_cls):
         return self.fget(owner_cls)
 
+
+# ============================================================================
+# Scalar Type
+# ============================================================================
 
 @dataclass(frozen=True)
 class Scalar(Type):
@@ -153,6 +153,10 @@ class Scalar(Type):
         return cls(ScalarType.FLOAT64)
 
 
+# ============================================================================
+# Vector Type
+# ============================================================================
+
 @dataclass(frozen=True)
 class Vector(Type):
     """Vector type (e.g., Float3, Int4)."""
@@ -185,9 +189,11 @@ class Vector(Type):
             - A tuple of constants for constant folding (if all args are constants)
             - An IR Value for DSL construction (if any arg is a DSL value)
         """
-        from .ir import Value, ConstantValue
-        from .builder import get_current_builder
-        Op = _get_ir_op()
+        from ..transform.ir import Value, ConstantValue
+        from ..transform.builder import get_current_builder
+        
+        # Lazy import Op to avoid circular imports
+        from ..transform.op import Op
         
         # If called with a single argument, replicate it for all components
         if len(components) == 1:
@@ -222,6 +228,10 @@ class Vector(Type):
         return builder._emit(Op.CALL_BUILTIN, self, [f"make_vector_{self.size}", *components])
 
 
+# ============================================================================
+# Matrix Type
+# ============================================================================
+
 @dataclass(frozen=True)
 class Matrix(Type):
     """Matrix type (e.g., Float3x3)."""
@@ -242,6 +252,10 @@ class Matrix(Type):
         return cls(element=item[0], size=item[1])
 
 
+# ============================================================================
+# Array Type
+# ============================================================================
+
 @dataclass(frozen=True)
 class Array(Type):
     """Fixed-size array type."""
@@ -261,6 +275,10 @@ class Array(Type):
             raise TypeError("Array requires [type, size]")
         return cls(element=item[0], size=item[1])
 
+
+# ============================================================================
+# Struct Type
+# ============================================================================
 
 @dataclass(frozen=True)
 class Struct(Type):
@@ -321,6 +339,10 @@ class Struct(Type):
         """Get the DSL type for this struct."""
         return cls._dsl_type  # pylint: disable=protected-access
 
+
+# ============================================================================
+# Resource Types
+# ============================================================================
 
 @dataclass(frozen=True)
 class Buffer(Type):
@@ -409,7 +431,10 @@ class Callable(Type):
         return cls(arg_types=arg_types, ret_type=ret_type)
 
 
-# Type alias for any type
+# ============================================================================
+# Type Aliases
+# ============================================================================
+
 AnyType = Optional[Union[
     Scalar, Vector, Matrix, Array, Struct,
     Buffer, Texture2D, Texture3D, BindlessArray,
@@ -420,7 +445,7 @@ AnyType = Optional[Union[
 Void = None
 
 # ============================================================================
-# Predefined type aliases for convenience (aligned with var.h)
+# Predefined Type Aliases
 # ============================================================================
 
 # Scalar types
@@ -484,7 +509,7 @@ half2x2, half3x3, half4x4 = Half2x2, Half3x3, Half4x4
 
 
 # ============================================================================
-# Type conversion logic
+# Type Conversion Logic
 # ============================================================================
 
 def value_to_type(value: Any) -> Optional[Type]:
@@ -556,7 +581,7 @@ def python_type_to_dsl(py_type: type) -> Optional[Type]:
 
 
 # ============================================================================
-# Type utility functions
+# Type Utility Functions
 # ============================================================================
 
 def get_element_type(t: Type) -> Type:
@@ -830,3 +855,289 @@ def struct(arg=None, *, align: Optional[int] = None):
 def get_struct_type(name: str) -> Optional[type]:
     """Get a registered struct type by name."""
     return _struct_registry.get(name)
+
+
+# ============================================================================
+# Const and Shared Types
+# ============================================================================
+
+class Const:
+    """
+    Mark a value as a compile-time constant.
+    
+    Usage:
+        # With explicit type
+        a = Const[Float](1.0)
+        b = Const[Int](42)
+        
+        # Without explicit type (inferred from value)
+        c = Const(sin(1.0))
+        
+        # Multiple values (creates a tuple)
+        d = Const[Float](1.0, 2.0, 3.0)
+    
+    Variables marked with Const are kept as Python values during DSL execution
+    and are not converted to DSL variables (no alloca/store).
+    """
+    
+    def __class_getitem__(cls, item):
+        """Support Const[Type] syntax - returns a typed Const constructor."""
+        return _TypedConst(item)
+    
+    def __new__(cls, *values):
+        """
+        Create a const value with type inferred from the value.
+        
+        If multiple values are provided, they are wrapped in a tuple.
+        """
+        if len(values) == 1:
+            return _ConstValue(values[0])
+        else:
+            return _ConstValue(values)
+
+
+class _TypedConst:
+    """A const constructor with an explicit type."""
+    
+    def __init__(self, typ: Type):
+        self.type = typ
+    
+    def __call__(self, *values):
+        """Create a const value with the specified type."""
+        if len(values) == 1:
+            return _ConstValue(values[0], explicit_type=self.type)
+        else:
+            return _ConstValue(values, explicit_type=self.type)
+
+
+class _ConstValue:
+    """
+    Wrapper for a compile-time constant value.
+    
+    This is used internally to mark values that should not be converted
+to DSL variables.
+    """
+    
+    def __init__(self, value: Any, explicit_type: Optional[Type] = None):
+        self._raw_value = value
+        self._explicit_type = explicit_type
+        
+        # Unwrap nested ConstValue
+        if isinstance(value, _ConstValue):
+            self._raw_value = value._raw_value
+            if explicit_type is None:
+                self._explicit_type = value._explicit_type
+        
+        # Unwrap ConstantValue
+        elif hasattr(value, 'type') and hasattr(value, 'value'):
+            # It's a ConstantValue-like object
+            self._raw_value = value.value
+            if explicit_type is None:
+                self._explicit_type = value.type
+    
+    @property
+    def value(self) -> Any:
+        """Get the raw Python value."""
+        return self._raw_value
+    
+    @property
+    def dsl_type(self) -> Optional[Type]:
+        """Get the explicit DSL type if specified."""
+        return self._explicit_type
+    
+    def __repr__(self) -> str:
+        if self._explicit_type:
+            return f"Const[{self._explicit_type}]({self._raw_value!r})"
+        return f"Const({self._raw_value!r})"
+    
+    # Delegate arithmetic to the raw value
+    def __add__(self, other):
+        if isinstance(other, _ConstValue):
+            other = other._raw_value
+        return _ConstValue(self._raw_value + other)
+    
+    def __radd__(self, other):
+        return _ConstValue(other + self._raw_value)
+    
+    def __sub__(self, other):
+        if isinstance(other, _ConstValue):
+            other = other._raw_value
+        return _ConstValue(self._raw_value - other)
+    
+    def __rsub__(self, other):
+        return _ConstValue(other - self._raw_value)
+    
+    def __mul__(self, other):
+        if isinstance(other, _ConstValue):
+            other = other._raw_value
+        return _ConstValue(self._raw_value * other)
+    
+    def __rmul__(self, other):
+        return _ConstValue(other * self._raw_value)
+    
+    def __truediv__(self, other):
+        if isinstance(other, _ConstValue):
+            other = other._raw_value
+        return _ConstValue(self._raw_value / other)
+    
+    def __rtruediv__(self, other):
+        return _ConstValue(other / self._raw_value)
+    
+    def __neg__(self):
+        return _ConstValue(-self._raw_value)
+    
+    def __pos__(self):
+        return self
+    
+    def __abs__(self):
+        return _ConstValue(abs(self._raw_value))
+    
+    # Comparisons
+    def __eq__(self, other):
+        if isinstance(other, _ConstValue):
+            return self._raw_value == other._raw_value
+        return self._raw_value == other
+    
+    def __ne__(self, other):
+        if isinstance(other, _ConstValue):
+            return self._raw_value != other._raw_value
+        return self._raw_value != other
+    
+    def __lt__(self, other):
+        if isinstance(other, _ConstValue):
+            return self._raw_value < other._raw_value
+        return self._raw_value < other
+    
+    def __le__(self, other):
+        if isinstance(other, _ConstValue):
+            return self._raw_value <= other._raw_value
+        return self._raw_value <= other
+    
+    def __gt__(self, other):
+        if isinstance(other, _ConstValue):
+            return self._raw_value > other._raw_value
+        return self._raw_value > other
+    
+    def __ge__(self, other):
+        if isinstance(other, _ConstValue):
+            return self._raw_value >= other._raw_value
+        return self._raw_value >= other
+    
+    def __bool__(self):
+        return bool(self._raw_value)
+    
+    def __float__(self):
+        return float(self._raw_value)
+    
+    def __int__(self):
+        return int(self._raw_value)
+    
+    def __getitem__(self, index):
+        """Allow indexing into const tuples/arrays."""
+        return _ConstValue(self._raw_value[index])
+
+
+def static(*values):
+    """
+    Mark value(s) as statically evaluated (compile-time constants).
+    
+    This is a shorthand for Const() that makes it explicit the value is
+    evaluated at compile time (statically) rather than on the device.
+    
+    Usage:
+        # Single value
+        a = static(sin(1.0))
+        
+        # Multiple values
+        b, c = static(1.0, 2.0)
+    
+    Variables marked with static() are kept as Python values and are not
+    converted to DSL variables (no alloca/store).
+    """
+    if len(values) == 1:
+        return _ConstValue(values[0])
+    else:
+        return tuple(_ConstValue(v) for v in values)
+
+
+class Shared:
+    """
+    Mark a variable as shared memory (GPU threadgroup memory).
+    
+    Usage:
+        # Shared memory array
+        shared_buf = Shared[Float, 256]  # 256 floats of shared memory
+        
+        # Shared memory with initialization
+        shared_val = Shared[Float](0.0)
+    
+    This is a placeholder for future implementation of GPU shared memory.
+    Currently, it creates a normal DSL variable.
+    """
+    
+    def __class_getitem__(cls, params):
+        """
+        Support Shared[Type] or Shared[Type, size] syntax.
+        
+        Returns a Shared memory constructor.
+        """
+        if isinstance(params, tuple):
+            if len(params) == 2:
+                typ, size = params
+                return _SharedConstructor(typ, size)
+            else:
+                raise TypeError("Shared[...] expects 1 or 2 parameters: Shared[Type] or Shared[Type, size]")
+        else:
+            # Just the type, no size
+            return _SharedConstructor(params, None)
+
+
+class _SharedConstructor:
+    """Constructor for shared memory variables."""
+    
+    def __init__(self, typ: Type, size: Optional[int] = None):
+        self.type = typ
+        self.size = size
+    
+    def __call__(self, *initial_values):
+        """
+        Create a shared memory variable.
+        
+        For now, this creates a normal DSL variable (placeholder implementation).
+        In the future, this will allocate GPU shared memory.
+        """
+        # TODO: Implement actual shared memory allocation
+        # For now, just mark it as a shared variable
+        return _SharedValue(self.type, self.size, initial_values)
+
+
+class _SharedValue:
+    """Wrapper for a shared memory variable."""
+    
+    def __init__(self, typ: Type, size: Optional[int], initial_values: tuple):
+        self.type = typ
+        self.size = size
+        self.initial_values = initial_values
+        self._is_shared = True
+    
+    def __repr__(self) -> str:
+        if self.size:
+            return f"Shared[{self.type}, {self.size}]"
+        return f"Shared[{self.type}]"
+    
+    def __getitem__(self, index):
+        """Allow indexing into shared arrays."""
+        # TODO: Implement shared memory access
+        pass
+
+
+def is_const_value(val: Any) -> bool:
+    """Check if a value is a compile-time constant (Const or _ConstValue)."""
+    return isinstance(val, (_ConstValue, Const))
+
+
+def extract_const_value(val: Any) -> Any:
+    """Extract the raw Python value from a const wrapper."""
+    if isinstance(val, _ConstValue):
+        return val.value
+    return val

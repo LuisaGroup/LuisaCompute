@@ -8,7 +8,7 @@ from luisa.lang.inspect import (
     find_operations, analyze_control_flow,
     is_kernel, format_ir_summary, get_type_size
 )
-from luisa.lang.type import Int as int32_type, Float as float32_type
+from luisa.lang.types import Int as int32_type, Float as float32_type
 
 
 def test_get_ir_source_non_staged():
@@ -109,7 +109,7 @@ def test_find_operations_no_match():
     print("Test: find_operations no match")
     print("=" * 60)
 
-    from luisa.lang.ir import Op
+    from luisa.transform.op import Op
 
     @callable
     def simple() -> Int:
@@ -266,7 +266,7 @@ def test_get_type_size_vector():
     print("Test: get_type_size vector")
     print("=" * 60)
 
-    from luisa.lang.type import Float3
+    from luisa.lang.types import Float3
     assert get_type_size(Float3) == 12  # 4 * 3
 
     print(f"✓ Float3: {get_type_size(Float3)} bytes")

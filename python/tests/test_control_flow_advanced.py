@@ -3,7 +3,7 @@
 import pytest
 import ast as python_ast
 from luisa import kernel, callable, Int, Float, Bool, pprint
-from luisa.lang.ir import Op
+from luisa.transform.op import Op
 from luisa.lang.inspect import find_operations, analyze_control_flow, count_instructions, get_ir_ast
 
 
@@ -74,7 +74,7 @@ def test_if_elif_else_chain():
             else:
                 return 1
 
-    from luisa.lang.ir import ArgumentValue
+    from luisa.transform.ir import ArgumentValue
     # Use an ArgumentValue to ensure it's not folded
     ir = if_chain(ArgumentValue(typ=Int, index=0))
     print("\nGenerated IR:")
@@ -156,7 +156,7 @@ def test_for_range_loop():
             total = total + i
         return total
 
-    from luisa.lang.ir import ArgumentValue
+    from luisa.transform.ir import ArgumentValue
     ir = for_range_sum(ArgumentValue(typ=Int, index=0))
 
     print("\nGenerated IR:")
@@ -182,7 +182,7 @@ def test_for_range_with_step():
             total = total + i
         return total
 
-    from luisa.lang.ir import ArgumentValue
+    from luisa.transform.ir import ArgumentValue
     ir = for_range_step(ArgumentValue(typ=Int, index=0))
 
     print("\nGenerated IR:")

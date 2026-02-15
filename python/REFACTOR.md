@@ -1,104 +1,59 @@
-# LuisaCompute Python DSL v2 Refactor Plan
+# LuisaCompute Python DSL v2 Refactor Plan (Final Version)
 
-This document outlines the plan for refactoring the LuisaCompute Python DSL v2 package to be more simple, flat, easy to understand, and pythonic.
+This document outlines the final plan for refactoring the LuisaCompute Python DSL v2 package. It is designed to be flat, pythonic, and structurally optimal by cleanly separating language definitions from transformation machinery.
 
-## 1. Package Structure Reorganization
-
-The current structure is somewhat deeply nested under `lang/` and has overlapping responsibilities. We will move to a more orthogonal structure.
+## 1. Package Structure
 
 ### `luisa/` (Root)
-- `__init__.py`: Clean exports of all user-facing DSL features.
+- `__init__.py`: Public API (exports `kernel`, `callable`, `types`, etc. from `lang`).
+- `printer.py`: (Merged) LLVM-style IR pretty printer.
+- `serialize.py`: IR-to-JSON serialization.
 - `version.py`: Version information.
-- `py.typed`: PEP 561 marker.
 
-### `luisa/core/` (DSL Engine)
-The "engine" responsible for turning Python code into Luisa IR.
-- `builder.py`: IR construction logic.
-- `ir.py`: IR node definitions and data structures.
-- `ast_rewriter.py`: (Renamed from `compiler.py`) AST transformation logic.
-- `jit.py`: (Renamed from `staged.py`) `StagedFunction`, compilation, and caching.
-- `inspect.py`: Python introspection utilities (source extraction, closure analysis).
+### `luisa/lang/` (Language Definition)
+Contains everything the user interacts with when writing DSL code.
+- `__init__.py`: Aggregates and exports all public language features.
+- `jit.py`: The `@kernel` and `@callable` decorators and JIT compilation logic.
+- `types.py`: Consolidated type system (Scalar, Vector, Matrix, Struct, Buffer, Texture, etc.).
+- `ops.py`: Runtime operator support for rewritten AST code (`binop`, `unaryop`, `compare`).
+- `control_flow.py`: High-level control flow helpers (`StaticIf`, `StaticWhile`).
 - `router.py`: Dispatch and routing logic.
-
-### `luisa/types/` (Type System)
-A dedicated subpackage for the Luisa type system.
-- `basic.py`: Scalar, Vector, Matrix types and their aliases.
-- `aggregate.py`: Array, Struct, and the `@struct` decorator.
-- `resource.py`: Buffer, Texture, BindlessArray, Accel, RayQuery.
-- `utils.py`: Type inference, conversion, and promotion utilities.
-
-### `luisa/dsl/` (User-Facing DSL)
-High-level constructs and runtime support for writing DSL code.
-- `jit.py`: Re-export `kernel` and `callable` from `core/jit.py`.
-- `ops.py`: Operator overloading and runtime support for AST-rewritten code.
-- `control_flow.py`: `StaticIf`, `StaticWhile`, and IR control flow helpers.
-- `builtin/`: Subpackage for built-in functions.
+- `builtins/`: (Subpackage) Well-organized implementation of DSL built-in functions.
     - `math.py`, `atomic.py`, `warp.py`, `rtx.py`, `resource.py`, `core.py`.
 
-### `luisa/codegen/` (Output & Serialization)
-- `printer.py`: Merged and refined IR-to-text (LLVM-style) printer.
-- `json.py`: IR-to-JSON serialization.
+### `luisa/transform/` (Transformation Machinery)
+The internal engine that converts Python AST into Luisa IR.
+- `op.py`: (New) The `Op` Enum definition to break circular dependencies between types and IR.
+- `ir.py`: Data structures for the structured IR.
+- `builder.py`: The IR construction API.
+- `rewriter.py`: The `ast.NodeTransformer` for DSL rewriting.
+- `inspect.py`: Python introspection (source extraction, closure analysis).
 
 ---
 
-## 2. Detailed Module Changes
+## 2. Structural Optimizations
 
-### `type.py` Split
-The current `type.py` is too large. It will be split:
-- Move `Scalar`, `Vector`, `Matrix` to `types/basic.py`.
-- Move `Array`, `Struct`, `Ref` to `types/aggregate.py`.
-- Move `Buffer`, `Texture2D`, etc., to `types/resource.py`.
-- Move `value_to_type`, `annotation_to_type`, etc., to `types/utils.py`.
-
-### `compiler.py` and `staged.py`
-- Rename `compiler.py` to `ast_rewriter.py` to better reflect its purpose.
-- Rename `staged.py` to `jit.py`.
-- Move `parse_function` and closure analysis from `compiler.py` to `core/inspect.py`.
-
-### `printer.py`
-- Merge `lang/printer.py` and `codegen/pretty_printer.py` into a single, robust `codegen/printer.py`.
+- **Dependency Management**: Moving the `Op` enum to `transform/op.py` allows both `lang/types.py` and `transform/ir.py` to import it without circularity.
+- **Flattest Possible Hierarchy**: We avoid sub-nesting wherever possible, using modules instead of subpackages unless there is a clear collection (like `builtins`).
+- **Separation of Concerns**: `lang/` is the "Front-end" (what users see), while `transform/` is the "Back-end" (how it works).
+- **Consolidated Types**: Merging `type.py` and `dsl_types.py` into `lang/types.py` simplifies the type system's internal structure.
 
 ---
 
-## 3. Orthogonal Tests and Examples
+## 3. Implementation Steps
 
-### Tests (`python/tests/`)
-Reorganize tests to match the new structure:
-- `test_types/`: `test_basic.py`, `test_aggregate.py`, `test_resources.py`.
-- `test_core/`: `test_rewriter.py`, `test_jit.py`, `test_ir.py`.
-- `test_dsl/`: `test_ops.py`, `test_control_flow.py`, `test_builtins.py`.
-- `test_integration/`: End-to-end tests.
-
-### Examples (`python/examples/`)
-- Ensure examples are grouped by complexity: `basic/`, `advanced/`, `features/`.
-- Add docstrings to all examples.
-
----
-
-## 4. Documentation Updates
-
-- Update `python/README.md` with the new architecture diagram and package structure.
-- Update `python/DESIGN.md` to reflect the finalized 2.0 architecture.
-- Ensure all modules have high-quality docstrings.
-
----
-
-## 5. Tooling and Standards (`pyproject.toml`)
-
-- Update `pyproject.toml` to use modern `setuptools` or `hatchling` (if desired).
-- Configure `ruff` for linting and formatting (replacing `black` and `isort`).
-- Strict `mypy` configuration for the entire package.
-- Minimum Python version set to 3.10 (for `match` statement support).
-
----
-
-## 6. Implementation Strategy
-
-1.  **Preparation**: Create the new directory structure.
-2.  **Types Migration**: Move and split type definitions first (they are the most depended upon).
-3.  **Core Migration**: Move IR and Builder logic.
-4.  **Rewriter & JIT**: Move the compilation pipeline.
-5.  **DSL & Builtins**: Move the high-level API.
-6.  **Codegen**: Clean up serialization.
-7.  **Verification**: Update all imports and run the test suite.
-8.  **Refinement**: Polish docstrings, update `pyproject.toml`, and docs.
+1.  **Preparation**: Initialize the `luisa/lang/` and `luisa/transform/` directories.
+2.  **Op Enum**: Extract `Op` from `ir.py` to `luisa/transform/op.py`.
+3.  **Types**: Consolidate and migrate all types to `luisa/lang/types.py`.
+4.  **Transformation Pipeline**: 
+    - Move `ir.py` (minus `Op`), `builder.py`, and `compiler.py` (renamed to `rewriter.py`) to `luisa/transform/`.
+    - Move introspection logic to `luisa/transform/inspect.py`.
+5.  **Language Runtime**:
+    - Move `staged.py` to `luisa/lang/jit.py`.
+    - Move `ops.py`, `control_flow.py`, `router.py`, and `builtins/` to `luisa/lang/`.
+6.  **Utilities**: Move and merge `printer.py` and `serialize.py` to the root.
+7.  **Finalization**: 
+    - Update all imports across the package.
+    - Reorganize the `tests/` directory to match the new structure.
+    - Update `pyproject.toml`, `README.md`, and `DESIGN.md`.
+    - Execute the full test suite.

@@ -8,11 +8,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
+    from ...transform.ir import Value, InstructionValue
 
-from ..ir import Op
-from ..type import Bool, UInt, Float3, Float4
-from ..builder import get_current_builder
+from ...transform.op import Op
+from ..types import Bool, UInt, Float3, Float4
+from ...transform.builder import get_current_builder
 
 
 # ============================================================================
@@ -110,7 +110,7 @@ def ray_query_all(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue
     Returns:
         RayQuery object for iterative traversal
     """
-    from ..type import RayQuery
+    from ..types import RayQuery
     return get_current_builder()._emit(Op.RAY_QUERY_ALL, RayQuery(query_any=False), [accel, mask])
 
 
@@ -165,7 +165,7 @@ def ray_query_candidate_procedural_hit(query: Value) -> InstructionValue:
 
 def ray_query_commit_triangle(query: Value) -> InstructionValue:
     """Commit the current triangle candidate as the closest hit."""
-    from ..type import Void
+    from ..types import Void
     return get_current_builder()._emit(Op.RAY_QUERY_COMMIT_TRIANGLE, Void(), [query])
 
 
@@ -202,7 +202,7 @@ def accel_instance_transform(accel: Value, instance_id: Value) -> InstructionVal
     Returns:
         4x4 transformation matrix (Float4x4)
     """
-    from ..type import Float4x4
+    from ..types import Float4x4
     return get_current_builder()._emit(Op.ACCEL_INSTANCE_TRANSFORM, Float4x4, [accel, instance_id])
 
 

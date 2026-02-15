@@ -10,7 +10,7 @@ from luisa import (
     pprint
 )
 from luisa.lang.inspect import analyze_control_flow
-from luisa.lang.builtin.math import sin
+from luisa.lang.builtins.math import sin
 
 
 class Polymorphic:
@@ -35,7 +35,7 @@ class Polymorphic:
         Loop over registered implementations on the host
         and generate a case for each in the IR.
         """
-        from luisa.lang.builder import get_current_builder
+        from luisa.transform.builder import get_current_builder
         builder = get_current_builder()
         sw = builder.switch(tag_value)
         # Host-side loop: expanded during IR generation
@@ -132,7 +132,7 @@ def test_nested_polymorphic_callables():
 
         # Simple dispatch logic using host-side loop
         val = buf[idx]
-        from luisa.lang.builder import get_current_builder
+        from luisa.transform.builder import get_current_builder
         builder = get_current_builder()
 
         sw = builder.switch(tag)

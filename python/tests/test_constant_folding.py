@@ -8,7 +8,7 @@ from luisa import (
     min, max, clamp, lerp, pow, atan2,
     Float, Float3, Buffer,
 )
-from luisa.lang.ir import ConstantValue, InstructionValue
+from luisa.transform.ir import ConstantValue, InstructionValue
 from luisa.lang.router import is_constant_value, extract_constant_value
 
 

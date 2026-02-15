@@ -1,8 +1,7 @@
 """
-Multistage Programming Support for the LuisaCompute Python DSL v2.
+JIT Compilation Support for the LuisaCompute Python DSL v2.
 
-This module combines the JIT compiler (StagedFunction) and the runtime support
-needed for the rewritten AST to generate IR.
+This module provides the @kernel and @callable decorators and JIT compilation logic.
 """
 
 from __future__ import annotations
@@ -13,11 +12,10 @@ import os
 from typing import Callable, Optional, Any, TYPE_CHECKING
 from contextlib import contextmanager
 
-from .builder import Builder, get_current_builder, set_current_builder
-from .ir import Value, Op, Function
-from .type import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
-from .compiler import parse_function, CapturedVar, ParsedFunction
-from .compiler import ASTRewriter
+from ..transform.builder import Builder, get_current_builder, set_current_builder
+from ..transform.ir import Value, Function
+from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
+from ..transform.rewriter import parse_function, CapturedVar, ParsedFunction, ASTRewriter
 
 
 # ============================================================================

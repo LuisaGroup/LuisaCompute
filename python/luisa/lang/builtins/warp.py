@@ -8,11 +8,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..ir import Value, InstructionValue
+    from ...transform.ir import Value, InstructionValue
 
-from ..ir import Op
-from ..type import Bool, UInt
-from ..builder import get_current_builder
+from ...transform.op import Op
+from ..types import Bool, UInt
+from ...transform.builder import get_current_builder
 
 
 # ============================================================================
@@ -154,5 +154,5 @@ def warp_bit_mask(value: Value) -> InstructionValue:
     
     Returns a 128-bit mask (UInt4).
     """
-    from ..type import UInt4
+    from ..types import UInt4
     return get_current_builder()._emit(Op.WARP_ACTIVE_BIT_MASK, UInt4, [value])

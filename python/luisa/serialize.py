@@ -1,5 +1,5 @@
 """
-JSON CodeGen for the LuisaCompute Python DSL v2.
+IR-to-JSON serialization for the LuisaCompute Python DSL v2.
 
 Serializes IR to JSON format for exchange with the C++ backend.
 """
@@ -10,8 +10,8 @@ from typing import Any, TYPE_CHECKING
 from dataclasses import asdict, is_dataclass
 
 if TYPE_CHECKING:
-    from ..lang.ir import Function, Module, BasicBlock, Instruction, Value
-    from ..lang.type import Type
+    from .transform.ir import Function, Module, BasicBlock, Instruction, Value
+    from .lang.types import Type
 
 
 class IRJSONEncoder(json.JSONEncoder):
@@ -42,7 +42,7 @@ class IRJSONEncoder(json.JSONEncoder):
 
 def type_to_dict(t: Type | None) -> dict[str, Any]:
     """Convert a Type to a dictionary representation."""
-    from ..lang.type import (
+    from .lang.types import (
         Scalar, Vector, Matrix, Array, Struct, Buffer,
         Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable
     )
@@ -124,7 +124,7 @@ def type_to_dict(t: Type | None) -> dict[str, Any]:
 
 def value_to_dict(v: Value) -> dict[str, Any]:
     """Convert a Value to a dictionary representation."""
-    from ..lang.ir import ConstantValue, ArgumentValue, InstructionValue
+    from .transform.ir import ConstantValue, ArgumentValue, InstructionValue
 
     result = {
         'type': type_to_dict(v.type),

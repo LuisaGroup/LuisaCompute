@@ -1,5 +1,5 @@
 """
-Pretty Printer CodeGen for the LuisaCompute Python DSL v2.
+LLVM-style IR pretty printer for the LuisaCompute Python DSL v2.
 
 Provides human-readable output of IR for debugging purposes.
 """
@@ -9,8 +9,8 @@ from typing import Any, Optional
 from io import StringIO
 
 # Runtime imports
-from ..lang.ir import Function, Module, BasicBlock, Instruction, Op, SourceLocation
-from ..lang.type import Type
+from .transform.ir import Function, Module, BasicBlock, Instruction, Op, SourceLocation
+from .lang.types import Type
 
 
 class PrettyPrinter:
@@ -203,6 +203,45 @@ class PrettyPrinter:
         return ', '.join(self._arg_to_str(a) for a in args)
 
 
+class SimplePrinter:
+    """Simple printer for IR debugging."""
+
+    def __init__(self, indent: int = 2):
+        self.indent = indent
+
+    def print_function(self, func: Function) -> str:
+        """Print a function."""
+        lines = []
+        kind = "kernel" if func.is_kernel else "func"
+        ret = str(func.ret_type) if func.ret_type else "void"
+        args = ", ".join(str(t) for t in func.arg_types)
+        lines.append(f"{kind} @{func.name}({args}) -> {ret} {{")
+
+        for block in func.blocks:
+            lines.append(self._indent_block(block))
+
+        lines.append("}")
+        return "\n".join(lines)
+
+    def _indent_block(self, block: BasicBlock) -> str:
+        """Print a basic block with indentation."""
+        lines = [f"  {block.name}:"]
+        for inst in block.instructions:
+            lines.append(f"    {inst}")
+        return "\n".join(lines)
+
+    def print_module(self, module: Module) -> str:
+        """Print a module."""
+        lines = ["module {"]
+        for func in module.functions:
+            func_str = self.print_function(func)
+            # Indent function
+            for line in func_str.split("\n"):
+                lines.append(f"  {line}")
+        lines.append("}")
+        return "\n".join(lines)
+
+
 # Convenience functions
 def pprint(obj: Function | Module, indent_size: int = 2) -> str:
     """
@@ -232,3 +271,30 @@ def pprint_to_file(obj, path: str, indent_size: int = 2) -> None:  # type: ignor
     """Pretty print an IR object to a file."""
     with open(path, 'w', encoding='utf-8') as f:
         f.write(pprint(obj, indent_size))
+
+
+def print_function(func: Function) -> str:
+    """Print a function to string."""
+    printer = SimplePrinter()
+    return printer.print_function(func)
+
+
+def print_module(module: Module) -> str:
+    """Print a module to string."""
+    printer = SimplePrinter()
+    return printer.print_module(module)
+
+
+def print_instruction(inst: Instruction) -> str:
+    """Print a single instruction."""
+    return str(inst)
+
+
+def print_value(val: Any) -> str:
+    """Print a value."""
+    return str(val)
+
+
+def print_type(t: Type) -> str:
+    """Print a type."""
+    return str(t)

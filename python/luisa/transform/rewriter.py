@@ -1,5 +1,5 @@
 """
-AST Compiler for the LuisaCompute Python DSL v2.
+AST Rewriter for the LuisaCompute Python DSL v2.
 
 This module provides AST transformation and metadata extraction logic
 to turn Python functions into IR-building functions.
@@ -13,7 +13,7 @@ from typing import Any, Optional, Callable
 from dataclasses import dataclass
 
 # Runtime imports
-from .type import (
+from ..lang.types import (
     Type, value_to_type, annotation_to_type
 )
 
