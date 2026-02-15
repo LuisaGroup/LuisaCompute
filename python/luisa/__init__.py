@@ -44,6 +44,15 @@ from .lang.types import (
     is_scalar_type, is_vector_type, is_integer_type, is_float_type,
     get_alignment, is_data_type,
     promote_types,
+
+    # Internal aliases
+    bool_t, byte_t, ubyte_t, short_t, ushort_t, int_t, uint_t, long_t, ulong_t, half_t, float_t, double_t,
+    bool2, bool3, bool4, byte2, byte3, byte4, ubyte2, ubyte3, ubyte4,
+    short2, short3, short4, ushort2, ushort3, ushort4,
+    int2, int3, int4, uint2, uint3, uint4,
+    long2, long3, long4, ulong2, ulong3, ulong4,
+    half2, half3, half4, float2, float3, float4, double2, double3, double4,
+    float2x2, float3x3, float4x4, double2x2, double3x3, double4x4, half2x2, half3x3, half4x4,
 )
 # Struct decorator
 from .lang.types import struct
@@ -139,6 +148,13 @@ __all__ = [
     "is_scalar_type", "is_vector_type", "is_integer_type", "is_float_type",
     "get_alignment", "is_data_type",
     "promote_types",
+    "bool_t", "byte_t", "ubyte_t", "short_t", "ushort_t", "int_t", "uint_t", "long_t", "ulong_t", "half_t", "float_t", "double_t",
+    "bool2", "bool3", "bool4", "byte2", "byte3", "byte4", "ubyte2", "ubyte3", "ubyte4",
+    "short2", "short3", "short4", "ushort2", "ushort3", "ushort4",
+    "int2", "int3", "int4", "uint2", "uint3", "uint4",
+    "long2", "long3", "long4", "ulong2", "ulong3", "ulong4",
+    "half2", "half3", "half4", "float2", "float3", "float4", "double2", "double3", "double4",
+    "float2x2", "float3x3", "float4x4", "double2x2", "double3x3", "double4x4", "half2x2", "half3x3", "half4x4",
     "struct",
 
     # codegen

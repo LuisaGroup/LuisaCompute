@@ -392,7 +392,7 @@ Float2x2, Float3x3, Float4x4 = Matrix[Float, 2], Matrix[Float, 3], Matrix[Float,
 Double2x2, Double3x3, Double4x4 = Matrix[Double, 2], Matrix[Double, 3], Matrix[Double, 4]
 Half2x2, Half3x3, Half4x4 = Matrix[Half, 2], Matrix[Half, 3], Matrix[Half, 4]
 
-# Lowercase aliases for internal use (with _t postfix)
+# Lowercase aliases for internal use (with _t postfix for scalars to avoid conflicts)
 bool_t = Bool
 byte_t, ubyte_t = Byte, UByte
 short_t, ushort_t = Short, UShort
@@ -400,6 +400,23 @@ int_t, uint_t = Int, UInt
 long_t, ulong_t = Long, ULong
 half_t, float_t, double_t = Half, Float, Double
 
+# Vector and matrix lowercase aliases (no _t suffix needed as they don't conflict)
+bool2, bool3, bool4 = Bool2, Bool3, Bool4
+byte2, byte3, byte4 = Byte2, Byte3, Byte4
+ubyte2, ubyte3, ubyte4 = UByte2, UByte3, UByte4
+short2, short3, short4 = Short2, Short3, Short4
+ushort2, ushort3, ushort4 = UShort2, UShort3, UShort4
+int2, int3, int4 = Int2, Int3, Int4
+uint2, uint3, uint4 = UInt2, UInt3, UInt4
+long2, long3, long4 = Long2, Long3, Long4
+ulong2, ulong3, ulong4 = ULong2, ULong3, ULong4
+half2, half3, half4 = Half2, Half3, Half4
+float2, float3, float4 = Float2, Float3, Float4
+double2, double3, double4 = Double2, Double3, Double4
+
+float2x2, float3x3, float4x4 = Float2x2, Float3x3, Float4x4
+double2x2, double3x3, double4x4 = Double2x2, Double3x3, Double4x4
+half2x2, half3x3, half4x4 = Half2x2, Half3x3, Half4x4
 
 # ============================================================================
 # Type utility functions
