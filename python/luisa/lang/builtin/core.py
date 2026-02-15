@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ..type import Type
 
 from ..ir import Op
-from ..type import UInt3, UInt, Bool, Float3, Void, ULong
+from ..type import UInt3, UInt, Bool, Float3, ULong
 from ..builder import get_current_builder
 
 
@@ -56,7 +56,7 @@ def object_id() -> InstructionValue:
 
 def sync_block() -> InstructionValue:
     """Synchronize all threads in a block."""
-    return get_current_builder()._emit(Op.SYNC_BLOCK, Void, [])
+    return get_current_builder()._emit(Op.SYNC_BLOCK, None, [])
 
 
 # ============================================================================
@@ -86,7 +86,7 @@ def device_print(fmt: str, *values: Value) -> InstructionValue:
         *values: Values to print
     """
     args = [fmt] + list(values)
-    return get_current_builder()._emit(Op.PRINT, Void, args)
+    return get_current_builder()._emit(Op.PRINT, None, args)
 
 
 # ============================================================================
@@ -95,17 +95,17 @@ def device_print(fmt: str, *values: Value) -> InstructionValue:
 
 def assume(condition: Value, message: str = "") -> InstructionValue:
     """Provide a compiler assumption for optimization."""
-    return get_current_builder()._emit(Op.ASSUME, Void, [condition, message])
+    return get_current_builder()._emit(Op.ASSUME, None, [condition, message])
 
 
 def device_assert(condition: Value, message: str = "") -> InstructionValue:
     """Runtime assertion (may be disabled in release)."""
-    return get_current_builder()._emit(Op.ASSERT, Void, [condition, message])
+    return get_current_builder()._emit(Op.ASSERT, None, [condition, message])
 
 
 def unreachable(message: str = "") -> InstructionValue:
     """Mark a code path as unreachable."""
-    return get_current_builder()._emit(Op.UNREACHABLE, Void, [message])
+    return get_current_builder()._emit(Op.UNREACHABLE, None, [message])
 
 
 # ============================================================================

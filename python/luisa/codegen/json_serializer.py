@@ -40,14 +40,14 @@ class IRJSONEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def type_to_dict(t: Type) -> dict[str, Any]:
+def type_to_dict(t: Type | None) -> dict[str, Any]:
     """Convert a Type to a dictionary representation."""
     from ..lang.type import (
         Scalar, Vector, Matrix, Array, Struct, Buffer,
-        Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void
+        Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable
     )
 
-    if isinstance(t, Void):
+    if t is None:
         return {'kind': 'void'}
 
     if isinstance(t, Scalar):

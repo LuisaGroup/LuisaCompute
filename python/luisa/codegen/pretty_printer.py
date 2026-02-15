@@ -71,19 +71,19 @@ class PrettyPrinter:
     def _print_function(self, func: Function) -> None:
         """Print an IR function."""
         # Function signature
-        ret_type = self._type_to_str(func.ret_type) if func.ret_type else 'void'
+        ret_type = str(func.ret_type) if func.ret_type else 'void'
 
         # Format arguments: type arg_name
         args_formatted = []
         for i, (t, is_ref) in enumerate(zip(func.arg_types, func.arg_is_reference)):
-            type_str = self._type_to_str(t)
+            type_str = str(t)
             if is_ref:
                 type_str = f"ref<{type_str}>"
-            args_formatted.append(f"{type_str} arg{i}")
+            args_formatted.append(f"{type_str} %arg{i}")
 
         kernel_marker = 'kernel ' if func.is_kernel else ''
         block_size = f" /* block_size={func.block_size} */" if func.block_size else ''
-        loc_str = f" // {func.loc}" if func.loc else ""
+        loc_str = f" ![ {func.loc} ]" if func.loc else ""
 
         self._write_line(f"{kernel_marker}{ret_type} {func.name}({', '.join(args_formatted)}){block_size}{loc_str} {{")
 
@@ -113,12 +113,12 @@ class PrettyPrinter:
     def _print_instruction(self, inst: Instruction) -> None:
         """Print an instruction."""
         op_str = self._op_to_str(inst.op)
-        type_str = self._type_to_str(inst.type)
+        type_str = str(inst.type)
 
         # Handle structured instructions specially
         if inst.op == Op.IF:
             cond_str = self._arg_to_str(inst.args[0])
-            loc_str = f" // {inst.loc}" if inst.loc else ""
+            loc_str = f" ![ {inst.loc} ]" if inst.loc else ""
             self._write_line(f"if ({cond_str}) {{ {loc_str}")
             self._increase_indent()
             self._print_block_inline(inst.args[1])
@@ -129,7 +129,7 @@ class PrettyPrinter:
             self._decrease_indent()
             self._write_line("}")
         elif inst.op == Op.LOOP:
-            loc_str = f" // {inst.loc}" if inst.loc else ""
+            loc_str = f" ![ {inst.loc} ]" if inst.loc else ""
             self._write_line(f"while (true) {{ {loc_str}")
             self._increase_indent()
             self._print_block_inline(inst.args[0])
@@ -137,7 +137,7 @@ class PrettyPrinter:
             self._write_line("}")
         elif inst.op == Op.SWITCH:
             val_str = self._arg_to_str(inst.args[0])
-            loc_str = f" // {inst.loc}" if inst.loc else ""
+            loc_str = f" ![ {inst.loc} ]" if inst.loc else ""
             self._write_line(f"switch ({val_str}) {{ {loc_str}")
             self._increase_indent()
             cases = inst.args[1]
@@ -166,9 +166,10 @@ class PrettyPrinter:
             self._write_line("continue;")
         else:
             args_str = self._args_to_str(inst.args)
-            loc_str = f" // {inst.loc}" if inst.loc else ""
-            if inst.result:
-                self._write_line(f"{type_str} {inst.result} = {op_str}({args_str});{loc_str}")
+            loc_str = f" ![ {inst.loc} ]" if inst.loc else ""
+            from ..lang.type import Void
+            if inst.result and inst.type != Void:
+                self._write_line(f"{type_str} %{inst.result} = {op_str}({args_str});{loc_str}")
             else:
                 self._write_line(f"{op_str}({args_str});{loc_str}")
 
@@ -186,80 +187,6 @@ class PrettyPrinter:
         """Convert an Op to a string."""
         return op.name.lower()
 
-    def _type_to_str(self, t: Type | None) -> str:
-        """Convert a Type to a string."""
-        if t is None:
-            return 'void'
-
-        from ..lang.type import (
-            Scalar, Vector, Matrix, Array, Struct, Buffer,
-            Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void, ScalarType
-        )
-
-        if isinstance(t, Void):
-            return 'void'
-
-        if isinstance(t, Scalar):
-            mapping = {
-                ScalarType.BOOL: "i1",
-                ScalarType.INT8: "i8",
-                ScalarType.UINT8: "i8",
-                ScalarType.INT16: "i16",
-                ScalarType.UINT16: "i16",
-                ScalarType.INT32: "i32",
-                ScalarType.UINT32: "i32",
-                ScalarType.INT64: "i64",
-                ScalarType.UINT64: "i64",
-                ScalarType.FLOAT16: "f16",
-                ScalarType.FLOAT32: "f32",
-                ScalarType.FLOAT64: "f64",
-            }
-            return mapping.get(t.dtype, t.dtype.name.lower())
-
-        if isinstance(t, Vector):
-            elem = self._type_to_str(t.element)
-            return f"<{t.size} x {elem}>"
-
-        if isinstance(t, Matrix):
-            elem = self._type_to_str(t.element)
-            return f"[{t.size} x <{t.size} x {elem}>]"
-
-        if isinstance(t, Array):
-            elem = self._type_to_str(t.element)
-            return f"[{t.size} x {elem}]"
-
-        if isinstance(t, Struct):
-            field_types = [self._type_to_str(ft) for _, ft in t.fields]
-            return f"{{ {', '.join(field_types)} }}"
-
-        if isinstance(t, Buffer):
-            elem = self._type_to_str(t.element)
-            return f"buffer<{elem}>"
-
-        if isinstance(t, Texture2D):
-            elem = self._type_to_str(t.element)
-            return f"texture2d<{elem}>"
-
-        if isinstance(t, Texture3D):
-            elem = self._type_to_str(t.element)
-            return f"texture3d<{elem}>"
-
-        if isinstance(t, BindlessArray):
-            return "BindlessArray"
-
-        if isinstance(t, Accel):
-            return "Accel"
-
-        if isinstance(t, RayQuery):
-            return "RayQueryAny" if t.query_any else "RayQueryAll"
-
-        if isinstance(t, Callable):
-            args = [self._type_to_str(at) for at in t.arg_types]
-            ret = self._type_to_str(t.ret_type) if t.ret_type else 'void'
-            return f"({', '.join(args)}) -> {ret}"
-
-        return str(t)
-
     def _arg_to_str(self, arg: Any) -> str:
         """Convert a single argument to string."""
         if hasattr(arg, 'name') and hasattr(arg, 'instructions'):
@@ -272,9 +199,9 @@ class PrettyPrinter:
                 return f"{arg.value}"
             elif hasattr(arg, 'index'):
                 # ArgumentValue
-                return f"arg{arg.index}"
+                return f"%arg{arg.index}"
             elif arg.name:
-                return f"{arg.name}"
+                return f"%{arg.name}"
             else:
                 return str(arg)
         elif hasattr(arg, 'name'):
@@ -306,8 +233,7 @@ def pprint(obj: Function | Module, indent_size: int = 2) -> str:
         >>> print(pprint(func))
         [kernel] func my_kernel(Buffer<float>) -> void {
           entry:
-            %0: UInt3 = dispatch_id 
-            %1: UInt = extract %0, 0
+            %v0: UInt3 = dispatch_id 
             ...
         }
     """

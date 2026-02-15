@@ -162,7 +162,9 @@ class Builder:
 
         # Generate result name if not provided
         if name is None:
-            name = f"t{self.instruction_counter}"
+            name = f"v{self.instruction_counter}"
+        elif not name.startswith('v'):
+            name = f"v{name}"
         self.instruction_counter += 1
 
         if loc is None:
@@ -341,6 +343,8 @@ class Builder:
 
     def alloca(self, typ: Type, name: Optional[str] = None) -> InstructionValue:
         """Emit an alloca instruction (allocate local variable)."""
+        if name is not None and not name.startswith('v'):
+            name = f"v{name}"
         return self._emit(Op.ALLOCA, typ, [], name)
 
     def load(self, ptr: Value, typ: Optional[Type] = None) -> InstructionValue:
@@ -351,8 +355,7 @@ class Builder:
 
     def store(self, ptr: Value, value: Value) -> InstructionValue:
         """Emit a store instruction."""
-        from .type import Void
-        return self._emit(Op.STORE, Void, [ptr, value])
+        return self._emit(Op.STORE, None, [ptr, value])
 
     def buffer_read(self, buffer: Value, index: Value, elem_type: Type) -> InstructionValue:
         """Emit a buffer read instruction."""
@@ -360,8 +363,7 @@ class Builder:
 
     def buffer_write(self, buffer: Value, index: Value, value: Value) -> InstructionValue:
         """Emit a buffer write instruction."""
-        from .type import Void
-        return self._emit(Op.BUFFER_WRITE, Void, [buffer, index, value])
+        return self._emit(Op.BUFFER_WRITE, None, [buffer, index, value])
 
     # ========================================================================
     # Control Flow
@@ -369,30 +371,26 @@ class Builder:
 
     def return_(self, value: Optional[Value] = None) -> InstructionValue:
         """Emit a return instruction."""
-        from .type import Void
         if value is None:
-            return self._emit(Op.RETURN, Void, [])
+            return self._emit(Op.RETURN, None, [])
         return self._emit(Op.RETURN, value.type, [value])
 
     def break_(self) -> InstructionValue:
         """Emit a break instruction."""
-        from .type import Void
-        return self._emit(Op.BREAK, Void, [])
+        return self._emit(Op.BREAK, None, [])
 
     def continue_(self) -> InstructionValue:
         """Emit a continue instruction."""
-        from .type import Void
-        return self._emit(Op.CONTINUE, Void, [])
+        return self._emit(Op.CONTINUE, None, [])
 
     def call(self, func: Any, *args: Value) -> InstructionValue:
         """Emit a function call instruction."""
-        from .type import Void
         if hasattr(func, 'compile'):
             # It's likely a StagedFunction, compile it for these arguments
             func = func.compile(self, *args)
 
         # Determine return type
-        ret_type = func.ret_type if func.ret_type else Void
+        ret_type = func.ret_type if func.ret_type is not None else None
         # Include function name as first argument, then actual args
         call_args = [func.name] + list(args)
         return self._emit(Op.CALL, ret_type, call_args)

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ..type import Type
 
 from ..ir import Op
-from ..type import UInt, UInt2, UInt3, ULong, Void, Float4
+from ..type import UInt, UInt2, UInt3, ULong, Float4
 from ..builder import get_current_builder
 
 
@@ -45,7 +45,7 @@ def buffer_write(buffer: Value, index: Value, value: Value) -> InstructionValue:
         index: Element index (UInt)
         value: Value to write
     """
-    return get_current_builder()._emit(Op.BUFFER_WRITE, Void, [buffer, index, value])
+    return get_current_builder()._emit(Op.BUFFER_WRITE, None, [buffer, index, value])
 
 
 def buffer_size(buffer: Value) -> InstructionValue:
@@ -101,7 +101,7 @@ def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
         coord: Integer coordinates (UInt2)
         value: Value to write
     """
-    return get_current_builder()._emit(Op.TEXTURE2D_WRITE, Void, [texture, coord, value])
+    return get_current_builder()._emit(Op.TEXTURE2D_WRITE, None, [texture, coord, value])
 
 
 def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
@@ -173,7 +173,7 @@ def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
         coord: Integer coordinates (UInt3)
         value: Value to write
     """
-    return get_current_builder()._emit(Op.TEXTURE3D_WRITE, Void, [texture, coord, value])
+    return get_current_builder()._emit(Op.TEXTURE3D_WRITE, None, [texture, coord, value])
 
 
 def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
@@ -229,4 +229,4 @@ def device_address_store(address: Value, value: Value) -> InstructionValue:
         address: Device address (ULong)
         value: Value to store
     """
-    return get_current_builder()._emit(Op.DEVICE_ADDRESS_WRITE, Void, [address, value])
+    return get_current_builder()._emit(Op.DEVICE_ADDRESS_WRITE, None, [address, value])

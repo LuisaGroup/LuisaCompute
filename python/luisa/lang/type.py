@@ -37,6 +37,9 @@ class Type:
     """Base class for all types in the DSL."""
 
     def __repr__(self) -> str:
+        return str(self)
+
+    def __str__(self) -> str:
         return self.__class__.__name__
 
     def __call__(self, arg: Any) -> Any:
@@ -47,7 +50,7 @@ class Type:
         builder = get_current_builder()
 
         if not isinstance(arg, Value):
-            from .builtins.runtime import to_ir_value
+            from .ops import to_ir_value
             arg = to_ir_value(arg)
 
         return builder.cast(arg, self)
@@ -73,7 +76,7 @@ class Scalar(Type):
     """Scalar type."""
     dtype: ScalarType
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         mapping = {
             ScalarType.BOOL: "i1",
             ScalarType.INT8: "i8",
@@ -150,7 +153,7 @@ class Vector(Type):
         if self.size not in (2, 3, 4):
             raise ValueError(f"Vector size must be 2, 3, or 4, got {self.size}")
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return f"<{self.size} x {self.element}>"
 
     def __class_getitem__(cls, item):
@@ -170,8 +173,8 @@ class Matrix(Type):
         if self.size not in (2, 3, 4):
             raise ValueError(f"Matrix size must be 2, 3, or 4, got {self.size}")
 
-    def __repr__(self) -> str:
-        return f"[ {self.size} x <{self.size} x {self.element}> ]"
+    def __str__(self) -> str:
+        return f"[{self.size} x <{self.size} x {self.element}>]"
 
     def __class_getitem__(cls, item):
         """Support Matrix[type, dim] syntax."""
@@ -190,7 +193,7 @@ class Array(Type):
         if self.size <= 0:
             raise ValueError(f"Array size must be positive, got {self.size}")
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return f"[{self.size} x {self.element}]"
 
     def __class_getitem__(cls, item):
@@ -207,7 +210,7 @@ class Struct(Type):
     fields: tuple[tuple[str, Type], ...]
     alignment: int = 4
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         field_types = [str(typ) for name, typ in self.fields]
         return f"{{ {', '.join(field_types)} }}"
 
@@ -265,7 +268,7 @@ class Buffer(Type):
     """Buffer type (GPU memory)."""
     element: Type
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return f"buffer<{self.element}>"
 
     def __class_getitem__(cls, item):
@@ -278,7 +281,7 @@ class Texture2D(Type):
     """2D texture type."""
     element: Scalar
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return f"texture2d<{self.element}>"
 
     def __class_getitem__(cls, item):
@@ -291,7 +294,7 @@ class Texture3D(Type):
     """3D texture type."""
     element: Scalar
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return f"texture3d<{self.element}>"
 
     def __class_getitem__(cls, item):
@@ -303,7 +306,7 @@ class Texture3D(Type):
 class BindlessArray(Type):
     """Bindless array type."""
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return "bindless_array"
 
 
@@ -311,7 +314,7 @@ class BindlessArray(Type):
 class Accel(Type):
     """Acceleration structure type for ray tracing."""
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return "accel"
 
 
@@ -320,7 +323,7 @@ class RayQuery(Type):
     """Ray query type."""
     query_any: bool  # True for RayQueryAny, False for RayQueryAll
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return "ray_query_any" if self.query_any else "ray_query_all"
 
 
@@ -330,10 +333,10 @@ class Callable(Type):
     arg_types: tuple[Type, ...]
     ret_type: Optional[Type]
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         arg_str = ', '.join(str(t) for t in self.arg_types)
-        ret_str = str(self.ret_type) if self.ret_type else "void"
-        return f"{ret_str} ({arg_str})"
+        ret_str = str(self.ret_type) if self.ret_type is not None else "void"
+        return f"({arg_str}) -> {ret_str}"
 
     def __class_getitem__(cls, item):
         """Support Callable[[arg_types], ret_type] syntax."""
@@ -347,20 +350,15 @@ class Callable(Type):
         return cls(arg_types=arg_types, ret_type=ret_type)
 
 
-@dataclass(frozen=True)
-class Void(Type):
-    """Void type."""
-
-    def __repr__(self) -> str:
-        return "void"
-
-
 # Type alias for any type
-AnyType = Union[
+AnyType = Optional[Union[
     Scalar, Vector, Matrix, Array, Struct,
     Buffer, Texture2D, Texture3D, BindlessArray,
-    Accel, RayQuery, Callable, Void
-]
+    Accel, RayQuery, Callable
+]]
+
+# Void is now None
+Void = None
 
 # ============================================================================
 # Predefined type aliases for convenience (aligned with var.h)
@@ -433,7 +431,7 @@ half2x2, half3x3, half4x4 = Half2x2, Half3x3, Half4x4
 def value_to_type(value: Any) -> Optional[Type]:
     """Infer DSL type from a Python value."""
     if value is None:
-        return Void()
+        return None
     if isinstance(value, bool):
         return Bool
     if isinstance(value, int):

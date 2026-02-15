@@ -48,7 +48,7 @@ class IfStmt:
 
         if not self._constant_fold:
             from .type import Void
-            self.builder._emit(Op.IF, Void(), [self.condition, self.true_block, self.false_block])
+            self.builder._emit(Op.IF, Void, [self.condition, self.true_block, self.false_block])
 
     def __enter__(self):
         return self
@@ -98,7 +98,7 @@ class WhileStmt:
             # We emit a LOOP instruction that contains the body.
             # In Luisa IR, structured loops usually have the condition at the beginning of the body.
             # Our WhileStmt will handle this by injecting an IF BREAK at the start of body_block.
-            self.builder._emit(Op.LOOP, Void(), [self.body_block])
+            self.builder._emit(Op.LOOP, Void, [self.body_block])
 
     def __enter__(self):
         return self
@@ -120,7 +120,7 @@ class WhileStmt:
                 break_block = self.builder.create_block("while_break")
                 with self.builder.scope(break_block):
                     self.builder.break_()
-                self.builder._emit(Op.IF, Void(),
+                self.builder._emit(Op.IF, Void,
                                    [not_cond, break_block, self.builder.create_block("while_continue")])
 
                 yield True
@@ -157,7 +157,7 @@ class ForRangeStmt:
         self.builder.store(self.loop_var_ptr, self.start)
 
         from .type import Void
-        self.builder._emit(Op.LOOP, Void(), [self.body_block])
+        self.builder._emit(Op.LOOP, Void, [self.body_block])
 
     def __enter__(self):
         return self
@@ -184,7 +184,7 @@ class ForRangeStmt:
                 with self.builder.scope(break_block):
                     self.builder.break_()
 
-                self.builder._emit(Op.IF, Void(), [not_cond, break_block, self.builder.create_block("for_continue")])
+                self.builder._emit(Op.IF, Void, [not_cond, break_block, self.builder.create_block("for_continue")])
 
                 # 3. Yield to user body
                 yield current_val
@@ -255,7 +255,7 @@ class SwitchStmt:
             from .type import Void
             self.cases: list[tuple[list[int], BasicBlock]] = []
             self.default_block: Optional[BasicBlock] = None
-            self.inst = self.builder._emit(Op.SWITCH, Void(), [self.value, self.cases, None])
+            self.inst = self.builder._emit(Op.SWITCH, Void, [self.value, self.cases, None])
 
     def __enter__(self):
         return self

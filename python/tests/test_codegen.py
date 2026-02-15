@@ -120,9 +120,9 @@ def test_pprint_basic():
     print("\nPretty printed output:")
     print(output)
 
-    assert 'f32 simple_func(f32 arg0)' in output
+    assert 'f32 simple_func(f32 %arg0)' in output
     assert 'entry:' in output
-    assert 'return' in output
+    assert 'return %arg0' in output
 
     print("✓ pprint basic works")
     print("=" * 60)
@@ -148,8 +148,8 @@ def test_pprint_with_ops():
     print("\nPretty printed output:")
     print(output)
 
-    assert 'f32 math_func(f32 arg0, f32 arg1)' in output
-    assert 'add' in output.lower()
+    assert 'f32 math_func(f32 %arg0, f32 %arg1)' in output
+    assert 'add(%arg0, %arg1)' in output
 
     print("✓ pprint with ops works")
     print("=" * 60)
@@ -183,7 +183,7 @@ def test_pprint_control_flow():
     print("\nPretty printed output (control flow):")
     print(output)
 
-    assert 'f32 if_func(f32 arg0)' in output
+    assert 'f32 if_func(f32 %arg0)' in output
     assert 'if_true' in output or 'entry' in output
 
     print("✓ pprint control flow works")
@@ -265,10 +265,43 @@ def test_complex_ir_pprint():
     print("\nComplex IR pretty printed:")
     print(output)
 
-    assert 'f32 complex_func(f32 arg0, f32 arg1, i32 arg2)' in output
+    assert 'f32 complex_func(f32 %arg0, f32 %arg1, i32 %arg2)' in output
     assert len(func.blocks) >= 3  # entry, while_header, while_body, etc.
 
     print(f"✓ Complex IR pprint works, {len(func.blocks)} blocks")
+    print("=" * 60)
+
+
+def test_pprint_void_ops():
+    """Test pretty printing operations that return void."""
+    print("\n" + "=" * 60)
+    print("Test: pprint void ops")
+    print("=" * 60)
+
+    from luisa import Buffer
+
+    builder = Builder('void_func', (Buffer[Float], Float), None)
+    entry = builder.create_block('entry')
+    builder.set_insert_point(entry)
+
+    buf = builder.get_argument(0)
+    val = builder.get_argument(1)
+
+    # store returns Void
+    builder.store(buf, val)
+    builder.return_()
+
+    func = builder.build()
+    output = pprint(func)
+
+    print("\nVoid ops IR pretty printed:")
+    print(output)
+
+    assert 'void void_func(buffer<f32> %arg0, f32 %arg1)' in output
+    assert 'store(%arg0, %arg1);' in output
+    assert 'void %v' not in output # We shouldn't see "void %v0 = store(...)"
+
+    print("✓ pprint void ops works")
     print("=" * 60)
 
 
@@ -285,6 +318,7 @@ if __name__ == "__main__":
     test_pprint_control_flow()
     test_serialize_module()
     test_complex_ir_pprint()
+    test_pprint_void_ops()
 
     print("\n" + "=" * 70)
     print("All test_codegen.py tests passed!")
