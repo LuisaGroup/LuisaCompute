@@ -167,8 +167,8 @@ def test_nested_polymorphic_callables():
         impls = [add_one, multiply_two, square]
         for i, impl in enumerate(impls):
             with sw.case_scope(i):
-                # Use the new call() method which handles compilation and emitting the call
-                res = impl.call(builder, val)
+                # Use the builder.call() method which now handles StagedFunction objects
+                res = builder.call(impl, val)
                 builder.buffer_write(buf, idx, res)
         
         with sw.default_scope():

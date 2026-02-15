@@ -366,12 +366,16 @@ class IRBuilder:
         """Emit a continue instruction."""
         return self._emit(IROp.CONTINUE, Void(), [])
     
-    def call(self, func: 'IRFunction', args: list[Value]) -> InstructionValue:
+    def call(self, func: Any, *args: Value) -> InstructionValue:
         """Emit a function call instruction."""
+        if hasattr(func, 'compile'):
+            # It's likely a StagedFunction, compile it for these arguments
+            func = func.compile(self, *args)
+            
         # Determine return type
         ret_type = func.ret_type if func.ret_type else Void()
         # Include function name as first argument, then actual args
-        call_args = [func.name] + args
+        call_args = [func.name] + list(args)
         return self._emit(IROp.CALL, ret_type, call_args)
     
     def cast(self, value: Value, target_typ: Type) -> InstructionValue:

@@ -295,7 +295,7 @@ def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
         return builder.cast(val, func)
 
     if isinstance(func, StagedFunction):
-        return func.call(builder, *args)
+        return builder.call(func, *args)
     
     import builtins
     if builtins.callable(func):
@@ -475,12 +475,6 @@ class StagedFunction:
             self(*ir_args, specialization_values=specialization_values)
             
         return self._cache[cache_key]
-
-    def call(self, builder: IRBuilder, *args, specialization_values: tuple = ()) -> InstructionValue:
-        """Emit an IR call to this function."""
-        ir_func = self.compile(builder, *args, specialization_values=specialization_values)
-        ir_args = [to_ir_value(builder, a) for a in args]
-        return builder.call(ir_func, ir_args)
 
     def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> IRFunction:
         arg_types = []
