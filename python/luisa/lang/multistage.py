@@ -304,7 +304,8 @@ def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
         
         return builder.call(func._cache[arg_types], ir_args)
     
-    if callable(func):
+    import builtins
+    if builtins.callable(func):
         if any(is_ir_value(a) for a in args):
             new_args = []
             for a in args:
@@ -552,9 +553,6 @@ class StagedFunctionDecorator:
         return self
 
     def __call__(self, func: Callable, ast_node: Optional[ast.FunctionDef] = None, source: Optional[str] = None) -> StagedFunction:
-        # If it's a builtin, we don't stage it
-        if getattr(func, "__module__", None) == "builtins":
-            return func
         return StagedFunction(func, is_kernel=self.is_kernel, template_params=self.params, ast_node=ast_node, source=source)
 
 

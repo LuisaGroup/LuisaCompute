@@ -293,6 +293,14 @@ class ASTRewriter(ast.NodeTransformer):
 
     def visit_Call(self, node: ast.Call) -> Any:
         """Rewrite function calls."""
+        # Heuristic: don't rewrite common Python builtins if they are simple names
+        if isinstance(node.func, ast.Name):
+            if node.func.id in ('enumerate', 'range', 'print', 'len', 'zip'):
+                # We still visit arguments
+                node.args = [self.visit(a) for a in node.args]
+                node.keywords = [self.visit(k) for k in node.keywords]
+                return node
+
         return self._rt_call(
             "l_call",
             self.visit(node.func),
