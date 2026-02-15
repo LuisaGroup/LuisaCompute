@@ -7,17 +7,16 @@ It's a simpler alternative to the full pretty printer.
 
 from __future__ import annotations
 
-
 from .ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
 from .types import Type
 
 
 class SimplePrinter:
     """Simple printer for IR debugging."""
-    
+
     def __init__(self, indent: int = 2):
         self.indent = indent
-    
+
     def print_function(self, func: IRFunction) -> str:
         """Print a function."""
         lines = []
@@ -25,20 +24,20 @@ class SimplePrinter:
         ret = str(func.ret_type) if func.ret_type else "void"
         args = ", ".join(str(t) for t in func.arg_types)
         lines.append(f"{kind} @{func.name}({args}) -> {ret} {{")
-        
+
         for block in func.blocks:
             lines.append(self._indent_block(block))
-        
+
         lines.append("}")
         return "\n".join(lines)
-    
+
     def _indent_block(self, block: IRBasicBlock) -> str:
         """Print a basic block with indentation."""
         lines = [f"  {block.name}:"]
         for inst in block.instructions:
             lines.append(f"    {inst}")
         return "\n".join(lines)
-    
+
     def print_module(self, module: IRModule) -> str:
         """Print a module."""
         lines = ["module {"]

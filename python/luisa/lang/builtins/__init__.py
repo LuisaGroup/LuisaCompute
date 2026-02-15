@@ -94,7 +94,7 @@ __all__ = [
     'dot', 'cross', 'distance', 'reflect', 'refract', 'faceforward',
     # Math - Matrix
     'transpose', 'inverse', 'determinant',
-    
+
     # Core - Special registers
     'dispatch_id', 'dispatch_idx', 'thread_id', 'block_id', 'dispatch_size',
     'kernel_id', 'object_id',
@@ -108,7 +108,7 @@ __all__ = [
     'assume', 'assert_',
     # Core - Profiling
     'clock',
-    
+
     # Memory - Buffer
     'buffer_read', 'buffer_write', 'buffer_size', 'buffer_device_address',
     # Memory - Texture2D
@@ -117,13 +117,13 @@ __all__ = [
     'texture3d_read', 'texture3d_write', 'texture3d_sample', 'texture3d_size',
     # Memory - Device address
     'device_address_load', 'device_address_store',
-    
+
     # Atomic
     'atomic_exchange', 'atomic_compare_exchange',
     'atomic_add', 'atomic_sub',
     'atomic_and', 'atomic_or', 'atomic_xor',
     'atomic_min', 'atomic_max',
-    
+
     # Warp - Query
     'warp_is_first_active_lane', 'warp_first_active_lane', 'warp_active_count_bits',
     # Warp - Reduction
@@ -135,7 +135,7 @@ __all__ = [
     'warp_read_lane', 'warp_read_first_lane',
     # Warp - Bitwise
     'warp_bit_and', 'warp_bit_or', 'warp_bit_xor', 'warp_bit_mask',
-    
+
     # Ray Tracing - Types
     'Ray', 'TriangleHit', 'ProceduralHit', 'CommittedHit',
     # Ray Tracing - Queries

@@ -23,19 +23,21 @@ def print_ir():
                 pass
             ir = print_ir(my_func())  # Prints and returns IR
     """
+
     def _print_ir(ir, title=None):
         if title:
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"  {title}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
         else:
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print("  Generated IR")
-            print(f"{'='*60}")
-        
+            print(f"{'=' * 60}")
+
         print(pprint(ir))
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
         return ir
+
     return _print_ir
 
 
@@ -47,15 +49,17 @@ def verify_execution():
     - Has basic blocks
     - Has instructions
     """
+
     def _verify(ir, min_blocks=1, min_instructions=1):
         assert ir is not None, "IR should not be None"
         assert hasattr(ir, 'blocks'), "IR should have blocks attribute"
         assert len(ir.blocks) >= min_blocks, f"IR should have at least {min_blocks} block(s)"
-        
+
         total_instructions = sum(len(b.instructions) for b in ir.blocks)
         assert total_instructions >= min_instructions, \
             f"IR should have at least {min_instructions} instruction(s), got {total_instructions}"
-        
+
         print(f"✓ Execution verified: {len(ir.blocks)} blocks, {total_instructions} instructions")
         return ir
+
     return _verify

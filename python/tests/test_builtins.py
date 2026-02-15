@@ -42,10 +42,10 @@ def print_ast(staged_func, title="Parsed AST"):
 
 def test_math_builtins_build_ir():
     """Test math builtins actually build IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: math builtins build IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @callable
     def math_ops(x: float32) -> float32:
         a = sqrt(x)
@@ -56,160 +56,160 @@ def test_math_builtins_build_ir():
         f = floor(e)
         g = ceil(f)
         return g
-    
+
     ir = math_ops(1.0)
-    
+
     print_ast(math_ops, "AST: math_ops")
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     assert 'SQRT' in counts
     assert 'SIN' in counts
     assert 'COS' in counts
-    
+
     print(f"✓ Built IR with {len(ir.blocks)} blocks")
-    print(f"  Instructions: SQRT={counts.get('SQRT',0)}, SIN={counts.get('SIN',0)}, "
-          f"COS={counts.get('COS',0)}, EXP={counts.get('EXP',0)}, LOG={counts.get('LOG',0)}")
-    print("="*60)
+    print(f"  Instructions: SQRT={counts.get('SQRT', 0)}, SIN={counts.get('SIN', 0)}, "
+          f"COS={counts.get('COS', 0)}, EXP={counts.get('EXP', 0)}, LOG={counts.get('LOG', 0)}")
+    print("=" * 60)
 
 
 def test_special_registers_build_ir():
     """Test special registers actually build IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: special registers build IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @kernel
     def special_reg_kernel():
         did = dispatch_id()
         tid = thread_id()
         bid = block_id()
         dsize = dispatch_size()
-    
+
     ir = special_reg_kernel()
-    
+
     print_ast(special_reg_kernel, "AST: special_reg_kernel")
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     assert 'DISPATCH_ID' in counts
     assert 'THREAD_ID' in counts
     assert 'BLOCK_ID' in counts
     assert 'DISPATCH_SIZE' in counts
-    
+
     print(f"✓ Built kernel with {len(ir.blocks)} blocks")
-    print(f"  Special registers: DISPATCH_ID={counts.get('DISPATCH_ID',0)}, "
-          f"THREAD_ID={counts.get('THREAD_ID',0)}, BLOCK_ID={counts.get('BLOCK_ID',0)}")
-    print("="*60)
+    print(f"  Special registers: DISPATCH_ID={counts.get('DISPATCH_ID', 0)}, "
+          f"THREAD_ID={counts.get('THREAD_ID', 0)}, BLOCK_ID={counts.get('BLOCK_ID', 0)}")
+    print("=" * 60)
 
 
 def test_dispatch_id_in_computation():
     """Test dispatch_id used in actual computation."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: dispatch_id in computation")
-    print("="*60)
-    
+    print("=" * 60)
+
     @kernel
     def index_kernel(buf: Buffer[float32]):
         idx = dispatch_id().x
         buf[idx] = float32(idx)
-    
+
     ir = index_kernel(None)
-    
+
     print_ast(index_kernel, "AST: index_kernel")
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     assert ir.is_kernel
     counts = count_instructions(ir)
     assert 'DISPATCH_ID' in counts
-    
+
     print(f"✓ Kernel uses dispatch_id, {len(ir.blocks)} blocks")
-    print("="*60)
+    print("=" * 60)
 
 
 def test_sync_block_builds_ir():
     """Test sync_block actually builds IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: sync_block builds IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @kernel
     def sync_kernel(buf: Buffer[float32]):
         idx = dispatch_id().x
         buf[idx] = 1.0
         sync_block()
         buf[idx] = buf[idx] + 1.0
-    
+
     ir = sync_kernel(None)
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     assert 'SYNC_BLOCK' in counts
-    
+
     print(f"✓ Built kernel with SYNC_BLOCK, {len(ir.blocks)} blocks")
-    print("="*60)
+    print("=" * 60)
 
 
 def test_cast_builds_ir():
     """Test cast/bitcast actually build IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: cast builds IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @callable
     def cast_ops(x: int32) -> float32:
         f = float32(x)
         i = int32(f)
         return float32(i)
-    
+
     ir = cast_ops(42)
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     assert 'CAST' in counts
-    
-    print(f"✓ Built IR with {counts.get('CAST',0)} CAST instructions")
-    print("="*60)
+
+    print(f"✓ Built IR with {counts.get('CAST', 0)} CAST instructions")
+    print("=" * 60)
 
 
 def test_print_msg_builds_ir():
     """Test print_msg actually builds IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: print_msg builds IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @kernel
     def print_kernel(x: int32):
         print_msg("Value: {}", x)
-    
+
     ir = print_kernel(42)
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     assert 'PRINT' in counts
-    
+
     print(f"✓ Built kernel with PRINT instruction")
-    print("="*60)
+    print("=" * 60)
 
 
 def test_clock_builds_ir():
     """Test clock actually builds IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: clock builds IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @callable
     def timed_function() -> int32:
         start = clock()
@@ -221,73 +221,73 @@ def test_clock_builds_ir():
             i = i + 1
         end = clock()
         return int32(end - start)
-    
+
     ir = timed_function()
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     assert 'CLOCK' in counts
-    
-    print(f"✓ Built IR with {counts.get('CLOCK',0)} CLOCK instructions")
-    print("="*60)
+
+    print(f"✓ Built IR with {counts.get('CLOCK', 0)} CLOCK instructions")
+    print("=" * 60)
 
 
 def test_assertions_build_ir():
     """Test assume/assert_ actually build IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: assertions build IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @callable
     def checked_function(x: int32) -> int32:
         assume(x > 0, "x must be positive")
         result = x * 2
         assert_(result > x, "result should be greater than x")
         return result
-    
+
     ir = checked_function(5)
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     # Note: ASSERT and ASSUME may not be in all builds
     print(f"✓ Built IR with assertions")
-    print("="*60)
+    print("=" * 60)
 
 
 def test_matrix_ops_build_ir():
     """Test matrix operations actually build IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: matrix ops build IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     from luisa import float4x4
-    
+
     @callable
     def matrix_ops(m: float4x4) -> float32:
         t = transpose(m)
         # Note: inverse/determinant may not be fully implemented
         return float32(0.0)
-    
+
     # Use None since we don't have actual matrix values
     ir = matrix_ops(None)
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     print(f"✓ Built IR for matrix operations")
-    print("="*60)
+    print("=" * 60)
 
 
 def test_vector_math_builds_ir():
     """Test vector math operations build IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: vector math builds IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @callable
     def vector_ops(a: float3, b: float3) -> float3:
         d = dot(a, b)
@@ -295,49 +295,49 @@ def test_vector_math_builds_ir():
         n = normalize(a)
         l = length(b)
         return c
-    
+
     ir = vector_ops(None, None)
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     # Vector ops should generate instructions
     print(f"✓ Built IR with vector operations")
     print(f"  Instructions: {dict(counts)}")
-    print("="*60)
+    print("=" * 60)
 
 
 def test_clamp_lerp_build_ir():
     """Test clamp and lerp build IR."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: clamp/lerp build IR")
-    print("="*60)
-    
+    print("=" * 60)
+
     @callable
     def utility_ops(x: float32) -> float32:
         c = clamp(x, 0.0, 1.0)
         l = lerp(0.0, 1.0, c)
         s = step(0.5, l)
         return smoothstep(0.0, 1.0, s)
-    
+
     ir = utility_ops(0.5)
-    
+
     print("\nGenerated IR:")
     print(pprint(ir))
-    
+
     counts = count_instructions(ir)
     print(f"✓ Built IR with utility functions")
-    print(f"  Instructions: CLAMP={counts.get('CLAMP',0)}, "
-          f"LERP={counts.get('LERP',0)}, STEP={counts.get('STEP',0)}")
-    print("="*60)
+    print(f"  Instructions: CLAMP={counts.get('CLAMP', 0)}, "
+          f"LERP={counts.get('LERP', 0)}, STEP={counts.get('STEP', 0)}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Running test_builtins.py tests")
-    print("="*70)
-    
+    print("=" * 70)
+
     test_math_builtins_build_ir()
     test_special_registers_build_ir()
     test_dispatch_id_in_computation()
@@ -349,7 +349,7 @@ if __name__ == "__main__":
     test_matrix_ops_build_ir()
     test_vector_math_builds_ir()
     test_clamp_lerp_build_ir()
-    
-    print("\n" + "="*70)
+
+    print("\n" + "=" * 70)
     print("All test_builtins.py tests passed!")
-    print("="*70)
+    print("=" * 70)

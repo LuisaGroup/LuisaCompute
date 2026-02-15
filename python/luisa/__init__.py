@@ -16,21 +16,21 @@ from .lang.types import (
     # Base types
     Type, Scalar, Vector, Matrix, Array, Struct,
     Buffer, Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void, Ref,
-    
+
     # Scalar types
     bool_, int8, uint8, int16, uint16, int32, uint32, int64, uint64,
     float16, float32, float64,
-    
+
     # Vector types
     int2, int3, int4, uint2, uint3, uint4,
     float2, float3, float4, bool2, bool3, bool4,
     half2, half3, half4,
     short2, short3, short4, ushort2, ushort3, ushort4,
     long2, long3, long4, ulong2, ulong3, ulong4,
-    
+
     # Matrix types
     float2x2, float3x3, float4x4,
-    
+
     # Utilities
     get_element_type, get_length,
     is_scalar_type, is_vector_type, is_integer_type, is_float_type,
@@ -169,4 +169,3 @@ __all__ = [
     "accel_instance_transform", "accel_instance_user_id", "accel_instance_visibility_mask",
     "make_ray",
 ]
-

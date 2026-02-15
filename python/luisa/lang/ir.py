@@ -35,10 +35,10 @@ class SourceLocation:
 
 class IROp(Enum):
     """IR operation types."""
-    
+
     # Literals and constants
     CONST = auto()
-    
+
     # Arithmetic
     ADD = auto()
     SUB = auto()
@@ -46,7 +46,7 @@ class IROp(Enum):
     DIV = auto()
     MOD = auto()
     NEG = auto()
-    
+
     # Bitwise
     BIT_AND = auto()
     BIT_OR = auto()
@@ -54,7 +54,7 @@ class IROp(Enum):
     BIT_NOT = auto()
     SHL = auto()  # Shift left
     SHR = auto()  # Shift right
-    
+
     # Comparison
     EQ = auto()
     NE = auto()
@@ -62,12 +62,12 @@ class IROp(Enum):
     LE = auto()
     GT = auto()
     GE = auto()
-    
+
     # Logical
     LOGICAL_AND = auto()
     LOGICAL_OR = auto()
     LOGICAL_NOT = auto()
-    
+
     # Math functions
     SQRT = auto()
     POW = auto()
@@ -108,19 +108,19 @@ class IROp(Enum):
     REFLECT = auto()
     REFRACT = auto()
     FACEFORWARD = auto()
-    
+
     # Matrix operations
     MATRIX_DETERMINANT = auto()
     MATRIX_TRANSPOSE = auto()
     MATRIX_INVERSE = auto()
-    
+
     # Memory
     ALLOCA = auto()
     LOAD = auto()
     STORE = auto()
     GEP = auto()  # Get element pointer
     MEMBER_ACCESS = auto()  # Struct member access
-    
+
     # Resources
     BUFFER_READ = auto()
     BUFFER_WRITE = auto()
@@ -132,26 +132,26 @@ class IROp(Enum):
     TEXTURE3D_READ = auto()
     TEXTURE3D_WRITE = auto()
     TEXTURE3D_SAMPLE = auto()
-    
+
     # Control flow
     PHI = auto()  # Phi node for SSA
     RETURN = auto()
-    
+
     # Structured Control Flow
     IF = auto()
     LOOP = auto()
     BREAK = auto()
     CONTINUE = auto()
     SWITCH = auto()
-    
+
     # Function calls
     CALL = auto()
     CALL_BUILTIN = auto()
-    
+
     # Cast
     CAST = auto()  # Static cast
     BITCAST = auto()  # Bitwise cast
-    
+
     # Special registers
     THREAD_ID = auto()
     BLOCK_ID = auto()
@@ -159,13 +159,13 @@ class IROp(Enum):
     DISPATCH_SIZE = auto()
     KERNEL_ID = auto()
     OBJECT_ID = auto()
-    
+
     # Ray tracing
     TRACE_CLOSEST = auto()
     TRACE_ANY = auto()
     RAY_QUERY_ALL = auto()
     RAY_QUERY_ANY = auto()
-    
+
     # Atomic operations
     ATOMIC_EXCHANGE = auto()
     ATOMIC_ADD = auto()
@@ -176,7 +176,7 @@ class IROp(Enum):
     ATOMIC_MIN = auto()
     ATOMIC_MAX = auto()
     ATOMIC_CMP_EXCH = auto()
-    
+
     # Warp operations
     WARP_IS_FIRST_ACTIVE_LANE = auto()
     WARP_FIRST_ACTIVE_LANE = auto()
@@ -198,23 +198,23 @@ class IROp(Enum):
     WARP_PREFIX_COUNT_BITS = auto()
     WARP_READ_LANE = auto()
     WARP_READ_FIRST_ACTIVE_LANE = auto()
-    
+
     # Synchronization
     SYNC_BLOCK = auto()
-    
+
     # Print
     PRINT = auto()
-    
+
     # Swizzle
     SWIZZLE = auto()
-    
+
     # Additional resource operations
     TEXTURE2D_SIZE = auto()
     TEXTURE3D_SIZE = auto()
     BUFFER_DEVICE_ADDRESS = auto()
     DEVICE_ADDRESS_READ = auto()
     DEVICE_ADDRESS_WRITE = auto()
-    
+
     # Additional ray tracing
     RAY_QUERY_WORLD_RAY = auto()
     RAY_QUERY_PROCEED = auto()
@@ -227,7 +227,7 @@ class IROp(Enum):
     ACCEL_INSTANCE_TRANSFORM = auto()
     ACCEL_INSTANCE_USER_ID = auto()
     ACCEL_INSTANCE_VISIBILITY_MASK = auto()
-    
+
     # Additional operations
     ASSERT = auto()
     ASSUME = auto()
@@ -326,13 +326,13 @@ class IRBasicBlock:
     name: str
     instructions: list[IRInstruction] = field(default_factory=list)
     loc: Optional[SourceLocation] = None
-    
+
     def __repr__(self) -> str:
         lines = [f"{self.name}:"]
         for inst in self.instructions:
             lines.append(f"  {inst}")
         return "\n".join(lines)
-    
+
     def is_terminated(self) -> bool:
         """Check if the block has a terminator instruction."""
         if not self.instructions:
@@ -341,7 +341,7 @@ class IRBasicBlock:
         return last.op in (
             IROp.RETURN, IROp.BREAK, IROp.CONTINUE
         )
-    
+
     def add_instruction(self, inst: IRInstruction) -> None:
         """Add an instruction to the block."""
         if self.is_terminated():
@@ -360,11 +360,11 @@ class IRFunction:
     arg_is_reference: list[bool] = field(default_factory=list)
     block_size: Optional[tuple[int, int, int]] = None
     loc: Optional[SourceLocation] = None
-    
+
     def __post_init__(self):
         if not self.arg_is_reference:
             self.arg_is_reference = [False] * len(self.arg_types)
-    
+
     def __repr__(self) -> str:
         args_strs = []
         for t, is_ref in zip(self.arg_types, self.arg_is_reference):
@@ -380,7 +380,7 @@ class IRFunction:
             lines.append(str(block))
         lines.append("}")
         return "\n".join(lines)
-    
+
     def get_block(self, name: str) -> Optional[IRBasicBlock]:
         """Get a block by name."""
         for block in self.blocks:
@@ -394,18 +394,18 @@ class IRModule:
     """IR module containing functions."""
     functions: list[IRFunction] = field(default_factory=list)
     constants: list[ConstantValue] = field(default_factory=list)
-    
+
     def __repr__(self) -> str:
         lines = ["module {"]
         for func in self.functions:
             lines.append(str(func))
         lines.append("}")
         return "\n".join(lines)
-    
+
     def add_function(self, func: IRFunction) -> None:
         """Add a function to the module."""
         self.functions.append(func)
-    
+
     def get_function(self, name: str) -> Optional[IRFunction]:
         """Get a function by name."""
         for func in self.functions:
@@ -460,7 +460,7 @@ def is_resource_op(op: IROp) -> bool:
     """Check if an operation is a resource operation."""
     return op in (
         IROp.BUFFER_READ, IROp.BUFFER_WRITE, IROp.BUFFER_SIZE,
-        IROp.TEXTURE2D_READ, IROp.TEXTURE2D_WRITE, 
+        IROp.TEXTURE2D_READ, IROp.TEXTURE2D_WRITE,
         IROp.TEXTURE2D_SAMPLE, IROp.TEXTURE2D_SAMPLE_LEVEL,
         IROp.TEXTURE3D_READ, IROp.TEXTURE3D_WRITE, IROp.TEXTURE3D_SAMPLE,
     )

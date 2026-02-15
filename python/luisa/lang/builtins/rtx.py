@@ -21,13 +21,13 @@ from ..builder import get_current_builder
 
 class Ray:
     """Ray structure for ray tracing."""
-    
+
     def __init__(self, origin: float3, direction: float3, t_min: float = 0.0, t_max: float = 1e30):
         self.origin = origin
         self.direction = direction
         self.t_min = t_min
         self.t_max = t_max
-    
+
     def at(self, t: float) -> float3:
         """Get point at distance t along the ray."""
         # This would need proper DSL implementation
@@ -36,7 +36,7 @@ class Ray:
 
 class TriangleHit:
     """Hit result for triangle intersection."""
-    
+
     def __init__(self):
         self.inst: uint = 0
         self.prim: uint = 0
@@ -46,7 +46,7 @@ class TriangleHit:
 
 class ProceduralHit:
     """Hit result for procedural primitive."""
-    
+
     def __init__(self):
         self.inst: uint = 0
         self.prim: uint = 0
@@ -54,7 +54,7 @@ class ProceduralHit:
 
 class CommittedHit:
     """Committed hit from ray query."""
-    
+
     def __init__(self):
         self.inst: uint = 0
         self.prim: uint = 0

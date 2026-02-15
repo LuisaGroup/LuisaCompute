@@ -29,17 +29,19 @@ def is_ir_value(val: Any) -> bool:
     """Check if a value is an IR Value."""
     return isinstance(val, Value)
 
+
 def to_ir_value(builder: IRBuilder, val: Any) -> Value:
     """Ensure a value is an IR Value, converting literals if necessary."""
     if isinstance(val, Value):
         return val
     if isinstance(val, str):
         return val
-    
+
     typ = value_to_type(val)
     if typ is None:
         raise TypeError(f"Cannot convert {type(val)} to Luisa type")
     return builder.constant(typ, val)
+
 
 def _try_to_ir_value(builder: IRBuilder, val: Any) -> Any:
     """Try to convert to IR value, return original if not possible."""
@@ -47,6 +49,7 @@ def _try_to_ir_value(builder: IRBuilder, val: Any) -> Any:
         return to_ir_value(builder, val)
     except TypeError:
         return val
+
 
 def l_binop(builder: IRBuilder, op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
@@ -59,7 +62,7 @@ def l_binop(builder: IRBuilder, op: ast.operator, left: Any, right: Any) -> Any:
         if isinstance(op, ast.Div): return builder.div(left, right)
         if isinstance(op, ast.Mod): return builder.mod(left, right)
         if isinstance(op, ast.Pow): return builder.pow(left, right)
-        if isinstance(op, ast.FloorDiv): 
+        if isinstance(op, ast.FloorDiv):
             return builder.floor(builder.div(left, right))
         if isinstance(op, ast.BitAnd): return builder.bit_and(left, right)
         if isinstance(op, ast.BitOr): return builder.bit_or(left, right)
@@ -83,6 +86,7 @@ def l_binop(builder: IRBuilder, op: ast.operator, left: Any, right: Any) -> Any:
         if isinstance(op, ast.RShift): return left >> right
         raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
 
+
 def l_unaryop(builder: IRBuilder, op: ast.unaryop, operand: Any) -> Any:
     """Handle unary operations."""
     if is_ir_value(operand):
@@ -96,6 +100,7 @@ def l_unaryop(builder: IRBuilder, op: ast.unaryop, operand: Any) -> Any:
         if isinstance(op, ast.Not): return not operand
         if isinstance(op, ast.Invert): return ~operand
         raise NotImplementedError(f"Unsupported unary operator: {type(op)}")
+
 
 def l_compare(builder: IRBuilder, op: ast.cmpop, left: Any, right: Any) -> Any:
     """Handle comparison operations."""
@@ -121,6 +126,7 @@ def l_compare(builder: IRBuilder, op: ast.cmpop, left: Any, right: Any) -> Any:
         if isinstance(op, ast.In): return left in right
         if isinstance(op, ast.NotIn): return left not in right
         raise NotImplementedError(f"Unsupported comparison operator: {type(op)}")
+
 
 def l_boolop(builder: IRBuilder, op: ast.boolop, values: list[Any]) -> Any:
     """Handle boolean operations (and/or)."""
@@ -148,18 +154,20 @@ def l_boolop(builder: IRBuilder, op: ast.boolop, values: list[Any]) -> Any:
             return res
         raise NotImplementedError(f"Unsupported boolean operator: {type(op)}")
 
+
 # ============================================================================
 # Control Flow Helpers
 # ============================================================================
 
 class StaticIf:
     """Helper for host-side if statement (static evaluation)."""
+
     def __init__(self, cond: bool):
         self.cond = bool(cond)
-    
+
     def __enter__(self):
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
@@ -181,16 +189,20 @@ class StaticIf:
         else:
             pass
 
+
 class StaticWhile:
     """Helper for host-side while loop (static evaluation)."""
+
     def __init__(self, test_func: Callable[[], bool]):
         self.test_func = test_func
-    
+
     def __iter__(self):
         while self.test_func():
             yield None
 
-HostIf = StaticIf # Legacy alias
+
+HostIf = StaticIf  # Legacy alias
+
 
 def l_if(builder: IRBuilder, cond_func: Callable[[], Any]) -> Any:
     """Handle if statements."""
@@ -199,6 +211,7 @@ def l_if(builder: IRBuilder, cond_func: Callable[[], Any]) -> Any:
         return builder.if_(cond)
     else:
         return StaticIf(cond)
+
 
 def l_for(builder: IRBuilder, iter_obj: Any, loop_var_name: Any) -> Any:
     """Handle for loops (returns iterable)."""
@@ -213,18 +226,19 @@ def l_for(builder: IRBuilder, iter_obj: Any, loop_var_name: Any) -> Any:
                 start_val, stop_val, step_val = args[0], args[1], 1
             else:
                 start_val, stop_val, step_val = args[0], args[1], args[2]
-        
+
         start = to_ir_value(builder, start_val)
         stop = to_ir_value(builder, stop_val)
         step = to_ir_value(builder, step_val)
         name = loop_var_name
         stmt = builder.for_range(start, stop, step, name)
         return [stmt]
-    
+
     if isinstance(iter_obj, StaticRange):
         return iter_obj.rng
-    
+
     return iter_obj
+
 
 @contextmanager
 def l_loop_scope(builder: IRBuilder, loop_item: Any):
@@ -233,6 +247,7 @@ def l_loop_scope(builder: IRBuilder, loop_item: Any):
             yield scope
     else:
         yield loop_item
+
 
 def l_while(builder: IRBuilder, test_func: Callable[[], Any]) -> Any:
     """Handle while loops (returns generator)."""
@@ -245,13 +260,15 @@ def l_while(builder: IRBuilder, test_func: Callable[[], Any]) -> Any:
             yield None
             cond = test_func()
 
+
 @contextmanager
 def l_while_scope(builder: IRBuilder, loop_item: Any):
     if loop_item is not None and hasattr(loop_item, 'body_scope'):
-         with loop_item.body_scope() as scope:
+        with loop_item.body_scope() as scope:
             yield scope
     else:
         yield None
+
 
 # ============================================================================
 # Static Constructs
@@ -260,14 +277,18 @@ def l_while_scope(builder: IRBuilder, loop_item: Any):
 class StaticRange:
     def __init__(self, *args):
         self.rng = range(*args)
+
     def __iter__(self):
         return iter(self.rng)
+
 
 def static_range(*args):
     """Static range for meta-programming loops."""
     return StaticRange(*args)
 
-unrolled = static_range # Legacy alias
+
+unrolled = static_range  # Legacy alias
+
 
 # ============================================================================
 # Other Runtime Helpers
@@ -275,13 +296,15 @@ unrolled = static_range # Legacy alias
 
 class LuisaRange:
     """A range object that can contain IR Values."""
+
     def __init__(self, *args):
         self.args = args
+
 
 def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
     """Handle function calls."""
     from .types import Type
-    
+
     # Handle built-in range()
     if func is range:
         if any(is_ir_value(a) for a in args):
@@ -296,7 +319,7 @@ def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
 
     if isinstance(func, StagedFunction):
         return builder.call(func, *args)
-    
+
     import builtins
     if builtins.callable(func):
         if any(is_ir_value(a) for a in args):
@@ -308,8 +331,9 @@ def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
                     new_args.append(_try_to_ir_value(builder, a))
             return func(*new_args, **kwargs)
         return func(*args, **kwargs)
-    
+
     raise TypeError(f"Object {func} is not callable")
+
 
 def l_subscript(builder: IRBuilder, value: Any, index: Any) -> Any:
     if is_ir_value(value) or is_ir_value(index):
@@ -319,6 +343,7 @@ def l_subscript(builder: IRBuilder, value: Any, index: Any) -> Any:
             return builder.buffer_read(value, index, value.type.element)
         raise TypeError(f"Cannot subscript IR type {value.type}")
     return value[index]
+
 
 def l_subscript_assign(builder: IRBuilder, value: Any, index: Any, rhs: Any) -> None:
     if is_ir_value(value) or is_ir_value(index) or is_ir_value(rhs):
@@ -332,18 +357,20 @@ def l_subscript_assign(builder: IRBuilder, value: Any, index: Any, rhs: Any) -> 
     else:
         value[index] = rhs
 
+
 def l_attribute(builder: IRBuilder, value: Any, attr: str) -> Any:
     if is_ir_value(value):
         # Allow accessing standard attributes of Value/InstructionValue
         if attr in ('type', 'typ', 'name', 'instruction'):
             return getattr(value, attr)
-        
+
         from .types import Vector
         if isinstance(value.type, Vector):
             return builder.swizzle(value, attr)
         raise AttributeError(f"IR type {value.type} has no attribute {attr}")
     # Host side
     return getattr(value, attr)
+
 
 def l_return(builder: IRBuilder, value: Any = None) -> None:
     if value is not None:
@@ -352,6 +379,7 @@ def l_return(builder: IRBuilder, value: Any = None) -> None:
     else:
         builder.return_(None)
 
+
 def l_local_assign(builder: IRBuilder, name: str, value: Any) -> Any:
     """Helper to store a value in the builder's local namespace."""
     # This ensures that even if we rewrite an assignment, 
@@ -359,12 +387,14 @@ def l_local_assign(builder: IRBuilder, name: str, value: Any) -> Any:
     # For now, it just returns the value so standard Python assignment works.
     return value
 
+
 # ============================================================================
 # Specialization
 # ============================================================================
 
 class Specialization:
     """Helper to manage specialized parameters."""
+
     def __init__(self, names: tuple[str, ...], values: tuple[Any, ...]):
         self.params = dict(zip(names, values))
 
@@ -378,33 +408,33 @@ class Specialization:
 
 class StagedFunction:
     """A staged function that generates IR when called."""
-    
-    def __init__(self, func: Callable, is_kernel: bool = False, 
+
+    def __init__(self, func: Callable, is_kernel: bool = False,
                  parsed: Optional[ParsedFunction] = None,
                  template_params: Optional[tuple[str, ...]] = None,
                  ast_node: Optional[ast.FunctionDef] = None,
                  source: Optional[str] = None):
         self.pyfunc = func
         self.is_kernel = is_kernel
-        
+
         if ast_node is not None:
             # If AST is provided, we use it (useful for nested functions)
             func._luisa_ast = ast_node
-            
+
         if parsed is not None:
             self.parsed = parsed
         else:
             self.parsed = parse_function(func, source=source)
-        
+
         self.template_params = template_params or ()
         # Cache for compiled versions (keyed by argument types AND specialization values)
         self._cache: dict[tuple[tuple[Type, ...], tuple[Any, ...]], IRFunction] = {}
-        
+
         import inspect
         self.filename = inspect.getsourcefile(func) or "<unknown>"
-        
+
         self.compiled_code = None
-        
+
         # If it's NOT a template, we can rewrite now.
         if not self.template_params:
             self._do_compile()
@@ -413,46 +443,46 @@ class StagedFunction:
         """Perform AST rewrite and compilation."""
         if self.compiled_code is not None:
             return
-            
+
         rewriter = ASTRewriter(file=self.filename, template_params=self.template_params)
         self.rewritten_ast = rewriter.rewrite(self.parsed.ast_node)
         ast.fix_missing_locations(self.rewritten_ast)
-        
+
         if os.environ.get("LUISA_DUMP_REWRITTEN_AST") in ("1", "ON", "TRUE", "true", "yes"):
             print(f"DEBUG: Rewritten AST for {self.name}:\n{ast.unparse(self.rewritten_ast)}")
-        
+
         self.compiled_code = compile(
-            ast.Module(body=[self.rewritten_ast], type_ignores=[]), 
-            filename=f"<luisa-built-{self.name}>", 
+            ast.Module(body=[self.rewritten_ast], type_ignores=[]),
+            filename=f"<luisa-built-{self.name}>",
             mode="exec"
         )
 
     def builder_func(self, builder: IRBuilder, *args, specialization_values: tuple = ()):
         """The internal function that populates the IR builder."""
         self._do_compile()
-        
+
         # Prepare namespace with specializations
         spec_dict = dict(zip(self.template_params, specialization_values))
-        
+
         namespace = {
             "__luisa_rt": sys.modules[__name__],
             "ast": ast,
             "static_range": static_range,
             **{name: var.value for name, var in self.parsed.captured_vars.items()},
-            **spec_dict # Inject template parameters
+            **spec_dict  # Inject template parameters
         }
         if self.pyfunc and hasattr(self.pyfunc, "__globals__"):
             for name, val in self.pyfunc.__globals__.items():
                 if name not in namespace:
                     namespace[name] = val
-        
+
         # Execute to define the built function
         exec(self.compiled_code, namespace)
         built_func = namespace[f"__luisa_built_{self.name}"]
-        
+
         # Call it
         return built_func(builder, *args)
-    
+
     @property
     def name(self) -> str:
         return self.parsed.name
@@ -462,18 +492,18 @@ class StagedFunction:
         if not isinstance(items, tuple):
             items = (items,)
         return SpecializedFunctionProxy(self, items)
-    
+
     def compile(self, builder: IRBuilder, *args, specialization_values: tuple = ()) -> IRFunction:
         """Compile the function for given arguments and return the IRFunction."""
         arg_values = list(args)
         ir_args = [to_ir_value(builder, a) for a in arg_values]
         arg_types = tuple(a.type for a in ir_args)
-        
+
         cache_key = (arg_types, specialization_values)
         if cache_key not in self._cache:
             # This will populate self._cache[cache_key]
             self(*ir_args, specialization_values=specialization_values)
-            
+
         return self._cache[cache_key]
 
     def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> IRFunction:
@@ -489,14 +519,14 @@ class StagedFunction:
                 arg_types.append(self._get_arg_type(arg))
                 arg_is_reference.append(False)
         arg_types = tuple(arg_types)
-        
+
         cache_key = (arg_types, specialization_values)
         if cache_key in self._cache:
             return self._cache[cache_key]
-        
+
         builder = IRBuilder(
-            name=self.parsed.name, 
-            arg_types=arg_types, 
+            name=self.parsed.name,
+            arg_types=arg_types,
             ret_type=self.parsed.ret_annotation,
             arg_is_reference=arg_is_reference
         )
@@ -504,16 +534,16 @@ class StagedFunction:
         try:
             # Set initial location
             builder.set_location(self.filename, self.parsed.ast_node.lineno)
-            
+
             entry = builder.create_block("entry")
             builder.set_insert_point(entry)
-            
+
             arg_values = [builder.get_argument(i) for i in range(len(arg_types))]
             self.builder_func(builder, *arg_values, specialization_values=specialization_values)
-            
+
         finally:
             set_current_builder(None)
-        
+
         ir_func = builder.build()
         ir_func.is_kernel = self.is_kernel
         self._cache[cache_key] = ir_func
@@ -528,16 +558,18 @@ class StagedFunction:
 
 class SpecializedFunctionProxy:
     """Proxy for a staged function with applied specialization values."""
+
     def __init__(self, staged: StagedFunction, values: tuple):
         self.staged = staged
         self.values = values
-    
+
     def __call__(self, *args, **kwargs) -> IRFunction:
         return self.staged(*args, specialization_values=self.values, **kwargs)
 
 
 class StagedFunctionDecorator:
     """Wrapper for kernel/callable decorators to support indexing."""
+
     def __init__(self, is_kernel: bool):
         self.is_kernel = is_kernel
         self.params = None
@@ -545,7 +577,7 @@ class StagedFunctionDecorator:
     def __getitem__(self, params) -> StagedFunctionDecorator:
         if not isinstance(params, tuple):
             params = (params,)
-        
+
         param_names = []
         for p in params:
             if isinstance(p, str):
@@ -554,12 +586,14 @@ class StagedFunctionDecorator:
                 param_names.append(p.__name__)
             else:
                 param_names.append(str(p))
-        
+
         self.params = tuple(param_names)
         return self
 
-    def __call__(self, func: Callable, ast_node: Optional[ast.FunctionDef] = None, source: Optional[str] = None) -> StagedFunction:
-        return StagedFunction(func, is_kernel=self.is_kernel, template_params=self.params, ast_node=ast_node, source=source)
+    def __call__(self, func: Callable, ast_node: Optional[ast.FunctionDef] = None,
+                 source: Optional[str] = None) -> StagedFunction:
+        return StagedFunction(func, is_kernel=self.is_kernel, template_params=self.params, ast_node=ast_node,
+                              source=source)
 
 
 kernel = StagedFunctionDecorator(is_kernel=True)

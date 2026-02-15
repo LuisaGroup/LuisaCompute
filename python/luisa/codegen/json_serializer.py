@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 class IRJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder for IR types."""
-    
+
     def default(self, o: Any) -> Any:
         obj = o  # Keep original variable name for compatibility
         # Handle dataclasses
@@ -25,18 +25,18 @@ class IRJSONEncoder(json.JSONEncoder):
             # Add type discriminator
             result['_type'] = obj.__class__.__name__
             return result
-        
+
         # Handle enums
         if hasattr(obj, 'name'):
             return {'_type': obj.__class__.__name__, 'value': obj.name}
-        
+
         # Handle types
         if hasattr(obj, '__dict__'):
             return {
                 '_type': obj.__class__.__name__,
                 **{k: self.default(v) for k, v in obj.__dict__.items()}
             }
-        
+
         return super().default(obj)
 
 
@@ -46,34 +46,34 @@ def type_to_dict(t: Type) -> dict[str, Any]:
         Scalar, Vector, Matrix, Array, Struct, Buffer,
         Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void
     )
-    
+
     if isinstance(t, Void):
         return {'kind': 'void'}
-    
+
     if isinstance(t, Scalar):
         return {'kind': 'scalar', 'dtype': t.dtype.name}
-    
+
     if isinstance(t, Vector):
         return {
             'kind': 'vector',
             'element': type_to_dict(t.element),
             'size': t.size
         }
-    
+
     if isinstance(t, Matrix):
         return {
             'kind': 'matrix',
             'element': type_to_dict(t.element),
             'size': t.size
         }
-    
+
     if isinstance(t, Array):
         return {
             'kind': 'array',
             'element': type_to_dict(t.element),
             'size': t.size
         }
-    
+
     if isinstance(t, Struct):
         return {
             'kind': 'struct',
@@ -84,81 +84,82 @@ def type_to_dict(t: Type) -> dict[str, Any]:
             ],
             'alignment': t.alignment
         }
-    
+
     if isinstance(t, Buffer):
         return {
             'kind': 'buffer',
             'element': type_to_dict(t.element)
         }
-    
+
     if isinstance(t, Texture2D):
         return {
             'kind': 'texture2d',
             'element': type_to_dict(t.element)
         }
-    
+
     if isinstance(t, Texture3D):
         return {
             'kind': 'texture3d',
             'element': type_to_dict(t.element)
         }
-    
+
     if isinstance(t, BindlessArray):
         return {'kind': 'bindless_array'}
-    
+
     if isinstance(t, Accel):
         return {'kind': 'accel'}
-    
+
     if isinstance(t, RayQuery):
         return {'kind': 'ray_query', 'query_any': t.query_any}
-    
+
     if isinstance(t, Callable):
         return {
             'kind': 'callable',
             'arg_types': [type_to_dict(at) for at in t.arg_types],
             'ret_type': type_to_dict(t.ret_type) if t.ret_type else None
         }
-    
+
     return {'kind': 'unknown', 'repr': repr(t)}
 
 
 def value_to_dict(v: Value) -> dict[str, Any]:
     """Convert a Value to a dictionary representation."""
     from ..lang.ir import ConstantValue, ArgumentValue, InstructionValue
-    
+
     result = {
         'type': type_to_dict(v.type),
     }
-    
+
     if isinstance(v, ConstantValue):
         result['kind'] = 'constant'
         result['value'] = v.value
-    
+
     elif isinstance(v, ArgumentValue):
         result['kind'] = 'argument'
         result['index'] = v.index
-    
+
     elif isinstance(v, InstructionValue):
         result['kind'] = 'instruction'
         result['name'] = v.name
         if v.instruction:
             result['instruction_op'] = v.instruction.op.name
-    
+
     else:
         result['kind'] = 'unknown'
-    
+
     return result
 
 
 def instruction_to_dict(inst: IRInstruction) -> dict[str, Any]:
     """Convert an IRInstruction to a dictionary."""
+
     def arg_to_dict(arg):
         if hasattr(arg, 'name'):  # IRBasicBlock
             return {'block': arg.name}
         if hasattr(arg, 'type'):  # Value
             return value_to_dict(arg)
         return arg
-    
+
     return {
         'op': inst.op.name,
         'type': type_to_dict(inst.type),

@@ -19,18 +19,18 @@ class UnrolledRange:
     The loop body will be replicated for each iteration.
     Use only for small iteration counts to avoid code bloat!
     """
-    
+
     def __init__(self, start: int, stop: Optional[int] = None, step: int = 1):
         if stop is None:
             start, stop = 0, start
         self.start = start
         self.stop = stop
         self.step = step
-    
+
     def __iter__(self):
         """Python-side iteration (for reference)."""
         return iter(range(self.start, self.stop, self.step))
-    
+
     def __len__(self) -> int:
         """Return the number of iterations."""
         return max(0, (self.stop - self.start + self.step - 1) // self.step)

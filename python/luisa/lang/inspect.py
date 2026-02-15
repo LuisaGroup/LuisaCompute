@@ -56,7 +56,7 @@ def get_ir_types(func: Callable) -> Optional[dict[str, Any]]:
     """
     if not hasattr(func, 'parsed'):
         return None
-    
+
     return {
         'arg_types': func.parsed.arg_annotations,
         'ret_type': func.parsed.ret_annotation,
@@ -75,7 +75,7 @@ def count_instructions(ir: IRFunction) -> dict[str, int]:
         Dictionary mapping operation names to counts
     """
     counts: dict[str, int] = {}
-    
+
     def scan_block(block):
         if not hasattr(block, 'instructions'): return
         for inst in block.instructions:
@@ -95,7 +95,7 @@ def count_instructions(ir: IRFunction) -> dict[str, int]:
 
     for block in ir.blocks:
         scan_block(block)
-    
+
     return counts
 
 
@@ -122,6 +122,7 @@ def find_operations(ir: IRFunction, op: IROp) -> list[IRInstruction]:
         List of matching instructions
     """
     results = []
+
     def scan_block(block):
         if not hasattr(block, 'instructions'): return
         for inst in block.instructions:
@@ -155,10 +156,10 @@ def analyze_control_flow(ir: IRFunction) -> dict[str, Any]:
     loops = len(find_operations(ir, IROp.LOOP))
     switches = len(find_operations(ir, IROp.SWITCH))
     returns = len(find_operations(ir, IROp.RETURN))
-    
+
     return {
         'blocks': len(ir.blocks),
-        'branches': 0, # Structured IR has no explicit branches
+        'branches': 0,  # Structured IR has no explicit branches
         'ifs': ifs,
         'loops': loops,
         'switches': switches,
@@ -191,13 +192,13 @@ def get_type_size(t: Type) -> int:
             'FLOAT64': 8,
         }
         return type_sizes.get(t.dtype.name, 4)
-    
+
     if isinstance(t, Vector):
         return get_type_size(t.element) * t.size
-    
+
     if isinstance(t, Matrix):
         return get_type_size(t.element) * t.size * t.size
-    
+
     return 4  # Default
 
 
@@ -218,17 +219,17 @@ def format_ir_summary(ir: IRFunction) -> str:
     lines.append(f"  Return: {ir.ret_type or 'void'}")
     lines.append(f"  Blocks: {len(ir.blocks)}")
     lines.append(f"  Instructions: {get_instruction_count(ir)}")
-    
+
     # Control flow
     cf = analyze_control_flow(ir)
     if cf['conditional_branches'] > 0:
         lines.append(f"  Control Flow: {cf['conditional_branches']} condition(s)")
-    
+
     # Instructions by type
     counts = count_instructions(ir)
     if counts:
         lines.append("  Operations:")
         for op_name, count in sorted(counts.items()):
             lines.append(f"    {op_name}: {count}")
-    
+
     return '\n'.join(lines)

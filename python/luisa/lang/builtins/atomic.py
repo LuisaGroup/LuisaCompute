@@ -51,8 +51,8 @@ def atomic_compare_exchange(buffer: Value, index: Value, expected: Value, desire
         The old value at the index
     """
     elem_type = buffer.type.element
-    return get_current_builder()._emit(IROp.ATOMIC_CMP_EXCH, elem_type, 
-                                 [buffer, index, expected, desired])
+    return get_current_builder()._emit(IROp.ATOMIC_CMP_EXCH, elem_type,
+                                       [buffer, index, expected, desired])
 
 
 def atomic_add(buffer: Value, index: Value, value: Value) -> InstructionValue:

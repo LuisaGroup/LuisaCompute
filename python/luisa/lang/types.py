@@ -37,7 +37,7 @@ class ScalarType(Enum):
 @dataclass(frozen=True)
 class Type:
     """Base class for all types in the DSL."""
-    
+
     def __repr__(self) -> str:
         return self.__class__.__name__
 
@@ -45,18 +45,19 @@ class Type:
         """Support casting syntax like float32(x)."""
         from .ir import Value
         from .builder import get_current_builder
-        
+
         builder = get_current_builder()
-        
+
         if not isinstance(arg, Value):
             from .multistage import to_ir_value
             arg = to_ir_value(builder, arg)
-            
+
         return builder.cast(arg, self)
 
 
 class Ref:
     """Reference type marker (e.g., for mutable function arguments)."""
+
     def __class_getitem__(cls, item):
         return cls
 
@@ -65,7 +66,7 @@ class Ref:
 class Scalar(Type):
     """Scalar type."""
     dtype: ScalarType
-    
+
     def __repr__(self) -> str:
         mapping = {
             ScalarType.BOOL: "i1",
@@ -82,52 +83,52 @@ class Scalar(Type):
             ScalarType.FLOAT64: "f64",
         }
         return mapping.get(self.dtype, self.dtype.name.lower())
-    
+
     # Predefined scalar type constructors
     @classmethod
     def bool(cls) -> Scalar:
         return cls(ScalarType.BOOL)
-    
+
     @classmethod
     def int8(cls) -> Scalar:
         return cls(ScalarType.INT8)
-    
+
     @classmethod
     def uint8(cls) -> Scalar:
         return cls(ScalarType.UINT8)
-    
+
     @classmethod
     def int16(cls) -> Scalar:
         return cls(ScalarType.INT16)
-    
+
     @classmethod
     def uint16(cls) -> Scalar:
         return cls(ScalarType.UINT16)
-    
+
     @classmethod
     def int32(cls) -> Scalar:
         return cls(ScalarType.INT32)
-    
+
     @classmethod
     def uint32(cls) -> Scalar:
         return cls(ScalarType.UINT32)
-    
+
     @classmethod
     def int64(cls) -> Scalar:
         return cls(ScalarType.INT64)
-    
+
     @classmethod
     def uint64(cls) -> Scalar:
         return cls(ScalarType.UINT64)
-    
+
     @classmethod
     def float16(cls) -> Scalar:
         return cls(ScalarType.FLOAT16)
-    
+
     @classmethod
     def float32(cls) -> Scalar:
         return cls(ScalarType.FLOAT32)
-    
+
     @classmethod
     def float64(cls) -> Scalar:
         return cls(ScalarType.FLOAT64)
@@ -138,11 +139,11 @@ class Vector(Type):
     """Vector type (e.g., float3, int4)."""
     element: Scalar
     size: int  # 2, 3, or 4
-    
+
     def __post_init__(self):
         if self.size not in (2, 3, 4):
             raise ValueError(f"Vector size must be 2, 3, or 4, got {self.size}")
-    
+
     def __repr__(self) -> str:
         return f"<{self.size} x {self.element}>"
 
@@ -152,11 +153,11 @@ class Matrix(Type):
     """Matrix type (e.g., float3x3)."""
     element: Scalar  # typically float32
     size: int  # 2, 3, or 4
-    
+
     def __post_init__(self):
         if self.size not in (2, 3, 4):
             raise ValueError(f"Matrix size must be 2, 3, or 4, got {self.size}")
-    
+
     def __repr__(self) -> str:
         return f"[ {self.size} x <{self.size} x {self.element}> ]"
 
@@ -166,11 +167,11 @@ class Array(Type):
     """Fixed-size array type."""
     element: Type
     size: int
-    
+
     def __post_init__(self):
         if self.size <= 0:
             raise ValueError(f"Array size must be positive, got {self.size}")
-    
+
     def __repr__(self) -> str:
         return f"[{self.size} x {self.element}]"
 
@@ -181,18 +182,18 @@ class Struct(Type):
     name: str
     fields: tuple[tuple[str, Type], ...]
     alignment: int = 4
-    
+
     def __repr__(self) -> str:
         field_types = [str(typ) for name, typ in self.fields]
         return f"{{ {', '.join(field_types)} }}"
-    
+
     def get_field_type(self, field_name: str) -> Optional[Type]:
         """Get the type of a field by name."""
         for name, typ in self.fields:
             if name == field_name:
                 return typ
         return None
-    
+
     def get_field_index(self, field_name: str) -> int:
         """Get the index of a field by name."""
         for i, (name, _) in enumerate(self.fields):
@@ -205,10 +206,10 @@ class Struct(Type):
 class Buffer(Type):
     """Buffer type (GPU memory)."""
     element: Type
-    
+
     def __repr__(self) -> str:
         return f"buffer<{self.element}>"
-    
+
     def __class_getitem__(cls, item):
         """Support Buffer[float32] syntax."""
         return cls(element=item)
@@ -218,10 +219,10 @@ class Buffer(Type):
 class Texture2D(Type):
     """2D texture type."""
     element: Scalar
-    
+
     def __repr__(self) -> str:
         return f"texture2d<{self.element}>"
-    
+
     def __class_getitem__(cls, item):
         """Support Texture2D[float32] syntax."""
         return cls(element=item)
@@ -231,10 +232,10 @@ class Texture2D(Type):
 class Texture3D(Type):
     """3D texture type."""
     element: Scalar
-    
+
     def __repr__(self) -> str:
         return f"texture3d<{self.element}>"
-    
+
     def __class_getitem__(cls, item):
         """Support Texture3D[float32] syntax."""
         return cls(element=item)
@@ -243,7 +244,7 @@ class Texture3D(Type):
 @dataclass(frozen=True)
 class BindlessArray(Type):
     """Bindless array type."""
-    
+
     def __repr__(self) -> str:
         return "bindless_array"
 
@@ -251,7 +252,7 @@ class BindlessArray(Type):
 @dataclass(frozen=True)
 class Accel(Type):
     """Acceleration structure type for ray tracing."""
-    
+
     def __repr__(self) -> str:
         return "accel"
 
@@ -260,7 +261,7 @@ class Accel(Type):
 class RayQuery(Type):
     """Ray query type."""
     query_any: bool  # True for RayQueryAny, False for RayQueryAll
-    
+
     def __repr__(self) -> str:
         return "ray_query_any" if self.query_any else "ray_query_all"
 
@@ -270,7 +271,7 @@ class Callable(Type):
     """Callable function type."""
     arg_types: tuple[Type, ...]
     ret_type: Optional[Type]
-    
+
     def __repr__(self) -> str:
         arg_str = ', '.join(str(t) for t in self.arg_types)
         ret_str = str(self.ret_type) if self.ret_type else "void"
@@ -291,7 +292,7 @@ class Callable(Type):
 @dataclass(frozen=True)
 class Void(Type):
     """Void type."""
-    
+
     def __repr__(self) -> str:
         return "void"
 
@@ -302,7 +303,6 @@ AnyType = Union[
     Buffer, Texture2D, Texture3D, BindlessArray,
     Accel, RayQuery, Callable, Void
 ]
-
 
 # ============================================================================
 # Predefined type aliases for convenience
@@ -464,7 +464,7 @@ def promote_types(t1: Type, t2: Type) -> Type:
     # Same type
     if t1 == t2:
         return t1
-    
+
     # Scalar vs Vector broadcasting
     if isinstance(t1, Scalar) and isinstance(t2, Vector):
         if t1 == t2.element:
@@ -472,7 +472,7 @@ def promote_types(t1: Type, t2: Type) -> Type:
     if isinstance(t1, Vector) and isinstance(t2, Scalar):
         if t1.element == t2:
             return t1
-    
+
     # Both vectors - must have same size
     if isinstance(t1, Vector) and isinstance(t2, Vector):
         if t1.size != t2.size:
@@ -480,7 +480,7 @@ def promote_types(t1: Type, t2: Type) -> Type:
         # Promote element types
         promoted = promote_types(t1.element, t2.element)
         return Vector(promoted, t1.size)
-    
+
     # Both scalars - use type precedence
     if isinstance(t1, Scalar) and isinstance(t2, Scalar):
         precedence = [
@@ -496,7 +496,7 @@ def promote_types(t1: Type, t2: Type) -> Type:
         idx1 = precedence.index(t1.dtype)
         idx2 = precedence.index(t2.dtype)
         return t1 if idx1 > idx2 else t2
-    
+
     raise TypeError(f"Cannot promote types {t1} and {t2}")
 
 
@@ -531,7 +531,7 @@ def get_broadcast_type(t1: Type, t2: Type) -> Optional[Type]:
     # Same type
     if t1 == t2:
         return t1
-    
+
     # Scalar can broadcast to vector
     if isinstance(t1, Scalar) and isinstance(t2, Vector):
         if t1 == t2.element:
@@ -539,7 +539,7 @@ def get_broadcast_type(t1: Type, t2: Type) -> Optional[Type]:
     if isinstance(t1, Vector) and isinstance(t2, Scalar):
         if t1.element == t2:
             return t1
-    
+
     return None
 
 
@@ -576,7 +576,7 @@ def struct(cls: type) -> type:
     annotations = getattr(cls, '__annotations__', {})
     if not annotations:
         raise TypeError(f"Struct {cls.__name__} must have annotated fields")
-    
+
     # Build field list
     fields = []
     for name, ann_type in annotations.items():
@@ -590,29 +590,29 @@ def struct(cls: type) -> type:
             fields.append((name, ann_type))
         else:
             raise TypeError(f"Field '{name}' has unsupported type annotation: {ann_type}")
-    
+
     # Create Struct type
     struct_type = Struct(
         name=cls.__name__,
         fields=tuple(fields),
         alignment=16  # Default alignment
     )
-    
+
     # Store in registry
     _struct_registry[cls.__name__] = cls
-    
+
     # Attach type info to class
     # Store type info on class (using _dsl prefix to avoid conflicts)
     cls._dsl_type = struct_type  # pylint: disable=protected-access
     cls._dsl_fields = {name: typ for name, typ in fields}  # pylint: disable=protected-access
-    
+
     # Add methods
     def get_dsl_type(self) -> Struct:
         """Get the DSL type for this struct."""
         return self._dsl_type  # pylint: disable=protected-access
-    
+
     cls.get_dsl_type = get_dsl_type
-    
+
     return cls
 
 

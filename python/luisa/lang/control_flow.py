@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import Optional
 from contextlib import contextmanager
 
-
 # Runtime imports
 from .ir import Value, IRBasicBlock, ConstantValue, IROp
 from .builder import IRBuilder
@@ -36,13 +35,13 @@ class IfStmt:
         with if_.false_scope():  # optional
             ...  # false branch
     """
-    
+
     def __init__(self, builder: 'IRBuilder', condition: 'Value'):
         self.builder = builder
         self.condition = condition
         self.true_block = self.builder.create_block("if_true")
         self.false_block = self.builder.create_block("if_false")
-        
+
         # Check for constant folding at runtime
         self._constant_fold = isinstance(condition, ConstantValue)
         self._fold_true = condition.value if self._constant_fold else None
@@ -56,19 +55,19 @@ class IfStmt:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
-        
+
     def true_scope(self):
         """Get context manager for the true branch."""
         if self._constant_fold:
             return _DirectScope(self.builder) if self._fold_true else _NoOpScope()
-        
+
         return self.builder.scope(self.true_block)
-    
+
     def false_scope(self):
         """Get context manager for the false branch."""
         if self._constant_fold:
             return _NoOpScope() if self._fold_true else _DirectScope(self.builder)
-        
+
         return self.builder.scope(self.false_block)
 
 
@@ -85,12 +84,12 @@ class WhileStmt:
         with while_.body_scope():
             ...  # loop body
     """
-    
+
     def __init__(self, builder: 'IRBuilder', condition: 'Value'):
         self.builder = builder
         self.condition = condition
         self.body_block = self.builder.create_block("while_body")
-        
+
         # Check for constant folding - if False, skip entire loop
         self._constant_fold = isinstance(condition, ConstantValue) and condition.value == False
 
@@ -106,12 +105,12 @@ class WhileStmt:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
-        
+
     def body_scope(self):
         """Get context manager for the loop body."""
         if self._constant_fold:
             return _NoOpScope()
-        
+
         @contextmanager
         def loop_body_wrapper():
             with self.builder.scope(self.body_block):
@@ -121,10 +120,11 @@ class WhileStmt:
                 break_block = self.builder.create_block("while_break")
                 with self.builder.scope(break_block):
                     self.builder.break_()
-                self.builder._emit(IROp.IF, Void(), [not_cond, break_block, self.builder.create_block("while_continue")])
-                
+                self.builder._emit(IROp.IF, Void(),
+                                   [not_cond, break_block, self.builder.create_block("while_continue")])
+
                 yield True
-        
+
         return loop_body_wrapper()
 
 
@@ -141,7 +141,7 @@ class ForRangeStmt:
         with for_.body_scope():
             ...  # loop body, loop var is bound to name
     """
-    
+
     def __init__(self, builder: 'IRBuilder',
                  start: 'Value', stop: 'Value', step: 'Value',
                  loop_var_name: str):
@@ -151,11 +151,11 @@ class ForRangeStmt:
         self.step = step
         self.loop_var_name = loop_var_name
         self.body_block = self.builder.create_block("for_body")
-        
+
         # Allocate and initialize loop variable
         self.loop_var_ptr = self.builder.alloca(self.start.type, name=self.loop_var_name)
         self.builder.store(self.loop_var_ptr, self.start)
-        
+
         from .types import Void
         self.builder._emit(IROp.LOOP, Void(), [self.body_block])
 
@@ -164,34 +164,35 @@ class ForRangeStmt:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
-        
+
     def body_scope(self):
         """Get context manager for the loop body."""
+
         @contextmanager
         def loop_body_wrapper():
             with self.builder.scope(self.body_block):
                 # 1. Load current value
                 current_val = self.builder.load(self.loop_var_ptr)
                 self.builder.bind_local(self.loop_var_name, current_val)
-                
+
                 # 2. Check condition: if i >= stop: break
                 from .types import Void, bool_
                 cond = self.builder.lt(current_val, self.stop)
                 not_cond = self.builder._emit(IROp.LOGICAL_NOT, bool_, [cond])
-                
+
                 break_block = self.builder.create_block("for_break")
                 with self.builder.scope(break_block):
                     self.builder.break_()
-                
+
                 self.builder._emit(IROp.IF, Void(), [not_cond, break_block, self.builder.create_block("for_continue")])
-                
+
                 # 3. Yield to user body
                 yield current_val
-                
+
                 # 4. Increment
                 next_val = self.builder.add(current_val, self.step)
                 self.builder.store(self.loop_var_ptr, next_val)
-        
+
         return loop_body_wrapper()
 
 
@@ -210,7 +211,7 @@ class UnrolledForStmt:
     
     Use only for small iteration counts!
     """
-    
+
     def __init__(self, builder: IRBuilder,
                  start: int, stop: int, step: int,
                  loop_var_name: str):
@@ -221,7 +222,7 @@ class UnrolledForStmt:
         self.loop_var_name = loop_var_name
         self.iterations = list(range(start, stop, step))
         self._current_idx = 0
-        
+
     def body_scope(self):
         """Get context manager for unrolled iterations."""
         return _UnrolledScope(self.builder, self.iterations, self.loop_var_name)
@@ -232,7 +233,6 @@ class UnrolledForStmt:
 # ============================================================================
 
 class SwitchStmt:
-
     """
 
     Structured switch statement.
@@ -257,24 +257,17 @@ class SwitchStmt:
 
     """
 
-    
-
     def __init__(self, builder: 'IRBuilder', value: 'Value'):
 
         self.builder = builder
 
         self.value = value
 
-        
-
         self._folded = isinstance(value, ConstantValue)
 
         self._constant_value = value.value if self._folded else None
 
-        
-
         if not self._folded:
-
             from .types import Void
 
             # We emit SWITCH instruction. args: [value, (cases...)]
@@ -291,9 +284,7 @@ class SwitchStmt:
 
             self.default_block: Optional[IRBasicBlock] = None
 
-            self.inst = self.builder._emit(IROp.SWITCH, Void(), [self.value, self.cases, None]) # None for default
-
-
+            self.inst = self.builder._emit(IROp.SWITCH, Void(), [self.value, self.cases, None])  # None for default
 
     def __enter__(self):
         return self
@@ -302,12 +293,6 @@ class SwitchStmt:
         # Update the instruction with the default block if it was set
         if not self._folded:
             self.inst.instruction.args[2] = self.default_block
-
-
-
-    
-
-
 
     def case_scope(self, *values: int):
 
@@ -325,42 +310,30 @@ class SwitchStmt:
 
                 return _NoOpScope()
 
-        
-
         # Create case block
 
         case_block = self.builder.create_block(f"case_{values[0]}")
 
         self.cases.append((list(values), case_block))
 
-        
-
         return self.builder.scope(case_block)
-
-    
 
     def default_scope(self):
 
         """Get context manager for the default case."""
 
         if self._folded:
-
             # Check if default should execute
 
             # (Requires knowing all cases, which we don't yet in this structured way if we allow interleaving)
 
             # Actually, the user should call default_scope() last.
 
-            return _DirectScope(self.builder) # Simplified folding for default
-
-        
+            return _DirectScope(self.builder)  # Simplified folding for default
 
         self.default_block = self.builder.create_block("case_default")
 
         return self.builder.scope(self.default_block)
-
-
-
 
 
 # ============================================================================
@@ -370,47 +343,24 @@ class SwitchStmt:
 # ============================================================================
 
 
-
 class _NoOpScope:
-
     """No-op scope for folded-away branches."""
 
-    
-
     def __enter__(self):
-
         return False
 
-    
-
     def __exit__(self, exc_type, exc_val, exc_tb):
-
         return True
-
-
-
 
 
 class _DirectScope:
-
     """Direct scope for branches that always execute (folded)."""
 
-    
-
     def __init__(self, builder: IRBuilder):
-
         self.builder = builder
 
-    
-
     def __enter__(self):
-
         return True
-
-    
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-
         return True
-
-
