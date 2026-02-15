@@ -10,6 +10,7 @@ from luisa import (
     pprint
 )
 from luisa.lang.inspect import analyze_control_flow
+from luisa.lang.builtin.math import sin
 
 
 class Polymorphic:
@@ -119,7 +120,7 @@ def test_nested_polymorphic_callables():
 
         @callable
         def add_one(x: Float) -> Float:
-            return x + 1.0
+            return x + sin(1.0 + 2.0)
 
         @callable
         def multiply_two(x: Float) -> Float:

@@ -1,224 +1,353 @@
 """
 Math builtin functions for the LuisaCompute Python DSL v2.
 
-These functions operate on DSL values and generate appropriate IR instructions.
+These functions use the @router decorator to support:
+1. Constant folding: sin(1.0 + 2.0) -> constant sin(3.0)
+2. Device routing: sin(dsl_var) -> device-side SIN instruction
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
+import math
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from ..ir import Value, InstructionValue
     from ..type import Type
 
-from ..ir import Op
+from ..ir import Op, ConstantValue
 from ..builder import get_current_builder
-from ..type import Float
+from ..type import Float, value_to_type, promote_types
+from ..router import router, RoutedFunction, is_constant_value, extract_constant_value
+
+
+# ============================================================================
+# Host implementations for constant folding
+# ============================================================================
+
+# Unary math functions
+_sqrt_host = math.sqrt
+_abs_host = abs  # Python built-in abs works for numbers
+_sin_host = math.sin
+_cos_host = math.cos
+_tan_host = math.tan
+_asin_host = math.asin
+_acos_host = math.acos
+_atan_host = math.atan
+_exp_host = math.exp
+_exp2_host = lambda x: 2.0 ** x
+_log_host = math.log
+_log2_host = lambda x: math.log(x) / math.log(2.0) if x > 0 else float('-inf')
+_log10_host = math.log10
+_floor_host = math.floor
+_ceil_host = math.ceil
+_round_host = round  # Python built-in round
+_trunc_host = lambda x: int(x) if x >= 0 else int(x) - 1 if x != int(x) else int(x)
+_fract_host = lambda x: x - math.floor(x)
+_saturate_host = lambda x: max(0.0, min(1.0, x))
+
+
+import builtins
+
+
+def _min_host(a, b):
+    """Host min implementation."""
+    return builtins.min(a, b)
+
+
+def _max_host(a, b):
+    """Host max implementation."""
+    return builtins.max(a, b)
+
+
+def _clamp_host(x, min_val, max_val):
+    """Host clamp implementation."""
+    return max(min_val, min(x, max_val))
+
+
+def _lerp_host(a, b, t):
+    """Host lerp implementation."""
+    return a + (b - a) * t
+
+
+def _step_host(edge, x):
+    """Host step implementation."""
+    return 1.0 if x >= edge else 0.0
+
+
+def _smoothstep_host(edge0, edge1, x):
+    """Host smoothstep implementation."""
+    if x <= edge0:
+        return 0.0
+    if x >= edge1:
+        return 1.0
+    t = (x - edge0) / (edge1 - edge0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _pow_host(base, exp):
+    """Host pow implementation."""
+    return base ** exp
+
+
+def _atan2_host(y, x):
+    """Host atan2 implementation."""
+    return math.atan2(y, x)
 
 
 # ============================================================================
 # Unary Math Functions
 # ============================================================================
 
-def sqrt(x: Value) -> InstructionValue:
+@router(host_impl=_sqrt_host, device_op=Op.SQRT)
+def sqrt(x):
     """Compute square root."""
-    return get_current_builder()._emit(Op.SQRT, x.type, [x])
+    pass
 
 
-def abs(x: Value) -> InstructionValue:
+@router(host_impl=_abs_host, device_op=Op.ABS)
+def abs(x):
     """Compute absolute value."""
-    return get_current_builder()._emit(Op.ABS, x.type, [x])
+    pass
 
 
-def sin(x: Value) -> InstructionValue:
+@router(host_impl=_sin_host, device_op=Op.SIN)
+def sin(x):
     """Compute sine."""
-    return get_current_builder()._emit(Op.SIN, x.type, [x])
+    pass
 
 
-def cos(x: Value) -> InstructionValue:
+@router(host_impl=_cos_host, device_op=Op.COS)
+def cos(x):
     """Compute cosine."""
-    return get_current_builder()._emit(Op.COS, x.type, [x])
+    pass
 
 
-def tan(x: Value) -> InstructionValue:
+@router(host_impl=_tan_host, device_op=Op.TAN)
+def tan(x):
     """Compute tangent."""
-    return get_current_builder()._emit(Op.TAN, x.type, [x])
+    pass
 
 
-def asin(x: Value) -> InstructionValue:
+@router(host_impl=_asin_host, device_op=Op.ASIN)
+def asin(x):
     """Compute arc sine."""
-    return get_current_builder()._emit(Op.ASIN, x.type, [x])
+    pass
 
 
-def acos(x: Value) -> InstructionValue:
+@router(host_impl=_acos_host, device_op=Op.ACOS)
+def acos(x):
     """Compute arc cosine."""
-    return get_current_builder()._emit(Op.ACOS, x.type, [x])
+    pass
 
 
-def atan(x: Value) -> InstructionValue:
+@router(host_impl=_atan_host, device_op=Op.ATAN)
+def atan(x):
     """Compute arc tangent."""
-    return get_current_builder()._emit(Op.ATAN, x.type, [x])
+    pass
 
 
-def atan2(y: Value, x: Value) -> InstructionValue:
-    """Compute arc tangent of y/x."""
-    return get_current_builder()._emit(Op.ATAN2, y.type, [y, x])
-
-
-def exp(x: Value) -> InstructionValue:
+@router(host_impl=_exp_host, device_op=Op.EXP)
+def exp(x):
     """Compute exponential."""
-    return get_current_builder()._emit(Op.EXP, x.type, [x])
+    pass
 
 
-def exp2(x: Value) -> InstructionValue:
+@router(host_impl=_exp2_host, device_op=Op.EXP2)
+def exp2(x):
     """Compute base-2 exponential."""
-    return get_current_builder()._emit(Op.EXP2, x.type, [x])
+    pass
 
 
-def log(x: Value) -> InstructionValue:
+@router(host_impl=_log_host, device_op=Op.LOG)
+def log(x):
     """Compute natural logarithm."""
-    return get_current_builder()._emit(Op.LOG, x.type, [x])
+    pass
 
 
-def log2(x: Value) -> InstructionValue:
+@router(host_impl=_log2_host, device_op=Op.LOG2)
+def log2(x):
     """Compute base-2 logarithm."""
-    return get_current_builder()._emit(Op.LOG2, x.type, [x])
+    pass
 
 
-def log10(x: Value) -> InstructionValue:
+@router(host_impl=_log10_host, device_op=Op.LOG10)
+def log10(x):
     """Compute base-10 logarithm."""
-    return get_current_builder()._emit(Op.LOG10, x.type, [x])
+    pass
 
 
-def floor(x: Value) -> InstructionValue:
+@router(host_impl=_floor_host, device_op=Op.FLOOR)
+def floor(x):
     """Compute floor."""
-    return get_current_builder()._emit(Op.FLOOR, x.type, [x])
+    pass
 
 
-def ceil(x: Value) -> InstructionValue:
+@router(host_impl=_ceil_host, device_op=Op.CEIL)
+def ceil(x):
     """Compute ceiling."""
-    return get_current_builder()._emit(Op.CEIL, x.type, [x])
+    pass
 
 
-def round(x: Value) -> InstructionValue:
+@router(host_impl=_round_host, device_op=Op.ROUND)
+def round(x):
     """Round to nearest integer."""
-    return get_current_builder()._emit(Op.ROUND, x.type, [x])
+    pass
 
 
-def trunc(x: Value) -> InstructionValue:
+@router(host_impl=_trunc_host, device_op=Op.TRUNC)
+def trunc(x):
     """Truncate to integer."""
-    return get_current_builder()._emit(Op.TRUNC, x.type, [x])
+    pass
 
 
-def fract(x: Value) -> InstructionValue:
+@router(host_impl=_fract_host, device_op=Op.FRACT)
+def fract(x):
     """Compute fractional part."""
-    return get_current_builder()._emit(Op.FRACT, x.type, [x])
+    pass
 
 
-def saturate(x: Value) -> InstructionValue:
+@router(host_impl=_saturate_host, device_op=Op.SATURATE)
+def saturate(x):
     """Clamp to [0, 1]."""
-    return get_current_builder()._emit(Op.SATURATE, x.type, [x])
+    pass
 
 
-def normalize(x: Value) -> InstructionValue:
+# ============================================================================
+# Vector Math Functions (cannot constant fold without VectorValue support)
+# ============================================================================
+
+def normalize(x):
     """Normalize vector."""
     return get_current_builder()._emit(Op.NORMALIZE, x.type, [x])
 
 
-def length(x: Value) -> InstructionValue:
+def length(x):
     """Compute vector length."""
     # Length returns scalar
     return get_current_builder()._emit(Op.LENGTH, Float, [x])
 
 
-def length_squared(x: Value) -> InstructionValue:
+def length_squared(x):
     """Compute squared vector length."""
     return get_current_builder()._emit(Op.LENGTH_SQUARED, Float, [x])
+
+
+def dot(a, b):
+    """Compute dot product."""
+    return get_current_builder()._emit(Op.DOT, Float, [a, b])
+
+
+def cross(a, b):
+    """Compute cross product (3D vectors only)."""
+    return get_current_builder()._emit(Op.CROSS, a.type, [a, b])
+
+
+def distance(a, b):
+    """Compute distance between two points."""
+    return get_current_builder()._emit(Op.DISTANCE, Float, [a, b])
+
+
+def reflect(i, n):
+    """Reflect vector."""
+    return get_current_builder()._emit(Op.REFLECT, i.type, [i, n])
+
+
+def refract(i, n, eta):
+    """Refract vector."""
+    return get_current_builder()._emit(Op.REFRACT, i.type, [i, n, eta])
+
+
+def faceforward(n, i, ng):
+    """Face forward."""
+    return get_current_builder()._emit(Op.FACEFORWARD, n.type, [n, i, ng])
 
 
 # ============================================================================
 # Binary Math Functions
 # ============================================================================
 
-def min(a: Value, b: Value) -> InstructionValue:
+@router(host_impl=_min_host, device_op=Op.MIN)
+def min(a, b):
     """Compute minimum."""
-    return get_current_builder()._emit(Op.MIN, a.type, [a, b])
+    pass
 
 
-def max(a: Value, b: Value) -> InstructionValue:
+@router(host_impl=_max_host, device_op=Op.MAX)
+def max(a, b):
     """Compute maximum."""
-    return get_current_builder()._emit(Op.MAX, a.type, [a, b])
+    pass
 
 
-def clamp(x: Value, min_val: Value, max_val: Value) -> InstructionValue:
+def _clamp_device_wrapper(builder, x, min_val, max_val):
+    """Device-side wrapper for clamp (3 args)."""
+    return builder._emit(Op.CLAMP, x.type, [x, min_val, max_val])
+
+
+@router(host_impl=_clamp_host, device_wrapper=_clamp_device_wrapper)
+def clamp(x, min_val, max_val):
     """Clamp to range [min_val, max_val]."""
-    return get_current_builder()._emit(Op.CLAMP, x.type, [x, min_val, max_val])
+    pass
 
 
-def lerp(a: Value, b: Value, t: Value) -> InstructionValue:
+def _lerp_device_wrapper(builder, a, b, t):
+    """Device-side wrapper for lerp (3 args)."""
+    return builder._emit(Op.LERP, a.type, [a, b, t])
+
+
+@router(host_impl=_lerp_host, device_wrapper=_lerp_device_wrapper)
+def lerp(a, b, t):
     """Linear interpolation: a + (b - a) * t"""
-    return get_current_builder()._emit(Op.LERP, a.type, [a, b, t])
+    pass
 
 
-def step(edge: Value, x: Value) -> InstructionValue:
+def _step_device_wrapper(builder, edge, x):
+    """Device-side wrapper for step."""
+    return builder._emit(Op.STEP, x.type, [edge, x])
+
+
+@router(host_impl=_step_host, device_wrapper=_step_device_wrapper)
+def step(edge, x):
     """Step function: (x >= edge) ? 1 : 0"""
-    return get_current_builder()._emit(Op.STEP, x.type, [edge, x])
+    pass
 
 
-def smoothstep(edge0: Value, edge1: Value, x: Value) -> InstructionValue:
+def _smoothstep_device_wrapper(builder, edge0, edge1, x):
+    """Device-side wrapper for smoothstep."""
+    return builder._emit(Op.SMOOTHSTEP, x.type, [edge0, edge1, x])
+
+
+@router(host_impl=_smoothstep_host, device_wrapper=_smoothstep_device_wrapper)
+def smoothstep(edge0, edge1, x):
     """Smooth Hermite interpolation."""
-    return get_current_builder()._emit(Op.SMOOTHSTEP, x.type, [edge0, edge1, x])
+    pass
 
 
-def pow(base: Value, exp: Value) -> InstructionValue:
+@router(host_impl=_pow_host, device_op=Op.POW)
+def pow(base, exp):
     """Compute power."""
-    return get_current_builder()._emit(Op.POW, base.type, [base, exp])
+    pass
 
 
-def dot(a: Value, b: Value) -> InstructionValue:
-    """Compute dot product."""
-    return get_current_builder()._emit(Op.DOT, Float, [a, b])
-
-
-def cross(a: Value, b: Value) -> InstructionValue:
-    """Compute cross product (3D vectors only)."""
-    return get_current_builder()._emit(Op.CROSS, a.type, [a, b])
-
-
-def distance(a: Value, b: Value) -> InstructionValue:
-    """Compute distance between two points."""
-    return get_current_builder()._emit(Op.DISTANCE, Float, [a, b])
-
-
-def reflect(i: Value, n: Value) -> InstructionValue:
-    """Reflect vector."""
-    return get_current_builder()._emit(Op.REFLECT, i.type, [i, n])
-
-
-def refract(i: Value, n: Value, eta: Value) -> InstructionValue:
-    """Refract vector."""
-    return get_current_builder()._emit(Op.REFRACT, i.type, [i, n, eta])
-
-
-def faceforward(n: Value, i: Value, ng: Value) -> InstructionValue:
-    """Face forward."""
-    return get_current_builder()._emit(Op.FACEFORWARD, n.type, [n, i, ng])
+@router(host_impl=_atan2_host, device_op=Op.ATAN2)
+def atan2(y, x):
+    """Compute arc tangent of y/x."""
+    pass
 
 
 # ============================================================================
 # Matrix Functions
 # ============================================================================
 
-def transpose(m: Value) -> InstructionValue:
+def transpose(m):
     """Transpose matrix."""
     return get_current_builder()._emit(Op.MATRIX_TRANSPOSE, m.type, [m])
 
 
-def inverse(m: Value) -> InstructionValue:
+def inverse(m):
     """Compute matrix inverse."""
     return get_current_builder()._emit(Op.MATRIX_INVERSE, m.type, [m])
 
 
-def determinant(m: Value) -> InstructionValue:
+def determinant(m):
     """Compute matrix determinant."""
     return get_current_builder()._emit(Op.MATRIX_DETERMINANT, Float, [m])

@@ -46,6 +46,13 @@ from .lang.type import (
 # Export builtins
 from .lang.builtin import *
 
+# Export router utilities
+from .lang.router import (
+    router, RoutedFunction, 
+    is_constant_value, extract_constant_value,
+    VectorValue
+)
+
 # Export codegen utilities
 from .codegen.pretty_printer import pprint
 from .codegen.json_serializer import serialize_function, serialize_module
@@ -87,6 +94,10 @@ __all__ = [
     "float2x2", "float3x3", "float4x4", "double2x2", "double3x3", "double4x4", "half2x2", "half3x3", "half4x4",
 
     "pprint", "serialize_function", "serialize_module",
+    
+    # Router utilities
+    "router", "RoutedFunction", "is_constant_value", "extract_constant_value", "VectorValue",
+    
     # Builtins
 ]
 from .lang import builtin

@@ -268,6 +268,121 @@ class ConstantValue(Value):
     def __repr__(self) -> str:
         return f"const {self.value}"
 
+    # ============================================================================
+    # Arithmetic operations for constant folding
+    # ============================================================================
+    
+    def _binary_op(self, other, op):
+        """Helper for binary operations."""
+        # Extract Python value from other if it's a ConstantValue
+        if isinstance(other, ConstantValue):
+            other_val = other.value
+        else:
+            other_val = other
+        
+        # Perform the operation on raw Python values
+        result = op(self.value, other_val)
+        
+        # Return a new ConstantValue with the result
+        from .type import value_to_type
+        result_type = value_to_type(result)
+        if result_type is None:
+            # For operations that return Python types not directly supported,
+            # just return the raw Python value
+            return result
+        return ConstantValue(typ=result_type, value=result)
+    
+    def __add__(self, other):
+        return self._binary_op(other, lambda a, b: a + b)
+    
+    def __radd__(self, other):
+        return self._binary_op(other, lambda a, b: b + a)
+    
+    def __sub__(self, other):
+        return self._binary_op(other, lambda a, b: a - b)
+    
+    def __rsub__(self, other):
+        return self._binary_op(other, lambda a, b: b - a)
+    
+    def __mul__(self, other):
+        return self._binary_op(other, lambda a, b: a * b)
+    
+    def __rmul__(self, other):
+        return self._binary_op(other, lambda a, b: b * a)
+    
+    def __truediv__(self, other):
+        return self._binary_op(other, lambda a, b: a / b)
+    
+    def __rtruediv__(self, other):
+        return self._binary_op(other, lambda a, b: b / a)
+    
+    def __floordiv__(self, other):
+        return self._binary_op(other, lambda a, b: a // b)
+    
+    def __rfloordiv__(self, other):
+        return self._binary_op(other, lambda a, b: b // a)
+    
+    def __mod__(self, other):
+        return self._binary_op(other, lambda a, b: a % b)
+    
+    def __rmod__(self, other):
+        return self._binary_op(other, lambda a, b: b % a)
+    
+    def __pow__(self, other):
+        return self._binary_op(other, lambda a, b: a ** b)
+    
+    def __rpow__(self, other):
+        return self._binary_op(other, lambda a, b: b ** a)
+    
+    def __neg__(self):
+        return ConstantValue(typ=self.type, value=-self.value)
+    
+    def __pos__(self):
+        return self
+    
+    def __abs__(self):
+        return ConstantValue(typ=self.type, value=abs(self.value))
+    
+    # Comparison operators
+    def __eq__(self, other):
+        if isinstance(other, ConstantValue):
+            return self.value == other.value
+        return self.value == other
+    
+    def __ne__(self, other):
+        if isinstance(other, ConstantValue):
+            return self.value != other.value
+        return self.value != other
+    
+    def __lt__(self, other):
+        if isinstance(other, ConstantValue):
+            return self.value < other.value
+        return self.value < other
+    
+    def __le__(self, other):
+        if isinstance(other, ConstantValue):
+            return self.value <= other.value
+        return self.value <= other
+    
+    def __gt__(self, other):
+        if isinstance(other, ConstantValue):
+            return self.value > other.value
+        return self.value > other
+    
+    def __ge__(self, other):
+        if isinstance(other, ConstantValue):
+            return self.value >= other.value
+        return self.value >= other
+    
+    def __bool__(self):
+        return bool(self.value)
+    
+    def __float__(self):
+        return float(self.value)
+    
+    def __int__(self):
+        return int(self.value)
+
 
 @dataclass
 class ArgumentValue(Value):

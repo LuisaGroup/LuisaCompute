@@ -55,6 +55,45 @@ def try_to_ir_value(val: Any) -> Any:
 
 def binop(op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
+    # Check if both operands are constants - if so, do host-side computation
+    from .ir import ConstantValue
+    left_is_const = isinstance(left, ConstantValue) or left is None or isinstance(left, (bool, int, float, str))
+    right_is_const = isinstance(right, ConstantValue) or right is None or isinstance(right, (bool, int, float, str))
+    
+    # If both are constants, do host-side computation
+    if left_is_const and right_is_const:
+        # Extract Python values from ConstantValue
+        if isinstance(left, ConstantValue):
+            left = left.value
+        if isinstance(right, ConstantValue):
+            right = right.value
+        
+        if isinstance(op, ast.Add):
+            return left + right
+        if isinstance(op, ast.Sub):
+            return left - right
+        if isinstance(op, ast.Mult):
+            return left * right
+        if isinstance(op, ast.Div):
+            return left / right
+        if isinstance(op, ast.Mod):
+            return left % right
+        if isinstance(op, ast.Pow):
+            return left ** right
+        if isinstance(op, ast.FloorDiv):
+            return left // right
+        if isinstance(op, ast.BitAnd):
+            return left & right
+        if isinstance(op, ast.BitOr):
+            return left | right
+        if isinstance(op, ast.BitXor):
+            return left ^ right
+        if isinstance(op, ast.LShift):
+            return left << right
+        if isinstance(op, ast.RShift):
+            return left >> right
+        raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
+    
     if is_ir_value(left) or is_ir_value(right):
         left = to_ir_value(left)
         right = to_ir_value(right)
@@ -357,7 +396,17 @@ def call(func: Any, *args, **kwargs) -> Any:
 
     # Use duck typing or check class name to avoid circular import with multistage
     if func.__class__.__name__ == 'StagedFunction':
-        return get_current_builder().call(func, *args)
+        # Check if we're inside a builder context (i.e., building IR)
+        # If so, emit a CALL instruction
+        # If not, call the staged function directly to get its compiled IR
+        try:
+            builder = get_current_builder()
+            # We have a builder context - emit a CALL instruction
+            return builder.call(func, *args)
+        except RuntimeError:
+            # No builder context - call the staged function directly
+            # This returns the compiled Function, not an InstructionValue
+            return func(*args, **kwargs)
 
     import builtins
     if builtins.callable(func):
