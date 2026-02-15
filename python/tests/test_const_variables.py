@@ -2,7 +2,7 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint, Float, Buffer, const,
+    kernel, callable, pprint, Float, Int, Buffer, Const, static,
     sin, cos, sqrt
 )
 from luisa.lang.ir import ConstantValue
@@ -46,8 +46,8 @@ def test_const_variable():
     
     @callable
     def test_const_var(x: Float) -> Float:
-        # b is a compile-time constant
-        b = const(sin(1.0))  # Should be Python float
+        # b is a compile-time constant using static()
+        b = static(sin(1.0))  # Should be Python float
         # This computes at compile time
         return x + b  # b is loaded as constant
     
@@ -74,10 +74,12 @@ def test_mixed_const_and_dsl_vars():
     def test_mixed(x: Float) -> Float:
         # DSL variable
         a = sin(1.0)
-        # Const variable
-        b = const(cos(1.0))
+        # Const variable using static()
+        b = static(cos(1.0))
+        # Or using Const
+        c = Const[Float](0.5)
         # Use both
-        a = a + b  # a is DSL var, b is Python const
+        a = a + b + c  # a is DSL var, b and c are Python const
         return a * 2.0
     
     ir = test_mixed(0.0)
@@ -97,9 +99,9 @@ def test_const_with_arithmetic():
     
     @callable
     def test_arith(x: Float) -> Float:
-        # Multiple const values
-        c1 = const(1.0)
-        c2 = const(2.0)
+        # Multiple const values using static()
+        c1 = static(1.0)
+        c2 = static(2.0)
         # Arithmetic on consts happens at compile time
         c3 = c1 + c2  # This should be 3.0 at compile time
         return x + c3
@@ -114,6 +116,53 @@ def test_const_with_arithmetic():
     print(f"Instructions: {dict(counts)}")
     
     print("✓ Const with arithmetic works correctly")
+    print("=" * 60)
+
+
+def test_const_typed_syntax():
+    """Test Const[Type](value) syntax."""
+    print("\n" + "=" * 60)
+    print("Test: Const[Type] Syntax")
+    print("=" * 60)
+    
+    @callable
+    def test_typed_const(x: Float) -> Float:
+        # Using Const[Type](value) syntax
+        c1 = Const[Float](1.5)
+        c2 = Const[Int](10)
+        # Arithmetic works
+        c3 = c1 + Float(c2)  # Both are Python values
+        return x + c3
+    
+    ir = test_typed_const(0.0)
+    
+    print("Generated IR:")
+    print(pprint(ir))
+    
+    print("✓ Const[Type] syntax works correctly")
+    print("=" * 60)
+
+
+def test_const_multiple_values():
+    """Test Const with multiple values."""
+    print("\n" + "=" * 60)
+    print("Test: Const Multiple Values")
+    print("=" * 60)
+    
+    @callable
+    def test_multi(x: Float) -> Float:
+        # Multiple values using static()
+        a, b, c = static(1.0, 2.0, 3.0)
+        # Or using Const
+        vals = Const[Float](1.0, 2.0, 3.0)
+        return x + a + vals[0]
+    
+    ir = test_multi(0.0)
+    
+    print("Generated IR:")
+    print(pprint(ir))
+    
+    print("✓ Const multiple values works correctly")
     print("=" * 60)
 
 
@@ -174,6 +223,8 @@ if __name__ == "__main__":
     test_const_variable()
     test_mixed_const_and_dsl_vars()
     test_const_with_arithmetic()
+    test_const_typed_syntax()
+    test_const_multiple_values()
     test_dsl_var_in_kernel()
     test_multiple_reassignments()
     

@@ -34,6 +34,11 @@ def to_ir_value(val: Any) -> Value:
         return val
     if isinstance(val, str):
         return val
+    
+    # Unwrap _ConstValue
+    from .dsl_types import _ConstValue
+    if isinstance(val, _ConstValue):
+        val = val.value
 
     typ = value_to_type(val)
     if typ is None:
@@ -57,15 +62,20 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
     # Check if both operands are constants - if so, do host-side computation
     from .ir import ConstantValue
-    left_is_const = isinstance(left, ConstantValue) or left is None or isinstance(left, (bool, int, float, str))
-    right_is_const = isinstance(right, ConstantValue) or right is None or isinstance(right, (bool, int, float, str))
+    from .dsl_types import _ConstValue
+    left_is_const = isinstance(left, (ConstantValue, _ConstValue)) or left is None or isinstance(left, (bool, int, float, str))
+    right_is_const = isinstance(right, (ConstantValue, _ConstValue)) or right is None or isinstance(right, (bool, int, float, str))
     
     # If both are constants, do host-side computation
     if left_is_const and right_is_const:
-        # Extract Python values from ConstantValue
+        # Extract Python values from ConstantValue or _ConstValue
         if isinstance(left, ConstantValue):
             left = left.value
+        elif isinstance(left, _ConstValue):
+            left = left.value
         if isinstance(right, ConstantValue):
+            right = right.value
+        elif isinstance(right, _ConstValue):
             right = right.value
         
         if isinstance(op, ast.Add):

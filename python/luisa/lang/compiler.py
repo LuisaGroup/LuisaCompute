@@ -375,16 +375,28 @@ class ASTRewriter(ast.NodeTransformer):
         return node  # Store handled in visit_Assign
 
     def _is_const_call(self, node: ast.expr) -> bool:
-        """Check if a node is a call to const()."""
+        """Check if a node is a call to static() or Const[Type](value) or Const(value)."""
         if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id == 'const':
+            # Direct static() call
+            if isinstance(node.func, ast.Name) and node.func.id == 'static':
                 return True
+            # Const(value) call
+            if isinstance(node.func, ast.Name) and node.func.id == 'Const':
+                return True
+            # Const[Type](value) call
+            if isinstance(node.func, ast.Subscript):
+                if isinstance(node.func.value, ast.Name) and node.func.value.id == 'Const':
+                    return True
         return False
 
     def _extract_const_value(self, node: ast.expr) -> ast.expr:
-        """Extract the value from const(x) -> x."""
-        if isinstance(node, ast.Call) and len(node.args) == 1:
-            return node.args[0]
+        """Extract the value from static(x) or Const(x) -> x."""
+        if isinstance(node, ast.Call):
+            if len(node.args) == 1:
+                return node.args[0]
+            elif len(node.args) > 1:
+                # Multiple args - return tuple
+                return ast.Tuple(elts=list(node.args), ctx=ast.Load())
         return node
 
     def _is_dsl_value(self, node: ast.expr) -> bool:

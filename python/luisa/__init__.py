@@ -53,8 +53,8 @@ from .lang.router import (
     VectorValue
 )
 
-# Export const marker
-from .lang.const_marker import const
+# Export Const, static, and Shared
+from .lang.dsl_types import Const, static, Shared, is_const_value as _is_const_value
 
 # Export codegen utilities
 from .codegen.pretty_printer import pprint
@@ -101,8 +101,11 @@ __all__ = [
     # Router utilities
     "router", "RoutedFunction", "is_constant_value", "extract_constant_value", "VectorValue",
     
-    # Const marker
-    "const",
+    # Compile-time constants
+    "Const", "static",
+    
+    # Shared memory
+    "Shared",
     
     # Builtins
 ]
