@@ -22,6 +22,7 @@ on_load(function(target)
     target:add("deps", "lc-volk")
     if target:is_plat("macosx") then
         target:add("files", rela("../common/moltenvk_surface.mm"))
+        target:add("frameworks", "Foundation", "Metal", "QuartzCore", "AppKit")
     end
     if has_config("lc_vk_cuda_interop") then
         target:add("defines", "LUISA_VULKAN_ENABLE_CUDA_INTEROP")

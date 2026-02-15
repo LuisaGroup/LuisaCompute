@@ -12,9 +12,10 @@ _config_project({
     project_kind = "shared",
     batch_size = 0
 })
-add_deps("lc-runtime", "lc-backend-metal-builtin")
+add_deps("lc-runtime")
 add_headerfiles("*.h")
 add_files("*.mm")
+add_files("metal_builtin/*.metal", "metal-tex-compress/*.patched.metal", {rules = "utils.bin2obj"})
 
 on_load(function(target)
     local src_path = os.scriptdir()

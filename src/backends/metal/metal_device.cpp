@@ -68,7 +68,7 @@ MetalDevice::MetalDevice(Context &&ctx, const DeviceConfig *config) noexcept
 
     // TODO: load built-in kernels
     auto builtin_kernel_source = NS::String::alloc()->init(
-        const_cast<char *>(luisa_compute_metal_builtin_kernels),
+        const_cast<void *>(static_cast<const void *>(luisa_compute_metal_builtin_kernels)),
         luisa_compute_metal_builtin_kernels_size,
         NS::UTF8StringEncoding, false);
     auto compile_options = MTL::CompileOptions::alloc()->init();

@@ -23,7 +23,7 @@ void *cocoa_window_content_view(uint64_t window_handle) noexcept {
         view.layer = layer;
         view.wantsLayer = YES;
         view.layer.contentsScale = view.window.backingScaleFactor;
-        return view;
+        return (__bridge void *)view;
     }
 }
 

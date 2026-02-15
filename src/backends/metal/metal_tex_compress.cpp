@@ -12,7 +12,22 @@ namespace luisa::compute::metal {
 
 namespace {
 
+#ifdef LUISA_BIN_2_OBJ
+#define LUISA_METAL_TEX_COMPRESS_DECL(name)             \
+    extern "C" const uint8_t _binary_##name##_patched_metal_start[]; \
+    extern "C" const uint8_t _binary_##name##_patched_metal_end[];
+
+LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_EncodeBlockCS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_TryModeG10CS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC6HEncode_TryModeLE10CS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_EncodeBlockCS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode02CS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode137CS)
+LUISA_METAL_TEX_COMPRESS_DECL(BC7Encode_TryMode456CS)
+#undef LUISA_METAL_TEX_COMPRESS_DECL
+#else
 #include "metal_tex_compress_embedded.h"
+#endif
 
 constexpr auto metal_texture_compress_thread_group_size = 64u;
 constexpr auto metal_texture_compress_format_bc6h_uf16 = 95u;
@@ -95,9 +110,15 @@ MetalTexCompressExt::MetalTexCompressExt(MetalDevice *device) noexcept : _device
         LUISA_ASSERT(pipeline, "Failed to create texture compression pipeline.");
         return pipeline;
     };
+#ifdef LUISA_BIN_2_OBJ
+#define LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(name)                              \
+    luisa::string_view{reinterpret_cast<const char *>(_binary_##name##_patched_metal_start), \
+                       static_cast<size_t>(_binary_##name##_patched_metal_end - _binary_##name##_patched_metal_start)}
+#else
 #define LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(name)                    \
     luisa::string_view{luisa_compute_metal_texture_compress_##name##_patched, \
                        luisa_compute_metal_texture_compress_##name##_patched_size}
+#endif
     _bc7_encode_try_mode_456 = compile_shader("TryMode456CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode456CS));
     _bc7_encode_try_mode_137 = compile_shader("TryMode137CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode137CS));
     _bc7_encode_try_mode_02 = compile_shader("TryMode02CS", LUISA_COMPUTE_METAL_TEX_COMPRESS_SOURCE_VIEW(BC7Encode_TryMode02CS));
