@@ -364,21 +364,21 @@ Float = Scalar.Float()
 Double = Scalar.Double()
 
 # Vector types
-Bool2, Bool3, Bool4 = Vector(Bool, 2), Vector(Bool, 3), Vector(Bool, 4)
-Short2, Short3, Short4 = Vector(Short, 2), Vector(Short, 3), Vector(Short, 4)
-UShort2, UShort3, UShort4 = Vector(UShort, 2), Vector(UShort, 3), Vector(UShort, 4)
-Int2, Int3, Int4 = Vector(Int, 2), Vector(Int, 3), Vector(Int, 4)
-UInt2, UInt3, UInt4 = Vector(UInt, 2), Vector(UInt, 3), Vector(UInt, 4)
-Long2, Long3, Long4 = Vector(Long, 2), Vector(Long, 3), Vector(Long, 4)
-ULong2, ULong3, ULong4 = Vector(ULong, 2), Vector(ULong, 3), Vector(ULong, 4)
-Half2, Half3, Half4 = Vector(Half, 2), Vector(Half, 3), Vector(Half, 4)
-Float2, Float3, Float4 = Vector(Float, 2), Vector(Float, 3), Vector(Float, 4)
-Double2, Double3, Double4 = Vector(Double, 2), Vector(Double, 3), Vector(Double, 4)
+Bool2, Bool3, Bool4 = Vector[Bool, 2], Vector[Bool, 3], Vector[Bool, 4]
+Short2, Short3, Short4 = Vector[Short, 2], Vector[Short, 3], Vector[Short, 4]
+UShort2, UShort3, UShort4 = Vector[UShort, 2], Vector[UShort, 3], Vector[UShort, 4]
+Int2, Int3, Int4 = Vector[Int, 2], Vector[Int, 3], Vector[Int, 4]
+UInt2, UInt3, UInt4 = Vector[UInt, 2], Vector[UInt, 3], Vector[UInt, 4]
+Long2, Long3, Long4 = Vector[Long, 2], Vector[Long, 3], Vector[Long, 4]
+ULong2, ULong3, ULong4 = Vector[ULong, 2], Vector[ULong, 3], Vector[ULong, 4]
+Half2, Half3, Half4 = Vector[Half, 2], Vector[Half, 3], Vector[Half, 4]
+Float2, Float3, Float4 = Vector[Float, 2], Vector[Float, 3], Vector[Float, 4]
+Double2, Double3, Double4 = Vector[Double, 2], Vector[Double, 3], Vector[Double, 4]
 
 # Matrix types
-Float2x2, Float3x3, Float4x4 = Matrix(Float, 2), Matrix(Float, 3), Matrix(Float, 4)
-Double2x2, Double3x3, Double4x4 = Matrix(Double, 2), Matrix(Double, 3), Matrix(Double, 4)
-Half2x2, Half3x3, Half4x4 = Matrix(Half, 2), Matrix(Half, 3), Matrix(Half, 4)
+Float2x2, Float3x3, Float4x4 = Matrix[Float, 2], Matrix[Float, 3], Matrix[Float, 4]
+Double2x2, Double3x3, Double4x4 = Matrix[Double, 2], Matrix[Double, 3], Matrix[Double, 4]
+Half2x2, Half3x3, Half4x4 = Matrix[Half, 2], Matrix[Half, 3], Matrix[Half, 4]
 
 
 # ============================================================================
@@ -390,7 +390,7 @@ def get_element_type(t: Type) -> Type:
     if isinstance(t, Vector):
         return t.element
     elif isinstance(t, Matrix):
-        return Vector(t.element, t.size)
+        return Vector[t.element, t.size]
     elif isinstance(t, Array):
         return t.element
     else:
@@ -431,7 +431,7 @@ def get_alignment(t: Type) -> int:
         return (2 if t.size == 2 else 4) * base
     if isinstance(t, Matrix):
         # Alignment of a matrix is the alignment of its columns
-        return get_alignment(Vector(t.element, t.size))
+        return get_alignment(Vector[t.element, t.size])
     if isinstance(t, Array):
         return get_alignment(t.element)
     if isinstance(t, Struct):
@@ -525,7 +525,7 @@ def promote_types(t1: Type, t2: Type) -> Type:
             raise TypeError(f"Cannot promote vectors of different sizes: {t1} and {t2}")
         # Promote element types
         promoted = promote_types(t1.element, t2.element)
-        return Vector(promoted, t1.size)
+        return Vector[promoted, t1.size]
 
     # Both scalars - use type precedence
     if isinstance(t1, Scalar) and isinstance(t2, Scalar):
