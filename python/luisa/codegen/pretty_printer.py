@@ -96,23 +96,10 @@ class PrettyPrinter:
         # In structured IR, we only need to print the entry block
         # Nested blocks are printed as part of structured instructions
         if func.blocks:
-            self._print_block(func.blocks[0])
+            self._print_block_inline(func.blocks[0])
 
         self._decrease_indent()
         self._write_line('}')
-
-    def _print_block(self, block: BasicBlock) -> None:
-        """Print a basic block."""
-        self._write_line(f"{block.name}:")
-        self._increase_indent()
-
-        for inst in block.instructions:
-            self._print_instruction(inst)
-
-        if not block.instructions:
-            self._write_line('(empty)')
-
-        self._decrease_indent()
 
     def _print_instruction(self, inst: Instruction) -> None:
         """Print an instruction."""

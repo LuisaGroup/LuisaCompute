@@ -121,7 +121,6 @@ def test_pprint_basic():
     print(output)
 
     assert 'f32 simple_func(f32 arg0)' in output
-    assert 'entry:' in output
     assert 'return arg0' in output
 
     print("✓ pprint basic works")
@@ -184,7 +183,7 @@ def test_pprint_control_flow():
     print(output)
 
     assert 'f32 if_func(f32 arg0)' in output
-    assert 'if_true' in output or 'entry' in output
+    assert 'if_true' in output or 'if (' in output
 
     print("✓ pprint control flow works")
     print("=" * 60)
