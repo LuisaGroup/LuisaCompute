@@ -12,7 +12,17 @@ from dataclasses import dataclass
 from enum import Enum, auto
 
 if TYPE_CHECKING:
-    pass
+    from .ir import Op
+
+# Runtime import for Vector.__call__
+_ir_module = None
+
+def _get_ir_op():
+    """Lazy import of Op to avoid circular imports."""
+    global _ir_module
+    if _ir_module is None:
+        from . import ir as _ir_module
+    return _ir_module.Op
 
 
 class ScalarType(Enum):
@@ -161,6 +171,55 @@ class Vector(Type):
         if not isinstance(item, tuple) or len(item) != 2:
             raise TypeError("Vector requires [type, size]")
         return cls(element=item[0], size=item[1])
+    
+    def __call__(self, *components):
+        """
+        Construct a vector value from components.
+        
+        Supports:
+            Float3(1.0, 2.0, 3.0)  # 3 components
+            Float3(1.0)            # All components set to 1.0
+            Float3(x, y, z)        # From DSL values
+        
+        Returns:
+            - A tuple of constants for constant folding (if all args are constants)
+            - An IR Value for DSL construction (if any arg is a DSL value)
+        """
+        from .ir import Value, ConstantValue
+        from .builder import get_current_builder
+        Op = _get_ir_op()
+        
+        # If called with a single argument, replicate it for all components
+        if len(components) == 1:
+            val = components[0]
+            # Check if it's a DSL value
+            if isinstance(val, Value):
+                # Emit vector construction in IR
+                builder = get_current_builder()
+                # For now, emit as a composite or broadcast
+                # This would need proper IR support for vector construction
+                return builder._emit(Op.CALL_BUILTIN, self, [f"make_vector_{self.size}", *components])
+            # Single constant - replicate to all components
+            components = (val,) * self.size
+        
+        # Check if all components are constants
+        if all(not isinstance(c, Value) for c in components):
+            # Convert all to the element type
+            converted = []
+            for c in components:
+                if isinstance(c, ConstantValue):
+                    converted.append(c.value)
+                else:
+                    converted.append(c)
+            
+            # Return as a tuple for constant folding
+            # The tuple will be converted to IR ConstantValue when needed
+            return tuple(converted[:self.size])
+        
+        # Some components are DSL values - emit IR
+        builder = get_current_builder()
+        # TODO: Emit proper vector construction IR
+        return builder._emit(Op.CALL_BUILTIN, self, [f"make_vector_{self.size}", *components])
 
 
 @dataclass(frozen=True)

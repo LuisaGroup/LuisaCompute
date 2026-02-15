@@ -50,7 +50,7 @@ from .lang.builtin import *
 from .lang.router import (
     router, RoutedFunction, 
     is_constant_value, extract_constant_value,
-    VectorValue
+    is_vector_constant, extract_vector_components
 )
 
 # Export Const, static, and Shared
@@ -99,7 +99,8 @@ __all__ = [
     "pprint", "serialize_function", "serialize_module",
     
     # Router utilities
-    "router", "RoutedFunction", "is_constant_value", "extract_constant_value", "VectorValue",
+    "router", "RoutedFunction", "is_constant_value", "extract_constant_value",
+    "is_vector_constant", "extract_vector_components",
     
     # Compile-time constants
     "Const", "static",

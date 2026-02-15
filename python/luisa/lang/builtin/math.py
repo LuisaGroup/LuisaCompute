@@ -4,11 +4,12 @@ Math builtin functions for the LuisaCompute Python DSL v2.
 These functions use the @router decorator to support:
 1. Constant folding: sin(1.0 + 2.0) -> constant sin(3.0)
 2. Device routing: sin(dsl_var) -> device-side SIN instruction
+3. Vector constant folding: normalize(VectorValue(...)) -> VectorValue
 """
 
 from __future__ import annotations
 import math
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Tuple
 
 if TYPE_CHECKING:
     from ..ir import Value, InstructionValue
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 from ..ir import Op, ConstantValue
 from ..builder import get_current_builder
 from ..type import Float, value_to_type, promote_types
-from ..router import router, RoutedFunction, is_constant_value, extract_constant_value
+from ..router import router, RoutedFunction, is_constant_value, extract_constant_value, is_vector_constant, extract_vector_components
 
 
 # ============================================================================
@@ -44,6 +45,84 @@ _round_host = round  # Python built-in round
 _trunc_host = lambda x: int(x) if x >= 0 else int(x) - 1 if x != int(x) else int(x)
 _fract_host = lambda x: x - math.floor(x)
 _saturate_host = lambda x: max(0.0, min(1.0, x))
+
+
+# ============================================================================
+# Vector Host Implementations for Constant Folding (using tuples)
+# ============================================================================
+
+def _normalize_host(v):
+    """Host normalize for vector constants (tuple)."""
+    if isinstance(v, (list, tuple)):
+        # Compute length
+        length_sq = sum(c * c for c in v)
+        length = math.sqrt(length_sq)
+        if length == 0:
+            # Return zero vector for zero-length input
+            return tuple([0.0] * len(v))
+        # Normalize components
+        return tuple(c / length for c in v)
+    raise TypeError(f"normalize() constant folding only supports tuples, got {type(v)}")
+
+
+def _length_host(v):
+    """Host length for vector constants (tuple)."""
+    if isinstance(v, (list, tuple)):
+        length_sq = sum(c * c for c in v)
+        return math.sqrt(length_sq)
+    raise TypeError(f"length() constant folding only supports tuples, got {type(v)}")
+
+
+def _length_squared_host(v):
+    """Host length_squared for vector constants (tuple)."""
+    if isinstance(v, (list, tuple)):
+        return sum(c * c for c in v)
+    raise TypeError(f"length_squared() constant folding only supports tuples, got {type(v)}")
+
+
+def _dot_host(a, b):
+    """Host dot product for vector constants (tuple)."""
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        if len(a) != len(b):
+            raise ValueError(f"Vector sizes must match for dot product: {len(a)} vs {len(b)}")
+        return sum(ac * bc for ac, bc in zip(a, b))
+    raise TypeError(f"dot() constant folding only supports tuples, got {type(a)}, {type(b)}")
+
+
+def _cross_host(a, b):
+    """Host cross product for vector constants (3D only)."""
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        if len(a) != 3 or len(b) != 3:
+            raise ValueError(f"Cross product requires 3D vectors, got {len(a)} and {len(b)}")
+        ax, ay, az = a
+        bx, by, bz = b
+        return (ay * bz - az * by,
+                az * bx - ax * bz,
+                ax * by - ay * bx)
+    raise TypeError(f"cross() constant folding only supports tuples, got {type(a)}, {type(b)}")
+
+
+def _distance_host(a, b):
+    """Host distance for vector constants (tuple)."""
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        if len(a) != len(b):
+            raise ValueError(f"Vector sizes must match for distance: {len(a)} vs {len(b)}")
+        diff_sq = sum((ac - bc) ** 2 for ac, bc in zip(a, b))
+        return math.sqrt(diff_sq)
+    raise TypeError(f"distance() constant folding only supports tuples, got {type(a)}, {type(b)}")
+
+
+def _reflect_host(i, n):
+    """Host reflect for vector constants (tuple)."""
+    if isinstance(i, (list, tuple)) and isinstance(n, (list, tuple)):
+        if len(i) != len(n):
+            raise ValueError(f"Vector sizes must match for reflect: {len(i)} vs {len(n)}")
+        # r = i - 2 * dot(n, i) * n
+        dot_ni = sum(nc * ic for nc, ic in zip(n, i))
+        factor = 2.0 * dot_ni
+        result = tuple(ic - factor * nc for ic, nc in zip(i, n))
+        return result
+    raise TypeError(f"reflect() constant folding only supports tuples, got {type(i)}, {type(n)}")
 
 
 import builtins
@@ -213,52 +292,95 @@ def saturate(x):
 
 
 # ============================================================================
-# Vector Math Functions (cannot constant fold without VectorValue support)
+# Vector Math Functions with Constant Folding
 # ============================================================================
 
+def _normalize_device_wrapper(builder, x):
+    """Device-side wrapper for normalize."""
+    return builder._emit(Op.NORMALIZE, x.type, [x])
+
+
+@router(host_impl=_normalize_host, device_wrapper=_normalize_device_wrapper)
 def normalize(x):
     """Normalize vector."""
-    return get_current_builder()._emit(Op.NORMALIZE, x.type, [x])
+    pass
 
 
+def _length_device_wrapper(builder, x):
+    """Device-side wrapper for length."""
+    return builder._emit(Op.LENGTH, Float, [x])
+
+
+@router(host_impl=_length_host, device_wrapper=_length_device_wrapper)
 def length(x):
     """Compute vector length."""
-    # Length returns scalar
-    return get_current_builder()._emit(Op.LENGTH, Float, [x])
+    pass
 
 
+def _length_squared_device_wrapper(builder, x):
+    """Device-side wrapper for length_squared."""
+    return builder._emit(Op.LENGTH_SQUARED, Float, [x])
+
+
+@router(host_impl=_length_squared_host, device_wrapper=_length_squared_device_wrapper)
 def length_squared(x):
     """Compute squared vector length."""
-    return get_current_builder()._emit(Op.LENGTH_SQUARED, Float, [x])
+    pass
 
 
+def _dot_device_wrapper(builder, a, b):
+    """Device-side wrapper for dot."""
+    return builder._emit(Op.DOT, Float, [a, b])
+
+
+@router(host_impl=_dot_host, device_wrapper=_dot_device_wrapper)
 def dot(a, b):
     """Compute dot product."""
-    return get_current_builder()._emit(Op.DOT, Float, [a, b])
+    pass
 
 
+def _cross_device_wrapper(builder, a, b):
+    """Device-side wrapper for cross."""
+    return builder._emit(Op.CROSS, a.type, [a, b])
+
+
+@router(host_impl=_cross_host, device_wrapper=_cross_device_wrapper)
 def cross(a, b):
     """Compute cross product (3D vectors only)."""
-    return get_current_builder()._emit(Op.CROSS, a.type, [a, b])
+    pass
 
 
+def _distance_device_wrapper(builder, a, b):
+    """Device-side wrapper for distance."""
+    return builder._emit(Op.DISTANCE, Float, [a, b])
+
+
+@router(host_impl=_distance_host, device_wrapper=_distance_device_wrapper)
 def distance(a, b):
     """Compute distance between two points."""
-    return get_current_builder()._emit(Op.DISTANCE, Float, [a, b])
+    pass
 
 
+def _reflect_device_wrapper(builder, i, n):
+    """Device-side wrapper for reflect."""
+    return builder._emit(Op.REFLECT, i.type, [i, n])
+
+
+@router(host_impl=_reflect_host, device_wrapper=_reflect_device_wrapper)
 def reflect(i, n):
     """Reflect vector."""
-    return get_current_builder()._emit(Op.REFLECT, i.type, [i, n])
+    pass
 
 
 def refract(i, n, eta):
     """Refract vector."""
+    # Complex to implement host-side, keep device-only for now
     return get_current_builder()._emit(Op.REFRACT, i.type, [i, n, eta])
 
 
 def faceforward(n, i, ng):
     """Face forward."""
+    # Complex to implement host-side, keep device-only for now
     return get_current_builder()._emit(Op.FACEFORWARD, n.type, [n, i, ng])
 
 

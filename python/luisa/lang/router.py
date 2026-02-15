@@ -44,6 +44,7 @@ def is_constant_value(val: Any) -> bool:
         return True
     if isinstance(val, (bool, int, float)):
         return True
+    # Tuples/lists of constants are also constants (for vectors)
     if isinstance(val, (list, tuple)):
         return all(is_constant_value(v) for v in val)
     return False
@@ -55,6 +56,7 @@ def extract_constant_value(val: Any) -> Any:
         return val.value
     if isinstance(val, (bool, int, float, type(None))):
         return val
+    # Tuples/lists are passed through for vector constants
     if isinstance(val, (list, tuple)):
         return type(val)(extract_constant_value(v) for v in val)
     raise ValueError(f"Cannot extract constant value from {type(val)}")
@@ -69,100 +71,50 @@ def get_constant_type(val: Any) -> Optional[Type]:
 
 
 # ============================================================================
-# Vector Value for Constant Folding
+# Vector Constant Helpers
 # ============================================================================
 
-class VectorValue:
+def is_vector_constant(val: Any) -> bool:
+    """Check if a value is a constant vector (tuple of constants)."""
+    if isinstance(val, (list, tuple)) and len(val) in (2, 3, 4):
+        return all(is_constant_value(v) for v in val)
+    return False
+
+
+def extract_vector_components(val: Any) -> tuple:
+    """Extract components from a vector constant."""
+    if isinstance(val, (list, tuple)):
+        return tuple(extract_constant_value(v) for v in val)
+    raise ValueError(f"Cannot extract vector components from {type(val)}")
+
+
+def vector_swizzle(components: tuple, pattern: str) -> Union[tuple, float]:
     """
-    A compile-time vector value that supports constant folding.
+    Perform swizzle operation on a vector constant.
     
-    This class wraps a tuple of constant values and provides
-    swizzling and other vector operations at compile time.
+    Args:
+        components: Tuple of vector components
+        pattern: Swizzle pattern like 'x', 'xy', 'xyz', 'xyzw', 'rgba'
+    
+    Returns:
+        Scalar value for single-component patterns,
+        Tuple for multi-component patterns
     """
+    # Map component names to indices
+    component_map = {'x': 0, 'y': 1, 'z': 2, 'w': 3,
+                     'r': 0, 'g': 1, 'b': 2, 'a': 3}
     
-    def __init__(self, element_type: Scalar, *components: float):
-        self.element_type = element_type
-        self.components = tuple(components)
-        self.size = len(components)
-        
-        # Validate size
-        if self.size not in (2, 3, 4):
-            raise ValueError(f"Vector must have 2, 3, or 4 components, got {self.size}")
+    result_components = []
+    for ch in pattern:
+        idx = component_map.get(ch)
+        if idx is None or idx >= len(components):
+            raise ValueError(f"Invalid swizzle pattern '{pattern}' for vector of size {len(components)}")
+        result_components.append(components[idx])
     
-    def __repr__(self) -> str:
-        comp_str = ", ".join(str(c) for c in self.components)
-        return f"VectorValue({self.element_type}, {comp_str})"
+    if len(result_components) == 1:
+        return result_components[0]
     
-    def __getitem__(self, index: int) -> float:
-        """Get a component by index."""
-        return self.components[index]
-    
-    def __len__(self) -> int:
-        return self.size
-    
-    def swizzle(self, pattern: str) -> Union[VectorValue, float]:
-        """
-        Perform swizzle operation at compile time.
-        
-        Args:
-            pattern: Swizzle pattern like 'x', 'xy', 'xyz', 'xyzw', 'rgba'
-        
-        Returns:
-            Scalar value for single-component patterns,
-            VectorValue for multi-component patterns
-        """
-        # Map component names to indices
-        component_map = {'x': 0, 'y': 1, 'z': 2, 'w': 3,
-                         'r': 0, 'g': 1, 'b': 2, 'a': 3}
-        
-        result_components = []
-        for ch in pattern:
-            idx = component_map.get(ch)
-            if idx is None or idx >= self.size:
-                raise ValueError(f"Invalid swizzle pattern '{pattern}' for vector of size {self.size}")
-            result_components.append(self.components[idx])
-        
-        if len(result_components) == 1:
-            return result_components[0]
-        
-        return VectorValue(self.element_type, *result_components)
-    
-    @property
-    def x(self) -> float:
-        return self.components[0]
-    
-    @property
-    def y(self) -> float:
-        return self.components[1]
-    
-    @property
-    def z(self) -> float:
-        if self.size < 3:
-            raise AttributeError(f"Vector of size {self.size} has no 'z' component")
-        return self.components[2]
-    
-    @property
-    def w(self) -> float:
-        if self.size < 4:
-            raise AttributeError(f"Vector of size {self.size} has no 'w' component")
-        return self.components[3]
-    
-    @property
-    def xy(self) -> VectorValue:
-        return self.swizzle('xy')
-    
-    @property
-    def xyz(self) -> VectorValue:
-        return self.swizzle('xyz')
-    
-    def to_ir_value(self, builder=None) -> ConstantValue:
-        """Convert to IR ConstantValue."""
-        if builder is None:
-            builder = get_current_builder()
-        
-        from .type import Vector
-        vec_type = Vector(self.element_type, self.size)
-        return builder.constant(vec_type, self.components)
+    return tuple(result_components)
 
 
 # ============================================================================
@@ -245,8 +197,20 @@ class RoutedFunction:
     
     def _wrap_host_result(self, result: Any) -> Any:
         """Wrap a Python result value in the appropriate DSL value."""
-        if isinstance(result, VectorValue):
-            return result
+        # Handle tuple of constants (for vector results or multiple return values)
+        if isinstance(result, tuple):
+            # If it's a small tuple (2-4 elements), it might be a vector
+            if len(result) in (2, 3, 4):
+                # Check if all elements are numeric constants
+                if all(isinstance(r, (int, float)) for r in result):
+                    # Return as tuple for vector constant
+                    return result
+            # Otherwise wrap each element
+            return tuple(self._wrap_host_result(r) for r in result)
+        
+        # Handle list (convert to tuple for consistency)
+        if isinstance(result, list):
+            return self._wrap_host_result(tuple(result))
         
         # Determine result type
         result_type = value_to_type(result)
