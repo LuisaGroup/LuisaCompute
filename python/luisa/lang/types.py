@@ -55,17 +55,10 @@ class Type:
         return builder.cast(arg, self)
 
 
-@dataclass(frozen=True)
-class Ref(Type):
-    """Reference type (e.g., for mutable function arguments)."""
-    element: Type
-    
-    def __repr__(self) -> str:
-        return f"ref<{self.element}>"
-    
+class Ref:
+    """Reference type marker (e.g., for mutable function arguments)."""
     def __class_getitem__(cls, item):
-        """Support Ref[float32] syntax."""
-        return cls(element=item)
+        return cls
 
 
 @dataclass(frozen=True)
@@ -307,7 +300,7 @@ class Void(Type):
 AnyType = Union[
     Scalar, Vector, Matrix, Array, Struct,
     Buffer, Texture2D, Texture3D, BindlessArray,
-    Accel, RayQuery, Callable, Void, Ref
+    Accel, RayQuery, Callable, Void
 ]
 
 

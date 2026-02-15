@@ -135,6 +135,67 @@ def test_python_match_to_switch():
     print("✓ Python match translated to IR SWITCH")
     print("="*60)
 
+def test_nested_polymorphic_callables():
+    """Test defining polymorphic callables nested inside a kernel."""
+    print("\n" + "="*60)
+    print("Test: Nested Polymorphic Callables")
+    print("="*60)
+
+    @kernel
+    def nested_dispatch_kernel(buf: Buffer[float32], tags: Buffer[int32]):
+        idx = dispatch_id().x
+        tag = tags[idx]
+
+        @callable
+        def add_one(x: float32) -> float32:
+            return x + 1.0
+            
+        @callable
+        def multiply_two(x: float32) -> float32:
+            return x * 2.0
+            
+        @callable
+        def square(x: float32) -> float32:
+            return x * x
+
+        # Simple dispatch logic using host-side loop
+        val = buf[idx]
+        from luisa.lang.builtins.math import _get_builder
+        builder = _get_builder()
+        
+        sw = builder.switch(tag)
+        impls = [add_one, multiply_two, square]
+        for i, impl in enumerate(impls):
+            with sw.case_scope(i):
+                # Ensure it's compiled for the argument types
+                arg_types = (val.type,)
+                if arg_types not in impl._cache:
+                    impl(val)
+                # Call it as an IR call using the compiled IRFunction
+                res = builder.call(impl._cache[arg_types], [val])
+                builder.buffer_write(buf, idx, res)
+        
+        with sw.default_scope():
+            pass
+
+    # Build IR
+    ir = nested_dispatch_kernel(None, None)
+    
+    print("\nGenerated IR Summary:")
+    cf = analyze_control_flow(ir)
+    print(f"  Blocks: {cf['blocks']}")
+    print(f"  Switches: {cf['switches']}")
+    
+    # Check if we have a switch
+    assert cf['switches'] == 1
+    
+    print("\nGenerated IR:")
+    print(pprint(ir))
+    
+    print("✓ Nested polymorphic callables built successfully")
+    print("="*60)
+
 if __name__ == "__main__":
     test_multistage_polymorphic_dispatch()
     test_python_match_to_switch()
+    test_nested_polymorphic_callables()

@@ -7,6 +7,7 @@ builder function that generates the equivalent IR.
 
 from __future__ import annotations
 import ast
+import copy
 from typing import Any, Optional
 
 
@@ -27,9 +28,11 @@ class ASTRewriter(ast.NodeTransformer):
         self._in_loop = 0
         self.rt_alias = "__luisa_rt"
         self.ref_vars = set() # Variables that are of Ref type
+        self._is_top_level = True
 
     def rewrite(self, node: ast.AST) -> ast.AST:
         """Entry point for rewriting."""
+        self._is_top_level = True
         return self.visit(node)
 
     def _set_loc(self, node: ast.AST) -> Optional[ast.Expr]:
@@ -65,8 +68,89 @@ class ASTRewriter(ast.NodeTransformer):
             
         return self.generic_visit(node)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.FunctionDef:
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:
         """Rewrite function definition."""
+        is_top = self._is_top_level
+        self._is_top_level = False
+        
+        # If it's a nested function, check if it has Luisa decorators
+        if not is_top:
+            is_staged = False
+            for deco in node.decorator_list:
+                # Simple check for 'callable' or 'kernel' decorators
+                if isinstance(deco, ast.Name) and deco.id in ('callable', 'kernel'):
+                    is_staged = True
+                    break
+                if isinstance(deco, ast.Attribute) and deco.attr in ('callable', 'kernel'):
+                    is_staged = True
+                    break
+                # Handle indexed decorators like callable[int32]
+                if isinstance(deco, ast.Subscript):
+                    if isinstance(deco.value, ast.Name) and deco.value.id in ('callable', 'kernel'):
+                        is_staged = True
+                        break
+                    if isinstance(deco.value, ast.Attribute) and deco.value.attr in ('callable', 'kernel'):
+                        is_staged = True
+                        break
+            
+            if is_staged:
+                # Staged functions are plain Python code that defines DSL functions.
+                # They will be processed by their own StagedFunction instance.
+                # To handle the 'inspect' failure in 'exec', we can pass the source code.
+                
+                source = ast.unparse(node)
+                
+                # Visit decorators
+                original_decorators = node.decorator_list
+                node.decorator_list = [] # Remove decorators from the def statement
+                
+                # We return: 
+                # def f(...): ...
+                # f = deco1(deco2(f), source=source) -- Wait, decorators return StagedFunctionDecorators
+                
+                definition = node
+                value_to_assign = ast.Name(id=node.name, ctx=ast.Load())
+                
+                # We want to apply decorators and then pass source to the final StagedFunctionDecorator.__call__
+                # Actually, @callable returns a StagedFunction.
+                # If we have @callable \n def f(): ...
+                # It becomes f = callable(f, source=source)
+                
+                # For multiple decorators, it's more complex, but usually it's just one.
+                # Let's assume one decorator for now or handle the last one.
+                
+                if original_decorators:
+                    last_deco = original_decorators[0] # The one closest to 'def'
+                    value_to_assign = ast.Call(
+                        func=self.visit(last_deco),
+                        args=[value_to_assign],
+                        keywords=[ast.keyword(arg="source", value=ast.Constant(value=source))]
+                    )
+                    # Apply other decorators if any
+                    for deco in reversed(original_decorators[1:]):
+                        value_to_assign = ast.Call(
+                            func=self.visit(deco),
+                            args=[value_to_assign],
+                            keywords=[]
+                        )
+
+                return [
+                    definition,
+                    ast.Assign(
+                        targets=[ast.Name(id=node.name, ctx=ast.Store())],
+                        value=value_to_assign
+                    )
+                ]
+            
+            # For non-staged nested functions, we treat them as local DSL helpers.
+            # They capture the builder from the parent scope.
+            # We don't change the signature, but we rewrite the body.
+            old_ref_vars = self.ref_vars.copy()
+            new_node = self.generic_visit(node)
+            self.ref_vars = old_ref_vars
+            return new_node
+
+        # Top-level function: mangle for IR building
         # Detect Ref arguments
         for arg in node.args.args:
             # Check if annotation is Ref[...]
@@ -74,7 +158,7 @@ class ASTRewriter(ast.NodeTransformer):
             if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name) and ann.value.id == 'Ref':
                 self.ref_vars.add(arg.arg)
             # Handle from luisa import Ref; a: Ref[i32]
-            elif isinstance(ann, ast.Name) and ann.id == 'Ref': # unlikely to be used like this without subscript
+            elif isinstance(ann, ast.Name) and ann.id == 'Ref':
                 self.ref_vars.add(arg.arg)
 
         # Create a new argument for the builder
@@ -90,6 +174,7 @@ class ASTRewriter(ast.NodeTransformer):
         )
         
         # Rewrite body
+        old_ref_vars = self.ref_vars.copy()
         new_body = []
         for stmt in node.body:
             loc_call = self._set_loc(stmt)
@@ -101,6 +186,7 @@ class ASTRewriter(ast.NodeTransformer):
                 new_body.extend(rewritten)
             else:
                 new_body.append(rewritten)
+        self.ref_vars = old_ref_vars
 
         return ast.FunctionDef(
             name=f"__luisa_built_{node.name}",
@@ -233,17 +319,24 @@ class ASTRewriter(ast.NodeTransformer):
             if isinstance(target, ast.Subscript):
                 return ast.Expr(value=self._rt_call("l_subscript_assign", self.visit(target.value), self.visit(target.slice), self.visit(node.value)))
             
-            if isinstance(target, ast.Name) and target.id in self.ref_vars:
-                # Automatic store for Ref types: builder.store(name, value)
-                return ast.Expr(value=ast.Call(
-                    func=ast.Attribute(
-                        value=ast.Name(id=self.builder_name, ctx=ast.Load()),
-                        attr="store",
-                        ctx=ast.Load()
-                    ),
-                    args=[ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)],
-                    keywords=[]
-                ))
+            if isinstance(target, ast.Name):
+                if target.id in self.ref_vars:
+                    # Automatic store for Ref types: builder.store(name, value)
+                    return ast.Expr(value=ast.Call(
+                        func=ast.Attribute(
+                            value=ast.Name(id=self.builder_name, ctx=ast.Load()),
+                            attr="store",
+                            ctx=ast.Load()
+                        ),
+                        args=[ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)],
+                        keywords=[]
+                    ))
+                else:
+                    # Standard assignment wrapped in l_local_assign
+                    return ast.Assign(
+                        targets=[target],
+                        value=self._rt_call("l_local_assign", ast.Constant(value=target.id), self.visit(node.value))
+                    )
         
         # Standard assignment is fine
         return ast.Assign(

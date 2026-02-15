@@ -357,11 +357,22 @@ class IRFunction:
     ret_type: Optional[Type]
     blocks: list[IRBasicBlock] = field(default_factory=list)
     is_kernel: bool = False
+    arg_is_reference: list[bool] = field(default_factory=list)
     block_size: Optional[tuple[int, int, int]] = None
     loc: Optional[SourceLocation] = None
     
+    def __post_init__(self):
+        if not self.arg_is_reference:
+            self.arg_is_reference = [False] * len(self.arg_types)
+    
     def __repr__(self) -> str:
-        args_str = ", ".join(str(t) for t in self.arg_types)
+        args_strs = []
+        for t, is_ref in zip(self.arg_types, self.arg_is_reference):
+            s = str(t)
+            if is_ref:
+                s = f"ref<{s}>"
+            args_strs.append(s)
+        args_str = ", ".join(args_strs)
         ret_str = str(self.ret_type) if self.ret_type else "void"
         kind = "kernel" if self.is_kernel else "callable"
         lines = [f"{kind} @{self.name}({args_str}) -> {ret_str} {{"]

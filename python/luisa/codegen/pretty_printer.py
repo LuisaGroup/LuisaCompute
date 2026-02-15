@@ -75,8 +75,11 @@ class PrettyPrinter:
         
         # Format arguments: type arg_name
         args_formatted = []
-        for i, t in enumerate(func.arg_types):
-            args_formatted.append(f"{self._type_to_str(t)} arg{i}")
+        for i, (t, is_ref) in enumerate(zip(func.arg_types, func.arg_is_reference)):
+            type_str = self._type_to_str(t)
+            if is_ref:
+                type_str = f"ref<{type_str}>"
+            args_formatted.append(f"{type_str} arg{i}")
         
         kernel_marker = 'kernel ' if func.is_kernel else ''
         block_size = f" /* block_size={func.block_size} */" if func.block_size else ''
@@ -190,45 +193,56 @@ class PrettyPrinter:
         
         from ..lang.types import (
             Scalar, Vector, Matrix, Array, Struct, Buffer,
-            Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void, Ref
+            Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void, ScalarType
         )
-        
-        if isinstance(t, Ref):
-            elem = self._type_to_str(t.element)
-            return f"Ref<{elem}>"
         
         if isinstance(t, Void):
             return 'void'
         
         if isinstance(t, Scalar):
-            return t.dtype.name.lower()
+            mapping = {
+                ScalarType.BOOL: "i1",
+                ScalarType.INT8: "i8",
+                ScalarType.UINT8: "i8",
+                ScalarType.INT16: "i16",
+                ScalarType.UINT16: "i16",
+                ScalarType.INT32: "i32",
+                ScalarType.UINT32: "i32",
+                ScalarType.INT64: "i64",
+                ScalarType.UINT64: "i64",
+                ScalarType.FLOAT16: "f16",
+                ScalarType.FLOAT32: "f32",
+                ScalarType.FLOAT64: "f64",
+            }
+            return mapping.get(t.dtype, t.dtype.name.lower())
         
         if isinstance(t, Vector):
             elem = self._type_to_str(t.element)
-            return f"{elem}{t.size}"
+            return f"<{t.size} x {elem}>"
         
         if isinstance(t, Matrix):
             elem = self._type_to_str(t.element)
-            return f"{elem}{t.size}x{t.size}"
+            return f"[{t.size} x <{t.size} x {elem}>]"
         
         if isinstance(t, Array):
             elem = self._type_to_str(t.element)
-            return f"{elem}[{t.size}]"
+            return f"[{t.size} x {elem}]"
         
         if isinstance(t, Struct):
-            return f"struct {t.name}"
+            field_types = [self._type_to_str(ft) for _, ft in t.fields]
+            return f"{{ {', '.join(field_types)} }}"
         
         if isinstance(t, Buffer):
             elem = self._type_to_str(t.element)
-            return f"Buffer<{elem}>"
+            return f"buffer<{elem}>"
         
         if isinstance(t, Texture2D):
             elem = self._type_to_str(t.element)
-            return f"Texture2D<{elem}>"
+            return f"texture2d<{elem}>"
         
         if isinstance(t, Texture3D):
             elem = self._type_to_str(t.element)
-            return f"Texture3D<{elem}>"
+            return f"texture3d<{elem}>"
         
         if isinstance(t, BindlessArray):
             return "BindlessArray"

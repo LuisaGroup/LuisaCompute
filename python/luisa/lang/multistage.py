@@ -8,6 +8,7 @@ needed for the rewritten AST to generate IR.
 from __future__ import annotations
 import ast
 import sys
+import copy
 from typing import Callable, Optional, Any, TYPE_CHECKING
 from contextlib import contextmanager
 
@@ -114,6 +115,10 @@ def l_compare(builder: IRBuilder, op: ast.cmpop, left: Any, right: Any) -> Any:
         if isinstance(op, ast.LtE): return left <= right
         if isinstance(op, ast.Gt): return left > right
         if isinstance(op, ast.GtE): return left >= right
+        if isinstance(op, ast.Is): return left is right
+        if isinstance(op, ast.IsNot): return left is not right
+        if isinstance(op, ast.In): return left in right
+        if isinstance(op, ast.NotIn): return left not in right
         raise NotImplementedError(f"Unsupported comparison operator: {type(op)}")
 
 def l_boolop(builder: IRBuilder, op: ast.boolop, values: list[Any]) -> Any:
@@ -151,13 +156,29 @@ class StaticIf:
     def __init__(self, cond: bool):
         self.cond = bool(cond)
     
+    def __enter__(self):
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
     @contextmanager
     def true_scope(self):
-        yield self.cond
+        if self.cond:
+            yield self.cond
+        else:
+            # We still need to yield but maybe something that indicates skip?
+            # Actually if we are not in the scope, the body shouldn't run.
+            # But 'with' always runs the body unless __enter__ raises or we use a generator.
+            # StagedFunction uses @contextmanager which handles this.
+            pass
 
     @contextmanager
     def false_scope(self):
-        yield not self.cond
+        if not self.cond:
+            yield not self.cond
+        else:
+            pass
 
 class StaticWhile:
     """Helper for host-side while loop (static evaluation)."""
@@ -318,10 +339,15 @@ def l_subscript_assign(builder: IRBuilder, value: Any, index: Any, rhs: Any) -> 
 
 def l_attribute(builder: IRBuilder, value: Any, attr: str) -> Any:
     if is_ir_value(value):
+        # Allow accessing standard attributes of Value/InstructionValue
+        if attr in ('type', 'typ', 'name', 'instruction'):
+            return getattr(value, attr)
+        
         from .types import Vector
         if isinstance(value.type, Vector):
             return builder.swizzle(value, attr)
         raise AttributeError(f"IR type {value.type} has no attribute {attr}")
+    # Host side
     return getattr(value, attr)
 
 def l_return(builder: IRBuilder, value: Any = None) -> None:
@@ -330,6 +356,13 @@ def l_return(builder: IRBuilder, value: Any = None) -> None:
         builder.return_(val)
     else:
         builder.return_(None)
+
+def l_local_assign(builder: IRBuilder, name: str, value: Any) -> Any:
+    """Helper to store a value in the builder's local namespace."""
+    # This ensures that even if we rewrite an assignment, 
+    # we can still track the name if needed.
+    # For now, it just returns the value so standard Python assignment works.
+    return value
 
 # ============================================================================
 # Specialization
@@ -353,13 +386,20 @@ class StagedFunction:
     
     def __init__(self, func: Callable, is_kernel: bool = False, 
                  parsed: Optional[ParsedFunction] = None,
-                 template_params: Optional[tuple[str, ...]] = None):
+                 template_params: Optional[tuple[str, ...]] = None,
+                 ast_node: Optional[ast.FunctionDef] = None,
+                 source: Optional[str] = None):
         self.pyfunc = func
         self.is_kernel = is_kernel
+        
+        if ast_node is not None:
+            # If AST is provided, we use it (useful for nested functions)
+            func._luisa_ast = ast_node
+            
         if parsed is not None:
             self.parsed = parsed
         else:
-            self.parsed = parse_function(func)
+            self.parsed = parse_function(func, source=source)
         
         self.template_params = template_params or ()
         # Cache for compiled versions (keyed by argument types AND specialization values)
@@ -427,25 +467,28 @@ class StagedFunction:
     
     def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> IRFunction:
         arg_types = []
-        from .types import Ref
+        arg_is_reference = []
         for i, arg in enumerate(args):
             if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
                 ann = self.parsed.arg_annotations[i]
-                if isinstance(ann, Ref):
-                    arg_types.append(ann)
-                else:
-                    # For non-Ref, we might still want to use inferred type if it's more specific?
-                    # No, follow the annotation if present.
-                    arg_types.append(ann)
+                is_ref = self.parsed.arg_is_reference[i]
+                arg_types.append(ann)
+                arg_is_reference.append(is_ref)
             else:
                 arg_types.append(self._get_arg_type(arg))
+                arg_is_reference.append(False)
         arg_types = tuple(arg_types)
         
         cache_key = (arg_types, specialization_values)
         if cache_key in self._cache:
             return self._cache[cache_key]
         
-        builder = IRBuilder(name=self.parsed.name, arg_types=arg_types, ret_type=self.parsed.ret_annotation)
+        builder = IRBuilder(
+            name=self.parsed.name, 
+            arg_types=arg_types, 
+            ret_type=self.parsed.ret_annotation,
+            arg_is_reference=arg_is_reference
+        )
         set_math_builder(builder)
         try:
             # Set initial location
@@ -504,8 +547,11 @@ class StagedFunctionDecorator:
         self.params = tuple(param_names)
         return self
 
-    def __call__(self, func: Callable) -> StagedFunction:
-        return StagedFunction(func, is_kernel=self.is_kernel, template_params=self.params)
+    def __call__(self, func: Callable, ast_node: Optional[ast.FunctionDef] = None, source: Optional[str] = None) -> StagedFunction:
+        # If it's a builtin, we don't stage it
+        if getattr(func, "__module__", None) == "builtins":
+            return func
+        return StagedFunction(func, is_kernel=self.is_kernel, template_params=self.params, ast_node=ast_node, source=source)
 
 
 kernel = StagedFunctionDecorator(is_kernel=True)

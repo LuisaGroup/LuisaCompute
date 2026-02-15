@@ -34,7 +34,8 @@ class IRBuilder:
     """
     
     def __init__(self, name: str, arg_types: tuple[Type, ...], 
-                 ret_type: Optional[Type]):
+                 ret_type: Optional[Type],
+                 arg_is_reference: Optional[list[bool]] = None):
         self.name = name
         self.arg_types = list(arg_types)
         self.ret_type = ret_type
@@ -43,12 +44,11 @@ class IRBuilder:
         self.instruction_counter = 0
         self.local_vars: dict[str, Value] = {}  # name -> Value
         self.arg_values: list[ArgumentValue] = []
+        self.arg_is_reference = arg_is_reference if arg_is_reference else [False] * len(arg_types)
         self.current_loc: Optional[SourceLocation] = None
         
         # Initialize argument values
-        from .types import Ref
-        for i, arg_typ in enumerate(arg_types):
-            is_ref = isinstance(arg_typ, Ref)
+        for i, (arg_typ, is_ref) in enumerate(zip(self.arg_types, self.arg_is_reference)):
             arg_val = ArgumentValue(typ=arg_typ, index=i, is_reference=is_ref)
             self.arg_values.append(arg_val)
     
@@ -312,12 +312,8 @@ class IRBuilder:
     
     def load(self, ptr: Value, typ: Optional[Type] = None) -> InstructionValue:
         """Emit a load instruction."""
-        from .types import Ref
         if typ is None:
-            if isinstance(ptr.type, Ref):
-                typ = ptr.type.element
-            else:
-                typ = ptr.type
+            typ = ptr.type
         return self._emit(IROp.LOAD, typ, [ptr])
     
     def store(self, ptr: Value, value: Value) -> InstructionValue:
@@ -452,5 +448,6 @@ class IRBuilder:
             ret_type=self.ret_type,
             blocks=self.blocks,
             is_kernel=False,  # Set by caller if needed
+            arg_is_reference=self.arg_is_reference,
             loc=self.current_loc
         )
