@@ -11,7 +11,8 @@ from .lang.ir import (
     Instruction, BasicBlock, Function, Module,
 )
 from .lang.builder import Builder, get_current_builder, set_current_builder
-from .lang.multistage import StagedFunction, kernel, callable, static_range, unrolled, UnrolledRange, StaticIf, StaticWhile
+from .lang.multistage import StagedFunction, kernel, callable, static_range, unrolled, UnrolledRange
+from .lang.builtins.runtime import StaticIf, StaticWhile
 from .lang.types import (
     # Base types
     Type, Scalar, Vector, Matrix, Array, Struct,

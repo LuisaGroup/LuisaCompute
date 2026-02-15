@@ -16,7 +16,7 @@ class ASTRewriter(ast.NodeTransformer):
     Transforms Python AST into IR-building code.
     
     Example:
-        a + b  =>  dsl_binop(ast.Add(), a, b)
+        a + b  =>  binop(ast.Add(), a, b)
     """
 
     def __init__(self, file: str = "<unknown>",
@@ -34,10 +34,10 @@ class ASTRewriter(ast.NodeTransformer):
         return self.visit(node)
 
     def _set_loc(self, node: ast.AST) -> Optional[ast.Expr]:
-        """Create a call to dsl_set_location based on node lineno."""
+        """Create a call to set_location based on node lineno."""
         if hasattr(node, 'lineno'):
             return ast.Expr(value=self._rt_call(
-                "dsl_set_location",
+                "set_location",
                 ast.Constant(value=self.file),
                 ast.Constant(value=node.lineno)
             ))
@@ -49,8 +49,8 @@ class ASTRewriter(ast.NodeTransformer):
             return node
 
         if isinstance(node.ctx, ast.Load) and node.id in self.ref_vars:
-            # Automatic load for Ref types: dsl_load(name)
-            return self._rt_call("dsl_load", node)
+            # Automatic load for Ref types: load(name)
+            return self._rt_call("load", node)
 
         return self.generic_visit(node)
 
@@ -195,7 +195,7 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite binary operations."""
         op_name = node.op.__class__.__name__
         return self._rt_call(
-            "dsl_binop",
+            "binop",
             ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
                      args=[], keywords=[]),
             self.visit(node.left),
@@ -206,7 +206,7 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite unary operations."""
         op_name = node.op.__class__.__name__
         return self._rt_call(
-            "dsl_unaryop",
+            "unaryop",
             ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
                      args=[], keywords=[]),
             self.visit(node.operand)
@@ -220,7 +220,7 @@ class ASTRewriter(ast.NodeTransformer):
 
         op_name = node.ops[0].__class__.__name__
         return self._rt_call(
-            "dsl_compare",
+            "compare",
             ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
                      args=[], keywords=[]),
             self.visit(node.left),
@@ -231,7 +231,7 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite boolean operations."""
         op_name = node.op.__class__.__name__
         return self._rt_call(
-            "dsl_boolop",
+            "boolop",
             ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
                      args=[], keywords=[]),
             ast.List(elts=[self.visit(v) for v in node.values], ctx=ast.Load())
@@ -252,7 +252,7 @@ class ASTRewriter(ast.NodeTransformer):
 
         return ast.With(
             items=[ast.withitem(
-                context_expr=self._rt_call("dsl_if",
+                context_expr=self._rt_call("if_",
                                            ast.Lambda(args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[],
                                                                          kw_defaults=[], defaults=[]),
                                                       body=self.visit(node.test))
@@ -282,12 +282,12 @@ class ASTRewriter(ast.NodeTransformer):
     def visit_Return(self, node: ast.Return) -> ast.Expr:
         """Rewrite return statements."""
         val = self.visit(node.value) if node.value else ast.Constant(value=None)
-        return ast.Expr(value=self._rt_call("dsl_return", val))
+        return ast.Expr(value=self._rt_call("return_", val))
 
     def visit_Call(self, node: ast.Call) -> Any:
         """Rewrite function calls."""
         return self._rt_call(
-            "dsl_call",
+            "call",
             self.visit(node.func),
             *([self.visit(a) for a in node.args]),
             # TODO: handle keywords
@@ -296,13 +296,13 @@ class ASTRewriter(ast.NodeTransformer):
     def visit_Subscript(self, node: ast.Subscript) -> Any:
         """Rewrite subscript access."""
         if isinstance(node.ctx, ast.Load):
-            return self._rt_call("dsl_subscript", self.visit(node.value), self.visit(node.slice))
+            return self._rt_call("subscript", self.visit(node.value), self.visit(node.slice))
         return node  # Store handled in visit_Assign
 
     def visit_Attribute(self, node: ast.Attribute) -> Any:
         """Rewrite attribute access."""
         if isinstance(node.ctx, ast.Load):
-            return self._rt_call("dsl_attribute", self.visit(node.value), ast.Constant(value=node.attr))
+            return self._rt_call("attribute", self.visit(node.value), ast.Constant(value=node.attr))
         return node  # Store handled in visit_Assign
 
     def visit_Assign(self, node: ast.Assign) -> Any:
@@ -311,18 +311,18 @@ class ASTRewriter(ast.NodeTransformer):
             target = node.targets[0]
             if isinstance(target, ast.Subscript):
                 return ast.Expr(
-                    value=self._rt_call("dsl_subscript_assign", self.visit(target.value), self.visit(target.slice),
+                    value=self._rt_call("subscript_assign", self.visit(target.value), self.visit(target.slice),
                                         self.visit(node.value)))
 
             if isinstance(target, ast.Name):
                 if target.id in self.ref_vars:
-                    # Automatic store for Ref types: dsl_store(name, value)
-                    return ast.Expr(value=self._rt_call("dsl_store", ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)))
+                    # Automatic store for Ref types: store(name, value)
+                    return ast.Expr(value=self._rt_call("store", ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)))
                 else:
-                    # Standard assignment wrapped in dsl_local_assign
+                    # Standard assignment wrapped in local_assign
                     return ast.Assign(
                         targets=[target],
-                        value=self._rt_call("dsl_local_assign", ast.Constant(value=target.id), self.visit(node.value))
+                        value=self._rt_call("local_assign", ast.Constant(value=target.id), self.visit(node.value))
                     )
 
         # Standard assignment is fine
@@ -348,7 +348,7 @@ class ASTRewriter(ast.NodeTransformer):
                     )
                     return self._rewrite_for_static_range(node)
 
-        # Generic for loop (handles both IR and Host via dsl_for)
+        # Generic for loop (handles both IR and Host via for_)
         loop_var = "__luisa_loop"
         target_name = node.target.id if isinstance(node.target, ast.Name) else "__loop_var"
 
@@ -365,11 +365,11 @@ class ASTRewriter(ast.NodeTransformer):
 
         return ast.For(
             target=ast.Name(id=loop_var, ctx=ast.Store()),
-            iter=self._rt_call("dsl_for", self.visit(node.iter), ast.Constant(value=target_name)),
+            iter=self._rt_call("for_", self.visit(node.iter), ast.Constant(value=target_name)),
             body=[
                 ast.With(
                     items=[ast.withitem(
-                        context_expr=self._rt_call("dsl_loop_scope", ast.Name(id=loop_var, ctx=ast.Load())),
+                        context_expr=self._rt_call("loop_scope", ast.Name(id=loop_var, ctx=ast.Load())),
                         optional_vars=node.target
                     )],
                     body=body
@@ -392,7 +392,7 @@ class ASTRewriter(ast.NodeTransformer):
 
         return ast.For(
             target=node.target,
-            iter=self._rt_call("dsl_call", self.visit(node.iter.func), *[self.visit(a) for a in node.iter.args]),
+            iter=self._rt_call("call", self.visit(node.iter.func), *[self.visit(a) for a in node.iter.args]),
             body=visit_body(node.body),
             orelse=[]
         )
@@ -414,13 +414,13 @@ class ASTRewriter(ast.NodeTransformer):
 
         return ast.For(
             target=ast.Name(id=loop_var, ctx=ast.Store()),
-            iter=self._rt_call("dsl_while", ast.Lambda(
+            iter=self._rt_call("while_", ast.Lambda(
                 args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
                 body=self.visit(node.test))),
             body=[
                 ast.With(
                     items=[ast.withitem(
-                        context_expr=self._rt_call("dsl_while_scope", ast.Name(id=loop_var, ctx=ast.Load())),
+                        context_expr=self._rt_call("while_scope", ast.Name(id=loop_var, ctx=ast.Load())),
                         optional_vars=None
                     )],
                     body=body
@@ -473,7 +473,7 @@ class ASTRewriter(ast.NodeTransformer):
 
         return ast.With(
             items=[ast.withitem(
-                context_expr=self._rt_call("dsl_switch", self.visit(node.subject)),
+                context_expr=self._rt_call("switch", self.visit(node.subject)),
                 optional_vars=ast.Name(id=switch_var, ctx=ast.Store())
             )],
             body=cases
