@@ -10,8 +10,9 @@ This is a new implementation of the LuisaCompute Python DSL that features:
 2.  **Multistage Programming**: Seamlessly mix DSL and host logic to control code generation at runtime.
 3.  **Structured, AST-like IR**: Uses high-level `IF`, `LOOP`, and `SWITCH` operations instead of flat basic blocks with jumps.
 4.  **Complete Type Hinting**: Full support for Python type annotations with static type checking.
-5.  **C-Like Pretty Printing**: Human-readable IR output for debugging (e.g., `if (cond) { ... } else { ... }`).
+5.  **LLVM-Style Pretty Printing**: Human-readable IR output for debugging with LLVM-style type names (e.g., `i32`, `f32`, `<4 x f32>`, `buffer<f32>`).
 6.  **Native `match` Support**: Translates Python's native `match` statement directly to structured `SWITCH` in the IR.
+7.  **Mixed DSL + Python**: Support for nested functions and using standard Python helpers within DSL code.
 
 ## Architecture
 
@@ -21,46 +22,33 @@ The DSL utilizes a sophisticated transformation process:
 
 1.  **Parse (Decoration Time)**: The Python source is parsed into an AST.
 2.  **Rewrite (Decoration Time)**: The AST is rewritten into a "Builder Function" that, when executed, will generate the equivalent Luisa IR.
-3.  **Execute (Call Time)**: When called with specific types, the Builder Function executes. Host-side logic (like `for i in static_range(n)`) is expanded, and DSL operations are recorded into a structured IR tree.
+3.  **Execute (Call Time)**: When called with specific types, the Builder Function executes. Host-side logic (like `for i in range(n)`) is expanded, and DSL operations are recorded into a structured IR tree.
 4.  **CodeGen**: The resulting structured IR can be serialized or pretty-printed.
 
-## Control Flow
+## Features
 
-### Structured Dynamic Flow
-Device-side control flow generated in the final shader:
+### Reference Arguments
+Support for mutable reference arguments using `Ref[T]`:
 
 ```python
 @callable
-def abs_val(x: float32) -> float32:
-    if x >= 0.0:
-        return x
-    else:
-        return -x
+def increment(x: Ref[int32]):
+    x = x + 1
 ```
 
-### Structured Static Flow (Meta-programming)
-Host-side logic that controls what code is generated:
+In the pretty-printed IR, this appears as `ref<i32>`.
+
+### Nested Polymorphic Callables
+Define and call specialized functions within kernels:
 
 ```python
 @kernel
-def polymorphic_kernel(buf: Buffer[float32], mode: int32):
-    # mode is a host-side constant here if passed via capture or logic
-    if StaticIf(mode == 0):
-        buf[0] = 1.0
-    else:
-        buf[0] = 2.0
-```
-
-### Static Loops and Ranges
-Fully unroll loops at generation time:
-
-```python
-@callable
-def sum_elements(buf: Buffer[float32]):
-    total = float32(0.0)
-    for i in static_range(4): # Loop expanded at generation time
-        total += buf[i]
-    return total
+def nested_kernel(tags: Buffer[int32]):
+    @callable
+    def add_one(x: float32) -> float32:
+        return x + 1.0
+    
+    # ... use add_one in a dispatch switch ...
 ```
 
 ## Quick Start
@@ -83,6 +71,23 @@ from luisa import pprint
 print(pprint(ir))
 ```
 
+Example Output:
+```llvm
+kernel void gradient_kernel(buffer<f32> arg0, f32 arg1, f32 arg2) {
+  entry:
+    <3 x i32> t0 = dispatch_id();
+    i32 t1 = swizzle(t0, 'x');
+    f32 t2 = cast(t1);
+    f32 t3 = div(t2, 1024.0);
+    f32 t4 = call('lerp', arg1, arg2, t3);
+    void t5 = buffer_write(arg0, t1, t4);
+}
+```
+
+## Debugging
+
+- **`LUISA_DUMP_REWRITTEN_AST=1`**: Set this environment variable to see the AST transformation performed by the rewriter.
+
 ## Running Tests
 
 ```bash
@@ -95,10 +100,11 @@ pytest
 - ✅ Unified AST Rewriter (`rewriter.py`)
 - ✅ Multistage Runtime Support (`multistage.py`)
 - ✅ Structured IR Nodes (`IF`, `LOOP`, `SWITCH`)
-- ✅ C-style Pretty Printer
+- ✅ LLVM-style Pretty Printer
 - ✅ Python `match` translation
 - ✅ Polymorphic dispatch support
-- ✅ Extensive test suite (135+ tests)
+- ✅ Reference arguments (`Ref[T]`)
+- ✅ Extensive test suite (140+ tests)
 
 ## License
 
