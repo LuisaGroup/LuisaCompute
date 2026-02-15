@@ -154,6 +154,9 @@ def instruction_to_dict(inst: Instruction) -> dict[str, Any]:
     """Convert an Instruction to a dictionary."""
 
     def arg_to_dict(arg):
+        from .transform.ir import Function
+        if isinstance(arg, Function):
+            return {'function': arg.name}
         if hasattr(arg, 'name'):  # BasicBlock
             return {'block': arg.name}
         if hasattr(arg, 'type'):  # Value

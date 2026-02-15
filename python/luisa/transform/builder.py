@@ -397,8 +397,8 @@ class Builder:
 
         # Determine return type
         ret_type = func.ret_type if func.ret_type is not None else None
-        # Include function name as first argument, then actual args
-        call_args = [func.name] + list(args)
+        # Include function object as first argument, then actual args
+        call_args = [func] + list(args)
         return self._emit(Op.CALL, ret_type, call_args)
 
     def cast(self, value: Value, target_typ: Any) -> InstructionValue:

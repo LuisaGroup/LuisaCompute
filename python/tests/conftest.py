@@ -34,7 +34,7 @@ def print_ir():
             print("  Generated IR")
             print(f"{'=' * 60}")
 
-        print(pprint(ir))
+        print(pprint(ir, recursive=True))
         print(f"{'=' * 60}\n")
         return ir
 

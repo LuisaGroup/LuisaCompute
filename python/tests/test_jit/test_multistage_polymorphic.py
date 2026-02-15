@@ -101,7 +101,7 @@ def test_multistage_polymorphic_dispatch():
     assert cf['switches'] == 1
 
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(ir, recursive=True))
 
     print("✓ Multistage polymorphic dispatch built successfully")
     print("=" * 60)
@@ -158,7 +158,7 @@ def test_nested_polymorphic_callables():
     assert cf['switches'] == 1
 
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(ir, recursive=True))
 
     print("✓ Nested polymorphic callables built successfully")
     print("=" * 60)

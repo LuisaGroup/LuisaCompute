@@ -16,10 +16,13 @@ from .lang.types import Type
 class PrettyPrinter:
     """Pretty printer for IR."""
 
-    def __init__(self, indent_size: int = 2):
+    def __init__(self, indent_size: int = 2, recursive: bool = False):
         self.indent_size = indent_size
+        self.recursive = recursive
         self._output = StringIO()
         self._indent_level = 0
+        self._printed_functions: set[str] = set()
+        self._pending_functions: list[Function] = []
 
     def _indent(self) -> str:
         """Get current indentation string."""
@@ -52,6 +55,8 @@ class PrettyPrinter:
         """Print an IR object and return the result."""
         self._output = StringIO()
         self._indent_level = 0
+        self._printed_functions = set()
+        self._pending_functions = []
 
         if isinstance(obj, Function):
             self._print_function(obj)
@@ -59,6 +64,14 @@ class PrettyPrinter:
             self._print_module(obj)
         else:
             raise TypeError(f"Cannot print object of type {type(obj)}")
+
+        # Print any pending functions if recursive
+        if self.recursive:
+            while self._pending_functions:
+                func = self._pending_functions.pop(0)
+                if func.name not in self._printed_functions:
+                    self._write_line()
+                    self._print_function(func)
 
         return self._output.getvalue()
 
@@ -74,6 +87,7 @@ class PrettyPrinter:
 
     def _print_function(self, func: Function) -> None:
         """Print an IR function."""
+        self._printed_functions.add(func.name)
         # Function signature
         ret_type = str(func.ret_type) if func.ret_type else 'void'
 
@@ -154,6 +168,12 @@ class PrettyPrinter:
         elif inst.op == Op.CONTINUE:
             self._write_line("continue;")
         else:
+            # Queue called functions if recursive
+            if self.recursive and inst.op == Op.CALL:
+                func = inst.args[0]
+                if isinstance(func, Function) and func.name not in self._printed_functions:
+                    self._pending_functions.append(func)
+
             args_str = self._args_to_str(inst.args)
             if inst.result and inst.type is not None:
                 self._write_line(f"{type_str} {inst.result} = {op_str}({args_str});{loc_str}")
@@ -176,6 +196,8 @@ class PrettyPrinter:
 
     def _arg_to_str(self, arg: Any) -> str:
         """Convert a single argument to string."""
+        if isinstance(arg, Function):
+            return f"@{arg.name}"
         if hasattr(arg, 'name') and hasattr(arg, 'instructions'):
             # BasicBlock
             return f"{arg.name}"
@@ -243,27 +265,33 @@ class SimplePrinter:
 
 
 # Convenience functions
-def pprint(obj: Function | Module, indent_size: int = 2) -> str:
+def pprint(obj: Function | Module, indent_size: int = 2, recursive: bool = False) -> str:
     """
     Pretty print an IR object.
     
     Args:
         obj: The IR function or module to print
         indent_size: Number of spaces per indentation level
+        recursive: Whether to recursively print called functions
     
     Returns:
         Pretty-printed string representation
     
     Example:
         >>> func = my_kernel.compile()
-        >>> print(pprint(func))
+        >>> print(pprint(func, recursive=True))
         [kernel] func my_kernel(Buffer<float>) -> void {
           entry:
             v0: UInt3 = dispatch_id 
             ...
+            void v1 = call(@my_callable, ...);
+        }
+
+        func my_callable(...) -> void {
+            ...
         }
     """
-    printer = PrettyPrinter(indent_size)
+    printer = PrettyPrinter(indent_size, recursive=recursive)
     return printer.print(obj)
 
 

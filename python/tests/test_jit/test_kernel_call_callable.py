@@ -39,7 +39,7 @@ def test_kernel_calls_simple_callable():
     print_ast(square, "AST: square")
 
     print("\nGenerated Kernel IR:")
-    print(pprint(ir))
+    print(pprint(ir, recursive=True))
 
     assert ir.is_kernel
     counts = count_instructions(ir)
@@ -79,7 +79,7 @@ def test_kernel_calls_math_callable():
     print_ast(normalize_value, "AST: normalize_value")
 
     print("\nGenerated Kernel IR:")
-    print(pprint(ir))
+    print(pprint(ir, recursive=True))
 
     assert ir.is_kernel
 
@@ -109,7 +109,7 @@ def test_kernel_calls_callable_with_multiple_args():
     print_ast(lerp, "AST: lerp")
 
     print("\nGenerated Kernel IR:")
-    print(pprint(ir))
+    print(pprint(ir, recursive=True))
 
     assert ir.is_kernel
 
@@ -143,7 +143,7 @@ def test_kernel_calls_nested_callable():
     print_ast(sum_of_squares, "AST: sum_of_squares")
 
     print("\nGenerated Kernel IR:")
-    print(pprint(ir))
+    print(pprint(ir, recursive=True))
 
     assert ir.is_kernel
 
@@ -179,7 +179,7 @@ def test_kernel_calls_callable_with_loop():
     print_ast(factorial, "AST: factorial")
 
     print("\nGenerated Kernel IR:")
-    print(pprint(ir))
+    print(pprint(ir, recursive=True))
 
     assert ir.is_kernel
 
