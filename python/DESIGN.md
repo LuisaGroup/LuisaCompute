@@ -64,9 +64,19 @@ A unified API to emit a function call. It accepts either an `IRFunction` or a `S
 
 ## Key Components
 
-*   `builder.py`: The `Builder` class and global builder context management (`get_current_builder()`).
-*   `rewriter.py`: The `ast.NodeTransformer` that performs the Stage 1 transformation.
-*   `multistage.py`: The runtime environment providing `l_xxx` helpers and the `StagedFunction` wrapper.
-*   `control_flow.py`: Builder-side objects for structured instructions.
-*   `ir.py`: Data structures for the structured IR tree.
-*   `pretty_printer.py`: LLVM-style human-readable output for the structured IR.
+### `luisa/lang/` (DSL Definition)
+- `jit.py`: The `@kernel` and `@callable` decorators and JIT logic.
+- `types.py`: The unified type system for the DSL.
+- `ops.py`: Runtime operator support and DSL-to-Python bridging.
+- `builtins/`: Implementation of all DSL built-in functions.
+
+### `luisa/transform/` (Transformation Pipeline)
+- `rewriter.py`: The `ast.NodeTransformer` that performs the Stage 1 transformation.
+- `builder.py`: The `Builder` class and global builder context management.
+- `ir.py`: Data structures for the structured IR tree.
+- `inspect.py`: Python introspection and metadata extraction.
+- `op.py`: The `Op` enum definition.
+
+### `luisa/` (Utilities)
+- `printer.py`: LLVM-style human-readable output for the structured IR.
+- `serialize.py`: IR-to-JSON serialization.

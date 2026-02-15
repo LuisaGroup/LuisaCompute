@@ -56,7 +56,7 @@ from .lang.router import (
 )
 
 # Export Const, static, and Shared
-from .lang.types import Const, static, Shared, is_const_value as _is_const_value
+from .lang.types import Const, static, Shared, is_const_value
 
 # Export codegen utilities
 from .printer import pprint
@@ -76,7 +76,7 @@ __all__ = [
 
     # Types
     "Type", "Scalar", "Vector", "Matrix", "Array", "Struct", "Ref",
-    "Buffer", "Texture2D", "Texture3D", "BindlessArray", "Accel", "RayQuery",
+    "Buffer", "Texture2D", "Texture3D", "BindlessArray", "Accel", "RayQuery", "Callable",
     "Bool", "Byte", "UByte", "Short", "UShort", "Int", "UInt", "Long", "ULong", "Half", "Float", "Double",
     "Bool2", "Bool3", "Bool4", "Byte2", "Byte3", "Byte4", "UByte2", "UByte3", "UByte4",
     "Short2", "Short3", "Short4", "UShort2", "UShort3", "UShort4",
@@ -105,7 +105,7 @@ __all__ = [
     "is_vector_constant", "extract_vector_components",
     
     # Compile-time constants
-    "Const", "static",
+    "Const", "static", "is_const_value",
     
     # Shared memory
     "Shared",

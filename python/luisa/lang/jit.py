@@ -14,8 +14,9 @@ from contextlib import contextmanager
 
 from ..transform.builder import Builder, get_current_builder, set_current_builder
 from ..transform.ir import Value, Function
-from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
-from ..transform.rewriter import parse_function, CapturedVar, ParsedFunction, ASTRewriter
+from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array, Callable, Void
+from ..transform.inspect import parse_function, CapturedVar, ParsedFunction
+from ..transform.rewriter import ASTRewriter
 
 
 # ============================================================================

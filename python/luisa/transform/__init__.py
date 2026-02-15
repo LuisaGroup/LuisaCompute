@@ -15,8 +15,9 @@ from .ir import (
     Instruction, BasicBlock, Function, Module
 )
 from .builder import Builder, get_current_builder, set_current_builder
-from .rewriter import ASTRewriter, parse_function, ParsedFunction, CapturedVar
+from .rewriter import ASTRewriter
 from .inspect import (
+    parse_function, ParsedFunction, CapturedVar,
     get_ir_source, get_ir_ast, get_ir_types,
     count_instructions, get_basic_block_count, get_instruction_count,
     find_operations, analyze_control_flow, is_kernel, get_type_size, format_ir_summary

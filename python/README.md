@@ -97,10 +97,10 @@ pytest
 
 ## Implementation Status
 
-- ✅ Unified AST Rewriter (`rewriter.py`)
-- ✅ Multistage Runtime Support (`multistage.py`)
-- ✅ Structured IR Nodes (`IF`, `LOOP`, `SWITCH`)
-- ✅ LLVM-style Pretty Printer
+- ✅ Unified AST Rewriter (`luisa/transform/rewriter.py`)
+- ✅ Multistage JIT Support (`luisa/lang/jit.py`)
+- ✅ Structured IR Nodes (`luisa/transform/ir.py`)
+- ✅ LLVM-style Pretty Printer (`luisa/printer.py`)
 - ✅ Python `match` translation
 - ✅ Polymorphic dispatch support
 - ✅ Reference arguments (`Ref[T]`)

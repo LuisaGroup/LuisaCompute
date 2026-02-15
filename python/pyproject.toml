@@ -51,10 +51,6 @@ include = ["luisa*"]
 [tool.setuptools.package-data]
 luisa = ["py.typed", "*.pyi"]
 
-[tool.black]
-line-length = 100
-target-version = ['py310']
-
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
@@ -66,6 +62,14 @@ check_untyped_defs = true
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["F403", "F405"] # Allow star imports in DSL
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
