@@ -5,13 +5,18 @@ Builtin functions for the LuisaCompute Python DSL v2.
 # Math functions
 from .math import (
     # Unary
-    sqrt, abs, sin, cos, tan, asin, acos, atan, atan2,
-    exp, exp2, log, log2, log10,
+    sqrt, rsqrt, abs, sin, cos, tan, asin, acos, atan, atan2,
+    exp, exp2, exp10, log, log2, log10,
     floor, ceil, round, trunc, fract, saturate,
+    sinh, cosh, tanh, asinh, acosh, atanh,
+    isinf, isnan,
     normalize, length, length_squared,
     # Binary
     min, max, clamp, lerp, step, smoothstep, pow,
     dot, cross, distance, reflect, refract, faceforward,
+    copysign, fma,
+    # Integer bit operations
+    clz, ctz, popcount, reverse,
     # Matrix
     transpose, inverse, determinant,
 )
@@ -85,13 +90,18 @@ from .rtx import (
 
 __all__ = [
     # Math - Unary
-    'sqrt', 'abs', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
-    'exp', 'exp2', 'log', 'log2', 'log10',
+    'sqrt', 'rsqrt', 'abs', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
+    'exp', 'exp2', 'exp10', 'log', 'log2', 'log10',
     'floor', 'ceil', 'round', 'trunc', 'fract', 'saturate',
+    'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh',
+    'isinf', 'isnan',
     'normalize', 'length', 'length_squared',
     # Math - Binary
     'min', 'max', 'clamp', 'lerp', 'step', 'smoothstep', 'pow',
     'dot', 'cross', 'distance', 'reflect', 'refract', 'faceforward',
+    'copysign', 'fma',
+    # Math - Integer bit ops
+    'clz', 'ctz', 'popcount', 'reverse',
     # Math - Matrix
     'transpose', 'inverse', 'determinant',
 

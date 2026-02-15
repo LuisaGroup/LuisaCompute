@@ -70,9 +70,11 @@ class Op(Enum):
 
     # Math functions
     SQRT = auto()
+    RSQRT = auto()  # Reciprocal sqrt
     POW = auto()
     EXP = auto()
     EXP2 = auto()
+    EXP10 = auto()  # Base-10 exponential
     LOG = auto()
     LOG2 = auto()
     LOG10 = auto()
@@ -86,6 +88,9 @@ class Op(Enum):
     SINH = auto()
     COSH = auto()
     TANH = auto()
+    ASINH = auto()  # Inverse hyperbolic sine
+    ACOSH = auto()  # Inverse hyperbolic cosine
+    ATANH = auto()  # Inverse hyperbolic tangent
     ABS = auto()
     FLOOR = auto()
     CEIL = auto()
@@ -99,6 +104,18 @@ class Op(Enum):
     SATURATE = auto()
     STEP = auto()
     SMOOTHSTEP = auto()
+    FMA = auto()  # Fused multiply-add: a*b + c
+    COPYSIGN = auto()  # Copy sign from one value to another
+    ISINF = auto()  # Check for infinity
+    ISNAN = auto()  # Check for NaN
+    
+    # Integer bit operations
+    CLZ = auto()  # Count leading zeros
+    CTZ = auto()  # Count trailing zeros
+    POPCOUNT = auto()  # Count set bits
+    REVERSE = auto()  # Bit reversal
+    
+    # Vector operations
     DOT = auto()
     CROSS = auto()
     NORMALIZE = auto()

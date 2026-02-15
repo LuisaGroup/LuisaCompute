@@ -34,6 +34,9 @@ _tan_host = math.tan
 _asin_host = math.asin
 _acos_host = math.acos
 _atan_host = math.atan
+_sinh_host = math.sinh
+_cosh_host = math.cosh
+_tanh_host = math.tanh
 _exp_host = math.exp
 _exp2_host = lambda x: 2.0 ** x
 _log_host = math.log
@@ -45,6 +48,17 @@ _round_host = round  # Python built-in round
 _trunc_host = lambda x: int(x) if x >= 0 else int(x) - 1 if x != int(x) else int(x)
 _fract_host = lambda x: x - math.floor(x)
 _saturate_host = lambda x: max(0.0, min(1.0, x))
+
+# Additional math functions
+_rsqrt_host = lambda x: 1.0 / math.sqrt(x) if x > 0 else float('inf')
+_exp10_host = lambda x: 10.0 ** x
+_asinh_host = lambda x: math.asinh(x)
+_acosh_host = lambda x: math.acosh(x) if x >= 1.0 else float('nan')
+_atanh_host = lambda x: math.atanh(x) if abs(x) < 1.0 else float('nan')
+_isinf_host = lambda x: math.isinf(x)
+_isnan_host = lambda x: math.isnan(x)
+_copysign_host = lambda x, y: math.copysign(x, y)
+_fma_host = lambda a, b, c: a * b + c  # Fused multiply-add
 
 
 # ============================================================================
@@ -173,6 +187,37 @@ def _atan2_host(y, x):
     return math.atan2(y, x)
 
 
+# Integer bit operations (for host-side constant folding)
+def _clz_host(x):
+    """Count leading zeros."""
+    if x == 0:
+        return 32  # Assuming 32-bit integers
+    # Use bit_length to find position of highest set bit
+    return 32 - x.bit_length()
+
+
+def _ctz_host(x):
+    """Count trailing zeros."""
+    if x == 0:
+        return 32
+    # Count trailing zeros by finding lowest set bit
+    return (x & -x).bit_length() - 1
+
+
+def _popcount_host(x):
+    """Count set bits (population count)."""
+    return bin(x).count('1')
+
+
+def _reverse_host(x):
+    """Bit reversal (for 32-bit integers)."""
+    # Reverse bits
+    result = 0
+    for i in range(32):
+        result = (result << 1) | ((x >> i) & 1)
+    return result
+
+
 # ============================================================================
 # Unary Math Functions
 # ============================================================================
@@ -204,6 +249,24 @@ def cos(x):
 @router(host_impl=_tan_host, device_op=Op.TAN)
 def tan(x):
     """Compute tangent."""
+    pass
+
+
+@router(host_impl=_sinh_host, device_op=Op.SINH)
+def sinh(x):
+    """Compute hyperbolic sine."""
+    pass
+
+
+@router(host_impl=_cosh_host, device_op=Op.COSH)
+def cosh(x):
+    """Compute hyperbolic cosine."""
+    pass
+
+
+@router(host_impl=_tanh_host, device_op=Op.TANH)
+def tanh(x):
+    """Compute hyperbolic tangent."""
     pass
 
 
@@ -288,6 +351,92 @@ def fract(x):
 @router(host_impl=_saturate_host, device_op=Op.SATURATE)
 def saturate(x):
     """Clamp to [0, 1]."""
+    pass
+
+
+# ============================================================================
+# Additional Scalar Math Functions
+# ============================================================================
+
+@router(host_impl=_rsqrt_host, device_op=Op.RSQRT)
+def rsqrt(x):
+    """Compute reciprocal square root (1/sqrt(x))."""
+    pass
+
+
+@router(host_impl=_exp10_host, device_op=Op.EXP10)
+def exp10(x):
+    """Compute base-10 exponential (10^x)."""
+    pass
+
+
+@router(host_impl=_asinh_host, device_op=Op.ASINH)
+def asinh(x):
+    """Compute inverse hyperbolic sine."""
+    pass
+
+
+@router(host_impl=_acosh_host, device_op=Op.ACOSH)
+def acosh(x):
+    """Compute inverse hyperbolic cosine."""
+    pass
+
+
+@router(host_impl=_atanh_host, device_op=Op.ATANH)
+def atanh(x):
+    """Compute inverse hyperbolic tangent."""
+    pass
+
+
+@router(host_impl=_isinf_host, device_op=Op.ISINF)
+def isinf(x):
+    """Check if value is infinite."""
+    pass
+
+
+@router(host_impl=_isnan_host, device_op=Op.ISNAN)
+def isnan(x):
+    """Check if value is NaN."""
+    pass
+
+
+@router(host_impl=_copysign_host, device_op=Op.COPYSIGN)
+def copysign(x, y):
+    """Return x with the sign of y."""
+    pass
+
+
+@router(host_impl=_fma_host, device_op=Op.FMA)
+def fma(a, b, c):
+    """Fused multiply-add: compute a*b + c with single rounding."""
+    pass
+
+
+# ============================================================================
+# Integer Bit Operations
+# ============================================================================
+
+@router(host_impl=_clz_host, device_op=Op.CLZ)
+def clz(x):
+    """Count leading zeros in integer representation."""
+    pass
+
+
+@router(host_impl=_ctz_host, device_op=Op.CTZ)
+def ctz(x):
+    """Count trailing zeros in integer representation."""
+    pass
+
+
+@router(host_impl=_popcount_host, device_op=Op.POPCOUNT)
+def popcount(x):
+    """Count number of set bits (population count)."""
+    pass
+
+
+@router(host_impl=_reverse_host, device_op=Op.REVERSE)
+def reverse(x):
+    """Reverse bits in integer representation."""
     pass
 
 
