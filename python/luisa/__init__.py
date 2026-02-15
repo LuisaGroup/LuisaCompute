@@ -18,10 +18,12 @@ from .lang.types import (
     Buffer, Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void, Ref,
 
     # Scalar types
-    Bool, Short, UShort, Int, UInt, Long, ULong, Half, Float, Double,
+    Bool, Byte, UByte, Short, UShort, Int, UInt, Long, ULong, Half, Float, Double,
 
     # Vector types
     Bool2, Bool3, Bool4,
+    Byte2, Byte3, Byte4,
+    UByte2, UByte3, UByte4,
     Short2, Short3, Short4,
     UShort2, UShort3, UShort4,
     Int2, Int3, Int4,
@@ -117,8 +119,10 @@ __all__ = [
     "StagedFunction", "kernel", "callable", "static_range", "unrolled", "UnrolledRange", "StaticIf", "StaticWhile",
     "Type", "Scalar", "Vector", "Matrix", "Array", "Struct",
     "Buffer", "Texture2D", "Texture3D", "BindlessArray", "Accel", "RayQuery", "Callable", "Void", "Ref",
-    "Bool", "Short", "UShort", "Int", "UInt", "Long", "ULong", "Half", "Float", "Double",
+    "Bool", "Byte", "UByte", "Short", "UShort", "Int", "UInt", "Long", "ULong", "Half", "Float", "Double",
     "Bool2", "Bool3", "Bool4",
+    "Byte2", "Byte3", "Byte4",
+    "UByte2", "UByte3", "UByte4",
     "Short2", "Short3", "Short4",
     "UShort2", "UShort3", "UShort4",
     "Int2", "Int3", "Int4",
@@ -173,7 +177,7 @@ __all__ = [
     "trace_closest", "trace_any", "ray_query_all", "ray_query_any",
     "ray_query_world_space_ray", "ray_query_proceed",
     "ray_query_committed_hit", "ray_query_candidate_triangle_hit", "ray_query_candidate_procedural_hit",
-    "ray_query_commit_triangle", ray_query_commit_procedural, ray_query_terminate,
-    accel_instance_transform, accel_instance_user_id, accel_instance_visibility_mask,
+    "ray_query_commit_triangle", "ray_query_commit_procedural", "ray_query_terminate",
+    "accel_instance_transform", "accel_instance_user_id", "accel_instance_visibility_mask",
     "make_ray",
 ]

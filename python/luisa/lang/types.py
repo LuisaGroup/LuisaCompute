@@ -87,47 +87,47 @@ class Scalar(Type):
         return cls(ScalarType.BOOL)
 
     @classmethod
-    def int8(cls) -> Scalar:
+    def byte(cls) -> Scalar:
         return cls(ScalarType.INT8)
 
     @classmethod
-    def uint8(cls) -> Scalar:
+    def ubyte(cls) -> Scalar:
         return cls(ScalarType.UINT8)
 
     @classmethod
-    def Short(cls) -> Scalar:
+    def short(cls) -> Scalar:
         return cls(ScalarType.INT16)
 
     @classmethod
-    def UShort(cls) -> Scalar:
+    def ushort(cls) -> Scalar:
         return cls(ScalarType.UINT16)
 
     @classmethod
-    def Int(cls) -> Scalar:
+    def int(cls) -> Scalar:
         return cls(ScalarType.INT32)
 
     @classmethod
-    def UInt(cls) -> Scalar:
+    def uint(cls) -> Scalar:
         return cls(ScalarType.UINT32)
 
     @classmethod
-    def Long(cls) -> Scalar:
+    def long(cls) -> Scalar:
         return cls(ScalarType.INT64)
 
     @classmethod
-    def ULong(cls) -> Scalar:
+    def ulong(cls) -> Scalar:
         return cls(ScalarType.UINT64)
 
     @classmethod
-    def Half(cls) -> Scalar:
+    def half(cls) -> Scalar:
         return cls(ScalarType.FLOAT16)
 
     @classmethod
-    def Float(cls) -> Scalar:
+    def float(cls) -> Scalar:
         return cls(ScalarType.FLOAT32)
 
     @classmethod
-    def Double(cls) -> Scalar:
+    def double(cls) -> Scalar:
         return cls(ScalarType.FLOAT64)
 
 
@@ -353,18 +353,22 @@ AnyType = Union[
 
 # Scalar types
 Bool = Scalar.bool()
-Short = Scalar.Short()
-UShort = Scalar.UShort()
-Int = Scalar.Int()
-UInt = Scalar.UInt()
-Long = Scalar.Long()
-ULong = Scalar.ULong()
-Half = Scalar.Half()
-Float = Scalar.Float()
-Double = Scalar.Double()
+Byte = Scalar.byte()
+UByte = Scalar.ubyte()
+Short = Scalar.short()
+UShort = Scalar.ushort()
+Int = Scalar.int()
+UInt = Scalar.uint()
+Long = Scalar.long()
+ULong = Scalar.ulong()
+Half = Scalar.half()
+Float = Scalar.float()
+Double = Scalar.double()
 
 # Vector types
 Bool2, Bool3, Bool4 = Vector[Bool, 2], Vector[Bool, 3], Vector[Bool, 4]
+Byte2, Byte3, Byte4 = Vector[Byte, 2], Vector[Byte, 3], Vector[Byte, 4]
+UByte2, UByte3, UByte4 = Vector[UByte, 2], Vector[UByte, 3], Vector[UByte, 4]
 Short2, Short3, Short4 = Vector[Short, 2], Vector[Short, 3], Vector[Short, 4]
 UShort2, UShort3, UShort4 = Vector[UShort, 2], Vector[UShort, 3], Vector[UShort, 4]
 Int2, Int3, Int4 = Vector[Int, 2], Vector[Int, 3], Vector[Int, 4]
@@ -379,6 +383,14 @@ Double2, Double3, Double4 = Vector[Double, 2], Vector[Double, 3], Vector[Double,
 Float2x2, Float3x3, Float4x4 = Matrix[Float, 2], Matrix[Float, 3], Matrix[Float, 4]
 Double2x2, Double3x3, Double4x4 = Matrix[Double, 2], Matrix[Double, 3], Matrix[Double, 4]
 Half2x2, Half3x3, Half4x4 = Matrix[Half, 2], Matrix[Half, 3], Matrix[Half, 4]
+
+# Lowercase aliases for internal use (optionally keep some for backward compatibility)
+bool_ = Bool
+byte, ubyte = Byte, UByte
+short, ushort = Short, UShort
+int_, uint = Int, UInt
+long, ulong = Long, ULong
+half, float_, double = Half, Float, Double
 
 
 # ============================================================================
@@ -535,7 +547,8 @@ def promote_types(t1: Type, t2: Type) -> Type:
             ScalarType.INT16, ScalarType.UINT16,
             ScalarType.INT32, ScalarType.UINT32,
             ScalarType.INT64, ScalarType.UINT64,
-            ScalarType.FLOAT16, ScalarType.FLOAT32,
+            ScalarType.FLOAT16,
+            ScalarType.FLOAT32,
             ScalarType.FLOAT64,
         ]
         idx1 = precedence.index(t1.dtype)
