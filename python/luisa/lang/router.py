@@ -125,8 +125,8 @@ def to_python_value(val: Any) -> Any:
     """Convert a DSL value to a Python value for host execution."""
     if isinstance(val, ConstantValue):
         return val.value
-    if isinstance(val, VectorValue):
-        return val
+    if isinstance(val, (list, tuple)):
+        return val  # Vector constants are tuples
     if isinstance(val, (bool, int, float, type(None))):
         return val
     raise ValueError(f"Cannot convert {type(val)} to Python value")
@@ -143,7 +143,7 @@ def is_foldable_to_scalar(val: Any) -> bool:
 
 def is_foldable_to_vector(val: Any) -> bool:
     """Check if value can be folded to a vector Python value."""
-    if isinstance(val, VectorValue):
+    if isinstance(val, (list, tuple)) and len(val) in (2, 3, 4):
         return True
     if isinstance(val, ConstantValue):
         from .type import Vector
@@ -315,47 +315,6 @@ def router(
         host_impl = _UNSET
     
     return decorator
-
-
-# ============================================================================
-# Vector Constructor Router
-# ============================================================================
-
-def make_vector_constructor(element_type: Scalar, size: int):
-    """
-    Create a routed vector constructor function.
-    
-    This handles:
-    - Float3(1.0, 2.0, 3.0) -> Constant VectorValue
-    - Float3(x, y, z) where x,y,z are DSL values -> device-side construction
-    """
-    def host_constructor(*components):
-        """Host-side: create a VectorValue."""
-        if len(components) == 1 and hasattr(components[0], '__iter__') and not isinstance(components[0], str):
-            # Called as Float3([1.0, 2.0, 3.0]) or Float3((1.0, 2.0, 3.0))
-            components = tuple(components[0])
-        else:
-            components = tuple(components)
-        
-        if len(components) != size:
-            raise ValueError(f"Expected {size} components, got {len(components)}")
-        
-        return VectorValue(element_type, *components)
-    
-    def device_wrapper(builder, *args):
-        """Device-side: emit vector construction instruction."""
-        from .type import Vector
-        vec_type = Vector(element_type, size)
-        # For now, emit as a custom op or composite
-        # This would need proper IR support for vector composition
-        return builder._emit(Op.CALL_BUILTIN, vec_type, [f"make_vector_{size}", *args])
-    
-    return RoutedFunction(
-        host_impl=host_constructor,
-        device_op=None,
-        device_wrapper=device_wrapper,
-        name=f"Vector{size}Constructor"
-    )
 
 
 # ============================================================================

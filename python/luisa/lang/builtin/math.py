@@ -4,7 +4,7 @@ Math builtin functions for the LuisaCompute Python DSL v2.
 These functions use the @router decorator to support:
 1. Constant folding: sin(1.0 + 2.0) -> constant sin(3.0)
 2. Device routing: sin(dsl_var) -> device-side SIN instruction
-3. Vector constant folding: normalize(VectorValue(...)) -> VectorValue
+3. Vector constant folding: normalize(Float3(1,2,3)) -> (1,0,0)
 """
 
 from __future__ import annotations
