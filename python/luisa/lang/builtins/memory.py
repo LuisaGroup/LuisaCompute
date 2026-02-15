@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..ir import Value, InstructionValue
     from ..types import Type
 
-from ..ir import IROp
+from ..ir import Op
 from ..types import uint, uint2, uint3, uint64
 from ..builder import get_current_builder
 
@@ -33,7 +33,7 @@ def buffer_read(buffer: Value, index: Value) -> InstructionValue:
     """
     # Get element type from buffer type
     elem_type = buffer.type.element
-    return get_current_builder()._emit(IROp.BUFFER_READ, elem_type, [buffer, index])
+    return get_current_builder()._emit(Op.BUFFER_READ, elem_type, [buffer, index])
 
 
 def buffer_write(buffer: Value, index: Value, value: Value) -> InstructionValue:
@@ -46,7 +46,7 @@ def buffer_write(buffer: Value, index: Value, value: Value) -> InstructionValue:
         value: Value to write
     """
     from ..types import Void
-    return get_current_builder()._emit(IROp.BUFFER_WRITE, Void(), [buffer, index, value])
+    return get_current_builder()._emit(Op.BUFFER_WRITE, Void(), [buffer, index, value])
 
 
 def buffer_size(buffer: Value) -> InstructionValue:
@@ -59,7 +59,7 @@ def buffer_size(buffer: Value) -> InstructionValue:
     Returns:
         Number of elements (uint)
     """
-    return get_current_builder()._emit(IROp.BUFFER_SIZE, uint, [buffer])
+    return get_current_builder()._emit(Op.BUFFER_SIZE, uint, [buffer])
 
 
 def buffer_device_address(buffer: Value) -> InstructionValue:
@@ -72,7 +72,7 @@ def buffer_device_address(buffer: Value) -> InstructionValue:
     Returns:
         64-bit device address
     """
-    return get_current_builder()._emit(IROp.BUFFER_DEVICE_ADDRESS, uint64, [buffer])
+    return get_current_builder()._emit(Op.BUFFER_DEVICE_ADDRESS, uint64, [buffer])
 
 
 # ============================================================================
@@ -91,7 +91,7 @@ def texture2d_read(texture: Value, coord: Value) -> InstructionValue:
         The texture value at the specified coordinates
     """
     from ..types import float4
-    return get_current_builder()._emit(IROp.TEXTURE2D_READ, float4, [texture, coord])
+    return get_current_builder()._emit(Op.TEXTURE2D_READ, float4, [texture, coord])
 
 
 def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionValue:
@@ -104,7 +104,7 @@ def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
         value: Value to write
     """
     from ..types import Void
-    return get_current_builder()._emit(IROp.TEXTURE2D_WRITE, Void(), [texture, coord, value])
+    return get_current_builder()._emit(Op.TEXTURE2D_WRITE, Void(), [texture, coord, value])
 
 
 def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
@@ -119,7 +119,7 @@ def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
         The sampled value (float4)
     """
     from ..types import float4
-    return get_current_builder()._emit(IROp.TEXTURE2D_SAMPLE, float4, [texture, uv])
+    return get_current_builder()._emit(Op.TEXTURE2D_SAMPLE, float4, [texture, uv])
 
 
 def texture2d_sample_level(texture: Value, uv: Value, level: Value) -> InstructionValue:
@@ -135,7 +135,7 @@ def texture2d_sample_level(texture: Value, uv: Value, level: Value) -> Instructi
         The sampled value (float4)
     """
     from ..types import float4
-    return get_current_builder()._emit(IROp.TEXTURE2D_SAMPLE_LEVEL, float4, [texture, uv, level])
+    return get_current_builder()._emit(Op.TEXTURE2D_SAMPLE_LEVEL, float4, [texture, uv, level])
 
 
 def texture2d_size(texture: Value) -> InstructionValue:
@@ -148,7 +148,7 @@ def texture2d_size(texture: Value) -> InstructionValue:
     Returns:
         Texture dimensions (uint2)
     """
-    return get_current_builder()._emit(IROp.TEXTURE2D_SIZE, uint2, [texture])
+    return get_current_builder()._emit(Op.TEXTURE2D_SIZE, uint2, [texture])
 
 
 # ============================================================================
@@ -167,7 +167,7 @@ def texture3d_read(texture: Value, coord: Value) -> InstructionValue:
         The texture value at the specified coordinates
     """
     from ..types import float4
-    return get_current_builder()._emit(IROp.TEXTURE3D_READ, float4, [texture, coord])
+    return get_current_builder()._emit(Op.TEXTURE3D_READ, float4, [texture, coord])
 
 
 def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionValue:
@@ -180,7 +180,7 @@ def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
         value: Value to write
     """
     from ..types import Void
-    return get_current_builder()._emit(IROp.TEXTURE3D_WRITE, Void(), [texture, coord, value])
+    return get_current_builder()._emit(Op.TEXTURE3D_WRITE, Void(), [texture, coord, value])
 
 
 def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
@@ -195,7 +195,7 @@ def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
         The sampled value (float4)
     """
     from ..types import float4
-    return get_current_builder()._emit(IROp.TEXTURE3D_SAMPLE, float4, [texture, uvw])
+    return get_current_builder()._emit(Op.TEXTURE3D_SAMPLE, float4, [texture, uvw])
 
 
 def texture3d_size(texture: Value) -> InstructionValue:
@@ -208,7 +208,7 @@ def texture3d_size(texture: Value) -> InstructionValue:
     Returns:
         Texture dimensions (uint3)
     """
-    return get_current_builder()._emit(IROp.TEXTURE3D_SIZE, uint3, [texture])
+    return get_current_builder()._emit(Op.TEXTURE3D_SIZE, uint3, [texture])
 
 
 # ============================================================================
@@ -226,7 +226,7 @@ def device_address_load(address: Value, elem_type: Type) -> InstructionValue:
     Returns:
         The loaded value
     """
-    return get_current_builder()._emit(IROp.DEVICE_ADDRESS_READ, elem_type, [address])
+    return get_current_builder()._emit(Op.DEVICE_ADDRESS_READ, elem_type, [address])
 
 
 def device_address_store(address: Value, value: Value) -> InstructionValue:
@@ -238,4 +238,4 @@ def device_address_store(address: Value, value: Value) -> InstructionValue:
         value: Value to store
     """
     from ..types import Void
-    return get_current_builder()._emit(IROp.DEVICE_ADDRESS_WRITE, Void(), [address, value])
+    return get_current_builder()._emit(Op.DEVICE_ADDRESS_WRITE, Void(), [address, value])

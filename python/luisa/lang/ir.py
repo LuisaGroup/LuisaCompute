@@ -33,7 +33,7 @@ class SourceLocation:
 # IR Operations
 # ============================================================================
 
-class IROp(Enum):
+class Op(Enum):
     """IR operation types."""
 
     # Literals and constants
@@ -283,7 +283,7 @@ class ArgumentValue(Value):
 @dataclass
 class InstructionValue(Value):
     """Value produced by an instruction."""
-    instruction: Optional[IRInstruction] = None
+    instruction: Optional[Instruction] = None
 
     def __repr__(self) -> str:
         if self.name:
@@ -291,13 +291,13 @@ class InstructionValue(Value):
         return f"%<inst>"
 
 
-# Forward reference for IRInstruction
+# Forward reference for Instruction
 @dataclass
-class IRInstruction:
+class Instruction:
     """IR instruction."""
-    op: IROp
+    op: Op
     typ: Type  # Renamed from 'type' to avoid builtin shadowing
-    args: list[Union[int, str, Value, 'IRBasicBlock']] = field(default_factory=list)
+    args: list[Union[int, str, Value, 'BasicBlock']] = field(default_factory=list)
     result: Optional[str] = None
     loc: Optional[SourceLocation] = None
 
@@ -314,18 +314,18 @@ class IRInstruction:
 
 
 # Update the forward reference
-InstructionValue.__annotations__['instruction'] = Optional[IRInstruction]
+InstructionValue.__annotations__['instruction'] = Optional[Instruction]
 
 
 # ============================================================================
-# IR Basic Blocks and Functions
+# Basic Blocks and Functions
 # ============================================================================
 
 @dataclass
-class IRBasicBlock:
+class BasicBlock:
     """Basic block in IR."""
     name: str
-    instructions: list[IRInstruction] = field(default_factory=list)
+    instructions: list[Instruction] = field(default_factory=list)
     loc: Optional[SourceLocation] = None
 
     def __repr__(self) -> str:
@@ -340,10 +340,10 @@ class IRBasicBlock:
             return False
         last = self.instructions[-1]
         return last.op in (
-            IROp.RETURN, IROp.BREAK, IROp.CONTINUE
+            Op.RETURN, Op.BREAK, Op.CONTINUE
         )
 
-    def add_instruction(self, inst: IRInstruction) -> None:
+    def add_instruction(self, inst: Instruction) -> None:
         """Add an instruction to the block."""
         if self.is_terminated():
             raise RuntimeError(f"Cannot add instruction to terminated block {self.name}")
@@ -351,12 +351,12 @@ class IRBasicBlock:
 
 
 @dataclass
-class IRFunction:
+class Function:
     """IR function."""
     name: str
     arg_types: list[Type]
     ret_type: Optional[Type]
-    blocks: list[IRBasicBlock] = field(default_factory=list)
+    blocks: list[BasicBlock] = field(default_factory=list)
     is_kernel: bool = False
     arg_is_reference: list[bool] = field(default_factory=list)
     block_size: Optional[tuple[int, int, int]] = None
@@ -382,7 +382,7 @@ class IRFunction:
         lines.append("}")
         return "\n".join(lines)
 
-    def get_block(self, name: str) -> Optional[IRBasicBlock]:
+    def get_block(self, name: str) -> Optional[BasicBlock]:
         """Get a block by name."""
         for block in self.blocks:
             if block.name == name:
@@ -391,9 +391,9 @@ class IRFunction:
 
 
 @dataclass
-class IRModule:
+class Module:
     """IR module containing functions."""
-    functions: list[IRFunction] = field(default_factory=list)
+    functions: list[Function] = field(default_factory=list)
     constants: list[ConstantValue] = field(default_factory=list)
 
     def __repr__(self) -> str:
@@ -403,11 +403,11 @@ class IRModule:
         lines.append("}")
         return "\n".join(lines)
 
-    def add_function(self, func: IRFunction) -> None:
+    def add_function(self, func: Function) -> None:
         """Add a function to the module."""
         self.functions.append(func)
 
-    def get_function(self, name: str) -> Optional[IRFunction]:
+    def get_function(self, name: str) -> Optional[Function]:
         """Get a function by name."""
         for func in self.functions:
             if func.name == name:
@@ -419,49 +419,49 @@ class IRModule:
 # Utility Functions
 # ============================================================================
 
-def get_op_name(op: IROp) -> str:
+def get_op_name(op: Op) -> str:
     """Get the name of an IR operation."""
     return op.name
 
 
-def is_arithmetic_op(op: IROp) -> bool:
+def is_arithmetic_op(op: Op) -> bool:
     """Check if an operation is arithmetic."""
     return op in (
-        IROp.ADD, IROp.SUB, IROp.MUL, IROp.DIV, IROp.MOD, IROp.NEG
+        Op.ADD, Op.SUB, Op.MUL, Op.DIV, Op.MOD, Op.NEG
     )
 
 
-def is_comparison_op(op: IROp) -> bool:
+def is_comparison_op(op: Op) -> bool:
     """Check if an operation is a comparison."""
     return op in (
-        IROp.EQ, IROp.NE, IROp.LT, IROp.LE, IROp.GT, IROp.GE
+        Op.EQ, Op.NE, Op.LT, Op.LE, Op.GT, Op.GE
     )
 
 
-def is_logical_op(op: IROp) -> bool:
+def is_logical_op(op: Op) -> bool:
     """Check if an operation is logical."""
     return op in (
-        IROp.LOGICAL_AND, IROp.LOGICAL_OR, IROp.LOGICAL_NOT
+        Op.LOGICAL_AND, Op.LOGICAL_OR, Op.LOGICAL_NOT
     )
 
 
-def is_terminator_op(op: IROp) -> bool:
+def is_terminator_op(op: Op) -> bool:
     """Check if an operation is a terminator."""
-    return op in (IROp.RETURN, IROp.BREAK, IROp.CONTINUE)
+    return op in (Op.RETURN, Op.BREAK, Op.CONTINUE)
 
 
-def is_memory_op(op: IROp) -> bool:
+def is_memory_op(op: Op) -> bool:
     """Check if an operation is a memory operation."""
     return op in (
-        IROp.ALLOCA, IROp.LOAD, IROp.STORE, IROp.GEP, IROp.MEMBER_ACCESS
+        Op.ALLOCA, Op.LOAD, Op.STORE, Op.GEP, Op.MEMBER_ACCESS
     )
 
 
-def is_resource_op(op: IROp) -> bool:
+def is_resource_op(op: Op) -> bool:
     """Check if an operation is a resource operation."""
     return op in (
-        IROp.BUFFER_READ, IROp.BUFFER_WRITE, IROp.BUFFER_SIZE,
-        IROp.TEXTURE2D_READ, IROp.TEXTURE2D_WRITE,
-        IROp.TEXTURE2D_SAMPLE, IROp.TEXTURE2D_SAMPLE_LEVEL,
-        IROp.TEXTURE3D_READ, IROp.TEXTURE3D_WRITE, IROp.TEXTURE3D_SAMPLE,
+        Op.BUFFER_READ, Op.BUFFER_WRITE, Op.BUFFER_SIZE,
+        Op.TEXTURE2D_READ, Op.TEXTURE2D_WRITE,
+        Op.TEXTURE2D_SAMPLE, Op.TEXTURE2D_SAMPLE_LEVEL,
+        Op.TEXTURE3D_READ, Op.TEXTURE3D_WRITE, Op.TEXTURE3D_SAMPLE,
     )

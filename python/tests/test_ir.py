@@ -3,7 +3,7 @@
 import pytest
 from luisa import (
     int32, uint32, float32, bool_,
-    IRBuilder, IROp, IRModule,
+    Builder, Op, Module,
     ConstantValue, ArgumentValue, InstructionValue,
     pprint,
 )
@@ -15,14 +15,14 @@ def test_ir_operations():
     print("Test: IR operations")
     print("=" * 60)
 
-    assert hasattr(IROp, 'ADD')
-    assert hasattr(IROp, 'SUB')
-    assert hasattr(IROp, 'MUL')
-    assert hasattr(IROp, 'DIV')
-    assert hasattr(IROp, 'RETURN')
-    assert hasattr(IROp, 'DISPATCH_ID')
-    assert hasattr(IROp, 'THREAD_ID')
-    assert hasattr(IROp, 'BLOCK_ID')
+    assert hasattr(Op, 'ADD')
+    assert hasattr(Op, 'SUB')
+    assert hasattr(Op, 'MUL')
+    assert hasattr(Op, 'DIV')
+    assert hasattr(Op, 'RETURN')
+    assert hasattr(Op, 'DISPATCH_ID')
+    assert hasattr(Op, 'THREAD_ID')
+    assert hasattr(Op, 'BLOCK_ID')
 
     print("✓ All expected IR operations exist")
     print("=" * 60)
@@ -34,7 +34,7 @@ def test_ir_builder_basic():
     print("Test: IR builder basic")
     print("=" * 60)
 
-    builder = IRBuilder('test_func', (float32, float32), float32)
+    builder = Builder('test_func', (float32, float32), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -74,7 +74,7 @@ def test_ir_builder_control_flow():
     print("Test: IR builder control flow")
     print("=" * 60)
 
-    builder = IRBuilder('test_if', (float32,), float32)
+    builder = Builder('test_if', (float32,), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -107,7 +107,7 @@ def test_constant_folding_if():
     print("Test: constant folding in if")
     print("=" * 60)
 
-    builder = IRBuilder('test_fold', (), float32)
+    builder = Builder('test_fold', (), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -137,7 +137,7 @@ def test_ir_module():
     print("Test: IR module")
     print("=" * 60)
 
-    builder = IRBuilder('func1', (int32,), int32)
+    builder = Builder('func1', (int32,), int32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -147,7 +147,7 @@ def test_ir_module():
     print("\nFunction 1:")
     print(pprint(func1))
 
-    builder2 = IRBuilder('func2', (float32,), float32)
+    builder2 = Builder('func2', (float32,), float32)
     entry2 = builder2.create_block('entry')
     builder2.set_insert_point(entry2)
     b = builder2.get_argument(0)
@@ -157,7 +157,7 @@ def test_ir_module():
     print("\nFunction 2:")
     print(pprint(func2))
 
-    module = IRModule(functions=[func1, func2])
+    module = Module(functions=[func1, func2])
 
     assert len(module.functions) == 2
 
@@ -171,7 +171,7 @@ def test_ir_builder_arithmetic_ops():
     print("Test: IR builder arithmetic ops")
     print("=" * 60)
 
-    builder = IRBuilder('arith', (float32, float32), float32)
+    builder = Builder('arith', (float32, float32), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -203,7 +203,7 @@ def test_ir_builder_comparison_ops():
     print("Test: IR builder comparison ops")
     print("=" * 60)
 
-    builder = IRBuilder('compare', (float32, float32), bool_)
+    builder = Builder('compare', (float32, float32), bool_)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -235,7 +235,7 @@ def test_ir_builder_bitwise_ops():
     print("Test: IR builder bitwise ops")
     print("=" * 60)
 
-    builder = IRBuilder('bitwise', (int32, int32), int32)
+    builder = Builder('bitwise', (int32, int32), int32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -265,7 +265,7 @@ def test_ir_builder_switch():
     print("Test: IR builder switch")
     print("=" * 60)
 
-    builder = IRBuilder('test_switch', (int32,), int32)
+    builder = Builder('test_switch', (int32,), int32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -287,7 +287,7 @@ def test_ir_builder_switch():
     # Check if SWITCH instruction exists
     # It should be the first instruction in entry block
     inst = func.blocks[0].instructions[0]
-    assert inst.op == IROp.SWITCH
+    assert inst.op == Op.SWITCH
 
     print(f"✓ Built function with structured switch statement")
     print("=" * 60)

@@ -59,12 +59,12 @@ The DSL automatically handles the "Dispatch Problem" between host and device log
 ### `StagedFunction.compile(builder, *args)`
 Ensures the function is compiled for the given argument types and returns the `IRFunction`.
 
-### `IRBuilder.call(func, *args)`
+### `Builder.call(func, *args)`
 A unified API to emit a function call. It accepts either an `IRFunction` or a `StagedFunction`. If a `StagedFunction` is passed, it automatically calls `.compile()` to generate the IR for the specific arguments before emitting the call.
 
 ## Key Components
 
-*   `builder.py`: The `IRBuilder` class and global builder context management (`get_current_builder()`).
+*   `builder.py`: The `Builder` class and global builder context management (`get_current_builder()`).
 *   `rewriter.py`: The `ast.NodeTransformer` that performs the Stage 1 transformation.
 *   `multistage.py`: The runtime environment providing `l_xxx` helpers and the `StagedFunction` wrapper.
 *   `control_flow.py`: Builder-side objects for structured instructions.

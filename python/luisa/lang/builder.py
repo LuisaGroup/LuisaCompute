@@ -1,7 +1,7 @@
 """
 IR Builder for the LuisaCompute Python DSL v2.
 
-This module provides the IRBuilder class that constructs IR using
+This module provides the Builder class that constructs IR using
 a fluent API with context managers for control flow.
 """
 
@@ -17,25 +17,25 @@ from .types import (
     Void, bool_, promote_types
 )
 from .ir import (
-    IROp, Value, ConstantValue, InstructionValue, ArgumentValue,
-    IRInstruction, IRBasicBlock, IRFunction, IRModule, SourceLocation
+    Op, Value, ConstantValue, InstructionValue, ArgumentValue,
+    Instruction, BasicBlock, Function, Module, SourceLocation
 )
 
 # ============================================================================
 # Global Builder Context
 # ============================================================================
 
-_current_builder: IRBuilder | None = None
+_current_builder: Builder | None = None
 
 
-def get_current_builder() -> IRBuilder:
+def get_current_builder() -> Builder:
     """Get the current builder."""
     if _current_builder is None:
         raise RuntimeError("No active builder context")
     return _current_builder
 
 
-def set_current_builder(builder: IRBuilder | None) -> None:
+def set_current_builder(builder: Builder | None) -> None:
     """Set the current builder (called by executor)."""
     global _current_builder
     _current_builder = builder
@@ -45,7 +45,7 @@ def set_current_builder(builder: IRBuilder | None) -> None:
 # IR Builder
 # ============================================================================
 
-class IRBuilder:
+class Builder:
     """
     Builder for constructing IR.
     
@@ -59,8 +59,8 @@ class IRBuilder:
         self.name = name
         self.arg_types = list(arg_types)
         self.ret_type = ret_type
-        self.blocks: list[IRBasicBlock] = []
-        self.current_block: Optional[IRBasicBlock] = None
+        self.blocks: list[BasicBlock] = []
+        self.current_block: Optional[BasicBlock] = None
         self.instruction_counter = 0
         self.local_vars: dict[str, Value] = {}  # name -> Value
         self.arg_values: list[ArgumentValue] = []
@@ -108,7 +108,7 @@ class IRBuilder:
     # Block Management
     # ========================================================================
 
-    def create_block(self, name: str, loc: Optional[SourceLocation] = None) -> IRBasicBlock:
+    def create_block(self, name: str, loc: Optional[SourceLocation] = None) -> BasicBlock:
         """Create a new basic block."""
         # Ensure unique name
         base_name = name
@@ -120,20 +120,20 @@ class IRBuilder:
         if loc is None:
             loc = self.current_loc
 
-        block = IRBasicBlock(name=name, loc=loc)
+        block = BasicBlock(name=name, loc=loc)
         self.blocks.append(block)
         return block
 
-    def set_insert_point(self, block: IRBasicBlock) -> None:
+    def set_insert_point(self, block: BasicBlock) -> None:
         """Set the current insertion point to a block."""
         self.current_block = block
 
-    def get_insert_point(self) -> Optional[IRBasicBlock]:
+    def get_insert_point(self) -> Optional[BasicBlock]:
         """Get the current insertion point."""
         return self.current_block
 
     @contextmanager
-    def scope(self, block: IRBasicBlock):
+    def scope(self, block: BasicBlock):
         """Context manager to set insertion point to a block."""
         old_block = self.current_block
         self.set_insert_point(block)
@@ -146,7 +146,7 @@ class IRBuilder:
     # Instruction Emission
     # ========================================================================
 
-    def _emit(self, op: IROp, typ: Type, args: list,
+    def _emit(self, op: Op, typ: Type, args: list,
               name: Optional[str] = None,
               loc: Optional[SourceLocation] = None) -> InstructionValue:
         """Emit an instruction and return its result value."""
@@ -165,7 +165,7 @@ class IRBuilder:
             loc = self.current_loc
 
         # Create instruction
-        inst = IRInstruction(op=op, typ=typ, args=args, result=name, loc=loc)
+        inst = Instruction(op=op, typ=typ, args=args, result=name, loc=loc)
         self.current_block.add_instruction(inst)
 
         # Create and return result value
@@ -181,74 +181,74 @@ class IRBuilder:
         """Emit an add instruction."""
         if result_type is None:
             result_type = promote_types(left.type, right.type)
-        return self._emit(IROp.ADD, result_type, [left, right])
+        return self._emit(Op.ADD, result_type, [left, right])
 
     def sub(self, left: Value, right: Value,
             result_type: Optional[Type] = None) -> InstructionValue:
         """Emit a sub instruction."""
         if result_type is None:
             result_type = promote_types(left.type, right.type)
-        return self._emit(IROp.SUB, result_type, [left, right])
+        return self._emit(Op.SUB, result_type, [left, right])
 
     def mul(self, left: Value, right: Value,
             result_type: Optional[Type] = None) -> InstructionValue:
         """Emit a mul instruction."""
         if result_type is None:
             result_type = promote_types(left.type, right.type)
-        return self._emit(IROp.MUL, result_type, [left, right])
+        return self._emit(Op.MUL, result_type, [left, right])
 
     def div(self, left: Value, right: Value,
             result_type: Optional[Type] = None) -> InstructionValue:
         """Emit a div instruction."""
         if result_type is None:
             result_type = promote_types(left.type, right.type)
-        return self._emit(IROp.DIV, result_type, [left, right])
+        return self._emit(Op.DIV, result_type, [left, right])
 
     def neg(self, operand: Value) -> InstructionValue:
         """Emit a neg instruction."""
-        return self._emit(IROp.NEG, operand.type, [operand])
+        return self._emit(Op.NEG, operand.type, [operand])
 
     def mod(self, left: Value, right: Value,
             result_type: Optional[Type] = None) -> InstructionValue:
         """Emit a modulo instruction."""
         if result_type is None:
             result_type = promote_types(left.type, right.type)
-        return self._emit(IROp.MOD, result_type, [left, right])
+        return self._emit(Op.MOD, result_type, [left, right])
 
     def pow(self, left: Value, right: Value,
             result_type: Optional[Type] = None) -> InstructionValue:
         """Emit a power instruction."""
         if result_type is None:
             result_type = promote_types(left.type, right.type)
-        return self._emit(IROp.POW, result_type, [left, right])
+        return self._emit(Op.POW, result_type, [left, right])
 
     def floor(self, operand: Value) -> InstructionValue:
         """Emit a floor instruction."""
-        return self._emit(IROp.FLOOR, operand.type, [operand])
+        return self._emit(Op.FLOOR, operand.type, [operand])
 
     def bit_and(self, left: Value, right: Value) -> InstructionValue:
         """Emit a bitwise AND instruction."""
-        return self._emit(IROp.BIT_AND, left.type, [left, right])
+        return self._emit(Op.BIT_AND, left.type, [left, right])
 
     def bit_or(self, left: Value, right: Value) -> InstructionValue:
         """Emit a bitwise OR instruction."""
-        return self._emit(IROp.BIT_OR, left.type, [left, right])
+        return self._emit(Op.BIT_OR, left.type, [left, right])
 
     def bit_xor(self, left: Value, right: Value) -> InstructionValue:
         """Emit a bitwise XOR instruction."""
-        return self._emit(IROp.BIT_XOR, left.type, [left, right])
+        return self._emit(Op.BIT_XOR, left.type, [left, right])
 
     def bit_not(self, operand: Value) -> InstructionValue:
         """Emit a bitwise NOT instruction."""
-        return self._emit(IROp.BIT_NOT, operand.type, [operand])
+        return self._emit(Op.BIT_NOT, operand.type, [operand])
 
     def shl(self, left: Value, right: Value) -> InstructionValue:
         """Emit a left shift instruction."""
-        return self._emit(IROp.SHL, left.type, [left, right])
+        return self._emit(Op.SHL, left.type, [left, right])
 
     def shr(self, left: Value, right: Value) -> InstructionValue:
         """Emit a right shift instruction."""
-        return self._emit(IROp.SHR, left.type, [left, right])
+        return self._emit(Op.SHR, left.type, [left, right])
 
     def swizzle(self, vector: Value, pattern: str) -> InstructionValue:
         """
@@ -276,7 +276,7 @@ class IRBuilder:
 
         # For now, emit as a generic swizzle - the backend handles the pattern
         # In a full implementation, we'd parse the pattern into component indices
-        return self._emit(IROp.SWIZZLE, result_type, [vector, pattern])
+        return self._emit(Op.SWIZZLE, result_type, [vector, pattern])
 
     # ========================================================================
     # Comparison Operations
@@ -284,27 +284,27 @@ class IRBuilder:
 
     def eq(self, left: Value, right: Value) -> InstructionValue:
         """Emit an equality comparison."""
-        return self._emit(IROp.EQ, bool_, [left, right])
+        return self._emit(Op.EQ, bool_, [left, right])
 
     def ne(self, left: Value, right: Value) -> InstructionValue:
         """Emit a not-equal comparison."""
-        return self._emit(IROp.NE, bool_, [left, right])
+        return self._emit(Op.NE, bool_, [left, right])
 
     def lt(self, left: Value, right: Value) -> InstructionValue:
         """Emit a less-than comparison."""
-        return self._emit(IROp.LT, bool_, [left, right])
+        return self._emit(Op.LT, bool_, [left, right])
 
     def le(self, left: Value, right: Value) -> InstructionValue:
         """Emit a less-than-or-equal comparison."""
-        return self._emit(IROp.LE, bool_, [left, right])
+        return self._emit(Op.LE, bool_, [left, right])
 
     def gt(self, left: Value, right: Value) -> InstructionValue:
         """Emit a greater-than comparison."""
-        return self._emit(IROp.GT, bool_, [left, right])
+        return self._emit(Op.GT, bool_, [left, right])
 
     def ge(self, left: Value, right: Value) -> InstructionValue:
         """Emit a greater-than-or-equal comparison."""
-        return self._emit(IROp.GE, bool_, [left, right])
+        return self._emit(Op.GE, bool_, [left, right])
 
     # ========================================================================
     # Logical Operations
@@ -312,15 +312,15 @@ class IRBuilder:
 
     def logical_and(self, left: Value, right: Value) -> InstructionValue:
         """Emit a logical AND."""
-        return self._emit(IROp.LOGICAL_AND, bool_, [left, right])
+        return self._emit(Op.LOGICAL_AND, bool_, [left, right])
 
     def logical_or(self, left: Value, right: Value) -> InstructionValue:
         """Emit a logical OR."""
-        return self._emit(IROp.LOGICAL_OR, bool_, [left, right])
+        return self._emit(Op.LOGICAL_OR, bool_, [left, right])
 
     def logical_not(self, operand: Value) -> InstructionValue:
         """Emit a logical NOT."""
-        return self._emit(IROp.LOGICAL_NOT, bool_, [operand])
+        return self._emit(Op.LOGICAL_NOT, bool_, [operand])
 
     # ========================================================================
     # Memory Operations
@@ -328,25 +328,25 @@ class IRBuilder:
 
     def alloca(self, typ: Type, name: Optional[str] = None) -> InstructionValue:
         """Emit an alloca instruction (allocate local variable)."""
-        return self._emit(IROp.ALLOCA, typ, [], name)
+        return self._emit(Op.ALLOCA, typ, [], name)
 
     def load(self, ptr: Value, typ: Optional[Type] = None) -> InstructionValue:
         """Emit a load instruction."""
         if typ is None:
             typ = ptr.type
-        return self._emit(IROp.LOAD, typ, [ptr])
+        return self._emit(Op.LOAD, typ, [ptr])
 
     def store(self, ptr: Value, value: Value) -> InstructionValue:
         """Emit a store instruction."""
-        return self._emit(IROp.STORE, Void(), [ptr, value])
+        return self._emit(Op.STORE, Void(), [ptr, value])
 
     def buffer_read(self, buffer: Value, index: Value, elem_type: Type) -> InstructionValue:
         """Emit a buffer read instruction."""
-        return self._emit(IROp.BUFFER_READ, elem_type, [buffer, index])
+        return self._emit(Op.BUFFER_READ, elem_type, [buffer, index])
 
     def buffer_write(self, buffer: Value, index: Value, value: Value) -> InstructionValue:
         """Emit a buffer write instruction."""
-        return self._emit(IROp.BUFFER_WRITE, Void(), [buffer, index, value])
+        return self._emit(Op.BUFFER_WRITE, Void(), [buffer, index, value])
 
     # ========================================================================
     # Control Flow
@@ -355,16 +355,16 @@ class IRBuilder:
     def return_(self, value: Optional[Value] = None) -> InstructionValue:
         """Emit a return instruction."""
         if value is None:
-            return self._emit(IROp.RETURN, Void(), [])
-        return self._emit(IROp.RETURN, value.type, [value])
+            return self._emit(Op.RETURN, Void(), [])
+        return self._emit(Op.RETURN, value.type, [value])
 
     def break_(self) -> InstructionValue:
         """Emit a break instruction."""
-        return self._emit(IROp.BREAK, Void(), [])
+        return self._emit(Op.BREAK, Void(), [])
 
     def continue_(self) -> InstructionValue:
         """Emit a continue instruction."""
-        return self._emit(IROp.CONTINUE, Void(), [])
+        return self._emit(Op.CONTINUE, Void(), [])
 
     def call(self, func: Any, *args: Value) -> InstructionValue:
         """Emit a function call instruction."""
@@ -376,15 +376,15 @@ class IRBuilder:
         ret_type = func.ret_type if func.ret_type else Void()
         # Include function name as first argument, then actual args
         call_args = [func.name] + list(args)
-        return self._emit(IROp.CALL, ret_type, call_args)
+        return self._emit(Op.CALL, ret_type, call_args)
 
     def cast(self, value: Value, target_typ: Type) -> InstructionValue:
         """Emit a type cast instruction."""
-        return self._emit(IROp.CAST, target_typ, [value])
+        return self._emit(Op.CAST, target_typ, [value])
 
     def bitcast(self, value: Value, target_typ: Type) -> InstructionValue:
         """Emit a bitcast instruction (preserves bit pattern)."""
-        return self._emit(IROp.BITCAST, target_typ, [value])
+        return self._emit(Op.BITCAST, target_typ, [value])
 
     # ========================================================================
     # Control Flow - Structured API (New Style)
@@ -464,9 +464,9 @@ class IRBuilder:
     # Build
     # ========================================================================
 
-    def build(self) -> IRFunction:
+    def build(self) -> Function:
         """Finalize and return the IR function."""
-        return IRFunction(
+        return Function(
             name=self.name,
             arg_types=self.arg_types,
             ret_type=self.ret_type,

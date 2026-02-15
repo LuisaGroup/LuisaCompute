@@ -3,7 +3,7 @@
 import pytest
 import ast as python_ast
 from luisa import kernel, callable, int32, float32, bool_, pprint
-from luisa.lang.ir import IROp
+from luisa.lang.ir import Op
 from luisa.lang.inspect import find_operations, analyze_control_flow, count_instructions, get_ir_ast
 
 

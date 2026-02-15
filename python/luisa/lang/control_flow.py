@@ -16,8 +16,8 @@ from typing import Optional
 from contextlib import contextmanager
 
 # Runtime imports
-from .ir import Value, IRBasicBlock, ConstantValue, IROp
-from .builder import IRBuilder
+from .ir import Value, BasicBlock, ConstantValue, Op
+from .builder import Builder
 
 
 # ============================================================================
@@ -36,7 +36,7 @@ class IfStmt:
             ...  # false branch
     """
 
-    def __init__(self, builder: 'IRBuilder', condition: 'Value'):
+    def __init__(self, builder: 'Builder', condition: 'Value'):
         self.builder = builder
         self.condition = condition
         self.true_block = self.builder.create_block("if_true")
@@ -48,7 +48,7 @@ class IfStmt:
 
         if not self._constant_fold:
             from .types import Void
-            self.builder._emit(IROp.IF, Void(), [self.condition, self.true_block, self.false_block])
+            self.builder._emit(Op.IF, Void(), [self.condition, self.true_block, self.false_block])
 
     def __enter__(self):
         return self
@@ -85,7 +85,7 @@ class WhileStmt:
             ...  # loop body
     """
 
-    def __init__(self, builder: 'IRBuilder', condition: 'Value'):
+    def __init__(self, builder: 'Builder', condition: 'Value'):
         self.builder = builder
         self.condition = condition
         self.body_block = self.builder.create_block("while_body")
@@ -98,7 +98,7 @@ class WhileStmt:
             # We emit a LOOP instruction that contains the body.
             # In Luisa IR, structured loops usually have the condition at the beginning of the body.
             # Our WhileStmt will handle this by injecting an IF BREAK at the start of body_block.
-            self.builder._emit(IROp.LOOP, Void(), [self.body_block])
+            self.builder._emit(Op.LOOP, Void(), [self.body_block])
 
     def __enter__(self):
         return self
@@ -116,11 +116,11 @@ class WhileStmt:
             with self.builder.scope(self.body_block):
                 # Inject condition check: if !condition: break
                 from .types import Void, bool_
-                not_cond = self.builder._emit(IROp.LOGICAL_NOT, bool_, [self.condition])
+                not_cond = self.builder._emit(Op.LOGICAL_NOT, bool_, [self.condition])
                 break_block = self.builder.create_block("while_break")
                 with self.builder.scope(break_block):
                     self.builder.break_()
-                self.builder._emit(IROp.IF, Void(),
+                self.builder._emit(Op.IF, Void(),
                                    [not_cond, break_block, self.builder.create_block("while_continue")])
 
                 yield True
@@ -142,7 +142,7 @@ class ForRangeStmt:
             ...  # loop body, loop var is bound to name
     """
 
-    def __init__(self, builder: 'IRBuilder',
+    def __init__(self, builder: 'Builder',
                  start: 'Value', stop: 'Value', step: 'Value',
                  loop_var_name: str):
         self.builder = builder
@@ -157,7 +157,7 @@ class ForRangeStmt:
         self.builder.store(self.loop_var_ptr, self.start)
 
         from .types import Void
-        self.builder._emit(IROp.LOOP, Void(), [self.body_block])
+        self.builder._emit(Op.LOOP, Void(), [self.body_block])
 
     def __enter__(self):
         return self
@@ -178,13 +178,13 @@ class ForRangeStmt:
                 # 2. Check condition: if i >= stop: break
                 from .types import Void, bool_
                 cond = self.builder.lt(current_val, self.stop)
-                not_cond = self.builder._emit(IROp.LOGICAL_NOT, bool_, [cond])
+                not_cond = self.builder._emit(Op.LOGICAL_NOT, bool_, [cond])
 
                 break_block = self.builder.create_block("for_break")
                 with self.builder.scope(break_block):
                     self.builder.break_()
 
-                self.builder._emit(IROp.IF, Void(), [not_cond, break_block, self.builder.create_block("for_continue")])
+                self.builder._emit(Op.IF, Void(), [not_cond, break_block, self.builder.create_block("for_continue")])
 
                 # 3. Yield to user body
                 yield current_val
@@ -212,7 +212,7 @@ class UnrolledForStmt:
     Use only for small iteration counts!
     """
 
-    def __init__(self, builder: IRBuilder,
+    def __init__(self, builder: Builder,
                  start: int, stop: int, step: int,
                  loop_var_name: str):
         self.builder = builder
@@ -257,7 +257,7 @@ class SwitchStmt:
 
     """
 
-    def __init__(self, builder: 'IRBuilder', value: 'Value'):
+    def __init__(self, builder: 'Builder', value: 'Value'):
 
         self.builder = builder
 
@@ -276,15 +276,15 @@ class SwitchStmt:
 
             # Or we can just keep a list of blocks and emit at the end.
 
-            # But IRInstruction is already in the list.
+            # But Instruction is already in the list.
 
             # Let's use a list of (values, block) tuples.
 
-            self.cases: list[tuple[list[int], IRBasicBlock]] = []
+            self.cases: list[tuple[list[int], BasicBlock]] = []
 
-            self.default_block: Optional[IRBasicBlock] = None
+            self.default_block: Optional[BasicBlock] = None
 
-            self.inst = self.builder._emit(IROp.SWITCH, Void(), [self.value, self.cases, None])  # None for default
+            self.inst = self.builder._emit(Op.SWITCH, Void(), [self.value, self.cases, None])  # None for default
 
     def __enter__(self):
         return self
@@ -356,7 +356,7 @@ class _NoOpScope:
 class _DirectScope:
     """Direct scope for branches that always execute (folded)."""
 
-    def __init__(self, builder: IRBuilder):
+    def __init__(self, builder: Builder):
         self.builder = builder
 
     def __enter__(self):

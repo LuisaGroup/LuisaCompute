@@ -7,7 +7,7 @@ It's a simpler alternative to the full pretty printer.
 
 from __future__ import annotations
 
-from .ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
+from .ir import Function, Module, BasicBlock, Instruction, Value
 from .types import Type
 
 
@@ -17,7 +17,7 @@ class SimplePrinter:
     def __init__(self, indent: int = 2):
         self.indent = indent
 
-    def print_function(self, func: IRFunction) -> str:
+    def print_function(self, func: Function) -> str:
         """Print a function."""
         lines = []
         kind = "kernel" if func.is_kernel else "func"
@@ -31,14 +31,14 @@ class SimplePrinter:
         lines.append("}")
         return "\n".join(lines)
 
-    def _indent_block(self, block: IRBasicBlock) -> str:
+    def _indent_block(self, block: BasicBlock) -> str:
         """Print a basic block with indentation."""
         lines = [f"  {block.name}:"]
         for inst in block.instructions:
             lines.append(f"    {inst}")
         return "\n".join(lines)
 
-    def print_module(self, module: IRModule) -> str:
+    def print_module(self, module: Module) -> str:
         """Print a module."""
         lines = ["module {"]
         for func in module.functions:
@@ -50,19 +50,19 @@ class SimplePrinter:
         return "\n".join(lines)
 
 
-def print_function(func: IRFunction) -> str:
+def print_function(func: Function) -> str:
     """Print a function to string."""
     printer = SimplePrinter()
     return printer.print_function(func)
 
 
-def print_module(module: IRModule) -> str:
+def print_module(module: Module) -> str:
     """Print a module to string."""
     printer = SimplePrinter()
     return printer.print_module(module)
 
 
-def print_instruction(inst: IRInstruction) -> str:
+def print_instruction(inst: Instruction) -> str:
     """Print a single instruction."""
     return str(inst)
 

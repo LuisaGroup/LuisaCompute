@@ -10,7 +10,7 @@ from typing import Any, TYPE_CHECKING
 from dataclasses import asdict, is_dataclass
 
 if TYPE_CHECKING:
-    from ..lang.ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, Value
+    from ..lang.ir import Function, Module, BasicBlock, Instruction, Value
     from ..lang.types import Type
 
 
@@ -150,11 +150,11 @@ def value_to_dict(v: Value) -> dict[str, Any]:
     return result
 
 
-def instruction_to_dict(inst: IRInstruction) -> dict[str, Any]:
-    """Convert an IRInstruction to a dictionary."""
+def instruction_to_dict(inst: Instruction) -> dict[str, Any]:
+    """Convert an Instruction to a dictionary."""
 
     def arg_to_dict(arg):
-        if hasattr(arg, 'name'):  # IRBasicBlock
+        if hasattr(arg, 'name'):  # BasicBlock
             return {'block': arg.name}
         if hasattr(arg, 'type'):  # Value
             return value_to_dict(arg)
@@ -168,8 +168,8 @@ def instruction_to_dict(inst: IRInstruction) -> dict[str, Any]:
     }
 
 
-def basic_block_to_dict(block: IRBasicBlock) -> dict[str, Any]:
-    """Convert an IRBasicBlock to a dictionary."""
+def basic_block_to_dict(block: BasicBlock) -> dict[str, Any]:
+    """Convert an BasicBlock to a dictionary."""
     return {
         'name': block.name,
         'instructions': [instruction_to_dict(i) for i in block.instructions],
@@ -177,8 +177,8 @@ def basic_block_to_dict(block: IRBasicBlock) -> dict[str, Any]:
     }
 
 
-def function_to_dict(func: IRFunction) -> dict[str, Any]:
-    """Convert an IRFunction to a dictionary."""
+def function_to_dict(func: Function) -> dict[str, Any]:
+    """Convert an Function to a dictionary."""
     return {
         'name': func.name,
         'arg_types': [type_to_dict(t) for t in func.arg_types],
@@ -189,16 +189,16 @@ def function_to_dict(func: IRFunction) -> dict[str, Any]:
     }
 
 
-def module_to_dict(module: IRModule) -> dict[str, Any]:
-    """Convert an IRModule to a dictionary."""
+def module_to_dict(module: Module) -> dict[str, Any]:
+    """Convert an Module to a dictionary."""
     return {
         'functions': [function_to_dict(f) for f in module.functions]
     }
 
 
-def serialize_function(func: IRFunction, indent: int | None = 2) -> str:
+def serialize_function(func: Function, indent: int | None = 2) -> str:
     """
-    Serialize an IRFunction to JSON string.
+    Serialize an Function to JSON string.
     
     Args:
         func: The function to serialize
@@ -210,9 +210,9 @@ def serialize_function(func: IRFunction, indent: int | None = 2) -> str:
     return json.dumps(function_to_dict(func), indent=indent, cls=IRJSONEncoder)
 
 
-def serialize_module(module: IRModule, indent: int | None = 2) -> str:
+def serialize_module(module: Module, indent: int | None = 2) -> str:
     """
-    Serialize an IRModule to JSON string.
+    Serialize an Module to JSON string.
     
     Args:
         module: The module to serialize
@@ -224,13 +224,13 @@ def serialize_module(module: IRModule, indent: int | None = 2) -> str:
     return json.dumps(module_to_dict(module), indent=indent, cls=IRJSONEncoder)
 
 
-def save_function_to_file(func: IRFunction, path: str, indent: int | None = 2) -> None:
-    """Save an IRFunction to a JSON file."""
+def save_function_to_file(func: Function, path: str, indent: int | None = 2) -> None:
+    """Save an Function to a JSON file."""
     with open(path, 'w', encoding='utf-8') as f:
         f.write(serialize_function(func, indent))
 
 
-def save_module_to_file(module: IRModule, path: str, indent: int | None = 2) -> None:
-    """Save an IRModule to a JSON file."""
+def save_module_to_file(module: Module, path: str, indent: int | None = 2) -> None:
+    """Save an Module to a JSON file."""
     with open(path, 'w', encoding='utf-8') as f:
         f.write(serialize_module(module, indent))

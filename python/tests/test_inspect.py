@@ -7,7 +7,7 @@ from luisa.lang.inspect import (
     count_instructions, get_basic_block_count, get_instruction_count,
     find_operations, analyze_control_flow, is_kernel, format_ir_summary
 )
-from luisa.lang.ir import IROp
+from luisa.lang.ir import Op
 
 
 def test_get_ir_source():
@@ -57,9 +57,9 @@ def test_count_instructions():
     print("Test: count_instructions")
     print("=" * 60)
 
-    from luisa import IRBuilder
+    from luisa import Builder
 
-    builder = IRBuilder('test', (float32,), float32)
+    builder = Builder('test', (float32,), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -90,9 +90,9 @@ def test_get_basic_block_count():
     print("Test: get_basic_block_count")
     print("=" * 60)
 
-    from luisa import IRBuilder
+    from luisa import Builder
 
-    builder = IRBuilder('test', (float32,), float32)
+    builder = Builder('test', (float32,), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     builder.return_()
@@ -115,9 +115,9 @@ def test_find_operations():
     print("Test: find_operations")
     print("=" * 60)
 
-    from luisa import IRBuilder
+    from luisa import Builder
 
-    builder = IRBuilder('test', (float32, float32), float32)
+    builder = Builder('test', (float32, float32), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -129,8 +129,8 @@ def test_find_operations():
     print("\nGenerated IR:")
     print(pprint(ir))
 
-    adds = find_operations(ir, IROp.ADD)
-    returns = find_operations(ir, IROp.RETURN)
+    adds = find_operations(ir, Op.ADD)
+    returns = find_operations(ir, Op.RETURN)
 
     print(f"\nFound {len(adds)} ADD operations")
     print(f"Found {len(returns)} RETURN operations")
@@ -147,10 +147,10 @@ def test_analyze_control_flow():
     print("Test: analyze_control_flow")
     print("=" * 60)
 
-    from luisa import IRBuilder
+    from luisa import Builder
 
     # Simple function
-    builder = IRBuilder('test', (float32,), float32)
+    builder = Builder('test', (float32,), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     builder.return_()
@@ -174,9 +174,9 @@ def test_is_kernel():
     print("Test: is_kernel")
     print("=" * 60)
 
-    from luisa import IRBuilder
+    from luisa import Builder
 
-    builder = IRBuilder('test', (), None)
+    builder = Builder('test', (), None)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     builder.return_()
@@ -199,9 +199,9 @@ def test_format_ir_summary():
     print("Test: format_ir_summary")
     print("=" * 60)
 
-    from luisa import IRBuilder
+    from luisa import Builder
 
-    builder = IRBuilder('summary_test', (float32,), float32)
+    builder = Builder('summary_test', (float32,), float32)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)

@@ -9,7 +9,7 @@ from typing import Any
 from io import StringIO
 
 # Runtime imports
-from ..lang.ir import IRFunction, IRModule, IRBasicBlock, IRInstruction, IROp
+from ..lang.ir import Function, Module, BasicBlock, Instruction, Op
 from ..lang.types import Type
 
 
@@ -44,21 +44,21 @@ class PrettyPrinter:
         """Decrease indentation level."""
         self._indent_level -= 1
 
-    def print(self, obj: IRFunction | IRModule) -> str:
+    def print(self, obj: Function | Module) -> str:
         """Print an IR object and return the result."""
         self._output = StringIO()
         self._indent_level = 0
 
-        if isinstance(obj, IRFunction):
+        if isinstance(obj, Function):
             self._print_function(obj)
-        elif isinstance(obj, IRModule):
+        elif isinstance(obj, Module):
             self._print_module(obj)
         else:
             raise TypeError(f"Cannot print object of type {type(obj)}")
 
         return self._output.getvalue()
 
-    def _print_module(self, module: IRModule) -> None:
+    def _print_module(self, module: Module) -> None:
         """Print an IR module."""
         self._write_line(f"Module with {len(module.functions)} function(s):")
         self._increase_indent()
@@ -68,7 +68,7 @@ class PrettyPrinter:
             self._print_function(func)
         self._decrease_indent()
 
-    def _print_function(self, func: IRFunction) -> None:
+    def _print_function(self, func: Function) -> None:
         """Print an IR function."""
         # Function signature
         ret_type = self._type_to_str(func.ret_type) if func.ret_type else 'void'
@@ -97,7 +97,7 @@ class PrettyPrinter:
         self._decrease_indent()
         self._write_line('}')
 
-    def _print_block(self, block: IRBasicBlock) -> None:
+    def _print_block(self, block: BasicBlock) -> None:
         """Print a basic block."""
         self._write_line(f"{block.name}:")
         self._increase_indent()
@@ -110,13 +110,13 @@ class PrettyPrinter:
 
         self._decrease_indent()
 
-    def _print_instruction(self, inst: IRInstruction) -> None:
+    def _print_instruction(self, inst: Instruction) -> None:
         """Print an instruction."""
         op_str = self._op_to_str(inst.op)
         type_str = self._type_to_str(inst.type)
 
         # Handle structured instructions specially
-        if inst.op == IROp.IF:
+        if inst.op == Op.IF:
             cond_str = self._arg_to_str(inst.args[0])
             loc_str = f" // {inst.loc}" if inst.loc else ""
             self._write_line(f"if ({cond_str}) {{ {loc_str}")
@@ -128,14 +128,14 @@ class PrettyPrinter:
             self._print_block_inline(inst.args[2])
             self._decrease_indent()
             self._write_line("}")
-        elif inst.op == IROp.LOOP:
+        elif inst.op == Op.LOOP:
             loc_str = f" // {inst.loc}" if inst.loc else ""
             self._write_line(f"while (true) {{ {loc_str}")
             self._increase_indent()
             self._print_block_inline(inst.args[0])
             self._decrease_indent()
             self._write_line("}")
-        elif inst.op == IROp.SWITCH:
+        elif inst.op == Op.SWITCH:
             val_str = self._arg_to_str(inst.args[0])
             loc_str = f" // {inst.loc}" if inst.loc else ""
             self._write_line(f"switch ({val_str}) {{ {loc_str}")
@@ -155,14 +155,14 @@ class PrettyPrinter:
                 self._write_line("}")
             self._decrease_indent()
             self._write_line("}")
-        elif inst.op == IROp.RETURN:
+        elif inst.op == Op.RETURN:
             if inst.args:
                 self._write_line(f"return {self._arg_to_str(inst.args[0])};")
             else:
                 self._write_line("return;")
-        elif inst.op == IROp.BREAK:
+        elif inst.op == Op.BREAK:
             self._write_line("break;")
-        elif inst.op == IROp.CONTINUE:
+        elif inst.op == Op.CONTINUE:
             self._write_line("continue;")
         else:
             args_str = self._args_to_str(inst.args)
@@ -182,8 +182,8 @@ class PrettyPrinter:
         if not block.instructions:
             self._write_line('(empty)')
 
-    def _op_to_str(self, op: IROp) -> str:
-        """Convert an IROp to a string."""
+    def _op_to_str(self, op: Op) -> str:
+        """Convert an Op to a string."""
         return op.name.lower()
 
     def _type_to_str(self, t: Type | None) -> str:
@@ -263,7 +263,7 @@ class PrettyPrinter:
     def _arg_to_str(self, arg: Any) -> str:
         """Convert a single argument to string."""
         if hasattr(arg, 'name') and hasattr(arg, 'instructions'):
-            # IRBasicBlock
+            # BasicBlock
             return f"{arg.name}"
         elif hasattr(arg, 'name') and hasattr(arg, 'type'):
             # Value (InstructionValue, ArgumentValue, ConstantValue)
@@ -278,7 +278,7 @@ class PrettyPrinter:
             else:
                 return str(arg)
         elif hasattr(arg, 'name'):
-            # IRBasicBlock
+            # BasicBlock
             return f"{arg.name}"
         else:
             # String or other literal
@@ -290,7 +290,7 @@ class PrettyPrinter:
 
 
 # Convenience functions
-def pprint(obj: IRFunction | IRModule, indent_size: int = 2) -> str:
+def pprint(obj: Function | Module, indent_size: int = 2) -> str:
     """
     Pretty print an IR object.
     

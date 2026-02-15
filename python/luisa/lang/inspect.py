@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Optional, Any, Callable
 import ast
 
-from .ir import IRFunction, IRInstruction, IROp
+from .ir import Function, Instruction, Op
 from .types import Type, Scalar, Vector, Matrix
 
 
@@ -64,7 +64,7 @@ def get_ir_types(func: Callable) -> Optional[dict[str, Any]]:
     }
 
 
-def count_instructions(ir: IRFunction) -> dict[str, int]:
+def count_instructions(ir: Function) -> dict[str, int]:
     """
     Count instructions in an IR function by type.
     
@@ -99,18 +99,18 @@ def count_instructions(ir: IRFunction) -> dict[str, int]:
     return counts
 
 
-def get_basic_block_count(ir: IRFunction) -> int:
+def get_basic_block_count(ir: Function) -> int:
     """Get the number of basic blocks in a function."""
     return len(ir.blocks)
 
 
-def get_instruction_count(ir: IRFunction) -> int:
+def get_instruction_count(ir: Function) -> int:
     """Get the total number of instructions in a function."""
     counts = count_instructions(ir)
     return sum(counts.values())
 
 
-def find_operations(ir: IRFunction, op: IROp) -> list[IRInstruction]:
+def find_operations(ir: Function, op: Op) -> list[Instruction]:
     """
     Find all instructions of a specific type.
     
@@ -145,17 +145,17 @@ def find_operations(ir: IRFunction, op: IROp) -> list[IRInstruction]:
     return results
 
 
-def analyze_control_flow(ir: IRFunction) -> dict[str, Any]:
+def analyze_control_flow(ir: Function) -> dict[str, Any]:
     """
     Analyze control flow in an IR function.
     
     Returns:
         Dictionary with control flow analysis
     """
-    ifs = len(find_operations(ir, IROp.IF))
-    loops = len(find_operations(ir, IROp.LOOP))
-    switches = len(find_operations(ir, IROp.SWITCH))
-    returns = len(find_operations(ir, IROp.RETURN))
+    ifs = len(find_operations(ir, Op.IF))
+    loops = len(find_operations(ir, Op.LOOP))
+    switches = len(find_operations(ir, Op.SWITCH))
+    returns = len(find_operations(ir, Op.RETURN))
 
     return {
         'blocks': len(ir.blocks),
@@ -169,7 +169,7 @@ def analyze_control_flow(ir: IRFunction) -> dict[str, Any]:
     }
 
 
-def is_kernel(ir: IRFunction) -> bool:
+def is_kernel(ir: Function) -> bool:
     """Check if an IR function is a kernel."""
     return ir.is_kernel
 
@@ -202,7 +202,7 @@ def get_type_size(t: Type) -> int:
     return 4  # Default
 
 
-def format_ir_summary(ir: IRFunction) -> str:
+def format_ir_summary(ir: Function) -> str:
     """
     Create a human-readable summary of an IR function.
     

@@ -109,7 +109,7 @@ def test_find_operations_no_match():
     print("Test: find_operations no match")
     print("=" * 60)
 
-    from luisa.lang.ir import IROp
+    from luisa.lang.ir import Op
 
     @callable
     def simple() -> int32:
@@ -120,7 +120,7 @@ def test_find_operations_no_match():
     print("\nGenerated IR:")
     print(pprint(ir))
 
-    results = find_operations(ir, IROp.ATOMIC_ADD)
+    results = find_operations(ir, Op.ATOMIC_ADD)
     assert len(results) == 0
 
     print("✓ No ATOMIC_ADD operations found (as expected)")

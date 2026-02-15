@@ -7,10 +7,10 @@ type hinting support and automatic constant folding.
 
 # lang
 from .lang.ir import (
-    IROp, Value, ConstantValue, ArgumentValue, InstructionValue,
-    IRInstruction, IRBasicBlock, IRFunction, IRModule,
+    Op, Value, ConstantValue, ArgumentValue, InstructionValue,
+    Instruction, BasicBlock, Function, Module,
 )
-from .lang.builder import IRBuilder
+from .lang.builder import Builder
 from .lang.multistage import StagedFunction, kernel, callable, static_range, unrolled, StaticIf, StaticWhile
 from .lang.types import (
     # Base types
@@ -107,9 +107,9 @@ __version__ = "2.0.0-alpha"
 
 __all__ = [
     # lang
-    "IROp", "Value", "ConstantValue", "ArgumentValue", "InstructionValue",
-    "IRInstruction", "IRBasicBlock", "IRFunction", "IRModule",
-    "IRBuilder",
+    "Op", "Value", "ConstantValue", "ArgumentValue", "InstructionValue",
+    "Instruction", "BasicBlock", "Function", "Module",
+    "Builder",
     "StagedFunction", "kernel", "callable", "static_range", "unrolled", "StaticIf", "StaticWhile",
     "Type", "Scalar", "Vector", "Matrix", "Array", "Struct",
     "Buffer", "Texture2D", "Texture3D", "BindlessArray", "Accel", "RayQuery", "Callable", "Void", "Ref",

@@ -13,8 +13,8 @@ import os
 from typing import Callable, Optional, Any, TYPE_CHECKING
 from contextlib import contextmanager
 
-from .builder import IRBuilder
-from .ir import Value, IROp, IRFunction
+from .builder import Builder
+from .ir import Value, Op, Function
 from .types import Type, value_to_type, bool_, int32, float32, Scalar, Vector, Buffer, Array
 from .parser import parse_function, CapturedVar, ParsedFunction
 from .rewriter import ASTRewriter
@@ -30,7 +30,7 @@ def is_ir_value(val: Any) -> bool:
     return isinstance(val, Value)
 
 
-def to_ir_value(builder: IRBuilder, val: Any) -> Value:
+def to_ir_value(builder: Builder, val: Any) -> Value:
     """Ensure a value is an IR Value, converting literals if necessary."""
     if isinstance(val, Value):
         return val
@@ -43,7 +43,7 @@ def to_ir_value(builder: IRBuilder, val: Any) -> Value:
     return builder.constant(typ, val)
 
 
-def _try_to_ir_value(builder: IRBuilder, val: Any) -> Any:
+def _try_to_ir_value(builder: Builder, val: Any) -> Any:
     """Try to convert to IR value, return original if not possible."""
     try:
         return to_ir_value(builder, val)
@@ -51,7 +51,7 @@ def _try_to_ir_value(builder: IRBuilder, val: Any) -> Any:
         return val
 
 
-def l_binop(builder: IRBuilder, op: ast.operator, left: Any, right: Any) -> Any:
+def l_binop(builder: Builder, op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
     if is_ir_value(left) or is_ir_value(right):
         left = to_ir_value(builder, left)
@@ -87,7 +87,7 @@ def l_binop(builder: IRBuilder, op: ast.operator, left: Any, right: Any) -> Any:
         raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
 
 
-def l_unaryop(builder: IRBuilder, op: ast.unaryop, operand: Any) -> Any:
+def l_unaryop(builder: Builder, op: ast.unaryop, operand: Any) -> Any:
     """Handle unary operations."""
     if is_ir_value(operand):
         operand = to_ir_value(builder, operand)
@@ -102,7 +102,7 @@ def l_unaryop(builder: IRBuilder, op: ast.unaryop, operand: Any) -> Any:
         raise NotImplementedError(f"Unsupported unary operator: {type(op)}")
 
 
-def l_compare(builder: IRBuilder, op: ast.cmpop, left: Any, right: Any) -> Any:
+def l_compare(builder: Builder, op: ast.cmpop, left: Any, right: Any) -> Any:
     """Handle comparison operations."""
     if is_ir_value(left) or is_ir_value(right):
         left = to_ir_value(builder, left)
@@ -128,7 +128,7 @@ def l_compare(builder: IRBuilder, op: ast.cmpop, left: Any, right: Any) -> Any:
         raise NotImplementedError(f"Unsupported comparison operator: {type(op)}")
 
 
-def l_boolop(builder: IRBuilder, op: ast.boolop, values: list[Any]) -> Any:
+def l_boolop(builder: Builder, op: ast.boolop, values: list[Any]) -> Any:
     """Handle boolean operations (and/or)."""
     is_ir = any(is_ir_value(v) for v in values)
     if is_ir:
@@ -204,7 +204,7 @@ class StaticWhile:
 HostIf = StaticIf  # Legacy alias
 
 
-def l_if(builder: IRBuilder, cond_func: Callable[[], Any]) -> Any:
+def l_if(builder: Builder, cond_func: Callable[[], Any]) -> Any:
     """Handle if statements."""
     cond = cond_func()
     if is_ir_value(cond):
@@ -213,7 +213,7 @@ def l_if(builder: IRBuilder, cond_func: Callable[[], Any]) -> Any:
         return StaticIf(cond)
 
 
-def l_for(builder: IRBuilder, iter_obj: Any, loop_var_name: Any) -> Any:
+def l_for(builder: Builder, iter_obj: Any, loop_var_name: Any) -> Any:
     """Handle for loops (returns iterable)."""
     if isinstance(iter_obj, (range, LuisaRange)):
         if isinstance(iter_obj, range):
@@ -241,7 +241,7 @@ def l_for(builder: IRBuilder, iter_obj: Any, loop_var_name: Any) -> Any:
 
 
 @contextmanager
-def l_loop_scope(builder: IRBuilder, loop_item: Any):
+def l_loop_scope(builder: Builder, loop_item: Any):
     if hasattr(loop_item, 'body_scope'):
         with loop_item.body_scope() as scope:
             yield scope
@@ -249,7 +249,7 @@ def l_loop_scope(builder: IRBuilder, loop_item: Any):
         yield loop_item
 
 
-def l_while(builder: IRBuilder, test_func: Callable[[], Any]) -> Any:
+def l_while(builder: Builder, test_func: Callable[[], Any]) -> Any:
     """Handle while loops (returns generator)."""
     cond = test_func()
     if is_ir_value(cond):
@@ -262,7 +262,7 @@ def l_while(builder: IRBuilder, test_func: Callable[[], Any]) -> Any:
 
 
 @contextmanager
-def l_while_scope(builder: IRBuilder, loop_item: Any):
+def l_while_scope(builder: Builder, loop_item: Any):
     if loop_item is not None and hasattr(loop_item, 'body_scope'):
         with loop_item.body_scope() as scope:
             yield scope
@@ -301,7 +301,7 @@ class LuisaRange:
         self.args = args
 
 
-def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
+def l_call(builder: Builder, func: Any, *args, **kwargs) -> Any:
     """Handle function calls."""
     from .types import Type
 
@@ -335,7 +335,7 @@ def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
     raise TypeError(f"Object {func} is not callable")
 
 
-def l_subscript(builder: IRBuilder, value: Any, index: Any) -> Any:
+def l_subscript(builder: Builder, value: Any, index: Any) -> Any:
     if is_ir_value(value) or is_ir_value(index):
         value = to_ir_value(builder, value)
         index = to_ir_value(builder, index)
@@ -345,7 +345,7 @@ def l_subscript(builder: IRBuilder, value: Any, index: Any) -> Any:
     return value[index]
 
 
-def l_subscript_assign(builder: IRBuilder, value: Any, index: Any, rhs: Any) -> None:
+def l_subscript_assign(builder: Builder, value: Any, index: Any, rhs: Any) -> None:
     if is_ir_value(value) or is_ir_value(index) or is_ir_value(rhs):
         value = to_ir_value(builder, value)
         index = to_ir_value(builder, index)
@@ -358,7 +358,7 @@ def l_subscript_assign(builder: IRBuilder, value: Any, index: Any, rhs: Any) -> 
         value[index] = rhs
 
 
-def l_attribute(builder: IRBuilder, value: Any, attr: str) -> Any:
+def l_attribute(builder: Builder, value: Any, attr: str) -> Any:
     if is_ir_value(value):
         # Allow accessing standard attributes of Value/InstructionValue
         if attr in ('type', 'typ', 'name', 'instruction'):
@@ -372,7 +372,7 @@ def l_attribute(builder: IRBuilder, value: Any, attr: str) -> Any:
     return getattr(value, attr)
 
 
-def l_return(builder: IRBuilder, value: Any = None) -> None:
+def l_return(builder: Builder, value: Any = None) -> None:
     if value is not None:
         val = to_ir_value(builder, value)
         builder.return_(val)
@@ -380,7 +380,7 @@ def l_return(builder: IRBuilder, value: Any = None) -> None:
         builder.return_(None)
 
 
-def l_local_assign(builder: IRBuilder, name: str, value: Any) -> Any:
+def l_local_assign(builder: Builder, name: str, value: Any) -> Any:
     """Helper to store a value in the builder's local namespace."""
     # This ensures that even if we rewrite an assignment, 
     # we can still track the name if needed.
@@ -428,7 +428,7 @@ class StagedFunction:
 
         self.template_params = template_params or ()
         # Cache for compiled versions (keyed by argument types AND specialization values)
-        self._cache: dict[tuple[tuple[Type, ...], tuple[Any, ...]], IRFunction] = {}
+        self._cache: dict[tuple[tuple[Type, ...], tuple[Any, ...]], Function] = {}
 
         import inspect
         self.filename = inspect.getsourcefile(func) or "<unknown>"
@@ -457,7 +457,7 @@ class StagedFunction:
             mode="exec"
         )
 
-    def builder_func(self, builder: IRBuilder, *args, specialization_values: tuple = ()):
+    def builder_func(self, builder: Builder, *args, specialization_values: tuple = ()):
         """The internal function that populates the IR builder."""
         self._do_compile()
 
@@ -493,8 +493,8 @@ class StagedFunction:
             items = (items,)
         return SpecializedFunctionProxy(self, items)
 
-    def compile(self, builder: IRBuilder, *args, specialization_values: tuple = ()) -> IRFunction:
-        """Compile the function for given arguments and return the IRFunction."""
+    def compile(self, builder: Builder, *args, specialization_values: tuple = ()) -> Function:
+        """Compile the function for given arguments and return the Function."""
         arg_values = list(args)
         ir_args = [to_ir_value(builder, a) for a in arg_values]
         arg_types = tuple(a.type for a in ir_args)
@@ -506,7 +506,7 @@ class StagedFunction:
 
         return self._cache[cache_key]
 
-    def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> IRFunction:
+    def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> Function:
         arg_types = []
         arg_is_reference = []
         for i, arg in enumerate(args):
@@ -524,7 +524,7 @@ class StagedFunction:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        builder = IRBuilder(
+        builder = Builder(
             name=self.parsed.name,
             arg_types=arg_types,
             ret_type=self.parsed.ret_annotation,
@@ -563,7 +563,7 @@ class SpecializedFunctionProxy:
         self.staged = staged
         self.values = values
 
-    def __call__(self, *args, **kwargs) -> IRFunction:
+    def __call__(self, *args, **kwargs) -> Function:
         return self.staged(*args, specialization_values=self.values, **kwargs)
 
 
