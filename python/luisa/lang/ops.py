@@ -39,9 +39,26 @@ def to_ir_value(val: Any) -> Value:
     # Unwrap _ConstValue
     from .types import _ConstValue
     if isinstance(val, _ConstValue):
+        # Prefer the explicit type if provided
+        if val.dsl_type is not None:
+            return get_current_builder().constant(val.dsl_type, val.value)
         val = val.value
 
     typ = value_to_type(val)
+    if typ is None:
+        if isinstance(val, (list, tuple)):
+            # Infer type for tuples (Vector or Matrix)
+            length = len(val)
+            from .types import Vector, Matrix, Float
+            if length in (2, 3, 4):
+                typ = Vector(Float, length)
+            elif length in (4, 9, 16):
+                typ = Matrix(Float, int(math.sqrt(length)))
+        elif hasattr(val, 'to_tuple') and hasattr(val, 'get_dsl_type'):
+            # It's a Struct object
+            typ = val.get_dsl_type()
+            val = val.to_tuple()
+            
     if typ is None:
         raise TypeError(f"Cannot convert {type(val)} to Luisa type")
     return get_current_builder().constant(typ, val)
@@ -103,6 +120,9 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
             return left << right
         if isinstance(op, ast.RShift):
             return left >> right
+        if isinstance(op, ast.MatMult):
+            from .builtins.math import _matmul_host
+            return _matmul_host(left, right)
         raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
     
     if is_ir_value(left) or is_ir_value(right):
@@ -133,6 +153,9 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
             return builder.shl(left, right)
         if isinstance(op, ast.RShift):
             return builder.shr(left, right)
+        if isinstance(op, ast.MatMult):
+            # Luisa uses Op.MUL for matrix-matrix and matrix-vector multiplication
+            return builder.mul(left, right)
         raise NotImplementedError(f"Unsupported binary operator for IR: {type(op)}")
     else:
         # Host side
@@ -160,6 +183,9 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
             return left << right
         if isinstance(op, ast.RShift):
             return left >> right
+        if isinstance(op, ast.MatMult):
+            from .builtins.math import _matmul_host
+            return _matmul_host(left, right)
         raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
 
 
@@ -464,10 +490,17 @@ def call(func: Any, *args, **kwargs) -> Any:
         return range(*args)
 
     if isinstance(func, Type):
-        if len(args) != 1:
-            raise ValueError(f"Type cast takes exactly one argument, got {len(args)}")
-        val = to_ir_value(args[0])
-        return get_current_builder().cast(val, func)
+        # Type constructors can take multiple arguments (aggregate types)
+        # or a single argument (casting or broadcasting)
+        
+        # If any argument is an IR value, emit a cast or call_builtin
+        if any(is_ir_value(a) for a in args):
+            # T(x) or T(x,y,...)
+            # Delegate to the type's __call__ which knows how to emit IR
+            return func(*args)
+        
+        # All constants - delegate to T.__call__ for host computation
+        return func(*args)
 
     # Use duck typing or check class name to avoid circular import with multistage
     if func.__class__.__name__ == 'StagedFunction':
@@ -567,21 +600,13 @@ def local_var_assign(name: str, value: Any) -> Any:
     """
     from ..transform.ir import ConstantValue
     
-    # If it's already a Value (including InstructionValue, ConstantValue, etc.),
-    # create a DSL variable for it
+    # Ensure it's a Value object for IR visibility
+    value = try_to_ir_value(value)
+    
     if isinstance(value, Value):
         builder = get_current_builder()
         var_ptr = builder.alloca(value.type, name=name)
         builder.store(var_ptr, value)
-        return var_ptr
-    
-    # If it's a Python primitive that can be converted to a DSL type, do so
-    typ = value_to_type(value)
-    if typ is not None:
-        builder = get_current_builder()
-        ir_value = builder.constant(typ, value)
-        var_ptr = builder.alloca(ir_value.type, name=name)
-        builder.store(var_ptr, ir_value)
         return var_ptr
     
     # Otherwise, it's a Python variable (Builder, str, etc.) - just return as-is

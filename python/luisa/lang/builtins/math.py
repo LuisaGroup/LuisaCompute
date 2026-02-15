@@ -63,6 +63,84 @@ _fma_host = lambda a, b, c: a * b + c  # Fused multiply-add
 
 
 # ============================================================================
+# Matrix Host Implementations for Constant Folding
+# ============================================================================
+
+def _matmul_host(a, b):
+    """Host-side matrix-matrix or matrix-vector multiplication."""
+    # Constant folding for tuples
+    from ..router import extract_constant_value
+    a_val = extract_constant_value(a)
+    b_val = extract_constant_value(b)
+    
+    try:
+        import numpy as np
+        # Convert to numpy arrays
+        if isinstance(a_val, tuple):
+            size_a = int(math.sqrt(len(a_val)))
+            a_np = np.array(a_val).reshape(size_a, size_a)
+        else:
+            a_np = a_val
+            
+        if isinstance(b_val, tuple):
+            if len(b_val) == len(a_val): # matrix
+                size_b = int(math.sqrt(len(b_val)))
+                b_np = np.array(b_val).reshape(size_b, size_b)
+            else: # vector
+                b_np = np.array(b_val)
+        else:
+            b_np = b_val
+            
+        result = np.matmul(a_np, b_np)
+        return tuple(result.flatten()) if hasattr(result, 'flatten') else result
+    except ImportError:
+        # Fallback for small matrices if numpy not available
+        # Only implement if absolutely needed, for now just fail gracefully
+        raise NotImplementedError("Matrix multiplication constant folding requires numpy")
+
+
+def _transpose_host(m):
+    """Host-side matrix transpose."""
+    from ..router import extract_constant_value
+    m_val = extract_constant_value(m)
+    if isinstance(m_val, tuple):
+        size = int(math.sqrt(len(m_val)))
+        result = [0.0] * len(m_val)
+        for r in range(size):
+            for c in range(size):
+                result[c * size + r] = m_val[r * size + c]
+        return tuple(result)
+    return m_val
+
+
+def _inverse_host(m):
+    """Host-side matrix inverse."""
+    from ..router import extract_constant_value
+    m_val = extract_constant_value(m)
+    try:
+        import numpy as np
+        size = int(math.sqrt(len(m_val)))
+        m_np = np.array(m_val).reshape(size, size)
+        result = np.linalg.inv(m_np)
+        return tuple(result.flatten())
+    except ImportError:
+        raise NotImplementedError("Matrix inverse constant folding requires numpy")
+
+
+def _determinant_host(m):
+    """Host-side matrix determinant."""
+    from ..router import extract_constant_value
+    m_val = extract_constant_value(m)
+    try:
+        import numpy as np
+        size = int(math.sqrt(len(m_val)))
+        m_np = np.array(m_val).reshape(size, size)
+        return float(np.linalg.det(m_np))
+    except ImportError:
+        raise NotImplementedError("Matrix determinant constant folding requires numpy")
+
+
+# ============================================================================
 # Vector Host Implementations for Constant Folding (using tuples)
 # ============================================================================
 
@@ -610,16 +688,19 @@ def atan2(y, x):
 # Matrix Functions
 # ============================================================================
 
+@router(host_impl=_transpose_host, device_op=Op.MATRIX_TRANSPOSE)
 def transpose(m):
     """Transpose matrix."""
-    return get_current_builder()._emit(Op.MATRIX_TRANSPOSE, m.type, [m])
+    pass
 
 
+@router(host_impl=_inverse_host, device_op=Op.MATRIX_INVERSE)
 def inverse(m):
     """Compute matrix inverse."""
-    return get_current_builder()._emit(Op.MATRIX_INVERSE, m.type, [m])
+    pass
 
 
+@router(host_impl=_determinant_host, device_op=Op.MATRIX_DETERMINANT)
 def determinant(m):
     """Compute matrix determinant."""
-    return get_current_builder()._emit(Op.MATRIX_DETERMINANT, Float, [m])
+    pass

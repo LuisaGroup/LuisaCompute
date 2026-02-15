@@ -157,10 +157,13 @@ class StagedFunction:
         spec_dict = dict(zip(self.template_params, specialization_values))
 
         from . import ops as rt
+        from . import builtins
         namespace = {
             "__luisa_rt": rt,
             "ast": ast,
             "static_range": static_range,
+            # Inject all builtins for easy access
+            **{name: getattr(builtins, name) for name in builtins.__all__},
             **{name: var.value for name, var in self.parsed.captured_vars.items()},
             **spec_dict  # Inject template parameters
         }

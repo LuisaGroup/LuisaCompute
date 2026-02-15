@@ -182,7 +182,8 @@ class Vector(Type):
         
         Supports:
             Float3(1.0, 2.0, 3.0)  # 3 components
-            Float3(1.0)            # All components set to 1.0
+            Float3([1.0, 2.0, 3.0])# From list/tuple
+            Float3(1.0)            # All components set to 1.0 (broadcast)
             Float3(x, y, z)        # From DSL values
         
         Returns:
@@ -192,21 +193,23 @@ class Vector(Type):
         from ..transform.ir import Value, ConstantValue
         from ..transform.builder import get_current_builder
         
-        # Lazy import Op to avoid circular imports
-        from ..transform.op import Op
-        
-        # If called with a single argument, replicate it for all components
+        # Handle single argument construction from list/tuple
+        if len(components) == 1 and isinstance(components[0], (list, tuple)):
+            components = tuple(components[0])
+            
+        # Check component count
         if len(components) == 1:
+            # Broadcast scalar to all components
             val = components[0]
-            # Check if it's a DSL value
             if isinstance(val, Value):
-                # Emit vector construction in IR
+                # Emit vector broadcast in IR
+                from ..transform.op import Op
                 builder = get_current_builder()
-                # For now, emit as a composite or broadcast
-                # This would need proper IR support for vector construction
-                return builder._emit(Op.CALL_BUILTIN, self, [f"make_vector_{self.size}", *components])
+                return builder._emit(Op.CALL_BUILTIN, self, [f"make_vector_{self.size}", val])
             # Single constant - replicate to all components
             components = (val,) * self.size
+        elif len(components) != self.size:
+            raise ValueError(f"Vector<{self.element}, {self.size}> requires {self.size} components, got {len(components)}")
         
         # Check if all components are constants
         if all(not isinstance(c, Value) for c in components):
@@ -219,12 +222,11 @@ class Vector(Type):
                     converted.append(c)
             
             # Return as a tuple for constant folding
-            # The tuple will be converted to IR ConstantValue when needed
-            return tuple(converted[:self.size])
+            return tuple(converted)
         
         # Some components are DSL values - emit IR
+        from ..transform.op import Op
         builder = get_current_builder()
-        # TODO: Emit proper vector construction IR
         return builder._emit(Op.CALL_BUILTIN, self, [f"make_vector_{self.size}", *components])
 
 
@@ -251,6 +253,53 @@ class Matrix(Type):
             raise TypeError("Matrix requires [type, size]")
         return cls(element=item[0], size=item[1])
 
+    def __call__(self, *components):
+        """
+        Construct a matrix value from components.
+        
+        Supports:
+            Float2x2(1.0, 2.0, 3.0, 4.0)  # 4 components (row-major)
+            Float2x2([1,2,3,4])           # From list/tuple
+            Float2x2(1.0)                 # Diagonal elements set to 1.0 (identity * scalar)
+            Float2x2(x, y, z, w)          # From DSL values
+        """
+        from ..transform.ir import Value, ConstantValue
+        from ..transform.builder import get_current_builder
+        from ..transform.op import Op
+        
+        # Handle single argument construction from list/tuple
+        if len(components) == 1 and isinstance(components[0], (list, tuple)):
+            components = tuple(components[0])
+            
+        num_elements = self.size * self.size
+        
+        if len(components) == 1:
+            # Identity * scalar (diagonal)
+            val = components[0]
+            if isinstance(val, Value):
+                return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_matrix_{self.size}", val])
+            
+            # Constant diagonal
+            diag_val = val if not isinstance(val, ConstantValue) else val.value
+            result = []
+            for r in range(self.size):
+                for c in range(self.size):
+                    result.append(diag_val if r == c else 0.0)
+            return tuple(result)
+            
+        if len(components) != num_elements:
+            raise ValueError(f"Matrix<{self.element}, {self.size}> requires {num_elements} components, got {len(components)}")
+            
+        # Check if all components are constants
+        if all(not isinstance(c, Value) for c in components):
+            converted = []
+            for c in components:
+                converted.append(c.value if isinstance(c, ConstantValue) else c)
+            return tuple(converted)
+            
+        # Emit IR
+        return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_matrix_{self.size}", *components])
+
 
 # ============================================================================
 # Array Type
@@ -275,6 +324,23 @@ class Array(Type):
             raise TypeError("Array requires [type, size]")
         return cls(element=item[0], size=item[1])
 
+    def __call__(self, *elements):
+        """Construct an array from elements."""
+        from ..transform.ir import Value, ConstantValue
+        from ..transform.builder import get_current_builder
+        from ..transform.op import Op
+        
+        if len(elements) == 1 and isinstance(elements[0], (list, tuple)):
+            elements = tuple(elements[0])
+            
+        if len(elements) != self.size:
+            raise ValueError(f"Array<{self.element}, {self.size}> requires {self.size} elements, got {len(elements)}")
+            
+        if all(not isinstance(e, Value) for e in elements):
+            return tuple(e.value if isinstance(e, ConstantValue) else e for e in elements)
+            
+        return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_array_{self.size}", *elements])
+
 
 # ============================================================================
 # Struct Type
@@ -290,6 +356,47 @@ class Struct(Type):
     def __str__(self) -> str:
         field_types = [str(typ) for name, typ in self.fields]
         return f"{{ {', '.join(field_types)} }}"
+
+    def __call__(self, *args, **kwargs):
+        """
+        Construct a struct from arguments.
+        
+        Supports:
+            Point(x=1.0, y=2.0)  # Named arguments
+            Point(1.0, 2.0)      # Positional arguments
+            Point([1.0, 2.0])    # From list/tuple
+        """
+        from ..transform.ir import Value, ConstantValue
+        from ..transform.builder import get_current_builder
+        from ..transform.op import Op
+        
+        # Determine elements based on positional or named arguments
+        if len(args) == 1 and isinstance(args[0], (list, tuple)) and not kwargs:
+            elements = list(args[0])
+        elif args:
+            if kwargs:
+                raise ValueError("Cannot mix positional and named arguments in struct construction")
+            elements = list(args)
+        else:
+            # Map kwargs to fields
+            field_dict = {name: i for i, (name, _) in enumerate(self.fields)}
+            elements = [None] * len(self.fields)
+            for name, val in kwargs.items():
+                if name not in field_dict:
+                    raise KeyError(f"Struct {self.name} has no field {name}")
+                elements[field_dict[name]] = val
+            
+            if any(e is None for e in elements):
+                missing = [self.fields[i][0] for i, e in enumerate(elements) if e is None]
+                raise ValueError(f"Missing values for fields: {', '.join(missing)}")
+
+        if len(elements) != len(self.fields):
+            raise ValueError(f"Struct {self.name} requires {len(self.fields)} fields, got {len(elements)}")
+            
+        if all(not isinstance(e, Value) for e in elements):
+            return tuple(e.value if isinstance(e, ConstantValue) else e for e in elements)
+            
+        return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_struct_{self.name}", *elements])
 
     def __class_getitem__(cls, items):
         """
@@ -596,16 +703,20 @@ def get_element_type(t: Type) -> Type:
         raise TypeError(f"Type {t} has no element type")
 
 
-def get_length(t: Type) -> int:
-    """Get the length of a vector, matrix dimension, or array size."""
+def get_length(t: Any) -> int:
+    """Get the length of a vector, matrix dimension, array size, or struct field count."""
     if isinstance(t, Vector):
         return t.size
     elif isinstance(t, Matrix):
-        return t.size
+        return t.size * t.size
     elif isinstance(t, Array):
         return t.size
     elif isinstance(t, Scalar):
         return 1
+    elif isinstance(t, Struct):
+        return len(t.fields)
+    elif hasattr(t, '_dsl_type') and isinstance(t._dsl_type, Struct):
+        return len(t._dsl_type.fields)
     else:
         raise TypeError(f"Type {t} has no length")
 
@@ -824,6 +935,45 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
 
     cls.get_dsl_type = get_dsl_type
 
+    def __init__(self, *args, **kwargs):
+        field_names = [f[0] for f in self._dsl_type.fields]
+        if args:
+            if kwargs:
+                raise ValueError("Cannot mix positional and named arguments")
+            if len(args) == 1 and isinstance(args[0], (list, tuple)) and len(args[0]) == len(field_names):
+                args = tuple(args[0])
+            if len(args) != len(field_names):
+                raise ValueError(f"Expected {len(field_names)} arguments, got {len(args)}")
+            for name, val in zip(field_names, args):
+                setattr(self, name, val)
+        else:
+            for name in field_names:
+                if name not in kwargs:
+                    raise ValueError(f"Missing argument: {name}")
+                setattr(self, name, kwargs[name])
+            if len(kwargs) > len(field_names):
+                extra = set(kwargs.keys()) - set(field_names)
+                raise ValueError(f"Extra arguments: {', '.join(extra)}")
+
+    def to_tuple(self):
+        field_names = [f[0] for f in self._dsl_type.fields]
+        return tuple(getattr(self, name) for name in field_names)
+
+    def __eq__(self, other):
+        if type(self) is not type(other):
+            return False
+        return self.to_tuple() == other.to_tuple()
+
+    def __repr__(self):
+        field_names = [f[0] for f in self._dsl_type.fields]
+        fields_str = ", ".join(f"{name}={getattr(self, name)!r}" for name in field_names)
+        return f"{self.__class__.__name__}({fields_str})"
+
+    cls.__init__ = __init__
+    cls.to_tuple = to_tuple
+    cls.__eq__ = __eq__
+    cls.__repr__ = __repr__
+
     return cls
 
 
@@ -902,12 +1052,43 @@ class _TypedConst:
     def __init__(self, typ: Type):
         self.type = typ
     
-    def __call__(self, *values):
-        """Create a const value with the specified type."""
-        if len(values) == 1:
-            return _ConstValue(values[0], explicit_type=self.type)
+    def __call__(self, *values, **kwargs):
+        """
+        Create a const value with the specified type.
+        
+        This validates that the initial values match the target type.
+        """
+        # Support broadcasting or exact match
+        if len(values) == 1 and not kwargs:
+            val = values[0]
+            # If it's a single value, it's either a scalar broadcast or a tuple/list
+            if isinstance(val, (list, tuple)):
+                # Exact element count check for aggregate types
+                required = get_length(self.type)
+                if len(val) != required:
+                    raise ValueError(f"Const[{self.type}] requires {required} elements, got {len(val)}")
+                
+                # Construct the type from the sequence
+                result = self.type(val)
+                return _ConstValue(result, explicit_type=self.type)
+            
+            # Scalar broadcast to aggregate is handled by T.__call__
+            # Or it's a simple scalar Const[Float](1.0)
+            result = self.type(val)
+            return _ConstValue(result, explicit_type=self.type)
         else:
-            return _ConstValue(values, explicit_type=self.type)
+            # Multiple arguments or named arguments - must match required length
+            required = get_length(self.type)
+            
+            # For structs, we might have kwargs
+            if kwargs:
+                result = self.type(*values, **kwargs)
+            else:
+                if len(values) != required:
+                    raise ValueError(f"Const[{self.type}] requires {required} elements, got {len(values)}")
+                result = self.type(*values)
+                
+            return _ConstValue(result, explicit_type=self.type)
 
 
 class _ConstValue:
