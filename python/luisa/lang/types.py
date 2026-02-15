@@ -59,6 +59,14 @@ class Ref:
         return cls
 
 
+# Helper for class-level properties
+class classproperty:
+    def __init__(self, fget):
+        self.fget = fget
+    def __get__(self, owner_self, owner_cls):
+        return self.fget(owner_cls)
+
+
 @dataclass(frozen=True)
 class Scalar(Type):
     """Scalar type."""
@@ -81,52 +89,52 @@ class Scalar(Type):
         }
         return mapping.get(self.dtype, self.dtype.name.lower())
 
-    # Predefined scalar type constructors
-    @classmethod
+    # Predefined scalar type constructors (as class properties)
+    @classproperty
     def bool(cls) -> Scalar:
         return cls(ScalarType.BOOL)
 
-    @classmethod
+    @classproperty
     def byte(cls) -> Scalar:
         return cls(ScalarType.INT8)
 
-    @classmethod
+    @classproperty
     def ubyte(cls) -> Scalar:
         return cls(ScalarType.UINT8)
 
-    @classmethod
+    @classproperty
     def short(cls) -> Scalar:
         return cls(ScalarType.INT16)
 
-    @classmethod
+    @classproperty
     def ushort(cls) -> Scalar:
         return cls(ScalarType.UINT16)
 
-    @classmethod
+    @classproperty
     def int(cls) -> Scalar:
         return cls(ScalarType.INT32)
 
-    @classmethod
+    @classproperty
     def uint(cls) -> Scalar:
         return cls(ScalarType.UINT32)
 
-    @classmethod
+    @classproperty
     def long(cls) -> Scalar:
         return cls(ScalarType.INT64)
 
-    @classmethod
+    @classproperty
     def ulong(cls) -> Scalar:
         return cls(ScalarType.UINT64)
 
-    @classmethod
+    @classproperty
     def half(cls) -> Scalar:
         return cls(ScalarType.FLOAT16)
 
-    @classmethod
+    @classproperty
     def float(cls) -> Scalar:
         return cls(ScalarType.FLOAT32)
 
-    @classmethod
+    @classproperty
     def double(cls) -> Scalar:
         return cls(ScalarType.FLOAT64)
 
@@ -352,18 +360,18 @@ AnyType = Union[
 # ============================================================================
 
 # Scalar types
-Bool = Scalar.bool()
-Byte = Scalar.byte()
-UByte = Scalar.ubyte()
-Short = Scalar.short()
-UShort = Scalar.ushort()
-Int = Scalar.int()
-UInt = Scalar.uint()
-Long = Scalar.long()
-ULong = Scalar.ulong()
-Half = Scalar.half()
-Float = Scalar.float()
-Double = Scalar.double()
+Bool = Scalar.bool
+Byte = Scalar.byte
+UByte = Scalar.ubyte
+Short = Scalar.short
+UShort = Scalar.ushort
+Int = Scalar.int
+UInt = Scalar.uint
+Long = Scalar.long
+ULong = Scalar.ulong
+Half = Scalar.half
+Float = Scalar.float
+Double = Scalar.double
 
 # Vector types
 Bool2, Bool3, Bool4 = Vector[Bool, 2], Vector[Bool, 3], Vector[Bool, 4]
@@ -384,13 +392,13 @@ Float2x2, Float3x3, Float4x4 = Matrix[Float, 2], Matrix[Float, 3], Matrix[Float,
 Double2x2, Double3x3, Double4x4 = Matrix[Double, 2], Matrix[Double, 3], Matrix[Double, 4]
 Half2x2, Half3x3, Half4x4 = Matrix[Half, 2], Matrix[Half, 3], Matrix[Half, 4]
 
-# Lowercase aliases for internal use (optionally keep some for backward compatibility)
-bool_ = Bool
-byte, ubyte = Byte, UByte
-short, ushort = Short, UShort
-int_, uint = Int, UInt
-long, ulong = Long, ULong
-half, float_, double = Half, Float, Double
+# Lowercase aliases for internal use (with _t postfix)
+bool_t = Bool
+byte_t, ubyte_t = Byte, UByte
+short_t, ushort_t = Short, UShort
+int_t, uint_t = Int, UInt
+long_t, ulong_t = Long, ULong
+half_t, float_t, double_t = Half, Float, Double
 
 
 # ============================================================================
@@ -547,8 +555,7 @@ def promote_types(t1: Type, t2: Type) -> Type:
             ScalarType.INT16, ScalarType.UINT16,
             ScalarType.INT32, ScalarType.UINT32,
             ScalarType.INT64, ScalarType.UINT64,
-            ScalarType.FLOAT16,
-            ScalarType.FLOAT32,
+            ScalarType.FLOAT16, ScalarType.FLOAT32,
             ScalarType.FLOAT64,
         ]
         idx1 = precedence.index(t1.dtype)
