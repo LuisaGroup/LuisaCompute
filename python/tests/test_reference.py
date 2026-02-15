@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from luisa import (
     kernel, callable,
-    int32, Buffer, dispatch_id, Ref,
+    Int, Buffer, dispatch_id, Ref,
     pprint
 )
 
@@ -23,19 +23,19 @@ def test_reference_argument_basic():
     print("=" * 60)
 
     @callable
-    def increment(x: Ref[int32]):
-        # x is a Ref[int32]
+    def increment(x: Ref[Int]):
+        # x is a Ref[Int]
         x = x + 1
 
     @kernel
-    def ref_kernel(buf: Buffer[int32]):
+    def ref_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         val = buf[idx]
         increment(val)
         buf[idx] = val
 
     # Provide a typed buffer so indexing works
-    ir = ref_kernel(Buffer[int32])
+    ir = ref_kernel(Buffer[Int])
 
     # Get the increment IR from cache
     inc_ir = list(increment._cache.values())[0]
@@ -57,13 +57,13 @@ def test_swap_references():
     print("=" * 60)
 
     @callable
-    def swap(a: Ref[int32], b: Ref[int32]):
+    def swap(a: Ref[Int], b: Ref[Int]):
         tmp = a
         a = b
         b = tmp
 
     @kernel
-    def swap_kernel(buf: Buffer[int32]):
+    def swap_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         a = buf[idx * 2]
         b = buf[idx * 2 + 1]
@@ -71,7 +71,7 @@ def test_swap_references():
         buf[idx * 2] = a
         buf[idx * 2 + 1] = b
 
-    ir = swap_kernel(Buffer[int32])
+    ir = swap_kernel(Buffer[Int])
 
     # Get swap IR from cache
     swap_ir = list(swap._cache.values())[0]

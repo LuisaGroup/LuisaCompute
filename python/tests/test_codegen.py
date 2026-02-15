@@ -3,7 +3,7 @@
 import json
 import pytest
 from luisa import (
-    int32, float32, bool_,
+    Int, Float, Bool,
     Builder,
     serialize_function,
     serialize_module,
@@ -18,7 +18,7 @@ def test_json_serialization_basic():
     print("Test: JSON serialization basic")
     print("=" * 60)
 
-    builder = Builder('simple_func', (float32,), float32)
+    builder = Builder('simple_func', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -44,7 +44,7 @@ def test_json_serialization_with_ops():
     print("Test: JSON serialization with ops")
     print("=" * 60)
 
-    builder = Builder('math_func', (float32, float32), float32)
+    builder = Builder('math_func', (Float, Float), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -72,12 +72,12 @@ def test_json_serialization_control_flow():
     print("Test: JSON serialization control flow")
     print("=" * 60)
 
-    builder = Builder('if_func', (float32,), float32)
+    builder = Builder('if_func', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
     a = builder.get_argument(0)
-    const_0 = builder.constant(float32, 0.0)
+    const_0 = builder.constant(Float, 0.0)
     cond = builder.gt(a, const_0)
 
     if_ = builder.if_(cond)
@@ -108,7 +108,7 @@ def test_pprint_basic():
     print("Test: pprint basic")
     print("=" * 60)
 
-    builder = Builder('simple_func', (float32,), float32)
+    builder = Builder('simple_func', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -134,7 +134,7 @@ def test_pprint_with_ops():
     print("Test: pprint with ops")
     print("=" * 60)
 
-    builder = Builder('math_func', (float32, float32), float32)
+    builder = Builder('math_func', (Float, Float), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -161,12 +161,12 @@ def test_pprint_control_flow():
     print("Test: pprint control flow")
     print("=" * 60)
 
-    builder = Builder('if_func', (float32,), float32)
+    builder = Builder('if_func', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
     a = builder.get_argument(0)
-    const_0 = builder.constant(float32, 0.0)
+    const_0 = builder.constant(Float, 0.0)
     cond = builder.gt(a, const_0)
 
     if_ = builder.if_(cond)
@@ -196,14 +196,14 @@ def test_serialize_module():
     print("Test: serialize module")
     print("=" * 60)
 
-    builder1 = Builder('func1', (float32,), float32)
+    builder1 = Builder('func1', (Float,), Float)
     entry1 = builder1.create_block('entry')
     builder1.set_insert_point(entry1)
     a = builder1.get_argument(0)
     builder1.return_(a)
     func1 = builder1.build()
 
-    builder2 = Builder('func2', (int32,), int32)
+    builder2 = Builder('func2', (Int,), Int)
     entry2 = builder2.create_block('entry')
     builder2.set_insert_point(entry2)
     b = builder2.get_argument(0)
@@ -231,7 +231,7 @@ def test_complex_ir_pprint():
     print("Test: pprint complex IR")
     print("=" * 60)
 
-    builder = Builder('complex_func', (float32, float32, int32), float32)
+    builder = Builder('complex_func', (Float, Float, Int), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -245,13 +245,13 @@ def test_complex_ir_pprint():
     sum_sq = builder.add(x2, y2)
 
     # Loop condition
-    const_0 = builder.constant(int32, 0)
+    const_0 = builder.constant(Int, 0)
     cond = builder.gt(n, const_0)
 
     while_ = builder.while_(cond)
     with while_.body_scope():
         # Decrement n
-        const_1 = builder.constant(int32, 1)
+        const_1 = builder.constant(Int, 1)
         new_n = builder.sub(n, const_1)
         n = new_n
         # Update condition

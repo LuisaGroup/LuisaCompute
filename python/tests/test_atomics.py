@@ -4,7 +4,7 @@ import pytest
 import ast as python_ast
 from luisa import (
     kernel, callable,
-    int32, uint32, float32,
+    Int, UInt, Float,
     Buffer,
     atomic_exchange, atomic_add, atomic_sub,
     atomic_and, atomic_or, atomic_xor,
@@ -32,7 +32,7 @@ def test_atomic_add_builds_ir():
     print("=" * 60)
 
     @kernel
-    def atomic_add_kernel(buf: Buffer[int32]):
+    def atomic_add_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         atomic_add(buf, idx, 1)
 
@@ -64,7 +64,7 @@ def test_atomic_exchange_builds_ir():
     print("=" * 60)
 
     @kernel
-    def atomic_exchange_kernel(buf: Buffer[int32], val: int32) -> int32:
+    def atomic_exchange_kernel(buf: Buffer[Int], val: Int) -> Int:
         idx = dispatch_id().x
         return atomic_exchange(buf, idx, val)
 
@@ -88,7 +88,7 @@ def test_atomic_sub_builds_ir():
     print("=" * 60)
 
     @kernel
-    def atomic_sub_kernel(buf: Buffer[int32]):
+    def atomic_sub_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         atomic_sub(buf, idx, 1)
 
@@ -110,7 +110,7 @@ def test_atomic_bitwise_builds_ir():
     print("=" * 60)
 
     @kernel
-    def atomic_bitwise_kernel(buf: Buffer[int32]):
+    def atomic_bitwise_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         atomic_and(buf, idx, 0xFF)
         atomic_or(buf, idx, 0x01)
@@ -136,7 +136,7 @@ def test_atomic_min_max_builds_ir():
     print("=" * 60)
 
     @kernel
-    def atomic_minmax_kernel(buf: Buffer[int32]):
+    def atomic_minmax_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         atomic_min(buf, idx, 100)
         atomic_max(buf, idx, 0)
@@ -159,7 +159,7 @@ def test_multiple_atomics_in_kernel():
     print("=" * 60)
 
     @kernel
-    def multi_atomic_kernel(counter: Buffer[int32], sum_buf: Buffer[int32]):
+    def multi_atomic_kernel(counter: Buffer[Int], sum_buf: Buffer[Int]):
         idx = dispatch_id().x
         # Increment counter
         old_val = atomic_add(counter, idx, 1)

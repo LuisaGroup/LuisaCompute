@@ -2,7 +2,7 @@
 
 import pytest
 from luisa import (
-    int32, uint32, float32, bool_,
+    Int, UInt, Float, Bool,
     Builder, Op, Module,
     ConstantValue, ArgumentValue, InstructionValue,
     pprint,
@@ -34,7 +34,7 @@ def test_ir_builder_basic():
     print("Test: IR builder basic")
     print("=" * 60)
 
-    builder = Builder('test_func', (float32, float32), float32)
+    builder = Builder('test_func', (Float, Float), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -44,7 +44,7 @@ def test_ir_builder_basic():
     assert isinstance(a, ArgumentValue)
     assert isinstance(b, ArgumentValue)
 
-    const = builder.constant(float32, 2.0)
+    const = builder.constant(Float, 2.0)
     assert isinstance(const, ConstantValue)
     assert const.value == 2.0
 
@@ -74,12 +74,12 @@ def test_ir_builder_control_flow():
     print("Test: IR builder control flow")
     print("=" * 60)
 
-    builder = Builder('test_if', (float32,), float32)
+    builder = Builder('test_if', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
     a = builder.get_argument(0)
-    const_0 = builder.constant(float32, 0.0)
+    const_0 = builder.constant(Float, 0.0)
 
     cond = builder.gt(a, const_0)
 
@@ -107,15 +107,15 @@ def test_constant_folding_if():
     print("Test: constant folding in if")
     print("=" * 60)
 
-    builder = Builder('test_fold', (), float32)
+    builder = Builder('test_fold', (), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
-    true_cond = builder.constant(bool_, True)
+    true_cond = builder.constant(Bool, True)
 
     if_ = builder.if_(true_cond)
     with if_.true_scope():
-        result = builder.constant(float32, 1.0)
+        result = builder.constant(Float, 1.0)
         builder.return_(result)
     with if_.false_scope():
         pass
@@ -137,7 +137,7 @@ def test_ir_module():
     print("Test: IR module")
     print("=" * 60)
 
-    builder = Builder('func1', (int32,), int32)
+    builder = Builder('func1', (Int,), Int)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -147,7 +147,7 @@ def test_ir_module():
     print("\nFunction 1:")
     print(pprint(func1))
 
-    builder2 = Builder('func2', (float32,), float32)
+    builder2 = Builder('func2', (Float,), Float)
     entry2 = builder2.create_block('entry')
     builder2.set_insert_point(entry2)
     b = builder2.get_argument(0)
@@ -171,7 +171,7 @@ def test_ir_builder_arithmetic_ops():
     print("Test: IR builder arithmetic ops")
     print("=" * 60)
 
-    builder = Builder('arith', (float32, float32), float32)
+    builder = Builder('arith', (Float, Float), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -203,7 +203,7 @@ def test_ir_builder_comparison_ops():
     print("Test: IR builder comparison ops")
     print("=" * 60)
 
-    builder = Builder('compare', (float32, float32), bool_)
+    builder = Builder('compare', (Float, Float), Bool)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -235,7 +235,7 @@ def test_ir_builder_bitwise_ops():
     print("Test: IR builder bitwise ops")
     print("=" * 60)
 
-    builder = Builder('bitwise', (int32, int32), int32)
+    builder = Builder('bitwise', (Int, Int), Int)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -265,7 +265,7 @@ def test_ir_builder_switch():
     print("Test: IR builder switch")
     print("=" * 60)
 
-    builder = Builder('test_switch', (int32,), int32)
+    builder = Builder('test_switch', (Int,), Int)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
 
@@ -273,11 +273,11 @@ def test_ir_builder_switch():
 
     with builder.switch(tag) as sw:
         with sw.case_scope(1):
-            builder.return_(builder.constant(int32, 10))
+            builder.return_(builder.constant(Int, 10))
         with sw.case_scope(2):
-            builder.return_(builder.constant(int32, 20))
+            builder.return_(builder.constant(Int, 20))
         with sw.default_scope():
-            builder.return_(builder.constant(int32, -1))
+            builder.return_(builder.constant(Int, -1))
 
     func = builder.build()
 

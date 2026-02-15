@@ -3,13 +3,12 @@
 import pytest
 from luisa import (
     # Scalar types
-    bool_, int8, uint8, int16, uint16, int32, uint32,
-    int64, uint64, float16, float32, float64,
+    Bool, Short, UShort, Int, UInt, Long, ULong, Half, Float, Double,
     # Vector types
-    int2, int3, int4, uint2, uint3, uint4,
-    float2, float3, float4, bool2, bool3, bool4,
+    Int2, Int3, Int4, UInt2, UInt3, UInt4,
+    Float2, Float3, Float4, Bool2, Bool3, Bool4,
     # Matrix types
-    float2x2, float3x3, float4x4,
+    Float2x2, Float3x3, Float4x4,
     # Resource types
     Buffer, Texture2D, Texture3D,
     # Utilities
@@ -25,17 +24,17 @@ def test_scalar_types():
     print("Testing scalar types...")
 
     # Check basic properties
-    assert is_scalar_type(bool_)
-    assert is_scalar_type(int32)
-    assert is_scalar_type(float32)
+    assert is_scalar_type(Bool)
+    assert is_scalar_type(Int)
+    assert is_scalar_type(Float)
 
-    assert is_integer_type(int32)
-    assert is_integer_type(uint32)
-    assert not is_integer_type(float32)
+    assert is_integer_type(Int)
+    assert is_integer_type(UInt)
+    assert not is_integer_type(Float)
 
-    assert is_float_type(float32)
-    assert is_float_type(float64)
-    assert not is_float_type(int32)
+    assert is_float_type(Float)
+    assert is_float_type(Double)
+    assert not is_float_type(Int)
 
     print("  ✓ Scalar types OK")
 
@@ -45,22 +44,22 @@ def test_vector_types():
     print("Testing vector types...")
 
     # Check vector properties
-    assert is_vector_type(float3)
-    assert not is_vector_type(float32)
+    assert is_vector_type(Float3)
+    assert not is_vector_type(Float)
 
     # Check element types
-    assert get_element_type(float3) == float32
-    assert get_element_type(int4) == int32
+    assert get_element_type(Float3) == Float
+    assert get_element_type(Int4) == Int
 
     # Check lengths
-    assert get_length(float2) == 2
-    assert get_length(float3) == 3
-    assert get_length(float4) == 4
+    assert get_length(Float2) == 2
+    assert get_length(Float3) == 3
+    assert get_length(Float4) == 4
 
     # Create custom vector
-    custom_vec = Vector(float32, 3)
+    custom_vec = Vector(Float, 3)
     assert custom_vec.size == 3
-    assert custom_vec.element == float32
+    assert custom_vec.element == Float
 
     print("  ✓ Vector types OK")
 
@@ -70,12 +69,12 @@ def test_matrix_types():
     print("Testing matrix types...")
 
     # Check matrix properties
-    assert isinstance(float3x3, Matrix)
-    assert float3x3.size == 3
-    assert float3x3.element == float32
+    assert isinstance(Float3x3, Matrix)
+    assert Float3x3.size == 3
+    assert Float3x3.element == Float
 
-    assert float4x4.size == 4
-    assert float2x2.size == 2
+    assert Float4x4.size == 4
+    assert Float2x2.size == 2
 
     print("  ✓ Matrix types OK")
 
@@ -84,12 +83,12 @@ def test_buffer_type():
     """Test buffer type."""
     print("Testing buffer type...")
 
-    buf_type = Buffer(float32)
+    buf_type = Buffer(Float)
     assert isinstance(buf_type, Buffer)
-    assert buf_type.element == float32
+    assert buf_type.element == Float
 
-    buf_int3 = Buffer(int3)
-    assert buf_int3.element == int3
+    buf_int3 = Buffer(Int3)
+    assert buf_int3.element == Int3
 
     print("  ✓ Buffer type OK")
 
@@ -99,16 +98,16 @@ def test_type_promotion():
     print("Testing type promotion...")
 
     # Same type
-    assert promote_types(int32, int32) == int32
+    assert promote_types(Int, Int) == Int
 
     # Scalar to vector broadcasting
-    result = promote_types(float32, float3)
+    result = promote_types(Float, Float3)
     assert isinstance(result, Vector)
     assert result.size == 3
-    assert result.element == float32
+    assert result.element == Float
 
     # Vector to scalar broadcasting
-    result = promote_types(float3, float32)
+    result = promote_types(Float3, Float)
     assert isinstance(result, Vector)
     assert result.size == 3
 

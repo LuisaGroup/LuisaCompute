@@ -1,7 +1,7 @@
 """Tests for unrolled loops."""
 
 import pytest
-from luisa import kernel, callable, float32, int32, Buffer, unrolled
+from luisa import kernel, callable, Float, Int, Buffer, unrolled
 from luisa.lang.inspect import count_instructions
 
 from luisa.lang.inspect import get_ir_ast
@@ -22,10 +22,10 @@ def test_unrolled_simple():
     """Test simple unrolled loop."""
 
     @callable
-    def unrolled_sum(buf: Buffer[float32]) -> None:
+    def unrolled_sum(buf: Buffer[Float]) -> None:
         total = 0.0
         for i in static_range(4):
-            total = total + float32(i)
+            total = total + Float(i)
         buf[0] = total
 
     ir = unrolled_sum(0)
@@ -41,9 +41,9 @@ def test_unrolled_with_captured_constant():
     UNROLL_COUNT = 3
 
     @callable
-    def unrolled_with_capture(buf: Buffer[float32]) -> None:
+    def unrolled_with_capture(buf: Buffer[Float]) -> None:
         for i in static_range(UNROLL_COUNT):
-            buf[i] = float32(i)
+            buf[i] = Float(i)
 
     ir = unrolled_with_capture(0)
 
@@ -57,9 +57,9 @@ def test_unrolled_with_computation():
     """Test unrolled loop with computation."""
 
     @callable
-    def unrolled_compute(buf: Buffer[float32]) -> None:
+    def unrolled_compute(buf: Buffer[Float]) -> None:
         for i in static_range(4):
-            buf[i] = float32(i) * 2.0 + 1.0
+            buf[i] = Float(i) * 2.0 + 1.0
 
     ir = unrolled_compute(0)
 
@@ -75,9 +75,9 @@ def test_unrolled_with_step():
     """Test unrolled loop with step."""
 
     @callable
-    def unrolled_step(buf: Buffer[float32]) -> None:
+    def unrolled_step(buf: Buffer[Float]) -> None:
         for i in static_range(0, 8, 2):  # 0, 2, 4, 6
-            buf[i // 2] = float32(i)
+            buf[i // 2] = Float(i)
 
     ir = unrolled_step(0)
 
@@ -90,11 +90,11 @@ def test_nested_unrolled():
     """Test nested unrolled loops."""
 
     @callable
-    def nested_unrolled(buf: Buffer[float32]) -> None:
+    def nested_unrolled(buf: Buffer[Float]) -> None:
         for i in static_range(2):
             for j in static_range(2):
                 idx = i * 2 + j
-                buf[idx] = float32(i + j)
+                buf[idx] = Float(i + j)
 
     ir = nested_unrolled(0)
 

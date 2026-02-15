@@ -10,7 +10,7 @@ from .lang.ir import (
     Op, Value, ConstantValue, ArgumentValue, InstructionValue,
     Instruction, BasicBlock, Function, Module,
 )
-from .lang.builder import Builder
+from .lang.builder import Builder, get_current_builder, set_current_builder
 from .lang.multistage import StagedFunction, kernel, callable, static_range, unrolled, UnrolledRange, StaticIf, StaticWhile
 from .lang.types import (
     # Base types
@@ -18,18 +18,24 @@ from .lang.types import (
     Buffer, Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void, Ref,
 
     # Scalar types
-    bool_, int8, uint8, int16, uint16, int32, uint32, int64, uint64,
-    float16, float32, float64,
+    Bool, Short, UShort, Int, UInt, Long, ULong, Half, Float, Double,
 
     # Vector types
-    int2, int3, int4, uint2, uint3, uint4,
-    float2, float3, float4, bool2, bool3, bool4,
-    half2, half3, half4,
-    short2, short3, short4, ushort2, ushort3, ushort4,
-    long2, long3, long4, ulong2, ulong3, ulong4,
+    Bool2, Bool3, Bool4,
+    Short2, Short3, Short4,
+    UShort2, UShort3, UShort4,
+    Int2, Int3, Int4,
+    UInt2, UInt3, UInt4,
+    Long2, Long3, Long4,
+    ULong2, ULong3, ULong4,
+    Half2, Half3, Half4,
+    Float2, Float3, Float4,
+    Double2, Double3, Double4,
 
     # Matrix types
-    float2x2, float3x3, float4x4,
+    Float2x2, Float3x3, Float4x4,
+    Double2x2, Double3x3, Double4x4,
+    Half2x2, Half3x3, Half4x4,
 
     # Utilities
     get_element_type, get_length,
@@ -106,18 +112,24 @@ __all__ = [
     # lang
     "Op", "Value", "ConstantValue", "ArgumentValue", "InstructionValue",
     "Instruction", "BasicBlock", "Function", "Module",
-    "Builder",
+    "Builder", "get_current_builder", "set_current_builder",
     "StagedFunction", "kernel", "callable", "static_range", "unrolled", "UnrolledRange", "StaticIf", "StaticWhile",
     "Type", "Scalar", "Vector", "Matrix", "Array", "Struct",
     "Buffer", "Texture2D", "Texture3D", "BindlessArray", "Accel", "RayQuery", "Callable", "Void", "Ref",
-    "bool_", "int8", "uint8", "int16", "uint16", "int32", "uint32",
-    "int64", "uint64", "float16", "float32", "float64",
-    "int2", "int3", "int4", "uint2", "uint3", "uint4",
-    "float2", "float3", "float4", "bool2", "bool3", "bool4",
-    "half2", "half3", "half4",
-    "short2", "short3", "short4", "ushort2", "ushort3", "ushort4",
-    "long2", "long3", "long4", "ulong2", "ulong3", "ulong4",
-    "float2x2", "float3x3", "float4x4",
+    "Bool", "Short", "UShort", "Int", "UInt", "Long", "ULong", "Half", "Float", "Double",
+    "Bool2", "Bool3", "Bool4",
+    "Short2", "Short3", "Short4",
+    "UShort2", "UShort3", "UShort4",
+    "Int2", "Int3", "Int4",
+    "UInt2", "UInt3", "UInt4",
+    "Long2", "Long3", "Long4",
+    "ULong2", "ULong3", "ULong4",
+    "Half2", "Half3", "Half4",
+    "Float2", "Float3", "Float4",
+    "Double2", "Double3", "Double4",
+    "Float2x2", "Float3x3", "Float4x4",
+    "Double2x2", "Double3x3", "Double4x4",
+    "Half2x2", "Half3x3", "Half4x4",
     "get_element_type", "get_length",
     "is_scalar_type", "is_vector_type", "is_integer_type", "is_float_type",
     "promote_types",
@@ -159,7 +171,7 @@ __all__ = [
     "trace_closest", "trace_any", "ray_query_all", "ray_query_any",
     "ray_query_world_space_ray", "ray_query_proceed",
     "ray_query_committed_hit", "ray_query_candidate_triangle_hit", "ray_query_candidate_procedural_hit",
-    "ray_query_commit_triangle", "ray_query_commit_procedural", "ray_query_terminate",
-    "accel_instance_transform", "accel_instance_user_id", "accel_instance_visibility_mask",
+    "ray_query_commit_triangle", ray_query_commit_procedural, ray_query_terminate,
+    accel_instance_transform, accel_instance_user_id, accel_instance_visibility_mask,
     "make_ray",
 ]

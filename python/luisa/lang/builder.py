@@ -14,7 +14,7 @@ from dataclasses import dataclass
 # Runtime imports
 from .types import Type
 from .types import (
-    Void, bool_, promote_types
+    Void, Bool, promote_types
 )
 from .ir import (
     Op, Value, ConstantValue, InstructionValue, ArgumentValue,
@@ -290,27 +290,27 @@ class Builder:
 
     def eq(self, left: Value, right: Value) -> InstructionValue:
         """Emit an equality comparison."""
-        return self._emit(Op.EQ, bool_, [left, right])
+        return self._emit(Op.EQ, Bool, [left, right])
 
     def ne(self, left: Value, right: Value) -> InstructionValue:
         """Emit a not-equal comparison."""
-        return self._emit(Op.NE, bool_, [left, right])
+        return self._emit(Op.NE, Bool, [left, right])
 
     def lt(self, left: Value, right: Value) -> InstructionValue:
         """Emit a less-than comparison."""
-        return self._emit(Op.LT, bool_, [left, right])
+        return self._emit(Op.LT, Bool, [left, right])
 
     def le(self, left: Value, right: Value) -> InstructionValue:
         """Emit a less-than-or-equal comparison."""
-        return self._emit(Op.LE, bool_, [left, right])
+        return self._emit(Op.LE, Bool, [left, right])
 
     def gt(self, left: Value, right: Value) -> InstructionValue:
         """Emit a greater-than comparison."""
-        return self._emit(Op.GT, bool_, [left, right])
+        return self._emit(Op.GT, Bool, [left, right])
 
     def ge(self, left: Value, right: Value) -> InstructionValue:
         """Emit a greater-than-or-equal comparison."""
-        return self._emit(Op.GE, bool_, [left, right])
+        return self._emit(Op.GE, Bool, [left, right])
 
     # ========================================================================
     # Logical Operations
@@ -318,15 +318,15 @@ class Builder:
 
     def logical_and(self, left: Value, right: Value) -> InstructionValue:
         """Emit a logical AND."""
-        return self._emit(Op.LOGICAL_AND, bool_, [left, right])
+        return self._emit(Op.LOGICAL_AND, Bool, [left, right])
 
     def logical_or(self, left: Value, right: Value) -> InstructionValue:
         """Emit a logical OR."""
-        return self._emit(Op.LOGICAL_OR, bool_, [left, right])
+        return self._emit(Op.LOGICAL_OR, Bool, [left, right])
 
     def logical_not(self, operand: Value) -> InstructionValue:
         """Emit a logical NOT."""
-        return self._emit(Op.LOGICAL_NOT, bool_, [operand])
+        return self._emit(Op.LOGICAL_NOT, Bool, [operand])
 
     # ========================================================================
     # Memory Operations

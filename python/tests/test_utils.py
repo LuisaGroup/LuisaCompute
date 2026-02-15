@@ -5,7 +5,7 @@ from luisa import (
     kernel, callable, pprint,
     unrolled, UnrolledRange,
     struct,
-    int32, float32, float3,
+    Int, Float, Float3,
     Buffer, dispatch_id,
 )
 from luisa.lang.inspect import count_instructions
@@ -52,10 +52,10 @@ def test_unrolled_builds_ir():
     print("=" * 60)
 
     @callable
-    def sum_unrolled() -> int32:
-        total = int32(0)
+    def sum_unrolled() -> Int:
+        total = Int(0)
         for i in unrolled(range(4)):
-            total = total + int32(i)
+            total = total + Int(i)
         return total
 
     ir = sum_unrolled()
@@ -81,8 +81,8 @@ def test_struct_decorator():
 
     @struct
     class Particle:
-        position: float3
-        mass: float32
+        position: Float3
+        mass: Float
 
     assert hasattr(Particle, '_dsl_type')
     assert Particle._dsl_type.name == 'Particle'
@@ -101,9 +101,9 @@ def test_struct_with_buffer_kernel():
 
     @struct
     class Particle:
-        position: float3
-        velocity: float3
-        mass: float32
+        position: Float3
+        velocity: Float3
+        mass: Float
 
     @kernel
     def update_particles(particles: Buffer(Particle)) -> None:
@@ -134,11 +134,11 @@ def test_nested_unrolled():
     print("=" * 60)
 
     @callable
-    def nested_sum() -> int32:
-        total = int32(0)
+    def nested_sum() -> Int:
+        total = Int(0)
         for i in unrolled(range(3)):
             for j in unrolled(range(3)):
-                total = total + int32(i) + int32(j)
+                total = total + Int(i) + Int(j)
         return total
 
     ir = nested_sum()

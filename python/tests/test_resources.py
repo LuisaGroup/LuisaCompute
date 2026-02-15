@@ -4,7 +4,7 @@ import pytest
 import ast as python_ast
 from luisa import (
     kernel, callable, pprint,
-    int32, float32, float3, float4,
+    Int, Float, Float3, Float4,
     Buffer, Texture2D, Texture3D,
     BindlessArray, Accel,
     dispatch_id,
@@ -42,11 +42,11 @@ def test_buffer_type():
     print("Test: Buffer type")
     print("=" * 60)
 
-    buf_f32 = Buffer(float32)
-    assert buf_f32.element == float32
+    buf_f32 = Buffer(Float)
+    assert buf_f32.element == Float
 
-    buf_float3 = Buffer(float3)
-    assert buf_float3.element == float3
+    buf_float3 = Buffer(Float3)
+    assert buf_float3.element == Float3
 
     print("✓ Buffer types created correctly")
     print("=" * 60)
@@ -59,11 +59,11 @@ def test_buffer_in_kernel_builds_ir():
     print("=" * 60)
 
     @kernel
-    def fill_buffer(buf: Buffer(float32), value: float32) -> None:
+    def fill_buffer(buf: Buffer(Float), value: Float) -> None:
         idx = dispatch_id().x
         buf[idx] = value
 
-    ir = fill_buffer(Buffer(float32), 1.0)
+    ir = fill_buffer(Buffer(Float), 1.0)
     print_ast(fill_buffer, "AST: fill_buffer")
 
     print("\nGenerated IR:")
@@ -83,16 +83,16 @@ def test_buffer_in_kernel_builds_ir():
 def test_buffer_vector_type_kernel():
     """Test Buffer of vectors in kernel."""
     print("\n" + "=" * 60)
-    print("Test: Buffer<float3> kernel")
+    print("Test: Buffer<Float3> kernel")
     print("=" * 60)
 
     @kernel
-    def process_vectors(buf: Buffer(float3)):
+    def process_vectors(buf: Buffer(Float3)):
         idx = dispatch_id().x
         val = buf[idx]
         buf[idx] = val
 
-    ir = process_vectors(Buffer(float3))
+    ir = process_vectors(Buffer(Float3))
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -108,8 +108,8 @@ def test_texture2d_type():
     print("Test: Texture2D type")
     print("=" * 60)
 
-    tex_f32 = Texture2D(float32)
-    assert tex_f32.element == float32
+    tex_f32 = Texture2D(Float)
+    assert tex_f32.element == Float
 
     print("✓ Texture2D types created correctly")
     print("=" * 60)
@@ -122,12 +122,12 @@ def test_texture2d_in_kernel():
     print("=" * 60)
 
     @kernel
-    def sample_texture(tex: Texture2D(float32), output: Buffer(float32)):
+    def sample_texture(tex: Texture2D(Float), output: Buffer(Float)):
         idx = dispatch_id().x
         # Note: full texture sampling would need more support
         output[idx] = 0.0
 
-    ir = sample_texture(Texture2D(float32), Buffer(float32))
+    ir = sample_texture(Texture2D(Float), Buffer(Float))
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -143,8 +143,8 @@ def test_texture3d_type():
     print("Test: Texture3D type")
     print("=" * 60)
 
-    tex_f32 = Texture3D(float32)
-    assert tex_f32.element == float32
+    tex_f32 = Texture3D(Float)
+    assert tex_f32.element == Float
 
     print("✓ Texture3D types created correctly")
     print("=" * 60)
@@ -184,16 +184,16 @@ def test_multiple_resources_in_kernel():
 
     @kernel
     def multi_resource_kernel(
-            buf: Buffer(float32),
-            tex: Texture2D(float32),
+            buf: Buffer(Float),
+            tex: Texture2D(Float),
             accel: Accel
     ):
         idx = dispatch_id().x
-        buf[idx] = float32(idx)
+        buf[idx] = Float(idx)
 
     ir = multi_resource_kernel(
-        Buffer(float32),
-        Texture2D(float32),
+        Buffer(Float),
+        Texture2D(Float),
         Accel()
     )
 

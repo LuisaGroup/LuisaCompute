@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ..types import Type
 
 from ..ir import Op
-from ..types import uint, uint2, uint3, uint64
+from ..types import UInt, UInt2, UInt3, ULong
 from ..builder import get_current_builder
 
 
@@ -26,7 +26,7 @@ def buffer_read(buffer: Value, index: Value) -> InstructionValue:
     
     Args:
         buffer: Buffer handle
-        index: Element index (uint)
+        index: Element index (UInt)
     
     Returns:
         The element value at the specified index
@@ -42,7 +42,7 @@ def buffer_write(buffer: Value, index: Value, value: Value) -> InstructionValue:
     
     Args:
         buffer: Buffer handle
-        index: Element index (uint)
+        index: Element index (UInt)
         value: Value to write
     """
     from ..types import Void
@@ -57,9 +57,9 @@ def buffer_size(buffer: Value) -> InstructionValue:
         buffer: Buffer handle
     
     Returns:
-        Number of elements (uint)
+        Number of elements (UInt)
     """
-    return get_current_builder()._emit(Op.BUFFER_SIZE, uint, [buffer])
+    return get_current_builder()._emit(Op.BUFFER_SIZE, UInt, [buffer])
 
 
 def buffer_device_address(buffer: Value) -> InstructionValue:
@@ -72,7 +72,7 @@ def buffer_device_address(buffer: Value) -> InstructionValue:
     Returns:
         64-bit device address
     """
-    return get_current_builder()._emit(Op.BUFFER_DEVICE_ADDRESS, uint64, [buffer])
+    return get_current_builder()._emit(Op.BUFFER_DEVICE_ADDRESS, ULong, [buffer])
 
 
 # ============================================================================
@@ -85,13 +85,13 @@ def texture2d_read(texture: Value, coord: Value) -> InstructionValue:
     
     Args:
         texture: Texture2D handle
-        coord: Integer coordinates (uint2)
+        coord: Integer coordinates (UInt2)
     
     Returns:
         The texture value at the specified coordinates
     """
-    from ..types import float4
-    return get_current_builder()._emit(Op.TEXTURE2D_READ, float4, [texture, coord])
+    from ..types import Float4
+    return get_current_builder()._emit(Op.TEXTURE2D_READ, Float4, [texture, coord])
 
 
 def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionValue:
@@ -100,7 +100,7 @@ def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
     
     Args:
         texture: Texture2D handle
-        coord: Integer coordinates (uint2)
+        coord: Integer coordinates (UInt2)
         value: Value to write
     """
     from ..types import Void
@@ -113,13 +113,13 @@ def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
     
     Args:
         texture: Texture2D handle
-        uv: Floating-point UV coordinates (float2)
+        uv: Floating-point UV coordinates (Float2)
     
     Returns:
-        The sampled value (float4)
+        The sampled value (Float4)
     """
-    from ..types import float4
-    return get_current_builder()._emit(Op.TEXTURE2D_SAMPLE, float4, [texture, uv])
+    from ..types import Float4
+    return get_current_builder()._emit(Op.TEXTURE2D_SAMPLE, Float4, [texture, uv])
 
 
 def texture2d_sample_level(texture: Value, uv: Value, level: Value) -> InstructionValue:
@@ -128,14 +128,14 @@ def texture2d_sample_level(texture: Value, uv: Value, level: Value) -> Instructi
     
     Args:
         texture: Texture2D handle
-        uv: Floating-point UV coordinates (float2)
+        uv: Floating-point UV coordinates (Float2)
         level: Mipmap level (float)
     
     Returns:
-        The sampled value (float4)
+        The sampled value (Float4)
     """
-    from ..types import float4
-    return get_current_builder()._emit(Op.TEXTURE2D_SAMPLE_LEVEL, float4, [texture, uv, level])
+    from ..types import Float4
+    return get_current_builder()._emit(Op.TEXTURE2D_SAMPLE_LEVEL, Float4, [texture, uv, level])
 
 
 def texture2d_size(texture: Value) -> InstructionValue:
@@ -146,9 +146,9 @@ def texture2d_size(texture: Value) -> InstructionValue:
         texture: Texture2D handle
     
     Returns:
-        Texture dimensions (uint2)
+        Texture dimensions (UInt2)
     """
-    return get_current_builder()._emit(Op.TEXTURE2D_SIZE, uint2, [texture])
+    return get_current_builder()._emit(Op.TEXTURE2D_SIZE, UInt2, [texture])
 
 
 # ============================================================================
@@ -161,13 +161,13 @@ def texture3d_read(texture: Value, coord: Value) -> InstructionValue:
     
     Args:
         texture: Texture3D handle
-        coord: Integer coordinates (uint3)
+        coord: Integer coordinates (UInt3)
     
     Returns:
         The texture value at the specified coordinates
     """
-    from ..types import float4
-    return get_current_builder()._emit(Op.TEXTURE3D_READ, float4, [texture, coord])
+    from ..types import Float4
+    return get_current_builder()._emit(Op.TEXTURE3D_READ, Float4, [texture, coord])
 
 
 def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionValue:
@@ -176,7 +176,7 @@ def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
     
     Args:
         texture: Texture3D handle
-        coord: Integer coordinates (uint3)
+        coord: Integer coordinates (UInt3)
         value: Value to write
     """
     from ..types import Void
@@ -189,13 +189,13 @@ def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
     
     Args:
         texture: Texture3D handle
-        uvw: Floating-point UVW coordinates (float3)
+        uvw: Floating-point UVW coordinates (Float3)
     
     Returns:
-        The sampled value (float4)
+        The sampled value (Float4)
     """
-    from ..types import float4
-    return get_current_builder()._emit(Op.TEXTURE3D_SAMPLE, float4, [texture, uvw])
+    from ..types import Float4
+    return get_current_builder()._emit(Op.TEXTURE3D_SAMPLE, Float4, [texture, uvw])
 
 
 def texture3d_size(texture: Value) -> InstructionValue:
@@ -206,9 +206,9 @@ def texture3d_size(texture: Value) -> InstructionValue:
         texture: Texture3D handle
     
     Returns:
-        Texture dimensions (uint3)
+        Texture dimensions (UInt3)
     """
-    return get_current_builder()._emit(Op.TEXTURE3D_SIZE, uint3, [texture])
+    return get_current_builder()._emit(Op.TEXTURE3D_SIZE, UInt3, [texture])
 
 
 # ============================================================================
@@ -220,7 +220,7 @@ def device_address_load(address: Value, elem_type: Type) -> InstructionValue:
     Load from a device address.
     
     Args:
-        address: Device address (uint64)
+        address: Device address (ULong)
         elem_type: Type of element to load
     
     Returns:
@@ -234,7 +234,7 @@ def device_address_store(address: Value, value: Value) -> InstructionValue:
     Store to a device address.
     
     Args:
-        address: Device address (uint64)
+        address: Device address (ULong)
         value: Value to store
     """
     from ..types import Void

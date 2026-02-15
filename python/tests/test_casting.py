@@ -2,7 +2,7 @@
 
 import pytest
 import ast as python_ast
-from luisa import kernel, callable, float32, int32, Buffer, pprint
+from luisa import kernel, callable, Float, Int, Buffer, pprint
 from luisa.lang.inspect import count_instructions, get_ir_ast
 
 
@@ -33,12 +33,12 @@ def print_ast(staged_func, title="Parsed AST"):
 def test_int_to_float_cast():
     """Test casting int to float - builds and prints IR."""
     print("\n" + "=" * 60)
-    print("Test: int32 to float32 cast")
+    print("Test: Int to Float cast")
     print("=" * 60)
 
     @callable
-    def cast_int_to_float(x: int32) -> float32:
-        return float32(x)
+    def cast_int_to_float(x: Int) -> Float:
+        return Float(x)
 
     ir = cast_int_to_float(42)
     print_ast(cast_int_to_float, "AST: cast_int_to_float")
@@ -57,12 +57,12 @@ def test_int_to_float_cast():
 def test_float_to_int_cast():
     """Test casting float to int."""
     print("\n" + "=" * 60)
-    print("Test: float32 to int32 cast")
+    print("Test: Float to Int cast")
     print("=" * 60)
 
     @callable
-    def cast_float_to_int(x: float32) -> int32:
-        return int32(x)
+    def cast_float_to_int(x: Float) -> Int:
+        return Int(x)
 
     ir = cast_float_to_int(3.14)
 
@@ -83,8 +83,8 @@ def test_cast_in_computation():
     print("=" * 60)
 
     @callable
-    def mixed_computation(i: int32, f: float32) -> float32:
-        return float32(i) + f
+    def mixed_computation(i: Int, f: Float) -> Float:
+        return Float(i) + f
 
     ir = mixed_computation(10, 2.5)
 
@@ -106,8 +106,8 @@ def test_cast_with_buffer():
     print("=" * 60)
 
     @callable
-    def store_index_as_float(buf: Buffer[float32], idx: int32) -> None:
-        buf[idx] = float32(idx) * 2.0
+    def store_index_as_float(buf: Buffer[Float], idx: Int) -> None:
+        buf[idx] = Float(idx) * 2.0
 
     ir = store_index_as_float(0, 5)
 
@@ -131,9 +131,9 @@ def test_chained_casts():
     print("=" * 60)
 
     @callable
-    def chain_cast(x: int32) -> int32:
-        f = float32(x)
-        i = int32(f)
+    def chain_cast(x: Int) -> Int:
+        f = Float(x)
+        i = Int(f)
         return i
 
     ir = chain_cast(42)
@@ -158,9 +158,9 @@ def test_cast_in_kernel():
     from luisa import dispatch_id
 
     @kernel
-    def cast_kernel(out: Buffer[float32]):
+    def cast_kernel(out: Buffer[Float]):
         idx = dispatch_id().x
-        out[idx] = float32(idx) * 1.5
+        out[idx] = Float(idx) * 1.5
 
     ir = cast_kernel(None)
 

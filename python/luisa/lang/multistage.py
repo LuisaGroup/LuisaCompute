@@ -15,7 +15,7 @@ from contextlib import contextmanager
 
 from .builder import Builder, get_current_builder, set_current_builder
 from .ir import Value, Op, Function
-from .types import Type, value_to_type, bool_, int32, float32, Scalar, Vector, Buffer, Array
+from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
 from .parser import parse_function, CapturedVar, ParsedFunction
 from .rewriter import ASTRewriter
 
@@ -594,7 +594,7 @@ class StagedFunction:
         return self.parsed.name
 
     def __getitem__(self, items) -> SpecializedFunctionProxy:
-        """Support func[int32, 2](x) syntax."""
+        """Support func[Int, 2](x) syntax."""
         if not isinstance(items, tuple):
             items = (items,)
         return SpecializedFunctionProxy(self, items)

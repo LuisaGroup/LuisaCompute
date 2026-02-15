@@ -3,7 +3,7 @@
 import pytest
 from luisa import (
     kernel, callable, pprint,
-    int32, float32, Buffer,
+    Int, Float, Buffer,
     # Warp query
     warp_is_first_active_lane, warp_first_active_lane, warp_active_count_bits,
     # Warp reduction
@@ -40,11 +40,11 @@ def test_warp_query_functions_build_ir():
     print("=" * 60)
 
     @callable
-    def warp_queries() -> int32:
+    def warp_queries() -> Int:
         first = warp_is_first_active_lane()
         lane = warp_first_active_lane()
         bits = warp_active_count_bits(True)
-        return int32(lane)
+        return Int(lane)
 
     ir = warp_queries()
     print_ast(warp_queries, "AST: warp_queries")
@@ -64,7 +64,7 @@ def test_warp_reduction_builds_ir():
     print("=" * 60)
 
     @callable
-    def warp_reductions(x: float32) -> float32:
+    def warp_reductions(x: Float) -> Float:
         s = warp_sum(x)
         p = warp_product(x)
         mn = warp_min(x)
@@ -88,11 +88,11 @@ def test_warp_boolean_reduction_builds_ir():
     print("=" * 60)
 
     @callable
-    def warp_bool_checks(x: float32) -> int32:
+    def warp_bool_checks(x: Float) -> Int:
         all_val = warp_all(x > 0)
         any_val = warp_any(x > 0)
         eq_val = warp_all_equal(x)
-        return int32(all_val)
+        return Int(all_val)
 
     ir = warp_bool_checks(1.0)
 
@@ -110,7 +110,7 @@ def test_warp_prefix_builds_ir():
     print("=" * 60)
 
     @callable
-    def warp_prefix_ops(x: float32, b: int32) -> float32:
+    def warp_prefix_ops(x: Float, b: Int) -> Float:
         ps = warp_prefix_sum(x)
         pp = warp_prefix_product(x)
         pc = warp_prefix_count_bits(True)
@@ -132,8 +132,8 @@ def test_warp_broadcast_builds_ir():
     print("=" * 60)
 
     @callable
-    def warp_broadcast_ops(x: float32) -> float32:
-        from_lane = warp_read_lane(x, int32(0))
+    def warp_broadcast_ops(x: Float) -> Float:
+        from_lane = warp_read_lane(x, Int(0))
         first = warp_read_first_lane(x)
         return first
 
@@ -153,7 +153,7 @@ def test_warp_bitwise_builds_ir():
     print("=" * 60)
 
     @callable
-    def warp_bitwise_ops(x: int32) -> int32:
+    def warp_bitwise_ops(x: Int) -> Int:
         a = warp_bit_and(x)
         o = warp_bit_or(x)
         x_val = warp_bit_xor(x)
@@ -176,7 +176,7 @@ def test_warp_in_kernel():
     print("=" * 60)
 
     @kernel
-    def warp_kernel(buf: Buffer[float32]):
+    def warp_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
         val = buf[idx]
         # Warp reduction

@@ -6,15 +6,12 @@ vector types, matrix types, arrays, structs, and resource types.
 """
 
 from __future__ import annotations
-from typing import Optional, Union, Any, TypeVar, TYPE_CHECKING
+from typing import Optional, Union, Any, TYPE_CHECKING
 from dataclasses import dataclass
 from enum import Enum, auto
 
 if TYPE_CHECKING:
     pass
-
-# Type variable for generic types
-T = TypeVar('T', bound='Type')
 
 
 class ScalarType(Enum):
@@ -42,7 +39,7 @@ class Type:
         return self.__class__.__name__
 
     def __call__(self, arg: Any) -> Any:
-        """Support casting syntax like float32(x)."""
+        """Support casting syntax like Float(x)."""
         from .ir import Value
         from .builder import get_current_builder
 
@@ -71,13 +68,13 @@ class Scalar(Type):
         mapping = {
             ScalarType.BOOL: "i1",
             ScalarType.INT8: "i8",
-            ScalarType.UINT8: "i8",
+            ScalarType.UINT8: "u8",
             ScalarType.INT16: "i16",
-            ScalarType.UINT16: "i16",
+            ScalarType.UINT16: "u16",
             ScalarType.INT32: "i32",
-            ScalarType.UINT32: "i32",
+            ScalarType.UINT32: "u32",
             ScalarType.INT64: "i64",
-            ScalarType.UINT64: "i64",
+            ScalarType.UINT64: "u64",
             ScalarType.FLOAT16: "f16",
             ScalarType.FLOAT32: "f32",
             ScalarType.FLOAT64: "f64",
@@ -98,45 +95,45 @@ class Scalar(Type):
         return cls(ScalarType.UINT8)
 
     @classmethod
-    def int16(cls) -> Scalar:
+    def Short(cls) -> Scalar:
         return cls(ScalarType.INT16)
 
     @classmethod
-    def uint16(cls) -> Scalar:
+    def UShort(cls) -> Scalar:
         return cls(ScalarType.UINT16)
 
     @classmethod
-    def int32(cls) -> Scalar:
+    def Int(cls) -> Scalar:
         return cls(ScalarType.INT32)
 
     @classmethod
-    def uint32(cls) -> Scalar:
+    def UInt(cls) -> Scalar:
         return cls(ScalarType.UINT32)
 
     @classmethod
-    def int64(cls) -> Scalar:
+    def Long(cls) -> Scalar:
         return cls(ScalarType.INT64)
 
     @classmethod
-    def uint64(cls) -> Scalar:
+    def ULong(cls) -> Scalar:
         return cls(ScalarType.UINT64)
 
     @classmethod
-    def float16(cls) -> Scalar:
+    def Half(cls) -> Scalar:
         return cls(ScalarType.FLOAT16)
 
     @classmethod
-    def float32(cls) -> Scalar:
+    def Float(cls) -> Scalar:
         return cls(ScalarType.FLOAT32)
 
     @classmethod
-    def float64(cls) -> Scalar:
+    def Double(cls) -> Scalar:
         return cls(ScalarType.FLOAT64)
 
 
 @dataclass(frozen=True)
 class Vector(Type):
-    """Vector type (e.g., float3, int4)."""
+    """Vector type (e.g., Float3, Int4)."""
     element: Scalar
     size: int  # 2, 3, or 4
 
@@ -150,8 +147,8 @@ class Vector(Type):
 
 @dataclass(frozen=True)
 class Matrix(Type):
-    """Matrix type (e.g., float3x3)."""
-    element: Scalar  # typically float32
+    """Matrix type (e.g., Float3x3)."""
+    element: Scalar  # typically Float32
     size: int  # 2, 3, or 4
 
     def __post_init__(self):
@@ -211,7 +208,7 @@ class Buffer(Type):
         return f"buffer<{self.element}>"
 
     def __class_getitem__(cls, item):
-        """Support Buffer[float32] syntax."""
+        """Support Buffer[Float] syntax."""
         return cls(element=item)
 
 
@@ -224,7 +221,7 @@ class Texture2D(Type):
         return f"texture2d<{self.element}>"
 
     def __class_getitem__(cls, item):
-        """Support Texture2D[float32] syntax."""
+        """Support Texture2D[Float] syntax."""
         return cls(element=item)
 
 
@@ -237,7 +234,7 @@ class Texture3D(Type):
         return f"texture3d<{self.element}>"
 
     def __class_getitem__(cls, item):
-        """Support Texture3D[float32] syntax."""
+        """Support Texture3D[Float] syntax."""
         return cls(element=item)
 
 
@@ -305,67 +302,37 @@ AnyType = Union[
 ]
 
 # ============================================================================
-# Predefined type aliases for convenience
+# Predefined type aliases for convenience (aligned with var.h)
 # ============================================================================
 
 # Scalar types
-bool_ = Scalar.bool()
-int8 = Scalar(ScalarType.INT8)
-uint8 = Scalar(ScalarType.UINT8)
-int16 = Scalar(ScalarType.INT16)
-uint16 = Scalar(ScalarType.UINT16)
-int32 = Scalar(ScalarType.INT32)
-uint32 = Scalar(ScalarType.UINT32)
-int64 = Scalar(ScalarType.INT64)
-uint64 = Scalar(ScalarType.UINT64)
-float16 = Scalar(ScalarType.FLOAT16)
-float32 = Scalar(ScalarType.FLOAT32)
-float64 = Scalar(ScalarType.FLOAT64)
+Bool = Scalar.bool()
+Short = Scalar.Short()
+UShort = Scalar.UShort()
+Int = Scalar.Int()
+UInt = Scalar.UInt()
+Long = Scalar.Long()
+ULong = Scalar.ULong()
+Half = Scalar.Half()
+Float = Scalar.Float()
+Double = Scalar.Double()
 
-# Short aliases
-int_ = int32
-uint = uint32
-float_ = float32
-
-# Common vector types
-int2 = Vector(int32, 2)
-int3 = Vector(int32, 3)
-int4 = Vector(int32, 4)
-uint2 = Vector(uint32, 2)
-uint3 = Vector(uint32, 3)
-uint4 = Vector(uint32, 4)
-float2 = Vector(float32, 2)
-float3 = Vector(float32, 3)
-float4 = Vector(float32, 4)
-bool2 = Vector(bool_, 2)
-bool3 = Vector(bool_, 3)
-bool4 = Vector(bool_, 4)
-
-# Half-precision vector types
-half2 = Vector(float16, 2)
-half3 = Vector(float16, 3)
-half4 = Vector(float16, 4)
-
-# 16-bit integer vector types
-short2 = Vector(int16, 2)
-short3 = Vector(int16, 3)
-short4 = Vector(int16, 4)
-ushort2 = Vector(uint16, 2)
-ushort3 = Vector(uint16, 3)
-ushort4 = Vector(uint16, 4)
-
-# 64-bit integer vector types
-long2 = Vector(int64, 2)
-long3 = Vector(int64, 3)
-long4 = Vector(int64, 4)
-ulong2 = Vector(uint64, 2)
-ulong3 = Vector(uint64, 3)
-ulong4 = Vector(uint64, 4)
+# Vector types
+Bool2, Bool3, Bool4 = Vector(Bool, 2), Vector(Bool, 3), Vector(Bool, 4)
+Short2, Short3, Short4 = Vector(Short, 2), Vector(Short, 3), Vector(Short, 4)
+UShort2, UShort3, UShort4 = Vector(UShort, 2), Vector(UShort, 3), Vector(UShort, 4)
+Int2, Int3, Int4 = Vector(Int, 2), Vector(Int, 3), Vector(Int, 4)
+UInt2, UInt3, UInt4 = Vector(UInt, 2), Vector(UInt, 3), Vector(UInt, 4)
+Long2, Long3, Long4 = Vector(Long, 2), Vector(Long, 3), Vector(Long, 4)
+ULong2, ULong3, ULong4 = Vector(ULong, 2), Vector(ULong, 3), Vector(ULong, 4)
+Half2, Half3, Half4 = Vector(Half, 2), Vector(Half, 3), Vector(Half, 4)
+Float2, Float3, Float4 = Vector(Float, 2), Vector(Float, 3), Vector(Float, 4)
+Double2, Double3, Double4 = Vector(Double, 2), Vector(Double, 3), Vector(Double, 4)
 
 # Matrix types
-float2x2 = Matrix(float32, 2)
-float3x3 = Matrix(float32, 3)
-float4x4 = Matrix(float32, 4)
+Float2x2, Float3x3, Float4x4 = Matrix(Float, 2), Matrix(Float, 3), Matrix(Float, 4)
+Double2x2, Double3x3, Double4x4 = Matrix(Double, 2), Matrix(Double, 3), Matrix(Double, 4)
+Half2x2, Half3x3, Half4x4 = Matrix(Half, 2), Matrix(Half, 3), Matrix(Half, 4)
 
 
 # ============================================================================
@@ -414,7 +381,7 @@ def is_matrix_type(t: Type) -> bool:
 
 
 def is_arithmetic_type(t: Type) -> bool:
-    """Check if type is arithmetic (scalar or vector of int/uint/float)."""
+    """Check if type is arithmetic (scalar or vector of int/UInt/float)."""
     if isinstance(t, Scalar):
         return t.dtype not in (ScalarType.BOOL,)
     elif isinstance(t, Vector):
@@ -503,9 +470,9 @@ def promote_types(t1: Type, t2: Type) -> Type:
 def python_type_to_dsl(py_type: type) -> Optional[Type]:
     """Convert a Python type to a DSL type."""
     mapping = {
-        bool: bool_,
-        int: int32,
-        float: float32,
+        bool: Bool,
+        int: Int,
+        float: Float,
     }
     return mapping.get(py_type)
 
@@ -515,11 +482,11 @@ def value_to_type(value: Any) -> Optional[Type]:
     if value is None:
         return Void()
     if isinstance(value, bool):
-        return bool_
+        return Bool
     if isinstance(value, int):
-        return int32
+        return Int
     if isinstance(value, float):
-        return float32
+        return Float
     return None
 
 
@@ -558,9 +525,9 @@ def struct(cls: type) -> type:
     Usage:
         @struct
         class Particle:
-            position: float3
-            velocity: float3
-            mass: float
+            position: Float3
+            velocity: Float3
+            mass: Float
         
         # Use in kernel
         @kernel

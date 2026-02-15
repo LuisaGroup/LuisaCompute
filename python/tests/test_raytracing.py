@@ -4,7 +4,7 @@ import pytest
 import ast as python_ast
 from luisa import (
     kernel, callable, pprint,
-    float32,
+    Float,
     Accel, Buffer,
     # Ray types
     Ray, TriangleHit, ProceduralHit, CommittedHit,
@@ -150,10 +150,10 @@ def test_simple_ray_tracing_kernel():
     print("Test: simple ray tracing kernel")
     print("=" * 60)
 
-    from luisa import float3
+    from luisa import Float3
 
     @kernel
-    def simple_rt_kernel(accel: Accel, output: Buffer[float32]):
+    def simple_rt_kernel(accel: Accel, output: Buffer[Float]):
         idx = dispatch_id().x
         # Simple kernel that just writes output
         output[idx] = 0.0

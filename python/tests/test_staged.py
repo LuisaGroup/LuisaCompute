@@ -3,7 +3,7 @@
 import pytest
 from luisa import (
     kernel, callable, StagedFunction,
-    int32, float32,
+    Int, Float,
     pprint,
 )
 from luisa.lang.inspect import get_ir_ast, get_ir_source
@@ -17,7 +17,7 @@ def test_staged_function_basic():
     print("=" * 60)
 
     @callable
-    def add(a: float32, b: float32) -> float32:
+    def add(a: Float, b: Float) -> Float:
         return a + b
 
     assert isinstance(add, StagedFunction)
@@ -54,7 +54,7 @@ def test_staged_function_with_kernel():
     print("=" * 60)
 
     @kernel
-    def simple_kernel(x: int32) -> None:
+    def simple_kernel(x: Int) -> None:
         pass
 
     assert isinstance(simple_kernel, StagedFunction)
@@ -84,14 +84,14 @@ def test_staged_function_control_flow():
     print("=" * 60)
 
     @callable
-    def abs_value(x: float32) -> float32:
+    def abs_value(x: Float) -> Float:
         if x > 0.0:
             return x
         else:
             return -x
 
     from luisa.lang.ir import ArgumentValue
-    ir_func = abs_value(ArgumentValue(typ=float32, index=0))
+    ir_func = abs_value(ArgumentValue(typ=Float, index=0))
 
     # Print AST
     print("\nParsed AST:")
@@ -118,14 +118,14 @@ def test_staged_function_captured_vars():
     threshold = 0.5
 
     @callable
-    def threshold_check(x: float32) -> int32:
+    def threshold_check(x: Float) -> Int:
         if x > threshold:
             return 1
         else:
             return 0
 
     from luisa.lang.ir import ArgumentValue
-    ir_func = threshold_check(ArgumentValue(typ=float32, index=0))
+    ir_func = threshold_check(ArgumentValue(typ=Float, index=0))
 
     print("\nGenerated IR:")
     print(pprint(ir_func))
@@ -143,8 +143,8 @@ def test_staged_function_while_loop():
     print("=" * 60)
 
     @callable
-    def count_up() -> int32:
-        i = int32(0)
+    def count_up() -> Int:
+        i = Int(0)
         while i < 10:
             i = i + 1
         return i
@@ -169,14 +169,14 @@ def test_staged_function_for_range():
     print("=" * 60)
 
     @callable
-    def sum_range(n: int32) -> int32:
-        total = int32(0)
+    def sum_range(n: Int) -> Int:
+        total = Int(0)
         for i in range(n):
             total = total + i
         return total
 
     from luisa.lang.ir import ArgumentValue
-    ir_func = sum_range(ArgumentValue(typ=int32, index=0))
+    ir_func = sum_range(ArgumentValue(typ=Int, index=0))
 
     print("\nGenerated IR:")
     print(pprint(ir_func))
@@ -194,7 +194,7 @@ def test_staged_function_complex():
     print("=" * 60)
 
     @callable
-    def compute(x: float32, y: float32) -> float32:
+    def compute(x: Float, y: Float) -> Float:
         # Compute x^2 + y^2
         x2 = x * x
         y2 = y * y
@@ -204,7 +204,7 @@ def test_staged_function_complex():
         if sum_sq > 0.0:
             return sum_sq
         else:
-            return float32(0.0)
+            return Float(0.0)
 
     ir_func = compute(3.0, 4.0)
 
@@ -230,9 +230,9 @@ def test_kernel_with_dispatch_id():
     from luisa import Buffer, dispatch_id
 
     @kernel
-    def index_kernel(buf: Buffer[float32]):
+    def index_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
-        buf[idx] = float32(idx)
+        buf[idx] = Float(idx)
 
     ir_func = index_kernel(None)
 

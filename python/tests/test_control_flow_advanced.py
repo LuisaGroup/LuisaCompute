@@ -2,7 +2,7 @@
 
 import pytest
 import ast as python_ast
-from luisa import kernel, callable, int32, float32, bool_, pprint
+from luisa import kernel, callable, Int, Float, Bool, pprint
 from luisa.lang.ir import Op
 from luisa.lang.inspect import find_operations, analyze_control_flow, count_instructions, get_ir_ast
 
@@ -38,7 +38,7 @@ def test_nested_if_statements():
     print("=" * 60)
 
     @callable
-    def nested_if(x: int32, y: int32) -> int32:
+    def nested_if(x: Int, y: Int) -> Int:
         if x > 0:
             if y > 0:
                 return x + y
@@ -65,18 +65,18 @@ def test_if_elif_else_chain():
     print("=" * 60)
 
     @callable
-    def if_chain(x: int32) -> int32:
-        if x < int32(0):
+    def if_chain(x: Int) -> Int:
+        if x < Int(0):
             return -1
         else:
-            if x == int32(0):
+            if x == Int(0):
                 return 0
             else:
                 return 1
 
     from luisa.lang.ir import ArgumentValue
     # Use an ArgumentValue to ensure it's not folded
-    ir = if_chain(ArgumentValue(typ=int32, index=0))
+    ir = if_chain(ArgumentValue(typ=Int, index=0))
     print("\nGenerated IR:")
     print(pprint(ir))
 
@@ -94,8 +94,8 @@ def test_while_loop_with_break():
     print("=" * 60)
 
     @callable
-    def while_with_break(x: int32) -> int32:
-        i = int32(0)
+    def while_with_break(x: Int) -> Int:
+        i = Int(0)
         while i < 100:
             if i == x:
                 break
@@ -121,9 +121,9 @@ def test_while_loop_with_continue():
     print("=" * 60)
 
     @callable
-    def while_with_continue(x: int32) -> int32:
-        i = int32(0)
-        sum = int32(0)
+    def while_with_continue(x: Int) -> Int:
+        i = Int(0)
+        sum = Int(0)
         while i < 10:
             i = i + 1
             if i == x:
@@ -150,14 +150,14 @@ def test_for_range_loop():
     print("=" * 60)
 
     @callable
-    def for_range_sum(n: int32) -> int32:
+    def for_range_sum(n: Int) -> Int:
         total = 0
         for i in range(n):
             total = total + i
         return total
 
     from luisa.lang.ir import ArgumentValue
-    ir = for_range_sum(ArgumentValue(typ=int32, index=0))
+    ir = for_range_sum(ArgumentValue(typ=Int, index=0))
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -176,14 +176,14 @@ def test_for_range_with_step():
     print("=" * 60)
 
     @callable
-    def for_range_step(n: int32) -> int32:
+    def for_range_step(n: Int) -> Int:
         total = 0
         for i in range(0, n, 2):
             total = total + i
         return total
 
     from luisa.lang.ir import ArgumentValue
-    ir = for_range_step(ArgumentValue(typ=int32, index=0))
+    ir = for_range_step(ArgumentValue(typ=Int, index=0))
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -202,7 +202,7 @@ def test_early_return():
     print("=" * 60)
 
     @callable
-    def early_return(x: int32) -> int32:
+    def early_return(x: Int) -> Int:
         if x < 0:
             return 0
         if x > 100:
@@ -228,7 +228,7 @@ def test_complex_boolean_expression():
     print("=" * 60)
 
     @callable
-    def complex_bool(x: int32, y: int32) -> int32:
+    def complex_bool(x: Int, y: Int) -> Int:
         if x > 0 and y > 0:
             return x + y
         return 0
@@ -252,7 +252,7 @@ def test_multiple_returns_in_branches():
     print("=" * 60)
 
     @callable
-    def multi_return(x: int32) -> int32:
+    def multi_return(x: Int) -> Int:
         if x < 0:
             return -1
         elif x == 0:
@@ -279,7 +279,7 @@ def test_deeply_nested_control_flow():
     print("=" * 60)
 
     @callable
-    def nested_deep(x: int32) -> int32:
+    def nested_deep(x: Int) -> Int:
         if x > 0:
             if x > 10:
                 if x > 100:
@@ -306,14 +306,14 @@ def test_loop_with_multiple_exits():
     print("=" * 60)
 
     @callable
-    def multi_exit_loop(x: int32) -> int32:
-        i = int32(0)
+    def multi_exit_loop(x: Int) -> Int:
+        i = Int(0)
         while i < 100:
             if i == x:
                 break
-            if i > x * int32(2):
+            if i > x * Int(2):
                 break
-            i = i + int32(1)
+            i = i + Int(1)
         return i
 
     ir = multi_exit_loop(25)
@@ -335,17 +335,17 @@ def test_python_match_to_switch():
     print("=" * 60)
 
     @callable
-    def match_test(tag: int32) -> int32:
-        res = int32(0)
+    def match_test(tag: Int) -> Int:
+        res = Int(0)
         match tag:
             case 0:
-                res = int32(10)
+                res = Int(10)
             case 1:
-                res = int32(20)
+                res = Int(20)
             case 2:
-                res = int32(30)
+                res = Int(30)
             case _:
-                res = int32(-1)
+                res = Int(-1)
         return res
 
     ir = match_test(0)

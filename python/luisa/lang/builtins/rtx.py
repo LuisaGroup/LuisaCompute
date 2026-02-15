@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..ir import Value, InstructionValue
 
 from ..ir import Op
-from ..types import bool_, uint, float3, float4
+from ..types import Bool, UInt, Float3, Float4
 from ..builder import get_current_builder
 
 
@@ -22,13 +22,13 @@ from ..builder import get_current_builder
 class Ray:
     """Ray structure for ray tracing."""
 
-    def __init__(self, origin: float3, direction: float3, t_min: float = 0.0, t_max: float = 1e30):
+    def __init__(self, origin: Float3, direction: Float3, t_min: float = 0.0, t_max: float = 1e30):
         self.origin = origin
         self.direction = direction
         self.t_min = t_min
         self.t_max = t_max
 
-    def at(self, t: float) -> float3:
+    def at(self, t: float) -> Float3:
         """Get point at distance t along the ray."""
         # This would need proper DSL implementation
         pass
@@ -38,9 +38,9 @@ class TriangleHit:
     """Hit result for triangle intersection."""
 
     def __init__(self):
-        self.inst: uint = 0
-        self.prim: uint = 0
-        self.bary: float3 = float3(0.0, 0.0, 0.0)
+        self.inst: UInt = 0
+        self.prim: UInt = 0
+        self.bary: Float3 = Float3(0.0, 0.0, 0.0)
         self.hit: bool = False
 
 
@@ -48,17 +48,17 @@ class ProceduralHit:
     """Hit result for procedural primitive."""
 
     def __init__(self):
-        self.inst: uint = 0
-        self.prim: uint = 0
+        self.inst: UInt = 0
+        self.prim: UInt = 0
 
 
 class CommittedHit:
     """Committed hit from ray query."""
 
     def __init__(self):
-        self.inst: uint = 0
-        self.prim: uint = 0
-        self.bary: float3 = float3(0.0, 0.0, 0.0)
+        self.inst: UInt = 0
+        self.prim: UInt = 0
+        self.bary: Float3 = Float3(0.0, 0.0, 0.0)
         self.t: float = 0.0
         self.hit: bool = False
 
@@ -67,7 +67,7 @@ class CommittedHit:
 # Ray Tracing Queries
 # ============================================================================
 
-def trace_closest(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
+def trace_closest(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
     """
     Trace a ray and return the closest hit.
     
@@ -83,7 +83,7 @@ def trace_closest(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue
     return get_current_builder()._emit(Op.TRACE_CLOSEST, TriangleHit, [accel, mask])
 
 
-def trace_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
+def trace_any(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
     """
     Trace a ray and return True if any hit is found (occlusion test).
     
@@ -95,10 +95,10 @@ def trace_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
     Returns:
         True if any hit found
     """
-    return get_current_builder()._emit(Op.TRACE_ANY, bool_, [accel, mask])
+    return get_current_builder()._emit(Op.TRACE_ANY, Bool, [accel, mask])
 
 
-def ray_query_all(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
+def ray_query_all(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
     """
     Create a ray query for all potential hits (inline traversal).
     
@@ -114,7 +114,7 @@ def ray_query_all(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue
     return get_current_builder()._emit(Op.RAY_QUERY_ALL, RayQuery(query_any=False), [accel, mask])
 
 
-def ray_query_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
+def ray_query_any(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
     """
     Create a ray query for any hit (inline traversal).
     
@@ -145,7 +145,7 @@ def ray_query_proceed(query: Value) -> InstructionValue:
     
     Returns True if there are more candidates.
     """
-    return get_current_builder()._emit(Op.RAY_QUERY_PROCEED, bool_, [query])
+    return get_current_builder()._emit(Op.RAY_QUERY_PROCEED, Bool, [query])
 
 
 def ray_query_committed_hit(query: Value) -> InstructionValue:
@@ -200,22 +200,22 @@ def accel_instance_transform(accel: Value, instance_id: Value) -> InstructionVal
         instance_id: Instance index
     
     Returns:
-        4x4 transformation matrix (float4x4)
+        4x4 transformation matrix (Float4x4)
     """
-    from ..types import float4x4
-    return get_current_builder()._emit(Op.ACCEL_INSTANCE_TRANSFORM, float4x4, [accel, instance_id])
+    from ..types import Float4x4
+    return get_current_builder()._emit(Op.ACCEL_INSTANCE_TRANSFORM, Float4x4, [accel, instance_id])
 
 
 def accel_instance_user_id(accel: Value, instance_id: Value) -> InstructionValue:
     """Get the user-defined ID of an instance."""
-    return get_current_builder()._emit(Op.ACCEL_INSTANCE_USER_ID, uint, [accel, instance_id])
+    return get_current_builder()._emit(Op.ACCEL_INSTANCE_USER_ID, UInt, [accel, instance_id])
 
 
 def accel_instance_visibility_mask(accel: Value, instance_id: Value) -> InstructionValue:
     """Get the visibility mask of an instance."""
-    return get_current_builder()._emit(Op.ACCEL_INSTANCE_VISIBILITY_MASK, uint, [accel, instance_id])
+    return get_current_builder()._emit(Op.ACCEL_INSTANCE_VISIBILITY_MASK, UInt, [accel, instance_id])
 
 
-def make_ray(origin: float3, direction: float3, t_min: float = 0.0, t_max: float = 1e30) -> Ray:
+def make_ray(origin: Float3, direction: Float3, t_min: float = 0.0, t_max: float = 1e30) -> Ray:
     """Construct a ray."""
     return Ray(origin, direction, t_min, t_max)

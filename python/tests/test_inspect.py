@@ -1,7 +1,7 @@
 """Tests for introspection utilities - with IR building and pretty printing."""
 
 import pytest
-from luisa import kernel, callable, int32, float32, pprint
+from luisa import kernel, callable, Int, Float, pprint
 from luisa.lang.inspect import (
     get_ir_source, get_ir_ast, get_ir_types,
     count_instructions, get_basic_block_count, get_instruction_count,
@@ -17,7 +17,7 @@ def test_get_ir_source():
     print("=" * 60)
 
     @callable
-    def simple_func(a: float32) -> float32:
+    def simple_func(a: Float) -> Float:
         return a + 1.0
 
     source = get_ir_source(simple_func)
@@ -37,8 +37,8 @@ def test_get_ir_types():
     print("=" * 60)
 
     @callable
-    def typed_func(a: float32, b: int32) -> float32:
-        return a + float32(b)
+    def typed_func(a: Float, b: Int) -> Float:
+        return a + Float(b)
 
     types = get_ir_types(typed_func)
     print(f"\nTypes: {types}")
@@ -59,11 +59,11 @@ def test_count_instructions():
 
     from luisa import Builder
 
-    builder = Builder('test', (float32,), float32)
+    builder = Builder('test', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
-    b = builder.constant(float32, 1.0)
+    b = builder.constant(Float, 1.0)
     c = builder.add(a, b)
     builder.return_(c)
     ir = builder.build()
@@ -92,7 +92,7 @@ def test_get_basic_block_count():
 
     from luisa import Builder
 
-    builder = Builder('test', (float32,), float32)
+    builder = Builder('test', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     builder.return_()
@@ -117,7 +117,7 @@ def test_find_operations():
 
     from luisa import Builder
 
-    builder = Builder('test', (float32, float32), float32)
+    builder = Builder('test', (Float, Float), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
@@ -150,7 +150,7 @@ def test_analyze_control_flow():
     from luisa import Builder
 
     # Simple function
-    builder = Builder('test', (float32,), float32)
+    builder = Builder('test', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     builder.return_()
@@ -201,11 +201,11 @@ def test_format_ir_summary():
 
     from luisa import Builder
 
-    builder = Builder('summary_test', (float32,), float32)
+    builder = Builder('summary_test', (Float,), Float)
     entry = builder.create_block('entry')
     builder.set_insert_point(entry)
     a = builder.get_argument(0)
-    b = builder.constant(float32, 1.0)
+    b = builder.constant(Float, 1.0)
     c = builder.add(a, b)
     builder.return_(c)
     ir = builder.build()
@@ -227,7 +227,7 @@ def test_inspect_staged_function():
     print("=" * 60)
 
     @callable
-    def compute(a: float32, b: float32) -> float32:
+    def compute(a: Float, b: Float) -> Float:
         x = a * a
         y = b * b
         return x + y

@@ -306,8 +306,8 @@ def pprint(obj: Function | Module, indent_size: int = 2) -> str:
         >>> print(pprint(func))
         [kernel] func my_kernel(Buffer<float>) -> void {
           entry:
-            %0: uint3 = dispatch_id 
-            %1: uint32 = extract %0, 0
+            %0: UInt3 = dispatch_id 
+            %1: UInt = extract %0, 0
             ...
         }
     """

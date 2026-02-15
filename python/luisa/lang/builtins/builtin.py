@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from ..types import Type
 
 from ..ir import Op
-from ..types import uint3, uint, bool_, float3
+from ..types import UInt3, UInt, Bool, Float3
 from ..builder import get_current_builder
 
 
@@ -22,32 +22,32 @@ from ..builder import get_current_builder
 
 def dispatch_id() -> InstructionValue:
     """Get the global dispatch ID (3D)."""
-    return get_current_builder()._emit(Op.DISPATCH_ID, uint3, [])
+    return get_current_builder()._emit(Op.DISPATCH_ID, UInt3, [])
 
 
 def thread_id() -> InstructionValue:
     """Get the local thread ID within a block (3D)."""
-    return get_current_builder()._emit(Op.THREAD_ID, uint3, [])
+    return get_current_builder()._emit(Op.THREAD_ID, UInt3, [])
 
 
 def block_id() -> InstructionValue:
     """Get the block ID (3D)."""
-    return get_current_builder()._emit(Op.BLOCK_ID, uint3, [])
+    return get_current_builder()._emit(Op.BLOCK_ID, UInt3, [])
 
 
 def dispatch_size() -> InstructionValue:
     """Get the total dispatch size (3D)."""
-    return get_current_builder()._emit(Op.DISPATCH_SIZE, uint3, [])
+    return get_current_builder()._emit(Op.DISPATCH_SIZE, UInt3, [])
 
 
 def kernel_id() -> InstructionValue:
     """Get the kernel ID."""
-    return get_current_builder()._emit(Op.KERNEL_ID, uint, [])
+    return get_current_builder()._emit(Op.KERNEL_ID, UInt, [])
 
 
 def object_id() -> InstructionValue:
     """Get the object ID (for rasterization)."""
-    return get_current_builder()._emit(Op.OBJECT_ID, uint, [])
+    return get_current_builder()._emit(Op.OBJECT_ID, UInt, [])
 
 
 # ============================================================================
@@ -119,5 +119,5 @@ def unreachable(message: str = "") -> InstructionValue:
 
 def clock() -> InstructionValue:
     """Get current clock value (for timing)."""
-    from ..types import uint64
-    return get_current_builder()._emit(Op.CLOCK, uint64, [])
+    from ..types import ULong
+    return get_current_builder()._emit(Op.CLOCK, ULong, [])

@@ -2,7 +2,7 @@
 
 import pytest
 import ast as python_ast
-from luisa import kernel, callable, float32, int32, Buffer, pprint
+from luisa import kernel, callable, Float, Int, Buffer, pprint
 from luisa.lang.inspect import count_instructions, get_ir_ast
 
 
@@ -23,12 +23,12 @@ def test_kernel_calls_simple_callable():
     print("=" * 60)
 
     @callable
-    def square(x: float32) -> float32:
+    def square(x: Float) -> Float:
         return x * x
 
     @kernel
-    def compute_squares(buf: Buffer[float32]):
-        idx = int32(0)  # Simplified for test
+    def compute_squares(buf: Buffer[Float]):
+        idx = Int(0)  # Simplified for test
         val = buf[idx]
         result = square(val)
         buf[idx] = result
@@ -59,7 +59,7 @@ def test_kernel_calls_math_callable():
     print("=" * 60)
 
     @callable
-    def normalize_value(x: float32) -> float32:
+    def normalize_value(x: Float) -> Float:
         if x < 0.0:
             return 0.0
         elif x > 1.0:
@@ -67,8 +67,8 @@ def test_kernel_calls_math_callable():
         return x
 
     @kernel
-    def process_buffer(buf: Buffer[float32]):
-        idx = int32(0)
+    def process_buffer(buf: Buffer[Float]):
+        idx = Int(0)
         val = buf[idx]
         normalized = normalize_value(val)
         buf[idx] = normalized
@@ -94,12 +94,12 @@ def test_kernel_calls_callable_with_multiple_args():
     print("=" * 60)
 
     @callable
-    def lerp(a: float32, b: float32, t: float32) -> float32:
+    def lerp(a: Float, b: Float, t: Float) -> Float:
         return a + (b - a) * t
 
     @kernel
-    def interpolate(buf: Buffer[float32]):
-        idx = int32(0)
+    def interpolate(buf: Buffer[Float]):
+        idx = Int(0)
         result = lerp(0.0, 1.0, buf[idx])
         buf[idx] = result
 
@@ -124,16 +124,16 @@ def test_kernel_calls_nested_callable():
     print("=" * 60)
 
     @callable
-    def square(x: float32) -> float32:
+    def square(x: Float) -> Float:
         return x * x
 
     @callable
-    def sum_of_squares(a: float32, b: float32) -> float32:
+    def sum_of_squares(a: Float, b: Float) -> Float:
         return square(a) + square(b)
 
     @kernel
-    def compute(buf: Buffer[float32]):
-        idx = int32(0)
+    def compute(buf: Buffer[Float]):
+        idx = Int(0)
         result = sum_of_squares(buf[idx], buf[idx + 1])
         buf[idx] = result
 
@@ -158,7 +158,7 @@ def test_kernel_calls_callable_with_loop():
     print("=" * 60)
 
     @callable
-    def factorial(n: int32) -> int32:
+    def factorial(n: Int) -> Int:
         result = 1
         i = 1
         while i <= n:
@@ -167,8 +167,8 @@ def test_kernel_calls_callable_with_loop():
         return result
 
     @kernel
-    def compute_factorials(buf: Buffer[int32]):
-        idx = int32(0)
+    def compute_factorials(buf: Buffer[Int]):
+        idx = Int(0)
         n = buf[idx]
         result = factorial(n)
         buf[idx] = result

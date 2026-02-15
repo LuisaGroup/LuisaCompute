@@ -24,7 +24,7 @@ from luisa import (
     # Profiling
     clock,
     # Types
-    int32, float32, float3, uint3, Buffer,
+    Int, Float, Float3, UInt3, Buffer,
 )
 from luisa.lang.inspect import count_instructions, get_ir_ast
 import ast as python_ast
@@ -47,7 +47,7 @@ def test_math_builtins_build_ir():
     print("=" * 60)
 
     @callable
-    def math_ops(x: float32) -> float32:
+    def math_ops(x: Float) -> Float:
         a = sqrt(x)
         b = sin(a)
         c = cos(b)
@@ -114,9 +114,9 @@ def test_dispatch_id_in_computation():
     print("=" * 60)
 
     @kernel
-    def index_kernel(buf: Buffer[float32]):
+    def index_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
-        buf[idx] = float32(idx)
+        buf[idx] = Float(idx)
 
     ir = index_kernel(None)
 
@@ -140,7 +140,7 @@ def test_sync_block_builds_ir():
     print("=" * 60)
 
     @kernel
-    def sync_kernel(buf: Buffer[float32]):
+    def sync_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
         buf[idx] = 1.0
         sync_block()
@@ -165,10 +165,10 @@ def test_cast_builds_ir():
     print("=" * 60)
 
     @callable
-    def cast_ops(x: int32) -> float32:
-        f = float32(x)
-        i = int32(f)
-        return float32(i)
+    def cast_ops(x: Int) -> Float:
+        f = Float(x)
+        i = Int(f)
+        return Float(i)
 
     ir = cast_ops(42)
 
@@ -189,7 +189,7 @@ def test_device_print_builds_ir():
     print("=" * 60)
 
     @kernel
-    def print_kernel(x: int32):
+    def print_kernel(x: Int):
         device_print("Value: {}", x)
 
     ir = print_kernel(42)
@@ -211,16 +211,16 @@ def test_clock_builds_ir():
     print("=" * 60)
 
     @callable
-    def timed_function() -> int32:
+    def timed_function() -> Int:
         start = clock()
         # Some computation
-        x = int32(0)
+        x = Int(0)
         i = 0
         while i < 10:
-            x = x + int32(i)
+            x = x + Int(i)
             i = i + 1
         end = clock()
-        return int32(end - start)
+        return Int(end - start)
 
     ir = timed_function()
 
@@ -241,7 +241,7 @@ def test_assertions_build_ir():
     print("=" * 60)
 
     @callable
-    def checked_function(x: int32) -> int32:
+    def checked_function(x: Int) -> Int:
         assume(x > 0, "x must be positive")
         result = x * 2
         device_assert(result > x, "result should be greater than x")
@@ -264,13 +264,13 @@ def test_matrix_ops_build_ir():
     print("Test: matrix ops build IR")
     print("=" * 60)
 
-    from luisa import float4x4
+    from luisa import Float4x4
 
     @callable
-    def matrix_ops(m: float4x4) -> float32:
+    def matrix_ops(m: Float4x4) -> Float:
         t = transpose(m)
         # Note: inverse/determinant may not be fully implemented
-        return float32(0.0)
+        return Float(0.0)
 
     # Use None since we don't have actual matrix values
     ir = matrix_ops(None)
@@ -289,7 +289,7 @@ def test_vector_math_builds_ir():
     print("=" * 60)
 
     @callable
-    def vector_ops(a: float3, b: float3) -> float3:
+    def vector_ops(a: Float3, b: Float3) -> Float3:
         d = dot(a, b)
         c = cross(a, b)
         n = normalize(a)
@@ -315,7 +315,7 @@ def test_clamp_lerp_build_ir():
     print("=" * 60)
 
     @callable
-    def utility_ops(x: float32) -> float32:
+    def utility_ops(x: Float) -> Float:
         c = clamp(x, 0.0, 1.0)
         l = lerp(0.0, 1.0, c)
         s = step(0.5, l)

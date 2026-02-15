@@ -127,14 +127,14 @@ def normalize(x: Value) -> InstructionValue:
 def length(x: Value) -> InstructionValue:
     """Compute vector length."""
     # Length returns scalar
-    from ..types import Scalar, ScalarType
-    return get_current_builder()._emit(Op.LENGTH, Scalar(ScalarType.FLOAT32), [x])
+    from ..types import Float
+    return get_current_builder()._emit(Op.LENGTH, Float, [x])
 
 
 def length_squared(x: Value) -> InstructionValue:
     """Compute squared vector length."""
-    from ..types import Scalar, ScalarType
-    return get_current_builder()._emit(Op.LENGTH_SQUARED, Scalar(ScalarType.FLOAT32), [x])
+    from ..types import Float
+    return get_current_builder()._emit(Op.LENGTH_SQUARED, Float, [x])
 
 
 # ============================================================================
@@ -178,8 +178,8 @@ def pow(base: Value, exp: Value) -> InstructionValue:
 
 def dot(a: Value, b: Value) -> InstructionValue:
     """Compute dot product."""
-    from ..types import float32
-    return get_current_builder()._emit(Op.DOT, float32, [a, b])
+    from ..types import Float
+    return get_current_builder()._emit(Op.DOT, Float, [a, b])
 
 
 def cross(a: Value, b: Value) -> InstructionValue:
@@ -189,8 +189,8 @@ def cross(a: Value, b: Value) -> InstructionValue:
 
 def distance(a: Value, b: Value) -> InstructionValue:
     """Compute distance between two points."""
-    from ..types import float32
-    return get_current_builder()._emit(Op.DISTANCE, float32, [a, b])
+    from ..types import Float
+    return get_current_builder()._emit(Op.DISTANCE, Float, [a, b])
 
 
 def reflect(i: Value, n: Value) -> InstructionValue:
@@ -224,5 +224,5 @@ def inverse(m: Value) -> InstructionValue:
 
 def determinant(m: Value) -> InstructionValue:
     """Compute matrix determinant."""
-    from ..types import float32
-    return get_current_builder()._emit(Op.MATRIX_DETERMINANT, float32, [m])
+    from ..types import Float
+    return get_current_builder()._emit(Op.MATRIX_DETERMINANT, Float, [m])

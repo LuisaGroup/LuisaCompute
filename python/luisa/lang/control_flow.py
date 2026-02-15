@@ -12,7 +12,7 @@ Similar patterns for loops and switches.
 """
 
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Any
 from contextlib import contextmanager
 
 # Runtime imports
@@ -115,8 +115,8 @@ class WhileStmt:
         def loop_body_wrapper():
             with self.builder.scope(self.body_block):
                 # Inject condition check: if !condition: break
-                from .types import Void, bool_
-                not_cond = self.builder._emit(Op.LOGICAL_NOT, bool_, [self.condition])
+                from .types import Void, Bool
+                not_cond = self.builder._emit(Op.LOGICAL_NOT, Bool, [self.condition])
                 break_block = self.builder.create_block("while_break")
                 with self.builder.scope(break_block):
                     self.builder.break_()
@@ -176,9 +176,9 @@ class ForRangeStmt:
                 self.builder.bind_local(self.loop_var_name, current_val)
 
                 # 2. Check condition: if i >= stop: break
-                from .types import Void, bool_
+                from .types import Void, Bool
                 cond = self.builder.lt(current_val, self.stop)
-                not_cond = self.builder._emit(Op.LOGICAL_NOT, bool_, [cond])
+                not_cond = self.builder._emit(Op.LOGICAL_NOT, Bool, [cond])
 
                 break_block = self.builder.create_block("for_break")
                 with self.builder.scope(break_block):
@@ -221,7 +221,6 @@ class UnrolledForStmt:
         self.step = step
         self.loop_var_name = loop_var_name
         self.iterations = list(range(start, stop, step))
-        self._current_idx = 0
 
     def body_scope(self):
         """Get context manager for unrolled iterations."""
@@ -234,114 +233,61 @@ class UnrolledForStmt:
 
 class SwitchStmt:
     """
-
     Structured switch statement.
-
     
-
     Usage:
-
         switch = SwitchStmt(builder, value)
-
         with switch.case_scope(1):
-
             ...  # case 1
-
         with switch.case_scope(2, 3):
-
             ...  # case 2 or 3
-
         with switch.default_scope():
-
             ...  # default case
-
     """
 
     def __init__(self, builder: 'Builder', value: 'Value'):
-
         self.builder = builder
-
         self.value = value
-
         self._folded = isinstance(value, ConstantValue)
-
         self._constant_value = value.value if self._folded else None
 
         if not self._folded:
             from .types import Void
-
-            # We emit SWITCH instruction. args: [value, (cases...)]
-
-            # We'll populate the instruction args as we go? 
-
-            # Or we can just keep a list of blocks and emit at the end.
-
-            # But Instruction is already in the list.
-
-            # Let's use a list of (values, block) tuples.
-
             self.cases: list[tuple[list[int], BasicBlock]] = []
-
             self.default_block: Optional[BasicBlock] = None
-
-            self.inst = self.builder._emit(Op.SWITCH, Void(), [self.value, self.cases, None])  # None for default
+            self.inst = self.builder._emit(Op.SWITCH, Void(), [self.value, self.cases, None])
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Update the instruction with the default block if it was set
         if not self._folded:
             self.inst.instruction.args[2] = self.default_block
 
     def case_scope(self, *values: int):
-
         """Get context manager for a case."""
-
         if self._folded:
-
-            # Check if this case matches
-
             if self._constant_value in values:
-
                 return _DirectScope(self.builder)
-
             else:
-
                 return _NoOpScope()
 
-        # Create case block
-
         case_block = self.builder.create_block(f"case_{values[0]}")
-
         self.cases.append((list(values), case_block))
-
         return self.builder.scope(case_block)
 
     def default_scope(self):
-
         """Get context manager for the default case."""
-
         if self._folded:
-            # Check if default should execute
-
-            # (Requires knowing all cases, which we don't yet in this structured way if we allow interleaving)
-
-            # Actually, the user should call default_scope() last.
-
-            return _DirectScope(self.builder)  # Simplified folding for default
+            return _DirectScope(self.builder)
 
         self.default_block = self.builder.create_block("case_default")
-
         return self.builder.scope(self.default_block)
 
 
 # ============================================================================
-
-# Internal Scope Classes (Simplified for Structured IR)
-
+# Internal Scope Classes
 # ============================================================================
-
 
 class _NoOpScope:
     """No-op scope for folded-away branches."""
@@ -364,3 +310,21 @@ class _DirectScope:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         return True
+
+
+class _UnrolledScope:
+    """Scope for unrolled for loops."""
+
+    def __init__(self, builder: Builder, iterations: list[int], loop_var_name: str):
+        self.builder = builder
+        self.iterations = iterations
+        self.loop_var_name = loop_var_name
+
+    def __iter__(self):
+        for val in self.iterations:
+            # Bind loop variable to constant for each iteration
+            # We need to find the correct scalar type for the iteration value
+            from .types import Int
+            const_val = self.builder.constant(Int, val)
+            self.builder.bind_local(self.loop_var_name, const_val)
+            yield const_val

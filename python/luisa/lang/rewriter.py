@@ -70,7 +70,7 @@ class ASTRewriter(ast.NodeTransformer):
                 if isinstance(deco, ast.Attribute) and deco.attr in ('callable', 'kernel'):
                     is_staged = True
                     break
-                # Handle indexed decorators like callable[int32]
+                # Handle indexed decorators like callable[Int]
                 if isinstance(deco, ast.Subscript):
                     if isinstance(deco.value, ast.Name) and deco.value.id in ('callable', 'kernel'):
                         is_staged = True
@@ -143,7 +143,7 @@ class ASTRewriter(ast.NodeTransformer):
             ann = arg.annotation
             if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name) and ann.value.id == 'Ref':
                 self.ref_vars.add(arg.arg)
-            # Handle from luisa import Ref; a: Ref[i32]
+            # Handle from luisa import Ref; a: Ref[Int]
             elif isinstance(ann, ast.Name) and ann.id == 'Ref':
                 self.ref_vars.add(arg.arg)
 
@@ -286,14 +286,6 @@ class ASTRewriter(ast.NodeTransformer):
 
     def visit_Call(self, node: ast.Call) -> Any:
         """Rewrite function calls."""
-        # Heuristic: don't rewrite common Python builtins if they are simple names
-        if isinstance(node.func, ast.Name):
-            if node.func.id in ('enumerate', 'range', 'print', 'len', 'zip'):
-                # We still visit arguments
-                node.args = [self.visit(a) for a in node.args]
-                node.keywords = [self.visit(k) for k in node.keywords]
-                return node
-
         return self._rt_call(
             "l_call",
             self.visit(node.func),

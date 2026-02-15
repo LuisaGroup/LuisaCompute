@@ -6,7 +6,7 @@ Inspired by luisa/dsl/polymorphic.h
 import pytest
 from luisa import (
     kernel, callable, static_range,
-    int32, float32, Buffer, dispatch_id,
+    Int, Float, Buffer, dispatch_id,
     pprint
 )
 from luisa.lang.inspect import analyze_control_flow
@@ -57,15 +57,15 @@ def test_multistage_polymorphic_dispatch():
     poly = Polymorphic()
 
     @callable
-    def add_one(x: Buffer[float32], idx: int32):
+    def add_one(x: Buffer[Float], idx: Int):
         x[idx] = x[idx] + 1.0
 
     @callable
-    def multiply_two(x: Buffer[float32], idx: int32):
+    def multiply_two(x: Buffer[Float], idx: Int):
         x[idx] = x[idx] * 2.0
 
     @callable
-    def square(x: Buffer[float32], idx: int32):
+    def square(x: Buffer[Float], idx: Int):
         val = x[idx]
         x[idx] = val * val
 
@@ -79,7 +79,7 @@ def test_multistage_polymorphic_dispatch():
     assert tag_square == 2
 
     @kernel
-    def dispatch_kernel(buf: Buffer[float32], tags: Buffer[int32]):
+    def dispatch_kernel(buf: Buffer[Float], tags: Buffer[Int]):
         idx = dispatch_id().x
         tag = tags[idx]
 
@@ -113,20 +113,20 @@ def test_nested_polymorphic_callables():
     print("=" * 60)
 
     @kernel
-    def nested_dispatch_kernel(buf: Buffer[float32], tags: Buffer[int32]):
+    def nested_dispatch_kernel(buf: Buffer[Float], tags: Buffer[Int]):
         idx = dispatch_id().x
         tag = tags[idx]
 
         @callable
-        def add_one(x: float32) -> float32:
+        def add_one(x: Float) -> Float:
             return x + 1.0
 
         @callable
-        def multiply_two(x: float32) -> float32:
+        def multiply_two(x: Float) -> Float:
             return x * 2.0
 
         @callable
-        def square(x: float32) -> float32:
+        def square(x: Float) -> Float:
             return x * x
 
         # Simple dispatch logic using host-side loop

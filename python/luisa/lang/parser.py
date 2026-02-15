@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from .types import Type
 from .types import (
     Scalar, Vector, Buffer, Texture2D, Texture3D, Array, Void,
-    bool_, int32, uint32, float32,
+    Bool, Int, UInt, Float,
     python_type_to_dsl
 )
 
@@ -67,11 +67,11 @@ def value_to_type(value: Any) -> Optional[Type]:
         return Void()
 
     if isinstance(value, bool):
-        return bool_
+        return Bool
     if isinstance(value, int):
-        return int32
+        return Int
     if isinstance(value, float):
-        return float32
+        return Float
 
     # Could add more types here (tuples, lists, etc.)
     return None
@@ -91,7 +91,7 @@ def annotation_to_type(ann: Any) -> tuple[Optional[Type], bool]:
     if py_type is not None:
         return py_type, False
 
-    # Handle generic types like Buffer[float]
+    # Handle generic types like Buffer[Float]
     origin = getattr(ann, '__origin__', None)
     args = getattr(ann, '__args__', None)
 
@@ -272,10 +272,10 @@ class TypeChecker:
         if isinstance(op, ast.Div):
             # Division always returns float or float vector
             if isinstance(left_type, Scalar) and isinstance(right_type, Scalar):
-                return float32
+                return Float
             if isinstance(left_type, Vector) and isinstance(right_type, Vector):
                 if left_type.size == right_type.size:
-                    return Vector(float32, left_type.size)
+                    return Vector(Float, left_type.size)
 
             self.errors.append(
                 f"Cannot divide {left_type} by {right_type}"
@@ -285,7 +285,7 @@ class TypeChecker:
         # Comparison
         if isinstance(op, (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)):
             # Comparisons return bool
-            return bool_
+            return Bool
 
         self.errors.append(f"Unsupported binary operator: {op.__class__.__name__}")
         return None
@@ -298,7 +298,7 @@ class TypeChecker:
 
         if isinstance(op, ast.Not):
             # Logical not returns bool
-            return bool_
+            return Bool
 
         self.errors.append(f"Unsupported unary operator: {op.__class__.__name__}")
         return None
@@ -307,23 +307,23 @@ class TypeChecker:
         """Check and return the result type of a subscript operation."""
         # Buffer subscript
         if isinstance(value_type, Buffer):
-            if index_type == int32 or index_type == uint32:
+            if index_type == Int or index_type == UInt:
                 return value_type.element
-            self.errors.append(f"Buffer index must be int or uint, got {index_type}")
+            self.errors.append(f"Buffer index must be Int or UInt, got {index_type}")
             return None
 
         # Array subscript
         if isinstance(value_type, Array):
-            if index_type == int32 or index_type == uint32:
+            if index_type == Int or index_type == UInt:
                 return value_type.element
-            self.errors.append(f"Array index must be int or uint, got {index_type}")
+            self.errors.append(f"Array index must be Int or UInt, got {index_type}")
             return None
 
         # Vector swizzle (handled separately, this is for element access)
         if isinstance(value_type, Vector):
-            if index_type == int32 or index_type == uint32:
+            if index_type == Int or index_type == UInt:
                 return value_type.element
-            self.errors.append(f"Vector index must be int or uint, got {index_type}")
+            self.errors.append(f"Vector index must be Int or UInt, got {index_type}")
             return None
 
         self.errors.append(f"Cannot subscript type {value_type}")

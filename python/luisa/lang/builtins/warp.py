@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from ..ir import Value, InstructionValue
 
 from ..ir import Op
-from ..types import bool_, uint
+from ..types import Bool, UInt
 from ..builder import get_current_builder
 
 
@@ -21,17 +21,17 @@ from ..builder import get_current_builder
 
 def warp_is_first_active_lane() -> InstructionValue:
     """Check if this is the first active lane in the warp."""
-    return get_current_builder()._emit(Op.WARP_IS_FIRST_ACTIVE_LANE, bool_, [])
+    return get_current_builder()._emit(Op.WARP_IS_FIRST_ACTIVE_LANE, Bool, [])
 
 
 def warp_first_active_lane() -> InstructionValue:
     """Get the index of the first active lane in the warp."""
-    return get_current_builder()._emit(Op.WARP_FIRST_ACTIVE_LANE, uint, [])
+    return get_current_builder()._emit(Op.WARP_FIRST_ACTIVE_LANE, UInt, [])
 
 
 def warp_active_count_bits(value: Value) -> InstructionValue:
     """Count the number of active (True) lanes in the warp."""
-    return get_current_builder()._emit(Op.WARP_ACTIVE_COUNT_BITS, uint, [value])
+    return get_current_builder()._emit(Op.WARP_ACTIVE_COUNT_BITS, UInt, [value])
 
 
 # ============================================================================
@@ -60,17 +60,17 @@ def warp_max(value: Value) -> InstructionValue:
 
 def warp_all(value: Value) -> InstructionValue:
     """Check if all active lanes have True."""
-    return get_current_builder()._emit(Op.WARP_ALL, bool_, [value])
+    return get_current_builder()._emit(Op.WARP_ALL, Bool, [value])
 
 
 def warp_any(value: Value) -> InstructionValue:
     """Check if any active lane has True."""
-    return get_current_builder()._emit(Op.WARP_ANY, bool_, [value])
+    return get_current_builder()._emit(Op.WARP_ANY, Bool, [value])
 
 
 def warp_all_equal(value: Value) -> InstructionValue:
     """Check if all active lanes have the same value."""
-    return get_current_builder()._emit(Op.WARP_ACTIVE_ALL_EQUAL, bool_, [value])
+    return get_current_builder()._emit(Op.WARP_ACTIVE_ALL_EQUAL, Bool, [value])
 
 
 # ============================================================================
@@ -99,7 +99,7 @@ def warp_prefix_count_bits(value: Value) -> InstructionValue:
     """
     Count the number of True values in active lanes with lower indices.
     """
-    return get_current_builder()._emit(Op.WARP_PREFIX_COUNT_BITS, uint, [value])
+    return get_current_builder()._emit(Op.WARP_PREFIX_COUNT_BITS, UInt, [value])
 
 
 # ============================================================================
@@ -152,7 +152,7 @@ def warp_bit_mask(value: Value) -> InstructionValue:
     """
     Get a bitmask of active lanes where value is True.
     
-    Returns a 128-bit mask (uint4).
+    Returns a 128-bit mask (UInt4).
     """
-    from ..types import uint4
-    return get_current_builder()._emit(Op.WARP_ACTIVE_BIT_MASK, uint4, [value])
+    from ..types import UInt4
+    return get_current_builder()._emit(Op.WARP_ACTIVE_BIT_MASK, UInt4, [value])

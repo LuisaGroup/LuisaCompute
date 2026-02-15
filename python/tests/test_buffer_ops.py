@@ -1,7 +1,7 @@
 """Tests for buffer operations - with IR building and pretty printing."""
 
 import pytest
-from luisa import kernel, callable, float32, int32, Buffer, dispatch_id, pprint
+from luisa import kernel, callable, Float, Int, Buffer, dispatch_id, pprint
 from luisa.lang.inspect import count_instructions, get_ir_ast
 import ast as python_ast
 
@@ -23,7 +23,7 @@ def test_buffer_write():
     print("=" * 60)
 
     @callable
-    def write_to_buffer(buf: Buffer[float32]) -> None:
+    def write_to_buffer(buf: Buffer[Float]) -> None:
         buf[0] = 1.0
 
     ir = write_to_buffer(0)
@@ -51,7 +51,7 @@ def test_buffer_read():
     print("=" * 60)
 
     @callable
-    def read_from_buffer(buf: Buffer[float32]) -> float32:
+    def read_from_buffer(buf: Buffer[Float]) -> Float:
         return buf[0]
 
     ir = read_from_buffer(0)
@@ -76,7 +76,7 @@ def test_buffer_read_write():
     print("=" * 60)
 
     @callable
-    def copy_buffer(src: Buffer[float32], dst: Buffer[float32]) -> None:
+    def copy_buffer(src: Buffer[Float], dst: Buffer[Float]) -> None:
         dst[0] = src[0]
 
     ir = copy_buffer(0, 0)
@@ -101,7 +101,7 @@ def test_saxpy_kernel():
     print("=" * 60)
 
     @kernel
-    def saxpy(result: Buffer[float32], a: float32, x: Buffer[float32], y: Buffer[float32]) -> None:
+    def saxpy(result: Buffer[Float], a: Float, x: Buffer[Float], y: Buffer[Float]) -> None:
         idx = dispatch_id().x
         result[idx] = a * x[idx] + y[idx]
 
@@ -135,7 +135,7 @@ def test_buffer_with_dynamic_index():
     print("=" * 60)
 
     @callable
-    def dynamic_access(buf: Buffer[float32], idx: int32) -> float32:
+    def dynamic_access(buf: Buffer[Float], idx: Int) -> Float:
         return buf[idx]
 
     ir = dynamic_access(0, 5)
@@ -157,7 +157,7 @@ def test_buffer_multiple_writes():
     print("=" * 60)
 
     @callable
-    def fill_buffer(buf: Buffer[float32]) -> None:
+    def fill_buffer(buf: Buffer[Float]) -> None:
         buf[0] = 0.0
         buf[1] = 1.0
         buf[2] = 2.0
@@ -181,7 +181,7 @@ def test_buffer_2d_kernel():
     print("=" * 60)
 
     @kernel
-    def matrix_transpose(out: Buffer[float32], inp: Buffer[float32], width: int32, height: int32):
+    def matrix_transpose(out: Buffer[Float], inp: Buffer[Float], width: Int, height: Int):
         x = dispatch_id().x
         y = dispatch_id().y
         if x < width and y < height:

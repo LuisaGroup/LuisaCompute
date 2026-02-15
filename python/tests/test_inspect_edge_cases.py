@@ -1,14 +1,14 @@
 """Edge case tests for the inspect module - with IR building and pretty printing."""
 
 import pytest
-from luisa import kernel, callable, int32, float32, pprint
+from luisa import kernel, callable, Int, Float, pprint
 from luisa.lang.inspect import (
     get_ir_source, get_ir_ast, get_ir_types,
     count_instructions, get_basic_block_count,
     find_operations, analyze_control_flow,
     is_kernel, format_ir_summary, get_type_size
 )
-from luisa.lang.types import int32 as int32_type, float32 as float32_type
+from luisa.lang.types import Int as int32_type, Float as float32_type
 
 
 def test_get_ir_source_non_staged():
@@ -66,7 +66,7 @@ def test_count_instructions_empty():
     print("=" * 60)
 
     @callable
-    def simple() -> int32:
+    def simple() -> Int:
         return 0
 
     ir = simple()
@@ -88,7 +88,7 @@ def test_get_basic_block_count():
     print("=" * 60)
 
     @callable
-    def simple() -> int32:
+    def simple() -> Int:
         return 0
 
     ir = simple()
@@ -112,7 +112,7 @@ def test_find_operations_no_match():
     from luisa.lang.ir import Op
 
     @callable
-    def simple() -> int32:
+    def simple() -> Int:
         return 0
 
     ir = simple()
@@ -134,7 +134,7 @@ def test_analyze_control_flow_simple():
     print("=" * 60)
 
     @callable
-    def simple() -> int32:
+    def simple() -> Int:
         return 0
 
     ir = simple()
@@ -161,7 +161,7 @@ def test_analyze_control_flow_with_if():
     print("=" * 60)
 
     @callable
-    def with_conditional(x: int32) -> int32:
+    def with_conditional(x: Int) -> Int:
         if x > 0:
             return x
         return -x
@@ -185,7 +185,7 @@ def test_format_ir_summary():
     print("=" * 60)
 
     @callable
-    def simple() -> int32:
+    def simple() -> Int:
         return 0
 
     ir = simple()
@@ -232,7 +232,7 @@ def test_is_kernel_false():
     print("=" * 60)
 
     @callable
-    def my_callable() -> int32:
+    def my_callable() -> Int:
         return 0
 
     ir = my_callable()
@@ -255,8 +255,8 @@ def test_get_type_size_scalar():
     assert get_type_size(int32_type) == 4
     assert get_type_size(float32_type) == 4
 
-    print(f"✓ int32: {get_type_size(int32_type)} bytes")
-    print(f"✓ float32: {get_type_size(float32_type)} bytes")
+    print(f"✓ Int: {get_type_size(int32_type)} bytes")
+    print(f"✓ Float: {get_type_size(float32_type)} bytes")
     print("=" * 60)
 
 
@@ -266,10 +266,10 @@ def test_get_type_size_vector():
     print("Test: get_type_size vector")
     print("=" * 60)
 
-    from luisa.lang.types import float3
-    assert get_type_size(float3) == 12  # 4 * 3
+    from luisa.lang.types import Float3
+    assert get_type_size(Float3) == 12  # 4 * 3
 
-    print(f"✓ float3: {get_type_size(float3)} bytes")
+    print(f"✓ Float3: {get_type_size(Float3)} bytes")
     print("=" * 60)
 
 
@@ -280,7 +280,7 @@ def test_get_ir_types_content():
     print("=" * 60)
 
     @callable
-    def typed_func(x: int32, y: float32) -> int32:
+    def typed_func(x: Int, y: Float) -> Int:
         return x
 
     types = get_ir_types(typed_func)
