@@ -10,7 +10,7 @@ from io import StringIO
 
 # Runtime imports
 from ..lang.ir import Function, Module, BasicBlock, Instruction, Op
-from ..lang.types import Type
+from ..lang.type import Type
 
 
 class PrettyPrinter:
@@ -191,7 +191,7 @@ class PrettyPrinter:
         if t is None:
             return 'void'
 
-        from ..lang.types import (
+        from ..lang.type import (
             Scalar, Vector, Matrix, Array, Struct, Buffer,
             Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void, ScalarType
         )

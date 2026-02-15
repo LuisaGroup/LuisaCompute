@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 
 if TYPE_CHECKING:
-    from .types import Type
+    from .type import Type
 
 
 # ============================================================================

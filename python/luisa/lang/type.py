@@ -6,6 +6,7 @@ vector types, matrix types, arrays, structs, and resource types.
 """
 
 from __future__ import annotations
+import inspect
 from typing import Optional, Union, Any, TYPE_CHECKING
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -46,8 +47,8 @@ class Type:
         builder = get_current_builder()
 
         if not isinstance(arg, Value):
-            from .multistage import to_ir_value
-            arg = to_ir_value(builder, arg)
+            from .builtins.runtime import to_ir_value
+            arg = to_ir_value(arg)
 
         return builder.cast(arg, self)
 
@@ -252,6 +253,12 @@ class Struct(Type):
                 return i
         raise KeyError(f"Field '{field_name}' not found in struct {self.name}")
 
+    # Add methods
+    @classmethod
+    def get_dsl_type(cls) -> Struct:
+        """Get the DSL type for this struct."""
+        return cls._dsl_type  # pylint: disable=protected-access
+
 
 @dataclass(frozen=True)
 class Buffer(Type):
@@ -418,6 +425,79 @@ float2x2, float3x3, float4x4 = Float2x2, Float3x3, Float4x4
 double2x2, double3x3, double4x4 = Double2x2, Double3x3, Double4x4
 half2x2, half3x3, half4x4 = Half2x2, Half3x3, Half4x4
 
+
+# ============================================================================
+# Type conversion logic
+# ============================================================================
+
+def value_to_type(value: Any) -> Optional[Type]:
+    """Infer DSL type from a Python value."""
+    if value is None:
+        return Void()
+    if isinstance(value, bool):
+        return Bool
+    if isinstance(value, int):
+        return Int
+    if isinstance(value, float):
+        return Float
+    return None
+
+
+def annotation_to_type(ann: Any) -> tuple[Optional[Type], bool]:
+    """Convert a Python type annotation to a DSL type and a reference flag."""
+    if ann is None or ann is inspect.Parameter.empty:
+        return None, False
+
+    # Handle direct type references
+    if isinstance(ann, Type):
+        return ann, False
+
+    # Handle Python built-in types
+    py_type = python_type_to_dsl(ann)
+    if py_type is not None:
+        return py_type, False
+
+    # Handle generic types like Buffer[Float]
+    origin = getattr(ann, '__origin__', None)
+    args = getattr(ann, '__args__', None)
+
+    if origin is not None and args is not None:
+        # Handle Ref[T]
+        if origin.__name__ == 'Ref' or getattr(origin, '__name__', None) == 'Ref':
+            elem_type, _ = annotation_to_type(args[0])
+            return elem_type, True
+
+        # Handle Buffer[T]
+        if origin.__name__ == 'Buffer' or getattr(origin, '__name__', None) == 'buffer':
+            elem_type, _ = annotation_to_type(args[0])
+            if elem_type is not None:
+                return Buffer(element=elem_type), False
+
+        # Handle Texture2D[T]
+        if origin.__name__ == 'Texture2D' or getattr(origin, '__name__', None) == 'Texture2D':
+            elem_type, _ = annotation_to_type(args[0])
+            if elem_type is not None and isinstance(elem_type, Scalar):
+                return Texture2D(element=elem_type), False
+
+        # Handle Texture3D[T]
+        if origin.__name__ == 'Texture3D' or getattr(origin, '__name__', None) == 'Texture3D':
+            elem_type, _ = annotation_to_type(args[0])
+            if elem_type is not None and isinstance(elem_type, Scalar):
+                return Texture3D(element=elem_type), False
+
+    return None, False
+
+
+def python_type_to_dsl(py_type: type) -> Optional[Type]:
+    """Convert a Python type to a DSL type."""
+    mapping = {
+        bool: Bool,
+        int: Int,
+        float: Float,
+    }
+    return mapping.get(py_type)
+
+
 # ============================================================================
 # Type utility functions
 # ============================================================================
@@ -580,29 +660,6 @@ def promote_types(t1: Type, t2: Type) -> Type:
         return t1 if idx1 > idx2 else t2
 
     raise TypeError(f"Cannot promote types {t1} and {t2}")
-
-
-def python_type_to_dsl(py_type: type) -> Optional[Type]:
-    """Convert a Python type to a DSL type."""
-    mapping = {
-        bool: Bool,
-        int: Int,
-        float: Float,
-    }
-    return mapping.get(py_type)
-
-
-def value_to_type(value: Any) -> Optional[Type]:
-    """Infer DSL type from a Python value."""
-    if value is None:
-        return Void()
-    if isinstance(value, bool):
-        return Bool
-    if isinstance(value, int):
-        return Int
-    if isinstance(value, float):
-        return Float
-    return None
 
 
 def get_broadcast_type(t1: Type, t2: Type) -> Optional[Type]:

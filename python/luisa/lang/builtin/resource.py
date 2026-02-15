@@ -1,5 +1,5 @@
 """
-Memory builtin functions for the LuisaCompute Python DSL v2.
+Resource builtin functions for the LuisaCompute Python DSL v2.
 
 Buffer, texture, and other memory operations.
 """
@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..ir import Value, InstructionValue
-    from ..types import Type
+    from ..type import Type
 
 from ..ir import Op
-from ..types import UInt, UInt2, UInt3, ULong
+from ..type import UInt, UInt2, UInt3, ULong, Void, Float4
 from ..builder import get_current_builder
 
 
@@ -45,8 +45,7 @@ def buffer_write(buffer: Value, index: Value, value: Value) -> InstructionValue:
         index: Element index (UInt)
         value: Value to write
     """
-    from ..types import Void
-    return get_current_builder()._emit(Op.BUFFER_WRITE, Void(), [buffer, index, value])
+    return get_current_builder()._emit(Op.BUFFER_WRITE, Void, [buffer, index, value])
 
 
 def buffer_size(buffer: Value) -> InstructionValue:
@@ -90,7 +89,6 @@ def texture2d_read(texture: Value, coord: Value) -> InstructionValue:
     Returns:
         The texture value at the specified coordinates
     """
-    from ..types import Float4
     return get_current_builder()._emit(Op.TEXTURE2D_READ, Float4, [texture, coord])
 
 
@@ -103,8 +101,7 @@ def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
         coord: Integer coordinates (UInt2)
         value: Value to write
     """
-    from ..types import Void
-    return get_current_builder()._emit(Op.TEXTURE2D_WRITE, Void(), [texture, coord, value])
+    return get_current_builder()._emit(Op.TEXTURE2D_WRITE, Void, [texture, coord, value])
 
 
 def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
@@ -118,7 +115,6 @@ def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
     Returns:
         The sampled value (Float4)
     """
-    from ..types import Float4
     return get_current_builder()._emit(Op.TEXTURE2D_SAMPLE, Float4, [texture, uv])
 
 
@@ -134,7 +130,6 @@ def texture2d_sample_level(texture: Value, uv: Value, level: Value) -> Instructi
     Returns:
         The sampled value (Float4)
     """
-    from ..types import Float4
     return get_current_builder()._emit(Op.TEXTURE2D_SAMPLE_LEVEL, Float4, [texture, uv, level])
 
 
@@ -166,7 +161,6 @@ def texture3d_read(texture: Value, coord: Value) -> InstructionValue:
     Returns:
         The texture value at the specified coordinates
     """
-    from ..types import Float4
     return get_current_builder()._emit(Op.TEXTURE3D_READ, Float4, [texture, coord])
 
 
@@ -179,8 +173,7 @@ def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
         coord: Integer coordinates (UInt3)
         value: Value to write
     """
-    from ..types import Void
-    return get_current_builder()._emit(Op.TEXTURE3D_WRITE, Void(), [texture, coord, value])
+    return get_current_builder()._emit(Op.TEXTURE3D_WRITE, Void, [texture, coord, value])
 
 
 def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
@@ -194,7 +187,6 @@ def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
     Returns:
         The sampled value (Float4)
     """
-    from ..types import Float4
     return get_current_builder()._emit(Op.TEXTURE3D_SAMPLE, Float4, [texture, uvw])
 
 
@@ -237,5 +229,4 @@ def device_address_store(address: Value, value: Value) -> InstructionValue:
         address: Device address (ULong)
         value: Value to store
     """
-    from ..types import Void
-    return get_current_builder()._emit(Op.DEVICE_ADDRESS_WRITE, Void(), [address, value])
+    return get_current_builder()._emit(Op.DEVICE_ADDRESS_WRITE, Void, [address, value])

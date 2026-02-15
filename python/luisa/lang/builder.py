@@ -12,10 +12,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 # Runtime imports
-from .types import Type
-from .types import (
-    Void, Bool, promote_types
-)
+from .type import Type
+from .type import promote_types
 from .ir import (
     Op, Value, ConstantValue, InstructionValue, ArgumentValue,
     Instruction, BasicBlock, Function, Module, SourceLocation
@@ -264,7 +262,7 @@ class Builder:
             vector: The vector to swizzle
             pattern: Swizzle pattern like 'x', 'xy', 'xyz', 'xyzw', 'rgba', etc.
         """
-        from .types import Vector
+        from .type import Vector
 
         if not isinstance(vector.type, Vector):
             raise TypeError(f"Can only swizzle vectors, got {vector.type}")
@@ -290,26 +288,32 @@ class Builder:
 
     def eq(self, left: Value, right: Value) -> InstructionValue:
         """Emit an equality comparison."""
+        from .type import Bool
         return self._emit(Op.EQ, Bool, [left, right])
 
     def ne(self, left: Value, right: Value) -> InstructionValue:
         """Emit a not-equal comparison."""
+        from .type import Bool
         return self._emit(Op.NE, Bool, [left, right])
 
     def lt(self, left: Value, right: Value) -> InstructionValue:
         """Emit a less-than comparison."""
+        from .type import Bool
         return self._emit(Op.LT, Bool, [left, right])
 
     def le(self, left: Value, right: Value) -> InstructionValue:
         """Emit a less-than-or-equal comparison."""
+        from .type import Bool
         return self._emit(Op.LE, Bool, [left, right])
 
     def gt(self, left: Value, right: Value) -> InstructionValue:
         """Emit a greater-than comparison."""
+        from .type import Bool
         return self._emit(Op.GT, Bool, [left, right])
 
     def ge(self, left: Value, right: Value) -> InstructionValue:
         """Emit a greater-than-or-equal comparison."""
+        from .type import Bool
         return self._emit(Op.GE, Bool, [left, right])
 
     # ========================================================================
@@ -318,14 +322,17 @@ class Builder:
 
     def logical_and(self, left: Value, right: Value) -> InstructionValue:
         """Emit a logical AND."""
+        from .type import Bool
         return self._emit(Op.LOGICAL_AND, Bool, [left, right])
 
     def logical_or(self, left: Value, right: Value) -> InstructionValue:
         """Emit a logical OR."""
+        from .type import Bool
         return self._emit(Op.LOGICAL_OR, Bool, [left, right])
 
     def logical_not(self, operand: Value) -> InstructionValue:
         """Emit a logical NOT."""
+        from .type import Bool
         return self._emit(Op.LOGICAL_NOT, Bool, [operand])
 
     # ========================================================================
@@ -344,7 +351,8 @@ class Builder:
 
     def store(self, ptr: Value, value: Value) -> InstructionValue:
         """Emit a store instruction."""
-        return self._emit(Op.STORE, Void(), [ptr, value])
+        from .type import Void
+        return self._emit(Op.STORE, Void, [ptr, value])
 
     def buffer_read(self, buffer: Value, index: Value, elem_type: Type) -> InstructionValue:
         """Emit a buffer read instruction."""
@@ -352,7 +360,8 @@ class Builder:
 
     def buffer_write(self, buffer: Value, index: Value, value: Value) -> InstructionValue:
         """Emit a buffer write instruction."""
-        return self._emit(Op.BUFFER_WRITE, Void(), [buffer, index, value])
+        from .type import Void
+        return self._emit(Op.BUFFER_WRITE, Void, [buffer, index, value])
 
     # ========================================================================
     # Control Flow
@@ -360,26 +369,30 @@ class Builder:
 
     def return_(self, value: Optional[Value] = None) -> InstructionValue:
         """Emit a return instruction."""
+        from .type import Void
         if value is None:
-            return self._emit(Op.RETURN, Void(), [])
+            return self._emit(Op.RETURN, Void, [])
         return self._emit(Op.RETURN, value.type, [value])
 
     def break_(self) -> InstructionValue:
         """Emit a break instruction."""
-        return self._emit(Op.BREAK, Void(), [])
+        from .type import Void
+        return self._emit(Op.BREAK, Void, [])
 
     def continue_(self) -> InstructionValue:
         """Emit a continue instruction."""
-        return self._emit(Op.CONTINUE, Void(), [])
+        from .type import Void
+        return self._emit(Op.CONTINUE, Void, [])
 
     def call(self, func: Any, *args: Value) -> InstructionValue:
         """Emit a function call instruction."""
+        from .type import Void
         if hasattr(func, 'compile'):
             # It's likely a StagedFunction, compile it for these arguments
             func = func.compile(self, *args)
 
         # Determine return type
-        ret_type = func.ret_type if func.ret_type else Void()
+        ret_type = func.ret_type if func.ret_type else Void
         # Include function name as first argument, then actual args
         call_args = [func.name] + list(args)
         return self._emit(Op.CALL, ret_type, call_args)

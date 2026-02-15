@@ -1,15 +1,62 @@
 """
-AST Rewriter for the LuisaCompute Python DSL v2.
+AST Compiler for the LuisaCompute Python DSL v2.
 
-This module transforms the Python AST of a DSL function into a 
-builder function that generates the equivalent IR.
+This module provides AST transformation and metadata extraction logic
+to turn Python functions into IR-building functions.
 """
 
 from __future__ import annotations
 import ast
-import copy
-from typing import Any, Optional
+import inspect
+import textwrap
+from typing import Any, Optional, Callable
+from dataclasses import dataclass
 
+# Runtime imports
+from .type import (
+    Type, value_to_type, annotation_to_type
+)
+
+
+# ============================================================================
+# Compilation Metadata
+# ============================================================================
+
+@dataclass
+class CapturedVar:
+    """Information about a captured variable."""
+    name: str
+    value: Any
+    type: Optional[Type] = None
+
+    def __post_init__(self):
+        if self.type is None:
+            self.type = value_to_type(self.value)
+
+
+@dataclass
+class ParsedFunction:
+    """A Python function parsed into an AST with metadata."""
+    name: str
+    ast_node: ast.FunctionDef
+    arg_names: list[str]
+    arg_annotations: list[Optional[Type]]
+    arg_is_reference: list[bool]
+    ret_annotation: Optional[Type]
+    captured_vars: dict[str, CapturedVar]
+    source: str
+    pyfunc: Optional[Callable] = None
+
+    def get_arg_type(self, index: int) -> Optional[Type]:
+        """Get the type annotation for an argument."""
+        if index < len(self.arg_annotations):
+            return self.arg_annotations[index]
+        return None
+
+
+# ============================================================================
+# AST Transformation
+# ============================================================================
 
 class ASTRewriter(ast.NodeTransformer):
     """
@@ -478,3 +525,109 @@ class ASTRewriter(ast.NodeTransformer):
             )],
             body=cases
         )
+
+
+# ============================================================================
+# Entry Points
+# ============================================================================
+
+def parse_function(func: Callable, source: Optional[str] = None) -> ParsedFunction:
+    """Parse a Python function and return its metadata."""
+    # Logic moved from parser.py
+    # If we already have the AST
+    if hasattr(func, '_luisa_ast'):
+        func_def = func._luisa_ast
+        source = ast.unparse(func_def)
+    elif source is not None:
+        # Parse AST from provided source
+        try:
+            tree = ast.parse(source)
+            func_def = tree.body[0]
+        except Exception as e:
+            raise RuntimeError(f"Error parsing provided source for {func}: {e}") from e
+    else:
+        # Get source code
+        try:
+            lines, start_line = inspect.getsourcelines(func)
+            source = "".join(lines)
+
+            # Dedent source to handle nested function definitions
+            source = textwrap.dedent(source)
+
+            # Parse AST
+            try:
+                tree = ast.parse(source)
+            except SyntaxError as e:
+                raise RuntimeError(f"Syntax error in {func}: {e}") from e
+
+            # Get function definition
+            if not tree.body or not isinstance(tree.body[0], ast.FunctionDef):
+                raise RuntimeError(f"Expected function definition, got {type(tree.body[0])}")
+
+            func_def = tree.body[0]
+
+            # Adjust line numbers to be global
+            ast.increment_lineno(func_def, start_line - 1)
+        except (OSError, TypeError) as e:
+            raise RuntimeError(f"Cannot get source for {func}: {e}") from e
+
+    # Get signature
+    try:
+        sig = inspect.signature(func)
+
+        # Extract argument names and annotations
+        arg_names = []
+        arg_annotations = []
+        arg_is_reference = []
+
+        for name, param in sig.parameters.items():
+            arg_names.append(name)
+            ann, is_ref = annotation_to_type(param.annotation)
+            arg_annotations.append(ann)
+            arg_is_reference.append(is_ref)
+
+        # Extract return annotation
+        ret_annotation, _ = annotation_to_type(sig.return_annotation)
+    except (NameError, TypeError):
+        # Fallback for specialized functions where types are not yet defined
+        arg_names = [arg.arg for arg in func_def.args.args]
+        arg_annotations = [None] * len(arg_names)
+        arg_is_reference = [False] * len(arg_names)
+        ret_annotation = None
+
+    # Analyze captured variables
+    captured_vars = _analyze_captured_vars(func)
+
+    return ParsedFunction(
+        name=func.__name__,
+        ast_node=func_def,
+        arg_names=arg_names,
+        arg_annotations=arg_annotations,
+        arg_is_reference=arg_is_reference,
+        ret_annotation=ret_annotation,
+        captured_vars=captured_vars,
+        source=source,
+        pyfunc=func
+    )
+
+
+def _analyze_captured_vars(func: Callable) -> dict[str, CapturedVar]:
+    """Analyze captured (closure) variables."""
+    captured = {}
+
+    try:
+        closure = inspect.getclosurevars(func)
+
+        # Non-local variables
+        for name, value in closure.nonlocals.items():
+            captured[name] = CapturedVar(name=name, value=value)
+
+        # Global variables
+        for name, value in closure.globals.items():
+            captured[name] = CapturedVar(name=name, value=value)
+
+    except (TypeError, ValueError):
+        # Function has no closure
+        pass
+
+    return captured

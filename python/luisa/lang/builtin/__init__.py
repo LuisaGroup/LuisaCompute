@@ -17,7 +17,7 @@ from .math import (
 )
 
 # Core builtins (special registers, sync, etc.)
-from .builtin import (
+from .core import (
     # Special registers
     dispatch_id, thread_id, block_id, dispatch_size,
     kernel_id, object_id,
@@ -33,8 +33,8 @@ from .builtin import (
     clock,
 )
 
-# Memory operations
-from .memory import (
+# Resource operations
+from .resource import (
     # Buffer
     buffer_read, buffer_write, buffer_size, buffer_device_address,
     # Texture2D
@@ -109,13 +109,13 @@ __all__ = [
     # Core - Profiling
     'clock',
 
-    # Memory - Buffer
+    # Resource - Buffer
     'buffer_read', 'buffer_write', 'buffer_size', 'buffer_device_address',
-    # Memory - Texture2D
+    # Resource - Texture2D
     'texture2d_read', 'texture2d_write', 'texture2d_sample', 'texture2d_sample_level', 'texture2d_size',
-    # Memory - Texture3D
+    # Resource - Texture3D
     'texture3d_read', 'texture3d_write', 'texture3d_sample', 'texture3d_size',
-    # Memory - Device address
+    # Resource - Device address
     'device_address_load', 'device_address_store',
 
     # Atomic

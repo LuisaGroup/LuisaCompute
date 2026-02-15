@@ -8,7 +8,7 @@ It's a simpler alternative to the full pretty printer.
 from __future__ import annotations
 
 from .ir import Function, Module, BasicBlock, Instruction, Value
-from .types import Type
+from .type import Type
 
 
 class SimplePrinter:

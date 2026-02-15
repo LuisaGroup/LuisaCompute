@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..ir import Value, InstructionValue
-    from ..types import Type
+    from ..type import Type
 
 from ..ir import Op
-from ..builder import Builder, get_current_builder, set_current_builder
+from ..builder import get_current_builder
+from ..type import Float
 
 
 # ============================================================================
@@ -127,13 +128,11 @@ def normalize(x: Value) -> InstructionValue:
 def length(x: Value) -> InstructionValue:
     """Compute vector length."""
     # Length returns scalar
-    from ..types import Float
     return get_current_builder()._emit(Op.LENGTH, Float, [x])
 
 
 def length_squared(x: Value) -> InstructionValue:
     """Compute squared vector length."""
-    from ..types import Float
     return get_current_builder()._emit(Op.LENGTH_SQUARED, Float, [x])
 
 
@@ -178,7 +177,6 @@ def pow(base: Value, exp: Value) -> InstructionValue:
 
 def dot(a: Value, b: Value) -> InstructionValue:
     """Compute dot product."""
-    from ..types import Float
     return get_current_builder()._emit(Op.DOT, Float, [a, b])
 
 
@@ -189,7 +187,6 @@ def cross(a: Value, b: Value) -> InstructionValue:
 
 def distance(a: Value, b: Value) -> InstructionValue:
     """Compute distance between two points."""
-    from ..types import Float
     return get_current_builder()._emit(Op.DISTANCE, Float, [a, b])
 
 
@@ -224,5 +221,4 @@ def inverse(m: Value) -> InstructionValue:
 
 def determinant(m: Value) -> InstructionValue:
     """Compute matrix determinant."""
-    from ..types import Float
     return get_current_builder()._emit(Op.MATRIX_DETERMINANT, Float, [m])

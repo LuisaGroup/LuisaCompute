@@ -14,9 +14,9 @@ if TYPE_CHECKING:
     from ..builder import Builder
     from ..ir import Value
 
-from ..builder import get_current_builder
-from ..ir import Op, Value
-from ..types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
+from .builder import get_current_builder
+from .ir import Op, Value
+from .type import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
 
 
 # ============================================================================

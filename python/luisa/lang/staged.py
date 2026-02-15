@@ -15,9 +15,9 @@ from contextlib import contextmanager
 
 from .builder import Builder, get_current_builder, set_current_builder
 from .ir import Value, Op, Function
-from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
-from .parser import parse_function, CapturedVar, ParsedFunction
-from .rewriter import ASTRewriter
+from .type import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
+from .compiler import parse_function, CapturedVar, ParsedFunction
+from .compiler import ASTRewriter
 
 
 # ============================================================================
@@ -157,7 +157,7 @@ class StagedFunction:
         # Prepare namespace with specializations
         spec_dict = dict(zip(self.template_params, specialization_values))
 
-        from .builtins import runtime as rt
+        from . import ops as rt
         namespace = {
             "__luisa_rt": rt,
             "ast": ast,
@@ -192,7 +192,7 @@ class StagedFunction:
         arg_values = list(args)
         # Use provided builder for compile entry point
         with set_current_builder(builder):
-            from .builtins.runtime import to_ir_value
+            from .ops import to_ir_value
             ir_args = [to_ir_value(a) for a in arg_values]
             arg_types = tuple(a.type for a in ir_args)
 

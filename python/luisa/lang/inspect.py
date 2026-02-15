@@ -10,7 +10,7 @@ from typing import Optional, Any, Callable
 import ast
 
 from .ir import Function, Instruction, Op
-from .types import Type, Scalar, Vector, Matrix
+from .type import Type, Scalar, Vector, Matrix
 
 
 def get_ir_source(func: Callable) -> Optional[str]:

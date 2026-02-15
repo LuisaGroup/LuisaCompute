@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..ir import Value, InstructionValue
-    from ..types import Type
+    from ..type import Type
 
 from ..ir import Op
-from ..types import UInt3, UInt, Bool, Float3
+from ..type import UInt3, UInt, Bool, Float3, Void, ULong
 from ..builder import get_current_builder
 
 
@@ -56,8 +56,7 @@ def object_id() -> InstructionValue:
 
 def sync_block() -> InstructionValue:
     """Synchronize all threads in a block."""
-    from ..types import Void
-    return get_current_builder()._emit(Op.SYNC_BLOCK, Void(), [])
+    return get_current_builder()._emit(Op.SYNC_BLOCK, Void, [])
 
 
 # ============================================================================
@@ -86,9 +85,8 @@ def device_print(fmt: str, *values: Value) -> InstructionValue:
         fmt: Format string with {} placeholders
         *values: Values to print
     """
-    from ..types import Void
     args = [fmt] + list(values)
-    return get_current_builder()._emit(Op.PRINT, Void(), args)
+    return get_current_builder()._emit(Op.PRINT, Void, args)
 
 
 # ============================================================================
@@ -97,20 +95,17 @@ def device_print(fmt: str, *values: Value) -> InstructionValue:
 
 def assume(condition: Value, message: str = "") -> InstructionValue:
     """Provide a compiler assumption for optimization."""
-    from ..types import Void
-    return get_current_builder()._emit(Op.ASSUME, Void(), [condition, message])
+    return get_current_builder()._emit(Op.ASSUME, Void, [condition, message])
 
 
 def device_assert(condition: Value, message: str = "") -> InstructionValue:
     """Runtime assertion (may be disabled in release)."""
-    from ..types import Void
-    return get_current_builder()._emit(Op.ASSERT, Void(), [condition, message])
+    return get_current_builder()._emit(Op.ASSERT, Void, [condition, message])
 
 
 def unreachable(message: str = "") -> InstructionValue:
     """Mark a code path as unreachable."""
-    from ..types import Void
-    return get_current_builder()._emit(Op.UNREACHABLE, Void(), [message])
+    return get_current_builder()._emit(Op.UNREACHABLE, Void, [message])
 
 
 # ============================================================================
@@ -119,5 +114,4 @@ def unreachable(message: str = "") -> InstructionValue:
 
 def clock() -> InstructionValue:
     """Get current clock value (for timing)."""
-    from ..types import ULong
     return get_current_builder()._emit(Op.CLOCK, ULong, [])

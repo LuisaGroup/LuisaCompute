@@ -11,7 +11,7 @@ from dataclasses import asdict, is_dataclass
 
 if TYPE_CHECKING:
     from ..lang.ir import Function, Module, BasicBlock, Instruction, Value
-    from ..lang.types import Type
+    from ..lang.type import Type
 
 
 class IRJSONEncoder(json.JSONEncoder):
@@ -42,7 +42,7 @@ class IRJSONEncoder(json.JSONEncoder):
 
 def type_to_dict(t: Type) -> dict[str, Any]:
     """Convert a Type to a dictionary representation."""
-    from ..lang.types import (
+    from ..lang.type import (
         Scalar, Vector, Matrix, Array, Struct, Buffer,
         Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable, Void
     )
