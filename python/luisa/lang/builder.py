@@ -22,6 +22,26 @@ from .ir import (
 )
 
 # ============================================================================
+# Global Builder Context
+# ============================================================================
+
+_current_builder: IRBuilder | None = None
+
+
+def get_current_builder() -> IRBuilder:
+    """Get the current builder."""
+    if _current_builder is None:
+        raise RuntimeError("No active builder context")
+    return _current_builder
+
+
+def set_current_builder(builder: IRBuilder | None) -> None:
+    """Set the current builder (called by executor)."""
+    global _current_builder
+    _current_builder = builder
+
+
+# ============================================================================
 # IR Builder
 # ============================================================================
 

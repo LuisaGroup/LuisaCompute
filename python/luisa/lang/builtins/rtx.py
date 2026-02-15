@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from ..ir import IROp
 from ..types import bool_, uint, float3, float4
-from .math import _get_builder
+from ..builder import get_current_builder
 
 
 # ============================================================================
@@ -80,7 +80,7 @@ def trace_closest(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue
         TriangleHit result
     """
     # In real implementation, would construct ray from components
-    return _get_builder()._emit(IROp.TRACE_CLOSEST, TriangleHit, [accel, mask])
+    return get_current_builder()._emit(IROp.TRACE_CLOSEST, TriangleHit, [accel, mask])
 
 
 def trace_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
@@ -95,7 +95,7 @@ def trace_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
     Returns:
         True if any hit found
     """
-    return _get_builder()._emit(IROp.TRACE_ANY, bool_, [accel, mask])
+    return get_current_builder()._emit(IROp.TRACE_ANY, bool_, [accel, mask])
 
 
 def ray_query_all(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
@@ -111,7 +111,7 @@ def ray_query_all(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue
         RayQuery object for iterative traversal
     """
     from ..types import RayQuery
-    return _get_builder()._emit(IROp.RAY_QUERY_ALL, RayQuery(query_any=False), [accel, mask])
+    return get_current_builder()._emit(IROp.RAY_QUERY_ALL, RayQuery(query_any=False), [accel, mask])
 
 
 def ray_query_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue:
@@ -127,7 +127,7 @@ def ray_query_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue
         RayQuery object for iterative traversal
     """
     from ..types import RayQuery
-    return _get_builder()._emit(IROp.RAY_QUERY_ANY, RayQuery(query_any=True), [accel, mask])
+    return get_current_builder()._emit(IROp.RAY_QUERY_ANY, RayQuery(query_any=True), [accel, mask])
 
 
 # ============================================================================
@@ -136,7 +136,7 @@ def ray_query_any(accel: Value, ray: Ray, mask: uint = 0xFF) -> InstructionValue
 
 def ray_query_world_space_ray(query: Value) -> InstructionValue:
     """Get the world-space ray from a ray query."""
-    return _get_builder()._emit(IROp.RAY_QUERY_WORLD_RAY, Ray, [query])
+    return get_current_builder()._emit(IROp.RAY_QUERY_WORLD_RAY, Ray, [query])
 
 
 def ray_query_proceed(query: Value) -> InstructionValue:
@@ -145,28 +145,28 @@ def ray_query_proceed(query: Value) -> InstructionValue:
     
     Returns True if there are more candidates.
     """
-    return _get_builder()._emit(IROp.RAY_QUERY_PROCEED, bool_, [query])
+    return get_current_builder()._emit(IROp.RAY_QUERY_PROCEED, bool_, [query])
 
 
 def ray_query_committed_hit(query: Value) -> InstructionValue:
     """Get the committed (closest) hit from a ray query."""
-    return _get_builder()._emit(IROp.RAY_QUERY_COMMITTED_HIT, CommittedHit, [query])
+    return get_current_builder()._emit(IROp.RAY_QUERY_COMMITTED_HIT, CommittedHit, [query])
 
 
 def ray_query_candidate_triangle_hit(query: Value) -> InstructionValue:
     """Get the current candidate triangle hit from a ray query."""
-    return _get_builder()._emit(IROp.RAY_QUERY_CANDIDATE_TRIANGLE_HIT, TriangleHit, [query])
+    return get_current_builder()._emit(IROp.RAY_QUERY_CANDIDATE_TRIANGLE_HIT, TriangleHit, [query])
 
 
 def ray_query_candidate_procedural_hit(query: Value) -> InstructionValue:
     """Get the current candidate procedural hit from a ray query."""
-    return _get_builder()._emit(IROp.RAY_QUERY_CANDIDATE_PROCEDURAL_HIT, ProceduralHit, [query])
+    return get_current_builder()._emit(IROp.RAY_QUERY_CANDIDATE_PROCEDURAL_HIT, ProceduralHit, [query])
 
 
 def ray_query_commit_triangle(query: Value) -> InstructionValue:
     """Commit the current triangle candidate as the closest hit."""
     from ..types import Void
-    return _get_builder()._emit(IROp.RAY_QUERY_COMMIT_TRIANGLE, Void(), [query])
+    return get_current_builder()._emit(IROp.RAY_QUERY_COMMIT_TRIANGLE, Void(), [query])
 
 
 def ray_query_commit_procedural(query: Value, t: Value) -> InstructionValue:
@@ -178,13 +178,13 @@ def ray_query_commit_procedural(query: Value, t: Value) -> InstructionValue:
         t: Hit distance along the ray
     """
     from ..types import Void
-    return _get_builder()._emit(IROp.RAY_QUERY_COMMIT_PROCEDURAL, Void(), [query, t])
+    return get_current_builder()._emit(IROp.RAY_QUERY_COMMIT_PROCEDURAL, Void(), [query, t])
 
 
 def ray_query_terminate(query: Value) -> InstructionValue:
     """Terminate the ray query early."""
     from ..types import Void
-    return _get_builder()._emit(IROp.RAY_QUERY_TERMINATE, Void(), [query])
+    return get_current_builder()._emit(IROp.RAY_QUERY_TERMINATE, Void(), [query])
 
 
 # ============================================================================
@@ -203,17 +203,17 @@ def accel_instance_transform(accel: Value, instance_id: Value) -> InstructionVal
         4x4 transformation matrix (float4x4)
     """
     from ..types import float4x4
-    return _get_builder()._emit(IROp.ACCEL_INSTANCE_TRANSFORM, float4x4, [accel, instance_id])
+    return get_current_builder()._emit(IROp.ACCEL_INSTANCE_TRANSFORM, float4x4, [accel, instance_id])
 
 
 def accel_instance_user_id(accel: Value, instance_id: Value) -> InstructionValue:
     """Get the user-defined ID of an instance."""
-    return _get_builder()._emit(IROp.ACCEL_INSTANCE_USER_ID, uint, [accel, instance_id])
+    return get_current_builder()._emit(IROp.ACCEL_INSTANCE_USER_ID, uint, [accel, instance_id])
 
 
 def accel_instance_visibility_mask(accel: Value, instance_id: Value) -> InstructionValue:
     """Get the visibility mask of an instance."""
-    return _get_builder()._emit(IROp.ACCEL_INSTANCE_VISIBILITY_MASK, uint, [accel, instance_id])
+    return get_current_builder()._emit(IROp.ACCEL_INSTANCE_VISIBILITY_MASK, uint, [accel, instance_id])
 
 
 def make_ray(origin: float3, direction: float3, t_min: float = 0.0, t_max: float = 1e30) -> Ray:

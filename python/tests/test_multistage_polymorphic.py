@@ -82,9 +82,9 @@ def test_multistage_polymorphic_dispatch():
         # We need access to the builder. In the rewritten AST, 
         # the builder is passed as the first argument to the built function.
         # But we can also use a helper that knows how to get the builder.
-        from luisa.lang.builtins.math import _get_builder
+        from luisa.lang.builder import get_current_builder
         
-        poly.dispatch(_get_builder(), tag, buf, idx)
+        poly.dispatch(get_current_builder(), tag, buf, idx)
 
     # Build IR
     ir = dispatch_kernel(None, None)
@@ -160,19 +160,15 @@ def test_nested_polymorphic_callables():
 
         # Simple dispatch logic using host-side loop
         val = buf[idx]
-        from luisa.lang.builtins.math import _get_builder
-        builder = _get_builder()
+        from luisa.lang.builder import get_current_builder
+        builder = get_current_builder()
         
         sw = builder.switch(tag)
         impls = [add_one, multiply_two, square]
         for i, impl in enumerate(impls):
             with sw.case_scope(i):
-                # Ensure it's compiled for the argument types
-                arg_types = (val.type,)
-                if arg_types not in impl._cache:
-                    impl(val)
-                # Call it as an IR call using the compiled IRFunction
-                res = builder.call(impl._cache[arg_types], [val])
+                # Use the new call() method which handles compilation and emitting the call
+                res = impl.call(builder, val)
                 builder.buffer_write(buf, idx, res)
         
         with sw.default_scope():

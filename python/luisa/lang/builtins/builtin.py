@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 from ..ir import IROp
 from ..types import uint3, uint, bool_, float3
-from .math import _get_builder
+from ..builder import get_current_builder
 
 
 # ============================================================================
@@ -22,38 +22,38 @@ from .math import _get_builder
 
 def dispatch_id() -> InstructionValue:
     """Get the global dispatch ID (3D)."""
-    return _get_builder()._emit(IROp.DISPATCH_ID, uint3, [])
+    return get_current_builder()._emit(IROp.DISPATCH_ID, uint3, [])
 
 
 def dispatch_idx() -> InstructionValue:
     """Get the linearized 1D dispatch index."""
     # This would typically be computed from dispatch_id() in a real implementation
-    return _get_builder()._emit(IROp.DISPATCH_ID, uint, [])
+    return get_current_builder()._emit(IROp.DISPATCH_ID, uint, [])
 
 
 def thread_id() -> InstructionValue:
     """Get the local thread ID within a block (3D)."""
-    return _get_builder()._emit(IROp.THREAD_ID, uint3, [])
+    return get_current_builder()._emit(IROp.THREAD_ID, uint3, [])
 
 
 def block_id() -> InstructionValue:
     """Get the block ID (3D)."""
-    return _get_builder()._emit(IROp.BLOCK_ID, uint3, [])
+    return get_current_builder()._emit(IROp.BLOCK_ID, uint3, [])
 
 
 def dispatch_size() -> InstructionValue:
     """Get the total dispatch size (3D)."""
-    return _get_builder()._emit(IROp.DISPATCH_SIZE, uint3, [])
+    return get_current_builder()._emit(IROp.DISPATCH_SIZE, uint3, [])
 
 
 def kernel_id() -> InstructionValue:
     """Get the kernel ID."""
-    return _get_builder()._emit(IROp.KERNEL_ID, uint, [])
+    return get_current_builder()._emit(IROp.KERNEL_ID, uint, [])
 
 
 def object_id() -> InstructionValue:
     """Get the object ID (for rasterization)."""
-    return _get_builder()._emit(IROp.OBJECT_ID, uint, [])
+    return get_current_builder()._emit(IROp.OBJECT_ID, uint, [])
 
 
 # ============================================================================
@@ -63,7 +63,7 @@ def object_id() -> InstructionValue:
 def sync_block() -> InstructionValue:
     """Synchronize all threads in a block."""
     from ..types import Void
-    return _get_builder()._emit(IROp.SYNC_BLOCK, Void(), [])
+    return get_current_builder()._emit(IROp.SYNC_BLOCK, Void(), [])
 
 
 # ============================================================================
@@ -72,12 +72,12 @@ def sync_block() -> InstructionValue:
 
 def cast(value: Value, target_type: Type) -> InstructionValue:
     """Static cast to target type."""
-    return _get_builder()._emit(IROp.CAST, target_type, [value])
+    return get_current_builder()._emit(IROp.CAST, target_type, [value])
 
 
 def bitcast(value: Value, target_type: Type) -> InstructionValue:
     """Bitwise cast to target type (preserves bit pattern)."""
-    return _get_builder()._emit(IROp.BITCAST, target_type, [value])
+    return get_current_builder()._emit(IROp.BITCAST, target_type, [value])
 
 
 # ============================================================================
@@ -94,7 +94,7 @@ def print_msg(fmt: str, *values: Value) -> InstructionValue:
     """
     from ..types import Void
     args = [fmt] + list(values)
-    return _get_builder()._emit(IROp.PRINT, Void(), args)
+    return get_current_builder()._emit(IROp.PRINT, Void(), args)
 
 
 # ============================================================================
@@ -104,13 +104,13 @@ def print_msg(fmt: str, *values: Value) -> InstructionValue:
 def assume(condition: Value, message: str = "") -> InstructionValue:
     """Provide a compiler assumption for optimization."""
     from ..types import Void
-    return _get_builder()._emit(IROp.ASSUME, Void(), [condition, message])
+    return get_current_builder()._emit(IROp.ASSUME, Void(), [condition, message])
 
 
 def assert_(condition: Value, message: str = "") -> InstructionValue:
     """Runtime assertion (may be disabled in release)."""
     from ..types import Void
-    return _get_builder()._emit(IROp.ASSERT, Void(), [condition, message])
+    return get_current_builder()._emit(IROp.ASSERT, Void(), [condition, message])
 
 
 # ============================================================================
@@ -120,4 +120,4 @@ def assert_(condition: Value, message: str = "") -> InstructionValue:
 def clock() -> InstructionValue:
     """Get current clock value (for timing)."""
     from ..types import uint64
-    return _get_builder()._emit(IROp.CLOCK, uint64, [])
+    return get_current_builder()._emit(IROp.CLOCK, uint64, [])

@@ -14,8 +14,6 @@ from .math import (
     dot, cross, distance, reflect, refract, faceforward,
     # Matrix
     transpose, inverse, determinant,
-    # Internal
-    set_builder,
 )
 
 # Core builtins (special registers, sync, etc.)
@@ -149,7 +147,4 @@ __all__ = [
     # Ray Tracing - Accel operations
     'accel_instance_transform', 'accel_instance_user_id', 'accel_instance_visibility_mask',
     'make_ray',
-    
-    # Internal
-    'set_builder',
 ]

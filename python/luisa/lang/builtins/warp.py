@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from ..ir import IROp
 from ..types import bool_, uint
-from .math import _get_builder
+from ..builder import get_current_builder
 
 
 # ============================================================================
@@ -21,17 +21,17 @@ from .math import _get_builder
 
 def warp_is_first_active_lane() -> InstructionValue:
     """Check if this is the first active lane in the warp."""
-    return _get_builder()._emit(IROp.WARP_IS_FIRST_ACTIVE_LANE, bool_, [])
+    return get_current_builder()._emit(IROp.WARP_IS_FIRST_ACTIVE_LANE, bool_, [])
 
 
 def warp_first_active_lane() -> InstructionValue:
     """Get the index of the first active lane in the warp."""
-    return _get_builder()._emit(IROp.WARP_FIRST_ACTIVE_LANE, uint, [])
+    return get_current_builder()._emit(IROp.WARP_FIRST_ACTIVE_LANE, uint, [])
 
 
 def warp_active_count_bits(value: Value) -> InstructionValue:
     """Count the number of active (True) lanes in the warp."""
-    return _get_builder()._emit(IROp.WARP_ACTIVE_COUNT_BITS, uint, [value])
+    return get_current_builder()._emit(IROp.WARP_ACTIVE_COUNT_BITS, uint, [value])
 
 
 # ============================================================================
@@ -40,37 +40,37 @@ def warp_active_count_bits(value: Value) -> InstructionValue:
 
 def warp_sum(value: Value) -> InstructionValue:
     """Sum values across all active lanes in the warp."""
-    return _get_builder()._emit(IROp.WARP_SUM, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_SUM, value.type, [value])
 
 
 def warp_product(value: Value) -> InstructionValue:
     """Multiply values across all active lanes in the warp."""
-    return _get_builder()._emit(IROp.WARP_PRODUCT, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_PRODUCT, value.type, [value])
 
 
 def warp_min(value: Value) -> InstructionValue:
     """Find minimum value across all active lanes in the warp."""
-    return _get_builder()._emit(IROp.WARP_MIN, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_MIN, value.type, [value])
 
 
 def warp_max(value: Value) -> InstructionValue:
     """Find maximum value across all active lanes in the warp."""
-    return _get_builder()._emit(IROp.WARP_MAX, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_MAX, value.type, [value])
 
 
 def warp_all(value: Value) -> InstructionValue:
     """Check if all active lanes have True."""
-    return _get_builder()._emit(IROp.WARP_ALL, bool_, [value])
+    return get_current_builder()._emit(IROp.WARP_ALL, bool_, [value])
 
 
 def warp_any(value: Value) -> InstructionValue:
     """Check if any active lane has True."""
-    return _get_builder()._emit(IROp.WARP_ANY, bool_, [value])
+    return get_current_builder()._emit(IROp.WARP_ANY, bool_, [value])
 
 
 def warp_all_equal(value: Value) -> InstructionValue:
     """Check if all active lanes have the same value."""
-    return _get_builder()._emit(IROp.WARP_ACTIVE_ALL_EQUAL, bool_, [value])
+    return get_current_builder()._emit(IROp.WARP_ACTIVE_ALL_EQUAL, bool_, [value])
 
 
 # ============================================================================
@@ -83,7 +83,7 @@ def warp_prefix_sum(value: Value) -> InstructionValue:
     
     Returns the sum of values from lanes with lower indices.
     """
-    return _get_builder()._emit(IROp.WARP_PREFIX_SUM, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_PREFIX_SUM, value.type, [value])
 
 
 def warp_prefix_product(value: Value) -> InstructionValue:
@@ -92,14 +92,14 @@ def warp_prefix_product(value: Value) -> InstructionValue:
     
     Returns the product of values from lanes with lower indices.
     """
-    return _get_builder()._emit(IROp.WARP_PREFIX_PRODUCT, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_PREFIX_PRODUCT, value.type, [value])
 
 
 def warp_prefix_count_bits(value: Value) -> InstructionValue:
     """
     Count the number of True values in active lanes with lower indices.
     """
-    return _get_builder()._emit(IROp.WARP_PREFIX_COUNT_BITS, uint, [value])
+    return get_current_builder()._emit(IROp.WARP_PREFIX_COUNT_BITS, uint, [value])
 
 
 # ============================================================================
@@ -117,7 +117,7 @@ def warp_read_lane(value: Value, lane: Value) -> InstructionValue:
     Returns:
         The value from the specified lane
     """
-    return _get_builder()._emit(IROp.WARP_READ_LANE, value.type, [value, lane])
+    return get_current_builder()._emit(IROp.WARP_READ_LANE, value.type, [value, lane])
 
 
 def warp_read_first_lane(value: Value) -> InstructionValue:
@@ -126,7 +126,7 @@ def warp_read_first_lane(value: Value) -> InstructionValue:
     
     This is a broadcast operation.
     """
-    return _get_builder()._emit(IROp.WARP_READ_FIRST_ACTIVE_LANE, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_READ_FIRST_ACTIVE_LANE, value.type, [value])
 
 
 # ============================================================================
@@ -135,17 +135,17 @@ def warp_read_first_lane(value: Value) -> InstructionValue:
 
 def warp_bit_and(value: Value) -> InstructionValue:
     """Bitwise AND across all active lanes."""
-    return _get_builder()._emit(IROp.WARP_ACTIVE_BIT_AND, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_ACTIVE_BIT_AND, value.type, [value])
 
 
 def warp_bit_or(value: Value) -> InstructionValue:
     """Bitwise OR across all active lanes."""
-    return _get_builder()._emit(IROp.WARP_ACTIVE_BIT_OR, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_ACTIVE_BIT_OR, value.type, [value])
 
 
 def warp_bit_xor(value: Value) -> InstructionValue:
     """Bitwise XOR across all active lanes."""
-    return _get_builder()._emit(IROp.WARP_ACTIVE_BIT_XOR, value.type, [value])
+    return get_current_builder()._emit(IROp.WARP_ACTIVE_BIT_XOR, value.type, [value])
 
 
 def warp_bit_mask(value: Value) -> InstructionValue:
@@ -155,4 +155,4 @@ def warp_bit_mask(value: Value) -> InstructionValue:
     Returns a 128-bit mask (uint4).
     """
     from ..types import uint4
-    return _get_builder()._emit(IROp.WARP_ACTIVE_BIT_MASK, uint4, [value])
+    return get_current_builder()._emit(IROp.WARP_ACTIVE_BIT_MASK, uint4, [value])

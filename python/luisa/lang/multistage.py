@@ -18,7 +18,7 @@ from .ir import Value, IROp, IRFunction
 from .types import Type, value_to_type, bool_, int32, float32, Scalar, Vector, Buffer, Array
 from .parser import parse_function, CapturedVar, ParsedFunction
 from .rewriter import ASTRewriter
-from .builtins.math import set_builder as set_math_builder
+from .builder import set_current_builder
 
 
 # ============================================================================
@@ -295,14 +295,7 @@ def l_call(builder: IRBuilder, func: Any, *args, **kwargs) -> Any:
         return builder.cast(val, func)
 
     if isinstance(func, StagedFunction):
-        arg_values = list(args)
-        ir_args = [to_ir_value(builder, a) for a in arg_values]
-        arg_types = tuple(a.type for a in ir_args)
-        
-        if arg_types not in func._cache:
-            func._cache[arg_types] = func(*ir_args)
-        
-        return builder.call(func._cache[arg_types], ir_args)
+        return func.call(builder, *args)
     
     import builtins
     if builtins.callable(func):
@@ -470,6 +463,25 @@ class StagedFunction:
             items = (items,)
         return SpecializedFunctionProxy(self, items)
     
+    def compile(self, builder: IRBuilder, *args, specialization_values: tuple = ()) -> IRFunction:
+        """Compile the function for given arguments and return the IRFunction."""
+        arg_values = list(args)
+        ir_args = [to_ir_value(builder, a) for a in arg_values]
+        arg_types = tuple(a.type for a in ir_args)
+        
+        cache_key = (arg_types, specialization_values)
+        if cache_key not in self._cache:
+            # This will populate self._cache[cache_key]
+            self(*ir_args, specialization_values=specialization_values)
+            
+        return self._cache[cache_key]
+
+    def call(self, builder: IRBuilder, *args, specialization_values: tuple = ()) -> InstructionValue:
+        """Emit an IR call to this function."""
+        ir_func = self.compile(builder, *args, specialization_values=specialization_values)
+        ir_args = [to_ir_value(builder, a) for a in args]
+        return builder.call(ir_func, ir_args)
+
     def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> IRFunction:
         arg_types = []
         arg_is_reference = []
@@ -494,7 +506,7 @@ class StagedFunction:
             ret_type=self.parsed.ret_annotation,
             arg_is_reference=arg_is_reference
         )
-        set_math_builder(builder)
+        set_current_builder(builder)
         try:
             # Set initial location
             builder.set_location(self.filename, self.parsed.ast_node.lineno)
@@ -506,7 +518,7 @@ class StagedFunction:
             self.builder_func(builder, *arg_values, specialization_values=specialization_values)
             
         finally:
-            set_math_builder(None)
+            set_current_builder(None)
         
         ir_func = builder.build()
         ir_func.is_kernel = self.is_kernel

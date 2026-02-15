@@ -44,9 +44,9 @@ class Type:
     def __call__(self, arg: Any) -> Any:
         """Support casting syntax like float32(x)."""
         from .ir import Value
-        from .builtins.math import _get_builder
+        from .builder import get_current_builder
         
-        builder = _get_builder()
+        builder = get_current_builder()
         
         if not isinstance(arg, Value):
             from .multistage import to_ir_value
