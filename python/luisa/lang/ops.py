@@ -480,6 +480,41 @@ def local_assign(name: str, value: Any) -> Any:
     return value
 
 
+def local_var_assign(name: str, value: Any) -> Any:
+    """
+    Helper to create a DSL variable and store a value in it.
+    
+    This creates an alloca instruction and stores the value, returning
+    the alloca'd location (which is a reference/pointer).
+    
+    If the value is not a DSL-compatible type (e.g., Builder, str, etc.),
+    just return the value as-is (it's a Python variable).
+    """
+    from .ir import ConstantValue
+    from .builder import Builder
+    
+    # If it's already a Value (including InstructionValue, ConstantValue, etc.),
+    # create a DSL variable for it
+    if isinstance(value, Value):
+        builder = get_current_builder()
+        var_ptr = builder.alloca(value.type, name=name)
+        builder.store(var_ptr, value)
+        return var_ptr
+    
+    # If it's a Python primitive that can be converted to a DSL type, do so
+    from .type import value_to_type
+    typ = value_to_type(value)
+    if typ is not None:
+        builder = get_current_builder()
+        ir_value = builder.constant(typ, value)
+        var_ptr = builder.alloca(ir_value.type, name=name)
+        builder.store(var_ptr, ir_value)
+        return var_ptr
+    
+    # Otherwise, it's a Python variable (Builder, str, etc.) - just return as-is
+    return value
+
+
 def set_location(file: str, line: int) -> None:
     """Helper to set the current source location."""
     get_current_builder().set_location(file, line)
@@ -488,6 +523,21 @@ def set_location(file: str, line: int) -> None:
 def load(ptr: Any) -> Any:
     """Helper to load from a reference."""
     return get_current_builder().load(ptr)
+
+
+def maybe_load(ptr: Any) -> Any:
+    """
+    Helper to load from a reference, or convert to IR value if not a reference.
+    
+    This handles the case where a variable starts as a Python value but is
+    later used in DSL context. If ptr is not a Value, it's converted to one.
+    If ptr is a pointer (from alloca), it's loaded from.
+    """
+    if isinstance(ptr, Value):
+        return get_current_builder().load(ptr)
+    else:
+        # It's a Python value - convert to IR value
+        return to_ir_value(ptr)
 
 
 def store(ptr: Any, value: Any) -> None:

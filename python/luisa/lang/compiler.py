@@ -74,6 +74,8 @@ class ASTRewriter(ast.NodeTransformer):
         self.rt_alias = "__luisa_rt"
         self.ref_vars = set()  # Variables that are of Ref type
         self._is_top_level = True
+        self.const_vars = set()  # Variables marked with @const or const()
+        self.dsl_vars = set()    # Variables that should be DSL variables (alloca)
 
     def rewrite(self, node: ast.AST) -> ast.AST:
         """Entry point for rewriting."""
@@ -95,9 +97,15 @@ class ASTRewriter(ast.NodeTransformer):
         if node.id in self.template_params:
             return node
 
-        if isinstance(node.ctx, ast.Load) and node.id in self.ref_vars:
-            # Automatic load for Ref types: load(name)
-            return self._rt_call("load", node)
+        if isinstance(node.ctx, ast.Load):
+            if node.id in self.ref_vars:
+                # Automatic load for Ref types: load(name)
+                return self._rt_call("load", node)
+            elif node.id in self.dsl_vars and node.id not in self.const_vars:
+                # Load from DSL variable: load(name)
+                # Use maybe_load which handles the case where the variable
+                # might still be a Python value (not yet converted to DSL)
+                return self._rt_call("maybe_load", ast.Name(id=node.id, ctx=ast.Load()))
 
         return self.generic_visit(node)
 
@@ -105,6 +113,12 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite function definition."""
         is_top = self._is_top_level
         self._is_top_level = False
+        
+        # Save and reset DSL variable tracking for nested functions
+        saved_const_vars = self.const_vars.copy()
+        saved_dsl_vars = self.dsl_vars.copy()
+        self.const_vars = set()
+        self.dsl_vars = set()
 
         # If it's a nested function, check if it has Luisa decorators
         if not is_top:
@@ -179,8 +193,12 @@ class ASTRewriter(ast.NodeTransformer):
             # They capture the builder from the parent scope.
             # We don't change the signature, but we rewrite the body.
             old_ref_vars = self.ref_vars.copy()
+            old_const_vars = self.const_vars.copy()
+            old_dsl_vars = self.dsl_vars.copy()
             new_node = self.generic_visit(node)
             self.ref_vars = old_ref_vars
+            self.const_vars = old_const_vars
+            self.dsl_vars = old_dsl_vars
             return new_node
 
         # Top-level function: mangle for IR building
@@ -205,6 +223,8 @@ class ASTRewriter(ast.NodeTransformer):
 
         # Rewrite body
         old_ref_vars = self.ref_vars.copy()
+        old_const_vars = self.const_vars.copy()
+        old_dsl_vars = self.dsl_vars.copy()
         new_body = []
         for stmt in node.body:
             loc_call = self._set_loc(stmt)
@@ -217,6 +237,8 @@ class ASTRewriter(ast.NodeTransformer):
             else:
                 new_body.append(rewritten)
         self.ref_vars = old_ref_vars
+        self.const_vars = old_const_vars
+        self.dsl_vars = old_dsl_vars
 
         return ast.FunctionDef(
             name=f"__luisa_built_{node.name}",
@@ -352,6 +374,68 @@ class ASTRewriter(ast.NodeTransformer):
             return self._rt_call("attribute", self.visit(node.value), ast.Constant(value=node.attr))
         return node  # Store handled in visit_Assign
 
+    def _is_const_call(self, node: ast.expr) -> bool:
+        """Check if a node is a call to const()."""
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == 'const':
+                return True
+        return False
+
+    def _extract_const_value(self, node: ast.expr) -> ast.expr:
+        """Extract the value from const(x) -> x."""
+        if isinstance(node, ast.Call) and len(node.args) == 1:
+            return node.args[0]
+        return node
+
+    def _is_dsl_value(self, node: ast.expr) -> bool:
+        """
+        Check if a node likely represents a DSL value.
+        
+        This is a heuristic to determine if we should create a DSL variable
+        for the assignment or keep it as a Python variable.
+        """
+        # Function calls that return DSL values
+        if isinstance(node, ast.Call):
+            func = node.func
+            # Direct function calls like sin(), cos(), etc.
+            if isinstance(func, ast.Name):
+                # Math builtins that return DSL values
+                dsl_builtins = {'sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 
+                               'abs', 'floor', 'ceil', 'round', 'min', 'max',
+                               'clamp', 'lerp', 'pow', 'atan2'}
+                if func.id in dsl_builtins:
+                    return True
+                # Type casts like Float(x) return DSL values
+                if func.id[0].isupper():
+                    return True
+            # Method calls on builder that return values
+            if isinstance(func, ast.Attribute):
+                # builder.switch(), builder.if_(), etc. return Python objects
+                # builder.create_block(), etc. also return Python objects
+                if func.attr in ('switch', 'if_', 'while_', 'for_range', 
+                                'create_block', 'call'):
+                    return False
+                # Other method calls likely return values
+                return True
+        
+        # Binary operations on DSL values
+        if isinstance(node, ast.BinOp):
+            return True
+        
+        # Unary operations on DSL values
+        if isinstance(node, ast.UnaryOp):
+            return True
+        
+        # Subscript access like buf[idx]
+        if isinstance(node, ast.Subscript):
+            return True
+        
+        # Attributes like dispatch_id().x
+        if isinstance(node, ast.Attribute):
+            return True
+        
+        return False
+
     def visit_Assign(self, node: ast.Assign) -> Any:
         """Rewrite assignments."""
         if len(node.targets) == 1:
@@ -362,14 +446,40 @@ class ASTRewriter(ast.NodeTransformer):
                                         self.visit(node.value)))
 
             if isinstance(target, ast.Name):
+                var_name = target.id
+                
                 if target.id in self.ref_vars:
                     # Automatic store for Ref types: store(name, value)
                     return ast.Expr(value=self._rt_call("store", ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)))
-                else:
-                    # Standard assignment wrapped in local_assign
+                
+                # Check if this is a const assignment
+                if self._is_const_call(node.value):
+                    # Mark as const variable
+                    self.const_vars.add(var_name)
+                    self.dsl_vars.discard(var_name)  # Remove from dsl_vars if present
+                    # Extract the inner value from const(x)
+                    inner_value = self._extract_const_value(node.value)
+                    # Standard assignment with the inner value
                     return ast.Assign(
                         targets=[target],
-                        value=self._rt_call("local_assign", ast.Constant(value=target.id), self.visit(node.value))
+                        value=self._rt_call("local_assign", ast.Constant(value=var_name), self.visit(inner_value))
+                    )
+                elif var_name in self.dsl_vars:
+                    # Variable was previously a DSL variable - store to it
+                    return ast.Expr(value=self._rt_call("store", ast.Name(id=var_name, ctx=ast.Load()), self.visit(node.value)))
+                elif self._is_dsl_value(node.value):
+                    # This looks like a DSL value - create a DSL variable
+                    self.dsl_vars.add(var_name)
+                    # Emit: target = local_var_assign(name, value)
+                    return ast.Assign(
+                        targets=[target],
+                        value=self._rt_call("local_var_assign", ast.Constant(value=var_name), self.visit(node.value))
+                    )
+                else:
+                    # Regular Python variable - keep as-is
+                    return ast.Assign(
+                        targets=[target],
+                        value=self.visit(node.value)
                     )
 
         # Standard assignment is fine
