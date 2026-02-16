@@ -24,10 +24,10 @@ def test_vector_const_construction():
     assert c3.value == (5.0, 5.0, 5.0)
     
     # Error cases
-    with pytest.raises(ValueError, match="requires 2 elements, got 3"):
+    with pytest.raises(ValueError, match="requires 2 components, got 3"):
         Const[Float2](1.0, 2.0, 3.0)
         
-    with pytest.raises(ValueError, match="requires 2 elements, got 3"):
+    with pytest.raises(ValueError, match="requires 2 components, got 3"):
         Const[Float2]((1.0, 2.0, 3.0))
 
 
@@ -45,8 +45,55 @@ def test_matrix_const_construction():
     c3 = Const[Float2x2](2.0)
     assert c3.value == (2.0, 0.0, 0.0, 2.0)
     
-    with pytest.raises(ValueError, match="requires 4 elements, got 2"):
+    with pytest.raises(ValueError, match="requires 4 components, got 2"):
         Const[Float2x2](1.0, 2.0)
+
+
+def test_matrix_column_major_construction():
+    """Test matrix construction from columns (column-major)."""
+    # 2x2 matrix from 2 columns
+    c1 = Const[Float2x2]((1.0, 2.0), (3.0, 4.0))
+    # Elements should be in column-major order: c0.x, c0.y, c1.x, c1.y
+    assert c1.value == (1.0, 2.0, 3.0, 4.0)
+    
+    # 3x3 matrix from 3 columns
+    from luisa import Float3x3
+    c2 = Const[Float3x3]((1,2,3), (4,5,6), (7,8,9))
+    assert c2.value == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0)
+
+
+def test_nested_aggregates():
+    """Test complicated nested aggregates."""
+    @struct
+    class Inner:
+        v: Float2
+        a: Array[Int, 2]
+        
+    @struct
+    class Outer:
+        i: Inner
+        f: Float
+        
+    # Construct nested constant
+    # i.v=(1,2), i.a=(3,4), f=5.0
+    c = Const[Outer](Inner((1.0, 2.0), (3, 4)), 5.0)
+    
+    # Check values
+    assert c.value.f == 5.0
+    assert c.value.i.v == (1.0, 2.0)
+    assert c.value.i.a == (3, 4)
+    
+    # Test folding with nested aggregate
+    @callable
+    def nested_fold() -> Float:
+        o = Const[Outer](Inner((1.0, 2.0), (3, 4)), 5.0)
+        return o.i.v.x + Float(o.i.a[0]) + o.f
+        
+    ir = nested_fold()
+    # Should fold to 1.0 + 3.0 + 5.0 = 9.0
+    counts = count_instructions(ir)
+    assert 'ADD' not in counts
+    assert 'RETURN' in counts
 
 
 def test_struct_const_construction():

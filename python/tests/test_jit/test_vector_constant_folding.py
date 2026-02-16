@@ -40,10 +40,11 @@ def test_normalize_constant_folding():
     
     print(f"normalize({v}) = {result}")
     
-    assert isinstance(result, tuple)
-    assert abs(result[0] - 1.0) < 1e-10
-    assert abs(result[1] - 0.0) < 1e-10
-    assert abs(result[2] - 0.0) < 1e-10
+    assert isinstance(result, ConstantValue)
+    res_val = result.value
+    assert abs(res_val[0] - 1.0) < 1e-10
+    assert abs(res_val[1] - 0.0) < 1e-10
+    assert abs(res_val[2] - 0.0) < 1e-10
     
     print("✓ Normalize constant folding works")
     print("=" * 60)
@@ -99,10 +100,11 @@ def test_cross_constant_folding():
     
     print(f"cross({a}, {b}) = {result}")
     
-    assert isinstance(result, tuple)
-    assert abs(result[0] - 0.0) < 1e-10
-    assert abs(result[1] - 0.0) < 1e-10
-    assert abs(result[2] - 1.0) < 1e-10
+    assert isinstance(result, ConstantValue)
+    res_val = result.value
+    assert abs(res_val[0] - 0.0) < 1e-10
+    assert abs(res_val[1] - 0.0) < 1e-10
+    assert abs(res_val[2] - 1.0) < 1e-10
     
     print("✓ Cross product constant folding works")
     print("=" * 60)
@@ -140,10 +142,11 @@ def test_reflect_constant_folding():
     
     print(f"reflect({i}, {n}) = {result}")
     
-    assert isinstance(result, tuple)
+    assert isinstance(result, ConstantValue)
+    res_val = result.value
     # Reflection of (1, -1) off (0, 1) should be (1, 1)
-    assert abs(result[0] - 1.0) < 1e-10
-    assert abs(result[1] - 1.0) < 1e-10
+    assert abs(res_val[0] - 1.0) < 1e-10
+    assert abs(res_val[1] - 1.0) < 1e-10
     
     print("✓ Reflect constant folding works")
     print("=" * 60)

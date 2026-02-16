@@ -22,13 +22,14 @@ def test_unrolled_simple():
     """Test simple unrolled loop."""
 
     @callable
-    def unrolled_sum(buf: Buffer[Float]) -> None:
+    def unrolled_sum(buf: Buffer[Float], vals: Buffer[Float]) -> None:
         total = 0.0
         for i in static_range(4):
-            total = total + Float(i)
+            # Using vals[i] prevents host-side constant folding of the addition
+            total = total + vals[i]
         buf[0] = total
 
-    ir = unrolled_sum(0)
+    ir = unrolled_sum(0, 0)
     print_ast(unrolled_sum, "AST: unrolled_sum")
 
     # Should have 4 ADD operations (unrolled)
@@ -41,34 +42,34 @@ def test_unrolled_with_captured_constant():
     UNROLL_COUNT = 3
 
     @callable
-    def unrolled_with_capture(buf: Buffer[Float]) -> None:
+    def unrolled_with_capture(buf: Buffer[Float], val: Float) -> None:
         for i in static_range(UNROLL_COUNT):
-            buf[i] = Float(i)
+            # Using dynamic val ensures CAST/BUFFER_WRITE are in IR
+            buf[i] = val + Float(i)
 
-    ir = unrolled_with_capture(0)
+    ir = unrolled_with_capture(0, 1.0)
 
-    # Should have 3 BUFFER_WRITE and 3 CAST operations
+    # Should have 3 BUFFER_WRITE and 3 ADD operations
     counts = count_instructions(ir)
     assert counts['BUFFER_WRITE'] == 3
-    assert counts['CAST'] == 3
+    assert counts['ADD'] == 3
 
 
 def test_unrolled_with_computation():
     """Test unrolled loop with computation."""
 
     @callable
-    def unrolled_compute(buf: Buffer[Float]) -> None:
+    def unrolled_compute(buf: Buffer[Float], val: Float) -> None:
         for i in static_range(4):
-            buf[i] = Float(i) * 2.0 + 1.0
+            buf[i] = val * Float(i) + 1.0
 
-    ir = unrolled_compute(0)
+    ir = unrolled_compute(0, 1.0)
 
     counts = count_instructions(ir)
     # Each iteration: CAST, MUL, ADD, BUFFER_WRITE
     assert counts['BUFFER_WRITE'] == 4
     assert counts['MUL'] == 4
     assert counts['ADD'] == 4
-    assert counts['CAST'] == 4
 
 
 def test_unrolled_with_step():

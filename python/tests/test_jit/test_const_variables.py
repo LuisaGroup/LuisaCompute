@@ -18,7 +18,8 @@ def test_dsl_variable_reassignment():
     @callable
     def test_reassign(x: Float) -> Float:
         # a is a DSL variable (not const)
-        a = sin(1.0)  # Should create alloca + store
+        # Using Float() cast forces it to be a DSL variable (alloca)
+        a = Float(x)  # alloca + store
         # This should work - reassigning DSL variable
         a = a + 1.0   # load + add + store
         return a
@@ -153,9 +154,10 @@ def test_const_multiple_values():
     def test_multi(x: Float) -> Float:
         # Multiple values using static()
         a, b, c = static(1.0, 2.0, 3.0)
-        # Or using Const
-        vals = Const[Float](1.0, 2.0, 3.0)
-        return x + a + vals[0]
+        # Or using Const with a vector type
+        from luisa import Float3
+        vals = Const[Float3](1.0, 2.0, 3.0)
+        return x + a + vals.x
     
     ir = test_multi(0.0)
     
@@ -175,8 +177,9 @@ def test_dsl_var_in_kernel():
     @kernel
     def test_kernel(buf: Buffer[Float]):
         # DSL variable that gets reassigned
-        val = sqrt(2.0)  # Creates DSL variable
-        val = val + 1.0  # Reassign
+        # Using a cast on a dynamic value forces a DSL variable
+        val = Float(buf[0])  # Creates DSL variable (alloca)
+        val = val + 1.0      # Reassign (load + add + store)
         buf[0] = val
     
     ir = test_kernel(None)

@@ -52,7 +52,23 @@ class Type:
     def __call__(self, arg: Any) -> Any:
         """Support casting syntax like Float(x)."""
         from ..transform.builder import get_current_builder
-        from .ops import to_ir_value
+        from .ops import to_ir_value, is_ir_value
+        from .router import is_constant_value, extract_constant_value
+
+        # Constant folding
+        if is_constant_value(arg):
+            val = extract_constant_value(arg)
+            # Perform host-side cast if it's a scalar
+            if isinstance(self, Scalar):
+                if self.dtype == ScalarType.BOOL:
+                    return bool(val)
+                elif self.dtype in (ScalarType.FLOAT16, ScalarType.FLOAT32, ScalarType.FLOAT64):
+                    return float(val)
+                else:
+                    return int(val)
+            # For other types, they might have their own __call__ (like Vector)
+            # but if we are here, it's a general Type cast.
+            return val
 
         builder = get_current_builder()
 
@@ -253,13 +269,14 @@ class Matrix(Type):
             raise TypeError("Matrix requires [type, size]")
         return cls(element=item[0], size=item[1])
 
-    def __call__(self, *components):
+    def __call__(self, *args):
         """
         Construct a matrix value from components.
         
         Supports:
-            Float2x2(1.0, 2.0, 3.0, 4.0)  # 4 components (row-major)
-            Float2x2([1,2,3,4])           # From list/tuple
+            Float2x2(1.0, 2.0, 3.0, 4.0)  # 4 components (column-major: c0.x, c0.y, c1.x, c1.y)
+            Float2x2([1,2,3,4])           # From list/tuple (column-major)
+            Float2x2((1,2), (3,4))        # From column vectors
             Float2x2(1.0)                 # Diagonal elements set to 1.0 (identity * scalar)
             Float2x2(x, y, z, w)          # From DSL values
         """
@@ -267,26 +284,63 @@ class Matrix(Type):
         from ..transform.builder import get_current_builder
         from ..transform.op import Op
         
-        # Handle single argument construction from list/tuple
-        if len(components) == 1 and isinstance(components[0], (list, tuple)):
-            components = tuple(components[0])
-            
-        num_elements = self.size * self.size
-        
-        if len(components) == 1:
-            # Identity * scalar (diagonal)
-            val = components[0]
-            if isinstance(val, Value):
-                return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_matrix_{self.size}", val])
-            
-            # Constant diagonal
-            diag_val = val if not isinstance(val, ConstantValue) else val.value
-            result = []
-            for r in range(self.size):
+        # Determine components: flattened list of elements
+        components = []
+        if len(args) == 1:
+            arg = args[0]
+            if isinstance(arg, (list, tuple)):
+                # Flattened list or single column?
+                if len(arg) == self.size * self.size:
+                    components = list(arg)
+                elif len(arg) == self.size:
+                    # Single column matrix? No, usually identity * scalar or all elements.
+                    # If it's a list/tuple of length 'size', it might be the first column
+                    # but we expect all elements.
+                    components = list(arg)
+                else:
+                    components = list(arg)
+            else:
+                # Identity * scalar
+                val = arg
+                if isinstance(val, Value):
+                    return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_matrix_{self.size}", val])
+                
+                # Constant diagonal
+                diag_val = val if not isinstance(val, (ConstantValue, _ConstValue)) else val.value
+                result = []
                 for c in range(self.size):
-                    result.append(diag_val if r == c else 0.0)
-            return tuple(result)
+                    for r in range(self.size):
+                        result.append(diag_val if r == c else 0.0)
+                return tuple(result)
+        elif len(args) == self.size:
+            # Check if all args are vectors/tuples of 'size'
+            all_cols = True
+            for a in args:
+                if isinstance(a, (list, tuple)):
+                    if len(a) != self.size:
+                        all_cols = False; break
+                elif isinstance(a, Value):
+                    # We can't easily check size of IR value here without more logic,
+                    # but let's assume if user passes 'size' arguments, they are columns.
+                    pass
+                else:
+                    all_cols = False; break
             
+            if all_cols:
+                # Construct from columns
+                if all(not isinstance(a, Value) for a in args):
+                    # All constant columns
+                    for col in args:
+                        components.extend(col)
+                else:
+                    # Emit IR for construction from columns
+                    return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_matrix_{self.size}", *args])
+            else:
+                components = list(args)
+        else:
+            components = list(args)
+
+        num_elements = self.size * self.size
         if len(components) != num_elements:
             raise ValueError(f"Matrix<{self.element}, {self.size}> requires {num_elements} components, got {len(components)}")
             
@@ -294,7 +348,12 @@ class Matrix(Type):
         if all(not isinstance(c, Value) for c in components):
             converted = []
             for c in components:
-                converted.append(c.value if isinstance(c, ConstantValue) else c)
+                if isinstance(c, ConstantValue):
+                    converted.append(c.value)
+                elif isinstance(c, _ConstValue):
+                    converted.append(c.value)
+                else:
+                    converted.append(c)
             return tuple(converted)
             
         # Emit IR
@@ -393,8 +452,31 @@ class Struct(Type):
         if len(elements) != len(self.fields):
             raise ValueError(f"Struct {self.name} requires {len(self.fields)} fields, got {len(elements)}")
             
-        if all(not isinstance(e, Value) for e in elements):
-            return tuple(e.value if isinstance(e, ConstantValue) else e for e in elements)
+        from ..lang.ops import is_ir_value
+        if all(not is_ir_value(e) for e in elements):
+            # Recursively ensure inner constants are also objects
+            converted = []
+            for i, e in enumerate(elements):
+                field_type = self.fields[i][1]
+                # If it's a tuple or list, try to convert to the field type
+                # (which handles Vector, Matrix, Array, Struct)
+                if isinstance(e, (list, tuple)) and not hasattr(e, 'get_dsl_type'):
+                    converted.append(field_type(e))
+                else:
+                    converted.append(e)
+            
+            # Create an instance of the struct class for constant folding
+            cls = get_struct_type(self.name)
+            if cls:
+                return cls(*converted)
+            
+            # Fallback: identified tuple
+            res = tuple(e.value if isinstance(e, ConstantValue) else e for e in converted)
+            # Tag the tuple so attribute() knows it's a struct
+            class TaggedTuple(tuple): pass
+            res = TaggedTuple(res)
+            res._dsl_type = self
+            return res
             
         return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_struct_{self.name}", *elements])
 
@@ -895,10 +977,14 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
     for name, ann_type in annotations.items():
         dsl_type = None
         if isinstance(ann_type, type):
-            # Convert Python type to DSL type
-            dsl_type = python_type_to_dsl(ann_type)
-            if dsl_type is None:
-                raise TypeError(f"Field '{name}' has unsupported type: {ann_type}")
+            # Check if it's a registered struct
+            if hasattr(ann_type, '_dsl_type'):
+                dsl_type = ann_type._dsl_type
+            else:
+                # Convert Python type to DSL type
+                dsl_type = python_type_to_dsl(ann_type)
+                if dsl_type is None:
+                    raise TypeError(f"Field '{name}' has unsupported type: {ann_type}")
         elif isinstance(ann_type, Type):
             dsl_type = ann_type
         else:
@@ -1058,37 +1144,23 @@ class _TypedConst:
         
         This validates that the initial values match the target type.
         """
-        # Support broadcasting or exact match
-        if len(values) == 1 and not kwargs:
-            val = values[0]
-            # If it's a single value, it's either a scalar broadcast or a tuple/list
-            if isinstance(val, (list, tuple)):
-                # Exact element count check for aggregate types
-                required = get_length(self.type)
-                if len(val) != required:
-                    raise ValueError(f"Const[{self.type}] requires {required} elements, got {len(val)}")
-                
-                # Construct the type from the sequence
-                result = self.type(val)
-                return _ConstValue(result, explicit_type=self.type)
-            
-            # Scalar broadcast to aggregate is handled by T.__call__
-            # Or it's a simple scalar Const[Float](1.0)
-            result = self.type(val)
+        # We delegate the actual construction logic to the type itself,
+        # then wrap the result in a _ConstValue.
+        # This ensures that Const[T](args) behaves exactly like T(args)
+        # but is marked as a constant.
+        
+        # Check if it's a struct with named args
+        if kwargs:
+            result = self.type(*values, **kwargs)
             return _ConstValue(result, explicit_type=self.type)
-        else:
-            # Multiple arguments or named arguments - must match required length
-            required = get_length(self.type)
             
-            # For structs, we might have kwargs
-            if kwargs:
-                result = self.type(*values, **kwargs)
-            else:
-                if len(values) != required:
-                    raise ValueError(f"Const[{self.type}] requires {required} elements, got {len(values)}")
-                result = self.type(*values)
-                
-            return _ConstValue(result, explicit_type=self.type)
+        # For non-struct or positional struct args
+        # Delegate to type's __call__
+        result = self.type(*values)
+        
+        # We want to make sure result is the constructed object
+        # (e.g. Struct instance, or tuple for Vector/Matrix/Array)
+        return _ConstValue(result, explicit_type=self.type)
 
 
 class _ConstValue:

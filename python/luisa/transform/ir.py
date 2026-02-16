@@ -50,6 +50,11 @@ class Value:
         """Backward compatibility accessor for type."""
         return self.typ
 
+    @property
+    def is_pointer(self) -> bool:
+        """Check if this value is a pointer/reference."""
+        return False
+
 
 @dataclass
 class ConstantValue(Value):
@@ -197,6 +202,10 @@ class ArgumentValue(Value):
         if self.name is None:
             self.name = f"arg{self.index}"
 
+    @property
+    def is_pointer(self) -> bool:
+        return self.is_reference
+
 
 # Forward reference for Instruction
 @dataclass
@@ -229,6 +238,13 @@ class InstructionValue(Value):
         if self.name:
             return f"%{self.name}"
         return f"%<inst>"
+
+    @property
+    def is_pointer(self) -> bool:
+        if self.instruction:
+            from .op import Op
+            return self.instruction.op in (Op.ALLOCA, Op.GEP)
+        return False
 
 
 # Update the forward reference

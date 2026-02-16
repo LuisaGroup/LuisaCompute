@@ -389,51 +389,30 @@ class ASTRewriter(ast.NodeTransformer):
 
     def _is_dsl_value(self, node: ast.expr) -> bool:
         """
-        Check if a node likely represents a DSL value.
-        
-        This is a heuristic to determine if we should create a DSL variable
-        for the assignment or keep it as a Python variable.
+        Check if a node likely represents a DSL value that should be stored in an alloca.
         """
         # Function calls that return DSL values
         if isinstance(node, ast.Call):
             func = node.func
             # Direct function calls like sin(), cos(), etc.
             if isinstance(func, ast.Name):
-                # Math builtins that return DSL values
-                dsl_builtins = {'sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 
-                               'abs', 'floor', 'ceil', 'round', 'min', 'max',
-                               'clamp', 'lerp', 'pow', 'atan2'}
-                if func.id in dsl_builtins:
+                # Type casts like Float(x) often imply a desire for a new variable
+                if func.id[0].isupper() and func.id not in ("Const", "static", "Shared"):
                     return True
-                # Type casts like Float(x) return DSL values
-                if func.id[0].isupper():
+                # Special cases for builtins that we want to store in variables
+                # (most math builtins can stay as Python variables until needed)
+                if func.id in ("clock", "dispatch_id", "thread_id", "block_id"):
                     return True
-            # Method calls on builder that return values
+            
+            # Method calls on builder/resources
             if isinstance(func, ast.Attribute):
-                # builder.switch(), builder.if_(), etc. return Python objects
-                # builder.create_block(), etc. also return Python objects
-                if func.attr in ('switch', 'if_', 'while_', 'for_range', 
-                                'create_block', 'call'):
-                    return False
-                # Other method calls likely return values
-                return True
+                # Resource creations or specific queries
+                if func.attr in ("buffer_read", "texture2d_read", "texture2d_sample"):
+                    return False # Let them be SSA-like Python variables
         
-        # Binary operations on DSL values
-        if isinstance(node, ast.BinOp):
-            return True
-        
-        # Unary operations on DSL values
-        if isinstance(node, ast.UnaryOp):
-            return True
-        
-        # Subscript access like buf[idx]
-        if isinstance(node, ast.Subscript):
-            return True
-        
-        # Attributes like dispatch_id().x
-        if isinstance(node, ast.Attribute):
-            return True
-        
+        # Binary/Unary ops, Subscripts, Attributes should generally stay as
+        # Python variables (SSA-like) unless they are assigning to an
+        # existing DSL variable (handled in visit_Assign).
         return False
 
     def visit_Assign(self, node: ast.Assign) -> Any:
@@ -457,12 +436,10 @@ class ASTRewriter(ast.NodeTransformer):
                     # Mark as const variable
                     self.const_vars.add(var_name)
                     self.dsl_vars.discard(var_name)  # Remove from dsl_vars if present
-                    # Extract the inner value from const(x)
-                    inner_value = self._extract_const_value(node.value)
-                    # Standard assignment with the inner value
+                    # Standard assignment with the constructor call (preserved)
                     return ast.Assign(
                         targets=[target],
-                        value=self._rt_call("local_assign", ast.Constant(value=var_name), self.visit(inner_value))
+                        value=self._rt_call("local_assign", ast.Constant(value=var_name), self.visit(node.value))
                     )
                 elif var_name in self.dsl_vars:
                     # Variable was previously a DSL variable - store to it

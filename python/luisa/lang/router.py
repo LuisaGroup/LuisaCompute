@@ -38,12 +38,16 @@ from .types import (
 
 def is_constant_value(val: Any) -> bool:
     """Check if a value is a compile-time constant."""
-    if isinstance(val, ConstantValue):
+    from .types import _ConstValue
+    if isinstance(val, (ConstantValue, _ConstValue)):
         return True
     # Python literals are also constants
     if val is None:
         return True
     if isinstance(val, (bool, int, float)):
+        return True
+    # Handle Struct objects
+    if hasattr(val, 'to_tuple') and hasattr(val, 'get_dsl_type'):
         return True
     # Tuples/lists of constants are also constants (for vectors)
     if isinstance(val, (list, tuple)):
@@ -53,9 +57,15 @@ def is_constant_value(val: Any) -> bool:
 
 def extract_constant_value(val: Any) -> Any:
     """Extract the Python value from a constant."""
+    from .types import _ConstValue
     if isinstance(val, ConstantValue):
         return val.value
+    if isinstance(val, _ConstValue):
+        return extract_constant_value(val.value)
     if isinstance(val, (bool, int, float, type(None))):
+        return val
+    # Handle Struct objects
+    if hasattr(val, 'to_tuple') and hasattr(val, 'get_dsl_type'):
         return val
     # Tuples/lists are passed through for vector constants
     if isinstance(val, (list, tuple)):
@@ -198,14 +208,29 @@ class RoutedFunction:
     
     def _wrap_host_result(self, result: Any) -> Any:
         """Wrap a Python result value in the appropriate DSL value."""
-        # Handle tuple of constants (for vector results or multiple return values)
+        from .types import value_to_type, Scalar
+        from ..transform.ir import ConstantValue
+        
+        # Handle Struct objects
+        if hasattr(result, 'get_dsl_type') and hasattr(result, 'to_tuple'):
+            return ConstantValue(typ=result.get_dsl_type(), value=result)
+
+        # Handle tuple of constants (for vector/matrix/array results or multiple return values)
         if isinstance(result, tuple):
             # If it's a small tuple (2-4 elements), it might be a vector
             if len(result) in (2, 3, 4):
                 # Check if all elements are numeric constants
                 if all(isinstance(r, (int, float)) for r in result):
-                    # Return as tuple for vector constant
-                    return result
+                    # Return as ConstantValue vector
+                    typ = value_to_type(result)
+                    return ConstantValue(typ=typ, value=result)
+            
+            # Matrix results (4, 9, 16 elements)
+            if len(result) in (4, 9, 16):
+                if all(isinstance(r, (int, float)) for r in result):
+                    typ = value_to_type(result)
+                    return ConstantValue(typ=typ, value=result)
+
             # Otherwise wrap each element
             return tuple(self._wrap_host_result(r) for r in result)
         
@@ -216,7 +241,7 @@ class RoutedFunction:
         # Determine result type
         result_type = value_to_type(result)
         if result_type is None:
-            # Can't determine type, return as-is (e.g., for special types)
+            # Can't determine type, return as-is
             return result
         
         # Create constant value

@@ -25,13 +25,19 @@ from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer
 # ============================================================================
 
 def is_ir_value(val: Any) -> bool:
-    """Check if a value is an IR Value."""
-    return isinstance(val, Value)
+    """Check if a value is an IR Value (excluding ConstantValue)."""
+    from ..transform.ir import ConstantValue
+    return isinstance(val, Value) and not isinstance(val, ConstantValue)
 
 
 def to_ir_value(val: Any) -> Value:
     """Ensure a value is an IR Value, converting literals if necessary."""
+    from ..transform.ir import ConstantValue
     if isinstance(val, Value):
+        if isinstance(val, ConstantValue):
+            inner_val = val.value
+            if hasattr(inner_val, 'to_tuple') and hasattr(inner_val, 'get_dsl_type'):
+                return get_current_builder().constant(val.type, inner_val.to_tuple())
         return val
     if isinstance(val, str):
         return val
@@ -41,7 +47,10 @@ def to_ir_value(val: Any) -> Value:
     if isinstance(val, _ConstValue):
         # Prefer the explicit type if provided
         if val.dsl_type is not None:
-            return get_current_builder().constant(val.dsl_type, val.value)
+            inner_val = val.value
+            if hasattr(inner_val, 'to_tuple'):
+                inner_val = inner_val.to_tuple()
+            return get_current_builder().constant(val.dsl_type, inner_val)
         val = val.value
 
     typ = value_to_type(val)
@@ -57,6 +66,7 @@ def to_ir_value(val: Any) -> Value:
         elif hasattr(val, 'to_tuple') and hasattr(val, 'get_dsl_type'):
             # It's a Struct object
             typ = val.get_dsl_type()
+            # Convert to tuple for the IR builder
             val = val.to_tuple()
             
     if typ is None:
@@ -413,9 +423,15 @@ def while_(test_func: Callable[[], Any]) -> Any:
         stmt = get_current_builder().while_(cond)
         yield stmt
     else:
+        # Host side loop
         while cond:
             yield None
             cond = test_func()
+            # If condition becomes an IR value during host execution, it's an error
+            # or we need to switch to device execution (not supported mid-loop).
+            if is_ir_value(cond):
+                raise RuntimeError("Loop condition changed from host-side to device-side during execution. "
+                                 "This usually happens when a loop variable is accidentally converted to a DSL variable.")
 
 
 @contextmanager
@@ -558,6 +574,35 @@ def subscript_assign(value: Any, index: Any, rhs: Any) -> None:
 
 def attribute(value: Any, attr: str) -> Any:
     """Handle attribute access."""
+    from ..transform.ir import ConstantValue
+    from .types import Vector, Struct, _ConstValue
+    
+    # Handle _ConstValue (compile-time wrapper)
+    if isinstance(value, _ConstValue):
+        # Recursive call with the unwrapped value
+        res = attribute(value.value, attr)
+        # Re-wrap result in _ConstValue if it's not already a DSL value
+        if not is_ir_value(res) and not isinstance(res, (ConstantValue, _ConstValue)):
+            return _ConstValue(res)
+        return res
+
+    # Handle ConstantValue by extracting its value and type
+    if isinstance(value, ConstantValue):
+        typ = value.type
+        val_obj = value.value
+        
+        if isinstance(typ, Vector):
+            from .router import vector_swizzle
+            res = vector_swizzle(val_obj, attr)
+            return ConstantValue(typ=value_to_type(res), value=res)
+        elif isinstance(typ, Struct):
+            idx = typ.get_field_index(attr)
+            if hasattr(val_obj, 'to_tuple'):
+                res = getattr(val_obj, attr)
+            else:
+                res = val_obj[idx]
+            return ConstantValue(typ=typ.fields[idx][1], value=res)
+        
     if is_ir_value(value):
         # Allow accessing standard attributes of Value/InstructionValue
         if attr in ('type', 'typ', 'name', 'instruction'):
@@ -566,7 +611,26 @@ def attribute(value: Any, attr: str) -> Any:
         if isinstance(value.type, Vector):
             return get_current_builder().swizzle(value, attr)
         raise AttributeError(f"IR type {value.type} has no attribute {attr}")
+        
     # Host side
+    # If it's a Struct object
+    if hasattr(value, 'to_tuple') and hasattr(value, 'get_dsl_type'):
+        return getattr(value, attr)
+
+    # If it's a tuple representing a struct
+    if isinstance(value, tuple) and hasattr(value, '_dsl_type'):
+        idx = value._dsl_type.get_field_index(attr)
+        return value[idx]
+        
+    # If it's a vector constant (tuple)
+    if isinstance(value, tuple) and len(value) in (2,3,4):
+        # Check if it looks like a swizzle
+        from .router import vector_swizzle
+        try:
+            return vector_swizzle(value, attr)
+        except ValueError:
+            pass
+
     return getattr(value, attr)
 
 
@@ -631,10 +695,10 @@ def maybe_load(ptr: Any) -> Any:
     later used in DSL context. If ptr is not a Value, it's converted to one.
     If ptr is a pointer (from alloca), it's loaded from.
     """
-    if isinstance(ptr, Value):
+    if isinstance(ptr, Value) and ptr.is_pointer:
         return get_current_builder().load(ptr)
     else:
-        # It's a Python value - convert to IR value
+        # It's a Python value or a non-pointer IR value - convert to IR value
         return to_ir_value(ptr)
 
 
