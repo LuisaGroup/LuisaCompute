@@ -14,7 +14,11 @@ from ..transform.builder import Builder, get_current_builder, set_current_builde
 from ..transform.inspect import ParsedFunction, parse_function
 from ..transform.ir import Function
 from ..transform.rewriter import ASTRewriter
-from .types import Type, value_to_type
+from .types import (
+    Type, value_to_type, annotation_to_type,
+    Buffer, Array, Vector, Matrix,
+    Float, Int, Bool, UInt, Double
+)
 
 # ============================================================================
 # Static Constructs (Meta-programming)
@@ -109,6 +113,12 @@ class TemplatedFunction:
 
         rewriter = ASTRewriter(file=self.filename)
         rewritten_ast = rewriter.rewrite(self.parsed.ast_node)
+        
+        # Inject template param assignments at the start of the function body
+        # This allows annotations and nested functions to naturally capture T, U, etc.
+        if self.template_params:
+            rewritten_ast = self._inject_template_params(rewritten_ast)
+        
         ast.fix_missing_locations(rewritten_ast)
 
         if os.environ.get("LUISA_DUMP_REWRITTEN_AST") in ("1", "ON", "TRUE", "true", "yes"):
@@ -121,6 +131,35 @@ class TemplatedFunction:
         )
         self.rewritten_ast = rewritten_ast
         return self.compiled_code
+
+    def _inject_template_params(self, func_ast: ast.FunctionDef) -> ast.FunctionDef:
+        """Inject T = __luisa_spec.get('T') assignments at the start of function body.
+        
+        Uses .get() with default to handle partial specialization where not all
+        template params are available yet.
+        """
+        # Create: T = __luisa_spec.get('T', T) for each template param
+        # The default T preserves any existing binding (for nested scopes)
+        inject_stmts = []
+        for param in self.template_params:
+            # T = __luisa_spec.get('T', T)  # second T will be NameError if not defined, which is fine
+            assign = ast.Assign(
+                targets=[ast.Name(id=param, ctx=ast.Store())],
+                value=ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id='__luisa_spec', ctx=ast.Load()),
+                        attr='get',
+                        ctx=ast.Load()
+                    ),
+                    args=[ast.Constant(value=param)],
+                    keywords=[]
+                )
+            )
+            inject_stmts.append(assign)
+        
+        # Prepend to function body
+        func_ast.body = inject_stmts + func_ast.body
+        return func_ast
 
     def builder_func(self, *args, specialization_values: tuple):
         """Internal IR builder population."""
@@ -140,9 +179,9 @@ class TemplatedFunction:
             "__luisa_rt": rt,
             "ast": ast,
             "static_range": static_range,
+            "__luisa_spec": spec_dict,  # Template params injected via AST
             **builtin_namespace,
             **{name: var.value for name, var in self.parsed.captured_vars.items()},
-            **spec_dict
         }
         if self.pyfunc and hasattr(self.pyfunc, "__globals__"):
             for name, val in self.pyfunc.__globals__.items():
@@ -181,108 +220,42 @@ class TemplatedFunction:
                                  specialization_values=new_values)
 
     def resolve_annotation(self, ann: Any, specialization_values: tuple) -> Any:
-        """Resolve annotation, substituting template params with specialization values."""
-        from .types import Type, Buffer, Array, annotation_to_type
+        """Resolve annotation, substituting template params with specialization values.
         
-        # Build spec map for template resolution
-        spec_map = {}
-        if self.template_params and specialization_values:
-            spec_map = dict(zip(self.template_params, specialization_values))
-        
-        # Handle string annotations - may contain template params like 'Buffer[T]' or just 'T'
+        Uses eval() with template params in namespace - this naturally handles
+        complex nested generics like Buffer[Vector[T, 3]] via Python's evaluation.
+        """
         if isinstance(ann, str):
-            # Check if it's a simple template param like 'T'
-            if ann in spec_map:
-                return spec_map[ann]
+            # Build namespace with template params for eval
+            spec_map = dict(zip(self.template_params, specialization_values))
             
-            # Try to parse as a generic type like 'Buffer[T]'
-            resolved = self._resolve_generic_string_annotation(ann, spec_map)
-            if resolved is not None:
-                return resolved
+            # Add common types to namespace
+            namespace = {
+                **spec_map,
+                'Buffer': Buffer, 'Array': Array,
+                'Vector': Vector, 'Matrix': Matrix,
+                'Float': Float, 'Int': Int, 'Bool': Bool,
+                'UInt': UInt, 'Double': Double,
+            }
             
-            # Fall back to standard annotation parsing
+            try:
+                # Let Python eval resolve it naturally
+                resolved = eval(ann, namespace)
+                if isinstance(resolved, Type):
+                    return resolved
+            except (NameError, TypeError):
+                pass
+            
+            # Fall back to standard parsing
             typ, _ = annotation_to_type(ann)
             return typ if typ is not None else ann
 
-        # Handle Type objects with template parameters, e.g., Buffer(element='T')
+        # Already a Type object
         if isinstance(ann, Type):
-            if isinstance(ann, Buffer) and isinstance(ann.element, str):
-                resolved_element = self.resolve_annotation(ann.element, specialization_values)
-                if isinstance(resolved_element, Type) and resolved_element is not ann.element:
-                    return Buffer(element=resolved_element)
-            elif isinstance(ann, Array):
-                if isinstance(ann.element, str):
-                    resolved_element = self.resolve_annotation(ann.element, specialization_values)
-                    if isinstance(resolved_element, Type) and resolved_element is not ann.element:
-                        return Array(element=resolved_element, count=ann.count)
-            # Add more generic types as needed (Texture2D, Texture3D, etc.)
             return ann
 
         typ, _ = annotation_to_type(ann)
         return typ
-
-    def _resolve_generic_string_annotation(self, ann: str, spec_map: dict) -> Optional[Any]:
-        """Parse and resolve generic type strings like 'Buffer[T]' or 'Array[T, 4]'."""
-        from .types import Type, Buffer, Array, Vector, Matrix, ScalarType
-        
-        if not spec_map:
-            return None
-            
-        try:
-            tree = ast.parse(ann, mode='eval')
-            body = tree.body
-            
-            # Handle subscript like Buffer[T] or Array[T, 4]
-            if isinstance(body, ast.Subscript):
-                base_name = body.value.id if isinstance(body.value, ast.Name) else None
-                if base_name is None:
-                    return None
-                
-                # Get the slice - handle both single element and tuple
-                slice_node = body.slice
-                
-                if base_name == 'Buffer':
-                    element_name = self._get_name_from_slice(slice_node)
-                    if element_name and element_name in spec_map:
-                        return Buffer(element=spec_map[element_name])
-                    # Also check if element_name is a known type
-                    if element_name:
-                        from .types import annotation_to_type
-                        typ, _ = annotation_to_type(element_name)
-                        if isinstance(typ, Type):
-                            return Buffer(element=typ)
-                            
-                elif base_name == 'Array':
-                    # Array[T, 4] - tuple slice
-                    if isinstance(slice_node, ast.Tuple) and len(slice_node.elts) == 2:
-                        elem_node, count_node = slice_node.elts
-                        element_name = elem_node.id if isinstance(elem_node, ast.Name) else None
-                        count = count_node.n if isinstance(count_node, ast.Constant) else None
-                        
-                        if element_name and element_name in spec_map and count is not None:
-                            return Array(element=spec_map[element_name], count=count)
-                        if element_name and count is not None:
-                            from .types import annotation_to_type
-                            typ, _ = annotation_to_type(element_name)
-                            if isinstance(typ, Type):
-                                return Array(element=typ, count=count)
-                
-                # Add more generic types here (Vector, Matrix, Texture2D, etc.)
-                
-        except (SyntaxError, AttributeError):
-            pass
-        
-        return None
-    
-    def _get_name_from_slice(self, slice_node) -> Optional[str]:
-        """Extract a name from a slice node."""
-        if isinstance(slice_node, ast.Name):
-            return slice_node.id
-        # Handle Python 3.9+ Index wrapper
-        if hasattr(ast, 'Index') and isinstance(slice_node, ast.Index):
-            if isinstance(slice_node.value, ast.Name):
-                return slice_node.value.id
-        return None
 
     def _get_or_create_staged(self, args: tuple) -> StagedFunction:
         """Infer types from arguments and get/create a StagedFunction."""
