@@ -3,159 +3,101 @@
 import pytest
 from luisa import kernel, callable, Float, Int, Buffer, dispatch_id, pprint
 from luisa.lang.inspect import count_instructions, get_ir_ast
-import ast as python_ast
 
 
-def print_ast(staged_func, title="Parsed AST"):
-    """Helper to print the parsed AST of a staged function."""
-    print(f"\n{title}:")
-    tree = get_ir_ast(staged_func)
-    if tree:
-        print(python_ast.dump(tree, indent=2))
-    else:
-        print("  (No AST available)")
-
-
-def test_buffer_write():
+def test_buffer_write(verify_ir):
     """Test buffer write operation - builds and prints IR."""
-    print("\n" + "=" * 60)
-    print("Test: buffer_write")
-    print("=" * 60)
-
     @callable
     def write_to_buffer(buf: Buffer[Float]) -> None:
         buf[0] = 1.0
 
     ir = write_to_buffer(0)
-
-    print_ast(write_to_buffer, "AST: write_to_buffer")
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    # Should have one BUFFER_WRITE
-    counts = count_instructions(ir)
-    assert 'BUFFER_WRITE' in counts
-    assert counts['BUFFER_WRITE'] == 1
-
-    assert ir is not None
-    assert len(ir.blocks) > 0
-    print(f"✓ Generated {len(ir.blocks)} blocks, BUFFER_WRITE count: {counts['BUFFER_WRITE']}")
-    print("=" * 60)
+    
+    expected = """
+void write_to_buffer(buffer<f32> arg0) {
+  buffer_write(arg0, 0, 1.0);
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_buffer_read():
+def test_buffer_read(verify_ir):
     """Test buffer read operation - builds and prints IR."""
-    print("\n" + "=" * 60)
-    print("Test: buffer_read")
-    print("=" * 60)
-
     @callable
     def read_from_buffer(buf: Buffer[Float]) -> Float:
         return buf[0]
 
     ir = read_from_buffer(0)
-
-    print_ast(read_from_buffer, "AST: read_from_buffer")
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    counts = count_instructions(ir)
-    assert 'BUFFER_READ' in counts
-    assert counts['BUFFER_READ'] == 1
-
-    print(f"✓ Generated {len(ir.blocks)} blocks, BUFFER_READ count: {counts['BUFFER_READ']}")
-    print("=" * 60)
+    
+    expected = """
+f32 read_from_buffer(buffer<f32> arg0) {
+  f32 v0 = buffer_read(arg0, 0);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_buffer_read_write():
+def test_buffer_read_write(verify_ir):
     """Test buffer read and write in same function."""
-    print("\n" + "=" * 60)
-    print("Test: buffer_read_write")
-    print("=" * 60)
-
     @callable
     def copy_buffer(src: Buffer[Float], dst: Buffer[Float]) -> None:
         dst[0] = src[0]
 
     ir = copy_buffer(0, 0)
-
-    print_ast(copy_buffer, "AST: copy_buffer")
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    counts = count_instructions(ir)
-    assert 'BUFFER_READ' in counts
-    assert 'BUFFER_WRITE' in counts
-
-    print(f"✓ BUFFER_READ: {counts['BUFFER_READ']}, BUFFER_WRITE: {counts['BUFFER_WRITE']}")
-    print("=" * 60)
+    
+    expected = """
+void copy_buffer(buffer<f32> arg0, buffer<f32> arg1) {
+  f32 v0 = buffer_read(arg0, 0);
+  buffer_write(arg1, 0, v0);
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_saxpy_kernel():
+def test_saxpy_kernel(verify_ir):
     """Test SAXPY kernel pattern - Single-precision A*X Plus Y."""
-    print("\n" + "=" * 60)
-    print("Test: SAXPY kernel")
-    print("=" * 60)
-
     @kernel
     def saxpy(result: Buffer[Float], a: Float, x: Buffer[Float], y: Buffer[Float]) -> None:
         idx = dispatch_id().x
         result[idx] = a * x[idx] + y[idx]
 
     ir = saxpy(0, 2.0, 0, 0)
-
-    print_ast(saxpy, "AST: saxpy")
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
     assert ir.is_kernel
+    
+    expected = """
+kernel void saxpy(buffer<f32> arg0, f32 arg1, buffer<f32> arg2, buffer<f32> arg3) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  f32 v2 = buffer_read(arg2, v1);
+  f32 v3 = mul(arg1, v2);
+  f32 v4 = buffer_read(arg3, v1);
+  f32 v5 = add(v3, v4);
+  buffer_write(arg0, v1, v5);
+}
+"""
+    verify_ir(ir, expected)
 
-    counts = count_instructions(ir)
-    assert 'BUFFER_READ' in counts
-    assert 'BUFFER_WRITE' in counts
-    assert 'MUL' in counts
-    assert 'ADD' in counts
-    assert 'DISPATCH_ID' in counts
 
-    print(f"✓ Kernel with {len(ir.blocks)} blocks")
-    print(f"  Instructions: BUFFER_READ={counts.get('BUFFER_READ', 0)}, "
-          f"BUFFER_WRITE={counts.get('BUFFER_WRITE', 0)}, "
-          f"MUL={counts.get('MUL', 0)}, ADD={counts.get('ADD', 0)}")
-    print("=" * 60)
-
-
-def test_buffer_with_dynamic_index():
+def test_buffer_with_dynamic_index(verify_ir):
     """Test buffer access with dynamic index."""
-    print("\n" + "=" * 60)
-    print("Test: buffer dynamic index")
-    print("=" * 60)
-
     @callable
     def dynamic_access(buf: Buffer[Float], idx: Int) -> Float:
         return buf[idx]
 
     ir = dynamic_access(0, 5)
+    
+    expected = """
+f32 dynamic_access(buffer<f32> arg0, i32 arg1) {
+  f32 v0 = buffer_read(arg0, arg1);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    assert 'BUFFER_READ' in counts
-
-    print(f"✓ Generated {len(ir.blocks)} blocks with BUFFER_READ")
-    print("=" * 60)
-
-
-def test_buffer_multiple_writes():
+def test_buffer_multiple_writes(verify_ir):
     """Test multiple buffer writes."""
-    print("\n" + "=" * 60)
-    print("Test: buffer multiple writes")
-    print("=" * 60)
-
     @callable
     def fill_buffer(buf: Buffer[Float]) -> None:
         buf[0] = 0.0
@@ -163,23 +105,19 @@ def test_buffer_multiple_writes():
         buf[2] = 2.0
 
     ir = fill_buffer(0)
+    
+    expected = """
+void fill_buffer(buffer<f32> arg0) {
+  buffer_write(arg0, 0, 0.0);
+  buffer_write(arg0, 1, 1.0);
+  buffer_write(arg0, 2, 2.0);
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    assert counts['BUFFER_WRITE'] == 3
-
-    print(f"✓ Generated {len(ir.blocks)} blocks with {counts['BUFFER_WRITE']} BUFFER_WRITEs")
-    print("=" * 60)
-
-
-def test_buffer_2d_kernel():
+def test_buffer_2d_kernel(verify_ir):
     """Test 2D buffer access pattern."""
-    print("\n" + "=" * 60)
-    print("Test: 2D buffer kernel")
-    print("=" * 60)
-
     @kernel
     def matrix_transpose(out: Buffer[Float], inp: Buffer[Float], width: Int, height: Int):
         x = dispatch_id().x
@@ -188,33 +126,34 @@ def test_buffer_2d_kernel():
             out[y * width + x] = inp[x * height + y]
 
     ir = matrix_transpose(None, None, 64, 64)
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
     assert ir.is_kernel
-    assert len(ir.blocks) >= 2  # Should have condition block
-
-    counts = count_instructions(ir)
-    total = sum(counts.values())
-    print(f"✓ 2D kernel with {len(ir.blocks)} blocks, {total} instructions")
-    print(f"  DISPATCH_ID: {counts.get('DISPATCH_ID', 0)}")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Running test_buffer_ops.py tests")
-    print("=" * 70)
-
-    test_buffer_write()
-    test_buffer_read()
-    test_buffer_read_write()
-    test_saxpy_kernel()
-    test_buffer_with_dynamic_index()
-    test_buffer_multiple_writes()
-    test_buffer_2d_kernel()
-
-    print("\n" + "=" * 70)
-    print("All test_buffer_ops.py tests passed!")
-    print("=" * 70)
+    
+    expected = """
+kernel void matrix_transpose(buffer<f32> arg0, buffer<f32> arg1, i32 arg2, i32 arg3) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  <3 x u32> v2 = dispatch_id();
+  u32 v3 = swizzle(v2, 'y');
+  i1 v4 = lt(v1, arg2);
+  i1 v5 = alloca();
+  store(v5, v4);
+  if (v4) { 
+    i1 v8 = lt(v3, arg3);
+    store(v5, v8);
+  } else {
+    (empty)
+  }
+  i1 v10 = load(v5);
+  if (v10) { 
+    u32 v12 = mul(v3, arg2);
+    u32 v13 = add(v12, v1);
+    u32 v14 = mul(v1, arg3);
+    u32 v15 = add(v14, v3);
+    f32 v16 = buffer_read(arg1, v15);
+    buffer_write(arg0, v13, v16);
+  } else {
+    (empty)
+  }
+}
+"""
+    verify_ir(ir, expected)

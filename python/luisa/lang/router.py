@@ -215,8 +215,28 @@ class RoutedFunction:
         if hasattr(result, 'get_dsl_type') and hasattr(result, 'to_tuple'):
             return ConstantValue(typ=result.get_dsl_type(), value=result)
 
+        # Handle numeric results - return as plain Python values for better folding
+        if isinstance(result, (int, float)):
+            return float(result) if isinstance(result, float) else int(result)
+            
+        # Handle numpy scalars if available
+        try:
+            import numpy as np
+            if isinstance(result, (np.number, np.bool_)):
+                return result.item()
+        except ImportError:
+            pass
+
         # Handle tuple of constants (for vector/matrix/array results or multiple return values)
         if isinstance(result, tuple):
+            # Recursively wrap each element
+            wrapped = tuple(self._wrap_host_result(r) for r in result)
+            
+            # If all elements are plain Python values and it's a vector/matrix,
+            # we can return it as a tuple of plain values.
+            if all(not isinstance(r, ConstantValue) for r in wrapped):
+                return wrapped
+            
             # If it's a small tuple (2-4 elements), it might be a vector
             if len(result) in (2, 3, 4):
                 # Check if all elements are numeric constants

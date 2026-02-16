@@ -522,12 +522,6 @@ class Struct(Type):
                 return i
         raise KeyError(f"Field '{field_name}' not found in struct {self.name}")
 
-    # Add methods
-    @classmethod
-    def get_dsl_type(cls) -> Struct:
-        """Get the DSL type for this struct."""
-        return cls._dsl_type  # pylint: disable=protected-access
-
 
 # ============================================================================
 # Resource Types
@@ -722,6 +716,21 @@ def annotation_to_type(ann: Any) -> tuple[Optional[Type], bool]:
     # Handle direct type references
     if isinstance(ann, Type):
         return ann, False
+
+    # Handle DSL struct types (classes decorated with @struct)
+    if hasattr(ann, '_dsl_type'):
+        # If it has been resolved already
+        if ann._dsl_type is not None:
+            return ann._dsl_type, False
+        # If it's a lazy struct, trigger resolution
+        if hasattr(ann, 'get_dsl_type'):
+            return ann.get_dsl_type(), False
+    elif hasattr(ann, '_dsl_annotations'):
+        # It's a @struct that hasn't even had _dsl_type assigned yet?
+        # This shouldn't happen with our current @struct implementation,
+        # but let's be safe.
+        if hasattr(ann, 'get_dsl_type'):
+            return ann.get_dsl_type(), False
 
     # Handle Python built-in types
     py_type = python_type_to_dsl(ann)
@@ -972,56 +981,78 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
     if not annotations:
         raise TypeError(f"Struct {cls.__name__} must have annotated fields")
 
-    # Build field list
-    fields = []
-    for name, ann_type in annotations.items():
-        dsl_type = None
-        if isinstance(ann_type, type):
-            # Check if it's a registered struct
-            if hasattr(ann_type, '_dsl_type'):
-                dsl_type = ann_type._dsl_type
-            else:
-                # Convert Python type to DSL type
-                dsl_type = python_type_to_dsl(ann_type)
-                if dsl_type is None:
-                    raise TypeError(f"Field '{name}' has unsupported type: {ann_type}")
-        elif isinstance(ann_type, Type):
-            dsl_type = ann_type
-        else:
-            raise TypeError(f"Field '{name}' has unsupported type annotation: {ann_type}")
-            
-        if not is_data_type(dsl_type):
-            raise TypeError(f"Struct member '{name}' must be a data type, got {dsl_type}")
-            
-        fields.append((name, dsl_type))
-
-    # Compute alignment if not specified
-    if align is None:
-        align = max((get_alignment(typ) for _, typ in fields), default=4)
-
-    # Create Struct type
-    struct_type = Struct(
-        name=cls.__name__,
-        fields=tuple(fields),
-        alignment=align
-    )
-
-    # Store in registry
-    _struct_registry[cls.__name__] = cls
-
-    # Attach type info to class
-    cls._dsl_type = struct_type  # pylint: disable=protected-access
-    cls._dsl_fields = {name: typ for name, typ in fields}  # pylint: disable=protected-access
+    # Store information for lazy resolution
+    cls._dsl_type = None
+    cls._dsl_fields = None
+    cls._dsl_align = align
+    cls._dsl_annotations = annotations
 
     # Add methods
     @classmethod
     def get_dsl_type(cls) -> Struct:
-        """Get the DSL type for this struct."""
-        return cls._dsl_type  # pylint: disable=protected-access
+        """Get the DSL type for this struct, resolving fields lazily."""
+        if cls._dsl_type is not None:
+            return cls._dsl_type
+            
+        # Resolve fields
+        fields = []
+        for name, ann_type in cls._dsl_annotations.items():
+            # Handle string annotations (forward references)
+            if isinstance(ann_type, str):
+                # Resolve from common sources
+                resolved = False
+                
+                # Strip potential extra quotes from ast.unparse or similar if they exist
+                target_name = ann_type.strip("'").strip('"')
+                
+                # 1. Check types module globals
+                if target_name in globals():
+                    ann_type = globals()[target_name]
+                    resolved = True
+                
+                # 2. Check the luisa package
+                if not resolved:
+                    import sys
+                    if 'luisa' in sys.modules:
+                        lmod = sys.modules['luisa']
+                        if hasattr(lmod, target_name):
+                            ann_type = getattr(lmod, target_name)
+                            resolved = True
+                
+                if not resolved:
+                    raise TypeError(f"Could not resolve type annotation '{target_name}' for field '{name}' in struct {cls.__name__}")
+
+            dsl_type, is_ref = annotation_to_type(ann_type)
+            if dsl_type is None:
+                raise TypeError(f"Field '{name}' has unsupported type annotation: {ann_type}")
+            if is_ref:
+                raise TypeError(f"Field '{name}' cannot be a reference type")
+                
+            if not is_data_type(dsl_type):
+                raise TypeError(f"Struct member '{name}' must be a data type, got {dsl_type}")
+                
+            fields.append((name, dsl_type))
+
+        # Compute alignment if not specified
+        align = cls._dsl_align
+        if align is None:
+            align = max((get_alignment(typ) for _, typ in fields), default=4)
+
+        # Create Struct type
+        cls._dsl_type = Struct(
+            name=cls.__name__,
+            fields=tuple(fields),
+            alignment=align
+        )
+        cls._dsl_fields = {name: typ for name, typ in fields}
+        return cls._dsl_type
 
     cls.get_dsl_type = get_dsl_type
 
     def __init__(self, *args, **kwargs):
+        # Force resolution if not yet done
+        self.__class__.get_dsl_type()
+        
         field_names = [f[0] for f in self._dsl_type.fields]
         if args:
             if kwargs:
@@ -1042,6 +1073,9 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
                 raise ValueError(f"Extra arguments: {', '.join(extra)}")
 
     def to_tuple(self):
+        # Force resolution if not yet done
+        self.__class__.get_dsl_type()
+        
         field_names = [f[0] for f in self._dsl_type.fields]
         return tuple(getattr(self, name) for name in field_names)
 
@@ -1051,6 +1085,9 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
         return self.to_tuple() == other.to_tuple()
 
     def __repr__(self):
+        # Force resolution if not yet done
+        self.__class__.get_dsl_type()
+        
         field_names = [f[0] for f in self._dsl_type.fields]
         fields_str = ", ".join(f"{name}={getattr(self, name)!r}" for name in field_names)
         return f"{self.__class__.__name__}({fields_str})"
@@ -1091,6 +1128,51 @@ def struct(arg=None, *, align: Optional[int] = None):
 def get_struct_type(name: str) -> Optional[type]:
     """Get a registered struct type by name."""
     return _struct_registry.get(name)
+
+
+# ============================================================================
+# Ray Tracing Types
+# ============================================================================
+
+@struct
+class Ray:
+    """Ray structure for ray tracing."""
+    origin: Float3
+    t_min: Float
+    direction: Float3
+    t_max: Float
+
+
+@struct
+class TriangleHit:
+    """Hit result for triangle intersection."""
+    inst: UInt
+    prim: UInt
+    bary: Float2
+    t: Float
+
+
+@struct
+class ProceduralHit:
+    """Hit result for procedural primitive."""
+    inst: UInt
+    prim: UInt
+
+
+@struct
+class CommittedHit:
+    """Committed hit from ray query."""
+    inst: UInt
+    prim: UInt
+    bary: Float2
+    t: Float
+    hit_type: UInt
+
+# Force resolution of these types
+Ray.get_dsl_type()
+TriangleHit.get_dsl_type()
+ProceduralHit.get_dsl_type()
+CommittedHit.get_dsl_type()
 
 
 # ============================================================================

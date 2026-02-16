@@ -1,42 +1,13 @@
 """Advanced control flow tests for the LuisaCompute Python DSL - with IR building and pretty printing."""
 
 import pytest
-import ast as python_ast
 from luisa import kernel, callable, Int, Float, Bool, pprint
 from luisa.transform.op import Op
 from luisa.lang.inspect import find_operations, analyze_control_flow, count_instructions, get_ir_ast
 
 
-def print_ast(staged_func, title="Parsed AST"):
-    """Helper to print the parsed AST of a staged function."""
-    print(f"\n{title}:")
-    tree = get_ir_ast(staged_func)
-    if tree:
-        print(python_ast.dump(tree, indent=2))
-    else:
-        print("  (No AST available)")
-
-
-from luisa.lang.inspect import get_ir_ast
-import ast as python_ast
-
-
-def print_ast(staged_func, title="Parsed AST"):
-    """Helper to print the parsed AST of a staged function."""
-    print(f"\n{title}:")
-    tree = get_ir_ast(staged_func)
-    if tree:
-        print(python_ast.dump(tree, indent=2))
-    else:
-        print("  (No AST available)")
-
-
-def test_nested_if_statements():
+def test_nested_if_statements(verify_ir):
     """Test nested if statements."""
-    print("\n" + "=" * 60)
-    print("Test: nested if statements")
-    print("=" * 60)
-
     @callable
     def nested_if(x: Int, y: Int) -> Int:
         if x > 0:
@@ -46,53 +17,62 @@ def test_nested_if_statements():
         return 0
 
     ir = nested_if(1, 2)
-    print_ast(nested_if, "AST: nested_if")
+    
+    expected = """
+i32 nested_if(i32 arg0, i32 arg1) {
+  i1 v0 = gt(arg0, 0);
+  if (v0) { 
+    i1 v2 = gt(arg1, 0);
+    if (v2) { 
+      i32 v4 = add(arg0, arg1);
+      return v4;
+    } else {
+      (empty)
+    }
+    i32 v6 = sub(arg0, arg1);
+    return v6;
+  } else {
+    (empty)
+  }
+  return 0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    cf = analyze_control_flow(ir)
-    assert cf['conditional_branches'] >= 2
-
-    print(f"✓ Nested ifs: {len(ir.blocks)} blocks, {cf['conditional_branches']} conditionals")
-    print("=" * 60)
-
-
-def test_if_elif_else_chain():
+def test_if_elif_else_chain(verify_ir):
     """Test if-elif-else chain (using nested ifs)."""
-    print("\n" + "=" * 60)
-    print("Test: if-elif-else chain")
-    print("=" * 60)
-
     @callable
     def if_chain(x: Int) -> Int:
-        if x < Int(0):
+        if x < 0:
             return -1
+        elif x == 0:
+            return 0
         else:
-            if x == Int(0):
-                return 0
-            else:
-                return 1
+            return 1
 
-    from luisa.transform.ir import ArgumentValue
-    # Use an ArgumentValue to ensure it's not folded
-    ir = if_chain(ArgumentValue(typ=Int, index=0))
-    print("\nGenerated IR:")
-    print(pprint(ir))
+    ir = if_chain(0)
+    
+    expected = """
+i32 if_chain(i32 arg0) {
+  i1 v0 = lt(arg0, 0);
+  if (v0) { 
+    return -1;
+  } else {
+    i1 v3 = eq(arg0, 0);
+    if (v3) { 
+      return 0;
+    } else {
+      return 1;
+    }
+  }
+}
+"""
+    verify_ir(ir, expected)
 
-    cf = analyze_control_flow(ir)
-    assert cf['conditional_branches'] >= 2
 
-    print(f"✓ If chain: {len(ir.blocks)} blocks, {cf['conditional_branches']} conditionals")
-    print("=" * 60)
-
-
-def test_while_loop_with_break():
+def test_while_loop_with_break(verify_ir):
     """Test while loop with break."""
-    print("\n" + "=" * 60)
-    print("Test: while loop with break")
-    print("=" * 60)
-
     @callable
     def while_with_break(x: Int) -> Int:
         i = Int(0)
@@ -103,104 +83,163 @@ def test_while_loop_with_break():
         return i
 
     ir = while_with_break(10)
+    
+    expected = """
+i32 while_with_break(i32 arg0) {
+  i32 vi = alloca();
+  store(vi, 0);
+  i32 v2 = load(vi);
+  i1 v3 = lt(v2, 100);
+  while (true) { 
+    i1 v5 = logical_not(v3);
+    if (v5) { 
+      break;
+    } else {
+      (empty)
+    }
+    i32 v8 = load(vi);
+    i1 v9 = eq(v8, arg0);
+    if (v9) { 
+      (empty)
+    } else {
+      (empty)
+    }
+  }
+  i32 v11 = load(vi);
+  return v11;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    cf = analyze_control_flow(ir)
-    assert cf['has_loops']
-
-    print(f"✓ While with break: {len(ir.blocks)} blocks, has_loops={cf['has_loops']}")
-    print("=" * 60)
-
-
-def test_while_loop_with_continue():
+def test_while_loop_with_continue(verify_ir):
     """Test while loop with continue."""
-    print("\n" + "=" * 60)
-    print("Test: while loop with continue")
-    print("=" * 60)
-
     @callable
     def while_with_continue(x: Int) -> Int:
         i = Int(0)
-        sum = Int(0)
+        s = Int(0)
         while i < 10:
             i = i + 1
             if i == x:
                 continue
-            sum = sum + i
-        return sum
+            s = s + i
+        return s
 
     ir = while_with_continue(5)
+    
+    expected = """
+i32 while_with_continue(i32 arg0) {
+  i32 vi = alloca();
+  store(vi, 0);
+  i32 vs = alloca();
+  store(vs, 0);
+  i32 v4 = load(vi);
+  i1 v5 = lt(v4, 10);
+  while (true) { 
+    i1 v7 = logical_not(v5);
+    if (v7) { 
+      break;
+    } else {
+      (empty)
+    }
+    i32 v10 = load(vi);
+    i32 v11 = add(v10, 1);
+    store(vi, v11);
+    i32 v13 = load(vi);
+    i1 v14 = eq(v13, arg0);
+    if (v14) { 
+      (empty)
+    } else {
+      (empty)
+    }
+  }
+  i32 v16 = load(vs);
+  return v16;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    cf = analyze_control_flow(ir)
-    assert cf['has_loops']
-
-    print(f"✓ While with continue: {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_for_range_loop():
+def test_for_range_loop(verify_ir):
     """Test for-range loop."""
-    print("\n" + "=" * 60)
-    print("Test: for-range loop")
-    print("=" * 60)
-
     @callable
     def for_range_sum(n: Int) -> Int:
-        total = 0
+        total = Int(0)
         for i in range(n):
             total = total + i
         return total
 
-    from luisa.transform.ir import ArgumentValue
-    ir = for_range_sum(ArgumentValue(typ=Int, index=0))
+    ir = for_range_sum(10)
+    
+    expected = """
+i32 for_range_sum(i32 arg0) {
+  i32 vtotal = alloca();
+  store(vtotal, 0);
+  i32 vi = alloca();
+  store(vi, 0);
+  while (true) { 
+    i32 v5 = load(vi);
+    i1 v6 = lt(v5, arg0);
+    i1 v7 = logical_not(v6);
+    if (v7) { 
+      break;
+    } else {
+      (empty)
+    }
+    i32 v10 = load(vtotal);
+    i32 v11 = add(v10, v5);
+    store(vtotal, v11);
+    i32 v13 = add(v5, 1);
+    store(vi, v13);
+  }
+  i32 v15 = load(vtotal);
+  return v15;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    cf = analyze_control_flow(ir)
-    assert cf['has_loops']
-
-    print(f"✓ For-range: {len(ir.blocks)} blocks, has_loops={cf['has_loops']}")
-    print("=" * 60)
-
-
-def test_for_range_with_step():
+def test_for_range_with_step(verify_ir):
     """Test for-range loop with step."""
-    print("\n" + "=" * 60)
-    print("Test: for-range with step")
-    print("=" * 60)
-
     @callable
     def for_range_step(n: Int) -> Int:
-        total = 0
+        total = Int(0)
         for i in range(0, n, 2):
             total = total + i
         return total
 
-    from luisa.transform.ir import ArgumentValue
-    ir = for_range_step(ArgumentValue(typ=Int, index=0))
+    ir = for_range_step(10)
+    
+    expected = """
+i32 for_range_step(i32 arg0) {
+  i32 vtotal = alloca();
+  store(vtotal, 0);
+  i32 vi = alloca();
+  store(vi, 0);
+  while (true) { 
+    i32 v5 = load(vi);
+    i1 v6 = lt(v5, arg0);
+    i1 v7 = logical_not(v6);
+    if (v7) { 
+      break;
+    } else {
+      (empty)
+    }
+    i32 v10 = load(vtotal);
+    i32 v11 = add(v10, v5);
+    store(vtotal, v11);
+    i32 v13 = add(v5, 2);
+    store(vi, v13);
+  }
+  i32 v15 = load(vtotal);
+  return v15;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    cf = analyze_control_flow(ir)
-    assert cf['has_loops']
-
-    print(f"✓ For-range with step: {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_early_return():
+def test_early_return(verify_ir):
     """Test function with early return."""
-    print("\n" + "=" * 60)
-    print("Test: early return")
-    print("=" * 60)
-
     @callable
     def early_return(x: Int) -> Int:
         if x < 0:
@@ -210,23 +249,29 @@ def test_early_return():
         return x
 
     ir = early_return(50)
+    
+    expected = """
+i32 early_return(i32 arg0) {
+  i1 v0 = lt(arg0, 0);
+  if (v0) { 
+    return 0;
+  } else {
+    (empty)
+  }
+  i1 v3 = gt(arg0, 100);
+  if (v3) { 
+    return 100;
+  } else {
+    (empty)
+  }
+  return arg0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    cf = analyze_control_flow(ir)
-    assert cf['returns'] >= 1
-
-    print(f"✓ Early return: {len(ir.blocks)} blocks, {cf['returns']} returns")
-    print("=" * 60)
-
-
-def test_complex_boolean_expression():
+def test_complex_boolean_expression(verify_ir):
     """Test complex boolean expressions in conditions."""
-    print("\n" + "=" * 60)
-    print("Test: complex boolean expression")
-    print("=" * 60)
-
     @callable
     def complex_bool(x: Int, y: Int) -> Int:
         if x > 0 and y > 0:
@@ -234,23 +279,33 @@ def test_complex_boolean_expression():
         return 0
 
     ir = complex_bool(1, 2)
+    
+    expected = """
+i32 complex_bool(i32 arg0, i32 arg1) {
+  i1 v0 = gt(arg0, 0);
+  i1 v1 = alloca();
+  store(v1, v0);
+  if (v0) { 
+    i1 v4 = gt(arg1, 0);
+    store(v1, v4);
+  } else {
+    (empty)
+  }
+  i1 v6 = load(v1);
+  if (v6) { 
+    i32 v8 = add(arg0, arg1);
+    return v8;
+  } else {
+    (empty)
+  }
+  return 0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-
-    print(f"✓ Boolean expression: {len(ir.blocks)} blocks")
-    print(f"  Instructions: {dict(counts)}")
-    print("=" * 60)
-
-
-def test_multiple_returns_in_branches():
+def test_multiple_returns_in_branches(verify_ir):
     """Test function with multiple returns in different branches."""
-    print("\n" + "=" * 60)
-    print("Test: multiple returns in branches")
-    print("=" * 60)
-
     @callable
     def multi_return(x: Int) -> Int:
         if x < 0:
@@ -261,23 +316,27 @@ def test_multiple_returns_in_branches():
             return 1
 
     ir = multi_return(0)
+    
+    expected = """
+i32 multi_return(i32 arg0) {
+  i1 v0 = lt(arg0, 0);
+  if (v0) { 
+    return -1;
+  } else {
+    i1 v3 = eq(arg0, 0);
+    if (v3) { 
+      return 0;
+    } else {
+      return 1;
+    }
+  }
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    cf = analyze_control_flow(ir)
-    assert cf['returns'] >= 1
-
-    print(f"✓ Multiple returns: {len(ir.blocks)} blocks, {cf['returns']} returns")
-    print("=" * 60)
-
-
-def test_deeply_nested_control_flow():
+def test_deeply_nested_control_flow(verify_ir):
     """Test deeply nested control flow."""
-    print("\n" + "=" * 60)
-    print("Test: deeply nested control flow")
-    print("=" * 60)
-
     @callable
     def nested_deep(x: Int) -> Int:
         if x > 0:
@@ -289,51 +348,78 @@ def test_deeply_nested_control_flow():
         return 0
 
     ir = nested_deep(50)
+    
+    expected = """
+i32 nested_deep(i32 arg0) {
+  i1 v0 = gt(arg0, 0);
+  if (v0) { 
+    i1 v2 = gt(arg0, 10);
+    if (v2) { 
+      i1 v4 = gt(arg0, 100);
+      if (v4) { 
+        return 1000;
+      } else {
+        (empty)
+      }
+      return 100;
+    } else {
+      (empty)
+    }
+    return 10;
+  } else {
+    (empty)
+  }
+  return 0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    assert len(ir.blocks) >= 4  # Should have multiple branches
-
-    print(f"✓ Deep nesting: {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_loop_with_multiple_exits():
+def test_loop_with_multiple_exits(verify_ir):
     """Test loop with multiple exit conditions."""
-    print("\n" + "=" * 60)
-    print("Test: loop with multiple exits")
-    print("=" * 60)
-
     @callable
     def multi_exit_loop(x: Int) -> Int:
         i = Int(0)
         while i < 100:
             if i == x:
                 break
-            if i > x * Int(2):
+            if i > x * 2:
                 break
-            i = i + Int(1)
+            i = i + 1
         return i
 
     ir = multi_exit_loop(25)
+    
+    expected = """
+i32 multi_exit_loop(i32 arg0) {
+  i32 vi = alloca();
+  store(vi, 0);
+  i32 v2 = load(vi);
+  i1 v3 = lt(v2, 100);
+  while (true) { 
+    i1 v5 = logical_not(v3);
+    if (v5) { 
+      break;
+    } else {
+      (empty)
+    }
+    i32 v8 = load(vi);
+    i1 v9 = eq(v8, arg0);
+    if (v9) { 
+      (empty)
+    } else {
+      (empty)
+    }
+  }
+  i32 v11 = load(vi);
+  return v11;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    cf = analyze_control_flow(ir)
-    assert cf['has_loops']
-
-    print(f"✓ Multi-exit loop: {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_python_match_to_switch():
+def test_python_match_to_switch(verify_ir):
     """Test that Python's match statement is translated to IR SWITCH."""
-    print("\n" + "=" * 60)
-    print("Test: Python match to IR SWITCH")
-    print("=" * 60)
-
     @callable
     def match_test(tag: Int) -> Int:
         res = Int(0)
@@ -349,35 +435,27 @@ def test_python_match_to_switch():
         return res
 
     ir = match_test(0)
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    cf = analyze_control_flow(ir)
-    assert cf['switches'] == 1
-
-    print("✓ Python match translated to IR SWITCH")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Running test_control_flow_advanced.py tests")
-    print("=" * 70)
-
-    test_nested_if_statements()
-    test_if_elif_else_chain()
-    test_while_loop_with_break()
-    test_while_loop_with_continue()
-    test_for_range_loop()
-    test_for_range_with_step()
-    test_early_return()
-    test_complex_boolean_expression()
-    test_multiple_returns_in_branches()
-    test_deeply_nested_control_flow()
-    test_loop_with_multiple_exits()
-    test_python_match_to_switch()
-
-    print("\n" + "=" * 70)
-    print("All test_control_flow_advanced.py tests passed!")
-    print("=" * 70)
+    
+    expected = """
+i32 match_test(i32 arg0) {
+  i32 vres = alloca();
+  store(vres, 0);
+  switch (arg0) { 
+    case 0: {
+      store(vres, 10);
+    }
+    case 1: {
+      store(vres, 20);
+    }
+    case 2: {
+      store(vres, 30);
+    }
+    default: {
+      store(vres, -1);
+    }
+  }
+  i32 v7 = load(vres);
+  return v7;
+}
+"""
+    verify_ir(ir, expected)

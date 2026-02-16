@@ -1,88 +1,46 @@
-"""Tests for staged functions - with IR building and pretty printing."""
+"""Tests for JIT compilation and staged functions."""
 
 import pytest
-from luisa import (
-    kernel, callable, StagedFunction,
-    Int, Float,
-    pprint,
-)
-from luisa.lang.inspect import get_ir_ast, get_ir_source
-from luisa.lang.inspect import count_instructions
+from luisa import kernel, callable, Float, Int, Buffer, StagedFunction, pprint
+from luisa.lang.inspect import get_ir_ast
 
 
-def test_staged_function_basic():
-    """Test basic staged function."""
-    print("\n" + "=" * 60)
-    print("Test: staged function basic")
-    print("=" * 60)
-
+def test_staged_function_basic(verify_ir):
+    """Test building a basic staged function."""
     @callable
     def add(a: Float, b: Float) -> Float:
         return a + b
 
-    assert isinstance(add, StagedFunction)
-    assert add.name == 'add'
-    assert not add.is_kernel
-
-    ir_func = add(1.0, 2.0)
-
-    # Print AST
-    print("\nParsed AST:")
-    import ast
-    ast_tree = get_ir_ast(add)
-    print(ast.dump(ast_tree, indent=2))
-
-    print("\nGenerated IR:")
-    print(pprint(ir_func))
-
-    assert ir_func.name == 'add'
-    assert len(ir_func.blocks) > 0
-    assert len(ir_func.blocks[0].instructions) > 0
-
-    # Check caching
-    ir_func2 = add(1.0, 2.0)
-    assert ir_func is ir_func2
-
-    print(f"✓ Staged function built with {len(ir_func.blocks)} blocks")
-    print("=" * 60)
+    ir = add(1.0, 2.0)
+    
+    expected = """
+f32 add(f32 arg0, f32 arg1) {
+  f32 v0 = add(arg0, arg1);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_staged_function_with_kernel():
+def test_staged_function_with_kernel(verify_ir):
     """Test staged function marked as kernel."""
-    print("\n" + "=" * 60)
-    print("Test: staged function kernel")
-    print("=" * 60)
-
     @kernel
     def simple_kernel(x: Int) -> None:
         pass
 
-    assert isinstance(simple_kernel, StagedFunction)
-    assert simple_kernel.is_kernel
-
-    ir_func = simple_kernel(42)
-
-    # Print AST
-    print("\nParsed AST:")
-    import ast
-    ast_tree = get_ir_ast(simple_kernel)
-    print(ast.dump(ast_tree, indent=2))
-
-    print("\nGenerated IR:")
-    print(pprint(ir_func))
-
-    assert ir_func.is_kernel
-
-    print(f"✓ Kernel built with {len(ir_func.blocks)} blocks")
-    print("=" * 60)
+    ir = simple_kernel(42)
+    assert ir.is_kernel
+    
+    expected = """
+kernel void simple_kernel(i32 arg0) {
+  (empty)
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_staged_function_control_flow():
+def test_staged_function_control_flow(verify_ir):
     """Test staged function with control flow."""
-    print("\n" + "=" * 60)
-    print("Test: staged function control flow")
-    print("=" * 60)
-
     @callable
     def abs_value(x: Float) -> Float:
         if x > 0.0:
@@ -90,31 +48,24 @@ def test_staged_function_control_flow():
         else:
             return -x
 
-    from luisa.transform.ir import ArgumentValue
-    ir_func = abs_value(ArgumentValue(typ=Float, index=0))
-
-    # Print AST
-    print("\nParsed AST:")
-    import ast
-    ast_tree = get_ir_ast(abs_value)
-    print(ast.dump(ast_tree, indent=2))
-
-    print("\nGenerated IR:")
-    print(pprint(ir_func))
-
-    assert ir_func.name == 'abs_value'
-    assert len(ir_func.blocks) >= 2
-
-    print(f"✓ Control flow built with {len(ir_func.blocks)} blocks")
-    print("=" * 60)
+    ir = abs_value(1.0)
+    
+    expected = """
+f32 abs_value(f32 arg0) {
+  i1 v0 = gt(arg0, 0.0);
+  if (v0) {
+    return arg0;
+  } else {
+    f32 v3 = neg(arg0);
+    return v3;
+  }
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_staged_function_captured_vars():
+def test_staged_function_captured_vars(verify_ir):
     """Test staged function with captured variables."""
-    print("\n" + "=" * 60)
-    print("Test: staged function captured vars")
-    print("=" * 60)
-
     threshold = 0.5
 
     @callable
@@ -124,144 +75,153 @@ def test_staged_function_captured_vars():
         else:
             return 0
 
-    from luisa.transform.ir import ArgumentValue
-    ir_func = threshold_check(ArgumentValue(typ=Float, index=0))
+    ir = threshold_check(1.0)
+    
+    expected = """
+i32 threshold_check(f32 arg0) {
+  i1 v0 = gt(arg0, 0.5);
+  if (v0) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir_func))
 
-    assert ir_func.name == 'threshold_check'
-
-    print(f"✓ Captured vars built with {len(ir_func.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_staged_function_while_loop():
+def test_staged_function_while_loop(verify_ir):
     """Test staged function with while loop."""
-    print("\n" + "=" * 60)
-    print("Test: staged function while loop")
-    print("=" * 60)
-
     @callable
-    def count_up() -> Int:
+    def count_up(n: Int) -> Int:
         i = Int(0)
-        while i < 10:
+        while i < n:
             i = i + 1
         return i
 
-    ir_func = count_up()
+    ir = count_up(10)
+    
+    expected = """
+i32 count_up(i32 arg0) {
+  i32 vi = alloca();
+  store(vi, 0);
+  i32 v2 = load(vi);
+  i1 v3 = lt(v2, arg0);
+  while (true) { 
+    i1 v5 = logical_not(v3);
+    if (v5) { 
+      break;
+    } else {
+      (empty)
+    }
+    i32 v8 = load(vi);
+    i32 v9 = add(v8, 1);
+    store(vi, v9);
+  }
+  i32 v11 = load(vi);
+  return v11;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir_func))
 
-    assert ir_func.name == 'count_up'
-
-    counts = count_instructions(ir_func)
-    print(f"✓ While loop built with {len(ir_func.blocks)} blocks")
-    print(f"  Instructions: {dict(counts)}")
-    print("=" * 60)
-
-
-def test_staged_function_for_range():
+def test_staged_function_for_range(verify_ir):
     """Test staged function with for-range loop."""
-    print("\n" + "=" * 60)
-    print("Test: staged function for-range loop")
-    print("=" * 60)
-
     @callable
-    def sum_range(n: Int) -> Int:
-        total = Int(0)
+    def sum_range(n: Int, start_val: Int) -> Int:
+        total = start_val
         for i in range(n):
             total = total + i
         return total
 
-    from luisa.transform.ir import ArgumentValue
-    ir_func = sum_range(ArgumentValue(typ=Int, index=0))
+    ir = sum_range(10, 0)
+    
+    expected = """
+i32 sum_range(i32 arg0, i32 arg1) {
+  i32 vtotal = alloca();
+  store(vtotal, arg1);
+  i32 vi = alloca();
+  store(vi, 0);
+  while (true) {
+    i32 v5 = load(vi);
+    i1 v6 = lt(v5, arg0);
+    i1 v7 = logical_not(v6);
+    if (v7) {
+      break;
+    } else {
+      (empty)
+    }
+    i32 v10 = load(vtotal);
+    i32 v11 = add(v10, v5);
+    store(vtotal, v11);
+    i32 v13 = add(v5, 1);
+    store(vi, v13);
+  }
+  i32 v15 = load(vtotal);
+  return v15;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir_func))
 
-    assert ir_func.name == 'sum_range'
-
-    print(f"✓ For-range loop built with {len(ir_func.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_staged_function_complex():
-    """Test complex staged function with multiple operations."""
-    print("\n" + "=" * 60)
-    print("Test: staged function complex")
-    print("=" * 60)
-
+def test_staged_function_complex(verify_ir):
+    """Test staged function with complex logic."""
     @callable
     def compute(x: Float, y: Float) -> Float:
-        # Compute x^2 + y^2
         x2 = x * x
         y2 = y * y
         sum_sq = x2 + y2
-
-        # Apply some conditions
+        
         if sum_sq > 0.0:
             return sum_sq
         else:
-            return Float(0.0)
+            return 0.0
 
-    ir_func = compute(3.0, 4.0)
+    ir = compute(1.0, 2.0)
+    
+    expected = """
+f32 compute(f32 arg0, f32 arg1) {
+  f32 v0 = mul(arg0, arg0);
+  f32 vx2 = alloca();
+  store(vx2, v0);
+  f32 v3 = mul(arg1, arg1);
+  f32 vy2 = alloca();
+  store(vy2, v3);
+  f32 v6 = load(vx2);
+  f32 v7 = load(vy2);
+  f32 v8 = add(v6, v7);
+  f32 vsum_sq = alloca();
+  store(vsum_sq, v8);
+  f32 v11 = load(vsum_sq);
+  i1 v12 = gt(v11, 0.0);
+  if (v12) {
+    f32 v14 = load(vsum_sq);
+    return v14;
+  } else {
+    return 0.0;
+  }
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir_func))
 
-    counts = count_instructions(ir_func)
-
-    assert 'MUL' in counts
-    assert 'ADD' in counts
-
-    print(f"✓ Complex function built with {len(ir_func.blocks)} blocks")
-    print(f"  Instructions: {dict(counts)}")
-    print("=" * 60)
-
-
-def test_kernel_with_dispatch_id():
-    """Test kernel using dispatch_id."""
-    print("\n" + "=" * 60)
-    print("Test: kernel with dispatch_id")
-    print("=" * 60)
-
-    from luisa import Buffer, dispatch_id
-
+def test_kernel_with_dispatch_id(verify_ir):
+    """Test kernel using dispatch_id register."""
+    from luisa import dispatch_id
+    
     @kernel
     def index_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
         buf[idx] = Float(idx)
 
-    ir_func = index_kernel(None)
-
-    print("\nGenerated IR:")
-    print(pprint(ir_func))
-
-    assert ir_func.is_kernel
-
-    counts = count_instructions(ir_func)
-    assert 'DISPATCH_ID' in counts
-
-    print(f"✓ Kernel with dispatch_id built, {len(ir_func.blocks)} blocks")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Running test_staged.py tests")
-    print("=" * 70)
-
-    test_staged_function_basic()
-    test_staged_function_with_kernel()
-    test_staged_function_control_flow()
-    test_staged_function_captured_vars()
-    test_staged_function_while_loop()
-    test_staged_function_for_range()
-    test_staged_function_complex()
-    test_kernel_with_dispatch_id()
-
-    print("\n" + "=" * 70)
-    print("All test_staged.py tests passed!")
-    print("=" * 70)
+    ir = index_kernel(None)
+    
+    expected = """
+kernel void index_kernel(buffer<f32> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  f32 v2 = cast(v1);
+  buffer_write(arg0, v1, v2);
+}
+"""
+    verify_ir(ir, expected)

@@ -3,12 +3,6 @@ Test demonstrating reference argument support in the LuisaCompute Python DSL v2.
 """
 
 import pytest
-import sys
-import os
-
-# Ensure local luisa package is found
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from luisa import (
     kernel, callable,
     Int, Buffer, dispatch_id, Ref,
@@ -16,12 +10,8 @@ from luisa import (
 )
 
 
-def test_reference_argument_basic():
+def test_reference_argument_basic(verify_ir):
     """Test basic reference argument support."""
-    print("\n" + "=" * 60)
-    print("Test: Reference Argument Basic")
-    print("=" * 60)
-
     @callable
     def increment(x: Ref[Int]):
         # x is a Ref[Int]
@@ -34,28 +24,32 @@ def test_reference_argument_basic():
         increment(val)
         buf[idx] = val
 
-    # Provide a typed buffer so indexing works
-    ir = ref_kernel(Buffer[Int])
+    ir = ref_kernel(None)
+    
+    expected = """
+kernel void ref_kernel(buffer<i32> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  i32 v2 = buffer_read(arg0, v1);
+  i32 val = alloca();
+  store(val, v2);
+  i32 v5 = load(val);
+  call(@increment, v5);
+  i32 v7 = load(val);
+  buffer_write(arg0, v1, v7);
+}
 
-    # Get the increment IR from cache
-    inc_ir = list(increment._cache.values())[0]
-
-    print("\nGenerated IR for increment:")
-    print(pprint(inc_ir))
-
-    print("\nGenerated IR for ref_kernel:")
-    print(pprint(ir))
-
-    print("✓ Reference argument IR generated")
-    print("=" * 60)
+void increment(i32 arg0) {
+  i32 v0 = load(arg0);
+  i32 v1 = add(v0, 1);
+  store(arg0, v1);
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_swap_references():
+def test_swap_references(verify_ir):
     """Test swapping values using reference arguments."""
-    print("\n" + "=" * 60)
-    print("Test: Swap via References")
-    print("=" * 60)
-
     @callable
     def swap(a: Ref[Int], b: Ref[Int]):
         tmp = a
@@ -71,21 +65,41 @@ def test_swap_references():
         buf[idx * 2] = a
         buf[idx * 2 + 1] = b
 
-    ir = swap_kernel(Buffer[Int])
+    ir = swap_kernel(None)
+    
+    expected = """
+kernel void swap_kernel(buffer<i32> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  u32 v2 = mul(v1, 2);
+  i32 v3 = buffer_read(arg0, v2);
+  i32 va = alloca();
+  store(va, v3);
+  u32 v6 = mul(v1, 2);
+  u32 v7 = add(v6, 1);
+  i32 v8 = buffer_read(arg0, v7);
+  i32 vb = alloca();
+  store(vb, v8);
+  i32 v11 = load(va);
+  i32 v12 = load(vb);
+  call(@swap, v11, v12);
+  u32 v14 = mul(v1, 2);
+  i32 v15 = load(va);
+  buffer_write(arg0, v14, v15);
+  u32 v17 = mul(v1, 2);
+  u32 v18 = add(v17, 1);
+  i32 v19 = load(vb);
+  buffer_write(arg0, v18, v19);
+}
 
-    # Get swap IR from cache
-    swap_ir = list(swap._cache.values())[0]
-
-    print("\nGenerated IR for swap:")
-    print(pprint(swap_ir))
-
-    print("\nGenerated IR for swap_kernel:")
-    print(pprint(ir))
-
-    print("✓ Swap via references built successfully")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    test_reference_argument_basic()
-    test_swap_references()
+void swap(i32 arg0, i32 arg1) {
+  i32 v0 = load(arg0);
+  i32 vtmp = alloca();
+  store(vtmp, v0);
+  i32 v3 = load(arg1);
+  store(arg0, v3);
+  i32 v5 = load(vtmp);
+  store(arg1, v5);
+}
+"""
+    verify_ir(ir, expected)

@@ -8,50 +8,40 @@ from luisa import (
     Int, Float, Buffer, dispatch_id,
     pprint
 )
-from luisa.lang.inspect import analyze_control_flow
 
 
-def test_callable_specialization():
+def test_callable_specialization(verify_ir):
     """Test specialized callable functions."""
-    print("\n" + "=" * 60)
-    print("Test: Callable Specialization")
-    print("=" * 60)
-
     # Define a specialized callable
     @callable['T', 'i']
     def add_offset(a: T):
-        # T will be replaced by Int/Float
-        # i will be replaced by the constant value
         return a + i
 
     # Test with Int and offset 5
     ir_int = add_offset[Int, 5](10)
-    print("\nGenerated IR (Int, 5):")
-    print(pprint(ir_int))
-
-    # Verify IR contains addition
-    from luisa.lang.inspect import count_instructions
-    counts = count_instructions(ir_int)
-    assert 'ADD' in counts
+    
+    expected_int = """
+void add_offset(i32 arg0) {
+  i32 v0 = add(arg0, 5);
+  return v0;
+}
+"""
+    verify_ir(ir_int, expected_int)
 
     # Test with Float and offset 1.5
     ir_float = add_offset[Float, 1.5](10.0)
-    print("\nGenerated IR (Float, 1.5):")
-    print(pprint(ir_float))
+    
+    expected_float = """
+void add_offset(f32 arg0) {
+  f32 v0 = add(arg0, 1.5);
+  return v0;
+}
+"""
+    verify_ir(ir_float, expected_float)
 
-    counts = count_instructions(ir_float)
-    assert 'ADD' in counts
 
-    print("✓ Specialized callables built successfully")
-    print("=" * 60)
-
-
-def test_kernel_specialization():
+def test_kernel_specialization(verify_ir):
     """Test specialized kernels."""
-    print("\n" + "=" * 60)
-    print("Test: Kernel Specialization")
-    print("=" * 60)
-
     @kernel['BLOCK_SIZE']
     def tiled_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
@@ -60,18 +50,36 @@ def test_kernel_specialization():
 
     # Compile with BLOCK_SIZE = 64
     ir_64 = tiled_kernel[64](None)
-    print("\nGenerated IR (BLOCK_SIZE=64):")
-    print(pprint(ir_64))
+    
+    expected_64 = """
+kernel void tiled_kernel(buffer<f32> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  i1 v2 = lt(v1, 64);
+  if (v2) { 
+    f32 v4 = cast(v1);
+    buffer_write(arg0, v1, v4);
+  } else {
+    (empty)
+  }
+}
+"""
+    verify_ir(ir_64, expected_64)
 
     # Compile with BLOCK_SIZE = 128
     ir_128 = tiled_kernel[128](None)
-    print("\nGenerated IR (BLOCK_SIZE=128):")
-    print(pprint(ir_128))
-
-    print("✓ Specialized kernels built successfully")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    test_callable_specialization()
-    test_kernel_specialization()
+    
+    expected_128 = """
+kernel void tiled_kernel(buffer<f32> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  i1 v2 = lt(v1, 128);
+  if (v2) { 
+    f32 v4 = cast(v1);
+    buffer_write(arg0, v1, v4);
+  } else {
+    (empty)
+  }
+}
+"""
+    verify_ir(ir_128, expected_128)

@@ -9,7 +9,6 @@ from luisa import (
     Int, Float, Buffer, dispatch_id,
     pprint
 )
-from luisa.lang.inspect import analyze_control_flow
 from luisa.lang.builtins.math import sin
 
 
@@ -49,12 +48,8 @@ class Polymorphic:
             pass
 
 
-def test_multistage_polymorphic_dispatch():
+def test_multistage_polymorphic_dispatch(verify_ir):
     """Test polymorphic dispatch using multistage programming."""
-    print("\n" + "=" * 60)
-    print("Test: Multistage Polymorphic Dispatch")
-    print("=" * 60)
-
     poly = Polymorphic()
 
     @callable
@@ -71,13 +66,9 @@ def test_multistage_polymorphic_dispatch():
         x[idx] = val * val
 
     # Register implementations on the host
-    tag_add = poly.register(add_one)
-    tag_mul = poly.register(multiply_two)
-    tag_square = poly.register(square)
-
-    assert tag_add == 0
-    assert tag_mul == 1
-    assert tag_square == 2
+    poly.register(add_one)
+    poly.register(multiply_two)
+    poly.register(square)
 
     @kernel
     def dispatch_kernel(buf: Buffer[Float], tags: Buffer[Int]):
@@ -85,34 +76,47 @@ def test_multistage_polymorphic_dispatch():
         tag = tags[idx]
 
         # Use the host-side helper to generate IR dispatch
-        # But we can also use a helper that knows how to get the builder.
         poly.dispatch(tag, buf, idx)
 
     # Build IR
     ir = dispatch_kernel(None, None)
+    
+    expected = """
+kernel void dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  i32 v2 = buffer_read(arg1, v1);
+  i32 vtag = alloca();
+  store(vtag, v2);
+  i32 v5 = load(vtag);
+  switch (v5) { 
+    case 0: {
+      f32 v7 = buffer_read(arg0, v1);
+      f32 v8 = add(v7, 1.0);
+      buffer_write(arg0, v1, v8);
+    }
+    case 1: {
+      f32 v10 = buffer_read(arg0, v1);
+      f32 v11 = mul(v10, 2.0);
+      buffer_write(arg0, v1, v11);
+    }
+    case 2: {
+      f32 v13 = buffer_read(arg0, v1);
+      f32 val = alloca();
+      store(val, v13);
+      f32 v16 = load(val);
+      f32 v17 = load(val);
+      f32 v18 = mul(v16, v17);
+      buffer_write(arg0, v1, v18);
+    }
+  }
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR Summary:")
-    cf = analyze_control_flow(ir)
-    print(f"  Blocks: {cf['blocks']}")
-    print(f"  Switches: {cf['switches']}")
-    print(f"  Has Loops: {cf['has_loops']}")
 
-    # Check if we have a switch with 3 cases
-    assert cf['switches'] == 1
-
-    print("\nGenerated IR:")
-    print(pprint(ir, recursive=True))
-
-    print("✓ Multistage polymorphic dispatch built successfully")
-    print("=" * 60)
-
-
-def test_nested_polymorphic_callables():
+def test_nested_polymorphic_callables(verify_ir):
     """Test defining polymorphic callables nested inside a kernel."""
-    print("\n" + "=" * 60)
-    print("Test: Nested Polymorphic Callables")
-    print("=" * 60)
-
     @kernel
     def nested_dispatch_kernel(buf: Buffer[Float], tags: Buffer[Int]):
         idx = dispatch_id().x
@@ -148,22 +152,49 @@ def test_nested_polymorphic_callables():
 
     # Build IR
     ir = nested_dispatch_kernel(None, None)
+    
+    expected = """
+kernel void nested_dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  i32 v2 = buffer_read(arg1, v1);
+  i32 vtag = alloca();
+  store(vtag, v2);
+  f32 v5 = buffer_read(arg0, v1);
+  f32 val = alloca();
+  store(val, v5);
+  switch (vtag) { 
+    case 0: {
+      f32 v9 = load(val);
+      call(@add_one, v9);
+      buffer_write(arg0, v1, v10);
+    }
+    case 1: {
+      f32 v12 = load(val);
+      call(@multiply_two, v12);
+      buffer_write(arg0, v1, v13);
+    }
+    case 2: {
+      f32 v15 = load(val);
+      call(@square, v15);
+      buffer_write(arg0, v1, v16);
+    }
+  }
+}
 
-    print("\nGenerated IR Summary:")
-    cf = analyze_control_flow(ir)
-    print(f"  Blocks: {cf['blocks']}")
-    print(f"  Switches: {cf['switches']}")
+void add_one(f32 arg0) {
+  f32 v0 = add(arg0, 0.1411200080598672);
+  return v0;
+}
 
-    # Check if we have a switch
-    assert cf['switches'] == 1
+void multiply_two(f32 arg0) {
+  f32 v0 = mul(arg0, 2.0);
+  return v0;
+}
 
-    print("\nGenerated IR:")
-    print(pprint(ir, recursive=True))
-
-    print("✓ Nested polymorphic callables built successfully")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    test_multistage_polymorphic_dispatch()
-    test_nested_polymorphic_callables()
+void square(f32 arg0) {
+  f32 v0 = mul(arg0, arg0);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)

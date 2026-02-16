@@ -16,9 +16,10 @@ from .lang.types import Type
 class PrettyPrinter:
     """Pretty printer for IR."""
 
-    def __init__(self, indent_size: int = 2, recursive: bool = False):
+    def __init__(self, indent_size: int = 2, recursive: bool = False, show_location: bool = True):
         self.indent_size = indent_size
         self.recursive = recursive
+        self.show_location = show_location
         self._output = StringIO()
         self._indent_level = 0
         self._printed_functions: set[str] = set()
@@ -49,6 +50,8 @@ class PrettyPrinter:
 
     def _format_loc(self, loc: Optional[SourceLocation]) -> str:
         """Format a source location as a comment string."""
+        if not self.show_location:
+            return ""
         return f" ![{loc}]" if loc else ""
 
     def print(self, obj: Function | Module) -> str:
@@ -265,7 +268,7 @@ class SimplePrinter:
 
 
 # Convenience functions
-def pprint(obj: Function | Module, indent_size: int = 2, recursive: bool = False) -> str:
+def pprint(obj: Function | Module, indent_size: int = 2, recursive: bool = False, show_location: bool = True) -> str:
     """
     Pretty print an IR object.
     
@@ -273,6 +276,7 @@ def pprint(obj: Function | Module, indent_size: int = 2, recursive: bool = False
         obj: The IR function or module to print
         indent_size: Number of spaces per indentation level
         recursive: Whether to recursively print called functions
+        show_location: Whether to include source location debug info
     
     Returns:
         Pretty-printed string representation
@@ -291,14 +295,14 @@ def pprint(obj: Function | Module, indent_size: int = 2, recursive: bool = False
             ...
         }
     """
-    printer = PrettyPrinter(indent_size, recursive=recursive)
+    printer = PrettyPrinter(indent_size, recursive=recursive, show_location=show_location)
     return printer.print(obj)
 
 
-def pprint_to_file(obj, path: str, indent_size: int = 2) -> None:  # type: ignore
+def pprint_to_file(obj, path: str, indent_size: int = 2, recursive: bool = False, show_location: bool = True) -> None:  # type: ignore
     """Pretty print an IR object to a file."""
     with open(path, 'w', encoding='utf-8') as f:
-        f.write(pprint(obj, indent_size))
+        f.write(pprint(obj, indent_size, recursive=recursive, show_location=show_location))
 
 
 def print_function(func: Function) -> str:

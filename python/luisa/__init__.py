@@ -44,10 +44,6 @@ from .lang.types import (
     promote_types, get_broadcast_type,
 )
 
-# Export builtins
-from .lang import builtins
-from .lang.builtins import *
-
 # Export router utilities
 from .lang.router import (
     router, RoutedFunction, 
@@ -61,6 +57,10 @@ from .lang.types import Const, static, Shared, is_const_value
 # Export codegen utilities
 from .printer import pprint
 from .serialize import serialize_function, serialize_module
+
+# Export builtins - MOVED TO END TO AVOID CIRCULAR IMPORTS
+from .lang import builtins
+from .lang.builtins import *
 
 # Version info
 from .version import __version__

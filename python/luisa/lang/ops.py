@@ -608,9 +608,20 @@ def attribute(value: Any, attr: str) -> Any:
         if attr in ('type', 'typ', 'name', 'instruction'):
             return getattr(value, attr)
 
-        if isinstance(value.type, Vector):
+        typ = value.type
+        # Handle struct types (decorated classes)
+        if hasattr(typ, '_dsl_type') and typ._dsl_type is not None:
+            typ = typ._dsl_type
+        elif hasattr(typ, 'get_dsl_type'):
+            typ = typ.get_dsl_type()
+
+        if isinstance(typ, Vector):
             return get_current_builder().swizzle(value, attr)
-        raise AttributeError(f"IR type {value.type} has no attribute {attr}")
+        if isinstance(typ, Struct):
+            # We need to make sure we're using the resolved Struct object
+            return get_current_builder().member(value, attr)
+            
+        raise AttributeError(f"IR type {typ} has no attribute {attr}")
         
     # Host side
     # If it's a Struct object

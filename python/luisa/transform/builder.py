@@ -150,6 +150,15 @@ class Builder:
     # Instruction Emission
     # ========================================================================
 
+    def _resolve_type(self, typ: Any) -> Any:
+        """Resolve a DSL type (handles @struct decorated classes)."""
+        if hasattr(typ, '_dsl_type'):
+            if typ._dsl_type is not None:
+                return typ._dsl_type
+            if hasattr(typ, 'get_dsl_type'):
+                return typ.get_dsl_type()
+        return typ
+
     def _emit(self, op: Op, typ: Any, args: list,
               name: Optional[str] = None,
               loc: Optional[SourceLocation] = None) -> InstructionValue:
@@ -159,6 +168,9 @@ class Builder:
 
         if self.current_block.is_terminated():
             raise RuntimeError(f"Cannot emit instruction to terminated block {self.current_block.name}")
+
+        # Resolve type (handles @struct classes)
+        typ = self._resolve_type(typ)
 
         # Generate result name if not provided
         if name is None:
@@ -289,6 +301,29 @@ class Builder:
         # For now, emit as a generic swizzle - the backend handles the pattern
         # In a full implementation, we'd parse the pattern into component indices
         return self._emit(Op.SWIZZLE, result_type, [vector, pattern])
+
+    def member(self, struct_val: Value, member_name: str) -> InstructionValue:
+        """
+        Emit a struct member access operation.
+
+        Args:
+            struct_val: The struct value
+            member_name: Name of the field to access
+        """
+        from ..lang.types import Struct
+
+        # Resolve type (handles @struct classes)
+        typ = self._resolve_type(struct_val.type)
+
+        if not isinstance(typ, Struct):
+            raise TypeError(f"Can only access members of structs, got {typ}")
+
+        # Determine result type from struct field
+        result_type = typ.get_field_type(member_name)
+        if result_type is None:
+            raise AttributeError(f"Struct {typ.name} has no member '{member_name}'")
+
+        return self._emit(Op.MEMBER_ACCESS, result_type, [struct_val, member_name])
 
     # ========================================================================
     # Comparison Operations

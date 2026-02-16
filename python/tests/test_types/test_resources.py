@@ -1,7 +1,6 @@
 """Tests for resource types (Buffer, Texture, etc.) - with IR building."""
 
 import pytest
-import ast as python_ast
 from luisa import (
     kernel, callable, pprint,
     Int, Float, Float3, Float4,
@@ -12,80 +11,37 @@ from luisa import (
 from luisa.lang.inspect import count_instructions, get_ir_ast
 
 
-def print_ast(staged_func, title="Parsed AST"):
-    """Helper to print the parsed AST of a staged function."""
-    print(f"\n{title}:")
-    tree = get_ir_ast(staged_func)
-    if tree:
-        print(python_ast.dump(tree, indent=2))
-    else:
-        print("  (No AST available)")
-
-
-from luisa.lang.inspect import get_ir_ast
-import ast as python_ast
-
-
-def print_ast(staged_func, title="Parsed AST"):
-    """Helper to print the parsed AST of a staged function."""
-    print(f"\n{title}:")
-    tree = get_ir_ast(staged_func)
-    if tree:
-        print(python_ast.dump(tree, indent=2))
-    else:
-        print("  (No AST available)")
-
-
 def test_buffer_type():
     """Test buffer resource type."""
-    print("\n" + "=" * 60)
-    print("Test: Buffer type")
-    print("=" * 60)
-
     buf_f32 = Buffer(Float)
     assert buf_f32.element == Float
 
     buf_float3 = Buffer(Float3)
     assert buf_float3.element == Float3
 
-    print("✓ Buffer types created correctly")
-    print("=" * 60)
 
-
-def test_buffer_in_kernel_builds_ir():
+def test_buffer_in_kernel_builds_ir(verify_ir):
     """Test Buffer in kernel actually builds IR."""
-    print("\n" + "=" * 60)
-    print("Test: Buffer in kernel builds IR")
-    print("=" * 60)
-
     @kernel
     def fill_buffer(buf: Buffer(Float), value: Float) -> None:
         idx = dispatch_id().x
         buf[idx] = value
 
     ir = fill_buffer(Buffer(Float), 1.0)
-    print_ast(fill_buffer, "AST: fill_buffer")
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    assert ir.name == 'fill_buffer'
     assert ir.is_kernel
-    assert len(ir.blocks) > 0
+    
+    expected = """
+kernel void fill_buffer(buffer<f32> arg0, f32 arg1) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  buffer_write(arg0, v1, arg1);
+}
+"""
+    verify_ir(ir, expected)
 
-    counts = count_instructions(ir)
-    assert 'BUFFER_WRITE' in counts
 
-    print(f"✓ Kernel built with {len(ir.blocks)} blocks, BUFFER_WRITE={counts.get('BUFFER_WRITE', 0)}")
-    print("=" * 60)
-
-
-def test_buffer_vector_type_kernel():
+def test_buffer_vector_type_kernel(verify_ir):
     """Test Buffer of vectors in kernel."""
-    print("\n" + "=" * 60)
-    print("Test: Buffer<Float3> kernel")
-    print("=" * 60)
-
     @kernel
     def process_vectors(buf: Buffer(Float3)):
         idx = dispatch_id().x
@@ -93,34 +49,30 @@ def test_buffer_vector_type_kernel():
         buf[idx] = val
 
     ir = process_vectors(Buffer(Float3))
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
     assert ir.is_kernel
-    print(f"✓ Vector buffer kernel built with {len(ir.blocks)} blocks")
-    print("=" * 60)
+    
+    expected = """
+kernel void process_vectors(buffer<<3 x f32>> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  <3 x f32> v2 = buffer_read(arg0, v1);
+  <3 x f32> val = alloca();
+  store(val, v2);
+  <3 x f32> v5 = load(val);
+  buffer_write(arg0, v1, v5);
+}
+"""
+    verify_ir(ir, expected)
 
 
 def test_texture2d_type():
     """Test 2D texture resource type."""
-    print("\n" + "=" * 60)
-    print("Test: Texture2D type")
-    print("=" * 60)
-
     tex_f32 = Texture2D(Float)
     assert tex_f32.element == Float
 
-    print("✓ Texture2D types created correctly")
-    print("=" * 60)
 
-
-def test_texture2d_in_kernel():
+def test_texture2d_in_kernel(verify_ir):
     """Test Texture2D in kernel builds IR."""
-    print("\n" + "=" * 60)
-    print("Test: Texture2D in kernel")
-    print("=" * 60)
-
     @kernel
     def sample_texture(tex: Texture2D(Float), output: Buffer(Float)):
         idx = dispatch_id().x
@@ -128,60 +80,38 @@ def test_texture2d_in_kernel():
         output[idx] = 0.0
 
     ir = sample_texture(Texture2D(Float), Buffer(Float))
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
     assert ir.is_kernel
-    print(f"✓ Texture kernel built with {len(ir.blocks)} blocks")
-    print("=" * 60)
+    
+    expected = """
+kernel void sample_texture(texture2d<f32> arg0, buffer<f32> arg1) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  buffer_write(arg1, v1, 0.0);
+}
+"""
+    verify_ir(ir, expected)
 
 
 def test_texture3d_type():
     """Test 3D texture resource type."""
-    print("\n" + "=" * 60)
-    print("Test: Texture3D type")
-    print("=" * 60)
-
     tex_f32 = Texture3D(Float)
     assert tex_f32.element == Float
-
-    print("✓ Texture3D types created correctly")
-    print("=" * 60)
 
 
 def test_bindless_array_type():
     """Test bindless array resource type."""
-    print("\n" + "=" * 60)
-    print("Test: BindlessArray type")
-    print("=" * 60)
-
     bindless = BindlessArray()
     assert isinstance(bindless, BindlessArray)
-
-    print("✓ BindlessArray type created correctly")
-    print("=" * 60)
 
 
 def test_accel_type():
     """Test acceleration structure resource type."""
-    print("\n" + "=" * 60)
-    print("Test: Accel type")
-    print("=" * 60)
-
     accel = Accel()
     assert isinstance(accel, Accel)
 
-    print("✓ Accel type created correctly")
-    print("=" * 60)
 
-
-def test_multiple_resources_in_kernel():
+def test_multiple_resources_in_kernel(verify_ir):
     """Test multiple resource types in one kernel."""
-    print("\n" + "=" * 60)
-    print("Test: multiple resources in kernel")
-    print("=" * 60)
-
     @kernel
     def multi_resource_kernel(
             buf: Buffer(Float),
@@ -196,30 +126,14 @@ def test_multiple_resources_in_kernel():
         Texture2D(Float),
         Accel()
     )
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
     assert ir.is_kernel
-    print(f"✓ Multi-resource kernel built with {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Running test_resources.py tests")
-    print("=" * 70)
-
-    test_buffer_type()
-    test_buffer_in_kernel_builds_ir()
-    test_buffer_vector_type_kernel()
-    test_texture2d_type()
-    test_texture2d_in_kernel()
-    test_texture3d_type()
-    test_bindless_array_type()
-    test_accel_type()
-    test_multiple_resources_in_kernel()
-
-    print("\n" + "=" * 70)
-    print("All test_resources.py tests passed!")
-    print("=" * 70)
+    
+    expected = """
+kernel void multi_resource_kernel(buffer<f32> arg0, texture2d<f32> arg1, Accel arg2) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  f32 v2 = cast(v1);
+  buffer_write(arg0, v1, v2);
+}
+"""
+    verify_ir(ir, expected)

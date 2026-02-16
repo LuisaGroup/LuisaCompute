@@ -62,7 +62,7 @@ def test_matrix_column_major_construction():
     assert c2.value == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0)
 
 
-def test_nested_aggregates():
+def test_nested_aggregates(print_ir, verify_ir):
     """Test complicated nested aggregates."""
     @struct
     class Inner:
@@ -89,11 +89,14 @@ def test_nested_aggregates():
         o = Const[Outer](Inner((1.0, 2.0), (3, 4)), 5.0)
         return o.i.v.x + Float(o.i.a[0]) + o.f
         
-    ir = nested_fold()
+    ir = print_ir(nested_fold())
     # Should fold to 1.0 + 3.0 + 5.0 = 9.0
-    counts = count_instructions(ir)
-    assert 'ADD' not in counts
-    assert 'RETURN' in counts
+    expected = """
+f32 nested_fold() {
+  return 9.0;
+}
+"""
+    verify_ir(ir, expected)
 
 
 def test_struct_const_construction():
@@ -116,7 +119,7 @@ def test_struct_const_construction():
     assert c3.value == Point(5.0, 6.0)
 
 
-def test_matrix_folding():
+def test_matrix_folding(print_ir, verify_ir):
     """Test matrix constant folding."""
     try:
         import numpy as np
@@ -127,21 +130,24 @@ def test_matrix_folding():
     def mat_ops() -> Float:
         m = Const[Float2x2](1.0, 2.0, 3.0, 4.0)
         # These should all be folded on the host
+        from luisa import transpose, determinant
         t = transpose(m)
         d = determinant(m)
         return d
 
-    ir = mat_ops()
-    counts = count_instructions(ir)
+    ir = print_ir(mat_ops())
     
     # If folded, shouldn't have matrix instructions
-    assert 'MATRIX_TRANSPOSE' not in counts
-    assert 'MATRIX_DETERMINANT' not in counts
-    # It will just be a RETURN of a constant
-    assert 'RETURN' in counts
+    # It should fold perfectly to a single return
+    expected = """
+f32 mat_ops() {
+  return -2.0000000000000004;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_matmul_folding():
+def test_matmul_folding(print_ir, verify_ir):
     """Test matrix multiplication constant folding."""
     try:
         import numpy as np
@@ -154,9 +160,10 @@ def test_matmul_folding():
         m2 = Const[Float2x2](2.0, 3.0, 4.0, 5.0)
         return m1 @ m2
 
-    ir = matmul_fold()
-    counts = count_instructions(ir)
+    ir = print_ir(matmul_fold())
     
     # Result should be constant (2,3,4,5)
-    assert 'MUL' not in counts
-    assert 'RETURN' in counts
+    # Using wildcard for numpy float64 repr
+    actual = pprint(ir, recursive=True, show_location=False)
+    assert 'return (2.0, 3.0, 4.0, 5.0);' in actual or \
+           'return (np.float64(2.0), np.float64(3.0), np.float64(4.0), np.float64(5.0));' in actual

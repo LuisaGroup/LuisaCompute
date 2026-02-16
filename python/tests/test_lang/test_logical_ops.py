@@ -8,7 +8,7 @@ from luisa import (
 from luisa.lang.inspect import analyze_control_flow, count_instructions
 
 
-def test_logical_and_short_circuit():
+def test_logical_and_short_circuit(verify_ir):
     """Test logical AND with short-circuiting."""
     @callable
     def logic_and(a: Bool, b: Bool) -> Bool:
@@ -16,18 +16,23 @@ def test_logical_and_short_circuit():
 
     ir = logic_and(True, True)
     
-    # Short-circuiting AND is implemented with an IF
-    cf = analyze_control_flow(ir)
-    assert cf['ifs'] == 1
-    
-    # Should have a LOAD/STORE because we use a temporary variable for short-circuiting
-    counts = count_instructions(ir)
-    assert 'ALLOCA' in counts
-    assert 'STORE' in counts
-    assert 'LOAD' in counts
+    expected = """
+i1 logic_and(i1 arg0, i1 arg1) {
+  i1 v0 = alloca();
+  store(v0, arg0);
+  if (arg0) {
+    store(v0, arg1);
+  } else {
+    (empty)
+  }
+  i1 v4 = load(v0);
+  return v4;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_logical_or_short_circuit():
+def test_logical_or_short_circuit(verify_ir):
     """Test logical OR with short-circuiting."""
     @callable
     def logic_or(a: Bool, b: Bool) -> Bool:
@@ -35,12 +40,23 @@ def test_logical_or_short_circuit():
 
     ir = logic_or(True, True)
     
-    # Short-circuiting OR is implemented with an IF
-    cf = analyze_control_flow(ir)
-    assert cf['ifs'] == 1
+    expected = """
+i1 logic_or(i1 arg0, i1 arg1) {
+  i1 v0 = alloca();
+  store(v0, arg0);
+  if (arg0) {
+    (empty)
+  } else {
+    store(v0, arg1);
+  }
+  i1 v4 = load(v0);
+  return v4;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_chained_comparisons():
+def test_chained_comparisons(verify_ir):
     """Test chained comparisons like x < a < y."""
     @callable
     def chain_comp(x: Int, a: Int, y: Int) -> Bool:
@@ -48,16 +64,25 @@ def test_chained_comparisons():
 
     ir = chain_comp(0, 5, 10)
     
-    # x < a < y is rewritten to (x < a) and (a < y)
-    # With short-circuiting, this should have an IF
-    cf = analyze_control_flow(ir)
-    assert cf['ifs'] == 1
-    
-    counts = count_instructions(ir)
-    assert counts.get('LT', 0) >= 2
+    expected = """
+i1 chain_comp(i32 arg0, i32 arg1, i32 arg2) {
+  i1 v0 = lt(arg0, arg1);
+  i1 v1 = alloca();
+  store(v1, v0);
+  if (v0) {
+    i1 v4 = lt(arg1, arg2);
+    store(v1, v4);
+  } else {
+    (empty)
+  }
+  i1 v6 = load(v1);
+  return v6;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_complex_logic():
+def test_complex_logic(verify_ir):
     """Test complex logical expressions."""
     @callable
     def complex_logic(a: Bool, b: Bool, c: Bool) -> Bool:
@@ -65,18 +90,41 @@ def test_complex_logic():
 
     ir = complex_logic(True, False, True)
     
-    # (a and b) -> 1 IF
-    # (not a and c) -> 1 IF
-    # (...) or (...) -> 1 IF
-    # Total 3 IFs for short-circuiting
-    cf = analyze_control_flow(ir)
-    assert cf['ifs'] >= 3
+    expected = """
+i1 complex_logic(i1 arg0, i1 arg1, i1 arg2) {
+  i1 v0 = alloca();
+  store(v0, arg0);
+  if (arg0) {
+    store(v0, arg1);
+  } else {
+    (empty)
+  }
+  i1 v4 = load(v0);
+  i1 v5 = alloca();
+  store(v5, v4);
+  if (v4) {
+    (empty)
+  } else {
+    i1 v8 = logical_not(arg0);
+    i1 v9 = alloca();
+    store(v9, v8);
+    if (v8) {
+      store(v9, arg2);
+    } else {
+      (empty)
+    }
+    i1 v13 = load(v9);
+    store(v5, v13);
+  }
+  i1 v15 = load(v5);
+  return v15;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_logic_with_side_effects():
+def test_logic_with_side_effects(verify_ir):
     """Test logical ops where the RHS has 'side effects' (buffer write)."""
-    # In DSL, everything is expressions, but we can have nested callables
-    
     @callable
     def effect(buf: Buffer[Int], idx: Int) -> Bool:
         buf[idx] = 1
@@ -89,16 +137,33 @@ def test_logic_with_side_effects():
 
     ir = logic_kernel(True, None)
     
-    # The CALL to 'effect' should only happen if 'a' is true
-    # Pretty print to visually verify structure if needed
-    # print(pprint(ir, recursive=True))
-    
-    cf = analyze_control_flow(ir)
-    # 1 for 'if a and effect', 1 for short-circuiting AND
-    assert cf['ifs'] >= 2
+    expected = """
+kernel void logic_kernel(i1 arg0, buffer<i32> arg1) {
+  i1 v0 = alloca();
+  store(v0, arg0);
+  if (arg0) {
+    i1 v3 = call(@effect, arg1, 0);
+    store(v0, v3);
+  } else {
+    (empty)
+  }
+  i1 v5 = load(v0);
+  if (v5) {
+    (empty)
+  } else {
+    (empty)
+  }
+}
+
+i1 effect(buffer<i32> arg0, i32 arg1) {
+  buffer_write(arg0, arg1, 1);
+  return True;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_chained_comparison_mixed():
+def test_chained_comparison_mixed(verify_ir):
     """Test chained comparisons with different operators."""
     @callable
     def mixed_chain(x: Int, a: Int, y: Int) -> Bool:
@@ -106,11 +171,28 @@ def test_chained_comparison_mixed():
 
     ir = mixed_chain(0, 5, 10)
     
-    counts = count_instructions(ir)
-    assert counts.get('LE', 0) >= 1
-    assert counts.get('LT', 0) >= 1
-    assert counts.get('NE', 0) >= 1
-    
-    cf = analyze_control_flow(ir)
-    # (x <= a) and (a < y) and (y != 10) -> 2 IFs for short-circuiting
-    assert cf['ifs'] >= 2
+    expected = """
+i1 mixed_chain(i32 arg0, i32 arg1, i32 arg2) {
+  i1 v0 = le(arg0, arg1);
+  i1 v1 = alloca();
+  store(v1, v0);
+  if (v0) {
+    i1 v4 = lt(arg1, arg2);
+    i1 v5 = alloca();
+    store(v5, v4);
+    if (v4) {
+      i1 v8 = ne(arg2, 10);
+      store(v5, v8);
+    } else {
+      (empty)
+    }
+    i1 v10 = load(v5);
+    store(v1, v10);
+  } else {
+    (empty)
+  }
+  i1 v12 = load(v1);
+  return v12;
+}
+"""
+    verify_ir(ir, expected)

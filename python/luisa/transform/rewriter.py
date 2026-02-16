@@ -424,11 +424,12 @@ class ASTRewriter(ast.NodeTransformer):
             func = node.func
             # Direct function calls: sin(x), Float(x), etc.
             if isinstance(func, ast.Name):
+                # Explicitly exclude compile-time markers
+                if func.id in ("Const", "static", "Shared"):
+                    return False
+                
                 # Type constructors (starting with uppercase)
-                if func.id[0].isupper() and func.id not in ("Const", "static", "Shared"):
-                    return True
-                # Recognized builtins
-                if func.id in self.DSL_PRODUCING_BUILTINS:
+                if func.id[0].isupper():
                     return True
             
             # Method calls: buf.read(idx), etc.

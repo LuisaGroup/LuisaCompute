@@ -6,58 +6,46 @@ from luisa import kernel, callable, Float, Int, Buffer, pprint
 from luisa.lang.inspect import count_instructions, get_ir_ast
 
 
-def print_ast(staged_func, title="Parsed AST"):
-    """Helper to print the parsed AST of a staged function."""
-    print(f"\n{title}:")
-    tree = get_ir_ast(staged_func)
-    if tree:
-        print(python_ast.dump(tree, indent=2))
-    else:
-        print("  (No AST available)")
-
-
-def test_kernel_calls_simple_callable():
+def test_kernel_calls_simple_callable(verify_ir):
     """Test kernel calling a simple callable function."""
-    print("\n" + "=" * 60)
-    print("Test: kernel calls simple callable")
-    print("=" * 60)
-
     @callable
     def square(x: Float) -> Float:
         return x * x
 
     @kernel
     def compute_squares(buf: Buffer[Float]):
-        idx = Int(0)  # Simplified for test
+        idx = Int(0)
         val = buf[idx]
         result = square(val)
         buf[idx] = result
 
     ir = compute_squares(None)
-
-    print("\nCallable 'square' AST:")
-    print_ast(square, "AST: square")
-
-    print("\nGenerated Kernel IR:")
-    print(pprint(ir, recursive=True))
-
     assert ir.is_kernel
-    counts = count_instructions(ir)
+    
+    expected = """
+kernel void compute_squares(buffer<f32> arg0) {
+  i32 vidx = alloca();
+  store(vidx, 0);
+  i32 v2 = load(vidx);
+  f32 v3 = buffer_read(arg0, v2);
+  f32 val = alloca();
+  store(val, v3);
+  f32 v6 = load(val);
+  f32 v7 = call(@square, v6);
+  i32 v8 = load(vidx);
+  buffer_write(arg0, v8, v7);
+}
 
-    # Should have a CALL instruction
-    assert 'CALL' in counts or 'MUL' in counts, "Should have CALL or inlined MUL"
+f32 square(f32 arg0) {
+  f32 v0 = mul(arg0, arg0);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print(f"✓ Kernel calling callable works! {len(ir.blocks)} blocks")
-    print(f"  Instructions: {dict(counts)}")
-    print("=" * 60)
 
-
-def test_kernel_calls_math_callable():
+def test_kernel_calls_math_callable(verify_ir):
     """Test kernel calling a callable with math operations."""
-    print("\n" + "=" * 60)
-    print("Test: kernel calls math callable")
-    print("=" * 60)
-
     @callable
     def normalize_value(x: Float) -> Float:
         if x < 0.0:
@@ -74,55 +62,77 @@ def test_kernel_calls_math_callable():
         buf[idx] = normalized
 
     ir = process_buffer(None)
-
-    print("\nCallable 'normalize_value' AST:")
-    print_ast(normalize_value, "AST: normalize_value")
-
-    print("\nGenerated Kernel IR:")
-    print(pprint(ir, recursive=True))
-
     assert ir.is_kernel
+    
+    expected = """
+kernel void process_buffer(buffer<f32> arg0) {
+  i32 vidx = alloca();
+  store(vidx, 0);
+  i32 v2 = load(vidx);
+  f32 v3 = buffer_read(arg0, v2);
+  f32 val = alloca();
+  store(val, v3);
+  f32 v6 = load(val);
+  f32 v7 = call(@normalize_value, v6);
+  i32 v8 = load(vidx);
+  buffer_write(arg0, v8, v7);
+}
 
-    print(f"✓ Kernel calling math callable works! {len(ir.blocks)} blocks")
-    print("=" * 60)
+f32 normalize_value(f32 arg0) {
+  i1 v0 = lt(arg0, 0.0);
+  if (v0) { 
+    return 0.0;
+  } else {
+    i1 v3 = gt(arg0, 1.0);
+    if (v3) { 
+      return 1.0;
+    } else {
+      (empty)
+    }
+  }
+  return arg0;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_kernel_calls_callable_with_multiple_args():
+def test_kernel_calls_callable_with_multiple_args(verify_ir):
     """Test kernel calling callable with multiple arguments."""
-    print("\n" + "=" * 60)
-    print("Test: kernel calls callable with multiple args")
-    print("=" * 60)
-
     @callable
-    def lerp(a: Float, b: Float, t: Float) -> Float:
+    def lerp_func(a: Float, b: Float, t: Float) -> Float:
         return a + (b - a) * t
 
     @kernel
     def interpolate(buf: Buffer[Float]):
         idx = Int(0)
-        result = lerp(0.0, 1.0, buf[idx])
+        result = lerp_func(0.0, 1.0, buf[idx])
         buf[idx] = result
 
     ir = interpolate(None)
+    
+    expected = """
+kernel void interpolate(buffer<f32> arg0) {
+  i32 vidx = alloca();
+  store(vidx, 0);
+  i32 v2 = load(vidx);
+  f32 v3 = buffer_read(arg0, v2);
+  f32 v4 = call(@lerp_func, 0.0, 1.0, v3);
+  i32 v5 = load(vidx);
+  buffer_write(arg0, v5, v4);
+}
 
-    print("\nCallable 'lerp' AST:")
-    print_ast(lerp, "AST: lerp")
-
-    print("\nGenerated Kernel IR:")
-    print(pprint(ir, recursive=True))
-
-    assert ir.is_kernel
-
-    print(f"✓ Kernel calling multi-arg callable works! {len(ir.blocks)} blocks")
-    print("=" * 60)
+f32 lerp_func(f32 arg0, f32 arg1, f32 arg2) {
+  f32 v0 = sub(arg1, arg0);
+  f32 v1 = mul(v0, arg2);
+  f32 v2 = add(arg0, v1);
+  return v2;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_kernel_calls_nested_callable():
+def test_kernel_calls_nested_callable(verify_ir):
     """Test kernel calling a callable that calls another callable."""
-    print("\n" + "=" * 60)
-    print("Test: kernel calls nested callable")
-    print("=" * 60)
-
     @callable
     def square(x: Float) -> Float:
         return x * x
@@ -138,29 +148,42 @@ def test_kernel_calls_nested_callable():
         buf[idx] = result
 
     ir = compute(None)
+    
+    expected = """
+kernel void compute(buffer<f32> arg0) {
+  i32 vidx = alloca();
+  store(vidx, 0);
+  i32 v2 = load(vidx);
+  f32 v3 = buffer_read(arg0, v2);
+  i32 v4 = load(vidx);
+  i32 v5 = add(v4, 1);
+  f32 v6 = buffer_read(arg0, v5);
+  f32 v7 = call(@sum_of_squares, v3, v6);
+  i32 v8 = load(vidx);
+  buffer_write(arg0, v8, v7);
+}
 
-    print("\nCallable 'sum_of_squares' AST:")
-    print_ast(sum_of_squares, "AST: sum_of_squares")
+f32 sum_of_squares(f32 arg0, f32 arg1) {
+  f32 v0 = call(@square, arg0);
+  f32 v1 = call(@square, arg1);
+  f32 v2 = add(v0, v1);
+  return v2;
+}
 
-    print("\nGenerated Kernel IR:")
-    print(pprint(ir, recursive=True))
+f32 square(f32 arg0) {
+  f32 v0 = mul(arg0, arg0);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
-    assert ir.is_kernel
 
-    print(f"✓ Kernel calling nested callable works! {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_kernel_calls_callable_with_loop():
+def test_kernel_calls_callable_with_loop(verify_ir):
     """Test kernel calling a callable that contains a loop."""
-    print("\n" + "=" * 60)
-    print("Test: kernel calls callable with loop")
-    print("=" * 60)
-
     @callable
     def factorial(n: Int) -> Int:
-        result = 1
-        i = 1
+        result = Int(1)
+        i = Int(1)
         while i <= n:
             result = result * i
             i = i + 1
@@ -174,30 +197,45 @@ def test_kernel_calls_callable_with_loop():
         buf[idx] = result
 
     ir = compute_factorials(None)
+    
+    expected = """
+kernel void compute_factorials(buffer<i32> arg0) {
+  i32 vidx = alloca();
+  store(vidx, 0);
+  i32 v2 = load(vidx);
+  i32 v3 = buffer_read(arg0, v2);
+  i32 vn = alloca();
+  store(vn, v3);
+  i32 v6 = load(vn);
+  i32 v7 = call(@factorial, v6);
+  i32 v8 = load(vidx);
+  buffer_write(arg0, v8, v7);
+}
 
-    print("\nCallable 'factorial' AST:")
-    print_ast(factorial, "AST: factorial")
-
-    print("\nGenerated Kernel IR:")
-    print(pprint(ir, recursive=True))
-
-    assert ir.is_kernel
-
-    print(f"✓ Kernel calling callable with loop works! {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Running test_kernel_call_callable.py tests")
-    print("=" * 70)
-
-    test_kernel_calls_simple_callable()
-    test_kernel_calls_math_callable()
-    test_kernel_calls_callable_with_multiple_args()
-    test_kernel_calls_nested_callable()
-    test_kernel_calls_callable_with_loop()
-
-    print("\n" + "=" * 70)
-    print("All test_kernel_call_callable.py tests passed!")
-    print("=" * 70)
+i32 factorial(i32 arg0) {
+  i32 vresult = alloca();
+  store(vresult, 1);
+  i32 vi = alloca();
+  store(vi, 1);
+  i32 v4 = load(vi);
+  i1 v5 = le(v4, arg0);
+  while (true) { 
+    i1 v7 = logical_not(v5);
+    if (v7) { 
+      break;
+    } else {
+      (empty)
+    }
+    i32 v10 = load(vresult);
+    i32 v11 = load(vi);
+    i32 v12 = mul(v10, v11);
+    store(vresult, v12);
+    i32 v14 = load(vi);
+    i32 v15 = add(v14, 1);
+    store(vi, v15);
+  }
+  i32 v17 = load(vresult);
+  return v17;
+}
+"""
+    verify_ir(ir, expected)

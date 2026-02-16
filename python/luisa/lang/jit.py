@@ -265,9 +265,9 @@ class SpecializedFunctionProxy:
 class StagedFunctionDecorator:
     """Wrapper for kernel/callable decorators to support indexing."""
 
-    def __init__(self, is_kernel: bool):
+    def __init__(self, is_kernel: bool, params: Optional[tuple[str, ...]] = None):
         self.is_kernel = is_kernel
-        self.params = None
+        self.params = params
 
     def __getitem__(self, params) -> StagedFunctionDecorator:
         if not isinstance(params, tuple):
@@ -282,8 +282,8 @@ class StagedFunctionDecorator:
             else:
                 param_names.append(str(p))
 
-        self.params = tuple(param_names)
-        return self
+        # Return a NEW decorator instance with the params set
+        return StagedFunctionDecorator(self.is_kernel, params=tuple(param_names))
 
     def __call__(self, func: Callable, ast_node: Optional[ast.FunctionDef] = None,
                  source: Optional[str] = None) -> StagedFunction:

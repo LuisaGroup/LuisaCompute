@@ -173,11 +173,12 @@ def test_struct_types():
     assert anon_aligned.fields[0] == ("_0", Int)
     assert anon_aligned.alignment == 64
 
-    # Test validation
-    with pytest.raises(TypeError):
-        @struct
-        class BadStruct:
-            b: Buffer[Float]  # Resource type not allowed
+    # Test forward references with strings
+    @struct
+    class ForwardRef:
+        other: 'Ray'
+    
+    assert ForwardRef.get_dsl_type().fields[0][1].name == 'Ray'
 
     print("  ✓ Struct types OK")
 

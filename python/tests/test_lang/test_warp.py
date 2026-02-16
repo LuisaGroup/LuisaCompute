@@ -17,28 +17,10 @@ from luisa import (
     warp_bit_and, warp_bit_or, warp_bit_xor, warp_bit_mask,
     dispatch_id,
 )
-from luisa.lang.inspect import count_instructions
-
-from luisa.lang.inspect import get_ir_ast
-import ast as python_ast
 
 
-def print_ast(staged_func, title="Parsed AST"):
-    """Helper to print the parsed AST of a staged function."""
-    print(f"\n{title}:")
-    tree = get_ir_ast(staged_func)
-    if tree:
-        print(python_ast.dump(tree, indent=2))
-    else:
-        print("  (No AST available)")
-
-
-def test_warp_query_functions_build_ir():
+def test_warp_query_functions_build_ir(verify_ir):
     """Test warp query functions actually build IR."""
-    print("\n" + "=" * 60)
-    print("Test: warp query functions build IR")
-    print("=" * 60)
-
     @callable
     def warp_queries() -> Int:
         first = warp_is_first_active_lane()
@@ -47,22 +29,21 @@ def test_warp_query_functions_build_ir():
         return Int(lane)
 
     ir = warp_queries()
-    print_ast(warp_queries, "AST: warp_queries")
+    
+    expected = """
+i32 warp_queries() {
+  i1 v0 = warp_is_first_active_lane();
+  u32 v1 = warp_first_active_lane();
+  u32 v2 = warp_active_count_bits(True);
+  i32 v3 = cast(v1);
+  return v3;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    print(f"✓ Built IR with warp query instructions")
-    print("=" * 60)
-
-
-def test_warp_reduction_builds_ir():
+def test_warp_reduction_builds_ir(verify_ir):
     """Test warp reduction functions build IR."""
-    print("\n" + "=" * 60)
-    print("Test: warp reduction builds IR")
-    print("=" * 60)
-
     @callable
     def warp_reductions(x: Float) -> Float:
         s = warp_sum(x)
@@ -72,43 +53,46 @@ def test_warp_reduction_builds_ir():
         return s
 
     ir = warp_reductions(1.0)
+    
+    expected = """
+f32 warp_reductions(f32 arg0) {
+  f32 v0 = warp_sum(arg0);
+  f32 v1 = warp_product(arg0);
+  f32 v2 = warp_min(arg0);
+  f32 v3 = warp_max(arg0);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    print(f"✓ Built IR with warp reduction instructions")
-    print("=" * 60)
-
-
-def test_warp_boolean_reduction_builds_ir():
+def test_warp_boolean_reduction_builds_ir(verify_ir):
     """Test warp boolean reduction builds IR."""
-    print("\n" + "=" * 60)
-    print("Test: warp boolean reduction builds IR")
-    print("=" * 60)
-
     @callable
     def warp_bool_checks(x: Float) -> Int:
-        all_val = warp_all(x > 0)
-        any_val = warp_any(x > 0)
+        all_val = warp_all(x > 0.0)
+        any_val = warp_any(x > 0.0)
         eq_val = warp_all_equal(x)
         return Int(all_val)
 
     ir = warp_bool_checks(1.0)
+    
+    expected = """
+i32 warp_bool_checks(f32 arg0) {
+  i1 v0 = gt(arg0, 0.0);
+  i1 v1 = warp_all(v0);
+  i1 v2 = gt(arg0, 0.0);
+  i1 v3 = warp_any(v2);
+  i1 v4 = warp_active_all_equal(arg0);
+  i32 v5 = cast(v1);
+  return v5;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    print(f"✓ Built IR with {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_warp_prefix_builds_ir():
+def test_warp_prefix_builds_ir(verify_ir):
     """Test warp prefix functions build IR."""
-    print("\n" + "=" * 60)
-    print("Test: warp prefix builds IR")
-    print("=" * 60)
-
     @callable
     def warp_prefix_ops(x: Float, b: Int) -> Float:
         ps = warp_prefix_sum(x)
@@ -117,20 +101,20 @@ def test_warp_prefix_builds_ir():
         return ps
 
     ir = warp_prefix_ops(1.0, 1)
+    
+    expected = """
+f32 warp_prefix_ops(f32 arg0, i32 arg1) {
+  f32 v0 = warp_prefix_sum(arg0);
+  f32 v1 = warp_prefix_product(arg0);
+  u32 v2 = warp_prefix_count_bits(True);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    print(f"✓ Built IR with warp prefix instructions")
-    print("=" * 60)
-
-
-def test_warp_broadcast_builds_ir():
+def test_warp_broadcast_builds_ir(verify_ir):
     """Test warp broadcast functions build IR."""
-    print("\n" + "=" * 60)
-    print("Test: warp broadcast builds IR")
-    print("=" * 60)
-
     @callable
     def warp_broadcast_ops(x: Float) -> Float:
         from_lane = warp_read_lane(x, Int(0))
@@ -138,20 +122,19 @@ def test_warp_broadcast_builds_ir():
         return first
 
     ir = warp_broadcast_ops(1.0)
+    
+    expected = """
+f32 warp_broadcast_ops(f32 arg0) {
+  f32 v0 = warp_read_lane(arg0, 0);
+  f32 v1 = warp_read_first_active_lane(arg0);
+  return v1;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    print(f"✓ Built IR with warp broadcast instructions")
-    print("=" * 60)
-
-
-def test_warp_bitwise_builds_ir():
+def test_warp_bitwise_builds_ir(verify_ir):
     """Test warp bitwise functions build IR."""
-    print("\n" + "=" * 60)
-    print("Test: warp bitwise builds IR")
-    print("=" * 60)
-
     @callable
     def warp_bitwise_ops(x: Int) -> Int:
         a = warp_bit_and(x)
@@ -160,21 +143,22 @@ def test_warp_bitwise_builds_ir():
         m = warp_bit_mask(True)
         return a
 
-    ir = warp_bitwise_ops(0xFF)
+    ir = warp_bitwise_ops(255)
+    
+    expected = """
+i32 warp_bitwise_ops(i32 arg0) {
+  i32 v0 = warp_active_bit_and(arg0);
+  i32 v1 = warp_active_bit_or(arg0);
+  i32 v2 = warp_active_bit_xor(arg0);
+  <4 x u32> v3 = warp_active_bit_mask(True);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    print(f"✓ Built IR with warp bitwise instructions")
-    print("=" * 60)
-
-
-def test_warp_in_kernel():
+def test_warp_in_kernel(verify_ir):
     """Test warp operations in a kernel."""
-    print("\n" + "=" * 60)
-    print("Test: warp operations in kernel")
-    print("=" * 60)
-
     @kernel
     def warp_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
@@ -186,28 +170,23 @@ def test_warp_in_kernel():
             buf[idx] = sum_val
 
     ir = warp_kernel(None)
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
     assert ir.is_kernel
-    print(f"✓ Built kernel with warp operations, {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Running test_warp.py tests")
-    print("=" * 70)
-
-    test_warp_query_functions_build_ir()
-    test_warp_reduction_builds_ir()
-    test_warp_boolean_reduction_builds_ir()
-    test_warp_prefix_builds_ir()
-    test_warp_broadcast_builds_ir()
-    test_warp_bitwise_builds_ir()
-    test_warp_in_kernel()
-
-    print("\n" + "=" * 70)
-    print("All test_warp.py tests passed!")
-    print("=" * 70)
+    
+    expected = """
+kernel void warp_kernel(buffer<f32> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  f32 v2 = buffer_read(arg0, v1);
+  f32 val = alloca();
+  store(val, v2);
+  f32 v5 = load(val);
+  f32 v6 = warp_sum(v5);
+  i1 v7 = warp_is_first_active_lane();
+  if (v7) { 
+    buffer_write(arg0, v1, v6);
+  } else {
+    (empty)
+  }
+}
+"""
+    verify_ir(ir, expected)

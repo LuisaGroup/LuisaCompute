@@ -27,25 +27,10 @@ from luisa import (
     Int, Float, Float3, UInt3, Buffer,
 )
 from luisa.lang.inspect import count_instructions, get_ir_ast
-import ast as python_ast
 
 
-def print_ast(staged_func, title="Parsed AST"):
-    """Helper to print the parsed AST of a staged function."""
-    print(f"\n{title}:")
-    tree = get_ir_ast(staged_func)
-    if tree:
-        print(python_ast.dump(tree, indent=2))
-    else:
-        print("  (No AST available)")
-
-
-def test_math_builtins_build_ir():
+def test_math_builtins_build_ir(verify_ir):
     """Test math builtins actually build IR."""
-    print("\n" + "=" * 60)
-    print("Test: math builtins build IR")
-    print("=" * 60)
-
     @callable
     def math_ops(x: Float) -> Float:
         a = sqrt(x)
@@ -58,29 +43,24 @@ def test_math_builtins_build_ir():
         return g
 
     ir = math_ops(1.0)
+    
+    expected = """
+f32 math_ops(f32 arg0) {
+  f32 v0 = sqrt(arg0);
+  f32 v1 = sin(v0);
+  f32 v2 = cos(v1);
+  f32 v3 = exp(v2);
+  f32 v4 = log(v3);
+  f32 v5 = floor(v4);
+  f32 v6 = ceil(v5);
+  return v6;
+}
+"""
+    verify_ir(ir, expected)
 
-    print_ast(math_ops, "AST: math_ops")
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    counts = count_instructions(ir)
-    assert 'SQRT' in counts
-    assert 'SIN' in counts
-    assert 'COS' in counts
-
-    print(f"✓ Built IR with {len(ir.blocks)} blocks")
-    print(f"  Instructions: SQRT={counts.get('SQRT', 0)}, SIN={counts.get('SIN', 0)}, "
-          f"COS={counts.get('COS', 0)}, EXP={counts.get('EXP', 0)}, LOG={counts.get('LOG', 0)}")
-    print("=" * 60)
-
-
-def test_special_registers_build_ir():
+def test_special_registers_build_ir(verify_ir):
     """Test special registers actually build IR."""
-    print("\n" + "=" * 60)
-    print("Test: special registers build IR")
-    print("=" * 60)
-
     @kernel
     def special_reg_kernel():
         did = dispatch_id()
@@ -89,56 +69,40 @@ def test_special_registers_build_ir():
         dsize = dispatch_size()
 
     ir = special_reg_kernel()
-
-    print_ast(special_reg_kernel, "AST: special_reg_kernel")
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    counts = count_instructions(ir)
-    assert 'DISPATCH_ID' in counts
-    assert 'THREAD_ID' in counts
-    assert 'BLOCK_ID' in counts
-    assert 'DISPATCH_SIZE' in counts
-
-    print(f"✓ Built kernel with {len(ir.blocks)} blocks")
-    print(f"  Special registers: DISPATCH_ID={counts.get('DISPATCH_ID', 0)}, "
-          f"THREAD_ID={counts.get('THREAD_ID', 0)}, BLOCK_ID={counts.get('BLOCK_ID', 0)}")
-    print("=" * 60)
+    
+    expected = """
+kernel void special_reg_kernel() {
+  <3 x u32> v0 = dispatch_id();
+  <3 x u32> v1 = thread_id();
+  <3 x u32> v2 = block_id();
+  <3 x u32> v3 = dispatch_size();
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_dispatch_id_in_computation():
+def test_dispatch_id_in_computation(verify_ir):
     """Test dispatch_id used in actual computation."""
-    print("\n" + "=" * 60)
-    print("Test: dispatch_id in computation")
-    print("=" * 60)
-
     @kernel
     def index_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
         buf[idx] = Float(idx)
 
     ir = index_kernel(None)
-
-    print_ast(index_kernel, "AST: index_kernel")
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    assert ir.is_kernel
-    counts = count_instructions(ir)
-    assert 'DISPATCH_ID' in counts
-
-    print(f"✓ Kernel uses dispatch_id, {len(ir.blocks)} blocks")
-    print("=" * 60)
+    
+    expected = """
+kernel void index_kernel(buffer<f32> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  f32 v2 = cast(v1);
+  buffer_write(arg0, v1, v2);
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_sync_block_builds_ir():
+def test_sync_block_builds_ir(verify_ir):
     """Test sync_block actually builds IR."""
-    print("\n" + "=" * 60)
-    print("Test: sync_block builds IR")
-    print("=" * 60)
-
     @kernel
     def sync_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
@@ -147,23 +111,23 @@ def test_sync_block_builds_ir():
         buf[idx] = buf[idx] + 1.0
 
     ir = sync_kernel(None)
+    
+    expected = """
+kernel void sync_kernel(buffer<f32> arg0) {
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  buffer_write(arg0, v1, 1.0);
+  sync_block();
+  f32 v4 = buffer_read(arg0, v1);
+  f32 v5 = add(v4, 1.0);
+  buffer_write(arg0, v1, v5);
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    assert 'SYNC_BLOCK' in counts
-
-    print(f"✓ Built kernel with SYNC_BLOCK, {len(ir.blocks)} blocks")
-    print("=" * 60)
-
-
-def test_cast_builds_ir():
+def test_cast_builds_ir(verify_ir):
     """Test cast/bitcast actually build IR."""
-    print("\n" + "=" * 60)
-    print("Test: cast builds IR")
-    print("=" * 60)
-
     @callable
     def cast_ops(x: Int) -> Float:
         f = Float(x)
@@ -171,75 +135,91 @@ def test_cast_builds_ir():
         return Float(i)
 
     ir = cast_ops(42)
+    
+    expected = """
+f32 cast_ops(i32 arg0) {
+  f32 v0 = cast(arg0);
+  f32 vf = alloca();
+  store(vf, v0);
+  f32 v3 = load(vf);
+  i32 v4 = cast(v3);
+  i32 vi = alloca();
+  store(vi, v4);
+  i32 v7 = load(vi);
+  f32 v8 = cast(v7);
+  return v8;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    assert 'CAST' in counts
-
-    print(f"✓ Built IR with {counts.get('CAST', 0)} CAST instructions")
-    print("=" * 60)
-
-
-def test_device_print_builds_ir():
+def test_device_print_builds_ir(verify_ir):
     """Test device_print actually builds IR."""
-    print("\n" + "=" * 60)
-    print("Test: device_print builds IR")
-    print("=" * 60)
-
     @kernel
     def print_kernel(x: Int):
         device_print("Value: {}", x)
 
     ir = print_kernel(42)
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    counts = count_instructions(ir)
-    assert 'PRINT' in counts
-
-    print(f"✓ Built kernel with PRINT instruction")
-    print("=" * 60)
+    
+    expected = """
+kernel void print_kernel(i32 arg0) {
+  print('Value: {}', arg0);
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_clock_builds_ir():
+def test_clock_builds_ir(verify_ir):
     """Test clock actually builds IR."""
-    print("\n" + "=" * 60)
-    print("Test: clock builds IR")
-    print("=" * 60)
-
     @callable
     def timed_function() -> Int:
         start = clock()
         # Some computation
         x = Int(0)
-        i = 0
+        i = Int(0)
         while i < 10:
-            x = x + Int(i)
+            x = x + i
             i = i + 1
         end = clock()
         return Int(end - start)
 
     ir = timed_function()
+    
+    expected = """
+i32 timed_function() {
+  u64 v0 = clock();
+  i32 vx = alloca();
+  store(vx, 0);
+  i32 vi = alloca();
+  store(vi, 0);
+  i32 v5 = load(vi);
+  i1 v6 = lt(v5, 10);
+  while (true) { 
+    i1 v8 = logical_not(v6);
+    if (v8) { 
+      break;
+    } else {
+      (empty)
+    }
+    i32 v11 = load(vx);
+    i32 v12 = load(vi);
+    i32 v13 = add(v11, v12);
+    store(vx, v13);
+    i32 v15 = load(vi);
+    i32 v16 = add(v15, 1);
+    store(vi, v16);
+  }
+  u64 v18 = clock();
+  u64 v19 = sub(v18, v0);
+  i32 v20 = cast(v19);
+  return v20;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    assert 'CLOCK' in counts
-
-    print(f"✓ Built IR with {counts.get('CLOCK', 0)} CLOCK instructions")
-    print("=" * 60)
-
-
-def test_assertions_build_ir():
+def test_assertions_build_ir(verify_ir):
     """Test assume/device_assert actually build IR."""
-    print("\n" + "=" * 60)
-    print("Test: assertions build IR")
-    print("=" * 60)
-
     @callable
     def checked_function(x: Int) -> Int:
         assume(x > 0, "x must be positive")
@@ -248,72 +228,72 @@ def test_assertions_build_ir():
         return result
 
     ir = checked_function(5)
+    
+    expected = """
+i32 checked_function(i32 arg0) {
+  i1 v0 = gt(arg0, 0);
+  assume(v0, 'x must be positive');
+  i32 v2 = mul(arg0, 2);
+  i32 vresult = alloca();
+  store(vresult, v2);
+  i32 v5 = load(vresult);
+  i1 v6 = gt(v5, arg0);
+  assert(v6, 'result should be greater than x');
+  i32 v8 = load(vresult);
+  return v8;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    # Note: ASSERT and ASSUME may not be in all builds
-    print(f"✓ Built IR with assertions")
-    print("=" * 60)
-
-
-def test_matrix_ops_build_ir():
+def test_matrix_ops_build_ir(verify_ir):
     """Test matrix operations actually build IR."""
-    print("\n" + "=" * 60)
-    print("Test: matrix ops build IR")
-    print("=" * 60)
-
     from luisa import Float4x4
 
     @callable
     def matrix_ops(m: Float4x4) -> Float:
         t = transpose(m)
-        # Note: inverse/determinant may not be fully implemented
-        return Float(0.0)
+        return float(0.0)
 
-    # Use None since we don't have actual matrix values
-    ir = matrix_ops(None)
+    # Use ArgumentValue to avoid constant folding
+    from luisa.transform.ir import ArgumentValue
+    ir = matrix_ops(ArgumentValue(typ=Float4x4, index=0))
+    
+    expected = """
+f32 matrix_ops([4 x <4 x f32>] arg0) {
+  [4 x <4 x f32>] v0 = matrix_transpose(arg0);
+  return 0.0;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    print(f"✓ Built IR for matrix operations")
-    print("=" * 60)
-
-
-def test_vector_math_builds_ir():
+def test_vector_math_builds_ir(verify_ir):
     """Test vector math operations build IR."""
-    print("\n" + "=" * 60)
-    print("Test: vector math builds IR")
-    print("=" * 60)
-
     @callable
     def vector_ops(a: Float3, b: Float3) -> Float3:
         d = dot(a, b)
         c = cross(a, b)
         n = normalize(a)
-        l = length(b)
         return c
 
-    ir = vector_ops(None, None)
+    # Use ArgumentValue to avoid constant folding
+    from luisa.transform.ir import ArgumentValue
+    ir = vector_ops(ArgumentValue(typ=Float3, index=0), ArgumentValue(typ=Float3, index=1))
+    
+    expected = """
+<3 x f32> vector_ops(<3 x f32> arg0, <3 x f32> arg1) {
+  f32 v0 = dot(arg0, arg1);
+  <3 x f32> v1 = cross(arg0, arg1);
+  <3 x f32> v2 = normalize(arg0);
+  return v1;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    # Vector ops should generate instructions
-    print(f"✓ Built IR with vector operations")
-    print(f"  Instructions: {dict(counts)}")
-    print("=" * 60)
-
-
-def test_clamp_lerp_build_ir():
+def test_clamp_lerp_build_ir(verify_ir):
     """Test clamp and lerp build IR."""
-    print("\n" + "=" * 60)
-    print("Test: clamp/lerp build IR")
-    print("=" * 60)
-
     @callable
     def utility_ops(x: Float) -> Float:
         c = clamp(x, 0.0, 1.0)
@@ -322,57 +302,30 @@ def test_clamp_lerp_build_ir():
         return smoothstep(0.0, 1.0, s)
 
     ir = utility_ops(0.5)
+    
+    expected = """
+f32 utility_ops(f32 arg0) {
+  f32 v0 = clamp(arg0, 0.0, 1.0);
+  f32 v1 = lerp(0.0, 1.0, v0);
+  f32 v2 = step(0.5, v1);
+  f32 v3 = smoothstep(0.0, 1.0, v2);
+  return v3;
+}
+"""
+    verify_ir(ir, expected)
 
-    print("\nGenerated IR:")
-    print(pprint(ir))
 
-    counts = count_instructions(ir)
-    print(f"✓ Built IR with utility functions")
-    print(f"  Instructions: CLAMP={counts.get('CLAMP', 0)}, "
-          f"LERP={counts.get('LERP', 0)}, STEP={counts.get('STEP', 0)}")
-    print("=" * 60)
-
-
-def test_unreachable_builds_ir():
+def test_unreachable_builds_ir(verify_ir):
     """Test unreachable actually builds IR."""
-    print("\n" + "=" * 60)
-    print("Test: unreachable builds IR")
-    print("=" * 60)
-
     @kernel
     def unreachable_kernel():
         unreachable("this should not happen")
 
     ir = unreachable_kernel()
-
-    print("\nGenerated IR:")
-    print(pprint(ir))
-
-    counts = count_instructions(ir)
-    assert 'UNREACHABLE' in counts
-
-    print(f"✓ Built kernel with UNREACHABLE instruction")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Running test_builtins.py tests")
-    print("=" * 70)
-
-    test_math_builtins_build_ir()
-    test_special_registers_build_ir()
-    test_dispatch_id_in_computation()
-    test_sync_block_builds_ir()
-    test_cast_builds_ir()
-    test_device_print_builds_ir()
-    test_clock_builds_ir()
-    test_assertions_build_ir()
-    test_unreachable_builds_ir()
-    test_matrix_ops_build_ir()
-    test_vector_math_builds_ir()
-    test_clamp_lerp_build_ir()
-
-    print("\n" + "=" * 70)
-    print("All test_builtins.py tests passed!")
-    print("=" * 70)
+    
+    expected = """
+kernel void unreachable_kernel() {
+  unreachable('this should not happen');
+}
+"""
+    verify_ir(ir, expected)

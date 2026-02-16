@@ -9,12 +9,8 @@ from luisa.transform.ir import ConstantValue
 from luisa.lang.inspect import count_instructions
 
 
-def test_dsl_variable_reassignment():
+def test_dsl_variable_reassignment(verify_ir):
     """Test that DSL variables can be reassigned."""
-    print("\n" + "=" * 60)
-    print("Test: DSL Variable Reassignment")
-    print("=" * 60)
-    
     @callable
     def test_reassign(x: Float) -> Float:
         # a is a DSL variable (not const)
@@ -26,25 +22,22 @@ def test_dsl_variable_reassignment():
     
     ir = test_reassign(0.0)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    counts = count_instructions(ir)
-    # Should have ALLOCA for the variable
-    assert 'ALLOCA' in counts, "Expected ALLOCA for DSL variable"
-    # Should have STORE for initial assignment and reassignment
-    assert counts.get('STORE', 0) >= 1, "Expected STORE for variable assignment"
-    
-    print("✓ DSL variable reassignment works correctly")
-    print("=" * 60)
+    expected = """
+f32 test_reassign(f32 arg0) {
+  f32 va = alloca();
+  store(va, arg0);
+  f32 v2 = load(va);
+  f32 v3 = add(v2, 1.0);
+  store(va, v3);
+  f32 v5 = load(va);
+  return v5;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_const_variable():
+def test_const_variable(verify_ir):
     """Test that const variables are kept as Python values."""
-    print("\n" + "=" * 60)
-    print("Test: Const Variable")
-    print("=" * 60)
-    
     @callable
     def test_const_var(x: Float) -> Float:
         # b is a compile-time constant using static()
@@ -54,23 +47,17 @@ def test_const_variable():
     
     ir = test_const_var(0.0)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    counts = count_instructions(ir)
-    # Should NOT have ALLOCA for const variable
-    # But might have ALLOCA for the return or other purposes
-    
-    print("✓ Const variable works correctly")
-    print("=" * 60)
+    expected = """
+f32 test_const_var(f32 arg0) {
+  f32 v0 = add(arg0, 0.8414709848078965);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_mixed_const_and_dsl_vars():
+def test_mixed_const_and_dsl_vars(verify_ir):
     """Test mixing const and DSL variables."""
-    print("\n" + "=" * 60)
-    print("Test: Mixed Const and DSL Variables")
-    print("=" * 60)
-    
     @callable
     def test_mixed(x: Float) -> Float:
         # DSL variable
@@ -85,19 +72,17 @@ def test_mixed_const_and_dsl_vars():
     
     ir = test_mixed(0.0)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    print("✓ Mixed const and DSL variables work correctly")
-    print("=" * 60)
+    # Everything here is actually constant-folded on host now
+    expected = """
+f32 test_mixed(f32 arg0) {
+  return 3.7635465813520725;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_const_with_arithmetic():
+def test_const_with_arithmetic(verify_ir):
     """Test const variables in arithmetic expressions."""
-    print("\n" + "=" * 60)
-    print("Test: Const With Arithmetic")
-    print("=" * 60)
-    
     @callable
     def test_arith(x: Float) -> Float:
         # Multiple const values using static()
@@ -109,23 +94,17 @@ def test_const_with_arithmetic():
     
     ir = test_arith(0.0)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    # Check that c1 + c2 was folded (no ADD instruction for that)
-    counts = count_instructions(ir)
-    print(f"Instructions: {dict(counts)}")
-    
-    print("✓ Const with arithmetic works correctly")
-    print("=" * 60)
+    expected = """
+f32 test_arith(f32 arg0) {
+  f32 v0 = add(arg0, 3.0);
+  return v0;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_const_typed_syntax():
+def test_const_typed_syntax(verify_ir):
     """Test Const[Type](value) syntax."""
-    print("\n" + "=" * 60)
-    print("Test: Const[Type] Syntax")
-    print("=" * 60)
-    
     @callable
     def test_typed_const(x: Float) -> Float:
         # Using Const[Type](value) syntax
@@ -137,19 +116,23 @@ def test_const_typed_syntax():
     
     ir = test_typed_const(0.0)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    print("✓ Const[Type] syntax works correctly")
-    print("=" * 60)
+    # c3 is identified as DSL value because it comes from Const[...] call?
+    # Actually it's folded to a constant, but rewriter sees it as DSL-ish
+    # since it was assigned from a 'built-in' like expression.
+    expected = """
+f32 test_typed_const(f32 arg0) {
+  f32 vc3 = alloca();
+  store(vc3, 11.5);
+  f32 v2 = load(vc3);
+  f32 v3 = add(arg0, v2);
+  return v3;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_const_multiple_values():
+def test_const_multiple_values(verify_ir):
     """Test Const with multiple values."""
-    print("\n" + "=" * 60)
-    print("Test: Const Multiple Values")
-    print("=" * 60)
-    
     @callable
     def test_multi(x: Float) -> Float:
         # Multiple values using static()
@@ -161,19 +144,18 @@ def test_const_multiple_values():
     
     ir = test_multi(0.0)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    print("✓ Const multiple values works correctly")
-    print("=" * 60)
+    expected = """
+f32 test_multi(f32 arg0) {
+  f32 v0 = add(arg0, 1.0);
+  f32 v1 = add(v0, 1.0);
+  return v1;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_dsl_var_in_kernel():
+def test_dsl_var_in_kernel(verify_ir):
     """Test DSL variables in kernel context."""
-    print("\n" + "=" * 60)
-    print("Test: DSL Variable in Kernel")
-    print("=" * 60)
-    
     @kernel
     def test_kernel(buf: Buffer[Float]):
         # DSL variable that gets reassigned
@@ -184,22 +166,23 @@ def test_dsl_var_in_kernel():
     
     ir = test_kernel(None)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    counts = count_instructions(ir)
-    assert 'ALLOCA' in counts, "Expected ALLOCA for DSL variable"
-    
-    print("✓ DSL variable in kernel works correctly")
-    print("=" * 60)
+    expected = """
+kernel void test_kernel(buffer<f32> arg0) {
+  f32 v0 = buffer_read(arg0, 0);
+  f32 val = alloca();
+  store(val, v0);
+  f32 v3 = load(val);
+  f32 v4 = add(v3, 1.0);
+  store(val, v4);
+  f32 v6 = load(val);
+  buffer_write(arg0, 0, v6);
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_multiple_reassignments():
+def test_multiple_reassignments(verify_ir):
     """Test multiple reassignments of DSL variable."""
-    print("\n" + "=" * 60)
-    print("Test: Multiple Reassignments")
-    print("=" * 60)
-    
     @callable
     def test_multi(x: Float) -> Float:
         a = 0.0
@@ -210,19 +193,16 @@ def test_multiple_reassignments():
     
     ir = test_multi(0.0)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    print("✓ Multiple reassignments work correctly")
-    print("=" * 60)
+    expected = """
+f32 test_multi(f32 arg0) {
+  return 6.0;
+}
+"""
+    verify_ir(ir, expected)
 
 
-def test_const_init_and_reassign():
+def test_const_init_and_reassign(verify_ir):
     """Test initializing with a constant and then reassigning with a DSL value."""
-    print("\n" + "=" * 60)
-    print("Test: Const Init and Reassign")
-    print("=" * 60)
-    
     @callable
     def test_init_reassign(x: Float) -> Float:
         # Initialized from a constant (remains Python variable initially)
@@ -233,32 +213,13 @@ def test_const_init_and_reassign():
         
     ir = test_init_reassign(0.0)
     
-    print("Generated IR:")
-    print(pprint(ir))
-    
-    counts = count_instructions(ir)
-    # Should have ALLOCA because it was reassigned with a DSL value
-    assert 'ALLOCA' in counts, "Expected ALLOCA for reassigned variable"
-    
-    print("✓ Const init and reassign works correctly")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    print("\n" + "=" * 70)
-    print("Running test_const_variables.py tests")
-    print("=" * 70)
-    
-    test_dsl_variable_reassignment()
-    test_const_variable()
-    test_mixed_const_and_dsl_vars()
-    test_const_with_arithmetic()
-    test_const_typed_syntax()
-    test_const_multiple_values()
-    test_dsl_var_in_kernel()
-    test_multiple_reassignments()
-    test_const_init_and_reassign()
-    
-    print("\n" + "=" * 70)
-    print("All test_const_variables.py tests passed!")
-    print("=" * 70)
+    expected = """
+f32 test_init_reassign(f32 arg0) {
+  f32 v0 = add(1.0, arg0);
+  f32 va = alloca();
+  store(va, v0);
+  f32 v3 = load(va);
+  return v3;
+}
+"""
+    verify_ir(ir, expected)

@@ -11,63 +11,16 @@ if TYPE_CHECKING:
     from ...transform.ir import Value, InstructionValue
 
 from ...transform.op import Op
-from ..types import Bool, UInt, Float3, Float4
+from ..types import Ray, TriangleHit, ProceduralHit, CommittedHit, struct, Accel, RayQuery
+from ..jit import callable as dsl_callable
 from ...transform.builder import get_current_builder
-
-
-# ============================================================================
-# Ray Types
-# ============================================================================
-
-class Ray:
-    """Ray structure for ray tracing."""
-
-    def __init__(self, origin: Float3, direction: Float3, t_min: float = 0.0, t_max: float = 1e30):
-        self.origin = origin
-        self.direction = direction
-        self.t_min = t_min
-        self.t_max = t_max
-
-    def at(self, t: float) -> Float3:
-        """Get point at distance t along the ray."""
-        # This would need proper DSL implementation
-        pass
-
-
-class TriangleHit:
-    """Hit result for triangle intersection."""
-
-    def __init__(self):
-        self.inst: UInt = 0
-        self.prim: UInt = 0
-        self.bary: Float3 = Float3(0.0, 0.0, 0.0)
-        self.hit: bool = False
-
-
-class ProceduralHit:
-    """Hit result for procedural primitive."""
-
-    def __init__(self):
-        self.inst: UInt = 0
-        self.prim: UInt = 0
-
-
-class CommittedHit:
-    """Committed hit from ray query."""
-
-    def __init__(self):
-        self.inst: UInt = 0
-        self.prim: UInt = 0
-        self.bary: Float3 = Float3(0.0, 0.0, 0.0)
-        self.t: float = 0.0
-        self.hit: bool = False
 
 
 # ============================================================================
 # Ray Tracing Queries
 # ============================================================================
 
-def trace_closest(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
+def trace_closest(accel: Value, ray: Ray, mask: Value = 0xFF) -> InstructionValue:
     """
     Trace a ray and return the closest hit.
     
@@ -79,11 +32,10 @@ def trace_closest(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue
     Returns:
         TriangleHit result
     """
-    # In real implementation, would construct ray from components
-    return get_current_builder()._emit(Op.TRACE_CLOSEST, TriangleHit, [accel, mask])
+    return get_current_builder()._emit(Op.TRACE_CLOSEST, TriangleHit, [accel, ray, mask])
 
 
-def trace_any(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
+def trace_any(accel: Value, ray: Ray, mask: Value = 0xFF) -> InstructionValue:
     """
     Trace a ray and return True if any hit is found (occlusion test).
     
@@ -95,10 +47,11 @@ def trace_any(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
     Returns:
         True if any hit found
     """
-    return get_current_builder()._emit(Op.TRACE_ANY, Bool, [accel, mask])
+    from ..types import Bool
+    return get_current_builder()._emit(Op.TRACE_ANY, Bool, [accel, ray, mask])
 
 
-def ray_query_all(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
+def ray_query_all(accel: Value, ray: Ray, mask: Value = 0xFF) -> InstructionValue:
     """
     Create a ray query for all potential hits (inline traversal).
     
@@ -111,10 +64,10 @@ def ray_query_all(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue
         RayQuery object for iterative traversal
     """
     from ..types import RayQuery
-    return get_current_builder()._emit(Op.RAY_QUERY_ALL, RayQuery(query_any=False), [accel, mask])
+    return get_current_builder()._emit(Op.RAY_QUERY_ALL, RayQuery(query_any=False), [accel, ray, mask])
 
 
-def ray_query_any(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue:
+def ray_query_any(accel: Value, ray: Ray, mask: Value = 0xFF) -> InstructionValue:
     """
     Create a ray query for any hit (inline traversal).
     
@@ -126,8 +79,8 @@ def ray_query_any(accel: Value, ray: Ray, mask: UInt = 0xFF) -> InstructionValue
     Returns:
         RayQuery object for iterative traversal
     """
-    from ..type import RayQuery
-    return get_current_builder()._emit(Op.RAY_QUERY_ANY, RayQuery(query_any=True), [accel, mask])
+    from ..types import RayQuery
+    return get_current_builder()._emit(Op.RAY_QUERY_ANY, RayQuery(query_any=True), [accel, ray, mask])
 
 
 # ============================================================================
@@ -145,6 +98,7 @@ def ray_query_proceed(query: Value) -> InstructionValue:
     
     Returns True if there are more candidates.
     """
+    from ..types import Bool
     return get_current_builder()._emit(Op.RAY_QUERY_PROCEED, Bool, [query])
 
 
@@ -177,13 +131,13 @@ def ray_query_commit_procedural(query: Value, t: Value) -> InstructionValue:
         query: Ray query
         t: Hit distance along the ray
     """
-    from ..type import Void
+    from ..types import Void
     return get_current_builder()._emit(Op.RAY_QUERY_COMMIT_PROCEDURAL, Void(), [query, t])
 
 
 def ray_query_terminate(query: Value) -> InstructionValue:
     """Terminate the ray query early."""
-    from ..type import Void
+    from ..types import Void
     return get_current_builder()._emit(Op.RAY_QUERY_TERMINATE, Void(), [query])
 
 
@@ -208,14 +162,17 @@ def accel_instance_transform(accel: Value, instance_id: Value) -> InstructionVal
 
 def accel_instance_user_id(accel: Value, instance_id: Value) -> InstructionValue:
     """Get the user-defined ID of an instance."""
+    from ..types import UInt
     return get_current_builder()._emit(Op.ACCEL_INSTANCE_USER_ID, UInt, [accel, instance_id])
 
 
 def accel_instance_visibility_mask(accel: Value, instance_id: Value) -> InstructionValue:
     """Get the visibility mask of an instance."""
+    from ..types import UInt
     return get_current_builder()._emit(Op.ACCEL_INSTANCE_VISIBILITY_MASK, UInt, [accel, instance_id])
 
 
-def make_ray(origin: Float3, direction: Float3, t_min: float = 0.0, t_max: float = 1e30) -> Ray:
+@dsl_callable
+def make_ray(origin: 'Float3', direction: 'Float3', t_min: 'Float', t_max: 'Float') -> Ray:
     """Construct a ray."""
-    return Ray(origin, direction, t_min, t_max)
+    return Ray(origin, t_min, direction, t_max)
