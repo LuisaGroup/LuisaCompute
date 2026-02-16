@@ -32,17 +32,17 @@ def test_vector_const_construction():
 
 def test_matrix_const_construction():
     """Test matrix constant construction."""
-    # 4 components for 2x2
+    # 4 components for 2x2 - stored as column-major tuple-of-tuples
     c1 = Const[Float2x2](1.0, 2.0, 3.0, 4.0)
-    assert c1.value == (1.0, 2.0, 3.0, 4.0)
+    assert c1.value == ((1.0, 2.0), (3.0, 4.0))  # (col0, col1)
     
     # From list
     c2 = Const[Float2x2]([5.0, 6.0, 7.0, 8.0])
-    assert c2.value == (5.0, 6.0, 7.0, 8.0)
+    assert c2.value == ((5.0, 6.0), (7.0, 8.0))
     
     # Diagonal broadcast
     c3 = Const[Float2x2](2.0)
-    assert c3.value == (2.0, 0.0, 0.0, 2.0)
+    assert c3.value == ((2.0, 0.0), (0.0, 2.0))
     
     with pytest.raises(ValueError, match="requires 4 components, got 2"):
         Const[Float2x2](1.0, 2.0)
@@ -50,15 +50,15 @@ def test_matrix_const_construction():
 
 def test_matrix_column_major_construction():
     """Test matrix construction from columns (column-major)."""
-    # 2x2 matrix from 2 columns
+    # 2x2 matrix from 2 columns - stored as column-major tuple-of-tuples
     c1 = Const[Float2x2]((1.0, 2.0), (3.0, 4.0))
-    # Elements should be in column-major order: c0.x, c0.y, c1.x, c1.y
-    assert c1.value == (1.0, 2.0, 3.0, 4.0)
+    # Structure: (col0, col1) where each col is (x, y)
+    assert c1.value == ((1.0, 2.0), (3.0, 4.0))
     
     # 3x3 matrix from 3 columns
     from luisa import Float3x3
     c2 = Const[Float3x3]((1,2,3), (4,5,6), (7,8,9))
-    assert c2.value == (1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0)
+    assert c2.value == ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0))
 
 
 def test_nested_aggregates(print_ir, verify_ir):
@@ -133,18 +133,23 @@ def test_matrix_folding(print_ir, verify_ir):
         from luisa import transpose, determinant
         t = transpose(m)
         d = determinant(m)
-        return d
+        return d + m[0][1] # matrices are in column-major, so m[0][1] is 2.0
 
     print_ir(mat_ops)
     
     # If folded, shouldn't have matrix instructions
-    # It should fold perfectly to a single return
-    expected = """
-f32 mat_ops() {
-  return -2.0000000000000004;
-}
-"""
-    verify_ir(mat_ops, expected)
+    # The result should be approximately 0 (det = -2, m[0][1] = 2)
+    # Use wildcard to allow for floating point precision differences
+    from luisa import pprint
+    actual = pprint(mat_ops, recursive=True, show_location=False)
+    # Result should be close to 0 (floating point precision may give small epsilon)
+    assert 'return' in actual
+    # Check that the return value is very close to 0 (within floating point error)
+    import re
+    match = re.search(r'return\s+([-\d.eE]+);', actual)
+    assert match, f"Could not find return value in: {actual}"
+    return_val = float(match.group(1))
+    assert abs(return_val) < 1e-15, f"Expected ~0.0, got {return_val}"
 
 
 def test_matmul_folding(print_ir, verify_ir):

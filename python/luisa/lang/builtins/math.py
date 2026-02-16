@@ -76,6 +76,10 @@ def _matmul_host(a, b):
     try:
         import numpy as np
 
+        # Flatten matrices if needed (handle column-major tuple-of-tuples)
+        a_val = _flatten_matrix(a_val)
+        b_val = _flatten_matrix(b_val)
+
         # Convert to numpy arrays
         if isinstance(a_val, tuple):
             size_a = int(math.sqrt(len(a_val)))
@@ -100,11 +104,24 @@ def _matmul_host(a, b):
         raise NotImplementedError("Matrix multiplication constant folding requires numpy")
 
 
+def _flatten_matrix(m_val):
+    """Flatten a matrix from column-major tuple-of-tuples to a flat tuple.
+    
+    Handles both old format (flat tuple) and new format ((col0), (col1), ...).
+    """
+    if isinstance(m_val, tuple) and len(m_val) > 0 and isinstance(m_val[0], tuple):
+        # New format: column-major tuple-of-tuples
+        # ((c0.x, c0.y), (c1.x, c1.y)) -> (c0.x, c0.y, c1.x, c1.y)
+        return tuple(el for col in m_val for el in col)
+    return m_val
+
+
 def _transpose_host(m):
     """Host-side matrix transpose."""
     from ..router import extract_constant_value
     m_val = extract_constant_value(m)
     if isinstance(m_val, tuple):
+        m_val = _flatten_matrix(m_val)
         size = int(math.sqrt(len(m_val)))
         result = [0.0] * len(m_val)
         for r in range(size):
@@ -120,6 +137,7 @@ def _inverse_host(m):
     m_val = extract_constant_value(m)
     try:
         import numpy as np
+        m_val = _flatten_matrix(m_val)
         size = int(math.sqrt(len(m_val)))
         m_np = np.array(m_val).reshape(size, size)
         result = np.linalg.inv(m_np)
@@ -134,6 +152,7 @@ def _determinant_host(m):
     m_val = extract_constant_value(m)
     try:
         import numpy as np
+        m_val = _flatten_matrix(m_val)
         size = int(math.sqrt(len(m_val)))
         m_np = np.array(m_val).reshape(size, size)
         return float(np.linalg.det(m_np))

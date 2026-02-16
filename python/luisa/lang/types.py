@@ -1242,6 +1242,19 @@ class _TypedConst:
         # Delegate to type's __call__
         result = self.type(*values)
 
+        # For matrices, convert flat tuple to column-major tuple-of-tuples
+        # This enables m[col][row] indexing for constant matrices
+        if isinstance(self.type, Matrix) and isinstance(result, tuple):
+            size = self.type.size
+            if len(result) == size * size:
+                # Convert flat tuple (c0.x, c0.y, c1.x, c1.y) to ((c0.x, c0.y), (c1.x, c1.y))
+                columns = []
+                for c in range(size):
+                    col_start = c * size
+                    col = tuple(result[col_start:col_start + size])
+                    columns.append(col)
+                result = tuple(columns)
+
         # We want to make sure result is the constructed object
         # (e.g. Struct instance, or tuple for Vector/Matrix/Array)
         return _ConstValue(result, explicit_type=self.type)
