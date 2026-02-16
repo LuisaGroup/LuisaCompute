@@ -117,6 +117,29 @@ float_scale = scale[Float]  # Fix T=Float
 int_float_add = cast_and_add[Int, Float]
 ```
 
+#### 2. Implicit Template Parameters
+Arguments without type annotations are treated as implicit template parameters:
+
+```python
+# Pure implicit template
+@callable
+def identity(x):  # x is implicit template
+    return x
+
+# Mixed explicit and implicit
+@callable['T']
+def scale(a: T, b):  # T explicit, b implicit
+    return a * T(b)
+
+# Usage - types inferred from arguments
+@kernel
+def test():
+    result1 = identity(Int(42))       # Implicit = Int
+    result2 = scale(Float(2.0), 3)   # T=Float, implicit = Int
+```
+
+**Note:** Implicit templates cannot be explicitly specialized via `[]`.
+
 #### 2. Implicit Specialization (Type Inference)
 ```python
 @kernel

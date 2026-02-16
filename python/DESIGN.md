@@ -116,6 +116,33 @@ def __luisa_built_func(arg0):
 - **`StagedFunction`**: Fully specialized function with concrete types, holds cached IR
 - **`KernelInvoke`**: Records kernel + arguments for device dispatch
 
+### Implicit Template Parameters
+
+Arguments without type annotations are automatically treated as **implicit template parameters**. They cannot be explicitly specialized but are always deduced from call arguments.
+
+```python
+# Pure implicit templates
+@callable
+def identity(x):  # x is implicit template param
+    return x
+
+# Mixed explicit and implicit
+@callable['T']
+def scale(a: T, b):  # T explicit, b implicit
+    return a * T(b)
+
+# Usage
+@kernel
+def test():
+    result1 = identity(Int(42))      # Implicit param = Int
+    result2 = scale(Float(2.0), 3)  # T=Float, implicit = Int
+```
+
+**Key differences from explicit templates:**
+- No `[]` syntax for specialization: `identity[Int]` raises `TypeError`
+- Always deduced from argument types at call site
+- Named internally as `__impl_<arg_name>` to avoid collisions
+
 ---
 
 ## ⚡ Constant Folding & Routing
