@@ -325,6 +325,282 @@ def test_specialization_preserves_function_name():
     assert specialized.templated.name == "my_function"
 
 
+# ============================================================================
+# Challenging Specialization Tests
+# ============================================================================
+
+def test_mixed_explicit_and_implicit_specialization():
+    """Test mixture of explicit template params and implicitly deduced from args.
+    
+    Some template params are explicitly provided via [...], while others
+    are inferred from the types of arguments passed at call time.
+    """
+    @callable['T', 'U']
+    def mixed_template(a: T, b: U) -> T:
+        return a + b
+    
+    # Explicitly specialize T=Int, let U be deduced from argument
+    int_mixed = mixed_template[Int]  # Partial specialization: T=Int, U=?
+    assert isinstance(int_mixed, TemplatedFunction)
+    assert int_mixed.specialization_values == (Int,)
+    
+    # Test that the staged function is created correctly when called from a kernel
+    @kernel
+    def test_kernel():
+        # Call with Float argument - U should be deduced as Float
+        result = int_mixed(Int(10), Float(5.5))
+    
+    ir = test_kernel.ir
+    assert ir is not None
+
+
+def test_mixed_explicit_and_implicit_kernel():
+    """Test mixture of explicit and implicit specialization in kernels."""
+    @kernel['T', 'N']
+    def process_with_stride(buf: Buffer[T], stride: Int, default: T):
+        for i in range(N):
+            if i * stride < 10:
+                buf[i] = default
+    
+    # Partially specialize with T=Float, leaving N to be specialized later
+    float_processor = process_with_stride[Float]
+    assert isinstance(float_processor, TemplatedFunction)
+    assert float_processor.specialization_values == (Float,)
+    
+    # Now fully specialize with N=4
+    processor_4 = float_processor[4]
+    assert isinstance(processor_4, StagedFunction)
+    assert processor_4.specialization_values == (Float, 4)
+
+
+def test_nested_template_function_captures_outer_tparams():
+    """Test that nested template functions correctly capture outer template params.
+    
+    The inner callable should be able to use T from the outer scope.
+    """
+    @callable['T']
+    def outer_transform(x: T):
+        # Inner callable defined inside outer - captures T
+        @callable
+        def inner_scale(factor: Float):
+            # Can use T from outer scope through captured value
+            return x * T(factor)
+        
+        return inner_scale(2.0)
+    
+    # Specialize outer with T=Float
+    float_transform = outer_transform[Float]
+    assert isinstance(float_transform, StagedFunction)
+    
+    # Test from within a kernel
+    @kernel
+    def test_kernel():
+        result = float_transform(Float(5.0))
+    
+    ir = test_kernel.ir
+    assert ir is not None
+
+
+def test_nested_template_with_inner_template():
+    """Test nested definition where inner is also a template.
+    
+    Inner template should be able to use outer template params
+    plus its own template params.
+    """
+    @callable['T']
+    def outer_with_inner_template(x: T):
+        # Inner template that also uses T from outer
+        @callable['U']
+        def inner_combined(y: U):
+            # Combine outer's T and inner's U
+            return T(x) + U(y)
+        
+        # Call inner with specific U
+        return inner_combined[Float](1.5)
+    
+    # Specialize outer with T=Int
+    int_outer = outer_with_inner_template[Int]
+    assert isinstance(int_outer, StagedFunction)
+
+
+def test_inner_specialized_by_parent_template_args():
+    """Test that inner template is specialized using parent template args.
+    
+    The parent's template arguments are used to specialize the inner template.
+    """
+    @callable['T', 'U']
+    def outer_multi(x: T, y: U):
+        # Inner template uses both T and U from parent
+        @callable
+        def inner_process(a: T, b: U):
+            return a + b
+        
+        return inner_process(x, y)
+    
+    # Specialize outer with T=Int, U=Float
+    specialized = outer_multi[Int, Float]
+    assert isinstance(specialized, StagedFunction)
+    assert specialized.specialization_values == (Int, Float)
+    
+    # Test from within a kernel
+    @kernel
+    def test_kernel():
+        result = specialized(Int(10), Float(2.5))
+    
+    ir = test_kernel.ir
+    assert ir is not None
+
+
+def test_deeply_nested_templates():
+    """Test deeply nested template definitions."""
+    @callable['T']
+    def level1(x: T):
+        @callable['U']
+        def level2(y: U):
+            @callable
+            def level3(z: T):  # Uses T from level1
+                return z + T(y)
+            return level3(x)
+        return level2[Float](1.0)
+    
+    specialized = level1[Int]
+    assert isinstance(specialized, StagedFunction)
+
+
+def test_partial_specialization_with_nested():
+    """Test partial specialization with nested operations.
+    
+    Tests that partial specialization correctly propagates to function body.
+    """
+    @callable['T', 'U']
+    def combine_values(a: T, b: U) -> Float:
+        # Cast both to Float and combine
+        return Float(a) + Float(b)
+    
+    # Partially specialize: T=Int
+    partial = combine_values[Int]
+    assert isinstance(partial, TemplatedFunction)
+    assert partial.specialization_values == (Int,)
+    
+    # Complete specialization: U=Float
+    full = partial[Float]
+    assert isinstance(full, StagedFunction)
+    assert full.arg_types == (Int, Float)
+    
+    # Test from within a kernel
+    @kernel
+    def test_kernel():
+        result = combine_values[Int, Float](Int(1), Float(2.0))
+    
+    ir = test_kernel.ir
+    assert ir is not None
+
+
+def test_template_in_kernel_with_capture():
+    """Test template callable defined inside kernel capturing outer template params."""
+    @kernel['T']
+    def process_buffer(buf: Buffer[T], count: Int):
+        # Inner callable template that uses T
+        @callable
+        def compute_value(idx: Int):
+            # Use T from kernel scope
+            return T(idx) * T(2.0)
+        
+        for i in range(count):
+            val = compute_value(i)
+            buf[i] = val
+    
+    specialized = process_buffer[Float]
+    assert isinstance(specialized, StagedFunction)
+
+
+def test_nested_explicit_and_implicit_mix():
+    """Complex case: mixture of explicit/implicit in both outer and inner."""
+    @callable['T', 'U']
+    def outer_partial(x: T, y: U):
+        @callable
+        def inner_mixed(a: T, b: U):
+            # T comes from outer's explicit specialization
+            # U comes from outer's explicit specialization
+            return a + T(b)
+        
+        # Call inner with the provided args
+        return inner_mixed(x, y)
+    
+    # Fully specialize outer with T=Float, U=Int
+    fully_specialized = outer_partial[Float, Int]
+    assert isinstance(fully_specialized, StagedFunction)
+    
+    # Test from within a kernel
+    @kernel
+    def test_kernel():
+        result = fully_specialized(Float(1.5), Int(10))
+    
+    ir = test_kernel.ir
+    assert ir is not None
+
+
+def test_template_param_shadowing():
+    """Test that inner template params can shadow outer ones (if supported)."""
+    @callable['T']
+    def outer_shadow(x: T):
+        # Inner with same param name T - should be independent
+        @callable['T']
+        def inner_shadow(y: T):
+            # This T refers to inner's T, not outer's
+            return y
+        
+        # Return inner specialized with different type
+        return inner_shadow[Float](1.0)
+    
+    specialized = outer_shadow[Int]
+    assert isinstance(specialized, StagedFunction)
+
+
+def test_captured_template_in_loop():
+    """Test template params captured in loops within nested functions."""
+    @callable['T']
+    def sum_template(values: T, count: Int):
+        @callable
+        def accumulate():
+            result = T(0)
+            for i in range(count):
+                result = result + values
+            return result
+        
+        return accumulate()
+    
+    specialized = sum_template[Float]
+    assert isinstance(specialized, StagedFunction)
+    
+    # Test from within a kernel
+    @kernel
+    def test_kernel():
+        result = specialized(Float(1.5), 4)
+    
+    ir = test_kernel.ir
+    assert ir is not None
+
+
+def test_kernel_nested_callable_with_parent_tparam():
+    """Test kernel with nested callable using parent's template param."""
+    @kernel['T']
+    def transform_kernel(buf: Buffer[T], n: Int):
+        @callable
+        def transform_element(val: T) -> T:
+            return val * T(2.0) + T(1.0)
+        
+        for i in range(n):
+            buf[i] = transform_element(buf[i])
+    
+    specialized = transform_kernel[Int]
+    assert isinstance(specialized, StagedFunction)
+    
+    # Also test Float specialization
+    float_specialized = transform_kernel[Float]
+    assert isinstance(float_specialized, StagedFunction)
+
+
 if __name__ == "__main__":
     # Run tests directly
     import sys
