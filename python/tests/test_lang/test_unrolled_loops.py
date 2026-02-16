@@ -1,7 +1,7 @@
 """Tests for unrolled loops."""
 
 import pytest
-from luisa import kernel, callable, Float, Int, Buffer, unrolled
+from luisa import kernel, callable, Float, Int, Buffer, unrolled, static_range
 from luisa.lang.inspect import count_instructions
 
 from luisa.lang.inspect import get_ir_ast
@@ -44,7 +44,7 @@ def test_unrolled_with_captured_constant():
     @callable
     def unrolled_with_capture(buf: Buffer[Float], val: Float) -> None:
         for i in static_range(UNROLL_COUNT):
-            # Using dynamic val ensures CAST/BUFFER_WRITE are in IR
+            # Using dynamic val ensures ADD/BUFFER_WRITE are in IR
             buf[i] = val + Float(i)
 
     ir = unrolled_with_capture(0, 1.0)
@@ -76,11 +76,11 @@ def test_unrolled_with_step():
     """Test unrolled loop with step."""
 
     @callable
-    def unrolled_step(buf: Buffer[Float]) -> None:
+    def unrolled_step(buf: Buffer[Float], val: Float) -> None:
         for i in static_range(0, 8, 2):  # 0, 2, 4, 6
-            buf[i // 2] = Float(i)
+            buf[i // 2] = val + Float(i)
 
-    ir = unrolled_step(0)
+    ir = unrolled_step(0, 1.0)
 
     counts = count_instructions(ir)
     # Should have 4 iterations
@@ -91,13 +91,13 @@ def test_nested_unrolled():
     """Test nested unrolled loops."""
 
     @callable
-    def nested_unrolled(buf: Buffer[Float]) -> None:
+    def nested_unrolled(buf: Buffer[Float], val: Float) -> None:
         for i in static_range(2):
             for j in static_range(2):
                 idx = i * 2 + j
-                buf[idx] = Float(i + j)
+                buf[idx] = val + Float(i + j)
 
-    ir = nested_unrolled(0)
+    ir = nested_unrolled(0, 1.0)
 
     counts = count_instructions(ir)
     # Should have 4 total iterations (2x2)

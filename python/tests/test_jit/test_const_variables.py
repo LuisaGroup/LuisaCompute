@@ -18,8 +18,8 @@ def test_dsl_variable_reassignment():
     @callable
     def test_reassign(x: Float) -> Float:
         # a is a DSL variable (not const)
-        # Using Float() cast forces it to be a DSL variable (alloca)
-        a = Float(x)  # alloca + store
+        # Using the argument x (dynamic) ensures 'a' becomes a DSL variable
+        a = x         # alloca + store
         # This should work - reassigning DSL variable
         a = a + 1.0   # load + add + store
         return a
@@ -177,9 +177,9 @@ def test_dsl_var_in_kernel():
     @kernel
     def test_kernel(buf: Buffer[Float]):
         # DSL variable that gets reassigned
-        # Using a cast on a dynamic value forces a DSL variable
-        val = Float(buf[0])  # Creates DSL variable (alloca)
-        val = val + 1.0      # Reassign (load + add + store)
+        # Reading from a buffer ensures it's a dynamic DSL value
+        val = buf[0]      # Creates DSL variable (alloca)
+        val = val + 1.0   # Reassign (load + add + store)
         buf[0] = val
     
     ir = test_kernel(None)

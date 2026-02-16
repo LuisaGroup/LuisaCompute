@@ -43,6 +43,7 @@ class ASTRewriter(ast.NodeTransformer):
         self._is_top_level = True
         self.const_vars = set()  # Variables marked with @const or const()
         self.dsl_vars = set()    # Variables that should be DSL variables (alloca)
+        self.arg_names = set()   # Function argument names
 
     def rewrite(self, node: ast.AST) -> ast.AST:
         """Entry point for rewriting."""
@@ -171,6 +172,7 @@ class ASTRewriter(ast.NodeTransformer):
         # Top-level function: mangle for IR building
         # Detect Ref arguments
         for arg in node.args.args:
+            self.arg_names.add(arg.arg)
             # Check if annotation is Ref[...]
             ann = arg.annotation
             if isinstance(ann, ast.Subscript) and isinstance(ann.value, ast.Name) and ann.value.id == 'Ref':
@@ -387,32 +389,66 @@ class ASTRewriter(ast.NodeTransformer):
                 return ast.Tuple(elts=list(node.args), ctx=ast.Load())
         return node
 
+    # Set of builtin functions that are known to return DSL values
+    DSL_PRODUCING_BUILTINS = {
+        'sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 'abs', 'floor', 'ceil', 
+        'round', 'min', 'max', 'clamp', 'lerp', 'pow', 'atan2', 'clock',
+        'dispatch_id', 'thread_id', 'block_id', 'dispatch_size', 'kernel_id', 'object_id',
+        'normalize', 'length', 'length_squared', 'dot', 'cross', 'distance', 'reflect',
+        'rsqrt', 'exp2', 'exp10', 'log2', 'log10', 'sinh', 'cosh', 'tanh', 
+        'asinh', 'acosh', 'atanh', 'isinf', 'isnan', 'copysign', 'fma',
+        'clz', 'ctz', 'popcount', 'reverse', 'transpose', 'inverse', 'determinant',
+        'cast', 'bitcast', 'device_print'
+    }
+
+    # Set of resource-related methods that return DSL values
+    DSL_PRODUCING_METHODS = {
+        "buffer_read", "texture2d_read", "texture2d_sample", "texture2d_sample_level",
+        "texture3d_read", "texture3d_sample", "buffer_size", "texture2d_size", "texture3d_size",
+        "buffer_device_address", "device_address_load"
+    }
+
     def _is_dsl_value(self, node: ast.expr) -> bool:
         """
-        Check if a node likely represents a DSL value that should be stored in an alloca.
+        Check if an AST node represents a DSL value that should trigger an alloca.
+        
+        A node is considered a DSL value if it:
+        1. Refers to an existing DSL variable or argument.
+        2. Is a call to a recognized DSL builtin or type constructor.
+        3. Is an operation (BinOp, etc.) involving at least one DSL value.
         """
-        # Function calls that return DSL values
+        if isinstance(node, ast.Name):
+            return node.id in self.dsl_vars or node.id in self.arg_names
+
         if isinstance(node, ast.Call):
             func = node.func
-            # Direct function calls like sin(), cos(), etc.
+            # Direct function calls: sin(x), Float(x), etc.
             if isinstance(func, ast.Name):
-                # Type casts like Float(x) often imply a desire for a new variable
+                # Type constructors (starting with uppercase)
                 if func.id[0].isupper() and func.id not in ("Const", "static", "Shared"):
                     return True
-                # Special cases for builtins that we want to store in variables
-                # (most math builtins can stay as Python variables until needed)
-                if func.id in ("clock", "dispatch_id", "thread_id", "block_id"):
+                # Recognized builtins
+                if func.id in self.DSL_PRODUCING_BUILTINS:
                     return True
             
-            # Method calls on builder/resources
+            # Method calls: buf.read(idx), etc.
             if isinstance(func, ast.Attribute):
-                # Resource creations or specific queries
-                if func.attr in ("buffer_read", "texture2d_read", "texture2d_sample"):
-                    return False # Let them be SSA-like Python variables
+                if func.attr in self.DSL_PRODUCING_METHODS:
+                    return True
         
-        # Binary/Unary ops, Subscripts, Attributes should generally stay as
-        # Python variables (SSA-like) unless they are assigning to an
-        # existing DSL variable (handled in visit_Assign).
+        # Recursive checks for operations
+        if isinstance(node, ast.BinOp):
+            return self._is_dsl_value(node.left) or self._is_dsl_value(node.right)
+        
+        if isinstance(node, ast.UnaryOp):
+            return self._is_dsl_value(node.operand)
+        
+        if isinstance(node, ast.Subscript):
+            return self._is_dsl_value(node.value) or self._is_dsl_value(node.slice)
+        
+        if isinstance(node, ast.Attribute):
+            return self._is_dsl_value(node.value)
+        
         return False
 
     def visit_Assign(self, node: ast.Assign) -> Any:
