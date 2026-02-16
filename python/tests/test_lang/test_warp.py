@@ -2,7 +2,7 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint,
+    kernel, callable,
     Int, Float, Buffer,
     # Warp query
     warp_is_first_active_lane, warp_first_active_lane, warp_active_count_bits,
@@ -190,3 +190,7 @@ kernel void warp_kernel(buffer<f32> arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

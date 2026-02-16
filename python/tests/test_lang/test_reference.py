@@ -5,8 +5,7 @@ Test demonstrating reference argument support in the LuisaCompute Python DSL v2.
 import pytest
 from luisa import (
     kernel, callable,
-    Int, Buffer, dispatch_id, Ref,
-    pprint
+    Int, Buffer, dispatch_id, Ref
 )
 
 
@@ -103,3 +102,7 @@ void swap(i32 arg0, i32 arg1) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

@@ -1,9 +1,9 @@
 """Tests for introspection utilities - with IR building and pretty printing."""
 
 import pytest
-from luisa import kernel, callable, Int, Float, pprint
+from luisa import callable, Int, Float, pprint
 from luisa.lang.inspect import (
-    get_ir_source, get_ir_ast, get_ir_types,
+    get_ir_source, get_ir_types,
     count_instructions, get_basic_block_count, get_instruction_count,
     find_operations, analyze_control_flow, is_kernel, format_ir_summary
 )

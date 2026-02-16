@@ -2,7 +2,7 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint,
+    kernel,
     Float, Float3,
     Accel, Buffer,
     # Ray types
@@ -10,9 +10,9 @@ from luisa import (
     # Tracing
     trace_closest, trace_any, ray_query_all, ray_query_any,
     # Ray query operations
-    ray_query_world_space_ray, ray_query_proceed,
-    ray_query_committed_hit, ray_query_candidate_triangle_hit, ray_query_candidate_procedural_hit,
-    ray_query_commit_triangle, ray_query_commit_procedural, ray_query_terminate,
+    ray_query_proceed,
+    ray_query_committed_hit,
+    ray_query_terminate,
     # Accel operations
     accel_instance_transform, accel_instance_user_id, accel_instance_visibility_mask,
     make_ray,
@@ -101,3 +101,7 @@ void make_ray(<3 x f32> arg0, <3 x f32> arg1, f32 arg2, f32 arg3) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

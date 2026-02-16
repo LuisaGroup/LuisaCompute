@@ -3,19 +3,18 @@
 import pytest
 from luisa import (
     # Scalar types
-    Bool, Short, UShort, Int, UInt, Long, ULong, Half, Float, Double,
+    Bool, Short, Int, UInt, Long, Float, Double,
     # Vector types
-    Int2, Int3, Int4, UInt2, UInt3, UInt4,
-    Float2, Float3, Float4, Bool2, Bool3, Bool4,
+    Float2, Int3, Int4, Float3, Float4, Bool2,
     # Matrix types
     Float2x2, Float3x3, Float4x4,
     # Resource types
-    Buffer, Texture2D, Texture3D,
+    Buffer,
     # Utilities
     get_element_type, get_length,
     is_scalar_type, is_vector_type, is_integer_type, is_float_type,
-    promote_types, get_alignment, is_data_type,
-    Scalar, Vector, Matrix, Array, Struct, struct,
+    promote_types, get_alignment,
+    Vector, Matrix, Array, Struct, struct,
 )
 
 

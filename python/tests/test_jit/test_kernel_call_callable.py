@@ -1,9 +1,7 @@
 """Tests for kernel calling callable functions."""
 
 import pytest
-import ast as python_ast
-from luisa import kernel, callable, Float, Int, Buffer, pprint
-from luisa.lang.inspect import count_instructions, get_ir_ast
+from luisa import kernel, callable, Float, Int, Buffer
 
 
 def test_kernel_calls_simple_callable(verify_ir):
@@ -239,3 +237,7 @@ i32 factorial(i32 arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

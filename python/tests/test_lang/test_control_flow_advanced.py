@@ -1,9 +1,7 @@
 """Advanced control flow tests for the LuisaCompute Python DSL - with IR building and pretty printing."""
 
 import pytest
-from luisa import kernel, callable, Int, Float, Bool, pprint
-from luisa.transform.op import Op
-from luisa.lang.inspect import find_operations, analyze_control_flow, count_instructions, get_ir_ast
+from luisa import kernel, callable, Int, Float
 
 
 def test_nested_if_statements(verify_ir):
@@ -459,3 +457,7 @@ i32 match_test(i32 arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

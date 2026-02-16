@@ -2,11 +2,10 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint,
-    Int, Float, Bool, Float2, Float3, Float2x2, Array, struct,
-    Const, static
+    callable, pprint,
+    Int, Float, Float2, Float3, Float2x2, Array, struct,
+    Const
 )
-from luisa.lang.inspect import count_instructions
 
 
 def test_vector_const_construction():
@@ -167,3 +166,7 @@ def test_matmul_folding(print_ir, verify_ir):
     actual = pprint(ir, recursive=True, show_location=False)
     assert 'return (2.0, 3.0, 4.0, 5.0);' in actual or \
            'return (np.float64(2.0), np.float64(3.0), np.float64(4.0), np.float64(5.0));' in actual
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

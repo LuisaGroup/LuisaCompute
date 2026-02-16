@@ -1,8 +1,7 @@
 """Tests for JIT compilation and staged functions."""
 
 import pytest
-from luisa import kernel, callable, Float, Int, Buffer, StagedFunction, pprint
-from luisa.lang.inspect import get_ir_ast
+from luisa import kernel, callable, Float, Int, Buffer
 
 
 def test_staged_function_basic(verify_ir):
@@ -225,3 +224,7 @@ kernel void index_kernel(buffer<f32> arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

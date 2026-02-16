@@ -1,8 +1,7 @@
 """Tests for type casting - with IR building and pretty printing."""
 
 import pytest
-from luisa import kernel, callable, Float, Int, Buffer, pprint, dispatch_id
-from luisa.lang.inspect import count_instructions, get_ir_ast
+from luisa import kernel, callable, Float, Int, Buffer, dispatch_id
 
 
 def test_int_to_float_cast(verify_ir):
@@ -121,3 +120,7 @@ kernel void cast_kernel(buffer<f32> arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

@@ -5,8 +5,7 @@ Test demonstrating DSL specialization (generics/templates).
 import pytest
 from luisa import (
     kernel, callable,
-    Int, Float, Buffer, dispatch_id,
-    pprint
+    Int, Float, Buffer, dispatch_id
 )
 
 
@@ -83,3 +82,7 @@ kernel void tiled_kernel(buffer<f32> arg0) {
 }
 """
     verify_ir(ir_128, expected_128)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

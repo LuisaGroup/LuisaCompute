@@ -3,12 +3,11 @@
 import math
 import pytest
 from luisa import (
-    kernel, callable, pprint, Float, Int, Buffer,
+    callable, Float,
     rsqrt, exp10, sinh, cosh, tanh, asinh, acosh, atanh,
     isinf, isnan, copysign, fma,
-    clz, ctz, popcount, reverse,
+    popcount,
 )
-from luisa.transform.ir import ConstantValue
 
 
 def test_rsqrt_constant_folding():
@@ -123,3 +122,7 @@ f32 test_funcs(f32 arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

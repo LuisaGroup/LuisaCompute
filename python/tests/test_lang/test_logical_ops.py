@@ -2,10 +2,9 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint,
-    Int, Float, Bool, Buffer
+    kernel, callable,
+    Int, Bool, Buffer
 )
-from luisa.lang.inspect import analyze_control_flow, count_instructions
 
 
 def test_logical_and_short_circuit(verify_ir):
@@ -196,3 +195,7 @@ i1 mixed_chain(i32 arg0, i32 arg1, i32 arg2) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

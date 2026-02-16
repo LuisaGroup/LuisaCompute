@@ -1,8 +1,7 @@
 """Tests for buffer operations - with IR building and pretty printing."""
 
 import pytest
-from luisa import kernel, callable, Float, Int, Buffer, dispatch_id, pprint
-from luisa.lang.inspect import count_instructions, get_ir_ast
+from luisa import kernel, callable, Float, Int, Buffer, dispatch_id
 
 
 def test_buffer_write(verify_ir):
@@ -157,3 +156,7 @@ kernel void matrix_transpose(buffer<f32> arg0, buffer<f32> arg1, i32 arg2, i32 a
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

@@ -2,11 +2,9 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint, Float, Int, Buffer, Const, static,
-    sin, cos, sqrt
+    kernel, callable, Float, Int, Buffer, Const, static,
+    sin
 )
-from luisa.transform.ir import ConstantValue
-from luisa.lang.inspect import count_instructions
 
 
 def test_dsl_variable_reassignment(verify_ir):
@@ -223,3 +221,7 @@ f32 test_init_reassign(f32 arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

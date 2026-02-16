@@ -2,21 +2,20 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint,
+    kernel, callable,
     # Math
-    sqrt, abs, sin, cos, tan, asin, acos, atan, atan2,
-    exp, exp2, log, log2, log10,
-    floor, ceil, round, trunc, fract, saturate,
-    normalize, length, length_squared,
-    min, max, clamp, lerp, step, smoothstep, pow,
-    dot, cross, distance, reflect, refract, faceforward,
-    transpose, inverse, determinant,
+    sqrt, sin, cos, exp,
+    floor, ceil,
+    normalize,
+    clamp, lerp, step, smoothstep,
+    dot, cross,
+    transpose,
     # Special registers
     dispatch_id, thread_id, block_id, dispatch_size,
     # Synchronization
     sync_block,
     # Type casting
-    cast, bitcast,
+    cast,
     # Print
     device_print,
     # Assertions
@@ -24,9 +23,8 @@ from luisa import (
     # Profiling
     clock,
     # Types
-    Int, Float, Float3, UInt3, Buffer,
+    Int, Float, Float3, Buffer,
 )
-from luisa.lang.inspect import count_instructions, get_ir_ast
 
 
 def test_math_builtins_build_ir(verify_ir):
@@ -329,3 +327,7 @@ kernel void unreachable_kernel() {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

@@ -1,8 +1,7 @@
 """Tests for unrolled loops."""
 
 import pytest
-from luisa import kernel, callable, Float, Int, Buffer, unrolled, static_range
-from luisa.lang.inspect import count_instructions
+from luisa import kernel, callable, Float, Int, Buffer, static_range
 
 
 def test_unrolled_simple(verify_ir):
@@ -146,3 +145,7 @@ void nested_unrolled(buffer<f32> arg0, f32 arg1) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

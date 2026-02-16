@@ -2,13 +2,12 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint,
-    Int, Float, Float3, Float4,
+    kernel,
+    Float, Float3,
     Buffer, Texture2D, Texture3D,
     BindlessArray, Accel,
     dispatch_id,
 )
-from luisa.lang.inspect import count_instructions, get_ir_ast
 
 
 def test_buffer_type():
@@ -137,3 +136,7 @@ kernel void multi_resource_kernel(buffer<f32> arg0, texture2d<f32> arg1, Accel a
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

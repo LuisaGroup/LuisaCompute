@@ -3,10 +3,9 @@
 import math
 import pytest
 from luisa import (
-    kernel, callable, pprint, Float, Float3, Buffer,
-    normalize, length, length_squared, dot, cross, distance, reflect,
+    callable, Float, Float3,
+    normalize, length, dot, cross, distance, reflect,
 )
-from luisa.transform.ir import ConstantValue
 
 
 def test_vector_tuple_constants():
@@ -128,3 +127,7 @@ f32 mixed_ops(<3 x f32> arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

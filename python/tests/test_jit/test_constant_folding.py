@@ -3,13 +3,13 @@
 import pytest
 import math
 from luisa import (
-    kernel, callable, pprint,
-    sin, cos, sqrt, exp, log,
+    kernel, callable,
+    sin, cos, sqrt, exp,
     min, max, clamp, lerp, pow, atan2,
-    Float, Float3, Buffer,
+    Float, Buffer,
 )
-from luisa.transform.ir import ConstantValue, InstructionValue
-from luisa.lang.router import is_constant_value, extract_constant_value
+from luisa.transform.ir import ConstantValue
+from luisa.lang.router import is_constant_value
 
 
 def test_constant_folding_basic():
@@ -176,3 +176,7 @@ def test_routed_function_repr():
     assert hasattr(sin, '__class__')
     assert sin.__class__.__name__ == 'RoutedFunction'
     assert 'sin' in repr(sin)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

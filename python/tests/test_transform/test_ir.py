@@ -2,7 +2,7 @@
 
 import pytest
 from luisa import (
-    Int, UInt, Float, Bool,
+    Int, Float, Bool,
     Builder, Op, Module,
     ConstantValue, ArgumentValue, InstructionValue,
     pprint,

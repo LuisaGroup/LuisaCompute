@@ -2,14 +2,13 @@
 
 import pytest
 from luisa import (
-    kernel, callable,
-    Int, UInt, Float,
+    kernel,
+    Int,
     Buffer,
     atomic_exchange, atomic_add, atomic_sub,
     atomic_and, atomic_or, atomic_xor,
     atomic_min, atomic_max,
     dispatch_id,
-    pprint,
 )
 
 
@@ -138,3 +137,7 @@ kernel void multi_atomic_kernel(buffer<i32> arg0, buffer<i32> arg1) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

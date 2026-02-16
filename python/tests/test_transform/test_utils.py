@@ -2,13 +2,12 @@
 
 import pytest
 from luisa import (
-    kernel, callable, pprint,
+    kernel, callable,
     unrolled, UnrolledRange,
     struct,
-    Int, Float, Float2, Float3,
+    Int, Float, Float3,
     Buffer, dispatch_id,
 )
-from luisa.lang.inspect import count_instructions
 
 
 def test_unrolled_range():
@@ -144,3 +143,7 @@ i32 nested_sum() {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])

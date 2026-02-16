@@ -5,9 +5,8 @@ Inspired by luisa/dsl/polymorphic.h
 
 import pytest
 from luisa import (
-    kernel, callable, static_range,
-    Int, Float, Buffer, dispatch_id,
-    pprint
+    kernel, callable,
+    Int, Float, Buffer, dispatch_id
 )
 from luisa.lang.builtins.math import sin
 
@@ -198,3 +197,7 @@ void square(f32 arg0) {
 }
 """
     verify_ir(ir, expected)
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__])
