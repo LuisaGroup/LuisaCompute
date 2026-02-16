@@ -26,7 +26,7 @@ from luisa import (
 )
 
 
-def test_math_builtins_build_ir(verify_ir):
+def test_math_builtins_build_ir(print_ir, verify_ir):
     """Test math builtins actually build IR."""
     @callable
     def math_ops(x: Float) -> Float:
@@ -38,6 +38,8 @@ def test_math_builtins_build_ir(verify_ir):
         f = floor(e)
         g = ceil(f)
         return g
+
+    print_ir(math_ops, "math_ops")
 
     expected = """
 f32 math_ops(f32 arg0) {
@@ -54,7 +56,7 @@ f32 math_ops(f32 arg0) {
     verify_ir(math_ops, expected)
 
 
-def test_special_registers_build_ir(verify_ir):
+def test_special_registers_build_ir(print_ir, verify_ir):
     """Test special registers actually build IR."""
     @kernel
     def special_reg_kernel():
@@ -62,6 +64,8 @@ def test_special_registers_build_ir(verify_ir):
         tid = thread_id()
         bid = block_id()
         dsize = dispatch_size()
+
+    print_ir(special_reg_kernel, "special_reg_kernel")
 
     expected = """
 kernel void special_reg_kernel() {
@@ -74,12 +78,14 @@ kernel void special_reg_kernel() {
     verify_ir(special_reg_kernel, expected)
 
 
-def test_dispatch_id_in_computation(verify_ir):
+def test_dispatch_id_in_computation(print_ir, verify_ir):
     """Test dispatch_id used in actual computation."""
     @kernel
     def index_kernel(buf: Buffer[Float]):
         idx = dispatch_id().x
         buf[idx] = Float(idx)
+
+    print_ir(index_kernel, "index_kernel")
 
     expected = """
 kernel void index_kernel(buffer<f32> arg0) {
@@ -92,7 +98,7 @@ kernel void index_kernel(buffer<f32> arg0) {
     verify_ir(index_kernel, expected)
 
 
-def test_sync_block_builds_ir(verify_ir):
+def test_sync_block_builds_ir(print_ir, verify_ir):
     """Test sync_block actually builds IR."""
     @kernel
     def sync_kernel(buf: Buffer[Float]):
@@ -100,6 +106,8 @@ def test_sync_block_builds_ir(verify_ir):
         buf[idx] = 1.0
         sync_block()
         buf[idx] = buf[idx] + 1.0
+
+    print_ir(sync_kernel, "sync_kernel")
 
     expected = """
 kernel void sync_kernel(buffer<f32> arg0) {
@@ -115,13 +123,15 @@ kernel void sync_kernel(buffer<f32> arg0) {
     verify_ir(sync_kernel, expected)
 
 
-def test_cast_builds_ir(verify_ir):
+def test_cast_builds_ir(print_ir, verify_ir):
     """Test cast/bitcast actually build IR."""
     @callable
     def cast_ops(x: Int) -> Float:
         f = Float(x)
         i = Int(f)
         return Float(i)
+
+    print_ir(cast_ops, "cast_ops")
 
     expected = """
 f32 cast_ops(i32 arg0) {
@@ -140,11 +150,13 @@ f32 cast_ops(i32 arg0) {
     verify_ir(cast_ops, expected)
 
 
-def test_device_print_builds_ir(verify_ir):
+def test_device_print_builds_ir(print_ir, verify_ir):
     """Test device_print actually builds IR."""
     @kernel
     def print_kernel(x: Int):
         device_print("Value: {}", x)
+
+    print_ir(print_kernel, "print_kernel")
 
     expected = """
 kernel void print_kernel(i32 arg0) {
@@ -154,7 +166,7 @@ kernel void print_kernel(i32 arg0) {
     verify_ir(print_kernel, expected)
 
 
-def test_clock_builds_ir(verify_ir):
+def test_clock_builds_ir(print_ir, verify_ir):
     """Test clock actually builds IR."""
     @callable
     def timed_function() -> Int:
@@ -167,6 +179,8 @@ def test_clock_builds_ir(verify_ir):
             i = i + 1
         end = clock()
         return Int(end - start)
+
+    print_ir(timed_function, "timed_function")
 
     expected = """
 i32 timed_function() {
@@ -201,7 +215,7 @@ i32 timed_function() {
     verify_ir(timed_function, expected)
 
 
-def test_assertions_build_ir(verify_ir):
+def test_assertions_build_ir(print_ir, verify_ir):
     """Test assume/device_assert actually build IR."""
     @callable
     def checked_function(x: Int) -> Int:
@@ -209,6 +223,8 @@ def test_assertions_build_ir(verify_ir):
         result = x * 2
         device_assert(result > x, "result should be greater than x")
         return result
+
+    print_ir(checked_function, "checked_function")
 
     expected = """
 i32 checked_function(i32 arg0) {
@@ -227,7 +243,7 @@ i32 checked_function(i32 arg0) {
     verify_ir(checked_function, expected)
 
 
-def test_matrix_ops_build_ir(verify_ir):
+def test_matrix_ops_build_ir(print_ir, verify_ir):
     """Test matrix operations actually build IR."""
     from luisa import Float4x4
 
@@ -235,6 +251,8 @@ def test_matrix_ops_build_ir(verify_ir):
     def matrix_ops(m: Float4x4) -> Float:
         t = transpose(m)
         return float(0.0)
+
+    print_ir(matrix_ops, "matrix_ops")
 
     expected = """
 f32 matrix_ops([4 x <4 x f32>] arg0) {
@@ -245,7 +263,7 @@ f32 matrix_ops([4 x <4 x f32>] arg0) {
     verify_ir(matrix_ops, expected)
 
 
-def test_vector_math_builds_ir(verify_ir):
+def test_vector_math_builds_ir(print_ir, verify_ir):
     """Test vector math operations build IR."""
     @callable
     def vector_ops(a: Float3, b: Float3) -> Float3:
@@ -253,6 +271,8 @@ def test_vector_math_builds_ir(verify_ir):
         c = cross(a, b)
         n = normalize(a)
         return c
+
+    print_ir(vector_ops, "vector_ops")
 
     expected = """
 <3 x f32> vector_ops(<3 x f32> arg0, <3 x f32> arg1) {
@@ -265,7 +285,7 @@ def test_vector_math_builds_ir(verify_ir):
     verify_ir(vector_ops, expected)
 
 
-def test_clamp_lerp_build_ir(verify_ir):
+def test_clamp_lerp_build_ir(print_ir, verify_ir):
     """Test clamp and lerp build IR."""
     @callable
     def utility_ops(x: Float) -> Float:
@@ -273,6 +293,8 @@ def test_clamp_lerp_build_ir(verify_ir):
         l = lerp(0.0, 1.0, c)
         s = step(0.5, l)
         return smoothstep(0.0, 1.0, s)
+
+    print_ir(utility_ops, "utility_ops")
 
     expected = """
 f32 utility_ops(f32 arg0) {
@@ -286,11 +308,13 @@ f32 utility_ops(f32 arg0) {
     verify_ir(utility_ops, expected)
 
 
-def test_unreachable_builds_ir(verify_ir):
+def test_unreachable_builds_ir(print_ir, verify_ir):
     """Test unreachable actually builds IR."""
     @kernel
     def unreachable_kernel():
         unreachable("this should not happen")
+
+    print_ir(unreachable_kernel, "unreachable_kernel")
 
     expected = """
 kernel void unreachable_kernel() {

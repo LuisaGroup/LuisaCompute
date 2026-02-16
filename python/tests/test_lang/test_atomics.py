@@ -11,12 +11,14 @@ from luisa import (
 )
 
 
-def test_atomic_add_builds_ir(verify_ir):
+def test_atomic_add_builds_ir(print_ir, verify_ir):
     """Test atomic_add actually builds IR."""
     @kernel
     def atomic_add_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         atomic_add(buf, idx, 1)
+
+    print_ir(atomic_add_kernel, "atomic_add_kernel")
 
     assert atomic_add_kernel.ir.is_kernel
     
@@ -30,12 +32,14 @@ kernel void atomic_add_kernel(buffer<i32> arg0) {
     verify_ir(atomic_add_kernel, expected)
 
 
-def test_atomic_exchange_builds_ir(verify_ir):
+def test_atomic_exchange_builds_ir(print_ir, verify_ir):
     """Test atomic_exchange actually builds IR."""
     @kernel
     def atomic_exchange_kernel(buf: Buffer[Int], val: Int) -> Int:
         idx = dispatch_id().x
         return atomic_exchange(buf, idx, val)
+
+    print_ir(atomic_exchange_kernel, "atomic_exchange_kernel")
 
     assert atomic_exchange_kernel.ir.is_kernel
     
@@ -50,12 +54,14 @@ kernel i32 atomic_exchange_kernel(buffer<i32> arg0, i32 arg1) {
     verify_ir(atomic_exchange_kernel, expected)
 
 
-def test_atomic_sub_builds_ir(verify_ir):
+def test_atomic_sub_builds_ir(print_ir, verify_ir):
     """Test atomic_sub actually builds IR."""
     @kernel
     def atomic_sub_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         atomic_sub(buf, idx, 1)
+
+    print_ir(atomic_sub_kernel, "atomic_sub_kernel")
 
     expected = """
 kernel void atomic_sub_kernel(buffer<i32> arg0) {
@@ -67,7 +73,7 @@ kernel void atomic_sub_kernel(buffer<i32> arg0) {
     verify_ir(atomic_sub_kernel, expected)
 
 
-def test_atomic_bitwise_builds_ir(verify_ir):
+def test_atomic_bitwise_builds_ir(print_ir, verify_ir):
     """Test atomic bitwise operations build IR."""
     @kernel
     def atomic_bitwise_kernel(buf: Buffer[Int]):
@@ -75,6 +81,8 @@ def test_atomic_bitwise_builds_ir(verify_ir):
         atomic_and(buf, idx, 255)
         atomic_or(buf, idx, 1)
         atomic_xor(buf, idx, 2)
+
+    print_ir(atomic_bitwise_kernel, "atomic_bitwise_kernel")
 
     expected = """
 kernel void atomic_bitwise_kernel(buffer<i32> arg0) {
@@ -88,13 +96,15 @@ kernel void atomic_bitwise_kernel(buffer<i32> arg0) {
     verify_ir(atomic_bitwise_kernel, expected)
 
 
-def test_atomic_min_max_builds_ir(verify_ir):
+def test_atomic_min_max_builds_ir(print_ir, verify_ir):
     """Test atomic min/max actually build IR."""
     @kernel
     def atomic_minmax_kernel(buf: Buffer[Int]):
         idx = dispatch_id().x
         atomic_min(buf, idx, 100)
         atomic_max(buf, idx, 0)
+
+    print_ir(atomic_minmax_kernel, "atomic_minmax_kernel")
 
     expected = """
 kernel void atomic_minmax_kernel(buffer<i32> arg0) {
@@ -107,7 +117,7 @@ kernel void atomic_minmax_kernel(buffer<i32> arg0) {
     verify_ir(atomic_minmax_kernel, expected)
 
 
-def test_multiple_atomics_in_kernel(verify_ir):
+def test_multiple_atomics_in_kernel(print_ir, verify_ir):
     """Test multiple atomic operations in one kernel."""
     @kernel
     def multi_atomic_kernel(counter: Buffer[Int], sum_buf: Buffer[Int]):
@@ -116,6 +126,8 @@ def test_multiple_atomics_in_kernel(verify_ir):
         old_val = atomic_add(counter, idx, 1)
         # Add to sum
         atomic_add(sum_buf, idx, old_val)
+
+    print_ir(multi_atomic_kernel, "multi_atomic_kernel")
 
     expected = """
 kernel void multi_atomic_kernel(buffer<i32> arg0, buffer<i32> arg1) {

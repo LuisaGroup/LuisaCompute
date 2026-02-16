@@ -3,7 +3,7 @@
 from luisa import kernel, callable, Int, Float
 
 
-def test_nested_if_statements(verify_ir):
+def test_nested_if_statements(print_ir, verify_ir):
     """Test nested if statements."""
     @callable
     def nested_if(x: Int, y: Int) -> Int:
@@ -12,6 +12,8 @@ def test_nested_if_statements(verify_ir):
                 return x + y
             return x - y
         return 0
+
+    print_ir(nested_if, "nested_if")
 
     expected = """
 i32 nested_if(i32 arg0, i32 arg1) {
@@ -35,7 +37,7 @@ i32 nested_if(i32 arg0, i32 arg1) {
     verify_ir(nested_if, expected)
 
 
-def test_if_elif_else_chain(verify_ir):
+def test_if_elif_else_chain(print_ir, verify_ir):
     """Test if-elif-else chain (using nested ifs)."""
     @callable
     def if_chain(x: Int) -> Int:
@@ -45,6 +47,8 @@ def test_if_elif_else_chain(verify_ir):
             return 0
         else:
             return 1
+
+    print_ir(if_chain, "if_chain")
 
     expected = """
 i32 if_chain(i32 arg0) {
@@ -64,7 +68,7 @@ i32 if_chain(i32 arg0) {
     verify_ir(if_chain, expected)
 
 
-def test_while_loop_with_break(verify_ir):
+def test_while_loop_with_break(print_ir, verify_ir):
     """Test while loop with break."""
     @callable
     def while_with_break(x: Int) -> Int:
@@ -74,6 +78,8 @@ def test_while_loop_with_break(verify_ir):
                 break
             i = i + 1
         return i
+
+    print_ir(while_with_break, "while_with_break")
 
     expected = """
 i32 while_with_break(i32 arg0) {
@@ -103,7 +109,7 @@ i32 while_with_break(i32 arg0) {
     verify_ir(while_with_break, expected)
 
 
-def test_while_loop_with_continue(verify_ir):
+def test_while_loop_with_continue(print_ir, verify_ir):
     """Test while loop with continue."""
     @callable
     def while_with_continue(x: Int) -> Int:
@@ -115,6 +121,8 @@ def test_while_loop_with_continue(verify_ir):
                 continue
             s = s + i
         return s
+
+    print_ir(while_with_continue, "while_with_continue")
 
     expected = """
 i32 while_with_continue(i32 arg0) {
@@ -149,7 +157,7 @@ i32 while_with_continue(i32 arg0) {
     verify_ir(while_with_continue, expected)
 
 
-def test_for_range_loop(verify_ir):
+def test_for_range_loop(print_ir, verify_ir):
     """Test for-range loop."""
     @callable
     def for_range_sum(n: Int) -> Int:
@@ -157,6 +165,8 @@ def test_for_range_loop(verify_ir):
         for i in range(n):
             total = total + i
         return total
+
+    print_ir(for_range_sum, "for_range_sum")
 
     expected = """
 i32 for_range_sum(i32 arg0) {
@@ -186,7 +196,7 @@ i32 for_range_sum(i32 arg0) {
     verify_ir(for_range_sum, expected)
 
 
-def test_for_range_with_step(verify_ir):
+def test_for_range_with_step(print_ir, verify_ir):
     """Test for-range loop with step."""
     @callable
     def for_range_step(n: Int) -> Int:
@@ -194,6 +204,8 @@ def test_for_range_with_step(verify_ir):
         for i in range(0, n, 2):
             total = total + i
         return total
+
+    print_ir(for_range_step, "for_range_step")
 
     expected = """
 i32 for_range_step(i32 arg0) {
@@ -223,7 +235,7 @@ i32 for_range_step(i32 arg0) {
     verify_ir(for_range_step, expected)
 
 
-def test_early_return(verify_ir):
+def test_early_return(print_ir, verify_ir):
     """Test function with early return."""
     @callable
     def early_return(x: Int) -> Int:
@@ -232,6 +244,8 @@ def test_early_return(verify_ir):
         if x > 100:
             return 100
         return x
+
+    print_ir(early_return, "early_return")
 
     expected = """
 i32 early_return(i32 arg0) {
@@ -253,13 +267,15 @@ i32 early_return(i32 arg0) {
     verify_ir(early_return, expected)
 
 
-def test_complex_boolean_expression(verify_ir):
+def test_complex_boolean_expression(print_ir, verify_ir):
     """Test complex boolean expressions in conditions."""
     @callable
     def complex_bool(x: Int, y: Int) -> Int:
         if x > 0 and y > 0:
             return x + y
         return 0
+
+    print_ir(complex_bool, "complex_bool")
 
     expected = """
 i32 complex_bool(i32 arg0, i32 arg1) {
@@ -285,7 +301,7 @@ i32 complex_bool(i32 arg0, i32 arg1) {
     verify_ir(complex_bool, expected)
 
 
-def test_multiple_returns_in_branches(verify_ir):
+def test_multiple_returns_in_branches(print_ir, verify_ir):
     """Test function with multiple returns in different branches."""
     @callable
     def multi_return(x: Int) -> Int:
@@ -295,6 +311,8 @@ def test_multiple_returns_in_branches(verify_ir):
             return 0
         else:
             return 1
+
+    print_ir(multi_return, "multi_return")
 
     expected = """
 i32 multi_return(i32 arg0) {
@@ -314,7 +332,7 @@ i32 multi_return(i32 arg0) {
     verify_ir(multi_return, expected)
 
 
-def test_deeply_nested_control_flow(verify_ir):
+def test_deeply_nested_control_flow(print_ir, verify_ir):
     """Test deeply nested control flow."""
     @callable
     def nested_deep(x: Int) -> Int:
@@ -325,6 +343,8 @@ def test_deeply_nested_control_flow(verify_ir):
                 return 100
             return 10
         return 0
+
+    print_ir(nested_deep, "nested_deep")
 
     expected = """
 i32 nested_deep(i32 arg0) {
@@ -352,7 +372,7 @@ i32 nested_deep(i32 arg0) {
     verify_ir(nested_deep, expected)
 
 
-def test_loop_with_multiple_exits(verify_ir):
+def test_loop_with_multiple_exits(print_ir, verify_ir):
     """Test loop with multiple exit conditions."""
     @callable
     def multi_exit_loop(x: Int) -> Int:
@@ -364,6 +384,8 @@ def test_loop_with_multiple_exits(verify_ir):
                 break
             i = i + 1
         return i
+
+    print_ir(multi_exit_loop, "multi_exit_loop")
 
     expected = """
 i32 multi_exit_loop(i32 arg0) {
@@ -393,7 +415,7 @@ i32 multi_exit_loop(i32 arg0) {
     verify_ir(multi_exit_loop, expected)
 
 
-def test_python_match_to_switch(verify_ir):
+def test_python_match_to_switch(print_ir, verify_ir):
     """Test that Python's match statement is translated to IR SWITCH."""
     @callable
     def match_test(tag: Int) -> Int:
@@ -408,6 +430,8 @@ def test_python_match_to_switch(verify_ir):
             case _:
                 res = Int(-1)
         return res
+
+    print_ir(match_test, "match_test")
 
     expected = """
 i32 match_test(i32 arg0) {

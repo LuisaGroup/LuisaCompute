@@ -17,12 +17,14 @@ def test_buffer_type():
     assert str(b2) == "buffer<<3 x f32>>"
 
 
-def test_buffer_in_kernel_builds_ir(verify_ir):
+def test_buffer_in_kernel_builds_ir(print_ir, verify_ir):
     """Test Buffer in kernel actually builds IR."""
     @kernel
     def fill_buffer(buf: Buffer(Float), value: Float) -> None:
         idx = dispatch_id().x
         buf[idx] = value
+
+    print_ir(fill_buffer, "fill_buffer")
 
     assert fill_buffer.ir.is_kernel
     
@@ -36,13 +38,15 @@ kernel void fill_buffer(buffer<f32> arg0, f32 arg1) {
     verify_ir(fill_buffer, expected)
 
 
-def test_buffer_vector_type_kernel(verify_ir):
+def test_buffer_vector_type_kernel(print_ir, verify_ir):
     """Test Buffer of vectors in kernel."""
     @kernel
     def process_vectors(buf: Buffer(Float3)):
         idx = dispatch_id().x
         val = buf[idx]
         buf[idx] = val
+
+    print_ir(process_vectors, "process_vectors")
 
     assert process_vectors.ir.is_kernel
     
@@ -66,13 +70,15 @@ def test_texture2d_type():
     assert str(t) == "texture2d<f32>"
 
 
-def test_texture2d_in_kernel(verify_ir):
+def test_texture2d_in_kernel(print_ir, verify_ir):
     """Test Texture2D in kernel builds IR."""
     @kernel
     def sample_texture(tex: Texture2D(Float), output: Buffer(Float)):
         idx = dispatch_id().x
         # Note: full texture sampling would need more support
         output[idx] = 0.0
+
+    print_ir(sample_texture, "sample_texture")
 
     assert sample_texture.ir.is_kernel
     
@@ -104,7 +110,7 @@ def test_accel_type():
     assert str(t) == "accel"
 
 
-def test_multiple_resources_in_kernel(verify_ir):
+def test_multiple_resources_in_kernel(print_ir, verify_ir):
     """Test multiple resource types in one kernel."""
     @kernel
     def multi_resource_kernel(
@@ -120,6 +126,9 @@ def test_multiple_resources_in_kernel(verify_ir):
         Texture2D(Float),
         Accel()
     )
+
+    print_ir(multi_resource_kernel, "multi_resource_kernel")
+
     assert multi_resource_kernel.ir.is_kernel
     
     expected = """

@@ -6,11 +6,13 @@ from luisa import (
 )
 
 
-def test_logical_and_short_circuit(verify_ir):
+def test_logical_and_short_circuit(print_ir, verify_ir):
     """Test logical AND with short-circuiting."""
     @callable
     def logic_and(a: Bool, b: Bool) -> Bool:
         return a and b
+
+    print_ir(logic_and, "logic_and")
 
     expected = """
 i1 logic_and(i1 arg0, i1 arg1) {
@@ -28,11 +30,13 @@ i1 logic_and(i1 arg0, i1 arg1) {
     verify_ir(logic_and, expected)
 
 
-def test_logical_or_short_circuit(verify_ir):
+def test_logical_or_short_circuit(print_ir, verify_ir):
     """Test logical OR with short-circuiting."""
     @callable
     def logic_or(a: Bool, b: Bool) -> Bool:
         return a or b
+
+    print_ir(logic_or, "logic_or")
 
     expected = """
 i1 logic_or(i1 arg0, i1 arg1) {
@@ -50,11 +54,13 @@ i1 logic_or(i1 arg0, i1 arg1) {
     verify_ir(logic_or, expected)
 
 
-def test_chained_comparisons(verify_ir):
+def test_chained_comparisons(print_ir, verify_ir):
     """Test chained comparisons like x < a < y."""
     @callable
     def chain_comp(x: Int, a: Int, y: Int) -> Bool:
         return x < a < y
+
+    print_ir(chain_comp, "chain_comp")
 
     expected = """
 i1 chain_comp(i32 arg0, i32 arg1, i32 arg2) {
@@ -74,11 +80,13 @@ i1 chain_comp(i32 arg0, i32 arg1, i32 arg2) {
     verify_ir(chain_comp, expected)
 
 
-def test_complex_logic(verify_ir):
+def test_complex_logic(print_ir, verify_ir):
     """Test complex logical expressions."""
     @callable
     def complex_logic(a: Bool, b: Bool, c: Bool) -> Bool:
         return (a and b) or (not a and c)
+
+    print_ir(complex_logic, "complex_logic")
 
     expected = """
 i1 complex_logic(i1 arg0, i1 arg1, i1 arg2) {
@@ -113,7 +121,7 @@ i1 complex_logic(i1 arg0, i1 arg1, i1 arg2) {
     verify_ir(complex_logic, expected)
 
 
-def test_logic_with_side_effects(verify_ir):
+def test_logic_with_side_effects(print_ir, verify_ir):
     """Test logical ops where the RHS has 'side effects' (buffer write)."""
     @callable
     def effect(buf: Buffer[Int], idx: Int) -> Bool:
@@ -124,6 +132,9 @@ def test_logic_with_side_effects(verify_ir):
     def logic_kernel(a: Bool, buf: Buffer[Int]):
         if a and effect(buf, 0):
             pass
+
+    print_ir(effect, "effect")
+    print_ir(logic_kernel, "logic_kernel")
 
     expected = """
 kernel void logic_kernel(i1 arg0, buffer<i32> arg1) {
@@ -151,11 +162,13 @@ i1 effect(buffer<i32> arg0, i32 arg1) {
     verify_ir(logic_kernel, expected)
 
 
-def test_chained_comparison_mixed(verify_ir):
+def test_chained_comparison_mixed(print_ir, verify_ir):
     """Test chained comparisons with different operators."""
     @callable
     def mixed_chain(x: Int, a: Int, y: Int) -> Bool:
         return x <= a < y != 10
+
+    print_ir(mixed_chain, "mixed_chain")
 
     expected = """
 i1 mixed_chain(i32 arg0, i32 arg1, i32 arg2) {

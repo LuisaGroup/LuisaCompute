@@ -88,7 +88,8 @@ def test_nested_aggregates(print_ir, verify_ir):
         o = Const[Outer](Inner((1.0, 2.0), (3, 4)), 5.0)
         return o.i.v.x + Float(o.i.a[0]) + o.f
         
-    ir = print_ir(nested_fold)
+    print_ir(nested_fold)
+
     # Should fold to 1.0 + 3.0 + 5.0 = 9.0
     expected = """
 f32 nested_fold() {
@@ -134,7 +135,7 @@ def test_matrix_folding(print_ir, verify_ir):
         d = determinant(m)
         return d
 
-    ir = print_ir(mat_ops)
+    print_ir(mat_ops)
     
     # If folded, shouldn't have matrix instructions
     # It should fold perfectly to a single return
@@ -159,7 +160,7 @@ def test_matmul_folding(print_ir, verify_ir):
         m2 = Const[Float2x2](2.0, 3.0, 4.0, 5.0)
         return m1 @ m2
 
-    ir = print_ir(matmul_fold)
+    print_ir(matmul_fold)
     
     # Result should be constant (2,3,4,5)
     # Using wildcard for numpy float64 repr

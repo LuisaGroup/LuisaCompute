@@ -3,11 +3,13 @@
 from luisa import kernel, callable, Float, Int, Buffer, dispatch_id
 
 
-def test_buffer_write(verify_ir):
+def test_buffer_write(print_ir, verify_ir):
     """Test buffer write operation - builds and prints IR."""
     @callable
     def write_to_buffer(buf: Buffer[Float]) -> None:
         buf[0] = 1.0
+
+    print_ir(write_to_buffer, "write_to_buffer")
 
     expected = """
 void write_to_buffer(buffer<f32> arg0) {
@@ -17,11 +19,13 @@ void write_to_buffer(buffer<f32> arg0) {
     verify_ir(write_to_buffer, expected)
 
 
-def test_buffer_read(verify_ir):
+def test_buffer_read(print_ir, verify_ir):
     """Test buffer read operation - builds and prints IR."""
     @callable
     def read_from_buffer(buf: Buffer[Float]) -> Float:
         return buf[0]
+
+    print_ir(read_from_buffer, "read_from_buffer")
 
     expected = """
 f32 read_from_buffer(buffer<f32> arg0) {
@@ -32,11 +36,13 @@ f32 read_from_buffer(buffer<f32> arg0) {
     verify_ir(read_from_buffer, expected)
 
 
-def test_buffer_read_write(verify_ir):
+def test_buffer_read_write(print_ir, verify_ir):
     """Test buffer read and write in same function."""
     @callable
     def copy_buffer(src: Buffer[Float], dst: Buffer[Float]) -> None:
         dst[0] = src[0]
+
+    print_ir(copy_buffer, "copy_buffer")
 
     expected = """
 void copy_buffer(buffer<f32> arg0, buffer<f32> arg1) {
@@ -47,12 +53,14 @@ void copy_buffer(buffer<f32> arg0, buffer<f32> arg1) {
     verify_ir(copy_buffer, expected)
 
 
-def test_saxpy_kernel(verify_ir):
+def test_saxpy_kernel(print_ir, verify_ir):
     """Test SAXPY kernel pattern - Single-precision A*X Plus Y."""
     @kernel
     def saxpy(result: Buffer[Float], a: Float, x: Buffer[Float], y: Buffer[Float]) -> None:
         idx = dispatch_id().x
         result[idx] = a * x[idx] + y[idx]
+
+    print_ir(saxpy, "saxpy")
 
     assert saxpy.ir.is_kernel
     
@@ -70,11 +78,13 @@ kernel void saxpy(buffer<f32> arg0, f32 arg1, buffer<f32> arg2, buffer<f32> arg3
     verify_ir(saxpy, expected)
 
 
-def test_buffer_with_dynamic_index(verify_ir):
+def test_buffer_with_dynamic_index(print_ir, verify_ir):
     """Test buffer access with dynamic index."""
     @callable
     def dynamic_access(buf: Buffer[Float], idx: Int) -> Float:
         return buf[idx]
+
+    print_ir(dynamic_access, "dynamic_access")
 
     expected = """
 f32 dynamic_access(buffer<f32> arg0, i32 arg1) {
@@ -85,13 +95,15 @@ f32 dynamic_access(buffer<f32> arg0, i32 arg1) {
     verify_ir(dynamic_access, expected)
 
 
-def test_buffer_multiple_writes(verify_ir):
+def test_buffer_multiple_writes(print_ir, verify_ir):
     """Test multiple buffer writes."""
     @callable
     def fill_buffer(buf: Buffer[Float]) -> None:
         buf[0] = 0.0
         buf[1] = 1.0
         buf[2] = 2.0
+
+    print_ir(fill_buffer, "fill_buffer")
 
     expected = """
 void fill_buffer(buffer<f32> arg0) {
@@ -103,7 +115,7 @@ void fill_buffer(buffer<f32> arg0) {
     verify_ir(fill_buffer, expected)
 
 
-def test_buffer_2d_kernel(verify_ir):
+def test_buffer_2d_kernel(print_ir, verify_ir):
     """Test 2D buffer access pattern."""
     @kernel
     def matrix_transpose(out: Buffer[Float], inp: Buffer[Float], width: Int, height: Int):
@@ -111,6 +123,8 @@ def test_buffer_2d_kernel(verify_ir):
         y = dispatch_id().y
         if x < width and y < height:
             out[y * width + x] = inp[x * height + y]
+
+    print_ir(matrix_transpose, "matrix_transpose")
 
     assert matrix_transpose.ir.is_kernel
     

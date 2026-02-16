@@ -3,11 +3,13 @@
 from luisa import kernel, callable, Float, Int, Buffer, dispatch_id
 
 
-def test_int_to_float_cast(verify_ir):
+def test_int_to_float_cast(print_ir, verify_ir):
     """Test casting int to float - builds and prints IR."""
     @callable
     def cast_int_to_float(x: Int) -> Float:
         return Float(x)
+
+    print_ir(cast_int_to_float, "cast_int_to_float")
 
     expected = """
 f32 cast_int_to_float(i32 arg0) {
@@ -18,11 +20,13 @@ f32 cast_int_to_float(i32 arg0) {
     verify_ir(cast_int_to_float, expected)
 
 
-def test_float_to_int_cast(verify_ir):
+def test_float_to_int_cast(print_ir, verify_ir):
     """Test casting float to int."""
     @callable
     def cast_float_to_int(x: Float) -> Int:
         return Int(x)
+
+    print_ir(cast_float_to_int, "cast_float_to_int")
 
     expected = """
 i32 cast_float_to_int(f32 arg0) {
@@ -33,11 +37,13 @@ i32 cast_float_to_int(f32 arg0) {
     verify_ir(cast_float_to_int, expected)
 
 
-def test_cast_in_computation(verify_ir):
+def test_cast_in_computation(print_ir, verify_ir):
     """Test cast in the middle of computation."""
     @callable
     def mixed_computation(i: Int, f: Float) -> Float:
         return Float(i) + f
+
+    print_ir(mixed_computation, "mixed_computation")
 
     expected = """
 f32 mixed_computation(i32 arg0, f32 arg1) {
@@ -49,11 +55,13 @@ f32 mixed_computation(i32 arg0, f32 arg1) {
     verify_ir(mixed_computation, expected)
 
 
-def test_cast_with_buffer(verify_ir):
+def test_cast_with_buffer(print_ir, verify_ir):
     """Test cast with buffer operations."""
     @callable
     def store_index_as_float(buf: Buffer[Float], idx: Int) -> None:
         buf[idx] = Float(idx) * 2.0
+
+    print_ir(store_index_as_float, "store_index_as_float")
 
     expected = """
 void store_index_as_float(buffer<f32> arg0, i32 arg1) {
@@ -65,13 +73,15 @@ void store_index_as_float(buffer<f32> arg0, i32 arg1) {
     verify_ir(store_index_as_float, expected)
 
 
-def test_chained_casts(verify_ir):
+def test_chained_casts(print_ir, verify_ir):
     """Test multiple chained casts."""
     @callable
     def chain_cast(x: Int) -> Int:
         f = Float(x)
         i = Int(f)
         return i
+
+    print_ir(chain_cast, "chain_cast")
 
     expected = """
 i32 chain_cast(i32 arg0) {
@@ -89,12 +99,14 @@ i32 chain_cast(i32 arg0) {
     verify_ir(chain_cast, expected)
 
 
-def test_cast_in_kernel(verify_ir):
+def test_cast_in_kernel(print_ir, verify_ir):
     """Test cast in a kernel context."""
     @kernel
     def cast_kernel(out: Buffer[Float]):
         idx = dispatch_id().x
         out[idx] = Float(idx) * 1.5
+
+    print_ir(cast_kernel, "cast_kernel")
 
     assert cast_kernel.ir.is_kernel
     
