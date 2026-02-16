@@ -135,8 +135,9 @@ def test_implicit_specialization_via_call():
     def test_kernel():
         result = negate(Int(5))
     
-    # Trigger compilation to populate cache
-    _ = test_kernel.ir
+    # IR is built immediately upon StagedFunction creation
+    # Just need to reference the kernel to trigger the implicit call
+    assert test_kernel.ir is not None
     
     # Check cache has the inferred type
     assert (Int,) in negate._cache
@@ -151,12 +152,12 @@ def test_implicit_specialization_reuses_cache():
     def double(x: T):
         return x * 2
     
-    # First call creates cache entry
+    # First call creates cache entry (IR built immediately)
     @kernel
     def test_kernel1():
         result = double(Int(1))
     
-    _ = test_kernel1.ir
+    assert test_kernel1.ir is not None
     
     cache_size_after_first = len(double._cache)
     assert cache_size_after_first == 1
@@ -166,7 +167,7 @@ def test_implicit_specialization_reuses_cache():
     def test_kernel2():
         result = double(Int(2))
     
-    _ = test_kernel2.ir
+    assert test_kernel2.ir is not None
     
     assert len(double._cache) == cache_size_after_first
 

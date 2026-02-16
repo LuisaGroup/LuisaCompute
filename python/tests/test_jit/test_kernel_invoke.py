@@ -90,8 +90,8 @@ def test_templated_callable_specialization():
     def test_kernel():
         result = add(Int(1), Int(2))
     
-    # Trigger compilation which populates cache
-    _ = test_kernel.ir
+    # IR is built immediately upon StagedFunction creation
+    assert test_kernel.ir is not None
     
     # Check cache
     assert (Int, Int) in add._cache
