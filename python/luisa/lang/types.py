@@ -734,9 +734,15 @@ def annotation_to_type(ann: Any) -> tuple[Optional[Type], bool]:
         if isinstance(ann, str):
             return None, False
 
-    # Handle direct type references
+    # Handle direct type references (instances or classes)
     if isinstance(ann, Type):
         return ann, False
+    if inspect.isclass(ann) and issubclass(ann, Type):
+        try:
+            return ann(), False
+        except TypeError:
+            # Class might require arguments (like Buffer), so it must be instantiated or used with []
+            return None, False
 
     # Handle DSL struct types (classes decorated with @struct)
     if hasattr(ann, '_dsl_type'):

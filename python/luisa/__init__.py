@@ -12,7 +12,7 @@ from __future__ import annotations
 from .lang import builtins
 from .lang.builtins import *
 # Export core DSL components
-from .lang.jit import (StagedFunction, UnrolledRange, callable, kernel,
+from .lang.jit import (StagedFunction, TemplatedFunction, UnrolledRange, callable, kernel,
                        static_range, unrolled)
 from .lang.ops import StaticIf, StaticWhile
 # Export router utilities
@@ -52,7 +52,7 @@ from .version import __version__
 
 __all__ = [
     # JIT
-    "kernel", "callable", "StagedFunction", "static_range", "unrolled", "UnrolledRange",
+    "kernel", "callable", "StagedFunction", "TemplatedFunction", "static_range", "unrolled", "UnrolledRange",
     "StaticIf", "StaticWhile",
 
     # Builder

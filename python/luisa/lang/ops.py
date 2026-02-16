@@ -517,22 +517,10 @@ def call(func: Any, *args, **kwargs) -> Any:
         # All constants - delegate to T.__call__ for host computation
         return func(*args)
 
-    # Use duck typing or check class name to avoid circular import with multistage
-    if func.__class__.__name__ in ('StagedFunction', 'SpecializedFunction'):
-        # Check if we're inside a builder context (i.e., building IR)
-        # If so, emit a CALL instruction
-        # If not, call the staged function directly to get its compiled IR
-        try:
-            builder = get_current_builder()
-            # We have a builder context - emit a CALL instruction
-            return builder.call(func, *args)
-        except RuntimeError:
-            # No builder context - call the staged function directly
-            # This returns the compiled Function, not an InstructionValue
-            return func(*args, **kwargs)
-
     import builtins
     if builtins.callable(func):
+        # Both TemplatedFunction and StagedFunction are callable and handle
+        # builder redirection internally.
         if any(is_ir_value(a) for a in args):
             new_args = []
             for a in args:
