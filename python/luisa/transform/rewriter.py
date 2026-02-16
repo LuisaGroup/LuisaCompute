@@ -259,7 +259,7 @@ class ASTRewriter(ast.NodeTransformer):
         op_name = "and_" if isinstance(node.op, ast.And) else "or_"
         return self._make_short_circuit_op(op_name, node.values)
 
-    def visit_If(self, node: ast.If) -> ast.With:
+    def visit_If(self, node: ast.If) -> list[ast.stmt]:
         """Rewrite if statements."""
         if_var = "__luisa_if"
 
@@ -269,18 +269,29 @@ class ASTRewriter(ast.NodeTransformer):
                 loc_call = self._set_loc(s)
                 if loc_call:
                     visited.append(loc_call)
-                visited.append(self.visit(s))
+                rewritten = self.visit(s)
+                if isinstance(rewritten, list):
+                    visited.extend(rewritten)
+                else:
+                    visited.append(rewritten)
             return visited or [ast.Pass()]
 
-        return ast.With(
-            items=[ast.withitem(
-                context_expr=self._rt_call("if_",
-                                           ast.Lambda(args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[],
-                                                                         kw_defaults=[], defaults=[]),
-                                                      body=self.visit(node.test))
-                                           ),
-                optional_vars=ast.Name(id=if_var, ctx=ast.Store())
-            )],
+        # _if = if_(lambda: test)
+        assign_stmt = ast.Assign(
+            targets=[ast.Name(id=if_var, ctx=ast.Store())],
+            value=self._rt_call("if_",
+                                ast.Lambda(args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[],
+                                                              kw_defaults=[], defaults=[]),
+                                           body=self.visit(node.test))
+                                )
+        )
+
+        # if _if.should_run_true():
+        #     with _if.true_scope():
+        #         body
+        true_branch = ast.If(
+            test=ast.Call(func=ast.Attribute(value=ast.Name(id=if_var, ctx=ast.Load()), attr="should_run_true",
+                                             ctx=ast.Load()), args=[], keywords=[]),
             body=[
                 ast.With(
                     items=[ast.withitem(
@@ -289,17 +300,35 @@ class ASTRewriter(ast.NodeTransformer):
                                                ctx=ast.Load()), args=[], keywords=[]),
                     )],
                     body=visit_body(node.body)
-                ),
-                ast.With(
-                    items=[ast.withitem(
-                        context_expr=ast.Call(
-                            func=ast.Attribute(value=ast.Name(id=if_var, ctx=ast.Load()), attr="false_scope",
-                                               ctx=ast.Load()), args=[], keywords=[]),
-                    )],
-                    body=visit_body(node.orelse)
-                ) if node.orelse else ast.Pass()
-            ]
+                )
+            ],
+            orelse=[]
         )
+
+        # if _if.should_run_false():
+        #     with _if.false_scope():
+        #         orelse
+        false_branch_stmts = []
+        if node.orelse:
+            false_branch_stmts = [
+                ast.If(
+                    test=ast.Call(func=ast.Attribute(value=ast.Name(id=if_var, ctx=ast.Load()), attr="should_run_false",
+                                                     ctx=ast.Load()), args=[], keywords=[]),
+                    body=[
+                        ast.With(
+                            items=[ast.withitem(
+                                context_expr=ast.Call(
+                                    func=ast.Attribute(value=ast.Name(id=if_var, ctx=ast.Load()), attr="false_scope",
+                                                       ctx=ast.Load()), args=[], keywords=[]),
+                            )],
+                            body=visit_body(node.orelse)
+                        )
+                    ],
+                    orelse=[]
+                )
+            ]
+
+        return [assign_stmt, true_branch] + false_branch_stmts
 
     def visit_Return(self, node: ast.Return) -> ast.Expr:
         """Rewrite return statements."""
@@ -492,7 +521,11 @@ class ASTRewriter(ast.NodeTransformer):
                 loc_call = self._set_loc(s)
                 if loc_call:
                     visited.append(loc_call)
-                visited.append(self.visit(s))
+                rewritten = self.visit(s)
+                if isinstance(rewritten, list):
+                    visited.extend(rewritten)
+                else:
+                    visited.append(rewritten)
             return visited or [ast.Pass()]
 
         body = visit_body(node.body)
@@ -521,7 +554,11 @@ class ASTRewriter(ast.NodeTransformer):
                 loc_call = self._set_loc(s)
                 if loc_call:
                     visited.append(loc_call)
-                visited.append(self.visit(s))
+                rewritten = self.visit(s)
+                if isinstance(rewritten, list):
+                    visited.extend(rewritten)
+                else:
+                    visited.append(rewritten)
             return visited or [ast.Pass()]
 
         return ast.For(
@@ -541,7 +578,11 @@ class ASTRewriter(ast.NodeTransformer):
                 loc_call = self._set_loc(s)
                 if loc_call:
                     visited.append(loc_call)
-                visited.append(self.visit(s))
+                rewritten = self.visit(s)
+                if isinstance(rewritten, list):
+                    visited.extend(rewritten)
+                else:
+                    visited.append(rewritten)
             return visited or [ast.Pass()]
 
         body = visit_body(node.body)
@@ -573,7 +614,11 @@ class ASTRewriter(ast.NodeTransformer):
                 loc_call = self._set_loc(s)
                 if loc_call:
                     visited.append(loc_call)
-                visited.append(self.visit(s))
+                rewritten = self.visit(s)
+                if isinstance(rewritten, list):
+                    visited.extend(rewritten)
+                else:
+                    visited.append(rewritten)
             return visited or [ast.Pass()]
 
         cases = []

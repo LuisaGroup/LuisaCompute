@@ -115,6 +115,13 @@ class TemplatedFunction:
         return self.template_params
     
     @property
+    def unresolved_explicit_params(self) -> tuple[str, ...]:
+        """Get explicit template params that haven't been specialized yet."""
+        # Skip the first N params that have been specialized
+        num_resolved = len(self.specialization_values)
+        return self.template_params[num_resolved:]
+    
+    @property
     def implicit_params(self) -> tuple[str, ...]:
         """Get implicit template params (from unannotated arguments)."""
         if self._implicit_params is not None:
@@ -145,13 +152,21 @@ class TemplatedFunction:
         if all_params:
             rewritten_ast = self._inject_template_params(rewritten_ast, all_params)
         
-        ast.fix_missing_locations(rewritten_ast)
+        # Create module and fix line numbers
+        # Note: fix_missing_locations must be called on the Module, not just the function
+        # Also, the function needs a lineno to serve as the base for child nodes
+        if not hasattr(rewritten_ast, 'lineno') or rewritten_ast.lineno is None:
+            rewritten_ast.lineno = 1
+        if not hasattr(rewritten_ast, 'col_offset') or rewritten_ast.col_offset is None:
+            rewritten_ast.col_offset = 0
+        module = ast.Module(body=[rewritten_ast], type_ignores=[])
+        ast.fix_missing_locations(module)
 
         if os.environ.get("LUISA_DUMP_REWRITTEN_AST") in ("1", "ON", "TRUE", "true", "yes"):
             print(f"DEBUG: Rewritten AST for {self.name}:\n{ast.unparse(rewritten_ast)}")
 
         self.compiled_code = compile(
-            ast.Module(body=[rewritten_ast], type_ignores=[]),
+            module,
             filename=f"<luisa-built-{self.name}>",
             mode="exec"
         )
@@ -165,11 +180,10 @@ class TemplatedFunction:
         Uses .get() with default to handle partial specialization where not all
         template params are available yet.
         """
-        # Create: T = __luisa_spec.get('T', T) for each template param
-        # The default T preserves any existing binding (for nested scopes)
+        # Create: T = __luisa_spec.get('T') for each template param
+        # Note: We don't set lineno here - ast.fix_missing_locations will handle it
         inject_stmts = []
         for param in params:
-            # T = __luisa_spec.get('T', T)  # second T will be NameError if not defined, which is fine
             assign = ast.Assign(
                 targets=[ast.Name(id=param, ctx=ast.Store())],
                 value=ast.Call(
@@ -227,21 +241,26 @@ class TemplatedFunction:
         Only explicit template params (from decorator) can be specialized via [...].
         Implicit template params (unannotated args) are always deduced from call args.
         """
-        explicit_params = self.explicit_params
+        unresolved_params = self.unresolved_explicit_params
         
-        if not explicit_params:
-            raise TypeError(f"Function '{self.name}' has no explicit template parameters to specialize")
+        if not unresolved_params:
+            if self.implicit_params:
+                raise TypeError(f"Function '{self.name}' has no explicit template parameters to specialize")
+            else:
+                raise TypeError(f"Function '{self.name}' has no template parameters to specialize")
 
         if not isinstance(items, tuple):
             items = (items,)
         
         new_explicit_values = self.specialization_values + items
         
-        if len(new_explicit_values) > len(explicit_params):
-            raise TypeError(f"Too many template arguments for '{self.name}': expected {len(explicit_params)}, got {len(new_explicit_values)}")
+        if len(items) > len(unresolved_params):
+            raise TypeError(f"Too many template arguments for '{self.name}': expected {len(unresolved_params)}, got {len(items)}")
 
-        # Check if we have all explicit params resolved and no implicit params
-        if len(new_explicit_values) == len(explicit_params) and not self.implicit_params:
+        # Check if we have all params resolved (both explicit and implicit)
+        all_params_resolved = len(new_explicit_values) == len(self.template_params) and not self.implicit_params
+        
+        if all_params_resolved:
             # All params resolved and no implicit params - can create StagedFunction if annotations are complete
             if all(ann is not None for ann in self.parsed.arg_annotations):
                 from .types import Type
@@ -299,45 +318,72 @@ class TemplatedFunction:
         
         Also deduces implicit template params from unannotated arguments.
         """
-        from .types import Type
+        from .types import Type, value_to_type
         
-        # Detect arg types and implicit template param values
+        # 1. Collect arg types and start deduction
         arg_types = []
-        implicit_values = []  # Values for implicit template params
+        deduced: dict[str, Type] = {}
         
+        # Populate with explicit specialization values provided so far
+        for name, val in zip(self.explicit_params, self.specialization_values):
+            deduced[name] = val
+
+        # 2. Iterate arguments to deduce types
         for i, arg in enumerate(args):
-            resolved_type = None
-            # Try to resolve annotation if present
-            if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
-                resolved = self.resolve_annotation(self.parsed.arg_annotations[i], self.specialization_values)
-                # If resolved to an actual Type (not a string/None), use it
-                if isinstance(resolved, Type):
-                    resolved_type = resolved
+            arg_type = value_to_type(arg) if not hasattr(arg, 'type') else arg.type
+            arg_types.append(arg_type)
             
-            # If not resolved from annotation, infer from value
-            if resolved_type is None:
-                resolved_type = value_to_type(arg) if not hasattr(arg, 'type') else arg.type
-            
-            arg_types.append(resolved_type)
-            
-            # Check if this arg corresponds to an implicit template param
-            # Implicit params are stored as __impl_<arg_name>
+            # Handle implicit parameters
             if i < len(self.parsed.arg_names):
                 arg_name = self.parsed.arg_names[i]
-                implicit_param_name = f"__impl_{arg_name}"
-                if implicit_param_name in self.implicit_params:
-                    # This is an implicit template param - use the inferred type as its value
-                    implicit_values.append(resolved_type)
+                impl_param = f"__impl_{arg_name}"
+                if impl_param in self.implicit_params:
+                    deduced[impl_param] = arg_type
+            
+            # Handle explicit parameters via simple annotation matching
+            if i < len(self.parsed.arg_annotations):
+                ann = self.parsed.arg_annotations[i]
+                if ann is not None and isinstance(ann, str):
+                    # Direct match: a: T
+                    if ann in self.explicit_params:
+                        if ann not in deduced:
+                            deduced[ann] = arg_type
+                        elif deduced[ann] != arg_type:
+                             # Conflict? For now we assume the first deduction or explicit value wins/must match.
+                             pass 
+                    # TODO: Complex matching like Buffer[T] if needed
         
-        arg_types = tuple(arg_types)
+        # 3. Resolve all template params
+        full_spec_values = []
+        for param in self.all_template_params:
+            if param not in deduced:
+                raise TypeError(f"Could not deduce template parameter '{param}' for function '{self.name}'.")
+            full_spec_values.append(deduced[param])
+            
+        full_spec_values = tuple(full_spec_values)
         
-        # Combine explicit and implicit specialization values
-        # explicit values + implicit values
-        full_specialization_values = self.specialization_values + tuple(implicit_values)
+        # 4. Re-evaluate arg types using resolved params
+        final_arg_types = []
+        # We need to extract explicit values for resolve_annotation
+        explicit_values = tuple(deduced[p] for p in self.explicit_params)
         
-        if arg_types not in self._cache:
-            self._cache[arg_types] = StagedFunction(self, full_specialization_values, arg_types)
-        return self._cache[arg_types]
+        for i, arg_type in enumerate(arg_types):
+             resolved_type = None
+             if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
+                resolved = self.resolve_annotation(self.parsed.arg_annotations[i], explicit_values)
+                if isinstance(resolved, Type):
+                    resolved_type = resolved
+             
+             if resolved_type is None:
+                 resolved_type = arg_type
+             
+             final_arg_types.append(resolved_type)
+        
+        final_arg_types = tuple(final_arg_types)
+        
+        if final_arg_types not in self._cache:
+            self._cache[final_arg_types] = StagedFunction(self, full_spec_values, final_arg_types)
+        return self._cache[final_arg_types]
 
     def __call__(self, *args, **kwargs) -> Any:
         """Handle DSL function call or Python-side IR retrieval."""
