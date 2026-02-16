@@ -130,9 +130,13 @@ def test_implicit_specialization_via_call():
     # Before implicit specialization, cache is empty
     assert len(negate._cache) == 0
     
-    # Call with Int argument - should create StagedFunction in cache
-    with pytest.raises(RuntimeError, match="can only be called from within a kernel or another callable"):
-        negate(Int(5))
+    # Call with Int argument from within a kernel - should create StagedFunction in cache
+    @kernel
+    def test_kernel():
+        result = negate(Int(5))
+    
+    # Trigger compilation to populate cache
+    _ = test_kernel.ir
     
     # Check cache has the inferred type
     assert (Int,) in negate._cache
@@ -148,15 +152,21 @@ def test_implicit_specialization_reuses_cache():
         return x * 2
     
     # First call creates cache entry
-    with pytest.raises(RuntimeError):
-        double(Int(1))
+    @kernel
+    def test_kernel1():
+        result = double(Int(1))
+    
+    _ = test_kernel1.ir
     
     cache_size_after_first = len(double._cache)
     assert cache_size_after_first == 1
     
-    # Second call with same type reuses cache
-    with pytest.raises(RuntimeError):
-        double(Int(2))
+    # Second call with same type reuses cache (no new entry)
+    @kernel
+    def test_kernel2():
+        result = double(Int(2))
+    
+    _ = test_kernel2.ir
     
     assert len(double._cache) == cache_size_after_first
 

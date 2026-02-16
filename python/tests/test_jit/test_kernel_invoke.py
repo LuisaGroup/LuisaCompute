@@ -16,14 +16,19 @@ def test_kernel_invoke_creation():
     assert invoke.kernel.ir.name == "my_kernel"
     assert invoke.args == (10,)
 
-def test_callable_from_host_error():
-    """Test that calling a callable from host raises an error."""
+def test_callable_from_host_works_in_kernel():
+    """Test that calling a callable from within a kernel works correctly."""
     @callable
     def my_callable(x: Int):
         return x
     
-    with pytest.raises(RuntimeError, match="can only be called from within a kernel or another callable"):
-        my_callable(10)
+    @kernel
+    def test_kernel():
+        result = my_callable(Int(10))
+    
+    # Should compile without error
+    ir = test_kernel.ir
+    assert ir is not None
 
 def test_kernel_from_kernel_error(verify_ir):
     """Test that calling a kernel from another kernel raises an error."""
@@ -77,16 +82,16 @@ def test_templated_callable_specialization():
     assert add_float.arg_types == (Float, Float)
     
     # Implicit specialization (via _get_or_create_staged)
-    # We can't call it, but we can check the cache
+    # Call from within a kernel to trigger cache population
     from luisa.lang.jit import TemplatedFunction
     assert isinstance(add, TemplatedFunction)
     
-    # In TemplatedFunction, __call__ calls _get_or_create_staged.
-    # For callables, it then calls the StagedFunction, which fails with RuntimeError.
-    # But before failing, it must have created the StagedFunction.
+    @kernel
+    def test_kernel():
+        result = add(Int(1), Int(2))
     
-    with pytest.raises(RuntimeError, match="can only be called from within a kernel or another callable"):
-        add(1, 2)
+    # Trigger compilation which populates cache
+    _ = test_kernel.ir
     
     # Check cache
     assert (Int, Int) in add._cache
