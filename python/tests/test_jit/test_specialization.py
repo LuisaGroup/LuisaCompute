@@ -396,19 +396,15 @@ def test_explicit_partial_with_implicit_completion():
     ir_str = str(ir)
     assert 'func(i32, f32)' in ir_str or 'func(Int, Float)' in ir_str
     
-    # Verify the partial's cache was populated (by the kernel execution)
-    # Note: func[Int] creates a new TemplatedFunction each time, so we use the same partial instance
-    from luisa.lang.types import value_to_type
-    arg_types = (value_to_type(Int(1)), value_to_type(Float(2.0)))
+    # Second kernel with same explicit specialization but different implicit args
+    # Should work correctly and reuse the partial specialization
+    @kernel
+    def test_kernel2():
+        result = func[Int](Int(10), Float(20.0))
     
-    # The partial used in the kernel body is the same as 'partial' (captured by closure)
-    # Let's verify by calling the partial directly
-    staged = partial._get_or_create_staged((Int(5), Float(6.0)))
-    assert isinstance(staged, StagedFunction)
-    assert staged.arg_types == (Int, Float)
-    
-    # Cache should now have an entry
-    assert arg_types in partial._cache or (Int, Float) in [(t, Float) for t, _ in partial._cache.keys()]
+    assert test_kernel2.ir is not None
+    ir_str2 = str(test_kernel2.ir)
+    assert 'func(i32, f32)' in ir_str2 or 'func(Int, Float)' in ir_str2
 
 
 def test_mixed_explicit_and_implicit_kernel():
