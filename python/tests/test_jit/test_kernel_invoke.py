@@ -113,3 +113,9 @@ def test_multi_param_specialization():
     direct = multi_param[Float, 20]
     assert isinstance(direct, StagedFunction)
     assert direct.specialization_values == (Float, 20)
+
+
+if __name__ == "__main__":
+    # Run tests directly
+    import sys
+    sys.exit(pytest.main([__file__, "-v"]))
