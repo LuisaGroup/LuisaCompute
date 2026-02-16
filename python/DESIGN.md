@@ -193,8 +193,35 @@ Vector(Float, 3) + Vector(Int, 3)  # Promotes element-wise
 
 ### DSL Variables vs. Host Constants
 The `ASTRewriter` distinguishes between standard Python variables and DSL variables.
-*   Variables assigned from **dynamic device values** (e.g., `buf.read()`) are transformed into DSL variables using `alloca`, `load`, and `store`.
-*   Variables assigned from **constants** (and never reassigned with dynamic values) remain plain Python variables, maximizing the potential for host-side meta-programming.
+
+**All variable assignments create DSL variables** (using `alloca`, `load`, and `store`) to ensure correct reassignment semantics:
+```python
+@kernel
+def example(buf: Buffer[Float]):
+    a = 1.0           # Creates DSL variable (alloca + store)
+    a = a + 1.0       # Properly reassigns (load + add + store)
+    buf[0] = a
+```
+
+This ensures correct behavior for patterns like:
+```python
+@kernel
+def sum_loop(buf: Buffer[Float]):
+    a = 1.0
+    b = 0.0
+    for i in range(10):
+        b += a        # Works correctly: b = b + a
+        a += 1.0      # Works correctly: a = a + 1
+    buf[0] = b        # Result: 55 (1+2+3+...+10)
+```
+
+**Exceptions** (remain as Python constants):
+*   `static()` calls: `a = static(sin(1.0))` - Python constant for host-side computation
+*   `Const[Type]()` calls: `c = Const[Float](1.5)` - DSL constant value
+*   List/tuple/dict/set literals: `impls = [func1, func2]` - Python values for iteration
+
+### Augmented Assignments
+The DSL supports Python's augmented assignment operators (`+=`, `-=`, `*=`, `/=`, etc.) which are automatically rewritten into standard assignments with binary operations.
 
 ### Reference Arguments (`Ref[T]`)
 References are implemented as a property of function arguments. When a variable is identified as a `Ref`, the rewriter automatically injects the necessary pointer-logic (`load`/`store`) to ensure that in-place modifications within a `@callable` are reflected in the caller's scope.
@@ -309,6 +336,67 @@ def outer(x: T):
     def inner(y: T):  # Captures T from outer
         return y * 2
     return inner(x)
+```
+
+---
+
+## ⚠️ Limitations & Edge Cases
+
+### Variable Assignment Semantics
+All variable assignments create DSL variables to ensure correct reassignment. This has some implications:
+
+1. **More alloca instructions**: The IR will have more `alloca`/`store`/`load` operations compared to fully optimized constant folding.
+2. **No Python variable reuse**: Once a variable is assigned in DSL context, it becomes a DSL variable:
+   ```python
+   @kernel
+   def example():
+       a = 1.0           # DSL variable (not Python constant)
+       b = a + 1.0       # DSL operation
+   ```
+
+### Constant Folding Limitations
+While basic constant folding works at the Python level, **complex nested struct constant folding in DSL context** requires the callable to be specialized from a kernel:
+```python
+# This works at Python level
+@struct
+class Point:
+    x: Float
+    y: Float
+c = Const[Point](1.0, 2.0)  # Python ConstantValue
+
+# DSL-level folding of nested structs needs kernel context
+@callable
+def use_point() -> Float:
+    p = Const[Point](1.0, 2.0)
+    return p.x + p.y  # Requires specialization to fold
+```
+
+### TemplatedFunction Printing
+Unspecialized templated functions cannot be printed as IR:
+```python
+@callable
+def func(x: Float) -> Float:
+    return x
+
+# This is a TemplatedFunction, not a StagedFunction
+print(func.ir)  # Error: no 'ir' attribute until specialized
+
+# Must specialize first
+staged = func[Float]  # Now has .ir
+```
+
+### List/Tuple Literals in DSL
+List/tuple/dict/set literals remain as Python values for host-side iteration:
+```python
+@kernel
+def example():
+    # This works - Python list for host iteration
+    impls = [func1, func2, func3]
+    for impl in impls:
+        result = impl(val)
+    
+    # This also works - indexed access
+    impls[0](val)
 ```
 
 ---

@@ -214,6 +214,41 @@ def optimized_kernel(buf: Buffer[Float]):
     buf[0] = val  # Emits: buffer_write(buf, 0, 1.0)
 ```
 
+### Variable Assignment & Reassignment
+All variable assignments in DSL context create DSL variables that support reassignment. This enables correct loop semantics:
+
+```python
+@kernel
+def sum_accumulate(buf: Buffer[Float]):
+    a = 1.0           # DSL variable (supports reassignment)
+    b = 0.0           # DSL variable
+    for i in range(10):
+        b += a        # Correctly accumulates: b = b + a
+        a += 1.0      # Correctly increments: a = a + 1
+    buf[0] = b        # Result: 55 (1+2+3+...+10)
+```
+
+For true Python constants (host-side only), use `static()`:
+```python
+@callable
+def compute(x: Float) -> Float:
+    # Python constant - computed once at compile time
+    coeff = static(sin(0.5) * 2.0)
+    return x * coeff
+```
+
+### Augmented Assignments
+The DSL supports Python's augmented assignment operators for cleaner code:
+
+```python
+@kernel
+def update(buf: Buffer[Float]):
+    val = buf[0]
+    val += 1.0        # Same as: val = val + 1.0
+    val *= 2.0        # Same as: val = val * 2.0
+    buf[0] = val
+```
+
 ### Static Loop Unrolling
 Use `static_range()` for compile-time loop unrolling:
 
