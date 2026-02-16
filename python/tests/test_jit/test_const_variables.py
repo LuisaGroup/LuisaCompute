@@ -217,6 +217,33 @@ def test_multiple_reassignments():
     print("=" * 60)
 
 
+def test_const_init_and_reassign():
+    """Test initializing with a constant and then reassigning with a DSL value."""
+    print("\n" + "=" * 60)
+    print("Test: Const Init and Reassign")
+    print("=" * 60)
+    
+    @callable
+    def test_init_reassign(x: Float) -> Float:
+        # Initialized from a constant (remains Python variable initially)
+        a = 1.0
+        # Reassigned with a DSL value (forces conversion to DSL variable)
+        a = a + x
+        return a
+        
+    ir = test_init_reassign(0.0)
+    
+    print("Generated IR:")
+    print(pprint(ir))
+    
+    counts = count_instructions(ir)
+    # Should have ALLOCA because it was reassigned with a DSL value
+    assert 'ALLOCA' in counts, "Expected ALLOCA for reassigned variable"
+    
+    print("✓ Const init and reassign works correctly")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("Running test_const_variables.py tests")
@@ -230,6 +257,7 @@ if __name__ == "__main__":
     test_const_multiple_values()
     test_dsl_var_in_kernel()
     test_multiple_reassignments()
+    test_const_init_and_reassign()
     
     print("\n" + "=" * 70)
     print("All test_const_variables.py tests passed!")
