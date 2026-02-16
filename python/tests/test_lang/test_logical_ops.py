@@ -1,6 +1,5 @@
 """Tests for logical operations and chained comparisons."""
 
-import pytest
 from luisa import (
     kernel, callable,
     Int, Bool, Buffer

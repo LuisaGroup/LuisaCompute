@@ -1,6 +1,5 @@
 """Advanced control flow tests for the LuisaCompute Python DSL - with IR building and pretty printing."""
 
-import pytest
 from luisa import kernel, callable, Int, Float
 
 

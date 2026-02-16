@@ -1,6 +1,5 @@
 """Tests for const variables and DSL variable assignment."""
 
-import pytest
 from luisa import (
     kernel, callable, Float, Int, Buffer, Const, static,
     sin

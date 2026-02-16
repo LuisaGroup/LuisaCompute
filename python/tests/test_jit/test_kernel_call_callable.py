@@ -1,6 +1,5 @@
 """Tests for kernel calling callable functions."""
 
-import pytest
 from luisa import kernel, callable, Float, Int, Buffer
 
 

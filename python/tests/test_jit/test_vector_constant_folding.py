@@ -1,7 +1,6 @@
 """Tests for vector constant folding using tuples."""
 
 import math
-import pytest
 from luisa import (
     callable, Float, Float3,
     normalize, length, dot, cross, distance, reflect,

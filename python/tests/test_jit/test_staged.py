@@ -1,6 +1,5 @@
 """Tests for JIT compilation and staged functions."""
 
-import pytest
 from luisa import kernel, callable, Float, Int, Buffer
 
 

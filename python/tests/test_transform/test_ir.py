@@ -1,6 +1,5 @@
 """Tests for the IR (Intermediate Representation) - with pretty printing."""
 
-import pytest
 from luisa import (
     Int, Float, Bool,
     Builder, Op, Module,

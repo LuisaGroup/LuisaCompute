@@ -1,7 +1,6 @@
 """Tests for code generation (JSON and pretty printing)."""
 
 import json
-import pytest
 from luisa import (
     Int, Float, Bool,
     Builder,

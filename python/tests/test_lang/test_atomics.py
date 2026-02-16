@@ -1,6 +1,5 @@
 """Tests for atomic operations - with IR building and pretty printing."""
 
-import pytest
 from luisa import (
     kernel,
     Int,

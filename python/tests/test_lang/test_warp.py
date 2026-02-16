@@ -1,6 +1,5 @@
 """Tests for warp operations - with IR building and pretty printing."""
 
-import pytest
 from luisa import (
     kernel, callable,
     Int, Float, Buffer,

@@ -1,6 +1,5 @@
 """Edge case tests for the inspect module - with IR building and pretty printing."""
 
-import pytest
 from luisa import kernel, callable, Int, Float, pprint
 from luisa.lang.inspect import (
     get_ir_source, get_ir_ast, get_ir_types,

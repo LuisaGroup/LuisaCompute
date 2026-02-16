@@ -1,6 +1,5 @@
 """Tests for resource types (buffers, textures, etc.)."""
 
-import pytest
 from luisa import (
     kernel, callable,
     Buffer, Texture2D, Texture3D, BindlessArray, Accel,

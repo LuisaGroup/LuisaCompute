@@ -1,6 +1,5 @@
 """Tests for constant folding and host/device routing of builtins."""
 
-import pytest
 import math
 from luisa import (
     kernel, callable,

@@ -1,6 +1,5 @@
 """Tests for unrolled loops."""
 
-import pytest
 from luisa import kernel, callable, Float, Int, Buffer, static_range
 
 

@@ -1,6 +1,5 @@
 """Tests for the type system."""
 
-import pytest
 from luisa import (
     # Scalar types
     Bool, Short, Int, UInt, Long, Float, Double,

@@ -1,6 +1,5 @@
 """Tests for buffer operations - with IR building and pretty printing."""
 
-import pytest
 from luisa import kernel, callable, Float, Int, Buffer, dispatch_id
 
 

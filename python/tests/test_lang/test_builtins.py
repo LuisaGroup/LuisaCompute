@@ -1,6 +1,5 @@
 """Tests for builtin functions - with IR building and pretty printing."""
 
-import pytest
 from luisa import (
     kernel, callable,
     # Math

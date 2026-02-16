@@ -2,7 +2,6 @@
 Test demonstrating reference argument support in the LuisaCompute Python DSL v2.
 """
 
-import pytest
 from luisa import (
     kernel, callable,
     Int, Buffer, dispatch_id, Ref

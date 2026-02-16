@@ -1,6 +1,5 @@
 """Tests for callable template specialization and partial specialization."""
 
-import pytest
 from luisa import kernel, callable, Float, Int, Bool, Buffer
 from luisa.lang.jit import StagedFunction, TemplatedFunction, KernelInvoke
 
@@ -197,22 +196,23 @@ def test_template_with_generic_return_type():
 # ============================================================================
 
 def test_kernel_explicit_specialization():
-    """Test explicit specialization of templated kernel with type-only template param."""
+    """Test explicit specialization of templated kernel."""
     @kernel['T']
-    def fill_value(value: T):
-        x = value
+    def fill_buffer(buf: Buffer[T], value: T):
+        buf[0] = value
     
     # Explicit specialization returns KernelInvoke when called
-    invoke = fill_value[Int](Int(42))
+    # Note: Buffer arguments are placeholders since we only test IR building
+    invoke = fill_buffer[Int](None, Int(42))
     assert isinstance(invoke, KernelInvoke)
-    assert invoke.kernel.name == "fill_value"
+    assert invoke.kernel.name == "fill_buffer"
 
 
 def test_kernel_partial_specialization():
     """Test partial specialization of templated kernel."""
     @kernel['T', 'N']
-    def process(value: T):
-        x = value + 1
+    def process(buf: Buffer[T]):
+        buf[0] = buf[0] + 1
     
     # Partial specialization
     partial = process[Int]
@@ -220,7 +220,8 @@ def test_kernel_partial_specialization():
     assert partial.specialization_values == (Int,)
     
     # Complete specialization and call
-    invoke = partial[10](Int(5))
+    # Note: Buffer arguments are placeholders since we only test IR building
+    invoke = partial[10](None)
     assert isinstance(invoke, KernelInvoke)
     assert invoke.kernel.name == "process"
 
@@ -257,15 +258,15 @@ def test_specialization_on_non_templated_function():
 
 def test_template_with_buffer_type():
     """Test template with buffer type parameter."""
-    # Note: Buffer[T] with template param T is not fully supported yet
-    # This test verifies the basic template mechanism works with complex types
     @callable['T']
-    def process_element(x: T) -> T:
-        return x
+    def buffer_sum(buf: Buffer[T]) -> T:
+        return buf[0] + buf[1]
     
-    specialized = process_element[Float]
+    specialized = buffer_sum[Float]
     assert isinstance(specialized, StagedFunction)
-    assert specialized.arg_types[0] == Float
+    # Buffer element type should be Float
+    from luisa.lang.types import Buffer as BufferType
+    assert isinstance(specialized.arg_types[0], BufferType)
 
 
 def test_nested_template_in_kernel():

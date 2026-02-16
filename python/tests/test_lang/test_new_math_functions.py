@@ -1,7 +1,6 @@
 """Tests for new math functions (rsqrt, exp10, hyperbolic, etc.)."""
 
 import math
-import pytest
 from luisa import (
     callable, Float,
     rsqrt, exp10, sinh, cosh, tanh, asinh, acosh, atanh,

@@ -1,6 +1,5 @@
 """Tests for ray tracing operations - with IR building and pretty printing."""
 
-import pytest
 from luisa import (
     kernel,
     Float, Float3,

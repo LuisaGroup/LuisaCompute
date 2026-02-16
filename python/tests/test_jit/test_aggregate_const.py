@@ -1,6 +1,5 @@
 """Tests for aggregate constant construction and folding."""
 
-import pytest
 from luisa import (
     callable, pprint,
     Int, Float, Float2, Float3, Float2x2, Array, struct,

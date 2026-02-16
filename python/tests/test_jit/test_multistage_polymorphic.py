@@ -3,7 +3,6 @@ Test demonstrating multistage programming with a polymorphic dispatch system.
 Inspired by luisa/dsl/polymorphic.h
 """
 
-import pytest
 from luisa import (
     kernel, callable,
     Int, Float, Buffer, dispatch_id
