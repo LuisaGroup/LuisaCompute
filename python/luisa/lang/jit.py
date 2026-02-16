@@ -127,6 +127,14 @@ class StagedFunction:
         # If it's NOT a template, we can rewrite now.
         if not self.template_params:
             self._do_compile()
+            # If all argument types are known, pre-compile immediately
+            if all(ann is not None for ann in self.parsed.arg_annotations):
+                try:
+                    self._precompile()
+                except (AttributeError, KeyError, NameError, TypeError):
+                    # During early initialization (e.g. builtins), some types or modules 
+                    # might not be fully ready. In these cases, we defer until first use.
+                    pass
 
     @property
     def ir(self) -> Function:
@@ -136,11 +144,8 @@ class StagedFunction:
             return next(iter(self._cache.values()))
         
         # If not cached, try to precompile if we have enough info
-        if not self.template_params and all(ann is not None for ann in self.parsed.arg_annotations):
-            return self._precompile()
-            
-        raise RuntimeError(f"Function {self.name} has not been compiled yet. "
-                           f"Call it with arguments or provide type hints to enable automatic compilation.")
+        # This handles cases that were deferred during __init__ or specialized templates
+        return self._precompile()
 
     def _precompile(self, specialization_values: tuple = ()) -> Function:
         """Internal helper to build IR using annotated types."""
@@ -175,12 +180,19 @@ class StagedFunction:
 
         from . import builtins
         from . import ops as rt
+        
+        # Inject all builtins for easy access, if available
+        builtin_namespace = {}
+        if hasattr(builtins, "__all__"):
+            for name in builtins.__all__:
+                if hasattr(builtins, name):
+                    builtin_namespace[name] = getattr(builtins, name)
+
         namespace = {
             "__luisa_rt": rt,
             "ast": ast,
             "static_range": static_range,
-            # Inject all builtins for easy access
-            **{name: getattr(builtins, name) for name in builtins.__all__},
+            **builtin_namespace,
             **{name: var.value for name, var in self.parsed.captured_vars.items()},
             **spec_dict  # Inject template parameters
         }
