@@ -69,12 +69,10 @@ def test_count_instructions_empty():
     def simple() -> Int:
         return 0
 
-    ir = simple.ir
-
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(simple))
 
-    counts = count_instructions(ir)
+    counts = count_instructions(simple)
     assert isinstance(counts, dict)
 
     print(f"✓ Instructions counted: {dict(counts)}")
@@ -91,12 +89,10 @@ def test_get_basic_block_count():
     def simple() -> Int:
         return 0
 
-    ir = simple.ir
-
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(simple))
 
-    count = get_basic_block_count(ir)
+    count = get_basic_block_count(simple)
     assert count >= 1
 
     print(f"✓ Block count: {count}")
@@ -115,12 +111,10 @@ def test_find_operations_no_match():
     def simple() -> Int:
         return 0
 
-    ir = simple.ir
-
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(simple))
 
-    results = find_operations(ir, Op.ATOMIC_ADD)
+    results = find_operations(simple, Op.ATOMIC_ADD)
     assert len(results) == 0
 
     print("✓ No ATOMIC_ADD operations found (as expected)")
@@ -137,12 +131,10 @@ def test_analyze_control_flow_simple():
     def simple() -> Int:
         return 0
 
-    ir = simple.ir
-
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(simple))
 
-    cf = analyze_control_flow(ir)
+    cf = analyze_control_flow(simple)
 
     assert 'blocks' in cf
     assert 'branches' in cf
@@ -166,12 +158,10 @@ def test_analyze_control_flow_with_if():
             return x
         return -x
 
-    ir = with_conditional.ir
-
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(with_conditional))
 
-    cf = analyze_control_flow(ir)
+    cf = analyze_control_flow(with_conditional)
     assert cf['conditional_branches'] >= 1
 
     print(f"✓ Control flow with if: {cf}")
@@ -188,9 +178,7 @@ def test_format_ir_summary():
     def simple() -> Int:
         return 0
 
-    ir = simple.ir
-
-    summary = format_ir_summary(ir)
+    summary = format_ir_summary(simple)
 
     print("\nIR Summary:")
     print(summary)
@@ -214,12 +202,10 @@ def test_is_kernel_true():
     def my_kernel():
         pass
 
-    ir = my_kernel.ir
-
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(my_kernel))
 
-    assert is_kernel(ir)
+    assert is_kernel(my_kernel)
 
     print("✓ Kernel detected correctly")
     print("=" * 60)
@@ -235,12 +221,10 @@ def test_is_kernel_false():
     def my_callable() -> Int:
         return 0
 
-    ir = my_callable.ir
-
     print("\nGenerated IR:")
-    print(pprint(ir))
+    print(pprint(my_callable))
 
-    assert not is_kernel(ir)
+    assert not is_kernel(my_callable)
 
     print("✓ Callable detected correctly")
     print("=" * 60)

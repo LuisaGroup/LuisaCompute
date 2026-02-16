@@ -518,7 +518,7 @@ def call(func: Any, *args, **kwargs) -> Any:
         return func(*args)
 
     # Use duck typing or check class name to avoid circular import with multistage
-    if func.__class__.__name__ == 'StagedFunction':
+    if func.__class__.__name__ in ('StagedFunction', 'SpecializedFunction'):
         # Check if we're inside a builder context (i.e., building IR)
         # If so, emit a CALL instruction
         # If not, call the staged function directly to get its compiled IR

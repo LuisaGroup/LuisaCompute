@@ -235,16 +235,19 @@ def get_ir_types(func: Callable) -> Optional[dict[str, Any]]:
     }
 
 
-def count_instructions(ir: Function) -> dict[str, int]:
+def count_instructions(ir: Any) -> dict[str, int]:
     """
     Count instructions in an IR function by type.
 
     Args:
-        ir: The IR function
+        ir: The IR function or staged function
 
     Returns:
         Dictionary mapping operation names to counts
     """
+    if hasattr(ir, 'ir'):
+        ir = ir.ir
+
     counts: dict[str, int] = {}
 
     def scan_block(block):
@@ -270,28 +273,35 @@ def count_instructions(ir: Function) -> dict[str, int]:
     return counts
 
 
-def get_basic_block_count(ir: Function) -> int:
+def get_basic_block_count(ir: Any) -> int:
     """Get the number of basic blocks in a function."""
+    if hasattr(ir, 'ir'):
+        ir = ir.ir
     return len(ir.blocks)
 
 
-def get_instruction_count(ir: Function) -> int:
+def get_instruction_count(ir: Any) -> int:
     """Get the total number of instructions in a function."""
+    if hasattr(ir, 'ir'):
+        ir = ir.ir
     counts = count_instructions(ir)
     return sum(counts.values())
 
 
-def find_operations(ir: Function, op: Op) -> list[Instruction]:
+def find_operations(ir: Any, op: Op) -> list[Instruction]:
     """
     Find all instructions of a specific type.
 
     Args:
-        ir: The IR function
+        ir: The IR function or staged function
         op: The operation type to find
 
     Returns:
         List of matching instructions
     """
+    if hasattr(ir, 'ir'):
+        ir = ir.ir
+
     results = []
 
     def scan_block(block):
@@ -316,13 +326,16 @@ def find_operations(ir: Function, op: Op) -> list[Instruction]:
     return results
 
 
-def analyze_control_flow(ir: Function) -> dict[str, Any]:
+def analyze_control_flow(ir: Any) -> dict[str, Any]:
     """
     Analyze control flow in an IR function.
 
     Returns:
         Dictionary with control flow analysis
     """
+    if hasattr(ir, 'ir'):
+        ir = ir.ir
+
     ifs = len(find_operations(ir, Op.IF))
     loops = len(find_operations(ir, Op.LOOP))
     switches = len(find_operations(ir, Op.SWITCH))
@@ -340,8 +353,10 @@ def analyze_control_flow(ir: Function) -> dict[str, Any]:
     }
 
 
-def is_kernel(ir: Function) -> bool:
+def is_kernel(ir: Any) -> bool:
     """Check if an IR function is a kernel."""
+    if hasattr(ir, 'ir'):
+        ir = ir.ir
     return ir.is_kernel
 
 
@@ -375,16 +390,19 @@ def get_type_size(t: Any) -> int:
     return 4  # Default
 
 
-def format_ir_summary(ir: Function) -> str:
+def format_ir_summary(ir: Any) -> str:
     """
     Create a human-readable summary of an IR function.
 
     Args:
-        ir: The IR function
+        ir: The IR function or staged function
 
     Returns:
         Formatted summary string
     """
+    if hasattr(ir, 'ir'):
+        ir = ir.ir
+
     lines = []
     lines.append(f"Function: {ir.name}")
     lines.append(f"  Type: {'Kernel' if ir.is_kernel else 'Callable'}")

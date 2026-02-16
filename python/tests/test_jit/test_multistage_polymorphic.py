@@ -77,9 +77,6 @@ def test_multistage_polymorphic_dispatch(verify_ir):
         # Use the host-side helper to generate IR dispatch
         poly.dispatch(tag, buf, idx)
 
-    # Build IR
-    dispatch_kernel(None, None)
-    
     expected = """
 kernel void dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
   <3 x u32> v0 = dispatch_id();
@@ -149,9 +146,6 @@ def test_nested_polymorphic_callables(verify_ir):
         with sw.default_scope():
             pass
 
-    # Build IR
-    nested_dispatch_kernel(None, None)
-    
     expected = """
 kernel void nested_dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
   <3 x u32> v0 = dispatch_id();

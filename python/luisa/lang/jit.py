@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import ast
 import os
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 from ..transform.builder import Builder, set_current_builder
 from ..transform.inspect import ParsedFunction, parse_function
@@ -96,7 +96,7 @@ class Specialization:
 # ============================================================================
 
 class StagedFunction:
-    """A staged function that generates IR when called."""
+    """Base class for staged functions, holding metadata and template specialization logic."""
 
     def __init__(self, func: Callable, is_kernel: bool = False,
                  parsed: Optional[ParsedFunction] = None,
@@ -116,45 +116,28 @@ class StagedFunction:
             self.parsed = parse_function(func, source=source)
 
         self.template_params = template_params or ()
-        # Cache for compiled versions (keyed by argument types AND specialization values)
-        self._cache: dict[tuple[tuple[Type, ...], tuple[Any, ...]], Function] = {}
+        # Cache for specialized versions
+        self._specialized_cache: dict[tuple, SpecializedFunction] = {}
 
         import inspect
         self.filename = inspect.getsourcefile(func) or "<unknown>"
-
         self.compiled_code = None
 
-        # Always rewrite and compile the Python part once
-        self._do_compile()
-
-        # If all argument types are known, pre-compile immediately
-        if all(ann is not None for ann in self.parsed.arg_annotations):
-            try:
-                self._precompile()
-            except (AttributeError, KeyError, NameError, TypeError):
-                # During early initialization (e.g. builtins), some types or modules 
-                # might not be fully ready. In these cases, we defer until first use.
-                pass
+    @property
+    def name(self) -> str:
+        return self.parsed.name
 
     @property
     def ir(self) -> Function:
-        """Get the generated IR for this function."""
-        # If already cached (e.g. from precompile or previous call), return it
-        if self._cache:
-            return next(iter(self._cache.values()))
-        
-        # If not cached, try to precompile if we have enough info
-        # This handles cases that were deferred during __init__ or specialized templates
-        return self._precompile()
+        """Templates cannot have IR until specialized."""
+        raise TypeError(f"Template function {self.name} must be specialized with [] before accessing IR")
 
-    def _precompile(self, specialization_values: tuple = ()) -> Function:
-        """Internal helper to build IR using annotated types."""
-        # Use None as placeholders for arguments - __call__ will handle type extraction from annotations
-        placeholders = [None] * len(self.parsed.arg_annotations)
-        return self(*placeholders, specialization_values=specialization_values)
+    def __call__(self, *args, **kwargs) -> Function:
+        """Templates cannot be called until specialized."""
+        raise TypeError(f"Template function {self.name} must be specialized with [] before calling")
 
     def _do_compile(self):
-        """Perform AST rewrite and compilation."""
+        """Perform AST rewrite and compilation (Stage 3)."""
         if self.compiled_code is not None:
             return self.compiled_code
 
@@ -172,10 +155,9 @@ class StagedFunction:
             mode="exec"
         )
         self.rewritten_ast = rewritten_ast
-        
         return self.compiled_code
 
-    def builder_func(self, *args, specialization_values: tuple = ()):
+    def builder_func(self, *args, specialization_values: tuple):
         """The internal function that populates the IR builder."""
         compiled_code = self._do_compile()
 
@@ -212,31 +194,14 @@ class StagedFunction:
         # Call it
         return built_func(*args)
 
-    @property
-    def name(self) -> str:
-        return self.parsed.name
-
-    def __getitem__(self, items) -> SpecializedFunctionProxy:
-        """Support func[Int, 2](x) syntax."""
+    def __getitem__(self, items) -> SpecializedFunction:
+        """Support func[Int, 2] specialization (Stage 2)."""
         if not isinstance(items, tuple):
             items = (items,)
-        return SpecializedFunctionProxy(self, items)
-
-    def compile(self, builder: Builder, *args, specialization_values: tuple = ()) -> Function:
-        """Compile the function for given arguments and return the Function."""
-        arg_values = list(args)
-        # Use provided builder for compile entry point
-        with set_current_builder(builder):
-            from .ops import to_ir_value
-            ir_args = [to_ir_value(a) for a in arg_values]
-            arg_types = tuple(a.type for a in ir_args)
-
-            cache_key = (arg_types, specialization_values)
-            if cache_key not in self._cache:
-                # This will populate self._cache[cache_key]
-                self(*ir_args, specialization_values=specialization_values)
-
-            return self._cache[cache_key]
+        
+        if items not in self._specialized_cache:
+            self._specialized_cache[items] = SpecializedFunction(self, items)
+        return self._specialized_cache[items]
 
     def resolve_annotation(self, ann: Any, specialization_values: tuple) -> Any:
         """Resolve a type annotation, potentially replacing template parameters."""
@@ -251,18 +216,94 @@ class StagedFunction:
         typ, _ = annotation_to_type(ann)
         return typ
 
-    def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> Function:
+
+class SpecializedFunction:
+    """A specialized staged function (normal function or specialized template)."""
+
+    def __init__(self, staged: StagedFunction, specialization_values: tuple):
+        self.staged = staged
+        self.specialization_values = specialization_values
+        # Cache for compiled versions (keyed by argument types)
+        self._cache: dict[tuple[Type, ...], Function] = {}
+
+        # Normal functions and specialized templates are compiled immediately (Stage 3)
+        self.staged._do_compile()
+
+        # If all argument types are known, pre-compile immediately (Stage 4)
+        if all(ann is not None for ann in self.staged.parsed.arg_annotations):
+            try:
+                self._precompile()
+            except (AttributeError, KeyError, NameError, TypeError):
+                # Defer until first use if types/modules not ready
+                pass
+
+    @property
+    def ir(self) -> Function:
+        """Get the generated IR for this function."""
+        # If already cached (e.g. from precompile or previous call), return it
+        if self._cache:
+            return next(iter(self._cache.values()))
+        
+        # If not cached, try to precompile if we have enough info
+        return self._precompile()
+
+    def _precompile(self) -> Function:
+        """Internal helper to build IR using annotated types."""
+        # Use None as placeholders for arguments - __call__ will handle type extraction from annotations
+        placeholders = [None] * len(self.staged.parsed.arg_annotations)
+        return self(*placeholders)
+
+    @property
+    def parsed(self) -> ParsedFunction:
+        return self.staged.parsed
+
+    @property
+    def name(self) -> str:
+        return self.staged.name
+
+    @property
+    def pyfunc(self) -> Optional[Callable]:
+        return self.staged.pyfunc
+
+    @property
+    def is_kernel(self) -> bool:
+        return self.staged.is_kernel
+
+    def _do_compile(self):
+        """Delegate compilation to the base staged function."""
+        return self.staged._do_compile()
+
+    def builder_func(self, *args):
+        """Populate the IR builder using specialization values."""
+        return self.staged.builder_func(*args, specialization_values=self.specialization_values)
+
+    def compile(self, builder: Builder, *args) -> Function:
+        """Compile the function for given arguments and return the Function."""
+        arg_values = list(args)
+        # Use provided builder for compile entry point
+        with set_current_builder(builder):
+            from .ops import to_ir_value
+            ir_args = [to_ir_value(a) for a in arg_values]
+            arg_types = tuple(a.type for a in ir_args)
+
+            if arg_types not in self._cache:
+                # This will populate self._cache[arg_types]
+                self(*ir_args)
+
+            return self._cache[arg_types]
+
+    def __call__(self, *args, **kwargs) -> Function:
         arg_types = []
         arg_is_reference = []
         for i, arg in enumerate(args):
             is_ref = False
-            if i < len(self.parsed.arg_annotations):
-                ann = self.parsed.arg_annotations[i]
-                is_ref = self.parsed.arg_is_reference[i]
+            if i < len(self.staged.parsed.arg_annotations):
+                ann = self.staged.parsed.arg_annotations[i]
+                is_ref = self.staged.parsed.arg_is_reference[i]
                 
                 # Resolve annotation if it's a template parameter
                 if ann is not None:
-                    resolved_ann = self.resolve_annotation(ann, specialization_values)
+                    resolved_ann = self.staged.resolve_annotation(ann, self.specialization_values)
                     
                     # If we have a resolved type and arg is None (placeholder), use the resolved type
                     if resolved_ann is not None and arg is None:
@@ -284,32 +325,31 @@ class StagedFunction:
             
         arg_types = tuple(arg_types)
 
-        cache_key = (arg_types, specialization_values)
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        if arg_types in self._cache:
+            return self._cache[arg_types]
 
         # Resolve return type
-        ret_type = self.resolve_annotation(self.parsed.ret_annotation, specialization_values)
+        ret_type = self.staged.resolve_annotation(self.staged.parsed.ret_annotation, self.specialization_values)
 
         builder = Builder(
-            name=self.parsed.name,
+            name=self.staged.parsed.name,
             arg_types=arg_types,
             ret_type=ret_type,
             arg_is_reference=arg_is_reference
         )
         with set_current_builder(builder):
             # Set initial location
-            builder.set_location(self.filename, self.parsed.ast_node.lineno)
+            builder.set_location(self.staged.filename, self.staged.parsed.ast_node.lineno)
 
             entry = builder.create_block("entry")
             builder.set_insert_point(entry)
 
             arg_values = [builder.get_argument(i) for i in range(len(arg_types))]
-            self.builder_func(*arg_values, specialization_values=specialization_values)
+            self.staged.builder_func(*arg_values, specialization_values=self.specialization_values)
 
         ir_func = builder.build()
-        ir_func.is_kernel = self.is_kernel
-        self._cache[cache_key] = ir_func
+        ir_func.is_kernel = self.staged.is_kernel
+        self._cache[arg_types] = ir_func
         return ir_func
 
     def _get_arg_type(self, arg: Any) -> Type:
@@ -317,23 +357,6 @@ class StagedFunction:
         if inferred is not None:
             return inferred
         return arg.type if hasattr(arg, 'type') else arg.__class__.__name__
-
-
-class SpecializedFunctionProxy:
-    """Proxy for a staged function with applied specialization values."""
-
-    def __init__(self, staged: StagedFunction, values: tuple):
-        self.staged = staged
-        self.values = values
-
-    @property
-    def ir(self) -> Function:
-        """Get the generated IR for this specialized function."""
-        # Try to precompile using the specialization values
-        return self.staged._precompile(specialization_values=self.values)
-
-    def __call__(self, *args, **kwargs) -> Function:
-        return self.staged(*args, specialization_values=self.values, **kwargs)
 
 
 class StagedFunctionDecorator:
@@ -360,9 +383,13 @@ class StagedFunctionDecorator:
         return StagedFunctionDecorator(self.is_kernel, params=tuple(param_names))
 
     def __call__(self, func: Callable, ast_node: Optional[ast.FunctionDef] = None,
-                 source: Optional[str] = None) -> StagedFunction:
-        return StagedFunction(func, is_kernel=self.is_kernel, template_params=self.params, ast_node=ast_node,
-                              source=source)
+                 source: Optional[str] = None) -> Union[StagedFunction, SpecializedFunction]:
+        staged = StagedFunction(func, is_kernel=self.is_kernel, template_params=self.params,
+                                ast_node=ast_node, source=source)
+        if self.params:
+            return staged
+        else:
+            return SpecializedFunction(staged, ())
 
 
 kernel = StagedFunctionDecorator(is_kernel=True)
