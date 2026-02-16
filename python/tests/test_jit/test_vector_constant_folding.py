@@ -1,6 +1,5 @@
 """Tests for vector constant folding using tuples."""
 
-import math
 from luisa import (
     callable, Float, Float3,
     normalize, length, dot, cross, distance, reflect,

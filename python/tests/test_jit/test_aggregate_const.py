@@ -1,5 +1,6 @@
 """Tests for aggregate constant construction and folding."""
 
+import pytest
 from luisa import (
     callable, pprint,
     Int, Float, Float2, Float3, Float2x2, Array, struct,
@@ -167,5 +168,4 @@ def test_matmul_folding(print_ir, verify_ir):
            'return (np.float64(2.0), np.float64(3.0), np.float64(4.0), np.float64(5.0));' in actual
 
 if __name__ == "__main__":
-    import pytest
     pytest.main([__file__])

@@ -1,5 +1,6 @@
 """Tests for callable template specialization and partial specialization."""
 
+import pytest
 from luisa import kernel, callable, Float, Int, Bool, Buffer
 from luisa.lang.jit import StagedFunction, TemplatedFunction, KernelInvoke
 

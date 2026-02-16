@@ -1,5 +1,6 @@
 """Tests for KernelInvoke and updated call logic."""
 
+import pytest
 from luisa import kernel, callable, Float, Int, Buffer
 from luisa.lang.jit import KernelInvoke
 
