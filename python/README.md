@@ -1,111 +1,120 @@
 # LuisaCompute Python DSL v2
 
-A modern, multistage programming system for GPU/CPU compute shaders with complete type hinting support and structured IR.
+A modern, high-performance multistage programming system for GPU/CPU compute shaders, featuring native Python integration, comprehensive type hinting, and an optimized JIT compilation pipeline.
 
-## Overview
+## 🚀 Overview
 
-This is a new implementation of the LuisaCompute Python DSL that features:
+The LuisaCompute Python DSL v2 allows you to write high-performance compute kernels using idiomatic Python syntax. It leverages advanced AST transformation to bridge the gap between Python's flexibility and the rigorous performance requirements of modern GPU programming.
 
-1.  **Unified AST Rewriter**: Dynamically transforms Python AST into IR-building code.
-2.  **Multistage Programming**: Seamlessly mix DSL and host logic to control code generation at runtime.
-3.  **Structured, AST-like IR**: Uses high-level `IF`, `LOOP`, and `SWITCH` operations instead of flat basic blocks with jumps.
-4.  **Complete Type Hinting**: Full support for Python type annotations with static type checking.
-5.  **LLVM-Style Pretty Printing**: Human-readable IR output for debugging with LLVM-style type names (e.g., `i32`, `f32`, `<4 x f32>`, `buffer<f32>`).
-6.  **Native `match` Support**: Translates Python's native `match` statement directly to structured `SWITCH` in the IR.
-7.  **Mixed DSL + Python**: Support for nested functions and using standard Python helpers within DSL code.
+### Key Features
 
-## Architecture
+*   **Unified AST Rewriter**: Dynamically transforms Python code into high-efficiency IR-building logic.
+*   **Multistage Programming**: Seamlessly mix host-side Python logic with device-side DSL operations.
+*   **Automatic Constant Folding**: Automatically evaluates complex math and logical expressions on constants at compile time.
+*   **Structured, AST-like IR**: Generates clean, high-level IR with structured `if`, `while`, and `switch` nodes.
+*   **Complete Type Hinting**: Leverages Python type annotations for static analysis and robust IR generation.
+*   **LLVM-Style Debugging**: Includes a pretty-printer that generates human-readable, LLVM-inspired IR for easy debugging.
+*   **Polymorphic Dispatch**: Support for defining and specializing `@callable` functions within kernels for complex shading and compute logic.
 
-### Multistage Compilation Pipeline
+---
 
-The DSL utilizes a sophisticated transformation process:
+## 🛠 Quick Start
 
-1.  **Parse (Decoration Time)**: The Python source is parsed into an AST.
-2.  **Rewrite (Decoration Time)**: The AST is rewritten into a "Builder Function" that, when executed, will generate the equivalent Luisa IR.
-3.  **Execute (Call Time)**: When called with specific types, the Builder Function executes. Host-side logic (like `for i in range(n)`) is expanded, and DSL operations are recorded into a structured IR tree.
-4.  **CodeGen**: The resulting structured IR can be serialized or pretty-printed.
-
-## Features
-
-### Reference Arguments
-Support for mutable reference arguments using `Ref[T]`:
+Writing a gradient kernel with constant folding and structured IR:
 
 ```python
-@callable
-def increment(x: Ref[int32]):
-    x = x + 1
-```
-
-In the pretty-printed IR, this appears as `ref<i32>`.
-
-### Nested Polymorphic Callables
-Define and call specialized functions within kernels:
-
-```python
-@kernel
-def nested_kernel(tags: Buffer[int32]):
-    @callable
-    def add_one(x: float32) -> float32:
-        return x + 1.0
-    
-    # ... use add_one in a dispatch switch ...
-```
-
-## Quick Start
-
-```python
-from luisa import float32, kernel, callable, Buffer, dispatch_id
+from luisa import Float, kernel, callable, Buffer, dispatch_id, pprint
 
 @callable
-def lerp(a: float32, b: float32, t: float32) -> float32:
+def lerp(a: Float, b: Float, t: Float) -> Float:
     return a + (b - a) * t
 
 @kernel
-def gradient_kernel(result: Buffer[float32], start: float32, end: float32):
+def gradient_kernel(result: Buffer[Float], start: Float, end: Float):
+    # dispatch_id() provides the execution index
     idx = dispatch_id().x
-    result[idx] = lerp(start, end, float32(idx) / 1024.0)
+    
+    # Constant folding: This division is partially optimized if 1024.0 is static
+    t = Float(idx) / 1024.0
+    
+    # Call the staged function
+    result[idx] = lerp(start, end, t)
 
-# Build IR
+# Compile to IR (no device required for IR generation)
 ir = gradient_kernel(None, 0.0, 1.0)
-from luisa import pprint
 print(pprint(ir))
 ```
 
-Example Output:
+### LLVM-Style IR Output
 ```llvm
 kernel void gradient_kernel(buffer<f32> arg0, f32 arg1, f32 arg2) {
-  entry:
-    <3 x i32> t0 = dispatch_id();
-    i32 t1 = swizzle(t0, 'x');
-    f32 t2 = cast(t1);
-    f32 t3 = div(t2, 1024.0);
-    f32 t4 = call('lerp', arg1, arg2, t3);
-    void t5 = buffer_write(arg0, t1, t4);
+  <3 x u32> v0 = dispatch_id();
+  u32 v1 = swizzle(v0, 'x');
+  f32 v2 = cast(v1);
+  f32 v3 = div(v2, 1024.0);
+  f32 v4 = call(@lerp, arg1, arg2, v3);
+  buffer_write(arg0, v1, v4);
 }
 ```
 
-## Debugging
+---
 
-- **`LUISA_DUMP_REWRITTEN_AST=1`**: Set this environment variable to see the AST transformation performed by the rewriter.
+## 💎 Advanced Features
 
-## Running Tests
+### ⚡ Automatic Constant Folding
+The DSL automatically identifies and optimizes compile-time constants. Complex math expressions on literals or `Const` variables are evaluated on the host, producing a single constant in the final IR.
+
+```python
+from luisa import kernel, Buffer, sin, pi
+
+@kernel
+def optimized_kernel(buf: Buffer[Float]):
+    # sin(pi / 2.0) is evaluated during JIT compilation
+    val = sin(pi / 2.0) 
+    buf[0] = val # Emits: buffer_write(buf, 0, 1.0)
+```
+
+### 🔗 Reference Arguments
+Mutable arguments are supported via `Ref[T]`, allowing functions to modify values in-place.
+
+```python
+from luisa import callable, Ref, Int
+
+@callable
+def increment(x: Ref[Int]):
+    x = x + 1 # Transparently handled as load + op + store
+```
+
+### 🔀 Native `match` Support
+Python's native `match` statement is directly translated to structured `SWITCH` operations in the IR, providing a clean way to implement complex branching logic.
+
+```python
+@callable
+def classify(tag: Int) -> Int:
+    match tag:
+        case 0: return 10
+        case 1: return 20
+        case _: return -1
+```
+
+---
+
+## 🔍 Debugging & Profiling
+
+*   **AST Dumps**: Set `LUISA_DUMP_REWRITTEN_AST=1` to see how the rewriter transforms your Python code into IR-building logic.
+*   **IR Summary**: Use `luisa.lang.inspect.format_ir_summary(ir)` to get statistics on instruction counts and block structure.
+
+---
+
+## 🧪 Testing
+
+The DSL includes an extensive test suite verifying IR correctness, constant folding, and control flow.
 
 ```bash
 cd python
 pytest
 ```
 
-## Implementation Status
+## 📜 License
 
-- ✅ Unified AST Rewriter (`luisa/transform/rewriter.py`)
-- ✅ Multistage JIT Support (`luisa/lang/jit.py`)
-- ✅ Structured IR Nodes (`luisa/transform/ir.py`)
-- ✅ LLVM-style Pretty Printer (`luisa/printer.py`)
-- ✅ Python `match` translation
-- ✅ Polymorphic dispatch support
-- ✅ Reference arguments (`Ref[T]`)
-- ✅ Extensive test suite (140+ tests)
-
-## License
-
-Same as LuisaCompute project.
+This project is licensed under the same terms as the main LuisaCompute project.
