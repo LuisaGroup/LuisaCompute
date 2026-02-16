@@ -365,6 +365,45 @@ def test_mixed_explicit_and_implicit_specialization():
     assert ir is not None
 
 
+def test_explicit_partial_with_implicit_completion():
+    """Test explicit partial specialization followed by implicit completion.
+    
+    This tests the specific case: func[Int](a, Float(2.0))
+    where T is explicitly set to Int, and U is inferred from the argument type.
+    """
+    @callable['T', 'U']
+    def func(x: T, y: U) -> T:
+        return x + T(y)
+    
+    # Partial explicit: T=Int, U will be inferred from argument type
+    partial = func[Int]
+    assert isinstance(partial, TemplatedFunction)
+    assert partial.specialization_values == (Int,)
+    assert partial.template_params == ('T', 'U')
+    
+    # Directly test _get_or_create_staged which is called when the partial is invoked
+    # This simulates calling partial(Int(1), Float(2.0)) from within a kernel
+    from luisa.lang.types import value_to_type
+    arg_types = (value_to_type(Int(1)), value_to_type(Float(2.0)))
+    
+    # Get or create the staged function - this infers U from the second argument
+    staged = partial._get_or_create_staged((Int(1), Float(2.0)))
+    assert isinstance(staged, StagedFunction)
+    # specialization_values contains only explicit values (Int,)
+    # arg_types contains the fully resolved types (Int, Float)
+    assert staged.specialization_values == (Int,)
+    assert staged.arg_types == (Int, Float)
+    
+    # Verify it was cached
+    assert arg_types in partial._cache
+    assert partial._cache[arg_types] is staged
+    
+    # Second call with same types should reuse cache
+    staged2 = partial._get_or_create_staged((Int(3), Float(4.0)))
+    assert staged2 is staged  # Same object
+    assert len(partial._cache) == 1  # No new entry
+
+
 def test_mixed_explicit_and_implicit_kernel():
     """Test mixture of explicit and implicit specialization in kernels."""
     @kernel['T', 'N']
