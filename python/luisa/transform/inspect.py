@@ -49,12 +49,21 @@ class ParsedFunction:
     captured_vars: dict[str, CapturedVar]
     source: str
     pyfunc: Optional[Callable] = None
+    implicit_template_params: list[str] = None  # Arguments without type hints
+
+    def __post_init__(self):
+        if self.implicit_template_params is None:
+            self.implicit_template_params = []
 
     def get_arg_type(self, index: int) -> Optional[Type]:
         """Get the type annotation for an argument."""
         if index < len(self.arg_annotations):
             return self.arg_annotations[index]
         return None
+    
+    def get_all_template_params(self, explicit_params: tuple[str, ...]) -> tuple[str, ...]:
+        """Get combined explicit and implicit template params."""
+        return tuple(explicit_params) + tuple(self.implicit_template_params)
 
 
 # ============================================================================
@@ -103,6 +112,7 @@ def parse_function(func: Callable, source: Optional[str] = None) -> ParsedFuncti
             raise RuntimeError(f"Cannot get source for {func}: {e}") from e
 
     # Get signature
+    implicit_template_params = []
     try:
         sig = inspect.signature(func)
 
@@ -116,6 +126,9 @@ def parse_function(func: Callable, source: Optional[str] = None) -> ParsedFuncti
             ann, is_ref = annotation_to_type(param.annotation)
             arg_annotations.append(ann)
             arg_is_reference.append(is_ref)
+            # Detect implicit template params (no annotation)
+            if param.annotation is inspect.Parameter.empty:
+                implicit_template_params.append(f"__impl_{name}")
 
         # Extract return annotation
         ret_annotation, _ = annotation_to_type(sig.return_annotation)
@@ -134,6 +147,8 @@ def parse_function(func: Callable, source: Optional[str] = None) -> ParsedFuncti
                 arg_annotations.append(ann_str)
             else:
                 arg_annotations.append(None)
+                # Detect implicit template params
+                implicit_template_params.append(f"__impl_{arg.arg}")
             arg_is_reference.append(False) # Reference info usually lost here, but fine for templates
             
         if func_def.returns:
@@ -153,7 +168,8 @@ def parse_function(func: Callable, source: Optional[str] = None) -> ParsedFuncti
         ret_annotation=ret_annotation,
         captured_vars=captured_vars,
         source=source,
-        pyfunc=func
+        pyfunc=func,
+        implicit_template_params=implicit_template_params
     )
 
 

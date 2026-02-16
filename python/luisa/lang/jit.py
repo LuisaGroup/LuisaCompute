@@ -74,18 +74,25 @@ class KernelInvoke:
 
 
 class TemplatedFunction:
-    """Base metadata and factory for specialized staged functions."""
+    """Base metadata and factory for specialized staged functions.
+    
+    Supports both explicit template params (from decorator) and implicit
+    template params (arguments without type annotations).
+    """
 
     def __init__(self, func: Callable, is_kernel: bool = False,
                  parsed: Optional[ParsedFunction] = None,
                  template_params: Optional[tuple[str, ...]] = None,
                  ast_node: Optional[ast.FunctionDef] = None,
                  source: Optional[str] = None,
-                 specialization_values: tuple = ()):
+                 specialization_values: tuple = (),
+                 implicit_params: Optional[tuple[str, ...]] = None):
         self.pyfunc = func
         self.is_kernel = is_kernel
+        # template_params are the EXPLICIT params from decorator like ['T', 'U']
         self.template_params = template_params or ()
         self.specialization_values = specialization_values
+        self._implicit_params = implicit_params
 
         if ast_node is not None:
             func._luisa_ast = ast_node
@@ -95,12 +102,29 @@ class TemplatedFunction:
         else:
             self.parsed = parse_function(func, source=source)
 
-        # Cache for specialized instances: (arg_types) -> StagedFunction
+        # Cache for specialized instances: (arg_types,) -> StagedFunction
         self._cache: dict[tuple[Type, ...], StagedFunction] = {}
         
         import inspect
         self.filename = inspect.getsourcefile(func) or "<unknown>"
         self.compiled_code = None
+    
+    @property
+    def explicit_params(self) -> tuple[str, ...]:
+        """Get explicit template params (from decorator)."""
+        return self.template_params
+    
+    @property
+    def implicit_params(self) -> tuple[str, ...]:
+        """Get implicit template params (from unannotated arguments)."""
+        if self._implicit_params is not None:
+            return self._implicit_params
+        return tuple(self.parsed.implicit_template_params)
+    
+    @property
+    def all_template_params(self) -> tuple[str, ...]:
+        """Get all template params (explicit + implicit)."""
+        return self.explicit_params + self.implicit_params
 
     @property
     def name(self) -> str:
@@ -116,8 +140,10 @@ class TemplatedFunction:
         
         # Inject template param assignments at the start of the function body
         # This allows annotations and nested functions to naturally capture T, U, etc.
-        if self.template_params:
-            rewritten_ast = self._inject_template_params(rewritten_ast)
+        # Include both explicit and implicit template params
+        all_params = self.all_template_params
+        if all_params:
+            rewritten_ast = self._inject_template_params(rewritten_ast, all_params)
         
         ast.fix_missing_locations(rewritten_ast)
 
@@ -132,7 +158,8 @@ class TemplatedFunction:
         self.rewritten_ast = rewritten_ast
         return self.compiled_code
 
-    def _inject_template_params(self, func_ast: ast.FunctionDef) -> ast.FunctionDef:
+    def _inject_template_params(self, func_ast: ast.FunctionDef, 
+                                 params: tuple[str, ...]) -> ast.FunctionDef:
         """Inject T = __luisa_spec.get('T') assignments at the start of function body.
         
         Uses .get() with default to handle partial specialization where not all
@@ -141,7 +168,7 @@ class TemplatedFunction:
         # Create: T = __luisa_spec.get('T', T) for each template param
         # The default T preserves any existing binding (for nested scopes)
         inject_stmts = []
-        for param in self.template_params:
+        for param in params:
             # T = __luisa_spec.get('T', T)  # second T will be NameError if not defined, which is fine
             assign = ast.Assign(
                 targets=[ast.Name(id=param, ctx=ast.Store())],
@@ -164,7 +191,9 @@ class TemplatedFunction:
     def builder_func(self, *args, specialization_values: tuple):
         """Internal IR builder population."""
         compiled_code = self._do_compile()
-        spec_dict = dict(zip(self.template_params, specialization_values))
+        # Map all template params (explicit + implicit) to their values
+        all_params = self.all_template_params
+        spec_dict = dict(zip(all_params, specialization_values))
 
         from . import builtins
         from . import ops as rt
@@ -193,31 +222,39 @@ class TemplatedFunction:
         return built_func(*args)
 
     def __getitem__(self, items) -> Union[TemplatedFunction, StagedFunction]:
-        """Support template specialization."""
-        if not self.template_params:
-            raise TypeError(f"Function '{self.name}' is not templated (no template parameters declared in decorator)")
+        """Support explicit template specialization.
+        
+        Only explicit template params (from decorator) can be specialized via [...].
+        Implicit template params (unannotated args) are always deduced from call args.
+        """
+        explicit_params = self.explicit_params
+        
+        if not explicit_params:
+            raise TypeError(f"Function '{self.name}' has no explicit template parameters to specialize")
 
         if not isinstance(items, tuple):
             items = (items,)
         
-        new_values = self.specialization_values + items
+        new_explicit_values = self.specialization_values + items
         
-        if len(new_values) > len(self.template_params):
-            raise TypeError(f"Too many template arguments for '{self.name}': expected {len(self.template_params)}, got {len(new_values)}")
+        if len(new_explicit_values) > len(explicit_params):
+            raise TypeError(f"Too many template arguments for '{self.name}': expected {len(explicit_params)}, got {len(new_explicit_values)}")
 
-        # Check if we have enough info to become a StagedFunction
-        # (Must have all template params AND all args annotated)
-        if len(new_values) == len(self.template_params) and \
-           all(ann is not None for ann in self.parsed.arg_annotations):
-            from .types import Type
-            import inspect
-            arg_types = tuple(self.resolve_annotation(ann, new_values) for ann in self.parsed.arg_annotations)
-            if all(isinstance(t, Type) or (inspect.isclass(t) and issubclass(t, Type)) for t in arg_types):
-                return StagedFunction(self, new_values, arg_types)
+        # Check if we have all explicit params resolved and no implicit params
+        if len(new_explicit_values) == len(explicit_params) and not self.implicit_params:
+            # All params resolved and no implicit params - can create StagedFunction if annotations are complete
+            if all(ann is not None for ann in self.parsed.arg_annotations):
+                from .types import Type
+                import inspect
+                arg_types = tuple(self.resolve_annotation(ann, new_explicit_values) for ann in self.parsed.arg_annotations)
+                if all(isinstance(t, Type) or (inspect.isclass(t) and issubclass(t, Type)) for t in arg_types):
+                    return StagedFunction(self, new_explicit_values, arg_types)
         
-        # Still polymorphic (either template params missing or arg annotations missing)
-        return TemplatedFunction(self.pyfunc, self.is_kernel, self.parsed, self.template_params, 
-                                 specialization_values=new_values)
+        # Either still have unresolved explicit params, or have implicit params to deduce
+        return TemplatedFunction(
+            self.pyfunc, self.is_kernel, self.parsed, self.template_params, 
+            specialization_values=new_explicit_values,
+            implicit_params=self.implicit_params)
 
     def resolve_annotation(self, ann: Any, specialization_values: tuple) -> Any:
         """Resolve annotation, substituting template params with specialization values.
@@ -258,16 +295,22 @@ class TemplatedFunction:
         return typ
 
     def _get_or_create_staged(self, args: tuple) -> StagedFunction:
-        """Infer types from arguments and get/create a StagedFunction."""
-        # Detect arg types
+        """Infer types from arguments and get/create a StagedFunction.
+        
+        Also deduces implicit template params from unannotated arguments.
+        """
+        from .types import Type
+        
+        # Detect arg types and implicit template param values
         arg_types = []
+        implicit_values = []  # Values for implicit template params
+        
         for i, arg in enumerate(args):
             resolved_type = None
             # Try to resolve annotation if present
             if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
                 resolved = self.resolve_annotation(self.parsed.arg_annotations[i], self.specialization_values)
                 # If resolved to an actual Type (not a string/None), use it
-                from .types import Type
                 if isinstance(resolved, Type):
                     resolved_type = resolved
             
@@ -276,10 +319,24 @@ class TemplatedFunction:
                 resolved_type = value_to_type(arg) if not hasattr(arg, 'type') else arg.type
             
             arg_types.append(resolved_type)
+            
+            # Check if this arg corresponds to an implicit template param
+            # Implicit params are stored as __impl_<arg_name>
+            if i < len(self.parsed.arg_names):
+                arg_name = self.parsed.arg_names[i]
+                implicit_param_name = f"__impl_{arg_name}"
+                if implicit_param_name in self.implicit_params:
+                    # This is an implicit template param - use the inferred type as its value
+                    implicit_values.append(resolved_type)
         
         arg_types = tuple(arg_types)
+        
+        # Combine explicit and implicit specialization values
+        # explicit values + implicit values
+        full_specialization_values = self.specialization_values + tuple(implicit_values)
+        
         if arg_types not in self._cache:
-            self._cache[arg_types] = StagedFunction(self, self.specialization_values, arg_types)
+            self._cache[arg_types] = StagedFunction(self, full_specialization_values, arg_types)
         return self._cache[arg_types]
 
     def __call__(self, *args, **kwargs) -> Any:
@@ -375,8 +432,12 @@ class StagedFunctionDecorator:
         templated = TemplatedFunction(func, is_kernel=self.is_kernel, template_params=self.params,
                                       ast_node=ast_node, source=source)
         
-        # If it's a normal function (no params) and fully annotated, make it a StagedFunction immediately
-        if not self.params and all(ann is not None for ann in templated.parsed.arg_annotations):
+        # Check if there are implicit template params (unannotated args)
+        has_implicit_params = len(templated.implicit_params) > 0
+        
+        # If it's a normal function (no explicit params, no implicit params) and fully annotated, 
+        # make it a StagedFunction immediately
+        if not self.params and not has_implicit_params and all(ann is not None for ann in templated.parsed.arg_annotations):
             try:
                 arg_types = tuple(templated.resolve_annotation(ann, ()) for ann in templated.parsed.arg_annotations)
                 if all(t is not None for t in arg_types):
