@@ -459,19 +459,19 @@ class StaticIf:
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
+    def should_run_true(self):
+        return self.cond
+
+    def should_run_false(self):
+        return not self.cond
+
     @contextmanager
     def true_scope(self):
-        if self.cond:
-            yield self.cond
-        else:
-            pass
+        yield self.cond
 
     @contextmanager
     def false_scope(self):
-        if not self.cond:
-            yield not self.cond
-        else:
-            pass
+        yield not self.cond
 
 
 class StaticWhile:

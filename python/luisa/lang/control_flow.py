@@ -44,8 +44,12 @@ class IfStmt:
         self.false_block = self.builder.create_block("if_false")
 
         # Check for constant folding at runtime
-        self._constant_fold = isinstance(condition, ConstantValue)
-        self._fold_true = condition.value if self._constant_fold else None
+        if isinstance(condition, bool):
+            self._constant_fold = True
+            self._fold_true = condition
+        else:
+            self._constant_fold = isinstance(condition, ConstantValue)
+            self._fold_true = condition.value if self._constant_fold else None
 
         if not self._constant_fold:
             from .types import Void
@@ -57,17 +61,27 @@ class IfStmt:
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
+    def should_run_true(self):
+        if self._constant_fold:
+            return bool(self._fold_true)
+        return True
+
+    def should_run_false(self):
+        if self._constant_fold:
+            return not bool(self._fold_true)
+        return True
+
     def true_scope(self):
         """Get context manager for the true branch."""
         if self._constant_fold:
-            return _DirectScope(self.builder) if self._fold_true else _NoOpScope()
+            return _DirectScope(self.builder)
 
         return self.builder.scope(self.true_block)
 
     def false_scope(self):
         """Get context manager for the false branch."""
         if self._constant_fold:
-            return _NoOpScope() if self._fold_true else _DirectScope(self.builder)
+            return _DirectScope(self.builder)
 
         return self.builder.scope(self.false_block)
 
@@ -92,7 +106,10 @@ class WhileStmt:
         self.body_block = self.builder.create_block("while_body")
 
         # Check for constant folding - if False, skip entire loop
-        self._constant_fold = isinstance(condition, ConstantValue) and condition.value == False
+        if isinstance(condition, bool):
+            self._constant_fold = not condition
+        else:
+            self._constant_fold = isinstance(condition, ConstantValue) and condition.value == False
 
         if not self._constant_fold:
             from .types import Void
