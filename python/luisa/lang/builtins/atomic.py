@@ -5,14 +5,14 @@ Atomic operations on buffers and shared memory.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...transform.ir import Value, InstructionValue
 
-from ...transform.op import Op
 from ...transform.builder import get_current_builder
-
+from ...transform.op import Op
 
 # ============================================================================
 # Atomic Operations
@@ -21,12 +21,12 @@ from ...transform.builder import get_current_builder
 def atomic_exchange(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Atomically exchange value at index and return old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         value: New value to store
-    
+
     Returns:
         The old value at the index
     """
@@ -37,16 +37,16 @@ def atomic_exchange(buffer: Value, index: Value, value: Value) -> InstructionVal
 def atomic_compare_exchange(buffer: Value, index: Value, expected: Value, desired: Value) -> InstructionValue:
     """
     Atomically compare and exchange.
-    
+
     Stores 'desired' if current value equals 'expected'.
     Returns the old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         expected: Expected current value
         desired: New value to store if comparison succeeds
-    
+
     Returns:
         The old value at the index
     """
@@ -58,12 +58,12 @@ def atomic_compare_exchange(buffer: Value, index: Value, expected: Value, desire
 def atomic_add(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Atomically add value at index and return old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         value: Value to add
-    
+
     Returns:
         The old value at the index
     """
@@ -74,12 +74,12 @@ def atomic_add(buffer: Value, index: Value, value: Value) -> InstructionValue:
 def atomic_sub(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Atomically subtract value at index and return old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         value: Value to subtract
-    
+
     Returns:
         The old value at the index
     """
@@ -90,12 +90,12 @@ def atomic_sub(buffer: Value, index: Value, value: Value) -> InstructionValue:
 def atomic_and(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Atomically bitwise AND value at index and return old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         value: Value to AND
-    
+
     Returns:
         The old value at the index
     """
@@ -106,12 +106,12 @@ def atomic_and(buffer: Value, index: Value, value: Value) -> InstructionValue:
 def atomic_or(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Atomically bitwise OR value at index and return old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         value: Value to OR
-    
+
     Returns:
         The old value at the index
     """
@@ -122,12 +122,12 @@ def atomic_or(buffer: Value, index: Value, value: Value) -> InstructionValue:
 def atomic_xor(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Atomically bitwise XOR value at index and return old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         value: Value to XOR
-    
+
     Returns:
         The old value at the index
     """
@@ -138,12 +138,12 @@ def atomic_xor(buffer: Value, index: Value, value: Value) -> InstructionValue:
 def atomic_min(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Atomically compute minimum at index and return old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         value: Value to compare with
-    
+
     Returns:
         The old value at the index
     """
@@ -154,12 +154,12 @@ def atomic_min(buffer: Value, index: Value, value: Value) -> InstructionValue:
 def atomic_max(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Atomically compute maximum at index and return old value.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index
         value: Value to compare with
-    
+
     Returns:
         The old value at the index
     """

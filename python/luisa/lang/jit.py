@@ -5,19 +5,16 @@ This module provides the @kernel and @callable decorators and JIT compilation lo
 """
 
 from __future__ import annotations
+
 import ast
-import sys
-import copy
 import os
-from typing import Callable, Optional, Any, TYPE_CHECKING
-from contextlib import contextmanager
+from typing import Any, Callable, Optional
 
-from ..transform.builder import Builder, get_current_builder, set_current_builder
-from ..transform.ir import Value, Function
-from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array, Callable, Void
-from ..transform.inspect import parse_function, CapturedVar, ParsedFunction
+from ..transform.builder import Builder, set_current_builder
+from ..transform.inspect import ParsedFunction, parse_function
+from ..transform.ir import Function
 from ..transform.rewriter import ASTRewriter
-
+from .types import Type, value_to_type
 
 # ============================================================================
 # Static Constructs (Meta-programming)
@@ -26,11 +23,11 @@ from ..transform.rewriter import ASTRewriter
 class UnrolledRange:
     """
     Marker class for unrolled loops.
-    
+
     Usage:
         for i in unrolled(range(4)):
             ...  # This loop is unrolled at compile time
-    
+
     The loop body will be replicated for each iteration.
     Use only for small iteration counts to avoid code bloat!
     """
@@ -54,11 +51,11 @@ class UnrolledRange:
 def unrolled(r: range | int) -> UnrolledRange:
     """
     Mark a range for compile-time unrolling.
-    
+
     Usage:
         for i in unrolled(range(4)):      # Unrolled: 0, 1, 2, 3
         for i in unrolled(4):             # Equivalent to above
-    
+
     The loop body will be replicated for each iteration at compile time.
     """
     if isinstance(r, int):
@@ -156,8 +153,8 @@ class StagedFunction:
         # Prepare namespace with specializations
         spec_dict = dict(zip(self.template_params, specialization_values))
 
-        from . import ops as rt
         from . import builtins
+        from . import ops as rt
         namespace = {
             "__luisa_rt": rt,
             "ast": ast,

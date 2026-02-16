@@ -5,16 +5,16 @@ Buffer, texture, and other memory operations.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...transform.ir import Value, InstructionValue
     from ..types import Type
 
-from ...transform.op import Op
-from ..types import UInt, UInt2, UInt3, ULong, Float4
 from ...transform.builder import get_current_builder
-
+from ...transform.op import Op
+from ..types import Float4, UInt, UInt2, UInt3, ULong
 
 # ============================================================================
 # Buffer Operations
@@ -23,11 +23,11 @@ from ...transform.builder import get_current_builder
 def buffer_read(buffer: Value, index: Value) -> InstructionValue:
     """
     Read from a buffer.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index (UInt)
-    
+
     Returns:
         The element value at the specified index
     """
@@ -39,7 +39,7 @@ def buffer_read(buffer: Value, index: Value) -> InstructionValue:
 def buffer_write(buffer: Value, index: Value, value: Value) -> InstructionValue:
     """
     Write to a buffer.
-    
+
     Args:
         buffer: Buffer handle
         index: Element index (UInt)
@@ -51,10 +51,10 @@ def buffer_write(buffer: Value, index: Value, value: Value) -> InstructionValue:
 def buffer_size(buffer: Value) -> InstructionValue:
     """
     Get the size (number of elements) of a buffer.
-    
+
     Args:
         buffer: Buffer handle
-    
+
     Returns:
         Number of elements (UInt)
     """
@@ -64,10 +64,10 @@ def buffer_size(buffer: Value) -> InstructionValue:
 def buffer_device_address(buffer: Value) -> InstructionValue:
     """
     Get the device address of a buffer.
-    
+
     Args:
         buffer: Buffer handle
-    
+
     Returns:
         64-bit device address
     """
@@ -81,11 +81,11 @@ def buffer_device_address(buffer: Value) -> InstructionValue:
 def texture2d_read(texture: Value, coord: Value) -> InstructionValue:
     """
     Read from a 2D texture.
-    
+
     Args:
         texture: Texture2D handle
         coord: Integer coordinates (UInt2)
-    
+
     Returns:
         The texture value at the specified coordinates
     """
@@ -95,7 +95,7 @@ def texture2d_read(texture: Value, coord: Value) -> InstructionValue:
 def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionValue:
     """
     Write to a 2D texture.
-    
+
     Args:
         texture: Texture2D handle
         coord: Integer coordinates (UInt2)
@@ -107,11 +107,11 @@ def texture2d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
 def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
     """
     Sample from a 2D texture with filtering.
-    
+
     Args:
         texture: Texture2D handle
         uv: Floating-point UV coordinates (Float2)
-    
+
     Returns:
         The sampled value (Float4)
     """
@@ -121,12 +121,12 @@ def texture2d_sample(texture: Value, uv: Value) -> InstructionValue:
 def texture2d_sample_level(texture: Value, uv: Value, level: Value) -> InstructionValue:
     """
     Sample from a specific mipmap level of a 2D texture.
-    
+
     Args:
         texture: Texture2D handle
         uv: Floating-point UV coordinates (Float2)
         level: Mipmap level (float)
-    
+
     Returns:
         The sampled value (Float4)
     """
@@ -136,10 +136,10 @@ def texture2d_sample_level(texture: Value, uv: Value, level: Value) -> Instructi
 def texture2d_size(texture: Value) -> InstructionValue:
     """
     Get the size of a 2D texture.
-    
+
     Args:
         texture: Texture2D handle
-    
+
     Returns:
         Texture dimensions (UInt2)
     """
@@ -153,11 +153,11 @@ def texture2d_size(texture: Value) -> InstructionValue:
 def texture3d_read(texture: Value, coord: Value) -> InstructionValue:
     """
     Read from a 3D texture.
-    
+
     Args:
         texture: Texture3D handle
         coord: Integer coordinates (UInt3)
-    
+
     Returns:
         The texture value at the specified coordinates
     """
@@ -167,7 +167,7 @@ def texture3d_read(texture: Value, coord: Value) -> InstructionValue:
 def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionValue:
     """
     Write to a 3D texture.
-    
+
     Args:
         texture: Texture3D handle
         coord: Integer coordinates (UInt3)
@@ -179,11 +179,11 @@ def texture3d_write(texture: Value, coord: Value, value: Value) -> InstructionVa
 def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
     """
     Sample from a 3D texture.
-    
+
     Args:
         texture: Texture3D handle
         uvw: Floating-point UVW coordinates (Float3)
-    
+
     Returns:
         The sampled value (Float4)
     """
@@ -193,10 +193,10 @@ def texture3d_sample(texture: Value, uvw: Value) -> InstructionValue:
 def texture3d_size(texture: Value) -> InstructionValue:
     """
     Get the size of a 3D texture.
-    
+
     Args:
         texture: Texture3D handle
-    
+
     Returns:
         Texture dimensions (UInt3)
     """
@@ -210,11 +210,11 @@ def texture3d_size(texture: Value) -> InstructionValue:
 def device_address_load(address: Value, elem_type: Type) -> InstructionValue:
     """
     Load from a device address.
-    
+
     Args:
         address: Device address (ULong)
         elem_type: Type of element to load
-    
+
     Returns:
         The loaded value
     """
@@ -224,7 +224,7 @@ def device_address_load(address: Value, elem_type: Type) -> InstructionValue:
 def device_address_store(address: Value, value: Value) -> InstructionValue:
     """
     Store to a device address.
-    
+
     Args:
         address: Device address (ULong)
         value: Value to store

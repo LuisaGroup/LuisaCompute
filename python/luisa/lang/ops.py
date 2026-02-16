@@ -6,19 +6,17 @@ handling both IR building and host-side execution.
 """
 
 from __future__ import annotations
+
 import ast
-from typing import Callable, Any, Optional, TYPE_CHECKING
 from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from ..transform.builder import Builder
-    from ..transform.ir import Value
 
 from ..transform.builder import get_current_builder
-from ..transform.op import Op
 from ..transform.ir import Value
-from .types import Type, value_to_type, Bool, Int, Float, Scalar, Vector, Buffer, Array
-
+from .types import Array, Buffer, Type, value_to_type
 
 # ============================================================================
 # Value Management
@@ -41,7 +39,7 @@ def to_ir_value(val: Any) -> Value:
         return val
     if isinstance(val, str):
         return val
-    
+
     # Unwrap _ConstValue
     from .types import _ConstValue
     if isinstance(val, _ConstValue):
@@ -57,8 +55,9 @@ def to_ir_value(val: Any) -> Value:
     if typ is None:
         if isinstance(val, (list, tuple)):
             # Infer type for tuples (Vector or Matrix)
+            import math
             length = len(val)
-            from .types import Vector, Matrix, Float
+            from .types import Float, Matrix, Vector
             if length in (2, 3, 4):
                 typ = Vector(Float, length)
             elif length in (4, 9, 16):
@@ -68,7 +67,7 @@ def to_ir_value(val: Any) -> Value:
             typ = val.get_dsl_type()
             # Convert to tuple for the IR builder
             val = val.to_tuple()
-            
+
     if typ is None:
         raise TypeError(f"Cannot convert {type(val)} to Luisa type")
     return get_current_builder().constant(typ, val)
@@ -93,7 +92,7 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
     from .types import _ConstValue
     left_is_const = isinstance(left, (ConstantValue, _ConstValue)) or left is None or isinstance(left, (bool, int, float, str))
     right_is_const = isinstance(right, (ConstantValue, _ConstValue)) or right is None or isinstance(right, (bool, int, float, str))
-    
+
     # If both are constants, do host-side computation
     if left_is_const and right_is_const:
         # Extract Python values from ConstantValue or _ConstValue
@@ -105,7 +104,7 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
             right = right.value
         elif isinstance(right, _ConstValue):
             right = right.value
-        
+
         if isinstance(op, ast.Add):
             return left + right
         if isinstance(op, ast.Sub):
@@ -134,7 +133,7 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
             from .builtins.math import _matmul_host
             return _matmul_host(left, right)
         raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
-    
+
     if is_ir_value(left) or is_ir_value(right):
         left = to_ir_value(left)
         right = to_ir_value(right)
@@ -297,27 +296,27 @@ def boolop(op: ast.boolop, values: list[Any]) -> Any:
 def and_(lhs_func: Callable[[], Any], rhs_func: Callable[[], Any]) -> Any:
     """Logical AND with short-circuiting."""
     lhs = lhs_func()
-    
+
     # Constant folding for IR ConstantValue or Python literals
     from ..transform.ir import ConstantValue
     if isinstance(lhs, ConstantValue):
         if lhs.value:
             return rhs_func()
         return lhs
-        
+
     if is_ir_value(lhs):
         builder = get_current_builder()
         # Create a variable for the result
         from .types import Bool
         res_ptr = builder.alloca(Bool)
         builder.store(res_ptr, lhs)
-        
-        if_ = builder.if_(lhs)
-        with if_.true_scope():
+
+        if_stmt = builder.if_(lhs)
+        with if_stmt.true_scope():
             rhs = rhs_func()
             builder.store(res_ptr, to_ir_value(rhs))
         # false branch: already has lhs (which is false)
-        
+
         return builder.load(res_ptr)
     else:
         if lhs:
@@ -328,7 +327,7 @@ def and_(lhs_func: Callable[[], Any], rhs_func: Callable[[], Any]) -> Any:
 def or_(lhs_func: Callable[[], Any], rhs_func: Callable[[], Any]) -> Any:
     """Logical OR with short-circuiting."""
     lhs = lhs_func()
-    
+
     # Constant folding for IR ConstantValue or Python literals
     from ..transform.ir import ConstantValue
     if isinstance(lhs, ConstantValue):
@@ -342,13 +341,13 @@ def or_(lhs_func: Callable[[], Any], rhs_func: Callable[[], Any]) -> Any:
         from .types import Bool
         res_ptr = builder.alloca(Bool)
         builder.store(res_ptr, lhs)
-        
-        if_ = builder.if_(lhs)
+
+        if_stmt = builder.if_(lhs)
         # true branch: already has lhs (which is true)
-        with if_.false_scope():
+        with if_stmt.false_scope():
             rhs = rhs_func()
             builder.store(res_ptr, to_ir_value(rhs))
-            
+
         return builder.load(res_ptr)
     else:
         if lhs:
@@ -508,13 +507,13 @@ def call(func: Any, *args, **kwargs) -> Any:
     if isinstance(func, Type):
         # Type constructors can take multiple arguments (aggregate types)
         # or a single argument (casting or broadcasting)
-        
+
         # If any argument is an IR value, emit a cast or call_builtin
         if any(is_ir_value(a) for a in args):
             # T(x) or T(x,y,...)
             # Delegate to the type's __call__ which knows how to emit IR
             return func(*args)
-        
+
         # All constants - delegate to T.__call__ for host computation
         return func(*args)
 
@@ -575,8 +574,8 @@ def subscript_assign(value: Any, index: Any, rhs: Any) -> None:
 def attribute(value: Any, attr: str) -> Any:
     """Handle attribute access."""
     from ..transform.ir import ConstantValue
-    from .types import Vector, Struct, _ConstValue
-    
+    from .types import Struct, Vector, _ConstValue
+
     # Handle _ConstValue (compile-time wrapper)
     if isinstance(value, _ConstValue):
         # Recursive call with the unwrapped value
@@ -590,7 +589,7 @@ def attribute(value: Any, attr: str) -> Any:
     if isinstance(value, ConstantValue):
         typ = value.type
         val_obj = value.value
-        
+
         if isinstance(typ, Vector):
             from .router import vector_swizzle
             res = vector_swizzle(val_obj, attr)
@@ -602,7 +601,7 @@ def attribute(value: Any, attr: str) -> Any:
             else:
                 res = val_obj[idx]
             return ConstantValue(typ=typ.fields[idx][1], value=res)
-        
+
     if is_ir_value(value):
         # Allow accessing standard attributes of Value/InstructionValue
         if attr in ('type', 'typ', 'name', 'instruction'):
@@ -620,9 +619,9 @@ def attribute(value: Any, attr: str) -> Any:
         if isinstance(typ, Struct):
             # We need to make sure we're using the resolved Struct object
             return get_current_builder().member(value, attr)
-            
+
         raise AttributeError(f"IR type {typ} has no attribute {attr}")
-        
+
     # Host side
     # If it's a Struct object
     if hasattr(value, 'to_tuple') and hasattr(value, 'get_dsl_type'):
@@ -632,7 +631,7 @@ def attribute(value: Any, attr: str) -> Any:
     if isinstance(value, tuple) and hasattr(value, '_dsl_type'):
         idx = value._dsl_type.get_field_index(attr)
         return value[idx]
-        
+
     # If it's a vector constant (tuple)
     if isinstance(value, tuple) and len(value) in (2,3,4):
         # Check if it looks like a swizzle
@@ -666,24 +665,24 @@ def local_assign(name: str, value: Any) -> Any:
 def local_var_assign(name: str, value: Any) -> Any:
     """
     Helper to create a DSL variable and store a value in it.
-    
+
     This creates an alloca instruction and stores the value, returning
     the alloca'd location (which is a reference/pointer).
-    
+
     If the value is not a DSL-compatible type (e.g., Builder, str, etc.),
     just return the value as-is (it's a Python variable).
     """
     from ..transform.ir import ConstantValue
-    
+
     # Ensure it's a Value object for IR visibility
     value = try_to_ir_value(value)
-    
+
     if isinstance(value, Value):
         builder = get_current_builder()
         var_ptr = builder.alloca(value.type, name=name)
         builder.store(var_ptr, value)
         return var_ptr
-    
+
     # Otherwise, it's a Python variable (Builder, str, etc.) - just return as-is
     return value
 
@@ -701,7 +700,7 @@ def load(ptr: Any) -> Any:
 def maybe_load(ptr: Any) -> Any:
     """
     Helper to load from a reference, or convert to IR value if not a reference.
-    
+
     This handles the case where a variable starts as a Python value but is
     later used in DSL context. If ptr is not a Value, it's converted to one.
     If ptr is a pointer (from alloca), it's loaded from.

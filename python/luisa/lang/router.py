@@ -14,23 +14,18 @@ Example:
 """
 
 from __future__ import annotations
+
 import math
-from typing import Callable, Any, Optional, TYPE_CHECKING, Union
-from functools import wraps
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 if TYPE_CHECKING:
     from ..transform.op import Op
     from ..transform.ir import Value, InstructionValue, ConstantValue
 
-from ..transform.op import Op
-from ..transform.ir import ConstantValue, InstructionValue
 from ..transform.builder import get_current_builder
-from .types import (
-    Type, Scalar, Vector, Matrix, 
-    Bool, Int, Float, Double,
-    value_to_type, is_data_type
-)
-
+from ..transform.ir import ConstantValue, InstructionValue
+from ..transform.op import Op
+from .types import Float, Scalar, Type, value_to_type
 
 # ============================================================================
 # Constant Value Extraction and Checking
@@ -102,11 +97,11 @@ def extract_vector_components(val: Any) -> tuple:
 def vector_swizzle(components: tuple, pattern: str) -> Union[tuple, float]:
     """
     Perform swizzle operation on a vector constant.
-    
+
     Args:
         components: Tuple of vector components
         pattern: Swizzle pattern like 'x', 'xy', 'xyz', 'xyzw', 'rgba'
-    
+
     Returns:
         Scalar value for single-component patterns,
         Tuple for multi-component patterns
@@ -114,17 +109,17 @@ def vector_swizzle(components: tuple, pattern: str) -> Union[tuple, float]:
     # Map component names to indices
     component_map = {'x': 0, 'y': 1, 'z': 2, 'w': 3,
                      'r': 0, 'g': 1, 'b': 2, 'a': 3}
-    
+
     result_components = []
     for ch in pattern:
         idx = component_map.get(ch)
         if idx is None or idx >= len(components):
             raise ValueError(f"Invalid swizzle pattern '{pattern}' for vector of size {len(components)}")
         result_components.append(components[idx])
-    
+
     if len(result_components) == 1:
         return result_components[0]
-    
+
     return tuple(result_components)
 
 
@@ -169,10 +164,10 @@ def is_foldable_to_vector(val: Any) -> bool:
 class RoutedFunction:
     """
     A function that can route calls to host (constant folding) or device (IR).
-    
+
     This is returned by the @router decorator and provides intelligent dispatch.
     """
-    
+
     def __init__(
         self,
         host_impl: Callable,
@@ -184,33 +179,30 @@ class RoutedFunction:
         self.device_op = device_op
         self.device_wrapper = device_wrapper
         self.name = name or host_impl.__name__
-    
+
     def __call__(self, *args, **kwargs):
         """
         Route the call based on argument types.
-        
+
         - If all arguments are constants -> fold on host
         - If any argument is a DSL value -> emit device instruction
         """
         # Check if we can constant fold
         can_fold = all(is_constant_value(arg) for arg in args)
-        
+
         if can_fold:
             # Extract Python values and call host implementation
             py_args = [extract_constant_value(arg) for arg in args]
             result = self.host_impl(*py_args, **kwargs)
-            
+
             # Wrap result in appropriate DSL value
             return self._wrap_host_result(result)
         else:
             # Route to device
             return self._emit_device_call(*args, **kwargs)
-    
+
     def _wrap_host_result(self, result: Any) -> Any:
         """Wrap a Python result value in the appropriate DSL value."""
-        from .types import value_to_type, Scalar
-        from ..transform.ir import ConstantValue
-        
         # Handle Struct objects
         if hasattr(result, 'get_dsl_type') and hasattr(result, 'to_tuple'):
             return ConstantValue(typ=result.get_dsl_type(), value=result)
@@ -218,7 +210,7 @@ class RoutedFunction:
         # Handle numeric results - return as plain Python values for better folding
         if isinstance(result, (int, float)):
             return float(result) if isinstance(result, float) else int(result)
-            
+
         # Handle numpy scalars if available
         try:
             import numpy as np
@@ -231,12 +223,12 @@ class RoutedFunction:
         if isinstance(result, tuple):
             # Recursively wrap each element
             wrapped = tuple(self._wrap_host_result(r) for r in result)
-            
+
             # If all elements are plain Python values and it's a vector/matrix,
             # we can return it as a tuple of plain values.
             if all(not isinstance(r, ConstantValue) for r in wrapped):
                 return wrapped
-            
+
             # If it's a small tuple (2-4 elements), it might be a vector
             if len(result) in (2, 3, 4):
                 # Check if all elements are numeric constants
@@ -244,7 +236,7 @@ class RoutedFunction:
                     # Return as ConstantValue vector
                     typ = value_to_type(result)
                     return ConstantValue(typ=typ, value=result)
-            
+
             # Matrix results (4, 9, 16 elements)
             if len(result) in (4, 9, 16):
                 if all(isinstance(r, (int, float)) for r in result):
@@ -253,28 +245,28 @@ class RoutedFunction:
 
             # Otherwise wrap each element
             return tuple(self._wrap_host_result(r) for r in result)
-        
+
         # Handle list (convert to tuple for consistency)
         if isinstance(result, list):
             return self._wrap_host_result(tuple(result))
-        
+
         # Determine result type
         result_type = value_to_type(result)
         if result_type is None:
             # Can't determine type, return as-is
             return result
-        
+
         # Create constant value
         return ConstantValue(typ=result_type, value=result)
-    
+
     def _emit_device_call(self, *args, **kwargs) -> InstructionValue:
         """Emit a device-side instruction call."""
         builder = get_current_builder()
-        
+
         # Convert all args to IR values
         from .ops import to_ir_value
         ir_args = [to_ir_value(arg) for arg in args]
-        
+
         # Determine result type from first argument (common pattern)
         # For most math ops, result type matches the first argument
         if ir_args:
@@ -286,17 +278,17 @@ class RoutedFunction:
                 result_type = Float  # Default for unknown types
         else:
             result_type = Float  # Default
-        
+
         # If we have a custom device wrapper, use it
         if self.device_wrapper is not None:
             return self.device_wrapper(builder, *ir_args, **kwargs)
-        
+
         # Otherwise emit standard op
         if self.device_op is not None:
             return builder._emit(self.device_op, result_type, ir_args)
-        
+
         raise RuntimeError(f"No device implementation for {self.name}")
-    
+
     def __repr__(self) -> str:
         return f"RoutedFunction({self.name})"
 
@@ -311,27 +303,27 @@ def router(
 ):
     """
     Decorator that creates a host/device routed function with constant folding.
-    
+
     Args:
         host_impl: The Python function to use for constant folding.
                    Should accept and return Python values (not DSL values).
         device_op: The IR Op to emit for device execution.
         device_wrapper: Optional custom function for device-side emission.
                        Signature: (builder, *args) -> InstructionValue
-    
+
     Returns:
         A RoutedFunction that intelligently dispatches calls.
-    
+
     Example:
         # Using the math module for host folding
         @router(host_impl=math.sin, device_op=Op.SIN)
         def sin(x):
             pass
-        
+
         # With custom device wrapper
         def dot_device_wrapper(builder, a, b):
             return builder._emit(Op.DOT, Float, [a, b])
-        
+
         @router(host_impl=lambda a, b: sum(x*y for x, y in zip(a, b)),
                 device_wrapper=dot_device_wrapper)
         def dot(a, b):
@@ -346,20 +338,20 @@ def router(
             device_wrapper=device_wrapper,
             name=func.__name__
         )
-    
+
     # Check if called with bare @router (func passed as first positional arg)
     # In this case, host_impl is the function and no other args are provided
     if host_impl is not _UNSET and callable(host_impl) and device_op is None and device_wrapper is None:
-        # Could be @router (bare) or @router(my_func) 
+        # Could be @router (bare) or @router(my_func)
         # We distinguish by checking if this looks like a configuration call
         # @router bare usage is not supported - always use @router(...)
         pass
-    
+
     # If host_impl is an Op, treat it as device_op (for @router(Op.SIN) syntax)
     if host_impl is not _UNSET and isinstance(host_impl, Op):
         device_op = host_impl
         host_impl = _UNSET
-    
+
     return decorator
 
 
@@ -370,7 +362,7 @@ def router(
 def make_routed_math_func(name: str, op: Op, host_func: Optional[Callable] = None):
     """
     Create a routed math function using Python's math module for folding.
-    
+
     Args:
         name: Function name
         op: IR operation
@@ -378,12 +370,12 @@ def make_routed_math_func(name: str, op: Op, host_func: Optional[Callable] = Non
     """
     if host_func is None:
         host_func = getattr(math, name, None)
-    
+
     if host_func is None:
         # Fallback for functions not in math module
         def host_func(x):
             raise NotImplementedError(f"No host implementation for {name}")
-    
+
     return RoutedFunction(
         host_impl=host_func,
         device_op=op,

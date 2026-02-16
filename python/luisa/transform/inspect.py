@@ -6,11 +6,12 @@ IR, and types.
 """
 
 from __future__ import annotations
+
 import ast
 import inspect
 import textwrap
-from typing import Optional, Any, Callable, TYPE_CHECKING
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .ir import Function, Instruction
 from .op import Op
@@ -63,7 +64,7 @@ class ParsedFunction:
 def parse_function(func: Callable, source: Optional[str] = None) -> ParsedFunction:
     """Parse a Python function and return its metadata."""
     from ..lang.types import annotation_to_type
-    
+
     # If we already have the AST
     if hasattr(func, '_luisa_ast'):
         func_def = func._luisa_ast
@@ -171,10 +172,10 @@ def _analyze_captured_vars(func: Callable) -> dict[str, CapturedVar]:
 def get_ir_source(func: Callable) -> Optional[str]:
     """
     Get the IR source code for a staged function.
-    
+
     Args:
         func: A staged function
-        
+
     Returns:
         The IR source code or None if not a staged function
     """
@@ -187,10 +188,10 @@ def get_ir_source(func: Callable) -> Optional[str]:
 def get_ir_ast(func: Callable) -> Optional[ast.AST]:
     """
     Get the AST for a staged function.
-    
+
     Args:
         func: A staged function
-        
+
     Returns:
         The function AST or None if not a staged function
     """
@@ -202,10 +203,10 @@ def get_ir_ast(func: Callable) -> Optional[ast.AST]:
 def get_ir_types(func: Callable) -> Optional[dict[str, Any]]:
     """
     Get type information for a staged function.
-    
+
     Args:
         func: A staged function
-        
+
     Returns:
         Dictionary with type information
     """
@@ -222,10 +223,10 @@ def get_ir_types(func: Callable) -> Optional[dict[str, Any]]:
 def count_instructions(ir: Function) -> dict[str, int]:
     """
     Count instructions in an IR function by type.
-    
+
     Args:
         ir: The IR function
-        
+
     Returns:
         Dictionary mapping operation names to counts
     """
@@ -268,11 +269,11 @@ def get_instruction_count(ir: Function) -> int:
 def find_operations(ir: Function, op: Op) -> list[Instruction]:
     """
     Find all instructions of a specific type.
-    
+
     Args:
         ir: The IR function
         op: The operation type to find
-        
+
     Returns:
         List of matching instructions
     """
@@ -303,7 +304,7 @@ def find_operations(ir: Function, op: Op) -> list[Instruction]:
 def analyze_control_flow(ir: Function) -> dict[str, Any]:
     """
     Analyze control flow in an IR function.
-    
+
     Returns:
         Dictionary with control flow analysis
     """
@@ -332,11 +333,11 @@ def is_kernel(ir: Function) -> bool:
 def get_type_size(t: Any) -> int:
     """
     Get the size in bytes of a type.
-    
+
     This is an approximation for frontend use.
     """
-    from ..lang.types import Scalar, Vector, Matrix
-    
+    from ..lang.types import Matrix, Scalar, Vector
+
     if isinstance(t, Scalar):
         type_sizes = {
             'BOOL': 1,
@@ -362,10 +363,10 @@ def get_type_size(t: Any) -> int:
 def format_ir_summary(ir: Function) -> str:
     """
     Create a human-readable summary of an IR function.
-    
+
     Args:
         ir: The IR function
-        
+
     Returns:
         Formatted summary string
     """

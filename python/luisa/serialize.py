@@ -5,13 +5,14 @@ Serializes IR to JSON format for exchange with the C++ backend.
 """
 
 from __future__ import annotations
+
 import json
-from typing import Any, TYPE_CHECKING
 from dataclasses import asdict, is_dataclass
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .transform.ir import Function, Module, BasicBlock, Instruction, Value
     from .lang.types import Type
+    from .transform.ir import BasicBlock, Function, Instruction, Module, Value
 
 
 class IRJSONEncoder(json.JSONEncoder):
@@ -42,10 +43,9 @@ class IRJSONEncoder(json.JSONEncoder):
 
 def type_to_dict(t: Type | None) -> dict[str, Any]:
     """Convert a Type to a dictionary representation."""
-    from .lang.types import (
-        Scalar, Vector, Matrix, Array, Struct, Buffer,
-        Texture2D, Texture3D, BindlessArray, Accel, RayQuery, Callable
-    )
+    from .lang.types import (Accel, Array, BindlessArray, Buffer, Callable,
+                             Matrix, RayQuery, Scalar, Struct, Texture2D,
+                             Texture3D, Vector)
 
     if t is None:
         return {'kind': 'void'}
@@ -124,7 +124,7 @@ def type_to_dict(t: Type | None) -> dict[str, Any]:
 
 def value_to_dict(v: Value) -> dict[str, Any]:
     """Convert a Value to a dictionary representation."""
-    from .transform.ir import ConstantValue, ArgumentValue, InstructionValue
+    from .transform.ir import ArgumentValue, ConstantValue, InstructionValue
 
     result = {
         'type': type_to_dict(v.type),
@@ -202,11 +202,11 @@ def module_to_dict(module: Module) -> dict[str, Any]:
 def serialize_function(func: Function, indent: int | None = 2) -> str:
     """
     Serialize an Function to JSON string.
-    
+
     Args:
         func: The function to serialize
         indent: Indentation level for pretty printing (None for compact)
-    
+
     Returns:
         JSON string representation of the function
     """
@@ -216,11 +216,11 @@ def serialize_function(func: Function, indent: int | None = 2) -> str:
 def serialize_module(module: Module, indent: int | None = 2) -> str:
     """
     Serialize an Module to JSON string.
-    
+
     Args:
         module: The module to serialize
         indent: Indentation level for pretty printing (None for compact)
-    
+
     Returns:
         JSON string representation of the module
     """

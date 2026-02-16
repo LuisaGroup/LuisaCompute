@@ -8,19 +8,19 @@ These functions use the @router decorator to support:
 """
 
 from __future__ import annotations
+
+import builtins
 import math
-from typing import TYPE_CHECKING, Any, Callable, Tuple
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...transform.ir import Value, InstructionValue
     from ..types import Type
 
-from ...transform.op import Op
-from ...transform.ir import ConstantValue
 from ...transform.builder import get_current_builder
-from ..types import Float, value_to_type, promote_types
-from ..router import router, RoutedFunction, is_constant_value, extract_constant_value, is_vector_constant, extract_vector_components
-
+from ...transform.op import Op
+from ..router import router
+from ..types import Float
 
 # ============================================================================
 # Host implementations for constant folding
@@ -28,7 +28,7 @@ from ..router import router, RoutedFunction, is_constant_value, extract_constant
 
 # Unary math functions
 _sqrt_host = math.sqrt
-_abs_host = abs  # Python built-in abs works for numbers
+_abs_host = builtins.abs  # Python built-in abs works for numbers
 _sin_host = math.sin
 _cos_host = math.cos
 _tan_host = math.tan
@@ -45,7 +45,7 @@ _log2_host = lambda x: math.log(x) / math.log(2.0) if x > 0 else float('-inf')
 _log10_host = math.log10
 _floor_host = math.floor
 _ceil_host = math.ceil
-_round_host = round  # Python built-in round
+_round_host = builtins.round  # Python built-in round
 _trunc_host = lambda x: int(x) if x >= 0 else int(x) - 1 if x != int(x) else int(x)
 _fract_host = lambda x: x - math.floor(x)
 _saturate_host = lambda x: max(0.0, min(1.0, x))
@@ -72,16 +72,17 @@ def _matmul_host(a, b):
     from ..router import extract_constant_value
     a_val = extract_constant_value(a)
     b_val = extract_constant_value(b)
-    
+
     try:
         import numpy as np
+
         # Convert to numpy arrays
         if isinstance(a_val, tuple):
             size_a = int(math.sqrt(len(a_val)))
             a_np = np.array(a_val).reshape(size_a, size_a)
         else:
             a_np = a_val
-            
+
         if isinstance(b_val, tuple):
             if len(b_val) == len(a_val): # matrix
                 size_b = int(math.sqrt(len(b_val)))
@@ -90,7 +91,7 @@ def _matmul_host(a, b):
                 b_np = np.array(b_val)
         else:
             b_np = b_val
-            
+
         result = np.matmul(a_np, b_np)
         return tuple(result.flatten()) if hasattr(result, 'flatten') else result
     except ImportError:

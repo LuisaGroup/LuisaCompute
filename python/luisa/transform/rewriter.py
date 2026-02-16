@@ -6,20 +6,9 @@ to turn Python functions into IR-building functions.
 """
 
 from __future__ import annotations
+
 import ast
-import inspect
-import textwrap
-from typing import Any, Optional, Callable
-from dataclasses import dataclass
-
-# Runtime imports
-from ..lang.types import (
-    Type, value_to_type, annotation_to_type
-)
-from .inspect import (
-    CapturedVar, ParsedFunction
-)
-
+from typing import Any, Optional
 
 # ============================================================================
 # AST Transformation
@@ -28,7 +17,7 @@ from .inspect import (
 class ASTRewriter(ast.NodeTransformer):
     """
     Transforms Python AST into IR-building code.
-    
+
     Example:
         a + b  =>  binop(ast.Add(), a, b)
     """
@@ -81,7 +70,7 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite function definition."""
         is_top = self._is_top_level
         self._is_top_level = False
-        
+
         # Save and reset DSL variable tracking for nested functions
         saved_const_vars = self.const_vars.copy()
         saved_dsl_vars = self.dsl_vars.copy()
@@ -119,7 +108,7 @@ class ASTRewriter(ast.NodeTransformer):
                 original_decorators = node.decorator_list
                 node.decorator_list = []  # Remove decorators from the def statement
 
-                # We return: 
+                # We return:
                 # def f(...): ...
                 # f = deco1(deco2(f), source=source) -- Wait, decorators return StagedFunctionDecorators
 
@@ -149,24 +138,26 @@ class ASTRewriter(ast.NodeTransformer):
                             keywords=[]
                         )
 
-                return [
+                res = [
                     definition,
                     ast.Assign(
                         targets=[ast.Name(id=node.name, ctx=ast.Store())],
                         value=value_to_assign
                     )
                 ]
+                # Restore state
+                self.const_vars = saved_const_vars
+                self.dsl_vars = saved_dsl_vars
+                return res
 
             # For non-staged nested functions, we treat them as local DSL helpers.
             # They capture the builder from the parent scope.
             # We don't change the signature, but we rewrite the body.
             old_ref_vars = self.ref_vars.copy()
-            old_const_vars = self.const_vars.copy()
-            old_dsl_vars = self.dsl_vars.copy()
             new_node = self.generic_visit(node)
             self.ref_vars = old_ref_vars
-            self.const_vars = old_const_vars
-            self.dsl_vars = old_dsl_vars
+            self.const_vars = saved_const_vars
+            self.dsl_vars = saved_dsl_vars
             return new_node
 
         # Top-level function: mangle for IR building
@@ -261,7 +252,7 @@ class ASTRewriter(ast.NodeTransformer):
                 self.visit(node.left),
                 self.visit(node.comparators[0])
             )
-        
+
         # Chained comparisons: a < b < c => (a < b) and (b < c)
         comparisons = []
         left = node.left
@@ -274,7 +265,7 @@ class ASTRewriter(ast.NodeTransformer):
             )
             comparisons.append(comp)
             left = right
-            
+
         # Use the same logic as visit_BoolOp but without double-visiting
         return self._make_short_circuit_op("and_", comparisons)
 
@@ -282,7 +273,7 @@ class ASTRewriter(ast.NodeTransformer):
         """Helper to create nested short-circuiting calls."""
         if len(exprs) == 1:
             return self.visit(exprs[0])
-        
+
         return self._rt_call(
             op_name,
             ast.Lambda(args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]),
@@ -391,11 +382,11 @@ class ASTRewriter(ast.NodeTransformer):
 
     # Set of builtin functions that are known to return DSL values
     DSL_PRODUCING_BUILTINS = {
-        'sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 'abs', 'floor', 'ceil', 
+        'sin', 'cos', 'tan', 'sqrt', 'exp', 'log', 'abs', 'floor', 'ceil',
         'round', 'min', 'max', 'clamp', 'lerp', 'pow', 'atan2', 'clock',
         'dispatch_id', 'thread_id', 'block_id', 'dispatch_size', 'kernel_id', 'object_id',
         'normalize', 'length', 'length_squared', 'dot', 'cross', 'distance', 'reflect',
-        'rsqrt', 'exp2', 'exp10', 'log2', 'log10', 'sinh', 'cosh', 'tanh', 
+        'rsqrt', 'exp2', 'exp10', 'log2', 'log10', 'sinh', 'cosh', 'tanh',
         'asinh', 'acosh', 'atanh', 'isinf', 'isnan', 'copysign', 'fma',
         'clz', 'ctz', 'popcount', 'reverse', 'transpose', 'inverse', 'determinant',
         'cast', 'bitcast', 'device_print'
@@ -411,7 +402,7 @@ class ASTRewriter(ast.NodeTransformer):
     def _is_dsl_value(self, node: ast.expr) -> bool:
         """
         Check if an AST node represents a DSL value that should trigger an alloca.
-        
+
         A node is considered a DSL value if it:
         1. Refers to an existing DSL variable or argument.
         2. Is a call to a recognized DSL builtin or type constructor.
@@ -427,29 +418,29 @@ class ASTRewriter(ast.NodeTransformer):
                 # Explicitly exclude compile-time markers
                 if func.id in ("Const", "static", "Shared"):
                     return False
-                
+
                 # Type constructors (starting with uppercase)
                 if func.id[0].isupper():
                     return True
-            
+
             # Method calls: buf.read(idx), etc.
             if isinstance(func, ast.Attribute):
                 if func.attr in self.DSL_PRODUCING_METHODS:
                     return True
-        
+
         # Recursive checks for operations
         if isinstance(node, ast.BinOp):
             return self._is_dsl_value(node.left) or self._is_dsl_value(node.right)
-        
+
         if isinstance(node, ast.UnaryOp):
             return self._is_dsl_value(node.operand)
-        
+
         if isinstance(node, ast.Subscript):
             return self._is_dsl_value(node.value) or self._is_dsl_value(node.slice)
-        
+
         if isinstance(node, ast.Attribute):
             return self._is_dsl_value(node.value)
-        
+
         return False
 
     def visit_Assign(self, node: ast.Assign) -> Any:
@@ -463,11 +454,11 @@ class ASTRewriter(ast.NodeTransformer):
 
             if isinstance(target, ast.Name):
                 var_name = target.id
-                
+
                 if target.id in self.ref_vars:
                     # Automatic store for Ref types: store(name, value)
                     return ast.Expr(value=self._rt_call("store", ast.Name(id=target.id, ctx=ast.Load()), self.visit(node.value)))
-                
+
                 # Check if this is a const assignment
                 if self._is_const_call(node.value):
                     # Mark as const variable

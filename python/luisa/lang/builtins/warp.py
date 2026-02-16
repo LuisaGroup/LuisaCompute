@@ -5,15 +5,15 @@ Warp-level primitives for GPU programming.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...transform.ir import Value, InstructionValue
 
+from ...transform.builder import get_current_builder
 from ...transform.op import Op
 from ..types import Bool, UInt
-from ...transform.builder import get_current_builder
-
 
 # ============================================================================
 # Warp Query
@@ -80,7 +80,7 @@ def warp_all_equal(value: Value) -> InstructionValue:
 def warp_prefix_sum(value: Value) -> InstructionValue:
     """
     Compute prefix sum (exclusive scan) across active lanes.
-    
+
     Returns the sum of values from lanes with lower indices.
     """
     return get_current_builder()._emit(Op.WARP_PREFIX_SUM, value.type, [value])
@@ -89,7 +89,7 @@ def warp_prefix_sum(value: Value) -> InstructionValue:
 def warp_prefix_product(value: Value) -> InstructionValue:
     """
     Compute prefix product (exclusive scan) across active lanes.
-    
+
     Returns the product of values from lanes with lower indices.
     """
     return get_current_builder()._emit(Op.WARP_PREFIX_PRODUCT, value.type, [value])
@@ -109,11 +109,11 @@ def warp_prefix_count_bits(value: Value) -> InstructionValue:
 def warp_read_lane(value: Value, lane: Value) -> InstructionValue:
     """
     Read value from a specific lane.
-    
+
     Args:
         value: The value to broadcast
         lane: The source lane index
-    
+
     Returns:
         The value from the specified lane
     """
@@ -123,7 +123,7 @@ def warp_read_lane(value: Value, lane: Value) -> InstructionValue:
 def warp_read_first_lane(value: Value) -> InstructionValue:
     """
     Read value from the first active lane.
-    
+
     This is a broadcast operation.
     """
     return get_current_builder()._emit(Op.WARP_READ_FIRST_ACTIVE_LANE, value.type, [value])
@@ -151,7 +151,7 @@ def warp_bit_xor(value: Value) -> InstructionValue:
 def warp_bit_mask(value: Value) -> InstructionValue:
     """
     Get a bitmask of active lanes where value is True.
-    
+
     Returns a 128-bit mask (UInt4).
     """
     from ..types import UInt4

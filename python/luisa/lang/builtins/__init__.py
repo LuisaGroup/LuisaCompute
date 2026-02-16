@@ -2,91 +2,45 @@
 Builtin functions for the LuisaCompute Python DSL v2.
 """
 
-# Math functions
-from .math import (
-    # Unary
-    sqrt, rsqrt, abs, sin, cos, tan, asin, acos, atan, atan2,
-    exp, exp2, exp10, log, log2, log10,
-    floor, ceil, round, trunc, fract, saturate,
-    sinh, cosh, tanh, asinh, acosh, atanh,
-    isinf, isnan,
-    normalize, length, length_squared,
-    # Binary
-    min, max, clamp, lerp, step, smoothstep, pow,
-    dot, cross, distance, reflect, refract, faceforward,
-    copysign, fma,
-    # Integer bit operations
-    clz, ctz, popcount, reverse,
-    # Matrix
-    transpose, inverse, determinant,
-)
-
-# Core builtins (special registers, sync, etc.)
-from .core import (
-    # Special registers
-    dispatch_id, thread_id, block_id, dispatch_size,
-    kernel_id, object_id,
-    # Synchronization
-    sync_block,
-    # Type casting
-    cast, bitcast,
-    # Print
-    device_print,
-    # Assertions
-    assume, device_assert, unreachable,
-    # Profiling
-    clock,
-)
-
-# Resource operations
-from .resource import (
-    # Buffer
-    buffer_read, buffer_write, buffer_size, buffer_device_address,
-    # Texture2D
-    texture2d_read, texture2d_write, texture2d_sample, texture2d_sample_level, texture2d_size,
-    # Texture3D
-    texture3d_read, texture3d_write, texture3d_sample, texture3d_size,
-    # Device address
-    device_address_load, device_address_store,
-)
-
 # Atomic operations
-from .atomic import (
-    atomic_exchange, atomic_compare_exchange,
-    atomic_add, atomic_sub,
-    atomic_and, atomic_or, atomic_xor,
-    atomic_min, atomic_max,
-)
-
-# Warp operations
-from .warp import (
-    # Query
-    warp_is_first_active_lane, warp_first_active_lane, warp_active_count_bits,
-    # Reduction
-    warp_sum, warp_product, warp_min, warp_max,
-    warp_all, warp_any, warp_all_equal,
-    # Prefix
-    warp_prefix_sum, warp_prefix_product, warp_prefix_count_bits,
-    # Broadcast
-    warp_read_lane, warp_read_first_lane,
-    # Bitwise
-    warp_bit_and, warp_bit_or, warp_bit_xor, warp_bit_mask,
-)
-
+from .atomic import (atomic_add, atomic_and, atomic_compare_exchange,
+                     atomic_exchange, atomic_max, atomic_min, atomic_or,
+                     atomic_sub, atomic_xor)
+# Core builtins (special registers, sync, etc.)
+from .core import (  # Special registers; Synchronization; Type casting; Print; Assertions; Profiling
+    assume, bitcast, block_id, cast, clock, device_assert, device_print,
+    dispatch_id, dispatch_size, kernel_id, object_id, sync_block, thread_id,
+    unreachable)
+# Math functions
+from .math import (abs, acos,  # Unary; Binary; Integer bit operations; Matrix
+                   acosh, asin, asinh, atan, atan2, atanh, ceil, clamp, clz,
+                   copysign, cos, cosh, cross, ctz, determinant, distance, dot,
+                   exp, exp2, exp10, faceforward, floor, fma, fract, inverse,
+                   isinf, isnan, length, length_squared, lerp, log, log2,
+                   log10, max, min, normalize, popcount, pow, reflect, refract,
+                   reverse, round, rsqrt, saturate, sin, sinh, smoothstep,
+                   sqrt, step, tan, tanh, transpose, trunc)
+# Resource operations
+from .resource import (  # Buffer; Texture2D; Texture3D; Device address
+    buffer_device_address, buffer_read, buffer_size, buffer_write,
+    device_address_load, device_address_store, texture2d_read,
+    texture2d_sample, texture2d_sample_level, texture2d_size, texture2d_write,
+    texture3d_read, texture3d_sample, texture3d_size, texture3d_write)
 # Ray tracing
-from .rtx import (
-    # Types
-    Ray, TriangleHit, ProceduralHit, CommittedHit,
-    # Tracing
-    trace_closest, trace_any, ray_query_all, ray_query_any,
-    # Ray query operations
-    ray_query_world_space_ray, ray_query_proceed,
-    ray_query_committed_hit, ray_query_candidate_triangle_hit, ray_query_candidate_procedural_hit,
-    ray_query_commit_triangle, ray_query_commit_procedural, ray_query_terminate,
-    # Accel operations
-    accel_instance_transform, accel_instance_user_id, accel_instance_visibility_mask,
-    make_ray,
-)
+from .rtx import (  # Types; Tracing; Ray query operations; Accel operations
+    CommittedHit, ProceduralHit, Ray, TriangleHit, accel_instance_transform,
+    accel_instance_user_id, accel_instance_visibility_mask, make_ray,
+    ray_query_all, ray_query_any, ray_query_candidate_procedural_hit,
+    ray_query_candidate_triangle_hit, ray_query_commit_procedural,
+    ray_query_commit_triangle, ray_query_committed_hit, ray_query_proceed,
+    ray_query_terminate, ray_query_world_space_ray, trace_any, trace_closest)
+# Warp operations
+from .warp import (  # Query; Reduction; Prefix; Broadcast; Bitwise
+    warp_active_count_bits, warp_all, warp_all_equal, warp_any, warp_bit_and,
+    warp_bit_mask, warp_bit_or, warp_bit_xor, warp_first_active_lane,
+    warp_is_first_active_lane, warp_max, warp_min, warp_prefix_count_bits,
+    warp_prefix_product, warp_prefix_sum, warp_product, warp_read_first_lane,
+    warp_read_lane, warp_sum)
 
 __all__ = [
     # Math - Unary

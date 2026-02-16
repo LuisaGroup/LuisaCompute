@@ -12,14 +12,14 @@ Similar patterns for loops and switches.
 """
 
 from __future__ import annotations
-from typing import Optional, Any
+
 from contextlib import contextmanager
+from typing import Optional
 
-# Runtime imports
-from ..transform.ir import Value, BasicBlock, ConstantValue
-from ..transform.op import Op
 from ..transform.builder import Builder
-
+# Runtime imports
+from ..transform.ir import BasicBlock, ConstantValue, Value
+from ..transform.op import Op
 
 # ============================================================================
 # If Statement
@@ -28,7 +28,7 @@ from ..transform.builder import Builder
 class IfStmt:
     """
     Structured if statement.
-    
+
     Usage:
         if_ = IfStmt(builder, condition)
         with if_.true_scope():
@@ -79,7 +79,7 @@ class IfStmt:
 class WhileStmt:
     """
     Structured while loop.
-    
+
     Usage:
         while_ = WhileStmt(builder, condition)
         with while_.body_scope():
@@ -96,6 +96,7 @@ class WhileStmt:
 
         if not self._constant_fold:
             from .types import Void
+
             # We emit a LOOP instruction that contains the body.
             # In Luisa IR, structured loops usually have the condition at the beginning of the body.
             # Our WhileStmt will handle this by injecting an IF BREAK at the start of body_block.
@@ -116,7 +117,7 @@ class WhileStmt:
         def loop_body_wrapper():
             with self.builder.scope(self.body_block):
                 # Inject condition check: if !condition: break
-                from .types import Void, Bool
+                from .types import Bool, Void
                 not_cond = self.builder._emit(Op.LOGICAL_NOT, Bool, [self.condition])
                 break_block = self.builder.create_block("while_break")
                 with self.builder.scope(break_block):
@@ -136,7 +137,7 @@ class WhileStmt:
 class ForRangeStmt:
     """
     Structured for-range loop (dynamic device-side loop).
-    
+
     Usage:
         for_ = ForRangeStmt(builder, start, stop, step, loop_var_name)
         with for_.body_scope():
@@ -177,7 +178,7 @@ class ForRangeStmt:
                 self.builder.bind_local(self.loop_var_name, current_val)
 
                 # 2. Check condition: if i >= stop: break
-                from .types import Void, Bool
+                from .types import Bool, Void
                 cond = self.builder.lt(current_val, self.stop)
                 not_cond = self.builder._emit(Op.LOGICAL_NOT, Bool, [cond])
 
@@ -204,12 +205,12 @@ class ForRangeStmt:
 class UnrolledForStmt:
     """
     Structured unrolled for loop (compile-time unrolling).
-    
+
     Usage:
         for_ = UnrolledForStmt(builder, 0, 4, 1, loop_var_name)
         for _.body_scope() as scope:
             ...  # loop body, fully unrolled
-    
+
     Use only for small iteration counts!
     """
 
@@ -235,7 +236,7 @@ class UnrolledForStmt:
 class SwitchStmt:
     """
     Structured switch statement.
-    
+
     Usage:
         switch = SwitchStmt(builder, value)
         with switch.case_scope(1):

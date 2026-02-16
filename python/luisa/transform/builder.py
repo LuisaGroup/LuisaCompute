@@ -6,18 +6,14 @@ a fluent API with context managers for control flow.
 """
 
 from __future__ import annotations
-from typing import Optional, Any
+
 from contextlib import contextmanager
+from typing import Any, Optional
 
-from dataclasses import dataclass
-
+from .ir import (ArgumentValue, BasicBlock, ConstantValue, Function,
+                 Instruction, InstructionValue, SourceLocation, Value)
 # Runtime imports
 from .op import Op
-from .ir import (
-    Value, ConstantValue, InstructionValue, ArgumentValue,
-    Instruction, BasicBlock, Function, Module, SourceLocation
-)
-
 
 # ============================================================================
 # Global Builder Context
@@ -52,7 +48,7 @@ def set_current_builder(builder: Builder | None):
 class Builder:
     """
     Builder for constructing IR.
-    
+
     This class provides methods that directly correspond to IR operations.
     When executed, it constructs the IR data structures.
     """
@@ -451,7 +447,7 @@ class Builder:
     def if_(self, cond: Value) -> 'IfStmt':
         """
         Create an if statement.
-        
+
         Usage:
             if_ = builder.if_(cond)
             with if_.true_scope():
@@ -465,7 +461,7 @@ class Builder:
     def while_(self, cond: Value) -> 'WhileStmt':
         """
         Create a while loop statement.
-        
+
         Usage:
             while_ = builder.while_(cond)
             with while_.body_scope():
@@ -478,7 +474,7 @@ class Builder:
                   step: Value, loop_var: str) -> 'ForRangeStmt':
         """
         Create a for-range loop statement (dynamic device-side).
-        
+
         Usage:
             for_ = builder.for_range(start, stop, step, 'i')
             with for_.body_scope():
@@ -491,12 +487,12 @@ class Builder:
                      step: int, loop_var: str) -> 'UnrolledForStmt':
         """
         Create an unrolled for loop statement (compile-time unrolling).
-        
+
         Usage:
             for_ = builder.for_unrolled(0, 4, 1, 'i')
             for i in for_.body_scope():
                 ...  # loop body, fully unrolled
-        
+
         Use only for small iteration counts!
         """
         from ..lang.control_flow import UnrolledForStmt
@@ -505,7 +501,7 @@ class Builder:
     def switch(self, value: Value) -> 'SwitchStmt':
         """
         Create a switch statement.
-        
+
         Usage:
             switch = builder.switch(value)
             with switch.case_scope(1):

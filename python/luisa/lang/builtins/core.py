@@ -5,15 +5,16 @@ These include special registers, synchronization, and other non-math operations.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ...transform.ir import Value, InstructionValue
+    from ...transform.ir import InstructionValue, Value
+    from ..types import Type
 
-from ...transform.op import Op
-from ..types import UInt3, UInt, Bool, Float3, ULong
 from ...transform.builder import get_current_builder
-
+from ...transform.op import Op
+from ..types import Type, UInt, UInt3, ULong
 
 # ============================================================================
 # Special Registers (Kernel Execution Context)
@@ -79,7 +80,7 @@ def bitcast(value: Value, target_type: Type) -> InstructionValue:
 def device_print(fmt: str, *values: Value) -> InstructionValue:
     """
     Print a message from the kernel.
-    
+
     Args:
         fmt: Format string with {} placeholders
         *values: Values to print

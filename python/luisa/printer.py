@@ -5,12 +5,14 @@ Provides human-readable output of IR for debugging purposes.
 """
 
 from __future__ import annotations
-from typing import Any, Optional
-from io import StringIO
 
-# Runtime imports
-from .transform.ir import Function, Module, BasicBlock, Instruction, Op, SourceLocation
+from io import StringIO
+from typing import Any, Optional
+
 from .lang.types import Type
+# Runtime imports
+from .transform.ir import (BasicBlock, Function, Instruction, Module, Op,
+                           SourceLocation)
 
 
 class PrettyPrinter:
@@ -271,22 +273,22 @@ class SimplePrinter:
 def pprint(obj: Function | Module, indent_size: int = 2, recursive: bool = False, show_location: bool = True) -> str:
     """
     Pretty print an IR object.
-    
+
     Args:
         obj: The IR function or module to print
         indent_size: Number of spaces per indentation level
         recursive: Whether to recursively print called functions
         show_location: Whether to include source location debug info
-    
+
     Returns:
         Pretty-printed string representation
-    
+
     Example:
         >>> func = my_kernel.compile()
         >>> print(pprint(func, recursive=True))
         [kernel] func my_kernel(Buffer<float>) -> void {
           entry:
-            v0: UInt3 = dispatch_id 
+            v0: UInt3 = dispatch_id
             ...
             void v1 = call(@my_callable, ...);
         }

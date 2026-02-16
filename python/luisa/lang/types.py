@@ -6,10 +6,11 @@ vector types, matrix types, arrays, structs, and resource types.
 """
 
 from __future__ import annotations
+
 import inspect
-from typing import Optional, Union, Any, TYPE_CHECKING
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 if TYPE_CHECKING:
     from ..transform.op import Op
@@ -52,8 +53,8 @@ class Type:
     def __call__(self, arg: Any) -> Any:
         """Support casting syntax like Float(x)."""
         from ..transform.builder import get_current_builder
-        from .ops import to_ir_value, is_ir_value
-        from .router import is_constant_value, extract_constant_value
+        from .ops import is_ir_value, to_ir_value
+        from .router import extract_constant_value, is_constant_value
 
         # Constant folding
         if is_constant_value(arg):
@@ -191,28 +192,28 @@ class Vector(Type):
         if not isinstance(item, tuple) or len(item) != 2:
             raise TypeError("Vector requires [type, size]")
         return cls(element=item[0], size=item[1])
-    
+
     def __call__(self, *components):
         """
         Construct a vector value from components.
-        
+
         Supports:
             Float3(1.0, 2.0, 3.0)  # 3 components
             Float3([1.0, 2.0, 3.0])# From list/tuple
             Float3(1.0)            # All components set to 1.0 (broadcast)
             Float3(x, y, z)        # From DSL values
-        
+
         Returns:
             - A tuple of constants for constant folding (if all args are constants)
             - An IR Value for DSL construction (if any arg is a DSL value)
         """
-        from ..transform.ir import Value, ConstantValue
         from ..transform.builder import get_current_builder
-        
+        from ..transform.ir import ConstantValue, Value
+
         # Handle single argument construction from list/tuple
         if len(components) == 1 and isinstance(components[0], (list, tuple)):
             components = tuple(components[0])
-            
+
         # Check component count
         if len(components) == 1:
             # Broadcast scalar to all components
@@ -226,7 +227,7 @@ class Vector(Type):
             components = (val,) * self.size
         elif len(components) != self.size:
             raise ValueError(f"Vector<{self.element}, {self.size}> requires {self.size} components, got {len(components)}")
-        
+
         # Check if all components are constants
         if all(not isinstance(c, Value) for c in components):
             # Convert all to the element type
@@ -236,10 +237,10 @@ class Vector(Type):
                     converted.append(c.value)
                 else:
                     converted.append(c)
-            
+
             # Return as a tuple for constant folding
             return tuple(converted)
-        
+
         # Some components are DSL values - emit IR
         from ..transform.op import Op
         builder = get_current_builder()
@@ -272,7 +273,7 @@ class Matrix(Type):
     def __call__(self, *args):
         """
         Construct a matrix value from components.
-        
+
         Supports:
             Float2x2(1.0, 2.0, 3.0, 4.0)  # 4 components (column-major: c0.x, c0.y, c1.x, c1.y)
             Float2x2([1,2,3,4])           # From list/tuple (column-major)
@@ -280,10 +281,10 @@ class Matrix(Type):
             Float2x2(1.0)                 # Diagonal elements set to 1.0 (identity * scalar)
             Float2x2(x, y, z, w)          # From DSL values
         """
-        from ..transform.ir import Value, ConstantValue
         from ..transform.builder import get_current_builder
+        from ..transform.ir import ConstantValue, Value
         from ..transform.op import Op
-        
+
         # Determine components: flattened list of elements
         components = []
         if len(args) == 1:
@@ -304,7 +305,7 @@ class Matrix(Type):
                 val = arg
                 if isinstance(val, Value):
                     return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_matrix_{self.size}", val])
-                
+
                 # Constant diagonal
                 diag_val = val if not isinstance(val, (ConstantValue, _ConstValue)) else val.value
                 result = []
@@ -325,7 +326,7 @@ class Matrix(Type):
                     pass
                 else:
                     all_cols = False; break
-            
+
             if all_cols:
                 # Construct from columns
                 if all(not isinstance(a, Value) for a in args):
@@ -343,7 +344,7 @@ class Matrix(Type):
         num_elements = self.size * self.size
         if len(components) != num_elements:
             raise ValueError(f"Matrix<{self.element}, {self.size}> requires {num_elements} components, got {len(components)}")
-            
+
         # Check if all components are constants
         if all(not isinstance(c, Value) for c in components):
             converted = []
@@ -355,7 +356,7 @@ class Matrix(Type):
                 else:
                     converted.append(c)
             return tuple(converted)
-            
+
         # Emit IR
         return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_matrix_{self.size}", *components])
 
@@ -385,19 +386,19 @@ class Array(Type):
 
     def __call__(self, *elements):
         """Construct an array from elements."""
-        from ..transform.ir import Value, ConstantValue
         from ..transform.builder import get_current_builder
+        from ..transform.ir import ConstantValue, Value
         from ..transform.op import Op
-        
+
         if len(elements) == 1 and isinstance(elements[0], (list, tuple)):
             elements = tuple(elements[0])
-            
+
         if len(elements) != self.size:
             raise ValueError(f"Array<{self.element}, {self.size}> requires {self.size} elements, got {len(elements)}")
-            
+
         if all(not isinstance(e, Value) for e in elements):
             return tuple(e.value if isinstance(e, ConstantValue) else e for e in elements)
-            
+
         return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_array_{self.size}", *elements])
 
 
@@ -419,16 +420,16 @@ class Struct(Type):
     def __call__(self, *args, **kwargs):
         """
         Construct a struct from arguments.
-        
+
         Supports:
             Point(x=1.0, y=2.0)  # Named arguments
             Point(1.0, 2.0)      # Positional arguments
             Point([1.0, 2.0])    # From list/tuple
         """
-        from ..transform.ir import Value, ConstantValue
         from ..transform.builder import get_current_builder
+        from ..transform.ir import ConstantValue, Value
         from ..transform.op import Op
-        
+
         # Determine elements based on positional or named arguments
         if len(args) == 1 and isinstance(args[0], (list, tuple)) and not kwargs:
             elements = list(args[0])
@@ -444,14 +445,14 @@ class Struct(Type):
                 if name not in field_dict:
                     raise KeyError(f"Struct {self.name} has no field {name}")
                 elements[field_dict[name]] = val
-            
+
             if any(e is None for e in elements):
                 missing = [self.fields[i][0] for i, e in enumerate(elements) if e is None]
                 raise ValueError(f"Missing values for fields: {', '.join(missing)}")
 
         if len(elements) != len(self.fields):
             raise ValueError(f"Struct {self.name} requires {len(self.fields)} fields, got {len(elements)}")
-            
+
         from ..lang.ops import is_ir_value
         if all(not is_ir_value(e) for e in elements):
             # Recursively ensure inner constants are also objects
@@ -464,12 +465,12 @@ class Struct(Type):
                     converted.append(field_type(e))
                 else:
                     converted.append(e)
-            
+
             # Create an instance of the struct class for constant folding
             cls = get_struct_type(self.name)
             if cls:
                 return cls(*converted)
-            
+
             # Fallback: identified tuple
             res = tuple(e.value if isinstance(e, ConstantValue) else e for e in converted)
             # Tag the tuple so attribute() knows it's a struct
@@ -477,7 +478,7 @@ class Struct(Type):
             res = TaggedTuple(res)
             res._dsl_type = self
             return res
-            
+
         return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_struct_{self.name}", *elements])
 
     def __class_getitem__(cls, items):
@@ -487,25 +488,25 @@ class Struct(Type):
         """
         if not isinstance(items, tuple):
             items = (items,)
-        
+
         fields = []
         alignment = None
-        
+
         # Check if last item is alignment
         if len(items) > 0 and isinstance(items[-1], int):
             alignment = items[-1]
             types = items[:-1]
         else:
             types = items
-            
+
         for i, t in enumerate(types):
             if not is_data_type(t):
                 raise TypeError(f"Struct member must be a data type, got {t}")
             fields.append((f"_{i}", t))
-            
+
         if alignment is None:
             alignment = max((get_alignment(t) for _, t in fields), default=4)
-            
+
         return cls(name="anonymous_struct", fields=tuple(fields), alignment=alignment)
 
     def get_field_type(self, field_name: str) -> Optional[Type]:
@@ -993,7 +994,7 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
         """Get the DSL type for this struct, resolving fields lazily."""
         if cls._dsl_type is not None:
             return cls._dsl_type
-            
+
         # Resolve fields
         fields = []
         for name, ann_type in cls._dsl_annotations.items():
@@ -1001,15 +1002,15 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
             if isinstance(ann_type, str):
                 # Resolve from common sources
                 resolved = False
-                
+
                 # Strip potential extra quotes from ast.unparse or similar if they exist
                 target_name = ann_type.strip("'").strip('"')
-                
+
                 # 1. Check types module globals
                 if target_name in globals():
                     ann_type = globals()[target_name]
                     resolved = True
-                
+
                 # 2. Check the luisa package
                 if not resolved:
                     import sys
@@ -1018,7 +1019,7 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
                         if hasattr(lmod, target_name):
                             ann_type = getattr(lmod, target_name)
                             resolved = True
-                
+
                 if not resolved:
                     raise TypeError(f"Could not resolve type annotation '{target_name}' for field '{name}' in struct {cls.__name__}")
 
@@ -1027,10 +1028,10 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
                 raise TypeError(f"Field '{name}' has unsupported type annotation: {ann_type}")
             if is_ref:
                 raise TypeError(f"Field '{name}' cannot be a reference type")
-                
+
             if not is_data_type(dsl_type):
                 raise TypeError(f"Struct member '{name}' must be a data type, got {dsl_type}")
-                
+
             fields.append((name, dsl_type))
 
         # Compute alignment if not specified
@@ -1052,7 +1053,7 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
     def __init__(self, *args, **kwargs):
         # Force resolution if not yet done
         self.__class__.get_dsl_type()
-        
+
         field_names = [f[0] for f in self._dsl_type.fields]
         if args:
             if kwargs:
@@ -1075,7 +1076,7 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
     def to_tuple(self):
         # Force resolution if not yet done
         self.__class__.get_dsl_type()
-        
+
         field_names = [f[0] for f in self._dsl_type.fields]
         return tuple(getattr(self, name) for name in field_names)
 
@@ -1087,7 +1088,7 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
     def __repr__(self):
         # Force resolution if not yet done
         self.__class__.get_dsl_type()
-        
+
         field_names = [f[0] for f in self._dsl_type.fields]
         fields_str = ", ".join(f"{name}={getattr(self, name)!r}" for name in field_names)
         return f"{self.__class__.__name__}({fields_str})"
@@ -1103,14 +1104,14 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
 def struct(arg=None, *, align: Optional[int] = None):
     """
     Decorator to define a struct type for the DSL.
-    
+
     Usage:
         @struct
         class Particle:
             position: Float3
             velocity: Float3
             mass: Float
-            
+
         @struct(align=16)
         class AlignedStruct:
             x: Int
@@ -1118,7 +1119,7 @@ def struct(arg=None, *, align: Optional[int] = None):
     if arg is not None and not isinstance(arg, int) and callable(arg):
         # Used as @struct
         return _struct_impl(arg)
-    
+
     # Used as @struct(align=n)
     def decorator(cls):
         return _struct_impl(cls, align=align)
@@ -1182,30 +1183,30 @@ CommittedHit.get_dsl_type()
 class Const:
     """
     Mark a value as a compile-time constant.
-    
+
     Usage:
         # With explicit type
         a = Const[Float](1.0)
         b = Const[Int](42)
-        
+
         # Without explicit type (inferred from value)
         c = Const(sin(1.0))
-        
+
         # Multiple values (creates a tuple)
         d = Const[Float](1.0, 2.0, 3.0)
-    
+
     Variables marked with Const are kept as Python values during DSL execution
     and are not converted to DSL variables (no alloca/store).
     """
-    
+
     def __class_getitem__(cls, item):
         """Support Const[Type] syntax - returns a typed Const constructor."""
         return _TypedConst(item)
-    
+
     def __new__(cls, *values):
         """
         Create a const value with type inferred from the value.
-        
+
         If multiple values are provided, they are wrapped in a tuple.
         """
         if len(values) == 1:
@@ -1216,30 +1217,30 @@ class Const:
 
 class _TypedConst:
     """A const constructor with an explicit type."""
-    
+
     def __init__(self, typ: Type):
         self.type = typ
-    
+
     def __call__(self, *values, **kwargs):
         """
         Create a const value with the specified type.
-        
+
         This validates that the initial values match the target type.
         """
         # We delegate the actual construction logic to the type itself,
         # then wrap the result in a _ConstValue.
         # This ensures that Const[T](args) behaves exactly like T(args)
         # but is marked as a constant.
-        
+
         # Check if it's a struct with named args
         if kwargs:
             result = self.type(*values, **kwargs)
             return _ConstValue(result, explicit_type=self.type)
-            
+
         # For non-struct or positional struct args
         # Delegate to type's __call__
         result = self.type(*values)
-        
+
         # We want to make sure result is the constructed object
         # (e.g. Struct instance, or tuple for Vector/Matrix/Array)
         return _ConstValue(result, explicit_type=self.type)
@@ -1248,125 +1249,125 @@ class _TypedConst:
 class _ConstValue:
     """
     Wrapper for a compile-time constant value.
-    
+
     This is used internally to mark values that should not be converted
 to DSL variables.
     """
-    
+
     def __init__(self, value: Any, explicit_type: Optional[Type] = None):
         self._raw_value = value
         self._explicit_type = explicit_type
-        
+
         # Unwrap nested ConstValue
         if isinstance(value, _ConstValue):
             self._raw_value = value._raw_value
             if explicit_type is None:
                 self._explicit_type = value._explicit_type
-        
+
         # Unwrap ConstantValue
         elif hasattr(value, 'type') and hasattr(value, 'value'):
             # It's a ConstantValue-like object
             self._raw_value = value.value
             if explicit_type is None:
                 self._explicit_type = value.type
-    
+
     @property
     def value(self) -> Any:
         """Get the raw Python value."""
         return self._raw_value
-    
+
     @property
     def dsl_type(self) -> Optional[Type]:
         """Get the explicit DSL type if specified."""
         return self._explicit_type
-    
+
     def __repr__(self) -> str:
         if self._explicit_type:
             return f"Const[{self._explicit_type}]({self._raw_value!r})"
         return f"Const({self._raw_value!r})"
-    
+
     # Delegate arithmetic to the raw value
     def __add__(self, other):
         if isinstance(other, _ConstValue):
             other = other._raw_value
         return _ConstValue(self._raw_value + other)
-    
+
     def __radd__(self, other):
         return _ConstValue(other + self._raw_value)
-    
+
     def __sub__(self, other):
         if isinstance(other, _ConstValue):
             other = other._raw_value
         return _ConstValue(self._raw_value - other)
-    
+
     def __rsub__(self, other):
         return _ConstValue(other - self._raw_value)
-    
+
     def __mul__(self, other):
         if isinstance(other, _ConstValue):
             other = other._raw_value
         return _ConstValue(self._raw_value * other)
-    
+
     def __rmul__(self, other):
         return _ConstValue(other * self._raw_value)
-    
+
     def __truediv__(self, other):
         if isinstance(other, _ConstValue):
             other = other._raw_value
         return _ConstValue(self._raw_value / other)
-    
+
     def __rtruediv__(self, other):
         return _ConstValue(other / self._raw_value)
-    
+
     def __neg__(self):
         return _ConstValue(-self._raw_value)
-    
+
     def __pos__(self):
         return self
-    
+
     def __abs__(self):
         return _ConstValue(abs(self._raw_value))
-    
+
     # Comparisons
     def __eq__(self, other):
         if isinstance(other, _ConstValue):
             return self._raw_value == other._raw_value
         return self._raw_value == other
-    
+
     def __ne__(self, other):
         if isinstance(other, _ConstValue):
             return self._raw_value != other._raw_value
         return self._raw_value != other
-    
+
     def __lt__(self, other):
         if isinstance(other, _ConstValue):
             return self._raw_value < other._raw_value
         return self._raw_value < other
-    
+
     def __le__(self, other):
         if isinstance(other, _ConstValue):
             return self._raw_value <= other._raw_value
         return self._raw_value <= other
-    
+
     def __gt__(self, other):
         if isinstance(other, _ConstValue):
             return self._raw_value > other._raw_value
         return self._raw_value > other
-    
+
     def __ge__(self, other):
         if isinstance(other, _ConstValue):
             return self._raw_value >= other._raw_value
         return self._raw_value >= other
-    
+
     def __bool__(self):
         return bool(self._raw_value)
-    
+
     def __float__(self):
         return float(self._raw_value)
-    
+
     def __int__(self):
         return int(self._raw_value)
-    
+
     def __getitem__(self, index):
         """Allow indexing into const tuples/arrays."""
         return _ConstValue(self._raw_value[index])
@@ -1375,17 +1376,17 @@ to DSL variables.
 def static(*values):
     """
     Mark value(s) as statically evaluated (compile-time constants).
-    
+
     This is a shorthand for Const() that makes it explicit the value is
     evaluated at compile time (statically) rather than on the device.
-    
+
     Usage:
         # Single value
         a = static(sin(1.0))
-        
+
         # Multiple values
         b, c = static(1.0, 2.0)
-    
+
     Variables marked with static() are kept as Python values and are not
     converted to DSL variables (no alloca/store).
     """
@@ -1398,22 +1399,22 @@ def static(*values):
 class Shared:
     """
     Mark a variable as shared memory (GPU threadgroup memory).
-    
+
     Usage:
         # Shared memory array
         shared_buf = Shared[Float, 256]  # 256 floats of shared memory
-        
+
         # Shared memory with initialization
         shared_val = Shared[Float](0.0)
-    
+
     This is a placeholder for future implementation of GPU shared memory.
     Currently, it creates a normal DSL variable.
     """
-    
+
     def __class_getitem__(cls, params):
         """
         Support Shared[Type] or Shared[Type, size] syntax.
-        
+
         Returns a Shared memory constructor.
         """
         if isinstance(params, tuple):
@@ -1429,15 +1430,15 @@ class Shared:
 
 class _SharedConstructor:
     """Constructor for shared memory variables."""
-    
+
     def __init__(self, typ: Type, size: Optional[int] = None):
         self.type = typ
         self.size = size
-    
+
     def __call__(self, *initial_values):
         """
         Create a shared memory variable.
-        
+
         For now, this creates a normal DSL variable (placeholder implementation).
         In the future, this will allocate GPU shared memory.
         """
@@ -1448,18 +1449,18 @@ class _SharedConstructor:
 
 class _SharedValue:
     """Wrapper for a shared memory variable."""
-    
+
     def __init__(self, typ: Type, size: Optional[int], initial_values: tuple):
         self.type = typ
         self.size = size
         self.initial_values = initial_values
         self._is_shared = True
-    
+
     def __repr__(self) -> str:
         if self.size:
             return f"Shared[{self.type}, {self.size}]"
         return f"Shared[{self.type}]"
-    
+
     def __getitem__(self, index):
         """Allow indexing into shared arrays."""
         # TODO: Implement shared memory access

@@ -6,6 +6,7 @@ circular dependencies between types and IR.
 """
 
 from __future__ import annotations
+
 from enum import Enum, auto
 
 
@@ -84,13 +85,13 @@ class Op(Enum):
     COPYSIGN = auto()  # Copy sign from one value to another
     ISINF = auto()  # Check for infinity
     ISNAN = auto()  # Check for NaN
-    
+
     # Integer bit operations
     CLZ = auto()  # Count leading zeros
     CTZ = auto()  # Count trailing zeros
     POPCOUNT = auto()  # Count set bits
     REVERSE = auto()  # Bit reversal
-    
+
     # Vector operations
     DOT = auto()
     CROSS = auto()
