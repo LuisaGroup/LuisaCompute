@@ -110,13 +110,18 @@ def test_cast_in_kernel(print_ir, verify_ir):
 
     assert cast_kernel.ir.is_kernel
     
+    # idx is now a DSL variable
     expected = """
 kernel void cast_kernel(buffer<f32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  f32 v2 = cast(v1);
-  f32 v3 = mul(v2, 1.5);
-  buffer_write(arg0, v1, v3);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  u32 v5 = load(vidx);
+  f32 v6 = cast(v5);
+  f32 v7 = mul(v6, 1.5);
+  buffer_write(arg0, v4, v7);
 }
 """
     verify_ir(cast_kernel, expected)

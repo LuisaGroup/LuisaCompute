@@ -76,33 +76,38 @@ def test_multistage_polymorphic_dispatch(verify_ir):
         # Use the host-side helper to generate IR dispatch
         poly.dispatch(tag, buf, idx)
 
+    # idx is now a DSL variable (for correct handling of potential reassignment)
     expected = """
 kernel void dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = buffer_read(arg1, v1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = buffer_read(arg1, v4);
   i32 vtag = alloca();
-  store(vtag, v2);
-  i32 v5 = load(vtag);
-  switch (v5) { 
+  store(vtag, v5);
+  i32 v8 = load(vtag);
+  u32 v9 = load(vidx);
+  switch (v8) { 
     case 0: {
-      f32 v7 = buffer_read(arg0, v1);
-      f32 v8 = add(v7, 1.0);
-      buffer_write(arg0, v1, v8);
+      f32 v11 = buffer_read(arg0, v9);
+      f32 v12 = add(v11, 1.0);
+      buffer_write(arg0, v9, v12);
     }
     case 1: {
-      f32 v10 = buffer_read(arg0, v1);
-      f32 v11 = mul(v10, 2.0);
-      buffer_write(arg0, v1, v11);
+      f32 v14 = buffer_read(arg0, v9);
+      f32 v15 = mul(v14, 2.0);
+      buffer_write(arg0, v9, v15);
     }
     case 2: {
-      f32 v13 = buffer_read(arg0, v1);
+      f32 v17 = buffer_read(arg0, v9);
       f32 val = alloca();
-      store(val, v13);
-      f32 v16 = load(val);
-      f32 v17 = load(val);
-      f32 v18 = mul(v16, v17);
-      buffer_write(arg0, v1, v18);
+      store(val, v17);
+      f32 v20 = load(val);
+      f32 v21 = load(val);
+      f32 v22 = mul(v20, v21);
+      buffer_write(arg0, v9, v22);
     }
   }
 }
@@ -145,32 +150,49 @@ def test_nested_polymorphic_callables(verify_ir):
         with sw.default_scope():
             pass
 
+    # idx is now a DSL variable, val is a DSL variable, res is a DSL variable
     expected = """
 kernel void nested_dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = buffer_read(arg1, v1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = buffer_read(arg1, v4);
   i32 vtag = alloca();
-  store(vtag, v2);
-  f32 v5 = buffer_read(arg0, v1);
+  store(vtag, v5);
+  u32 v8 = load(vidx);
+  f32 v9 = buffer_read(arg0, v8);
   f32 val = alloca();
-  store(val, v5);
-  i32 v8 = load(vtag);
-  switch (v8) { 
+  store(val, v9);
+  i32 v12 = load(vtag);
+  switch (v12) { 
     case 0: {
-      f32 v10 = load(val);
-      f32 v11 = call(@add_one, v10);
-      buffer_write(arg0, v1, v11);
+      f32 v14 = load(val);
+      f32 v15 = call(@add_one, v14);
+      f32 vres = alloca();
+      store(vres, v15);
+      u32 v18 = load(vidx);
+      f32 v19 = load(vres);
+      buffer_write(arg0, v18, v19);
     }
     case 1: {
-      f32 v13 = load(val);
-      f32 v14 = call(@multiply_two, v13);
-      buffer_write(arg0, v1, v14);
+      f32 v21 = load(val);
+      f32 v22 = call(@multiply_two, v21);
+      f32 vres = alloca();
+      store(vres, v22);
+      u32 v25 = load(vidx);
+      f32 v26 = load(vres);
+      buffer_write(arg0, v25, v26);
     }
     case 2: {
-      f32 v16 = load(val);
-      f32 v17 = call(@square, v16);
-      buffer_write(arg0, v1, v17);
+      f32 v28 = load(val);
+      f32 v29 = call(@square, v28);
+      f32 vres = alloca();
+      store(vres, v29);
+      u32 v32 = load(vidx);
+      f32 v33 = load(vres);
+      buffer_write(arg0, v32, v33);
     }
   }
 }

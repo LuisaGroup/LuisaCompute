@@ -199,12 +199,17 @@ def test_kernel_with_dispatch_id(verify_ir):
         idx = dispatch_id().x
         buf[idx] = Float(idx)
 
+    # idx is now a DSL variable
     expected = """
 kernel void index_kernel(buffer<f32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  f32 v2 = cast(v1);
-  buffer_write(arg0, v1, v2);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  u32 v5 = load(vidx);
+  f32 v6 = cast(v5);
+  buffer_write(arg0, v4, v6);
 }
 """
     verify_ir(index_kernel, expected)

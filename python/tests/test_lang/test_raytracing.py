@@ -84,15 +84,24 @@ def test_simple_ray_tracing_kernel(verify_ir):
     )
     assert simple_rt_kernel.ir.is_kernel
     
-    # We use actual IR but normalized
+    # idx, ray, hit are now DSL variables
     expected = """
 kernel void simple_rt_kernel(accel arg0, buffer<f32> arg1) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  { <3 x f32>, f32, <3 x f32>, f32 } v2 = call(@make_ray, (0, 0, 0), (0, 0, 1), 0.0, 1000.0);
-  { u32, u32, <2 x f32>, f32 } v3 = trace_closest(arg0, v2, 255);
-  f32 v4 = member_access(v3, 't');
-  buffer_write(arg1, v1, v4);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  { <3 x f32>, f32, <3 x f32>, f32 } v4 = call(@make_ray, (0, 0, 0), (0, 0, 1), 0.0, 1000.0);
+  { <3 x f32>, f32, <3 x f32>, f32 } vray = alloca();
+  store(vray, v4);
+  { <3 x f32>, f32, <3 x f32>, f32 } v7 = load(vray);
+  { u32, u32, <2 x f32>, f32 } v8 = trace_closest(arg0, v7, 255);
+  { u32, u32, <2 x f32>, f32 } vhit = alloca();
+  store(vhit, v8);
+  u32 v11 = load(vidx);
+  { u32, u32, <2 x f32>, f32 } v12 = load(vhit);
+  f32 v13 = member_access(v12, 't');
+  buffer_write(arg1, v11, v13);
 }
 
 { <3 x f32>, f32, <3 x f32>, f32 } make_ray(<3 x f32> arg0, <3 x f32> arg1, f32 arg2, f32 arg3) {

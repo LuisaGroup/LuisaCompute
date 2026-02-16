@@ -22,11 +22,15 @@ def test_atomic_add_builds_ir(print_ir, verify_ir):
 
     assert atomic_add_kernel.ir.is_kernel
     
+    # idx is now a DSL variable
     expected = """
 kernel void atomic_add_kernel(buffer<i32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = atomic_add(arg0, v1, 1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = atomic_add(arg0, v4, 1);
 }
 """
     verify_ir(atomic_add_kernel, expected)
@@ -43,12 +47,16 @@ def test_atomic_exchange_builds_ir(print_ir, verify_ir):
 
     assert atomic_exchange_kernel.ir.is_kernel
     
+    # idx is now a DSL variable
     expected = """
 kernel i32 atomic_exchange_kernel(buffer<i32> arg0, i32 arg1) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = atomic_exchange(arg0, v1, arg1);
-  return v2;
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = atomic_exchange(arg0, v4, arg1);
+  return v5;
 }
 """
     verify_ir(atomic_exchange_kernel, expected)
@@ -63,11 +71,15 @@ def test_atomic_sub_builds_ir(print_ir, verify_ir):
 
     print_ir(atomic_sub_kernel, "atomic_sub_kernel")
 
+    # idx is now a DSL variable
     expected = """
 kernel void atomic_sub_kernel(buffer<i32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = atomic_sub(arg0, v1, 1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = atomic_sub(arg0, v4, 1);
 }
 """
     verify_ir(atomic_sub_kernel, expected)
@@ -84,13 +96,19 @@ def test_atomic_bitwise_builds_ir(print_ir, verify_ir):
 
     print_ir(atomic_bitwise_kernel, "atomic_bitwise_kernel")
 
+    # idx is now a DSL variable
     expected = """
 kernel void atomic_bitwise_kernel(buffer<i32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = atomic_and(arg0, v1, 255);
-  i32 v3 = atomic_or(arg0, v1, 1);
-  i32 v4 = atomic_xor(arg0, v1, 2);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = atomic_and(arg0, v4, 255);
+  u32 v6 = load(vidx);
+  i32 v7 = atomic_or(arg0, v6, 1);
+  u32 v8 = load(vidx);
+  i32 v9 = atomic_xor(arg0, v8, 2);
 }
 """
     verify_ir(atomic_bitwise_kernel, expected)
@@ -106,12 +124,17 @@ def test_atomic_min_max_builds_ir(print_ir, verify_ir):
 
     print_ir(atomic_minmax_kernel, "atomic_minmax_kernel")
 
+    # idx is now a DSL variable
     expected = """
 kernel void atomic_minmax_kernel(buffer<i32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = atomic_min(arg0, v1, 100);
-  i32 v3 = atomic_max(arg0, v1, 0);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = atomic_min(arg0, v4, 100);
+  u32 v6 = load(vidx);
+  i32 v7 = atomic_max(arg0, v6, 0);
 }
 """
     verify_ir(atomic_minmax_kernel, expected)
@@ -129,12 +152,20 @@ def test_multiple_atomics_in_kernel(print_ir, verify_ir):
 
     print_ir(multi_atomic_kernel, "multi_atomic_kernel")
 
+    # idx and old_val are now DSL variables
     expected = """
 kernel void multi_atomic_kernel(buffer<i32> arg0, buffer<i32> arg1) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = atomic_add(arg0, v1, 1);
-  i32 v3 = atomic_add(arg1, v1, v2);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = atomic_add(arg0, v4, 1);
+  i32 vold_val = alloca();
+  store(vold_val, v5);
+  u32 v8 = load(vidx);
+  i32 v9 = load(vold_val);
+  i32 v10 = atomic_add(arg1, v8, v9);
 }
 """
     verify_ir(multi_atomic_kernel, expected)

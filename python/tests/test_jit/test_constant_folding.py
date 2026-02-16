@@ -61,19 +61,23 @@ def test_mixed_constant_and_dsl(verify_ir):
     @callable
     def mixed_ops(x: Float) -> Float:
         # x is DSL value, 0.5 is constant
-        # sin(0.5) should be folded, but the multiply should be device
-        a = sin(0.5)  # constant-folded
+        # sin(0.5) is computed at Python compile time
+        # a becomes a DSL variable (for correct handling of potential reassignment)
+        a = sin(0.5)  # constant-folded at Python level
         b = x * a     # device multiply with constant
         return b
     
-    # sin(0.5) = 0.479425538604203
+    # a is now a DSL variable, b is also a DSL variable
     expected = """
 f32 mixed_ops(f32 arg0) {
-  f32 v0 = mul(arg0, 0.479425538604203);
+  f32 va = alloca();
+  store(va, 0.479425538604203);
+  f32 v2 = load(va);
+  f32 v3 = mul(arg0, v2);
   f32 vb = alloca();
-  store(vb, v0);
-  f32 v3 = load(vb);
-  return v3;
+  store(vb, v3);
+  f32 v6 = load(vb);
+  return v6;
 }
 """
     verify_ir(mixed_ops, expected)
@@ -151,13 +155,18 @@ def test_constant_in_kernel(verify_ir):
     """Test constant folding in kernel context."""
     @kernel
     def const_fold_kernel(buf: Buffer[Float]):
-        idx = 0  # This is a Python constant
+        # idx is now a DSL variable (for correct handling of potential reassignment)
+        idx = 0
         # sin(0.0) should be folded to 0.0
         buf[idx] = sin(0.0)
     
+    # idx is now a DSL variable
     expected = """
 kernel void const_fold_kernel(buffer<f32> arg0) {
-  buffer_write(arg0, 0, 0.0);
+  i32 vidx = alloca();
+  store(vidx, 0);
+  i32 v2 = load(vidx);
+  buffer_write(arg0, v2, 0.0);
 }
 """
     verify_ir(const_fold_kernel, expected)

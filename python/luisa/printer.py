@@ -9,6 +9,7 @@ from __future__ import annotations
 from io import StringIO
 from typing import Any, Optional
 
+from . import TemplatedFunction
 from .lang.types import Type
 # Runtime imports
 from .transform.ir import (BasicBlock, Function, Instruction, Module, Op,
@@ -66,13 +67,21 @@ class PrettyPrinter:
         # Extract IR if it's a staged function or proxy
         if hasattr(obj, 'ir'):
             obj = obj.ir
+        
+        # Handle TemplatedFunction (unspecialized) - skip printing
+        # This can happen with nested callables that haven't been specialized
+        if not isinstance(obj, (Function, Module)):
+            # Check if it's a TemplatedFunction (has _get_or_create_staged but no .ir yet)
+            if isinstance(obj, TemplatedFunction):
+                self._write_line(f"// Function '{obj.name}' (unspecialized)")
+                return self._output.getvalue()
+            else:
+                raise TypeError(f"Cannot print object of type {type(obj)}")
 
         if isinstance(obj, Function):
             self._print_function(obj)
         elif isinstance(obj, Module):
             self._print_module(obj)
-        else:
-            raise TypeError(f"Cannot print object of type {type(obj)}")
 
         # Print any pending functions if recursive
         if self.recursive:
@@ -180,6 +189,9 @@ class PrettyPrinter:
             # Queue called functions if recursive
             if self.recursive and inst.op == Op.CALL:
                 func = inst.args[0]
+                # Handle both Function and TemplatedFunction (which has .ir attribute)
+                if hasattr(func, 'ir'):
+                    func = func.ir
                 if isinstance(func, Function) and func.name not in self._printed_functions:
                     self._pending_functions.append(func)
 

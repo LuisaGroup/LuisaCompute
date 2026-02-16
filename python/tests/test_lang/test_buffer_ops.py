@@ -64,15 +64,21 @@ def test_saxpy_kernel(print_ir, verify_ir):
 
     assert saxpy.ir.is_kernel
     
+    # idx is now a DSL variable
     expected = """
 kernel void saxpy(buffer<f32> arg0, f32 arg1, buffer<f32> arg2, buffer<f32> arg3) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  f32 v2 = buffer_read(arg2, v1);
-  f32 v3 = mul(arg1, v2);
-  f32 v4 = buffer_read(arg3, v1);
-  f32 v5 = add(v3, v4);
-  buffer_write(arg0, v1, v5);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  u32 v5 = load(vidx);
+  f32 v6 = buffer_read(arg2, v5);
+  f32 v7 = mul(arg1, v6);
+  u32 v8 = load(vidx);
+  f32 v9 = buffer_read(arg3, v8);
+  f32 v10 = add(v7, v9);
+  buffer_write(arg0, v4, v10);
 }
 """
     verify_ir(saxpy, expected)
@@ -128,29 +134,40 @@ def test_buffer_2d_kernel(print_ir, verify_ir):
 
     assert matrix_transpose.ir.is_kernel
     
+    # x and y are now DSL variables
     expected = """
 kernel void matrix_transpose(buffer<f32> arg0, buffer<f32> arg1, i32 arg2, i32 arg3) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  <3 x u32> v2 = dispatch_id();
-  u32 v3 = swizzle(v2, 'y');
-  i1 v4 = lt(v1, arg2);
-  i1 v5 = alloca();
-  store(v5, v4);
-  if (v4) { 
-    i1 v8 = lt(v3, arg3);
-    store(v5, v8);
+  u32 vx = alloca();
+  store(vx, v1);
+  <3 x u32> v4 = dispatch_id();
+  u32 v5 = swizzle(v4, 'y');
+  u32 vy = alloca();
+  store(vy, v5);
+  u32 v8 = load(vx);
+  i1 v9 = lt(v8, arg2);
+  i1 v10 = alloca();
+  store(v10, v9);
+  if (v9) { 
+    u32 v13 = load(vy);
+    i1 v14 = lt(v13, arg3);
+    store(v10, v14);
   } else {
     (empty)
   }
-  i1 v10 = load(v5);
-  if (v10) { 
-    u32 v12 = mul(v3, arg2);
-    u32 v13 = add(v12, v1);
-    u32 v14 = mul(v1, arg3);
-    u32 v15 = add(v14, v3);
-    f32 v16 = buffer_read(arg1, v15);
-    buffer_write(arg0, v13, v16);
+  i1 v16 = load(v10);
+  if (v16) { 
+    u32 v18 = load(vy);
+    u32 v19 = mul(v18, arg2);
+    u32 v20 = load(vx);
+    u32 v21 = add(v19, v20);
+    u32 v22 = load(vx);
+    u32 v23 = mul(v22, arg3);
+    u32 v24 = load(vy);
+    u32 v25 = add(v23, v24);
+    f32 v26 = buffer_read(arg1, v25);
+    buffer_write(arg0, v21, v26);
   } else {
     (empty)
   }

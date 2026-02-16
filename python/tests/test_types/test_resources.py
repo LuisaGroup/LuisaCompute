@@ -28,11 +28,15 @@ def test_buffer_in_kernel_builds_ir(print_ir, verify_ir):
 
     assert fill_buffer.ir.is_kernel
     
+    # idx is now a DSL variable
     expected = """
 kernel void fill_buffer(buffer<f32> arg0, f32 arg1) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  buffer_write(arg0, v1, arg1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  buffer_write(arg0, v4, arg1);
 }
 """
     verify_ir(fill_buffer, expected)
@@ -50,15 +54,20 @@ def test_buffer_vector_type_kernel(print_ir, verify_ir):
 
     assert process_vectors.ir.is_kernel
     
+    # idx and val are now DSL variables
     expected = """
 kernel void process_vectors(buffer<<3 x f32>> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  <3 x f32> v2 = buffer_read(arg0, v1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  <3 x f32> v5 = buffer_read(arg0, v4);
   <3 x f32> val = alloca();
-  store(val, v2);
-  <3 x f32> v5 = load(val);
-  buffer_write(arg0, v1, v5);
+  store(val, v5);
+  u32 v8 = load(vidx);
+  <3 x f32> v9 = load(val);
+  buffer_write(arg0, v8, v9);
 }
 """
     verify_ir(process_vectors, expected)
@@ -82,11 +91,15 @@ def test_texture2d_in_kernel(print_ir, verify_ir):
 
     assert sample_texture.ir.is_kernel
     
+    # idx is now a DSL variable
     expected = """
 kernel void sample_texture(texture2d<f32> arg0, buffer<f32> arg1) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  buffer_write(arg1, v1, 0.0);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  buffer_write(arg1, v4, 0.0);
 }
 """
     verify_ir(sample_texture, expected)
@@ -131,12 +144,17 @@ def test_multiple_resources_in_kernel(print_ir, verify_ir):
 
     assert multi_resource_kernel.ir.is_kernel
     
+    # idx is now a DSL variable
     expected = """
 kernel void multi_resource_kernel(buffer<f32> arg0, texture2d<f32> arg1, accel arg2) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  f32 v2 = cast(v1);
-  buffer_write(arg0, v1, v2);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  u32 v5 = load(vidx);
+  f32 v6 = cast(v5);
+  buffer_write(arg0, v4, v6);
 }
 """
     verify_ir(multi_resource_kernel, expected)

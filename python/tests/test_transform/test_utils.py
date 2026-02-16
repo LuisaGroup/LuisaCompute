@@ -88,16 +88,20 @@ def test_struct_with_buffer_kernel(verify_ir):
     update_particles(None)
     assert update_particles.ir.is_kernel
     
-    # We use actual IR seen in failure
+    # idx and p are now DSL variables
     expected = """
 kernel void update_particles(buffer<<class 'test_utils.test_struct_with_buffer_kernel.<locals>.Particle'>> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  { <3 x f32>, <3 x f32>, f32 } v2 = buffer_read(arg0, v1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  { <3 x f32>, <3 x f32>, f32 } v5 = buffer_read(arg0, v4);
   { <3 x f32>, <3 x f32>, f32 } vp = alloca();
-  store(vp, v2);
-  { <3 x f32>, <3 x f32>, f32 } v5 = load(vp);
-  buffer_write(arg0, v1, v5);
+  store(vp, v5);
+  u32 v8 = load(vidx);
+  { <3 x f32>, <3 x f32>, f32 } v9 = load(vp);
+  buffer_write(arg0, v8, v9);
 }
 """
     verify_ir(update_particles, expected)

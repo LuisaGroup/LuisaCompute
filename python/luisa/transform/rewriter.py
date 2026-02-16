@@ -462,13 +462,14 @@ class ASTRewriter(ast.NodeTransformer):
 
                 # Check if this is a const assignment
                 if self._is_const_call(node.value):
-                    # Mark as const variable
+                    # Const variables are kept as Python values (not DSL variables)
+                    # but we still need to track them for proper handling
                     self.const_vars.add(var_name)
                     self.dsl_vars.discard(var_name)  # Remove from dsl_vars if present
-                    # Standard assignment with the constructor call (preserved)
+                    # Return the value directly - it's a Python constant
                     return ast.Assign(
                         targets=[target],
-                        value=self._rt_call("local_assign", ast.Constant(value=var_name), self.visit(node.value))
+                        value=self._extract_const_value(node.value)
                     )
                 elif var_name in self.dsl_vars:
                     # Variable was previously a DSL variable - store to it
@@ -482,10 +483,20 @@ class ASTRewriter(ast.NodeTransformer):
                         value=self._rt_call("local_var_assign", ast.Constant(value=var_name), self.visit(node.value))
                     )
                 else:
-                    # Regular Python variable - keep as-is
+                    # Regular Python value - create a DSL variable to enable reassignment
+                    # This ensures that even constants can be reassigned later (e.g., in loops)
+                    # EXCEPTION: Don't convert list/tuple literals as they're often used
+                    # for Python-level iteration (e.g., impls = [func1, func2])
+                    if isinstance(node.value, (ast.List, ast.Tuple, ast.Dict, ast.Set)):
+                        # Keep list/tuple/dict/set literals as Python values
+                        return ast.Assign(
+                            targets=[target],
+                            value=self.visit(node.value)
+                        )
+                    self.dsl_vars.add(var_name)
                     return ast.Assign(
                         targets=[target],
-                        value=self.visit(node.value)
+                        value=self._rt_call("local_var_assign", ast.Constant(value=var_name), self.visit(node.value))
                     )
 
         # Standard assignment is fine
@@ -493,6 +504,18 @@ class ASTRewriter(ast.NodeTransformer):
             targets=[self.visit(t) for t in node.targets],
             value=self.visit(node.value)
         )
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> Any:
+        """Rewrite augmented assignment (e.g., a += b) to regular assignment (a = a + b)."""
+        # Convert augassign to regular assign: target = target op value
+        # Create a new Name node for the load context (to avoid Store context issues)
+        if isinstance(node.target, ast.Name):
+            left = ast.Name(id=node.target.id, ctx=ast.Load())
+        else:
+            left = node.target
+        bin_op = ast.BinOp(left=left, op=node.op, right=node.value)
+        assign = ast.Assign(targets=[node.target], value=bin_op)
+        return self.visit_Assign(assign)
 
     def visit_For(self, node: ast.For) -> Any:
         """Rewrite for loops."""

@@ -22,17 +22,22 @@ def test_reference_argument_basic(verify_ir):
         increment(val)
         buf[idx] = val
 
+    # idx is now a DSL variable
     expected = """
 kernel void ref_kernel(buffer<i32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  i32 v2 = buffer_read(arg0, v1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  i32 v5 = buffer_read(arg0, v4);
   i32 val = alloca();
-  store(val, v2);
-  i32 v5 = load(val);
-  call(@increment, v5);
-  i32 v7 = load(val);
-  buffer_write(arg0, v1, v7);
+  store(val, v5);
+  i32 v8 = load(val);
+  call(@increment, v8);
+  u32 v10 = load(vidx);
+  i32 v11 = load(val);
+  buffer_write(arg0, v10, v11);
 }
 
 void increment(i32 arg0) {
@@ -61,29 +66,36 @@ def test_swap_references(verify_ir):
         buf[idx * 2] = a
         buf[idx * 2 + 1] = b
 
+    # idx is now a DSL variable
     expected = """
 kernel void swap_kernel(buffer<i32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  u32 v2 = mul(v1, 2);
-  i32 v3 = buffer_read(arg0, v2);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  u32 v5 = mul(v4, 2);
+  i32 v6 = buffer_read(arg0, v5);
   i32 va = alloca();
-  store(va, v3);
-  u32 v6 = mul(v1, 2);
-  u32 v7 = add(v6, 1);
-  i32 v8 = buffer_read(arg0, v7);
+  store(va, v6);
+  u32 v9 = load(vidx);
+  u32 v10 = mul(v9, 2);
+  u32 v11 = add(v10, 1);
+  i32 v12 = buffer_read(arg0, v11);
   i32 vb = alloca();
-  store(vb, v8);
-  i32 v11 = load(va);
-  i32 v12 = load(vb);
-  call(@swap, v11, v12);
-  u32 v14 = mul(v1, 2);
+  store(vb, v12);
   i32 v15 = load(va);
-  buffer_write(arg0, v14, v15);
-  u32 v17 = mul(v1, 2);
-  u32 v18 = add(v17, 1);
-  i32 v19 = load(vb);
-  buffer_write(arg0, v18, v19);
+  i32 v16 = load(vb);
+  call(@swap, v15, v16);
+  u32 v18 = load(vidx);
+  u32 v19 = mul(v18, 2);
+  i32 v20 = load(va);
+  buffer_write(arg0, v19, v20);
+  u32 v22 = load(vidx);
+  u32 v23 = mul(v22, 2);
+  u32 v24 = add(v23, 1);
+  i32 v25 = load(vb);
+  buffer_write(arg0, v24, v25);
 }
 
 void swap(i32 arg0, i32 arg1) {

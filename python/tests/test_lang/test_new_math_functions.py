@@ -108,14 +108,24 @@ def test_new_functions_device_routing(verify_ir):
         c = sinh(x)
         return a + b + c
     
+    # a, b, c are now DSL variables
     expected = """
 f32 test_funcs(f32 arg0) {
   f32 v0 = rsqrt(arg0);
-  f32 v1 = exp10(arg0);
-  f32 v2 = sinh(arg0);
-  f32 v3 = add(v0, v1);
-  f32 v4 = add(v3, v2);
-  return v4;
+  f32 va = alloca();
+  store(va, v0);
+  f32 v3 = exp10(arg0);
+  f32 vb = alloca();
+  store(vb, v3);
+  f32 v6 = sinh(arg0);
+  f32 vc = alloca();
+  store(vc, v6);
+  f32 v9 = load(va);
+  f32 v10 = load(vb);
+  f32 v11 = add(v9, v10);
+  f32 v12 = load(vc);
+  f32 v13 = add(v11, v12);
+  return v13;
 }
 """
     verify_ir(test_funcs, expected)

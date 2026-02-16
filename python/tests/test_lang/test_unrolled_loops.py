@@ -13,29 +13,29 @@ def test_unrolled_simple(verify_ir):
             total = total + vals[i]
         buf[0] = total
 
+    # total is now a DSL variable (single alloca, reused)
     expected = """
 void unrolled_sum(buffer<f32> arg0, buffer<f32> arg1) {
-  f32 v0 = buffer_read(arg1, 0);
-  f32 v1 = add(0.0, v0);
   f32 vtotal = alloca();
-  store(vtotal, v1);
-  f32 v4 = load(vtotal);
-  f32 v5 = buffer_read(arg1, 1);
-  f32 v6 = add(v4, v5);
-  f32 vtotal = alloca();
-  store(vtotal, v6);
-  f32 v9 = load(vtotal);
-  f32 v10 = buffer_read(arg1, 2);
-  f32 v11 = add(v9, v10);
-  f32 vtotal = alloca();
-  store(vtotal, v11);
+  store(vtotal, 0.0);
+  f32 v2 = load(vtotal);
+  f32 v3 = buffer_read(arg1, 0);
+  f32 v4 = add(v2, v3);
+  store(vtotal, v4);
+  f32 v6 = load(vtotal);
+  f32 v7 = buffer_read(arg1, 1);
+  f32 v8 = add(v6, v7);
+  store(vtotal, v8);
+  f32 v10 = load(vtotal);
+  f32 v11 = buffer_read(arg1, 2);
+  f32 v12 = add(v10, v11);
+  store(vtotal, v12);
   f32 v14 = load(vtotal);
   f32 v15 = buffer_read(arg1, 3);
   f32 v16 = add(v14, v15);
-  f32 vtotal = alloca();
   store(vtotal, v16);
-  f32 v19 = load(vtotal);
-  buffer_write(arg0, 0, v19);
+  f32 v18 = load(vtotal);
+  buffer_write(arg0, 0, v18);
 }
 """
     verify_ir(unrolled_sum, expected)
@@ -121,16 +121,29 @@ def test_nested_unrolled(verify_ir):
                 idx = i * 2 + j
                 buf[idx] = val + Float(i + j)
 
+    # idx is now a DSL variable (new alloca each iteration due to unrolling)
     expected = """
 void nested_unrolled(buffer<f32> arg0, f32 arg1) {
-  f32 v0 = add(arg1, 0.0);
-  buffer_write(arg0, 0, v0);
-  f32 v2 = add(arg1, 1.0);
-  buffer_write(arg0, 1, v2);
-  f32 v4 = add(arg1, 1.0);
-  buffer_write(arg0, 2, v4);
-  f32 v6 = add(arg1, 2.0);
-  buffer_write(arg0, 3, v6);
+  i32 vidx = alloca();
+  store(vidx, 0);
+  i32 v2 = load(vidx);
+  f32 v3 = add(arg1, 0.0);
+  buffer_write(arg0, v2, v3);
+  i32 vidx = alloca();
+  store(vidx, 1);
+  i32 v7 = load(vidx);
+  f32 v8 = add(arg1, 1.0);
+  buffer_write(arg0, v7, v8);
+  i32 vidx = alloca();
+  store(vidx, 2);
+  i32 v12 = load(vidx);
+  f32 v13 = add(arg1, 1.0);
+  buffer_write(arg0, v12, v13);
+  i32 vidx = alloca();
+  store(vidx, 3);
+  i32 v17 = load(vidx);
+  f32 v18 = add(arg1, 2.0);
+  buffer_write(arg0, v17, v18);
 }
 """
     verify_ir(nested_unrolled, expected)

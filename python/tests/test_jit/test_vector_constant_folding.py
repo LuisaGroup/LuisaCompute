@@ -87,6 +87,7 @@ def test_vector_device_routing(verify_ir):
     @callable
     def vector_ops(v: Float3) -> Float:
         # v is a DSL value, so this should emit device instructions
+        # n and l are now DSL variables
         n = normalize(v)
         l = length(v)
         return l
@@ -94,8 +95,13 @@ def test_vector_device_routing(verify_ir):
     expected = """
 f32 vector_ops(<3 x f32> arg0) {
   <3 x f32> v0 = normalize(arg0);
-  f32 v1 = length(arg0);
-  return v1;
+  <3 x f32> vn = alloca();
+  store(vn, v0);
+  f32 v3 = length(arg0);
+  f32 vl = alloca();
+  store(vl, v3);
+  f32 v6 = load(vl);
+  return v6;
 }
 """
     verify_ir(vector_ops, expected)
@@ -105,7 +111,7 @@ def test_mixed_vector_operations(verify_ir):
     """Test mixing constant-folded and device vector operations."""
     @callable
     def mixed_ops(v: Float3) -> Float:
-        # Constant-folded using tuple
+        # Constant-folded using tuple, but still creates a DSL variable
         const_len = length((3.0, 4.0, 0.0))  # 5.0
         
         # Device-side
@@ -113,11 +119,18 @@ def test_mixed_vector_operations(verify_ir):
         
         return const_len + var_len
     
+    # Both const_len and var_len are now DSL variables
     expected = """
 f32 mixed_ops(<3 x f32> arg0) {
-  f32 v0 = length(arg0);
-  f32 v1 = add(5.0, v0);
-  return v1;
+  f32 vconst_len = alloca();
+  store(vconst_len, 5.0);
+  f32 v2 = length(arg0);
+  f32 var_len = alloca();
+  store(var_len, v2);
+  f32 v5 = load(vconst_len);
+  f32 v6 = load(var_len);
+  f32 v7 = add(v5, v6);
+  return v7;
 }
 """
     verify_ir(mixed_ops, expected)

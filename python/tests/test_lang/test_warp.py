@@ -27,13 +27,21 @@ def test_warp_query_functions_build_ir(verify_ir):
         bits = warp_active_count_bits(True)
         return Int(lane)
 
+    # first, lane, bits are now DSL variables
     expected = """
 i32 warp_queries() {
   i1 v0 = warp_is_first_active_lane();
-  u32 v1 = warp_first_active_lane();
-  u32 v2 = warp_active_count_bits(True);
-  i32 v3 = cast(v1);
-  return v3;
+  i1 vfirst = alloca();
+  store(vfirst, v0);
+  u32 v3 = warp_first_active_lane();
+  u32 vlane = alloca();
+  store(vlane, v3);
+  u32 v6 = warp_active_count_bits(True);
+  u32 vbits = alloca();
+  store(vbits, v6);
+  u32 v9 = load(vlane);
+  i32 v10 = cast(v9);
+  return v10;
 }
 """
     verify_ir(warp_queries, expected)
@@ -49,13 +57,23 @@ def test_warp_reduction_builds_ir(verify_ir):
         mx = warp_max(x)
         return s
 
+    # s, p, mn, mx are now DSL variables
     expected = """
 f32 warp_reductions(f32 arg0) {
   f32 v0 = warp_sum(arg0);
-  f32 v1 = warp_product(arg0);
-  f32 v2 = warp_min(arg0);
-  f32 v3 = warp_max(arg0);
-  return v0;
+  f32 vs = alloca();
+  store(vs, v0);
+  f32 v3 = warp_product(arg0);
+  f32 vp = alloca();
+  store(vp, v3);
+  f32 v6 = warp_min(arg0);
+  f32 vmn = alloca();
+  store(vmn, v6);
+  f32 v9 = warp_max(arg0);
+  f32 vmx = alloca();
+  store(vmx, v9);
+  f32 v12 = load(vs);
+  return v12;
 }
 """
     verify_ir(warp_reductions, expected)
@@ -70,15 +88,23 @@ def test_warp_boolean_reduction_builds_ir(verify_ir):
         eq_val = warp_all_equal(x)
         return Int(all_val)
 
+    # all_val, any_val, eq_val are now DSL variables
     expected = """
 i32 warp_bool_checks(f32 arg0) {
   i1 v0 = gt(arg0, 0.0);
   i1 v1 = warp_all(v0);
-  i1 v2 = gt(arg0, 0.0);
-  i1 v3 = warp_any(v2);
-  i1 v4 = warp_active_all_equal(arg0);
-  i32 v5 = cast(v1);
-  return v5;
+  i1 vall_val = alloca();
+  store(vall_val, v1);
+  i1 v4 = gt(arg0, 0.0);
+  i1 v5 = warp_any(v4);
+  i1 vany_val = alloca();
+  store(vany_val, v5);
+  i1 v8 = warp_active_all_equal(arg0);
+  i1 veq_val = alloca();
+  store(veq_val, v8);
+  i1 v11 = load(vall_val);
+  i32 v12 = cast(v11);
+  return v12;
 }
 """
     verify_ir(warp_bool_checks, expected)
@@ -93,12 +119,20 @@ def test_warp_prefix_builds_ir(verify_ir):
         pc = warp_prefix_count_bits(True)
         return ps
 
+    # ps, pp, pc are now DSL variables
     expected = """
 f32 warp_prefix_ops(f32 arg0, i32 arg1) {
   f32 v0 = warp_prefix_sum(arg0);
-  f32 v1 = warp_prefix_product(arg0);
-  u32 v2 = warp_prefix_count_bits(True);
-  return v0;
+  f32 vps = alloca();
+  store(vps, v0);
+  f32 v3 = warp_prefix_product(arg0);
+  f32 vpp = alloca();
+  store(vpp, v3);
+  u32 v6 = warp_prefix_count_bits(True);
+  u32 vpc = alloca();
+  store(vpc, v6);
+  f32 v9 = load(vps);
+  return v9;
 }
 """
     verify_ir(warp_prefix_ops, expected)
@@ -112,11 +146,17 @@ def test_warp_broadcast_builds_ir(verify_ir):
         first = warp_read_first_lane(x)
         return first
 
+    # from_lane, first are now DSL variables
     expected = """
 f32 warp_broadcast_ops(f32 arg0) {
   f32 v0 = warp_read_lane(arg0, 0);
-  f32 v1 = warp_read_first_active_lane(arg0);
-  return v1;
+  f32 vfrom_lane = alloca();
+  store(vfrom_lane, v0);
+  f32 v3 = warp_read_first_active_lane(arg0);
+  f32 vfirst = alloca();
+  store(vfirst, v3);
+  f32 v6 = load(vfirst);
+  return v6;
 }
 """
     verify_ir(warp_broadcast_ops, expected)
@@ -132,13 +172,23 @@ def test_warp_bitwise_builds_ir(verify_ir):
         m = warp_bit_mask(True)
         return a
 
+    # a, o, x_val, m are now DSL variables
     expected = """
 i32 warp_bitwise_ops(i32 arg0) {
   i32 v0 = warp_active_bit_and(arg0);
-  i32 v1 = warp_active_bit_or(arg0);
-  i32 v2 = warp_active_bit_xor(arg0);
-  <4 x u32> v3 = warp_active_bit_mask(True);
-  return v0;
+  i32 va = alloca();
+  store(va, v0);
+  i32 v3 = warp_active_bit_or(arg0);
+  i32 vo = alloca();
+  store(vo, v3);
+  i32 v6 = warp_active_bit_xor(arg0);
+  i32 vx_val = alloca();
+  store(vx_val, v6);
+  <4 x u32> v9 = warp_active_bit_mask(True);
+  <4 x u32> vm = alloca();
+  store(vm, v9);
+  i32 v12 = load(va);
+  return v12;
 }
 """
     verify_ir(warp_bitwise_ops, expected)
@@ -158,18 +208,26 @@ def test_warp_in_kernel(verify_ir):
 
     assert warp_kernel.ir.is_kernel
     
+    # idx, val, sum_val are now DSL variables
     expected = """
 kernel void warp_kernel(buffer<f32> arg0) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  f32 v2 = buffer_read(arg0, v1);
+  u32 vidx = alloca();
+  store(vidx, v1);
+  u32 v4 = load(vidx);
+  f32 v5 = buffer_read(arg0, v4);
   f32 val = alloca();
-  store(val, v2);
-  f32 v5 = load(val);
-  f32 v6 = warp_sum(v5);
-  i1 v7 = warp_is_first_active_lane();
-  if (v7) { 
-    buffer_write(arg0, v1, v6);
+  store(val, v5);
+  f32 v8 = load(val);
+  f32 v9 = warp_sum(v8);
+  f32 vsum_val = alloca();
+  store(vsum_val, v9);
+  i1 v12 = warp_is_first_active_lane();
+  if (v12) { 
+    u32 v14 = load(vidx);
+    f32 v15 = load(vsum_val);
+    buffer_write(arg0, v14, v15);
   } else {
     (empty)
   }

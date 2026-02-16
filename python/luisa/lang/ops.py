@@ -687,9 +687,17 @@ def maybe_load(ptr: Any) -> Any:
     """
     if isinstance(ptr, Value) and ptr.is_pointer:
         return get_current_builder().load(ptr)
+    elif isinstance(ptr, Value):
+        # It's a non-pointer IR value - return as-is
+        return ptr
     else:
-        # It's a Python value or a non-pointer IR value - convert to IR value
-        return to_ir_value(ptr)
+        # It's a Python value - try to convert to IR value
+        try:
+            return to_ir_value(ptr)
+        except TypeError:
+            # Cannot convert to IR value (e.g., Builder, str, etc.)
+            # Return as-is for Python-side use
+            return ptr
 
 
 def store(ptr: Any, value: Any) -> None:

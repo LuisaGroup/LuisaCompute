@@ -18,6 +18,7 @@ def test_kernel_calls_simple_callable(verify_ir):
 
     assert compute_squares.ir.is_kernel
     
+    # result is now a DSL variable (for correct handling of potential reassignment)
     expected = """
 kernel void compute_squares(buffer<f32> arg0) {
   i32 vidx = alloca();
@@ -28,8 +29,11 @@ kernel void compute_squares(buffer<f32> arg0) {
   store(val, v3);
   f32 v6 = load(val);
   f32 v7 = call(@square, v6);
-  i32 v8 = load(vidx);
-  buffer_write(arg0, v8, v7);
+  f32 vresult = alloca();
+  store(vresult, v7);
+  i32 v10 = load(vidx);
+  f32 v11 = load(vresult);
+  buffer_write(arg0, v10, v11);
 }
 
 f32 square(f32 arg0) {
@@ -59,6 +63,7 @@ def test_kernel_calls_math_callable(verify_ir):
 
     assert process_buffer.ir.is_kernel
     
+    # normalized is now a DSL variable
     expected = """
 kernel void process_buffer(buffer<f32> arg0) {
   i32 vidx = alloca();
@@ -69,8 +74,11 @@ kernel void process_buffer(buffer<f32> arg0) {
   store(val, v3);
   f32 v6 = load(val);
   f32 v7 = call(@normalize_value, v6);
-  i32 v8 = load(vidx);
-  buffer_write(arg0, v8, v7);
+  f32 vnormalized = alloca();
+  store(vnormalized, v7);
+  i32 v10 = load(vidx);
+  f32 v11 = load(vnormalized);
+  buffer_write(arg0, v10, v11);
 }
 
 f32 normalize_value(f32 arg0) {
@@ -103,6 +111,7 @@ def test_kernel_calls_callable_with_multiple_args(verify_ir):
         result = lerp_func(0.0, 1.0, buf[idx])
         buf[idx] = result
 
+    # result is now a DSL variable
     expected = """
 kernel void interpolate(buffer<f32> arg0) {
   i32 vidx = alloca();
@@ -110,8 +119,11 @@ kernel void interpolate(buffer<f32> arg0) {
   i32 v2 = load(vidx);
   f32 v3 = buffer_read(arg0, v2);
   f32 v4 = call(@lerp_func, 0.0, 1.0, v3);
-  i32 v5 = load(vidx);
-  buffer_write(arg0, v5, v4);
+  f32 vresult = alloca();
+  store(vresult, v4);
+  i32 v7 = load(vidx);
+  f32 v8 = load(vresult);
+  buffer_write(arg0, v7, v8);
 }
 
 f32 lerp_func(f32 arg0, f32 arg1, f32 arg2) {
@@ -140,6 +152,7 @@ def test_kernel_calls_nested_callable(verify_ir):
         result = sum_of_squares(buf[idx], buf[idx + 1])
         buf[idx] = result
 
+    # result is now a DSL variable
     expected = """
 kernel void compute(buffer<f32> arg0) {
   i32 vidx = alloca();
@@ -150,8 +163,11 @@ kernel void compute(buffer<f32> arg0) {
   i32 v5 = add(v4, 1);
   f32 v6 = buffer_read(arg0, v5);
   f32 v7 = call(@sum_of_squares, v3, v6);
-  i32 v8 = load(vidx);
-  buffer_write(arg0, v8, v7);
+  f32 vresult = alloca();
+  store(vresult, v7);
+  i32 v10 = load(vidx);
+  f32 v11 = load(vresult);
+  buffer_write(arg0, v10, v11);
 }
 
 f32 sum_of_squares(f32 arg0, f32 arg1) {
@@ -187,6 +203,7 @@ def test_kernel_calls_callable_with_loop(verify_ir):
         result = factorial(n)
         buf[idx] = result
 
+    # result is now a DSL variable
     expected = """
 kernel void compute_factorials(buffer<i32> arg0) {
   i32 vidx = alloca();
@@ -197,8 +214,11 @@ kernel void compute_factorials(buffer<i32> arg0) {
   store(vn, v3);
   i32 v6 = load(vn);
   i32 v7 = call(@factorial, v6);
-  i32 v8 = load(vidx);
-  buffer_write(arg0, v8, v7);
+  i32 vresult = alloca();
+  store(vresult, v7);
+  i32 v10 = load(vidx);
+  i32 v11 = load(vresult);
+  buffer_write(arg0, v10, v11);
 }
 
 i32 factorial(i32 arg0) {
