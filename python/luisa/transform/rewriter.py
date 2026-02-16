@@ -68,23 +68,7 @@ class ASTRewriter(ast.NodeTransformer):
 
         # If it's a nested function, check if it has Luisa decorators
         if not is_top:
-            is_staged = False
-            for deco in node.decorator_list:
-                # Simple check for 'callable' or 'kernel' decorators
-                if isinstance(deco, ast.Name) and deco.id in ('callable', 'kernel'):
-                    is_staged = True
-                    break
-                if isinstance(deco, ast.Attribute) and deco.attr in ('callable', 'kernel'):
-                    is_staged = True
-                    break
-                # Handle indexed decorators like callable[Int]
-                if isinstance(deco, ast.Subscript):
-                    if isinstance(deco.value, ast.Name) and deco.value.id in ('callable', 'kernel'):
-                        is_staged = True
-                        break
-                    if isinstance(deco.value, ast.Attribute) and deco.value.attr in ('callable', 'kernel'):
-                        is_staged = True
-                        break
+            is_staged = any(self._is_staged_decorator(deco) for deco in node.decorator_list)
 
             if is_staged:
                 # Staged functions are plain Python code that defines DSL functions.
@@ -194,6 +178,19 @@ class ASTRewriter(ast.NodeTransformer):
             args=list(args),
             keywords=[]
         )
+
+    def _is_staged_decorator(self, deco: ast.expr) -> bool:
+        """Check if a decorator is a Luisa staged function decorator."""
+        # Handle @callable, @kernel
+        if isinstance(deco, ast.Name) and deco.id in ('callable', 'kernel'):
+            return True
+        # Handle @luisa.callable, @luisa.kernel
+        if isinstance(deco, ast.Attribute) and deco.attr in ('callable', 'kernel'):
+            return True
+        # Handle @callable[...], @kernel[...]
+        if isinstance(deco, ast.Subscript):
+            return self._is_staged_decorator(deco.value)
+        return False
 
     def visit_BinOp(self, node: ast.BinOp) -> ast.Call:
         """Rewrite binary operations."""

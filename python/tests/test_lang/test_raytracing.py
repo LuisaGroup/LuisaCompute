@@ -79,11 +79,11 @@ def test_simple_ray_tracing_kernel(verify_ir):
 
     # Use ArgumentValue to avoid NoneType
     from luisa.transform.ir import ArgumentValue
-    ir = simple_rt_kernel(
+    simple_rt_kernel(
         ArgumentValue(typ=Accel(), index=0),
         ArgumentValue(typ=Buffer[Float], index=1)
     )
-    assert ir.is_kernel
+    assert simple_rt_kernel.ir.is_kernel
     
     # We use actual IR but normalized
     expected = """
@@ -101,7 +101,7 @@ kernel void simple_rt_kernel(accel arg0, buffer<f32> arg1) {
 }
 """
     
-    verify_ir(ir, expected)
+    verify_ir(simple_rt_kernel, expected)
 
 if __name__ == "__main__":
     import pytest

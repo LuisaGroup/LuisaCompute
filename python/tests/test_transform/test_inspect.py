@@ -232,7 +232,7 @@ def test_inspect_staged_function():
         y = b * b
         return x + y
 
-    ir = compute(3.0, 4.0)
+    ir = compute.ir
 
     print("\nGenerated IR:")
     print(pprint(ir))

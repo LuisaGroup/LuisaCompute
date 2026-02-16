@@ -124,17 +124,17 @@ class StagedFunction:
 
         self.compiled_code = None
 
-        # If it's NOT a template, we can rewrite now.
-        if not self.template_params:
-            self._do_compile()
-            # If all argument types are known, pre-compile immediately
-            if all(ann is not None for ann in self.parsed.arg_annotations):
-                try:
-                    self._precompile()
-                except (AttributeError, KeyError, NameError, TypeError):
-                    # During early initialization (e.g. builtins), some types or modules 
-                    # might not be fully ready. In these cases, we defer until first use.
-                    pass
+        # Always rewrite and compile the Python part once
+        self._do_compile()
+
+        # If all argument types are known, pre-compile immediately
+        if all(ann is not None for ann in self.parsed.arg_annotations):
+            try:
+                self._precompile()
+            except (AttributeError, KeyError, NameError, TypeError):
+                # During early initialization (e.g. builtins), some types or modules 
+                # might not be fully ready. In these cases, we defer until first use.
+                pass
 
     @property
     def ir(self) -> Function:
@@ -153,45 +153,31 @@ class StagedFunction:
         placeholders = [None] * len(self.parsed.arg_annotations)
         return self(*placeholders, specialization_values=specialization_values)
 
-    def _do_compile(self, specialization_values: tuple = ()):
+    def _do_compile(self):
         """Perform AST rewrite and compilation."""
-        # For non-templates, we can cache the compiled code
-        if not self.template_params and self.compiled_code is not None:
+        if self.compiled_code is not None:
             return self.compiled_code
 
-        # Prepare specialization map
-        spec_dict = dict(zip(self.template_params, specialization_values))
-
         # Rewrite the AST
-        # For templates, we rewrite with the actual specialization values injected
-        # so the rewriter can treat them as regular constants/types.
         rewriter = ASTRewriter(file=self.filename)
-        
-        # Inject template params into rewriter context if needed
-        # (Though with our current rewriter, they are just left as Names 
-        # and resolved via the namespace during exec)
-        
         rewritten_ast = rewriter.rewrite(self.parsed.ast_node)
         ast.fix_missing_locations(rewritten_ast)
 
         if os.environ.get("LUISA_DUMP_REWRITTEN_AST") in ("1", "ON", "TRUE", "true", "yes"):
-            print(f"DEBUG: Rewritten AST for {self.name} (specialized={bool(specialization_values)}):\n{ast.unparse(rewritten_ast)}")
+            print(f"DEBUG: Rewritten AST for {self.name}:\n{ast.unparse(rewritten_ast)}")
 
-        compiled_code = compile(
+        self.compiled_code = compile(
             ast.Module(body=[rewritten_ast], type_ignores=[]),
             filename=f"<luisa-built-{self.name}>",
             mode="exec"
         )
-
-        if not self.template_params:
-            self.compiled_code = compiled_code
-            self.rewritten_ast = rewritten_ast
+        self.rewritten_ast = rewritten_ast
         
-        return compiled_code
+        return self.compiled_code
 
     def builder_func(self, *args, specialization_values: tuple = ()):
         """The internal function that populates the IR builder."""
-        compiled_code = self._do_compile(specialization_values=specialization_values)
+        compiled_code = self._do_compile()
 
         # Prepare namespace with specializations
         spec_dict = dict(zip(self.template_params, specialization_values))

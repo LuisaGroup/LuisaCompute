@@ -17,8 +17,7 @@ def test_kernel_calls_simple_callable(verify_ir):
         result = square(val)
         buf[idx] = result
 
-    ir = compute_squares(None)
-    assert ir.is_kernel
+    assert compute_squares.ir.is_kernel
     
     expected = """
 kernel void compute_squares(buffer<f32> arg0) {
@@ -39,7 +38,7 @@ f32 square(f32 arg0) {
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(compute_squares, expected)
 
 
 def test_kernel_calls_math_callable(verify_ir):
@@ -59,8 +58,7 @@ def test_kernel_calls_math_callable(verify_ir):
         normalized = normalize_value(val)
         buf[idx] = normalized
 
-    ir = process_buffer(None)
-    assert ir.is_kernel
+    assert process_buffer.ir.is_kernel
     
     expected = """
 kernel void process_buffer(buffer<f32> arg0) {
@@ -91,7 +89,7 @@ f32 normalize_value(f32 arg0) {
   return arg0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(process_buffer, expected)
 
 
 def test_kernel_calls_callable_with_multiple_args(verify_ir):
@@ -106,8 +104,6 @@ def test_kernel_calls_callable_with_multiple_args(verify_ir):
         result = lerp_func(0.0, 1.0, buf[idx])
         buf[idx] = result
 
-    ir = interpolate(None)
-    
     expected = """
 kernel void interpolate(buffer<f32> arg0) {
   i32 vidx = alloca();
@@ -126,7 +122,7 @@ f32 lerp_func(f32 arg0, f32 arg1, f32 arg2) {
   return v2;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(interpolate, expected)
 
 
 def test_kernel_calls_nested_callable(verify_ir):
@@ -145,8 +141,6 @@ def test_kernel_calls_nested_callable(verify_ir):
         result = sum_of_squares(buf[idx], buf[idx + 1])
         buf[idx] = result
 
-    ir = compute(None)
-    
     expected = """
 kernel void compute(buffer<f32> arg0) {
   i32 vidx = alloca();
@@ -173,7 +167,7 @@ f32 square(f32 arg0) {
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(compute, expected)
 
 
 def test_kernel_calls_callable_with_loop(verify_ir):
@@ -194,8 +188,6 @@ def test_kernel_calls_callable_with_loop(verify_ir):
         result = factorial(n)
         buf[idx] = result
 
-    ir = compute_factorials(None)
-    
     expected = """
 kernel void compute_factorials(buffer<i32> arg0) {
   i32 vidx = alloca();
@@ -236,7 +228,7 @@ i32 factorial(i32 arg0) {
   return v17;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(compute_factorials, expected)
 
 if __name__ == "__main__":
     import pytest

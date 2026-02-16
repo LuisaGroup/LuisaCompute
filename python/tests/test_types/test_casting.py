@@ -10,15 +10,13 @@ def test_int_to_float_cast(verify_ir):
     def cast_int_to_float(x: Int) -> Float:
         return Float(x)
 
-    ir = cast_int_to_float(42)
-    
     expected = """
 f32 cast_int_to_float(i32 arg0) {
   f32 v0 = cast(arg0);
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(cast_int_to_float, expected)
 
 
 def test_float_to_int_cast(verify_ir):
@@ -27,15 +25,13 @@ def test_float_to_int_cast(verify_ir):
     def cast_float_to_int(x: Float) -> Int:
         return Int(x)
 
-    ir = cast_float_to_int(3.14)
-    
     expected = """
 i32 cast_float_to_int(f32 arg0) {
   i32 v0 = cast(arg0);
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(cast_float_to_int, expected)
 
 
 def test_cast_in_computation(verify_ir):
@@ -44,8 +40,6 @@ def test_cast_in_computation(verify_ir):
     def mixed_computation(i: Int, f: Float) -> Float:
         return Float(i) + f
 
-    ir = mixed_computation(10, 2.5)
-    
     expected = """
 f32 mixed_computation(i32 arg0, f32 arg1) {
   f32 v0 = cast(arg0);
@@ -53,7 +47,7 @@ f32 mixed_computation(i32 arg0, f32 arg1) {
   return v1;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(mixed_computation, expected)
 
 
 def test_cast_with_buffer(verify_ir):
@@ -62,8 +56,6 @@ def test_cast_with_buffer(verify_ir):
     def store_index_as_float(buf: Buffer[Float], idx: Int) -> None:
         buf[idx] = Float(idx) * 2.0
 
-    ir = store_index_as_float(0, 5)
-    
     expected = """
 void store_index_as_float(buffer<f32> arg0, i32 arg1) {
   f32 v0 = cast(arg1);
@@ -71,7 +63,7 @@ void store_index_as_float(buffer<f32> arg0, i32 arg1) {
   buffer_write(arg0, arg1, v1);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(store_index_as_float, expected)
 
 
 def test_chained_casts(verify_ir):
@@ -82,8 +74,6 @@ def test_chained_casts(verify_ir):
         i = Int(f)
         return i
 
-    ir = chain_cast(42)
-    
     expected = """
 i32 chain_cast(i32 arg0) {
   f32 v0 = cast(arg0);
@@ -97,7 +87,7 @@ i32 chain_cast(i32 arg0) {
   return v7;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(chain_cast, expected)
 
 
 def test_cast_in_kernel(verify_ir):
@@ -107,8 +97,7 @@ def test_cast_in_kernel(verify_ir):
         idx = dispatch_id().x
         out[idx] = Float(idx) * 1.5
 
-    ir = cast_kernel(None)
-    assert ir.is_kernel
+    assert cast_kernel.ir.is_kernel
     
     expected = """
 kernel void cast_kernel(buffer<f32> arg0) {
@@ -119,7 +108,7 @@ kernel void cast_kernel(buffer<f32> arg0) {
   buffer_write(arg0, v1, v3);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(cast_kernel, expected)
 
 if __name__ == "__main__":
     import pytest

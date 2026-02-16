@@ -28,8 +28,6 @@ def test_warp_query_functions_build_ir(verify_ir):
         bits = warp_active_count_bits(True)
         return Int(lane)
 
-    ir = warp_queries()
-    
     expected = """
 i32 warp_queries() {
   i1 v0 = warp_is_first_active_lane();
@@ -39,7 +37,7 @@ i32 warp_queries() {
   return v3;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(warp_queries, expected)
 
 
 def test_warp_reduction_builds_ir(verify_ir):
@@ -52,8 +50,6 @@ def test_warp_reduction_builds_ir(verify_ir):
         mx = warp_max(x)
         return s
 
-    ir = warp_reductions(1.0)
-    
     expected = """
 f32 warp_reductions(f32 arg0) {
   f32 v0 = warp_sum(arg0);
@@ -63,7 +59,7 @@ f32 warp_reductions(f32 arg0) {
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(warp_reductions, expected)
 
 
 def test_warp_boolean_reduction_builds_ir(verify_ir):
@@ -75,8 +71,6 @@ def test_warp_boolean_reduction_builds_ir(verify_ir):
         eq_val = warp_all_equal(x)
         return Int(all_val)
 
-    ir = warp_bool_checks(1.0)
-    
     expected = """
 i32 warp_bool_checks(f32 arg0) {
   i1 v0 = gt(arg0, 0.0);
@@ -88,7 +82,7 @@ i32 warp_bool_checks(f32 arg0) {
   return v5;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(warp_bool_checks, expected)
 
 
 def test_warp_prefix_builds_ir(verify_ir):
@@ -100,8 +94,6 @@ def test_warp_prefix_builds_ir(verify_ir):
         pc = warp_prefix_count_bits(True)
         return ps
 
-    ir = warp_prefix_ops(1.0, 1)
-    
     expected = """
 f32 warp_prefix_ops(f32 arg0, i32 arg1) {
   f32 v0 = warp_prefix_sum(arg0);
@@ -110,7 +102,7 @@ f32 warp_prefix_ops(f32 arg0, i32 arg1) {
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(warp_prefix_ops, expected)
 
 
 def test_warp_broadcast_builds_ir(verify_ir):
@@ -121,8 +113,6 @@ def test_warp_broadcast_builds_ir(verify_ir):
         first = warp_read_first_lane(x)
         return first
 
-    ir = warp_broadcast_ops(1.0)
-    
     expected = """
 f32 warp_broadcast_ops(f32 arg0) {
   f32 v0 = warp_read_lane(arg0, 0);
@@ -130,7 +120,7 @@ f32 warp_broadcast_ops(f32 arg0) {
   return v1;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(warp_broadcast_ops, expected)
 
 
 def test_warp_bitwise_builds_ir(verify_ir):
@@ -143,8 +133,6 @@ def test_warp_bitwise_builds_ir(verify_ir):
         m = warp_bit_mask(True)
         return a
 
-    ir = warp_bitwise_ops(255)
-    
     expected = """
 i32 warp_bitwise_ops(i32 arg0) {
   i32 v0 = warp_active_bit_and(arg0);
@@ -154,7 +142,7 @@ i32 warp_bitwise_ops(i32 arg0) {
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(warp_bitwise_ops, expected)
 
 
 def test_warp_in_kernel(verify_ir):
@@ -169,8 +157,7 @@ def test_warp_in_kernel(verify_ir):
         if warp_is_first_active_lane():
             buf[idx] = sum_val
 
-    ir = warp_kernel(None)
-    assert ir.is_kernel
+    assert warp_kernel.ir.is_kernel
     
     expected = """
 kernel void warp_kernel(buffer<f32> arg0) {
@@ -189,7 +176,7 @@ kernel void warp_kernel(buffer<f32> arg0) {
   }
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(warp_kernel, expected)
 
 if __name__ == "__main__":
     import pytest

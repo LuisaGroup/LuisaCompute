@@ -78,7 +78,7 @@ def test_multistage_polymorphic_dispatch(verify_ir):
         poly.dispatch(tag, buf, idx)
 
     # Build IR
-    ir = dispatch_kernel(None, None)
+    dispatch_kernel(None, None)
     
     expected = """
 kernel void dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
@@ -111,7 +111,7 @@ kernel void dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
   }
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(dispatch_kernel, expected)
 
 
 def test_nested_polymorphic_callables(verify_ir):
@@ -150,7 +150,7 @@ def test_nested_polymorphic_callables(verify_ir):
             pass
 
     # Build IR
-    ir = nested_dispatch_kernel(None, None)
+    nested_dispatch_kernel(None, None)
     
     expected = """
 kernel void nested_dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
@@ -197,7 +197,7 @@ f32 square(f32 arg0) {
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(nested_dispatch_kernel, expected)
 
 if __name__ == "__main__":
     import pytest

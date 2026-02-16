@@ -33,7 +33,7 @@ def test_unrolled_builds_ir(verify_ir):
             total = total + Int(i)
         return total
 
-    ir = sum_unrolled()
+    sum_unrolled()
     
     expected = """
 i32 sum_unrolled() {
@@ -55,7 +55,7 @@ i32 sum_unrolled() {
   return v14;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(sum_unrolled, expected)
 
 
 def test_struct_decorator():
@@ -88,8 +88,8 @@ def test_struct_with_buffer_kernel(verify_ir):
         # Simple update
         particles[idx] = p
 
-    ir = update_particles(None)
-    assert ir.is_kernel
+    update_particles(None)
+    assert update_particles.ir.is_kernel
     
     # We use actual IR seen in failure
     expected = """
@@ -103,7 +103,7 @@ kernel void update_particles(buffer<<class 'test_utils.test_struct_with_buffer_k
   buffer_write(arg0, v1, v5);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(update_particles, expected)
 
 
 def test_nested_unrolled(verify_ir):
@@ -116,7 +116,7 @@ def test_nested_unrolled(verify_ir):
                 total = total + Int(i) + Int(j)
         return total
 
-    ir = nested_sum()
+    nested_sum()
     
     expected = """
 i32 nested_sum() {
@@ -142,7 +142,7 @@ i32 nested_sum() {
   return v18;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(nested_sum, expected)
 
 if __name__ == "__main__":
     import pytest

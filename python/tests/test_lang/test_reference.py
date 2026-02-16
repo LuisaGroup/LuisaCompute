@@ -23,8 +23,6 @@ def test_reference_argument_basic(verify_ir):
         increment(val)
         buf[idx] = val
 
-    ir = ref_kernel(None)
-    
     expected = """
 kernel void ref_kernel(buffer<i32> arg0) {
   <3 x u32> v0 = dispatch_id();
@@ -44,7 +42,7 @@ void increment(i32 arg0) {
   store(arg0, v1);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(ref_kernel, expected)
 
 
 def test_swap_references(verify_ir):
@@ -64,8 +62,6 @@ def test_swap_references(verify_ir):
         buf[idx * 2] = a
         buf[idx * 2 + 1] = b
 
-    ir = swap_kernel(None)
-    
     expected = """
 kernel void swap_kernel(buffer<i32> arg0) {
   <3 x u32> v0 = dispatch_id();
@@ -101,7 +97,7 @@ void swap(i32 arg0, i32 arg1) {
   store(arg1, v5);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(swap_kernel, expected)
 
 if __name__ == "__main__":
     import pytest

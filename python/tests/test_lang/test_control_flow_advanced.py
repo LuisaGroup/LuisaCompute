@@ -14,7 +14,7 @@ def test_nested_if_statements(verify_ir):
             return x - y
         return 0
 
-    ir = nested_if(1, 2)
+    nested_if(1, 2)
     
     expected = """
 i32 nested_if(i32 arg0, i32 arg1) {
@@ -35,7 +35,7 @@ i32 nested_if(i32 arg0, i32 arg1) {
   return 0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(nested_if, expected)
 
 
 def test_if_elif_else_chain(verify_ir):
@@ -49,7 +49,7 @@ def test_if_elif_else_chain(verify_ir):
         else:
             return 1
 
-    ir = if_chain(0)
+    if_chain(0)
     
     expected = """
 i32 if_chain(i32 arg0) {
@@ -66,7 +66,7 @@ i32 if_chain(i32 arg0) {
   }
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(if_chain, expected)
 
 
 def test_while_loop_with_break(verify_ir):
@@ -80,7 +80,7 @@ def test_while_loop_with_break(verify_ir):
             i = i + 1
         return i
 
-    ir = while_with_break(10)
+    while_with_break(10)
     
     expected = """
 i32 while_with_break(i32 arg0) {
@@ -107,7 +107,7 @@ i32 while_with_break(i32 arg0) {
   return v11;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(while_with_break, expected)
 
 
 def test_while_loop_with_continue(verify_ir):
@@ -123,7 +123,7 @@ def test_while_loop_with_continue(verify_ir):
             s = s + i
         return s
 
-    ir = while_with_continue(5)
+    while_with_continue(5)
     
     expected = """
 i32 while_with_continue(i32 arg0) {
@@ -155,7 +155,7 @@ i32 while_with_continue(i32 arg0) {
   return v16;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(while_with_continue, expected)
 
 
 def test_for_range_loop(verify_ir):
@@ -167,7 +167,7 @@ def test_for_range_loop(verify_ir):
             total = total + i
         return total
 
-    ir = for_range_sum(10)
+    for_range_sum(10)
     
     expected = """
 i32 for_range_sum(i32 arg0) {
@@ -194,7 +194,7 @@ i32 for_range_sum(i32 arg0) {
   return v15;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(for_range_sum, expected)
 
 
 def test_for_range_with_step(verify_ir):
@@ -206,7 +206,7 @@ def test_for_range_with_step(verify_ir):
             total = total + i
         return total
 
-    ir = for_range_step(10)
+    for_range_step(10)
     
     expected = """
 i32 for_range_step(i32 arg0) {
@@ -233,7 +233,7 @@ i32 for_range_step(i32 arg0) {
   return v15;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(for_range_step, expected)
 
 
 def test_early_return(verify_ir):
@@ -246,7 +246,7 @@ def test_early_return(verify_ir):
             return 100
         return x
 
-    ir = early_return(50)
+    early_return(50)
     
     expected = """
 i32 early_return(i32 arg0) {
@@ -265,7 +265,7 @@ i32 early_return(i32 arg0) {
   return arg0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(early_return, expected)
 
 
 def test_complex_boolean_expression(verify_ir):
@@ -276,7 +276,7 @@ def test_complex_boolean_expression(verify_ir):
             return x + y
         return 0
 
-    ir = complex_bool(1, 2)
+    complex_bool(1, 2)
     
     expected = """
 i32 complex_bool(i32 arg0, i32 arg1) {
@@ -299,7 +299,7 @@ i32 complex_bool(i32 arg0, i32 arg1) {
   return 0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(complex_bool, expected)
 
 
 def test_multiple_returns_in_branches(verify_ir):
@@ -313,7 +313,7 @@ def test_multiple_returns_in_branches(verify_ir):
         else:
             return 1
 
-    ir = multi_return(0)
+    multi_return(0)
     
     expected = """
 i32 multi_return(i32 arg0) {
@@ -330,7 +330,7 @@ i32 multi_return(i32 arg0) {
   }
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(multi_return, expected)
 
 
 def test_deeply_nested_control_flow(verify_ir):
@@ -345,7 +345,7 @@ def test_deeply_nested_control_flow(verify_ir):
             return 10
         return 0
 
-    ir = nested_deep(50)
+    nested_deep(50)
     
     expected = """
 i32 nested_deep(i32 arg0) {
@@ -370,7 +370,7 @@ i32 nested_deep(i32 arg0) {
   return 0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(nested_deep, expected)
 
 
 def test_loop_with_multiple_exits(verify_ir):
@@ -386,7 +386,7 @@ def test_loop_with_multiple_exits(verify_ir):
             i = i + 1
         return i
 
-    ir = multi_exit_loop(25)
+    multi_exit_loop(25)
     
     expected = """
 i32 multi_exit_loop(i32 arg0) {
@@ -413,7 +413,7 @@ i32 multi_exit_loop(i32 arg0) {
   return v11;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(multi_exit_loop, expected)
 
 
 def test_python_match_to_switch(verify_ir):
@@ -432,7 +432,7 @@ def test_python_match_to_switch(verify_ir):
                 res = Int(-1)
         return res
 
-    ir = match_test(0)
+    match_test(0)
     
     expected = """
 i32 match_test(i32 arg0) {
@@ -456,7 +456,7 @@ i32 match_test(i32 arg0) {
   return v7;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(match_test, expected)
 
 if __name__ == "__main__":
     import pytest

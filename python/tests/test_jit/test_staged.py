@@ -10,15 +10,13 @@ def test_staged_function_basic(verify_ir):
     def add(a: Float, b: Float) -> Float:
         return a + b
 
-    ir = add(1.0, 2.0)
-    
     expected = """
 f32 add(f32 arg0, f32 arg1) {
   f32 v0 = add(arg0, arg1);
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(add, expected)
 
 
 def test_staged_function_with_kernel(verify_ir):
@@ -27,15 +25,14 @@ def test_staged_function_with_kernel(verify_ir):
     def simple_kernel(x: Int) -> None:
         pass
 
-    ir = simple_kernel(42)
-    assert ir.is_kernel
+    assert simple_kernel.ir.is_kernel
     
     expected = """
 kernel void simple_kernel(i32 arg0) {
   (empty)
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(simple_kernel, expected)
 
 
 def test_staged_function_control_flow(verify_ir):
@@ -47,8 +44,6 @@ def test_staged_function_control_flow(verify_ir):
         else:
             return -x
 
-    ir = abs_value(1.0)
-    
     expected = """
 f32 abs_value(f32 arg0) {
   i1 v0 = gt(arg0, 0.0);
@@ -60,7 +55,7 @@ f32 abs_value(f32 arg0) {
   }
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(abs_value, expected)
 
 
 def test_staged_function_captured_vars(verify_ir):
@@ -74,8 +69,6 @@ def test_staged_function_captured_vars(verify_ir):
         else:
             return 0
 
-    ir = threshold_check(1.0)
-    
     expected = """
 i32 threshold_check(f32 arg0) {
   i1 v0 = gt(arg0, 0.5);
@@ -86,7 +79,7 @@ i32 threshold_check(f32 arg0) {
   }
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(threshold_check, expected)
 
 
 def test_staged_function_while_loop(verify_ir):
@@ -98,8 +91,6 @@ def test_staged_function_while_loop(verify_ir):
             i = i + 1
         return i
 
-    ir = count_up(10)
-    
     expected = """
 i32 count_up(i32 arg0) {
   i32 vi = alloca();
@@ -121,7 +112,7 @@ i32 count_up(i32 arg0) {
   return v11;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(count_up, expected)
 
 
 def test_staged_function_for_range(verify_ir):
@@ -133,8 +124,6 @@ def test_staged_function_for_range(verify_ir):
             total = total + i
         return total
 
-    ir = sum_range(10, 0)
-    
     expected = """
 i32 sum_range(i32 arg0, i32 arg1) {
   i32 vtotal = alloca();
@@ -160,7 +149,7 @@ i32 sum_range(i32 arg0, i32 arg1) {
   return v15;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(sum_range, expected)
 
 
 def test_staged_function_complex(verify_ir):
@@ -176,8 +165,6 @@ def test_staged_function_complex(verify_ir):
         else:
             return 0.0
 
-    ir = compute(1.0, 2.0)
-    
     expected = """
 f32 compute(f32 arg0, f32 arg1) {
   f32 v0 = mul(arg0, arg0);
@@ -201,7 +188,7 @@ f32 compute(f32 arg0, f32 arg1) {
   }
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(compute, expected)
 
 
 def test_kernel_with_dispatch_id(verify_ir):
@@ -213,8 +200,6 @@ def test_kernel_with_dispatch_id(verify_ir):
         idx = dispatch_id().x
         buf[idx] = Float(idx)
 
-    ir = index_kernel(None)
-    
     expected = """
 kernel void index_kernel(buffer<f32> arg0) {
   <3 x u32> v0 = dispatch_id();
@@ -223,7 +208,7 @@ kernel void index_kernel(buffer<f32> arg0) {
   buffer_write(arg0, v1, v2);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(index_kernel, expected)
 
 if __name__ == "__main__":
     import pytest

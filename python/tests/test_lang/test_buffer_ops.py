@@ -10,14 +10,12 @@ def test_buffer_write(verify_ir):
     def write_to_buffer(buf: Buffer[Float]) -> None:
         buf[0] = 1.0
 
-    ir = write_to_buffer(0)
-    
     expected = """
 void write_to_buffer(buffer<f32> arg0) {
   buffer_write(arg0, 0, 1.0);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(write_to_buffer, expected)
 
 
 def test_buffer_read(verify_ir):
@@ -26,15 +24,13 @@ def test_buffer_read(verify_ir):
     def read_from_buffer(buf: Buffer[Float]) -> Float:
         return buf[0]
 
-    ir = read_from_buffer(0)
-    
     expected = """
 f32 read_from_buffer(buffer<f32> arg0) {
   f32 v0 = buffer_read(arg0, 0);
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(read_from_buffer, expected)
 
 
 def test_buffer_read_write(verify_ir):
@@ -43,15 +39,13 @@ def test_buffer_read_write(verify_ir):
     def copy_buffer(src: Buffer[Float], dst: Buffer[Float]) -> None:
         dst[0] = src[0]
 
-    ir = copy_buffer(0, 0)
-    
     expected = """
 void copy_buffer(buffer<f32> arg0, buffer<f32> arg1) {
   f32 v0 = buffer_read(arg0, 0);
   buffer_write(arg1, 0, v0);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(copy_buffer, expected)
 
 
 def test_saxpy_kernel(verify_ir):
@@ -61,8 +55,7 @@ def test_saxpy_kernel(verify_ir):
         idx = dispatch_id().x
         result[idx] = a * x[idx] + y[idx]
 
-    ir = saxpy(0, 2.0, 0, 0)
-    assert ir.is_kernel
+    assert saxpy.ir.is_kernel
     
     expected = """
 kernel void saxpy(buffer<f32> arg0, f32 arg1, buffer<f32> arg2, buffer<f32> arg3) {
@@ -75,7 +68,7 @@ kernel void saxpy(buffer<f32> arg0, f32 arg1, buffer<f32> arg2, buffer<f32> arg3
   buffer_write(arg0, v1, v5);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(saxpy, expected)
 
 
 def test_buffer_with_dynamic_index(verify_ir):
@@ -84,15 +77,13 @@ def test_buffer_with_dynamic_index(verify_ir):
     def dynamic_access(buf: Buffer[Float], idx: Int) -> Float:
         return buf[idx]
 
-    ir = dynamic_access(0, 5)
-    
     expected = """
 f32 dynamic_access(buffer<f32> arg0, i32 arg1) {
   f32 v0 = buffer_read(arg0, arg1);
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(dynamic_access, expected)
 
 
 def test_buffer_multiple_writes(verify_ir):
@@ -103,8 +94,6 @@ def test_buffer_multiple_writes(verify_ir):
         buf[1] = 1.0
         buf[2] = 2.0
 
-    ir = fill_buffer(0)
-    
     expected = """
 void fill_buffer(buffer<f32> arg0) {
   buffer_write(arg0, 0, 0.0);
@@ -112,7 +101,7 @@ void fill_buffer(buffer<f32> arg0) {
   buffer_write(arg0, 2, 2.0);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(fill_buffer, expected)
 
 
 def test_buffer_2d_kernel(verify_ir):
@@ -124,8 +113,7 @@ def test_buffer_2d_kernel(verify_ir):
         if x < width and y < height:
             out[y * width + x] = inp[x * height + y]
 
-    ir = matrix_transpose(None, None, 64, 64)
-    assert ir.is_kernel
+    assert matrix_transpose.ir.is_kernel
     
     expected = """
 kernel void matrix_transpose(buffer<f32> arg0, buffer<f32> arg1, i32 arg2, i32 arg3) {
@@ -155,7 +143,7 @@ kernel void matrix_transpose(buffer<f32> arg0, buffer<f32> arg1, i32 arg2, i32 a
   }
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(matrix_transpose, expected)
 
 if __name__ == "__main__":
     import pytest

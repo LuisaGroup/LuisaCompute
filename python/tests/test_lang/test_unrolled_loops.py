@@ -14,7 +14,7 @@ def test_unrolled_simple(verify_ir):
             total = total + vals[i]
         buf[0] = total
 
-    ir = unrolled_sum(0, 0)
+    unrolled_sum(0, 0)
     
     expected = """
 void unrolled_sum(buffer<f32> arg0, buffer<f32> arg1) {
@@ -41,7 +41,7 @@ void unrolled_sum(buffer<f32> arg0, buffer<f32> arg1) {
   buffer_write(arg0, 0, v19);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(unrolled_sum, expected)
 
 
 def test_unrolled_with_captured_constant(verify_ir):
@@ -54,7 +54,7 @@ def test_unrolled_with_captured_constant(verify_ir):
             # Using dynamic val ensures ADD/BUFFER_WRITE are in IR
             buf[i] = val + Float(i)
 
-    ir = unrolled_with_capture(0, 1.0)
+    unrolled_with_capture(0, 1.0)
     
     expected = """
 void unrolled_with_capture(buffer<f32> arg0, f32 arg1) {
@@ -66,7 +66,7 @@ void unrolled_with_capture(buffer<f32> arg0, f32 arg1) {
   buffer_write(arg0, 2, v4);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(unrolled_with_capture, expected)
 
 
 def test_unrolled_with_computation(verify_ir):
@@ -76,7 +76,7 @@ def test_unrolled_with_computation(verify_ir):
         for i in static_range(4):
             buf[i] = val * Float(i) + 1.0
 
-    ir = unrolled_compute(0, 1.0)
+    unrolled_compute(0, 1.0)
     
     expected = """
 void unrolled_compute(buffer<f32> arg0, f32 arg1) {
@@ -94,7 +94,7 @@ void unrolled_compute(buffer<f32> arg0, f32 arg1) {
   buffer_write(arg0, 3, v10);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(unrolled_compute, expected)
 
 
 def test_unrolled_with_step(verify_ir):
@@ -104,7 +104,7 @@ def test_unrolled_with_step(verify_ir):
         for i in static_range(0, 8, 2):  # 0, 2, 4, 6
             buf[i // 2] = val + Float(i)
 
-    ir = unrolled_step(0, 1.0)
+    unrolled_step(0, 1.0)
     
     expected = """
 void unrolled_step(buffer<f32> arg0, f32 arg1) {
@@ -118,7 +118,7 @@ void unrolled_step(buffer<f32> arg0, f32 arg1) {
   buffer_write(arg0, 3, v6);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(unrolled_step, expected)
 
 
 def test_nested_unrolled(verify_ir):
@@ -130,7 +130,7 @@ def test_nested_unrolled(verify_ir):
                 idx = i * 2 + j
                 buf[idx] = val + Float(i + j)
 
-    ir = nested_unrolled(0, 1.0)
+    nested_unrolled(0, 1.0)
     
     expected = """
 void nested_unrolled(buffer<f32> arg0, f32 arg1) {
@@ -144,7 +144,7 @@ void nested_unrolled(buffer<f32> arg0, f32 arg1) {
   buffer_write(arg0, 3, v6);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(nested_unrolled, expected)
 
 if __name__ == "__main__":
     import pytest

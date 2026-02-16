@@ -2,7 +2,6 @@
 Test demonstrating DSL specialization (generics/templates).
 """
 
-import pytest
 from luisa import (
     kernel, callable,
     Int, Float, Buffer, dispatch_id
@@ -17,7 +16,7 @@ def test_callable_specialization(verify_ir):
         return a + i
 
     # Test with Int and offset 5
-    ir_int = add_offset[Int, 5](10)
+    ir_int = add_offset[Int, 5]
     
     expected_int = """
 void add_offset(i32 arg0) {
@@ -28,7 +27,7 @@ void add_offset(i32 arg0) {
     verify_ir(ir_int, expected_int)
 
     # Test with Float and offset 1.5
-    ir_float = add_offset[Float, 1.5](10.0)
+    ir_float = add_offset[Float, 1.5]
     
     expected_float = """
 void add_offset(f32 arg0) {
@@ -48,7 +47,7 @@ def test_kernel_specialization(verify_ir):
             buf[idx] = Float(idx)
 
     # Compile with BLOCK_SIZE = 64
-    ir_64 = tiled_kernel[64](None)
+    ir_64 = tiled_kernel[64]
     
     expected_64 = """
 kernel void tiled_kernel(buffer<f32> arg0) {
@@ -66,7 +65,7 @@ kernel void tiled_kernel(buffer<f32> arg0) {
     verify_ir(ir_64, expected_64)
 
     # Compile with BLOCK_SIZE = 128
-    ir_128 = tiled_kernel[128](None)
+    ir_128 = tiled_kernel[128]
     
     expected_128 = """
 kernel void tiled_kernel(buffer<f32> arg0) {

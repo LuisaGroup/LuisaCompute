@@ -26,8 +26,8 @@ def test_buffer_in_kernel_builds_ir(verify_ir):
         idx = dispatch_id().x
         buf[idx] = value
 
-    ir = fill_buffer(Buffer(Float), 1.0)
-    assert ir.is_kernel
+    fill_buffer(Buffer(Float), 1.0)
+    assert fill_buffer.ir.is_kernel
     
     expected = """
 kernel void fill_buffer(buffer<f32> arg0, f32 arg1) {
@@ -36,7 +36,7 @@ kernel void fill_buffer(buffer<f32> arg0, f32 arg1) {
   buffer_write(arg0, v1, arg1);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(fill_buffer, expected)
 
 
 def test_buffer_vector_type_kernel(verify_ir):
@@ -47,8 +47,8 @@ def test_buffer_vector_type_kernel(verify_ir):
         val = buf[idx]
         buf[idx] = val
 
-    ir = process_vectors(Buffer(Float3))
-    assert ir.is_kernel
+    process_vectors(Buffer(Float3))
+    assert process_vectors.ir.is_kernel
     
     expected = """
 kernel void process_vectors(buffer<<3 x f32>> arg0) {
@@ -61,7 +61,7 @@ kernel void process_vectors(buffer<<3 x f32>> arg0) {
   buffer_write(arg0, v1, v5);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(process_vectors, expected)
 
 
 def test_texture2d_type():
@@ -78,8 +78,8 @@ def test_texture2d_in_kernel(verify_ir):
         # Note: full texture sampling would need more support
         output[idx] = 0.0
 
-    ir = sample_texture(Texture2D(Float), Buffer(Float))
-    assert ir.is_kernel
+    sample_texture(Texture2D(Float), Buffer(Float))
+    assert sample_texture.ir.is_kernel
     
     expected = """
 kernel void sample_texture(texture2d<f32> arg0, buffer<f32> arg1) {
@@ -88,7 +88,7 @@ kernel void sample_texture(texture2d<f32> arg0, buffer<f32> arg1) {
   buffer_write(arg1, v1, 0.0);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(sample_texture, expected)
 
 
 def test_texture3d_type():
@@ -120,12 +120,12 @@ def test_multiple_resources_in_kernel(verify_ir):
         idx = dispatch_id().x
         buf[idx] = Float(idx)
 
-    ir = multi_resource_kernel(
+    multi_resource_kernel(
         Buffer(Float),
         Texture2D(Float),
         Accel()
     )
-    assert ir.is_kernel
+    assert multi_resource_kernel.ir.is_kernel
     
     expected = """
 kernel void multi_resource_kernel(buffer<f32> arg0, texture2d<f32> arg1, Accel arg2) {
@@ -135,7 +135,7 @@ kernel void multi_resource_kernel(buffer<f32> arg0, texture2d<f32> arg1, Accel a
   buffer_write(arg0, v1, v2);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(multi_resource_kernel, expected)
 
 if __name__ == "__main__":
     import pytest

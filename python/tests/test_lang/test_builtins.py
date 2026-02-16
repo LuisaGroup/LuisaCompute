@@ -40,8 +40,6 @@ def test_math_builtins_build_ir(verify_ir):
         g = ceil(f)
         return g
 
-    ir = math_ops(1.0)
-    
     expected = """
 f32 math_ops(f32 arg0) {
   f32 v0 = sqrt(arg0);
@@ -54,7 +52,7 @@ f32 math_ops(f32 arg0) {
   return v6;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(math_ops, expected)
 
 
 def test_special_registers_build_ir(verify_ir):
@@ -66,8 +64,6 @@ def test_special_registers_build_ir(verify_ir):
         bid = block_id()
         dsize = dispatch_size()
 
-    ir = special_reg_kernel()
-    
     expected = """
 kernel void special_reg_kernel() {
   <3 x u32> v0 = dispatch_id();
@@ -76,7 +72,7 @@ kernel void special_reg_kernel() {
   <3 x u32> v3 = dispatch_size();
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(special_reg_kernel, expected)
 
 
 def test_dispatch_id_in_computation(verify_ir):
@@ -86,8 +82,6 @@ def test_dispatch_id_in_computation(verify_ir):
         idx = dispatch_id().x
         buf[idx] = Float(idx)
 
-    ir = index_kernel(None)
-    
     expected = """
 kernel void index_kernel(buffer<f32> arg0) {
   <3 x u32> v0 = dispatch_id();
@@ -96,7 +90,7 @@ kernel void index_kernel(buffer<f32> arg0) {
   buffer_write(arg0, v1, v2);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(index_kernel, expected)
 
 
 def test_sync_block_builds_ir(verify_ir):
@@ -108,8 +102,6 @@ def test_sync_block_builds_ir(verify_ir):
         sync_block()
         buf[idx] = buf[idx] + 1.0
 
-    ir = sync_kernel(None)
-    
     expected = """
 kernel void sync_kernel(buffer<f32> arg0) {
   <3 x u32> v0 = dispatch_id();
@@ -121,7 +113,7 @@ kernel void sync_kernel(buffer<f32> arg0) {
   buffer_write(arg0, v1, v5);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(sync_kernel, expected)
 
 
 def test_cast_builds_ir(verify_ir):
@@ -132,8 +124,6 @@ def test_cast_builds_ir(verify_ir):
         i = Int(f)
         return Float(i)
 
-    ir = cast_ops(42)
-    
     expected = """
 f32 cast_ops(i32 arg0) {
   f32 v0 = cast(arg0);
@@ -148,7 +138,7 @@ f32 cast_ops(i32 arg0) {
   return v8;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(cast_ops, expected)
 
 
 def test_device_print_builds_ir(verify_ir):
@@ -157,14 +147,12 @@ def test_device_print_builds_ir(verify_ir):
     def print_kernel(x: Int):
         device_print("Value: {}", x)
 
-    ir = print_kernel(42)
-    
     expected = """
 kernel void print_kernel(i32 arg0) {
   print('Value: {}', arg0);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(print_kernel, expected)
 
 
 def test_clock_builds_ir(verify_ir):
@@ -181,8 +169,6 @@ def test_clock_builds_ir(verify_ir):
         end = clock()
         return Int(end - start)
 
-    ir = timed_function()
-    
     expected = """
 i32 timed_function() {
   u64 v0 = clock();
@@ -213,7 +199,7 @@ i32 timed_function() {
   return v20;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(timed_function, expected)
 
 
 def test_assertions_build_ir(verify_ir):
@@ -225,8 +211,6 @@ def test_assertions_build_ir(verify_ir):
         device_assert(result > x, "result should be greater than x")
         return result
 
-    ir = checked_function(5)
-    
     expected = """
 i32 checked_function(i32 arg0) {
   i1 v0 = gt(arg0, 0);
@@ -241,7 +225,7 @@ i32 checked_function(i32 arg0) {
   return v8;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(checked_function, expected)
 
 
 def test_matrix_ops_build_ir(verify_ir):
@@ -253,17 +237,13 @@ def test_matrix_ops_build_ir(verify_ir):
         t = transpose(m)
         return float(0.0)
 
-    # Use ArgumentValue to avoid constant folding
-    from luisa.transform.ir import ArgumentValue
-    ir = matrix_ops(ArgumentValue(typ=Float4x4, index=0))
-    
     expected = """
 f32 matrix_ops([4 x <4 x f32>] arg0) {
   [4 x <4 x f32>] v0 = matrix_transpose(arg0);
   return 0.0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(matrix_ops, expected)
 
 
 def test_vector_math_builds_ir(verify_ir):
@@ -275,10 +255,6 @@ def test_vector_math_builds_ir(verify_ir):
         n = normalize(a)
         return c
 
-    # Use ArgumentValue to avoid constant folding
-    from luisa.transform.ir import ArgumentValue
-    ir = vector_ops(ArgumentValue(typ=Float3, index=0), ArgumentValue(typ=Float3, index=1))
-    
     expected = """
 <3 x f32> vector_ops(<3 x f32> arg0, <3 x f32> arg1) {
   f32 v0 = dot(arg0, arg1);
@@ -287,7 +263,7 @@ def test_vector_math_builds_ir(verify_ir):
   return v1;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(vector_ops, expected)
 
 
 def test_clamp_lerp_build_ir(verify_ir):
@@ -299,8 +275,6 @@ def test_clamp_lerp_build_ir(verify_ir):
         s = step(0.5, l)
         return smoothstep(0.0, 1.0, s)
 
-    ir = utility_ops(0.5)
-    
     expected = """
 f32 utility_ops(f32 arg0) {
   f32 v0 = clamp(arg0, 0.0, 1.0);
@@ -310,7 +284,7 @@ f32 utility_ops(f32 arg0) {
   return v3;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(utility_ops, expected)
 
 
 def test_unreachable_builds_ir(verify_ir):
@@ -319,14 +293,12 @@ def test_unreachable_builds_ir(verify_ir):
     def unreachable_kernel():
         unreachable("this should not happen")
 
-    ir = unreachable_kernel()
-    
     expected = """
 kernel void unreachable_kernel() {
   unreachable('this should not happen');
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(unreachable_kernel, expected)
 
 if __name__ == "__main__":
     import pytest

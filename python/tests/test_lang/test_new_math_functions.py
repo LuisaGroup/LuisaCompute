@@ -109,7 +109,7 @@ def test_new_functions_device_routing(verify_ir):
         c = sinh(x)
         return a + b + c
     
-    ir = test_funcs(1.0)
+    test_funcs(1.0)
     
     expected = """
 f32 test_funcs(f32 arg0) {
@@ -121,7 +121,7 @@ f32 test_funcs(f32 arg0) {
   return v4;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(test_funcs, expected)
 
 if __name__ == "__main__":
     import pytest

@@ -88,14 +88,14 @@ def test_nested_aggregates(print_ir, verify_ir):
         o = Const[Outer](Inner((1.0, 2.0), (3, 4)), 5.0)
         return o.i.v.x + Float(o.i.a[0]) + o.f
         
-    ir = print_ir(nested_fold())
+    ir = print_ir(nested_fold)
     # Should fold to 1.0 + 3.0 + 5.0 = 9.0
     expected = """
 f32 nested_fold() {
   return 9.0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(nested_fold, expected)
 
 
 def test_struct_const_construction():
@@ -134,7 +134,7 @@ def test_matrix_folding(print_ir, verify_ir):
         d = determinant(m)
         return d
 
-    ir = print_ir(mat_ops())
+    ir = print_ir(mat_ops)
     
     # If folded, shouldn't have matrix instructions
     # It should fold perfectly to a single return
@@ -143,7 +143,7 @@ f32 mat_ops() {
   return -2.0000000000000004;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(mat_ops, expected)
 
 
 def test_matmul_folding(print_ir, verify_ir):
@@ -159,11 +159,11 @@ def test_matmul_folding(print_ir, verify_ir):
         m2 = Const[Float2x2](2.0, 3.0, 4.0, 5.0)
         return m1 @ m2
 
-    ir = print_ir(matmul_fold())
+    ir = print_ir(matmul_fold)
     
     # Result should be constant (2,3,4,5)
     # Using wildcard for numpy float64 repr
-    actual = pprint(ir, recursive=True, show_location=False)
+    actual = pprint(matmul_fold, recursive=True, show_location=False)
     assert 'return (2.0, 3.0, 4.0, 5.0);' in actual or \
            'return (np.float64(2.0), np.float64(3.0), np.float64(4.0), np.float64(5.0));' in actual
 

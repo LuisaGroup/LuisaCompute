@@ -93,8 +93,6 @@ def test_vector_device_routing(verify_ir):
         l = length(v)
         return l
     
-    ir = vector_ops(None)
-    
     expected = """
 f32 vector_ops(<3 x f32> arg0) {
   <3 x f32> v0 = normalize(arg0);
@@ -102,7 +100,7 @@ f32 vector_ops(<3 x f32> arg0) {
   return v1;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(vector_ops, expected)
 
 
 def test_mixed_vector_operations(verify_ir):
@@ -117,8 +115,6 @@ def test_mixed_vector_operations(verify_ir):
         
         return const_len + var_len
     
-    ir = mixed_ops(None)
-    
     expected = """
 f32 mixed_ops(<3 x f32> arg0) {
   f32 v0 = length(arg0);
@@ -126,7 +122,7 @@ f32 mixed_ops(<3 x f32> arg0) {
   return v1;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(mixed_ops, expected)
 
 if __name__ == "__main__":
     import pytest

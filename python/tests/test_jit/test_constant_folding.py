@@ -48,15 +48,13 @@ def test_device_routing_with_dsl_values(verify_ir):
     def use_sin(x: Float) -> Float:
         return sin(x)  # x is a DSL value, should emit device instruction
     
-    ir = use_sin(1.0)
-    
     expected = """
 f32 use_sin(f32 arg0) {
   f32 v0 = sin(arg0);
   return v0;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(use_sin, expected)
 
 
 def test_mixed_constant_and_dsl(verify_ir):
@@ -69,8 +67,6 @@ def test_mixed_constant_and_dsl(verify_ir):
         b = x * a     # device multiply with constant
         return b
     
-    ir = mixed_ops(1.0)
-    
     # sin(0.5) = 0.479425538604203
     expected = """
 f32 mixed_ops(f32 arg0) {
@@ -81,7 +77,7 @@ f32 mixed_ops(f32 arg0) {
   return v3;
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(mixed_ops, expected)
 
 
 def test_binary_ops_constant_folding():
@@ -160,14 +156,12 @@ def test_constant_in_kernel(verify_ir):
         # sin(0.0) should be folded to 0.0
         buf[idx] = sin(0.0)
     
-    ir = const_fold_kernel(None)
-    
     expected = """
 kernel void const_fold_kernel(buffer<f32> arg0) {
   buffer_write(arg0, 0, 0.0);
 }
 """
-    verify_ir(ir, expected)
+    verify_ir(const_fold_kernel, expected)
 
 
 def test_routed_function_repr():

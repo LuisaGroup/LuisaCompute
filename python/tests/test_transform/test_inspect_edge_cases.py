@@ -69,7 +69,7 @@ def test_count_instructions_empty():
     def simple() -> Int:
         return 0
 
-    ir = simple()
+    ir = simple.ir
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -91,7 +91,7 @@ def test_get_basic_block_count():
     def simple() -> Int:
         return 0
 
-    ir = simple()
+    ir = simple.ir
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -115,7 +115,7 @@ def test_find_operations_no_match():
     def simple() -> Int:
         return 0
 
-    ir = simple()
+    ir = simple.ir
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -137,7 +137,7 @@ def test_analyze_control_flow_simple():
     def simple() -> Int:
         return 0
 
-    ir = simple()
+    ir = simple.ir
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -166,7 +166,7 @@ def test_analyze_control_flow_with_if():
             return x
         return -x
 
-    ir = with_conditional(1)
+    ir = with_conditional.ir
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -188,7 +188,7 @@ def test_format_ir_summary():
     def simple() -> Int:
         return 0
 
-    ir = simple()
+    ir = simple.ir
 
     summary = format_ir_summary(ir)
 
@@ -214,7 +214,7 @@ def test_is_kernel_true():
     def my_kernel():
         pass
 
-    ir = my_kernel()
+    ir = my_kernel.ir
 
     print("\nGenerated IR:")
     print(pprint(ir))
@@ -235,7 +235,7 @@ def test_is_kernel_false():
     def my_callable() -> Int:
         return 0
 
-    ir = my_callable()
+    ir = my_callable.ir
 
     print("\nGenerated IR:")
     print(pprint(ir))

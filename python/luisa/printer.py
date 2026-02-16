@@ -56,12 +56,16 @@ class PrettyPrinter:
             return ""
         return f" ![{loc}]" if loc else ""
 
-    def print(self, obj: Function | Module) -> str:
+    def print(self, obj: Any) -> str:
         """Print an IR object and return the result."""
         self._output = StringIO()
         self._indent_level = 0
         self._printed_functions = set()
         self._pending_functions = []
+
+        # Extract IR if it's a staged function or proxy
+        if hasattr(obj, 'ir'):
+            obj = obj.ir
 
         if isinstance(obj, Function):
             self._print_function(obj)
@@ -270,12 +274,12 @@ class SimplePrinter:
 
 
 # Convenience functions
-def pprint(obj: Function | Module, indent_size: int = 2, recursive: bool = False, show_location: bool = True) -> str:
+def pprint(obj: Any, indent_size: int = 2, recursive: bool = False, show_location: bool = True) -> str:
     """
     Pretty print an IR object.
 
     Args:
-        obj: The IR function or module to print
+        obj: The IR function or module to print (or a staged function)
         indent_size: Number of spaces per indentation level
         recursive: Whether to recursively print called functions
         show_location: Whether to include source location debug info
