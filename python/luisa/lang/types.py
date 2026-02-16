@@ -714,6 +714,26 @@ def annotation_to_type(ann: Any) -> tuple[Optional[Type], bool]:
     if ann is None or ann is inspect.Parameter.empty:
         return None, False
 
+    # Handle string annotations (forward references or template parameters)
+    if isinstance(ann, str):
+        target_name = ann.strip("'").strip('"')
+        
+        # 1. Check current module globals
+        if target_name in globals():
+            ann = globals()[target_name]
+        # 2. Check the luisa package exports
+        else:
+            import sys
+            if 'luisa' in sys.modules:
+                lmod = sys.modules['luisa']
+                if hasattr(lmod, target_name):
+                    ann = getattr(lmod, target_name)
+            
+        # If we couldn't resolve it, it might be a template parameter 'T' 
+        # which will be resolved later in jit.py
+        if isinstance(ann, str):
+            return None, False
+
     # Handle direct type references
     if isinstance(ann, Type):
         return ann, False
@@ -998,31 +1018,6 @@ def _struct_impl(cls: type, align: Optional[int] = None) -> type:
         # Resolve fields
         fields = []
         for name, ann_type in cls._dsl_annotations.items():
-            # Handle string annotations (forward references)
-            if isinstance(ann_type, str):
-                # Resolve from common sources
-                resolved = False
-
-                # Strip potential extra quotes from ast.unparse or similar if they exist
-                target_name = ann_type.strip("'").strip('"')
-
-                # 1. Check types module globals
-                if target_name in globals():
-                    ann_type = globals()[target_name]
-                    resolved = True
-
-                # 2. Check the luisa package
-                if not resolved:
-                    import sys
-                    if 'luisa' in sys.modules:
-                        lmod = sys.modules['luisa']
-                        if hasattr(lmod, target_name):
-                            ann_type = getattr(lmod, target_name)
-                            resolved = True
-
-                if not resolved:
-                    raise TypeError(f"Could not resolve type annotation '{target_name}' for field '{name}' in struct {cls.__name__}")
-
             dsl_type, is_ref = annotation_to_type(ann_type)
             if dsl_type is None:
                 raise TypeError(f"Field '{name}' has unsupported type annotation: {ann_type}")

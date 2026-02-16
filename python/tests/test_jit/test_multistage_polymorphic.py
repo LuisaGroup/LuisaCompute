@@ -162,36 +162,37 @@ kernel void nested_dispatch_kernel(buffer<f32> arg0, buffer<i32> arg1) {
   f32 v5 = buffer_read(arg0, v1);
   f32 val = alloca();
   store(val, v5);
-  switch (vtag) { 
+  i32 v8 = load(vtag);
+  switch (v8) { 
     case 0: {
-      f32 v9 = load(val);
-      call(@add_one, v9);
-      buffer_write(arg0, v1, v10);
+      f32 v10 = load(val);
+      f32 v11 = call(@add_one, v10);
+      buffer_write(arg0, v1, v11);
     }
     case 1: {
-      f32 v12 = load(val);
-      call(@multiply_two, v12);
-      buffer_write(arg0, v1, v13);
+      f32 v13 = load(val);
+      f32 v14 = call(@multiply_two, v13);
+      buffer_write(arg0, v1, v14);
     }
     case 2: {
-      f32 v15 = load(val);
-      call(@square, v15);
-      buffer_write(arg0, v1, v16);
+      f32 v16 = load(val);
+      f32 v17 = call(@square, v16);
+      buffer_write(arg0, v1, v17);
     }
   }
 }
 
-void add_one(f32 arg0) {
+f32 add_one(f32 arg0) {
   f32 v0 = add(arg0, 0.1411200080598672);
   return v0;
 }
 
-void multiply_two(f32 arg0) {
+f32 multiply_two(f32 arg0) {
   f32 v0 = mul(arg0, 2.0);
   return v0;
 }
 
-void square(f32 arg0) {
+f32 square(f32 arg0) {
   f32 v0 = mul(arg0, arg0);
   return v0;
 }

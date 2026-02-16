@@ -90,16 +90,17 @@ def test_simple_ray_tracing_kernel(verify_ir):
 kernel void simple_rt_kernel(accel arg0, buffer<f32> arg1) {
   <3 x u32> v0 = dispatch_id();
   u32 v1 = swizzle(v0, 'x');
-  call(@make_ray, (0, 0, 0), (0, 0, 1), 0.0, 1000.0);
+  { <3 x f32>, f32, <3 x f32>, f32 } v2 = call(@make_ray, (0, 0, 0), (0, 0, 1), 0.0, 1000.0);
   { u32, u32, <2 x f32>, f32 } v3 = trace_closest(arg0, v2, 255);
   f32 v4 = member_access(v3, 't');
   buffer_write(arg1, v1, v4);
 }
 
-void make_ray(<3 x f32> arg0, <3 x f32> arg1, f32 arg2, f32 arg3) {
+{ <3 x f32>, f32, <3 x f32>, f32 } make_ray(<3 x f32> arg0, <3 x f32> arg1, f32 arg2, f32 arg3) {
   return (ArgumentValue(typ=Vector(element=Scalar(dtype=<ScalarType.FLOAT32: 11>), size=3), name='arg0', index=0, is_reference=False), ArgumentValue(typ=Scalar(dtype=<ScalarType.FLOAT32: 11>), name='arg2', index=2, is_reference=False), ArgumentValue(typ=Vector(element=Scalar(dtype=<ScalarType.FLOAT32: 11>), size=3), name='arg1', index=1, is_reference=False), ArgumentValue(typ=Scalar(dtype=<ScalarType.FLOAT32: 11>), name='arg3', index=3, is_reference=False));
 }
 """
+    
     verify_ir(ir, expected)
 
 if __name__ == "__main__":

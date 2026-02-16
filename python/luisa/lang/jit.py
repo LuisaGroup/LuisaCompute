@@ -128,6 +128,26 @@ class StagedFunction:
         if not self.template_params:
             self._do_compile()
 
+    @property
+    def ir(self) -> Function:
+        """Get the generated IR for this function."""
+        # If already cached (e.g. from precompile or previous call), return it
+        if self._cache:
+            return next(iter(self._cache.values()))
+        
+        # If not cached, try to precompile if we have enough info
+        if not self.template_params and all(ann is not None for ann in self.parsed.arg_annotations):
+            return self._precompile()
+            
+        raise RuntimeError(f"Function {self.name} has not been compiled yet. "
+                           f"Call it with arguments or provide type hints to enable automatic compilation.")
+
+    def _precompile(self, specialization_values: tuple = ()) -> Function:
+        """Internal helper to build IR using annotated types."""
+        # Use None as placeholders for arguments - __call__ will handle type extraction from annotations
+        placeholders = [None] * len(self.parsed.arg_annotations)
+        return self(*placeholders, specialization_values=specialization_values)
+
     def _do_compile(self):
         """Perform AST rewrite and compilation."""
         if self.compiled_code is not None:
@@ -202,28 +222,63 @@ class StagedFunction:
 
             return self._cache[cache_key]
 
+    def resolve_annotation(self, ann: Any, specialization_values: tuple) -> Any:
+        """Resolve a type annotation, potentially replacing template parameters."""
+        if isinstance(ann, str) and self.template_params and specialization_values:
+            # Create mapping of param names to values
+            spec_map = dict(zip(self.template_params, specialization_values))
+            if ann in spec_map:
+                ann = spec_map[ann]
+        
+        # Convert to DSL type
+        from .types import annotation_to_type
+        typ, _ = annotation_to_type(ann)
+        return typ
+
     def __call__(self, *args, specialization_values: tuple = (), **kwargs) -> Function:
         arg_types = []
         arg_is_reference = []
         for i, arg in enumerate(args):
-            if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
+            is_ref = False
+            if i < len(self.parsed.arg_annotations):
                 ann = self.parsed.arg_annotations[i]
                 is_ref = self.parsed.arg_is_reference[i]
-                arg_types.append(ann)
-                arg_is_reference.append(is_ref)
-            else:
-                arg_types.append(self._get_arg_type(arg))
-                arg_is_reference.append(False)
+                
+                # Resolve annotation if it's a template parameter
+                if ann is not None:
+                    resolved_ann = self.resolve_annotation(ann, specialization_values)
+                    
+                    # If we have a resolved type and arg is None (placeholder), use the resolved type
+                    if resolved_ann is not None and arg is None:
+                        arg_types.append(resolved_ann)
+                        arg_is_reference.append(is_ref)
+                        continue
+                    
+                    # If arg is provided, we might still want to use its actual type if it's more specific,
+                    # but usually we trust the annotation if it's present.
+                    if resolved_ann is not None:
+                        arg_types.append(resolved_ann)
+                        arg_is_reference.append(is_ref)
+                        continue
+
+            # Fallback to inferred type from argument value
+            inferred = self._get_arg_type(arg)
+            arg_types.append(inferred)
+            arg_is_reference.append(is_ref)
+            
         arg_types = tuple(arg_types)
 
         cache_key = (arg_types, specialization_values)
         if cache_key in self._cache:
             return self._cache[cache_key]
 
+        # Resolve return type
+        ret_type = self.resolve_annotation(self.parsed.ret_annotation, specialization_values)
+
         builder = Builder(
             name=self.parsed.name,
             arg_types=arg_types,
-            ret_type=self.parsed.ret_annotation,
+            ret_type=ret_type,
             arg_is_reference=arg_is_reference
         )
         with set_current_builder(builder):
@@ -254,6 +309,12 @@ class SpecializedFunctionProxy:
     def __init__(self, staged: StagedFunction, values: tuple):
         self.staged = staged
         self.values = values
+
+    @property
+    def ir(self) -> Function:
+        """Get the generated IR for this specialized function."""
+        # Try to precompile using the specialization values
+        return self.staged._precompile(specialization_values=self.values)
 
     def __call__(self, *args, **kwargs) -> Function:
         return self.staged(*args, specialization_values=self.values, **kwargs)

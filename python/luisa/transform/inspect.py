@@ -121,10 +121,25 @@ def parse_function(func: Callable, source: Optional[str] = None) -> ParsedFuncti
         ret_annotation, _ = annotation_to_type(sig.return_annotation)
     except (NameError, TypeError):
         # Fallback for specialized functions where types are not yet defined
-        arg_names = [arg.arg for arg in func_def.args.args]
-        arg_annotations = [None] * len(arg_names)
-        arg_is_reference = [False] * len(arg_names)
-        ret_annotation = None
+        # Try to extract string annotations from AST
+        arg_names = []
+        arg_annotations = []
+        arg_is_reference = []
+        
+        for arg in func_def.args.args:
+            arg_names.append(arg.arg)
+            if arg.annotation:
+                # Use unparsed annotation as string
+                ann_str = ast.unparse(arg.annotation)
+                arg_annotations.append(ann_str)
+            else:
+                arg_annotations.append(None)
+            arg_is_reference.append(False) # Reference info usually lost here, but fine for templates
+            
+        if func_def.returns:
+            ret_annotation = ast.unparse(func_def.returns)
+        else:
+            ret_annotation = None
 
     # Analyze captured variables
     captured_vars = _analyze_captured_vars(func)
