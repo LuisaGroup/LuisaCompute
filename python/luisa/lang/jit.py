@@ -153,27 +153,45 @@ class StagedFunction:
         placeholders = [None] * len(self.parsed.arg_annotations)
         return self(*placeholders, specialization_values=specialization_values)
 
-    def _do_compile(self):
+    def _do_compile(self, specialization_values: tuple = ()):
         """Perform AST rewrite and compilation."""
-        if self.compiled_code is not None:
-            return
+        # For non-templates, we can cache the compiled code
+        if not self.template_params and self.compiled_code is not None:
+            return self.compiled_code
 
-        rewriter = ASTRewriter(file=self.filename, template_params=self.template_params)
-        self.rewritten_ast = rewriter.rewrite(self.parsed.ast_node)
-        ast.fix_missing_locations(self.rewritten_ast)
+        # Prepare specialization map
+        spec_dict = dict(zip(self.template_params, specialization_values))
+
+        # Rewrite the AST
+        # For templates, we rewrite with the actual specialization values injected
+        # so the rewriter can treat them as regular constants/types.
+        rewriter = ASTRewriter(file=self.filename)
+        
+        # Inject template params into rewriter context if needed
+        # (Though with our current rewriter, they are just left as Names 
+        # and resolved via the namespace during exec)
+        
+        rewritten_ast = rewriter.rewrite(self.parsed.ast_node)
+        ast.fix_missing_locations(rewritten_ast)
 
         if os.environ.get("LUISA_DUMP_REWRITTEN_AST") in ("1", "ON", "TRUE", "true", "yes"):
-            print(f"DEBUG: Rewritten AST for {self.name}:\n{ast.unparse(self.rewritten_ast)}")
+            print(f"DEBUG: Rewritten AST for {self.name} (specialized={bool(specialization_values)}):\n{ast.unparse(rewritten_ast)}")
 
-        self.compiled_code = compile(
-            ast.Module(body=[self.rewritten_ast], type_ignores=[]),
+        compiled_code = compile(
+            ast.Module(body=[rewritten_ast], type_ignores=[]),
             filename=f"<luisa-built-{self.name}>",
             mode="exec"
         )
 
+        if not self.template_params:
+            self.compiled_code = compiled_code
+            self.rewritten_ast = rewritten_ast
+        
+        return compiled_code
+
     def builder_func(self, *args, specialization_values: tuple = ()):
         """The internal function that populates the IR builder."""
-        self._do_compile()
+        compiled_code = self._do_compile(specialization_values=specialization_values)
 
         # Prepare namespace with specializations
         spec_dict = dict(zip(self.template_params, specialization_values))
@@ -202,7 +220,7 @@ class StagedFunction:
                     namespace[name] = val
 
         # Execute to define the built function
-        exec(self.compiled_code, namespace)
+        exec(compiled_code, namespace)
         built_func = namespace[f"__luisa_built_{self.name}"]
 
         # Call it

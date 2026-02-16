@@ -22,10 +22,8 @@ class ASTRewriter(ast.NodeTransformer):
         a + b  =>  binop(ast.Add(), a, b)
     """
 
-    def __init__(self, file: str = "<unknown>",
-                 template_params: Optional[tuple[str, ...]] = None):
+    def __init__(self, file: str = "<unknown>"):
         self.file = file
-        self.template_params = set(template_params or [])
         self._in_loop = 0
         self.rt_alias = "__luisa_rt"
         self.ref_vars = set()  # Variables that are of Ref type
@@ -50,10 +48,7 @@ class ASTRewriter(ast.NodeTransformer):
         return None
 
     def visit_Name(self, node: ast.Name) -> Any:
-        """Handle names, preserving template parameters and handling Ref loads."""
-        if node.id in self.template_params:
-            return node
-
+        """Handle names, handling Ref loads and DSL variable loads."""
         if isinstance(node.ctx, ast.Load):
             if node.id in self.ref_vars:
                 # Automatic load for Ref types: load(name)
@@ -70,12 +65,6 @@ class ASTRewriter(ast.NodeTransformer):
         """Rewrite function definition."""
         is_top = self._is_top_level
         self._is_top_level = False
-
-        # Save and reset DSL variable tracking for nested functions
-        saved_const_vars = self.const_vars.copy()
-        saved_dsl_vars = self.dsl_vars.copy()
-        self.const_vars = set()
-        self.dsl_vars = set()
 
         # If it's a nested function, check if it has Luisa decorators
         if not is_top:
@@ -110,18 +99,10 @@ class ASTRewriter(ast.NodeTransformer):
 
                 # We return:
                 # def f(...): ...
-                # f = deco1(deco2(f), source=source) -- Wait, decorators return StagedFunctionDecorators
+                # f = deco1(deco2(f), source=source)
 
                 definition = node
                 value_to_assign = ast.Name(id=node.name, ctx=ast.Load())
-
-                # We want to apply decorators and then pass source to the final StagedFunctionDecorator.__call__
-                # Actually, @callable returns a StagedFunction.
-                # If we have @callable \n def f(): ...
-                # It becomes f = callable(f, source=source)
-
-                # For multiple decorators, it's more complex, but usually it's just one.
-                # Let's assume one decorator for now or handle the last one.
 
                 if original_decorators:
                     last_deco = original_decorators[0]  # The one closest to 'def'
@@ -138,17 +119,13 @@ class ASTRewriter(ast.NodeTransformer):
                             keywords=[]
                         )
 
-                res = [
+                return [
                     definition,
                     ast.Assign(
                         targets=[ast.Name(id=node.name, ctx=ast.Store())],
                         value=value_to_assign
                     )
                 ]
-                # Restore state
-                self.const_vars = saved_const_vars
-                self.dsl_vars = saved_dsl_vars
-                return res
 
             # For non-staged nested functions, we treat them as local DSL helpers.
             # They capture the builder from the parent scope.
@@ -156,8 +133,6 @@ class ASTRewriter(ast.NodeTransformer):
             old_ref_vars = self.ref_vars.copy()
             new_node = self.generic_visit(node)
             self.ref_vars = old_ref_vars
-            self.const_vars = saved_const_vars
-            self.dsl_vars = saved_dsl_vars
             return new_node
 
         # Top-level function: mangle for IR building
