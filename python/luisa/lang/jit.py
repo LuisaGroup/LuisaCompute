@@ -181,22 +181,108 @@ class TemplatedFunction:
                                  specialization_values=new_values)
 
     def resolve_annotation(self, ann: Any, specialization_values: tuple) -> Any:
-        if isinstance(ann, str) and self.template_params and specialization_values:
-            spec_map = dict(zip(self.template_params, specialization_values))
-            if ann in spec_map:
-                ann = spec_map[ann]
+        """Resolve annotation, substituting template params with specialization values."""
+        from .types import Type, Buffer, Array, annotation_to_type
         
+        # Build spec map for template resolution
+        spec_map = {}
+        if self.template_params and specialization_values:
+            spec_map = dict(zip(self.template_params, specialization_values))
+        
+        # Handle string annotations - may contain template params like 'Buffer[T]' or just 'T'
         if isinstance(ann, str):
-            # If it's still a string, it's either an unresolvable template param or a forward ref.
-            # annotation_to_type will try to resolve it from globals, but for template params
-            # it will return None. We return the string to keep it polymorphic.
-            from .types import annotation_to_type
+            # Check if it's a simple template param like 'T'
+            if ann in spec_map:
+                return spec_map[ann]
+            
+            # Try to parse as a generic type like 'Buffer[T]'
+            resolved = self._resolve_generic_string_annotation(ann, spec_map)
+            if resolved is not None:
+                return resolved
+            
+            # Fall back to standard annotation parsing
             typ, _ = annotation_to_type(ann)
             return typ if typ is not None else ann
 
-        from .types import annotation_to_type
+        # Handle Type objects with template parameters, e.g., Buffer(element='T')
+        if isinstance(ann, Type):
+            if isinstance(ann, Buffer) and isinstance(ann.element, str):
+                resolved_element = self.resolve_annotation(ann.element, specialization_values)
+                if isinstance(resolved_element, Type) and resolved_element is not ann.element:
+                    return Buffer(element=resolved_element)
+            elif isinstance(ann, Array):
+                if isinstance(ann.element, str):
+                    resolved_element = self.resolve_annotation(ann.element, specialization_values)
+                    if isinstance(resolved_element, Type) and resolved_element is not ann.element:
+                        return Array(element=resolved_element, count=ann.count)
+            # Add more generic types as needed (Texture2D, Texture3D, etc.)
+            return ann
+
         typ, _ = annotation_to_type(ann)
         return typ
+
+    def _resolve_generic_string_annotation(self, ann: str, spec_map: dict) -> Optional[Any]:
+        """Parse and resolve generic type strings like 'Buffer[T]' or 'Array[T, 4]'."""
+        from .types import Type, Buffer, Array, Vector, Matrix, ScalarType
+        
+        if not spec_map:
+            return None
+            
+        try:
+            tree = ast.parse(ann, mode='eval')
+            body = tree.body
+            
+            # Handle subscript like Buffer[T] or Array[T, 4]
+            if isinstance(body, ast.Subscript):
+                base_name = body.value.id if isinstance(body.value, ast.Name) else None
+                if base_name is None:
+                    return None
+                
+                # Get the slice - handle both single element and tuple
+                slice_node = body.slice
+                
+                if base_name == 'Buffer':
+                    element_name = self._get_name_from_slice(slice_node)
+                    if element_name and element_name in spec_map:
+                        return Buffer(element=spec_map[element_name])
+                    # Also check if element_name is a known type
+                    if element_name:
+                        from .types import annotation_to_type
+                        typ, _ = annotation_to_type(element_name)
+                        if isinstance(typ, Type):
+                            return Buffer(element=typ)
+                            
+                elif base_name == 'Array':
+                    # Array[T, 4] - tuple slice
+                    if isinstance(slice_node, ast.Tuple) and len(slice_node.elts) == 2:
+                        elem_node, count_node = slice_node.elts
+                        element_name = elem_node.id if isinstance(elem_node, ast.Name) else None
+                        count = count_node.n if isinstance(count_node, ast.Constant) else None
+                        
+                        if element_name and element_name in spec_map and count is not None:
+                            return Array(element=spec_map[element_name], count=count)
+                        if element_name and count is not None:
+                            from .types import annotation_to_type
+                            typ, _ = annotation_to_type(element_name)
+                            if isinstance(typ, Type):
+                                return Array(element=typ, count=count)
+                
+                # Add more generic types here (Vector, Matrix, Texture2D, etc.)
+                
+        except (SyntaxError, AttributeError):
+            pass
+        
+        return None
+    
+    def _get_name_from_slice(self, slice_node) -> Optional[str]:
+        """Extract a name from a slice node."""
+        if isinstance(slice_node, ast.Name):
+            return slice_node.id
+        # Handle Python 3.9+ Index wrapper
+        if hasattr(ast, 'Index') and isinstance(slice_node, ast.Index):
+            if isinstance(slice_node.value, ast.Name):
+                return slice_node.value.id
+        return None
 
     def _get_or_create_staged(self, args: tuple) -> StagedFunction:
         """Infer types from arguments and get/create a StagedFunction."""
