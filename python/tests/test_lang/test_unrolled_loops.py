@@ -14,8 +14,6 @@ def test_unrolled_simple(verify_ir):
             total = total + vals[i]
         buf[0] = total
 
-    unrolled_sum(0, 0)
-    
     expected = """
 void unrolled_sum(buffer<f32> arg0, buffer<f32> arg1) {
   f32 v0 = buffer_read(arg1, 0);
@@ -54,8 +52,6 @@ def test_unrolled_with_captured_constant(verify_ir):
             # Using dynamic val ensures ADD/BUFFER_WRITE are in IR
             buf[i] = val + Float(i)
 
-    unrolled_with_capture(0, 1.0)
-    
     expected = """
 void unrolled_with_capture(buffer<f32> arg0, f32 arg1) {
   f32 v0 = add(arg1, 0.0);
@@ -76,8 +72,6 @@ def test_unrolled_with_computation(verify_ir):
         for i in static_range(4):
             buf[i] = val * Float(i) + 1.0
 
-    unrolled_compute(0, 1.0)
-    
     expected = """
 void unrolled_compute(buffer<f32> arg0, f32 arg1) {
   f32 v0 = mul(arg1, 0.0);
@@ -104,8 +98,6 @@ def test_unrolled_with_step(verify_ir):
         for i in static_range(0, 8, 2):  # 0, 2, 4, 6
             buf[i // 2] = val + Float(i)
 
-    unrolled_step(0, 1.0)
-    
     expected = """
 void unrolled_step(buffer<f32> arg0, f32 arg1) {
   f32 v0 = add(arg1, 0.0);
@@ -130,8 +122,6 @@ def test_nested_unrolled(verify_ir):
                 idx = i * 2 + j
                 buf[idx] = val + Float(i + j)
 
-    nested_unrolled(0, 1.0)
-    
     expected = """
 void nested_unrolled(buffer<f32> arg0, f32 arg1) {
   f32 v0 = add(arg1, 0.0);

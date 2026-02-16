@@ -109,8 +109,6 @@ def test_new_functions_device_routing(verify_ir):
         c = sinh(x)
         return a + b + c
     
-    test_funcs(1.0)
-    
     expected = """
 f32 test_funcs(f32 arg0) {
   f32 v0 = rsqrt(arg0);

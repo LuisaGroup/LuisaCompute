@@ -59,6 +59,16 @@ def static_range(*args):
 # Staged and Templated Functions
 # ============================================================================
 
+class KernelInvoke:
+    """Records a kernel and its arguments for later dispatch."""
+    def __init__(self, kernel: StagedFunction, args: tuple):
+        self.kernel = kernel
+        self.args = args
+
+    def __repr__(self) -> str:
+        return f"KernelInvoke(kernel={self.kernel.name}, args={self.args})"
+
+
 class TemplatedFunction:
     """Base metadata and factory for specialized staged functions."""
 
@@ -145,20 +155,28 @@ class TemplatedFunction:
 
     def __getitem__(self, items) -> Union[TemplatedFunction, StagedFunction]:
         """Support template specialization."""
+        if not self.template_params:
+            raise TypeError(f"Function '{self.name}' is not templated (no template parameters declared in decorator)")
+
         if not isinstance(items, tuple):
             items = (items,)
         
         new_values = self.specialization_values + items
         
+        if len(new_values) > len(self.template_params):
+            raise TypeError(f"Too many template arguments for '{self.name}': expected {len(self.template_params)}, got {len(new_values)}")
+
         # Check if we have enough info to become a StagedFunction
         # (Must have all template params AND all args annotated)
-        if len(new_values) >= len(self.template_params) and \
+        if len(new_values) == len(self.template_params) and \
            all(ann is not None for ann in self.parsed.arg_annotations):
+            from .types import Type
+            import inspect
             arg_types = tuple(self.resolve_annotation(ann, new_values) for ann in self.parsed.arg_annotations)
-            if all(t is not None for t in arg_types):
+            if all(isinstance(t, Type) or (inspect.isclass(t) and issubclass(t, Type)) for t in arg_types):
                 return StagedFunction(self, new_values, arg_types)
         
-        # Still polymorphic (either template params or arg annotations missing)
+        # Still polymorphic (either template params missing or arg annotations missing)
         return TemplatedFunction(self.pyfunc, self.is_kernel, self.parsed, self.template_params, 
                                  specialization_values=new_values)
 
@@ -167,6 +185,15 @@ class TemplatedFunction:
             spec_map = dict(zip(self.template_params, specialization_values))
             if ann in spec_map:
                 ann = spec_map[ann]
+        
+        if isinstance(ann, str):
+            # If it's still a string, it's either an unresolvable template param or a forward ref.
+            # annotation_to_type will try to resolve it from globals, but for template params
+            # it will return None. We return the string to keep it polymorphic.
+            from .types import annotation_to_type
+            typ, _ = annotation_to_type(ann)
+            return typ if typ is not None else ann
+
         from .types import annotation_to_type
         typ, _ = annotation_to_type(ann)
         return typ
@@ -176,31 +203,30 @@ class TemplatedFunction:
         # Detect arg types
         arg_types = []
         for i, arg in enumerate(args):
-            # Trust annotation if present
+            resolved_type = None
+            # Try to resolve annotation if present
             if i < len(self.parsed.arg_annotations) and self.parsed.arg_annotations[i] is not None:
-                arg_types.append(self.resolve_annotation(self.parsed.arg_annotations[i], self.specialization_values))
-            else:
-                # Infer from value
-                t = value_to_type(arg) if not hasattr(arg, 'type') else arg.type
-                arg_types.append(t)
+                resolved = self.resolve_annotation(self.parsed.arg_annotations[i], self.specialization_values)
+                # If resolved to an actual Type (not a string/None), use it
+                from .types import Type
+                if isinstance(resolved, Type):
+                    resolved_type = resolved
+            
+            # If not resolved from annotation, infer from value
+            if resolved_type is None:
+                resolved_type = value_to_type(arg) if not hasattr(arg, 'type') else arg.type
+            
+            arg_types.append(resolved_type)
         
         arg_types = tuple(arg_types)
         if arg_types not in self._cache:
             self._cache[arg_types] = StagedFunction(self, self.specialization_values, arg_types)
         return self._cache[arg_types]
 
-    def compile(self, builder: Builder, *args) -> Function:
-        """Compile for specific argument values/types."""
-        staged = self._get_or_create_staged(args)
-        return staged.ir
-
     def __call__(self, *args, **kwargs) -> Any:
         """Handle DSL function call or Python-side IR retrieval."""
-        try:
-            builder = get_current_builder()
-            return builder.call(self, *args)
-        except RuntimeError:
-            return self._get_or_create_staged(args).ir
+        staged = self._get_or_create_staged(args)
+        return staged(*args, **kwargs)
 
 
 class StagedFunction:
@@ -261,9 +287,15 @@ class StagedFunction:
         """Handle DSL function call or Python-side IR retrieval."""
         try:
             builder = get_current_builder()
+            if self.is_kernel:
+                raise RuntimeError(f"Cannot call kernel '{self.name}' from within another kernel/callable.")
             return builder.call(self, *args)
-        except RuntimeError:
-            return self.ir
+        except RuntimeError as e:
+            if "No active builder context" in str(e):
+                if not self.is_kernel:
+                    raise RuntimeError(f"Callable '{self.name}' can only be called from within a kernel or another callable.")
+                return KernelInvoke(self, args)
+            raise e
 
 
 class StagedFunctionDecorator:

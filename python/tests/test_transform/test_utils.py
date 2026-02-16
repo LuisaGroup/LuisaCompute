@@ -33,8 +33,6 @@ def test_unrolled_builds_ir(verify_ir):
             total = total + Int(i)
         return total
 
-    sum_unrolled()
-    
     expected = """
 i32 sum_unrolled() {
   i32 vtotal = alloca();
@@ -116,8 +114,6 @@ def test_nested_unrolled(verify_ir):
                 total = total + Int(i) + Int(j)
         return total
 
-    nested_sum()
-    
     expected = """
 i32 nested_sum() {
   i32 vtotal = alloca();

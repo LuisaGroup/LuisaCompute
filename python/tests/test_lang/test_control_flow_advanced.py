@@ -14,8 +14,6 @@ def test_nested_if_statements(verify_ir):
             return x - y
         return 0
 
-    nested_if(1, 2)
-    
     expected = """
 i32 nested_if(i32 arg0, i32 arg1) {
   i1 v0 = gt(arg0, 0);
@@ -49,8 +47,6 @@ def test_if_elif_else_chain(verify_ir):
         else:
             return 1
 
-    if_chain(0)
-    
     expected = """
 i32 if_chain(i32 arg0) {
   i1 v0 = lt(arg0, 0);
@@ -80,8 +76,6 @@ def test_while_loop_with_break(verify_ir):
             i = i + 1
         return i
 
-    while_with_break(10)
-    
     expected = """
 i32 while_with_break(i32 arg0) {
   i32 vi = alloca();
@@ -123,8 +117,6 @@ def test_while_loop_with_continue(verify_ir):
             s = s + i
         return s
 
-    while_with_continue(5)
-    
     expected = """
 i32 while_with_continue(i32 arg0) {
   i32 vi = alloca();
@@ -167,8 +159,6 @@ def test_for_range_loop(verify_ir):
             total = total + i
         return total
 
-    for_range_sum(10)
-    
     expected = """
 i32 for_range_sum(i32 arg0) {
   i32 vtotal = alloca();
@@ -206,8 +196,6 @@ def test_for_range_with_step(verify_ir):
             total = total + i
         return total
 
-    for_range_step(10)
-    
     expected = """
 i32 for_range_step(i32 arg0) {
   i32 vtotal = alloca();
@@ -246,8 +234,6 @@ def test_early_return(verify_ir):
             return 100
         return x
 
-    early_return(50)
-    
     expected = """
 i32 early_return(i32 arg0) {
   i1 v0 = lt(arg0, 0);
@@ -276,8 +262,6 @@ def test_complex_boolean_expression(verify_ir):
             return x + y
         return 0
 
-    complex_bool(1, 2)
-    
     expected = """
 i32 complex_bool(i32 arg0, i32 arg1) {
   i1 v0 = gt(arg0, 0);
@@ -313,8 +297,6 @@ def test_multiple_returns_in_branches(verify_ir):
         else:
             return 1
 
-    multi_return(0)
-    
     expected = """
 i32 multi_return(i32 arg0) {
   i1 v0 = lt(arg0, 0);
@@ -345,8 +327,6 @@ def test_deeply_nested_control_flow(verify_ir):
             return 10
         return 0
 
-    nested_deep(50)
-    
     expected = """
 i32 nested_deep(i32 arg0) {
   i1 v0 = gt(arg0, 0);
@@ -386,8 +366,6 @@ def test_loop_with_multiple_exits(verify_ir):
             i = i + 1
         return i
 
-    multi_exit_loop(25)
-    
     expected = """
 i32 multi_exit_loop(i32 arg0) {
   i32 vi = alloca();
@@ -432,8 +410,6 @@ def test_python_match_to_switch(verify_ir):
                 res = Int(-1)
         return res
 
-    match_test(0)
-    
     expected = """
 i32 match_test(i32 arg0) {
   i32 vres = alloca();

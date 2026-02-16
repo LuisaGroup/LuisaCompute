@@ -13,8 +13,6 @@ def test_logical_and_short_circuit(verify_ir):
     def logic_and(a: Bool, b: Bool) -> Bool:
         return a and b
 
-    logic_and(True, True)
-    
     expected = """
 i1 logic_and(i1 arg0, i1 arg1) {
   i1 v0 = alloca();
@@ -37,8 +35,6 @@ def test_logical_or_short_circuit(verify_ir):
     def logic_or(a: Bool, b: Bool) -> Bool:
         return a or b
 
-    logic_or(True, True)
-    
     expected = """
 i1 logic_or(i1 arg0, i1 arg1) {
   i1 v0 = alloca();
@@ -61,8 +57,6 @@ def test_chained_comparisons(verify_ir):
     def chain_comp(x: Int, a: Int, y: Int) -> Bool:
         return x < a < y
 
-    chain_comp(0, 5, 10)
-    
     expected = """
 i1 chain_comp(i32 arg0, i32 arg1, i32 arg2) {
   i1 v0 = lt(arg0, arg1);
@@ -87,8 +81,6 @@ def test_complex_logic(verify_ir):
     def complex_logic(a: Bool, b: Bool, c: Bool) -> Bool:
         return (a and b) or (not a and c)
 
-    complex_logic(True, False, True)
-    
     expected = """
 i1 complex_logic(i1 arg0, i1 arg1, i1 arg2) {
   i1 v0 = alloca();
@@ -134,8 +126,6 @@ def test_logic_with_side_effects(verify_ir):
         if a and effect(buf, 0):
             pass
 
-    logic_kernel(True, None)
-    
     expected = """
 kernel void logic_kernel(i1 arg0, buffer<i32> arg1) {
   i1 v0 = alloca();
@@ -168,8 +158,6 @@ def test_chained_comparison_mixed(verify_ir):
     def mixed_chain(x: Int, a: Int, y: Int) -> Bool:
         return x <= a < y != 10
 
-    mixed_chain(0, 5, 10)
-    
     expected = """
 i1 mixed_chain(i32 arg0, i32 arg1, i32 arg2) {
   i1 v0 = le(arg0, arg1);

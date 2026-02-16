@@ -507,15 +507,7 @@ def call(func: Any, *args, **kwargs) -> Any:
     if isinstance(func, Type):
         # Type constructors can take multiple arguments (aggregate types)
         # or a single argument (casting or broadcasting)
-
-        # If any argument is an IR value, emit a cast or call_builtin
-        if any(is_ir_value(a) for a in args):
-            # T(x) or T(x,y,...)
-            # Delegate to the type's __call__ which knows how to emit IR
-            return func(*args)
-
-        # All constants - delegate to T.__call__ for host computation
-        return func(*args)
+        return func(*args, **kwargs)
 
     import builtins
     if builtins.callable(func):
