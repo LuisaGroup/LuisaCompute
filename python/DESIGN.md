@@ -18,12 +18,13 @@ The LuisaCompute Python DSL v2 is built on a **Multistage Programming** architec
     *   For templated functions: template parameter assignments are injected at the function start.
     *   The result is a **Builder Function** that, when executed, will generate the equivalent Luisa IR.
 
-3.  **Generation (JIT/Call Time)**
-    *   Triggered when the staged function is called with specific argument types.
-    *   The Builder Function is executed.
+3.  **Generation (StagedFunction Creation)**
+    *   Triggered when a `TemplatedFunction` becomes fully specialized (all template params resolved).
+    *   A `StagedFunction` is created with concrete argument types.
+    *   The Builder Function is executed immediately to build the IR.
     *   **Host-side logic** (standard Python `if`, `for`, list comprehensions) is expanded normally by Python.
     *   **DSL operations** call into the `Builder` to record instructions into a **Structured IR Tree**.
-    *   The resulting IR is cached for subsequent calls with the same argument types.
+    *   The resulting IR is stored in the `StagedFunction` and cached for subsequent calls.
 
 4.  **Lowering (Backend)**
     *   The Structured IR is lowered to the LuisaCompute C++ AST or XIR.
