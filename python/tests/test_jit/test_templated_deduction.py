@@ -106,23 +106,20 @@ def test_implicit_conflicts():
     # So they never conflict.
     pass
 
-def test_explicit_deduction_conflict(verify_execution):
+def test_explicit_deduction_conflict():
+    """Test that conflicting template parameter deductions raise an error."""
     @callable['T']
     def conflict(x: T, y: T):
         return x
         
     @kernel
     def k():
-        # T=int vs T=float.
-        # Current implementation: first one wins or conflict ignored?
-        # My implementation: "if ann not in deduced: ... elif deduced[ann] != arg_type: pass"
-        # So it ignores conflict. First wins.
-        # x=1 -> T=int. y=2.0 -> T=int (mismatch but ignored).
-        # So function expects (int, int).
-        # Call with (1, 2.0). 2.0 cast to int.
+        # T=int from x=1, but T=float from y=2.0
+        # This should raise a TypeError due to conflict
         conflict(1, 2.0)
         
-    verify_execution(k)
+    with pytest.raises(TypeError, match="Template parameter 'T' deduction conflict"):
+        k()
 
 if __name__ == "__main__":
     import pytest

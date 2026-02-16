@@ -313,6 +313,34 @@ class TemplatedFunction:
         typ, _ = annotation_to_type(ann)
         return typ
 
+    def _types_compatible(self, type1: Any, type2: Any) -> bool:
+        """Check if two types are compatible for template deduction.
+        
+        Handles comparison between Python types (int, float) and DSL types (Int, Float).
+        """
+        if type1 == type2:
+            return True
+        
+        # Handle Python int -> DSL Int
+        if type1 is int and isinstance(type2, Type):
+            return type2 == Int
+        if type2 is int and isinstance(type1, Type):
+            return type1 == Int
+        
+        # Handle Python float -> DSL Float  
+        if type1 is float and isinstance(type2, Type):
+            return type2 == Float
+        if type2 is float and isinstance(type1, Type):
+            return type1 == Float
+        
+        # Handle Python bool -> DSL Bool
+        if type1 is bool and isinstance(type2, Type):
+            return type2 == Bool
+        if type2 is bool and isinstance(type1, Type):
+            return type1 == Bool
+        
+        return False
+
     def _get_or_create_staged(self, args: tuple) -> StagedFunction:
         """Infer types from arguments and get/create a StagedFunction.
         
@@ -348,9 +376,12 @@ class TemplatedFunction:
                     if ann in self.explicit_params:
                         if ann not in deduced:
                             deduced[ann] = arg_type
-                        elif deduced[ann] != arg_type:
-                             # Conflict? For now we assume the first deduction or explicit value wins/must match.
-                             pass 
+                        elif not self._types_compatible(deduced[ann], arg_type):
+                             # Conflict detected: same template param deduced with different types
+                             raise TypeError(
+                                 f"Template parameter '{ann}' deduction conflict for function '{self.name}': "
+                                 f"already deduced as '{deduced[ann]}', but argument at position {i} suggests '{arg_type}'"
+                             )
                     # TODO: Complex matching like Buffer[T] if needed
         
         # 3. Resolve all template params
