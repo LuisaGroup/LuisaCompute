@@ -140,35 +140,101 @@ class ASTRewriter(ast.NodeTransformer):
         self.ref_vars = old_ref_vars
         return new_node
 
+    # Map AST operator types to direct function names
+    _BINOP_MAP = {
+        'Add': 'add',
+        'Sub': 'sub',
+        'Mult': 'mul',
+        'Div': 'div',
+        'Mod': 'mod',
+        'Pow': 'pow',
+        'FloorDiv': 'floordiv',
+        'BitAnd': 'bitand',
+        'BitOr': 'bitor',
+        'BitXor': 'bitxor',
+        'LShift': 'lshift',
+        'RShift': 'rshift',
+        'MatMult': 'matmul',
+    }
+
     def visit_BinOp(self, node: ast.BinOp) -> ast.Call:
-        """Rewrite binary operations."""
+        """Rewrite binary operations to direct function calls."""
         op_name = node.op.__class__.__name__
+        func_name = self._BINOP_MAP.get(op_name, 'binop')
+        
+        # For unknown operators, fall back to binop with ast operator
+        if func_name == 'binop':
+            return self._rt_call(
+                "binop",
+                ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
+                         args=[], keywords=[]),
+                self.visit(node.left),
+                self.visit(node.right)
+            )
+        
+        # Use direct function call: add(a, b) instead of binop(ast.Add(), a, b)
         return self._rt_call(
-            "binop",
-            ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
-                     args=[], keywords=[]),
+            func_name,
             self.visit(node.left),
             self.visit(node.right)
         )
 
+    # Map AST unary operator types to direct function names
+    _UNARYOP_MAP = {
+        'USub': 'neg',
+        'Not': 'logical_not',
+        'Invert': 'bit_not',
+    }
+
     def visit_UnaryOp(self, node: ast.UnaryOp) -> ast.Call:
-        """Rewrite unary operations."""
+        """Rewrite unary operations to direct function calls."""
         op_name = node.op.__class__.__name__
+        func_name = self._UNARYOP_MAP.get(op_name, 'unaryop')
+        
+        # For unknown operators, fall back to unaryop with ast operator
+        if func_name == 'unaryop':
+            return self._rt_call(
+                "unaryop",
+                ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
+                         args=[], keywords=[]),
+                self.visit(node.operand)
+            )
+        
+        # Use direct function call: neg(a) instead of unaryop(ast.USub(), a)
         return self._rt_call(
-            "unaryop",
-            ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
-                     args=[], keywords=[]),
+            func_name,
             self.visit(node.operand)
         )
+
+    # Map AST comparison operator types to direct function names
+    _COMPARE_MAP = {
+        'Eq': 'eq',
+        'NotEq': 'ne',
+        'Lt': 'lt',
+        'LtE': 'le',
+        'Gt': 'gt',
+        'GtE': 'ge',
+    }
 
     def visit_Compare(self, node: ast.Compare) -> Any:
         """Rewrite comparison operations, including chained comparisons."""
         if len(node.ops) == 1:
             op_name = node.ops[0].__class__.__name__
+            func_name = self._COMPARE_MAP.get(op_name, 'compare')
+            
+            # For unknown operators, fall back to compare with ast operator
+            if func_name == 'compare':
+                return self._rt_call(
+                    "compare",
+                    ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
+                             args=[], keywords=[]),
+                    self.visit(node.left),
+                    self.visit(node.comparators[0])
+                )
+            
+            # Use direct function call: eq(a, b) instead of compare(ast.Eq(), a, b)
             return self._rt_call(
-                "compare",
-                ast.Call(func=ast.Attribute(value=ast.Name(id="ast", ctx=ast.Load()), attr=op_name, ctx=ast.Load()),
-                         args=[], keywords=[]),
+                func_name,
                 self.visit(node.left),
                 self.visit(node.comparators[0])
             )

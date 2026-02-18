@@ -237,7 +237,32 @@ class TemplatedFunction:
         # Build namespace with individual ops functions (no __luisa_rt prefix)
         # This makes rewritten code cleaner: add(a, b) instead of __luisa_rt.add(a, b)
         ops_namespace = {
-            # Core operations
+            # Binary operations (direct)
+            "add": rt.add,
+            "sub": rt.sub,
+            "mul": rt.mul,
+            "div": rt.div,
+            "mod": rt.mod,
+            "pow": rt.pow,
+            "floordiv": rt.floordiv,
+            "bitand": rt.bitand,
+            "bitor": rt.bitor,
+            "bitxor": rt.bitxor,
+            "lshift": rt.lshift,
+            "rshift": rt.rshift,
+            "matmul": rt.matmul,
+            # Unary operations (direct)
+            "neg": rt.neg,
+            "logical_not": rt.logical_not,
+            "bit_not": rt.bit_not,
+            # Comparison operations (direct)
+            "eq": rt.eq,
+            "ne": rt.ne,
+            "lt": rt.lt,
+            "le": rt.le,
+            "gt": rt.gt,
+            "ge": rt.ge,
+            # Fallback operations with AST operators
             "binop": rt.binop,
             "unaryop": rt.unaryop,
             "compare": rt.compare,

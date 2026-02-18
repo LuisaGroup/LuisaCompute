@@ -198,6 +198,60 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
         raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
 
 
+# Direct binary operation functions for cleaner rewritten code
+def add(left: Any, right: Any) -> Any:
+    """Add two values."""
+    return binop(ast.Add(), left, right)
+
+def sub(left: Any, right: Any) -> Any:
+    """Subtract right from left."""
+    return binop(ast.Sub(), left, right)
+
+def mul(left: Any, right: Any) -> Any:
+    """Multiply two values."""
+    return binop(ast.Mult(), left, right)
+
+def div(left: Any, right: Any) -> Any:
+    """Divide left by right."""
+    return binop(ast.Div(), left, right)
+
+def mod(left: Any, right: Any) -> Any:
+    """Modulo operation."""
+    return binop(ast.Mod(), left, right)
+
+def pow(left: Any, right: Any) -> Any:
+    """Power operation."""
+    return binop(ast.Pow(), left, right)
+
+def floordiv(left: Any, right: Any) -> Any:
+    """Floor division."""
+    return binop(ast.FloorDiv(), left, right)
+
+def bitand(left: Any, right: Any) -> Any:
+    """Bitwise AND."""
+    return binop(ast.BitAnd(), left, right)
+
+def bitor(left: Any, right: Any) -> Any:
+    """Bitwise OR."""
+    return binop(ast.BitOr(), left, right)
+
+def bitxor(left: Any, right: Any) -> Any:
+    """Bitwise XOR."""
+    return binop(ast.BitXor(), left, right)
+
+def lshift(left: Any, right: Any) -> Any:
+    """Left shift."""
+    return binop(ast.LShift(), left, right)
+
+def rshift(left: Any, right: Any) -> Any:
+    """Right shift."""
+    return binop(ast.RShift(), left, right)
+
+def matmul(left: Any, right: Any) -> Any:
+    """Matrix multiplication."""
+    return binop(ast.MatMult(), left, right)
+
+
 def unaryop(op: ast.unaryop, operand: Any) -> Any:
     """Handle unary operations."""
     if is_ir_value(operand):
@@ -218,6 +272,20 @@ def unaryop(op: ast.unaryop, operand: Any) -> Any:
         if isinstance(op, ast.Invert):
             return ~operand
         raise NotImplementedError(f"Unsupported unary operator: {type(op)}")
+
+
+# Direct unary operation functions for cleaner rewritten code
+def neg(operand: Any) -> Any:
+    """Negate a value."""
+    return unaryop(ast.USub(), operand)
+
+def logical_not(operand: Any) -> Any:
+    """Logical NOT."""
+    return unaryop(ast.Not(), operand)
+
+def bit_not(operand: Any) -> Any:
+    """Bitwise NOT."""
+    return unaryop(ast.Invert(), operand)
 
 
 def compare(op: ast.cmpop, left: Any, right: Any) -> Any:
@@ -261,6 +329,32 @@ def compare(op: ast.cmpop, left: Any, right: Any) -> Any:
         if isinstance(op, ast.NotIn):
             return left not in right
         raise NotImplementedError(f"Unsupported comparison operator: {type(op)}")
+
+
+# Direct comparison functions for cleaner rewritten code
+def eq(left: Any, right: Any) -> Any:
+    """Equal comparison."""
+    return compare(ast.Eq(), left, right)
+
+def ne(left: Any, right: Any) -> Any:
+    """Not equal comparison."""
+    return compare(ast.NotEq(), left, right)
+
+def lt(left: Any, right: Any) -> Any:
+    """Less than comparison."""
+    return compare(ast.Lt(), left, right)
+
+def le(left: Any, right: Any) -> Any:
+    """Less than or equal comparison."""
+    return compare(ast.LtE(), left, right)
+
+def gt(left: Any, right: Any) -> Any:
+    """Greater than comparison."""
+    return compare(ast.Gt(), left, right)
+
+def ge(left: Any, right: Any) -> Any:
+    """Greater than or equal comparison."""
+    return compare(ast.GtE(), left, right)
 
 
 def boolop(op: ast.boolop, values: list[Any]) -> Any:
