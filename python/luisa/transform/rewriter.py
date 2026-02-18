@@ -124,12 +124,12 @@ class ASTRewriter(ast.NodeTransformer):
     def _rt_call(self, name: str, *args: ast.expr) -> ast.Call:
         """Helper to create a call to a runtime function.
         
-        Uses _rt.name to avoid shadowing by the built function itself.
-        The _rt alias is injected into the execution namespace.
+        Uses __luisa_ops.name to avoid shadowing by the built function itself.
+        The __luisa_ops alias is injected into the execution namespace.
         """
         return ast.Call(
             func=ast.Attribute(
-                value=ast.Name(id="_rt", ctx=ast.Load()),
+                value=ast.Name(id="__luisa_ops", ctx=ast.Load()),
                 attr=name,
                 ctx=ast.Load()
             ),

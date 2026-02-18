@@ -234,10 +234,10 @@ class TemplatedFunction:
                 if hasattr(builtins, name):
                     builtin_namespace[name] = getattr(builtins, name)
 
-        # Build namespace with _rt alias for ops module
-        # Rewritten code uses _rt.X to avoid shadowing by built function
+        # Build namespace with __luisa_ops alias for ops module
+        # Rewritten code uses __luisa_ops.X to avoid shadowing by built function
         ops_namespace = {
-            "_rt": rt,  # Alias for ops module: _rt.add, _rt.store, etc.
+            "__luisa_ops": rt,  # Alias for ops module: __luisa_ops.add, etc.
             "ast": ast,
             "static_range": static_range,
             "__luisa_spec": spec_dict,  # Template params injected via AST
