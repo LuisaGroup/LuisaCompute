@@ -108,74 +108,62 @@ def _is_const_value(val: Any) -> bool:
     return isinstance(val, (ConstantValue, _ConstValue)) or val is None or isinstance(val, (bool, int, float, str))
 
 
+def _apply_binop_host(op: ast.operator, left: Any, right: Any) -> Any:
+    """Apply binary operator for host-side computation."""
+    match op:
+        case ast.Add(): return left + right
+        case ast.Sub(): return left - right
+        case ast.Mult(): return left * right
+        case ast.Div(): return left / right
+        case ast.Mod(): return left % right
+        case ast.Pow(): return left ** right
+        case ast.FloorDiv(): return left // right
+        case ast.BitAnd(): return left & right
+        case ast.BitOr(): return left | right
+        case ast.BitXor(): return left ^ right
+        case ast.LShift(): return left << right
+        case ast.RShift(): return left >> right
+        case ast.MatMult():
+            from .builtins.math import _matmul_host
+            return _matmul_host(left, right)
+        case _:
+            raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
+
+
+def _apply_binop_ir(op: ast.operator, left: Any, right: Any) -> Any:
+    """Apply binary operator for IR emission."""
+    builder = get_current_builder()
+    match op:
+        case ast.Add(): return builder.add(left, right)
+        case ast.Sub(): return builder.sub(left, right)
+        case ast.Mult(): return builder.mul(left, right)
+        case ast.Div(): return builder.div(left, right)
+        case ast.Mod(): return builder.mod(left, right)
+        case ast.Pow(): return builder.pow(left, right)
+        case ast.FloorDiv(): return builder.floor(builder.div(left, right))
+        case ast.BitAnd(): return builder.bit_and(left, right)
+        case ast.BitOr(): return builder.bit_or(left, right)
+        case ast.BitXor(): return builder.bit_xor(left, right)
+        case ast.LShift(): return builder.shl(left, right)
+        case ast.RShift(): return builder.shr(left, right)
+        case ast.MatMult():
+            # Luisa uses Op.MUL for matrix-matrix and matrix-vector multiplication
+            return builder.mul(left, right)
+        case _:
+            raise NotImplementedError(f"Unsupported binary operator for IR: {type(op)}")
+
+
 def binop(op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
-    # Check if both operands are constants - if so, do host-side computation
+    # IR emission path
+    if is_ir_value(left) or is_ir_value(right):
+        return _apply_binop_ir(op, to_ir_value(left), to_ir_value(right))
+    
+    # Host-side computation (including constant folding)
     if _is_const_value(left) and _is_const_value(right):
         left, right = _unwrap_const(left, right)
-        
-        match op:
-            case ast.Add(): return left + right
-            case ast.Sub(): return left - right
-            case ast.Mult(): return left * right
-            case ast.Div(): return left / right
-            case ast.Mod(): return left % right
-            case ast.Pow(): return left ** right
-            case ast.FloorDiv(): return left // right
-            case ast.BitAnd(): return left & right
-            case ast.BitOr(): return left | right
-            case ast.BitXor(): return left ^ right
-            case ast.LShift(): return left << right
-            case ast.RShift(): return left >> right
-            case ast.MatMult():
-                from .builtins.math import _matmul_host
-                return _matmul_host(left, right)
-            case _:
-                raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
-
-    if is_ir_value(left) or is_ir_value(right):
-        left = to_ir_value(left)
-        right = to_ir_value(right)
-        builder = get_current_builder()
-        
-        match op:
-            case ast.Add(): return builder.add(left, right)
-            case ast.Sub(): return builder.sub(left, right)
-            case ast.Mult(): return builder.mul(left, right)
-            case ast.Div(): return builder.div(left, right)
-            case ast.Mod(): return builder.mod(left, right)
-            case ast.Pow(): return builder.pow(left, right)
-            case ast.FloorDiv(): return builder.floor(builder.div(left, right))
-            case ast.BitAnd(): return builder.bit_and(left, right)
-            case ast.BitOr(): return builder.bit_or(left, right)
-            case ast.BitXor(): return builder.bit_xor(left, right)
-            case ast.LShift(): return builder.shl(left, right)
-            case ast.RShift(): return builder.shr(left, right)
-            case ast.MatMult():
-                # Luisa uses Op.MUL for matrix-matrix and matrix-vector multiplication
-                return builder.mul(left, right)
-            case _:
-                raise NotImplementedError(f"Unsupported binary operator for IR: {type(op)}")
-    else:
-        # Host side
-        match op:
-            case ast.Add(): return left + right
-            case ast.Sub(): return left - right
-            case ast.Mult(): return left * right
-            case ast.Div(): return left / right
-            case ast.Mod(): return left % right
-            case ast.Pow(): return left ** right
-            case ast.FloorDiv(): return left // right
-            case ast.BitAnd(): return left & right
-            case ast.BitOr(): return left | right
-            case ast.BitXor(): return left ^ right
-            case ast.LShift(): return left << right
-            case ast.RShift(): return left >> right
-            case ast.MatMult():
-                from .builtins.math import _matmul_host
-                return _matmul_host(left, right)
-            case _:
-                raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
+    
+    return _apply_binop_host(op, left, right)
 
 
 # Direct binary operation functions for cleaner rewritten code
