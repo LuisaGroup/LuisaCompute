@@ -307,7 +307,12 @@ class Matrix(Type):
                     return get_current_builder()._emit(Op.CALL_BUILTIN, self, [f"make_matrix_{self.size}", val])
 
                 # Constant diagonal
-                diag_val = val if not isinstance(val, (ConstantValue, _ConstValue)) else val.value
+                if isinstance(val, ConstantValue):
+                    diag_val = val.value
+                elif isinstance(val, _ConstValue):
+                    diag_val = val._raw_value
+                else:
+                    diag_val = val
                 result = []
                 for c in range(self.size):
                     for r in range(self.size):
@@ -352,7 +357,7 @@ class Matrix(Type):
                 if isinstance(c, ConstantValue):
                     converted.append(c.value)
                 elif isinstance(c, _ConstValue):
-                    converted.append(c.value)
+                    converted.append(c._raw_value)
                 else:
                     converted.append(c)
             return tuple(converted)
@@ -1286,14 +1291,18 @@ to DSL variables.
                 self._explicit_type = value.type
 
     @property
+    def dsl_type(self) -> Optional[Type]:
+        """Get the explicit DSL type if specified."""
+        return self._explicit_type
+
+    @property
     def value(self) -> Any:
         """Get the raw Python value."""
         return self._raw_value
 
-    @property
-    def dsl_type(self) -> Optional[Type]:
-        """Get the explicit DSL type if specified."""
-        return self._explicit_type
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to the raw value."""
+        return getattr(self._raw_value, name)
 
     def __repr__(self) -> str:
         if self._explicit_type:

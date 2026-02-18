@@ -56,7 +56,7 @@ def extract_constant_value(val: Any) -> Any:
     if isinstance(val, ConstantValue):
         return val.value
     if isinstance(val, _ConstValue):
-        return extract_constant_value(val.value)
+        return extract_constant_value(val._raw_value)
     if isinstance(val, (bool, int, float, type(None))):
         return val
     # Handle Struct objects

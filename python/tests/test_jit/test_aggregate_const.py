@@ -2,7 +2,7 @@
 
 import pytest
 from luisa import (
-    callable, pprint,
+    kernel, callable, pprint,
     Int, Float, Float2, Float3, Float2x2, Array, struct,
     Const
 )
@@ -61,7 +61,7 @@ def test_matrix_column_major_construction():
     assert c2.value == ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0))
 
 
-def test_nested_aggregates(print_ir, verify_ir):
+def test_nested_aggregates(verify_ir):
     """Test complicated nested aggregates."""
     @struct
     class Inner:
@@ -77,28 +77,24 @@ def test_nested_aggregates(print_ir, verify_ir):
     # i.v=(1,2), i.a=(3,4), f=5.0
     c = Const[Outer](Inner((1.0, 2.0), (3, 4)), 5.0)
     
-    # Check values
-    assert c.value.f == 5.0
-    assert c.value.i.v == (1.0, 2.0)
-    assert c.value.i.a == (3, 4)
+    # Check values - attribute access is delegated to the raw value
+    assert c.f == 5.0
+    assert c.i.v == (1.0, 2.0)
+    assert c.i.a == (3, 4)
     
     # Test folding with nested aggregate
-    # Note: This test requires the callable to be specialized by calling from a kernel
-    # For now, we just verify the Const construction works (checked above)
-    # TODO: Re-enable when nested struct constant folding in DSL is fully supported
     @callable
     def nested_fold() -> Float:
         o = Const[Outer](Inner((1.0, 2.0), (3, 4)), 5.0)
         return o.i.v.x + Float(o.i.a[0]) + o.f
         
-    # Skip IR verification - the function is unspecialized without being called
-    # print_ir(nested_fold)
-    # expected = """
-    # f32 nested_fold() {
-    #   return 9.0;
-    # }
-    # """
-    # verify_ir(nested_fold, expected)
+    # Verify the callable IR - should be constant folded to 9.0
+    expected = """
+f32 nested_fold() {
+  return 9.0;
+}
+"""
+    verify_ir(nested_fold, expected)
 
 
 def test_struct_const_construction():
@@ -121,8 +117,14 @@ def test_struct_const_construction():
     assert c3.value == Point(5.0, 6.0)
 
 
-def test_matrix_folding(print_ir, verify_ir):
-    """Test matrix constant folding."""
+@pytest.mark.xfail(reason="Matrix constant folding not fully implemented - operations create DSL variables")
+def test_matrix_folding(verify_ir):
+    """Test matrix constant folding.
+    
+    NOTE: This test is expected to fail because matrix constant folding
+    is not fully implemented. The determinant is computed correctly but
+    stored in an alloca instead of being folded into the final result.
+    """
     try:
         import numpy as np
     except ImportError:
@@ -133,9 +135,7 @@ def test_matrix_folding(print_ir, verify_ir):
     # Verify the Const was constructed correctly
     assert m.value == ((1.0, 2.0), (3.0, 4.0))
     
-    # Note: DSL-level constant folding with matrix operations requires 
-    # the callable to be specialized by calling from a kernel
-    # TODO: Re-enable when full matrix constant folding in DSL is supported
+    # Test matrix operations are folded
     @callable
     def mat_ops() -> Float:
         m = Const[Float2x2](1.0, 2.0, 3.0, 4.0)
@@ -145,11 +145,13 @@ def test_matrix_folding(print_ir, verify_ir):
         d = determinant(m)
         return d + m[0][1] # matrices are in column-major, so m[0][1] is 2.0
 
-    # Skip IR verification - the function is unspecialized without being called
-    # print_ir(mat_ops)
-    # If folded, shouldn't have matrix instructions
-    # The result should be approximately 0 (det = -2, m[0][1] = 2)
-    # ...
+    # This should be constant folded but isn't due to incomplete implementation
+    expected = """
+f32 mat_ops() {
+  return 0.0;
+}
+"""
+    verify_ir(mat_ops, expected)
 
 
 def test_matmul_folding(print_ir, verify_ir):

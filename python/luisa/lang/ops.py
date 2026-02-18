@@ -45,11 +45,11 @@ def to_ir_value(val: Any) -> Value:
     if isinstance(val, _ConstValue):
         # Prefer the explicit type if provided
         if val.dsl_type is not None:
-            inner_val = val.value
+            inner_val = val._raw_value
             if hasattr(inner_val, 'to_tuple'):
                 inner_val = inner_val.to_tuple()
             return get_current_builder().constant(val.dsl_type, inner_val)
-        val = val.value
+        val = val._raw_value
 
     typ = value_to_type(val)
     if typ is None:
@@ -99,11 +99,11 @@ def binop(op: ast.operator, left: Any, right: Any) -> Any:
         if isinstance(left, ConstantValue):
             left = left.value
         elif isinstance(left, _ConstValue):
-            left = left.value
+            left = left._raw_value
         if isinstance(right, ConstantValue):
             right = right.value
         elif isinstance(right, _ConstValue):
-            right = right.value
+            right = right._raw_value
 
         if isinstance(op, ast.Add):
             return left + right
