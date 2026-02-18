@@ -7,6 +7,7 @@ This module provides the @kernel and @callable decorators and JIT compilation lo
 from __future__ import annotations
 
 import ast
+import linecache
 import os
 from typing import Any, Callable, Optional, Union
 
@@ -84,7 +85,6 @@ class TemplatedFunction:
                  parsed: Optional[ParsedFunction] = None,
                  template_params: Optional[tuple[str, ...]] = None,
                  ast_node: Optional[ast.FunctionDef] = None,
-                 source: Optional[str] = None,
                  specialization_values: tuple = (),
                  implicit_params: Optional[tuple[str, ...]] = None):
         self.pyfunc = func
@@ -100,7 +100,7 @@ class TemplatedFunction:
         if parsed is not None:
             self.parsed = parsed
         else:
-            self.parsed = parse_function(func, source=source)
+            self.parsed = parse_function(func)
 
         # Cache for specialized instances: (arg_types,) -> StagedFunction
         self._cache: dict[tuple[Type, ...], StagedFunction] = {}
@@ -162,12 +162,28 @@ class TemplatedFunction:
         module = ast.Module(body=[rewritten_ast], type_ignores=[])
         ast.fix_missing_locations(module)
 
+        # Unparse to string - this allows nested functions to have their source
+        # available via inspect.getsourcelines() by populating linecache
+        rewritten_source = ast.unparse(module)
+        
         if os.environ.get("LUISA_DUMP_REWRITTEN_AST") in ("1", "ON", "TRUE", "true", "yes"):
-            print(f"DEBUG: Rewritten AST for {self.name}:\n{ast.unparse(rewritten_ast)}")
+            print(f"DEBUG: Rewritten AST for {self.name}:\n{rewritten_source}")
 
+        # Use a unique filename for this compiled function
+        compiled_filename = f"<luisa-built-{self.name}>"
+        
+        # Populate linecache so inspect.getsourcelines() works for nested functions
+        source_lines = rewritten_source.splitlines(keepends=True)
+        linecache.cache[compiled_filename] = (
+            len(rewritten_source),  # size
+            None,                   # mtime (None means always valid)
+            source_lines,           # lines
+            compiled_filename       # filename
+        )
+        
         self.compiled_code = compile(
-            module,
-            filename=f"<luisa-built-{self.name}>",
+            rewritten_source,
+            filename=compiled_filename,
             mode="exec"
         )
         self.rewritten_ast = rewritten_ast
@@ -504,10 +520,9 @@ class StagedFunctionDecorator:
         param_names = [p if isinstance(p, str) else (p.__name__ if hasattr(p, '__name__') else str(p)) for p in params]
         return StagedFunctionDecorator(self.is_kernel, params=tuple(param_names))
 
-    def __call__(self, func: Callable, ast_node: Optional[ast.FunctionDef] = None,
-                 source: Optional[str] = None) -> Union[TemplatedFunction, StagedFunction]:
+    def __call__(self, func: Callable, ast_node: Optional[ast.FunctionDef] = None) -> Union[TemplatedFunction, StagedFunction]:
         templated = TemplatedFunction(func, is_kernel=self.is_kernel, template_params=self.params,
-                                      ast_node=ast_node, source=source)
+                                      ast_node=ast_node)
         
         # Check if there are implicit template params (unannotated args)
         has_implicit_params = len(templated.implicit_params) > 0

@@ -66,12 +66,11 @@ class ASTRewriter(ast.NodeTransformer):
         is_top = self._is_top_level
         self._is_top_level = False
 
-        # Nested functions: check if staged (needs source capture)
+        # Nested functions: rewrite body for DSL
+        # Note: nested @callable/@kernel functions will have their source available
+        # via inspect.getsourcelines() because we populate linecache with the
+        # rewritten source before exec()
         if not is_top:
-            if any(self._is_staged_decorator(d) for d in node.decorator_list):
-                # Capture source since inspect fails for functions in dynamic code
-                return self._rewrite_nested_staged_function(node)
-            # Regular nested function: rewrite body for DSL
             return self._rewrite_nested_function(node)
 
         # Top-level function: mangle for IR building
@@ -133,49 +132,6 @@ class ASTRewriter(ast.NodeTransformer):
             args=list(args),
             keywords=[]
         )
-
-    def _is_staged_decorator(self, deco: ast.expr) -> bool:
-        """Check if a decorator is a Luisa staged function decorator."""
-        # Handle @callable, @kernel
-        if isinstance(deco, ast.Name) and deco.id in ('callable', 'kernel'):
-            return True
-        # Handle @luisa.callable, @luisa.kernel
-        if isinstance(deco, ast.Attribute) and deco.attr in ('callable', 'kernel'):
-            return True
-        # Handle @callable[...], @kernel[...]
-        if isinstance(deco, ast.Subscript):
-            return self._is_staged_decorator(deco.value)
-        return False
-
-    def _rewrite_nested_staged_function(self, node: ast.FunctionDef) -> list:
-        """Rewrite nested @callable/@kernel to capture source for inspect."""
-        source = ast.unparse(node)
-        original_decorators = node.decorator_list
-        node.decorator_list = []
-
-        value_to_assign = ast.Name(id=node.name, ctx=ast.Load())
-        if original_decorators:
-            # Apply decorators with source keyword
-            last_deco = original_decorators[0]
-            value_to_assign = ast.Call(
-                func=self.visit(last_deco),
-                args=[value_to_assign],
-                keywords=[ast.keyword(arg="source", value=ast.Constant(value=source))]
-            )
-            for deco in reversed(original_decorators[1:]):
-                value_to_assign = ast.Call(
-                    func=self.visit(deco),
-                    args=[value_to_assign],
-                    keywords=[]
-                )
-
-        return [
-            node,
-            ast.Assign(
-                targets=[ast.Name(id=node.name, ctx=ast.Store())],
-                value=value_to_assign
-            )
-        ]
 
     def _rewrite_nested_function(self, node: ast.FunctionDef) -> ast.FunctionDef:
         """Rewrite regular nested function body for DSL operations."""
