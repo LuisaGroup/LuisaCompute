@@ -6,10 +6,54 @@ This document provides a condensed technical map for AI agents to understand and
 
 The DSL uses a four-stage pipeline to transform Python into optimized GPU IR:
 
-1.  **Parsing (Decoration Time)**: `@kernel` or `@callable` extracts the AST via `inspect.getsource()`.
+1.  **Parsing (Decoration Time)**: `@kernel` or `@callable` extracts the AST via `inspect.getsourcel()`.
 2.  **Transformation (Rewrite Time)**: `ASTRewriter` replaces Python ops with `__luisa_rt` calls and injects template parameters.
 3.  **Generation (Execution Time)**: The rewritten "Builder Function" runs. DSL operations build a Structured IR tree, while host-side Python (e.g., `static_range`) is expanded.
 4.  **Lowering**: The Structured IR is sent to the LuisaCompute backend.
+
+## 📁 Directory Structure
+
+```
+python/
+├── AGENTS.md              # This file - AI agent guide
+├── DESIGN.md              # Detailed design document
+├── README.md              # User-facing documentation
+├── pyproject.toml         # Package configuration
+├── luisa/                 # Main package
+│   ├── __init__.py        # Public API exports
+│   ├── version.py         # Version info
+│   ├── printer.py         # IR pretty printer (LLVM-style)
+│   ├── serialize.py       # IR serialization
+│   ├── lang/              # Language implementation
+│   │   ├── __init__.py    # Language exports
+│   │   ├── jit.py         # @kernel, @callable, JIT compilation
+│   │   ├── ops.py         # __luisa_rt runtime operations
+│   │   ├── types.py       # Type system (Vector, Matrix, Buffer, etc.)
+│   │   ├── router.py      # Host/device routing
+│   │   ├── control_flow.py # Static control flow utilities
+│   │   ├── inspect.py     # IR inspection utilities
+│   │   └── builtins/      # Built-in functions
+│   │       ├── __init__.py
+│   │       ├── core.py    # Core builtins (dispatch_id, etc.)
+│   │       ├── math.py    # Math functions (sin, cos, etc.)
+│   │       ├── atomic.py  # Atomic operations
+│   │       ├── warp.py    # Warp operations
+│   │       ├── rtx.py     # Ray tracing builtins
+│   │       └── resource.py # Buffer/Texture operations
+│   └── transform/         # AST transformation and IR
+│       ├── __init__.py
+│       ├── rewriter.py    # AST -> IR builder calls
+│       ├── builder.py     # IR builder API
+│       ├── ir.py          # IR node definitions
+│       ├── inspect.py     # AST analysis utilities
+│       └── op.py          # Operation type definitions
+└── tests/                 # Test suite
+    ├── conftest.py        # Pytest fixtures (verify_ir, print_ir)
+    ├── test_jit/          # JIT and staging tests
+    ├── test_lang/         # Language feature tests
+    ├── test_transform/    # AST transformation tests
+    └── test_types/        # Type system tests
+```
 
 ## 📁 Key File Map
 
@@ -18,11 +62,13 @@ The DSL uses a four-stage pipeline to transform Python into optimized GPU IR:
 | `luisa/lang/jit.py` | Implementation of `@kernel`/`@callable`, `TemplatedFunction`, and `StagedFunction`. |
 | `luisa/lang/ops.py` | The `__luisa_rt` runtime router. Handles host/device dispatch and constant folding. |
 | `luisa/lang/types.py` | DSL type system (Scalars, Vectors, Matrices, Buffers, Structs). |
+| `luisa/lang/router.py` | `@router` decorator for automatic host/device routing. |
 | `luisa/transform/rewriter.py` | `ast.NodeTransformer` that turns Python syntax into IR builder calls. |
 | `luisa/transform/builder.py` | Fluent API for constructing IR nodes and managing global builder context. |
 | `luisa/transform/ir.py` | Definition of the Structured IR nodes (`If`, `Loop`, `Switch`, `Call`, etc.). |
 | `luisa/transform/inspect.py` | Function parsing and analysis utilities. |
-| `luisa/lang/router.py` | Host/device routing decisions and constant folding utilities. |
+| `luisa/printer.py` | LLVM-style IR pretty printer. |
+| `tests/conftest.py` | Pytest fixtures including `verify_ir` and `print_ir`. |
 
 ## 🧬 Template System (Critical)
 
@@ -31,6 +77,14 @@ Templates use **AST Injection** instead of string templates.
 - **Implicit**: Unannotated args are treated as `__impl_<name>` template params.
 - **Partial**: Supports chaining specializations (e.g., `func[Int][Float]`).
 - **Implementation**: Look at `TemplatedFunction._inject_template_params` in `jit.py`. It prepends `T = __luisa_spec.get('T')` to the rewritten AST.
+
+### Key Classes
+
+| Class | Location | Purpose |
+|-------|----------|---------|
+| `TemplatedFunction` | `jit.py` | Factory for creating specialized functions |
+| `StagedFunction` | `jit.py` | Fully specialized function with concrete IR |
+| `StagedFunctionDecorator` | `jit.py` | Wrapper for `@kernel`/`@callable` decorators |
 
 ## 🔍 The Linecache Strategy for Nested Functions
 
@@ -70,11 +124,23 @@ from luisa import pprint
 print(pprint(my_kernel.ir, recursive=True, show_location=False))
 ```
 
-### Testing
-- Run all tests: `python -m pytest python/tests/` (from repo root)
-- JIT tests: `python -m pytest python/tests/test_jit/`
-- Transformation tests: `python -m pytest python/tests/test_transform/`
-- Language tests: `python -m pytest python/tests/test_lang/`
+### Testing Commands
+```bash
+# Run all tests
+python -m pytest python/tests/
+
+# Run specific test categories
+python -m pytest python/tests/test_jit/      # JIT and staging
+python -m pytest python/tests/test_lang/     # Language features
+python -m pytest python/tests/test_transform/ # AST transformation
+python -m pytest python/tests/test_types/    # Type system
+
+# Run with verbose output
+python -m pytest python/tests/ -v
+
+# Run with IR debugging
+LUISA_DUMP_IR=1 python -m pytest python/tests/test_jit/test_staged.py -v
+```
 
 ### Test Patterns
 ```python
@@ -91,6 +157,14 @@ f32 my_func(f32 arg0) {
 """
     verify_ir(my_func, expected)
 ```
+
+### Fixtures (from conftest.py)
+
+| Fixture | Purpose |
+|---------|---------|
+| `verify_ir` | Compare generated IR against expected string |
+| `print_ir` | Print IR for debugging |
+| `verify_execution` | Verify kernel compiles (placeholder for future execution tests) |
 
 ## ⚠️ Important Implementation Details
 
@@ -140,6 +214,13 @@ x = sin(1.0) + cos(2.0)  # ConstantValue
 y = sin(x)  # DSL instruction if x is DSL value
 ```
 
+### 8. Type Promotion
+Types are automatically promoted:
+```python
+Int(1) + Float(2.0)  # Promotes to Float
+Vector(Float, 3) + Vector(Int, 3)  # Promotes element-wise
+```
+
 ## 📝 Common Patterns
 
 ### Adding New Syntax Support
@@ -160,6 +241,15 @@ Template params are resolved in this order:
 3. Implicit deduction from arguments
 4. Runtime error if undeducible
 
+### Working with Types
+```python
+# Checking types
+from luisa import is_vector_type, is_scalar_type, get_element_type
+
+if is_vector_type(T):
+    element = get_element_type(T)  # Get Float from Float3
+```
+
 ## 🐛 Common Pitfalls
 
 1. **Don't use `print()` in DSL code** - Use `device_print()` instead
@@ -167,6 +257,8 @@ Template params are resolved in this order:
 3. **Template params must be available at parse time** - Don't compute type names dynamically
 4. **Nested functions need linecache** - Always populate linecache before exec
 5. **Be careful with Python closures** - Captured vars are analyzed at parse time
+6. **Ref[Type] arguments** - Automatically handled via `load`/`store` injection
+7. **Static loops** - Use `static_range()` for compile-time unrolling
 
 ## 🧪 Testing Best Practices
 
@@ -175,3 +267,26 @@ Template params are resolved in this order:
 - Test both host-side and device-side behavior
 - Test with constants and DSL values
 - Use `pytest.mark.xfail` for known limitations
+- Write tests that verify the IR structure, not just that it compiles
+
+## 📊 Code Quality
+
+- **Formatter**: `black` (line length 100)
+- **Linter**: `ruff` (E, F, I, N, W rules)
+- **Type Checker**: `mypy` (strict mode)
+- **Test Runner**: `pytest`
+
+### Running Code Quality Tools
+```bash
+cd python
+black luisa/ tests/
+ruff check luisa/ tests/
+mypy luisa/
+pytest tests/
+```
+
+## 🔗 Related Documents
+
+- `DESIGN.md` - Detailed design document with examples
+- `README.md` - User-facing documentation with quick start
+- `pyproject.toml` - Package configuration and tool settings
