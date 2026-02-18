@@ -366,12 +366,18 @@ class ASTRewriter(ast.NodeTransformer):
     def _extract_const_value(self, node: ast.expr) -> ast.expr:
         """Extract the value from static(x) or Const(x) -> x."""
         if isinstance(node, ast.Call):
+            # For Const[Type](...) with explicit type, keep the call as-is
+            # so the runtime can properly construct the typed constant
+            if isinstance(node.func, ast.Subscript):
+                if isinstance(node.func.value, ast.Name) and node.func.value.id == 'Const':
+                    # Keep the full Const[Type](args) call - don't extract
+                    return self.visit(node)
             if len(node.args) == 1:
-                return node.args[0]
+                return self.visit(node.args[0])
             elif len(node.args) > 1:
                 # Multiple args - return tuple
-                return ast.Tuple(elts=list(node.args), ctx=ast.Load())
-        return node
+                return ast.Tuple(elts=[self.visit(arg) for arg in node.args], ctx=ast.Load())
+        return self.visit(node)
 
     # Set of builtin functions that are known to return DSL values
     DSL_PRODUCING_BUILTINS = {

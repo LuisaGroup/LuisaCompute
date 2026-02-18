@@ -91,13 +91,12 @@ def test_deduction_failure():
     def undecidable():
         return 0
     
-    @kernel
-    def k_fail():
-        # T cannot be deduced
-        undecidable()
-        
+    # Error is raised at definition time (when IR is built), not call time
     with pytest.raises(TypeError, match="Could not deduce template parameter 'T'"):
-        k_fail()
+        @kernel
+        def k_fail():
+            # T cannot be deduced
+            undecidable()
 
 def test_implicit_conflicts():
     # If implicit params conflict?
@@ -111,15 +110,14 @@ def test_explicit_deduction_conflict():
     @callable['T']
     def conflict(x: T, y: T):
         return x
-        
-    @kernel
-    def k():
-        # T=int from x=1, but T=float from y=2.0
-        # This should raise a TypeError due to conflict
-        conflict(1, 2.0)
-        
+    
+    # Error is raised at definition time (when IR is built), not call time
     with pytest.raises(TypeError, match="Template parameter 'T' deduction conflict"):
-        k()
+        @kernel
+        def k():
+            # T=int from x=1, but T=float from y=2.0
+            # This should raise a TypeError due to conflict
+            conflict(1, 2.0)
 
 if __name__ == "__main__":
     import pytest

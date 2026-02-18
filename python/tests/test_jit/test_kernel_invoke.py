@@ -35,13 +35,12 @@ def test_kernel_from_kernel_error(verify_ir):
     @kernel
     def inner_kernel(x: Int):
         pass
-        
-    @kernel
-    def outer_kernel(x: Int):
-        inner_kernel(x)
     
+    # Error is raised at definition time (when IR is built), not call time
     with pytest.raises(RuntimeError, match="Cannot call kernel 'inner_kernel' from within another kernel/callable"):
-        outer_kernel(10)
+        @kernel
+        def outer_kernel(x: Int):
+            inner_kernel(x)
 
 def test_templated_kernel_invoke():
     """Test that calling a templated kernel from host works and uses cache."""

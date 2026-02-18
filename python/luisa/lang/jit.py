@@ -515,12 +515,9 @@ class StagedFunctionDecorator:
         # If it's a normal function (no explicit params, no implicit params) and fully annotated, 
         # make it a StagedFunction immediately
         if not self.params and not has_implicit_params and all(ann is not None for ann in templated.parsed.arg_annotations):
-            try:
-                arg_types = tuple(templated.resolve_annotation(ann, ()) for ann in templated.parsed.arg_annotations)
-                if all(t is not None for t in arg_types):
-                    return StagedFunction(templated, (), arg_types)
-            except Exception:
-                pass # Defer if types/modules not ready
+            arg_types = tuple(templated.resolve_annotation(ann, ()) for ann in templated.parsed.arg_annotations)
+            if all(t is not None for t in arg_types):
+                return StagedFunction(templated, (), arg_types)
         
         return templated
 
