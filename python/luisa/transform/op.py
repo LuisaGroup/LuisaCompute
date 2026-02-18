@@ -13,9 +13,6 @@ from enum import Enum, auto
 class Op(Enum):
     """IR operation types."""
 
-    # Literals and constants
-    CONST = auto()
-
     # Arithmetic
     ADD = auto()
     SUB = auto()

@@ -5,6 +5,7 @@ from luisa import kernel, callable, Float, Int, Buffer
 
 def test_kernel_calls_simple_callable(verify_ir):
     """Test kernel calling a simple callable function."""
+
     @callable
     def square(x: Float) -> Float:
         return x * x
@@ -17,7 +18,7 @@ def test_kernel_calls_simple_callable(verify_ir):
         buf[idx] = result
 
     assert compute_squares.ir.is_kernel
-    
+
     # result is now a DSL variable (for correct handling of potential reassignment)
     expected = """
 kernel void compute_squares(buffer<f32> arg0) {
@@ -46,6 +47,7 @@ f32 square(f32 arg0) {
 
 def test_kernel_calls_math_callable(verify_ir):
     """Test kernel calling a callable with math operations."""
+
     @callable
     def normalize_value(x: Float) -> Float:
         if x < 0.0:
@@ -62,7 +64,7 @@ def test_kernel_calls_math_callable(verify_ir):
         buf[idx] = normalized
 
     assert process_buffer.ir.is_kernel
-    
+
     # normalized is now a DSL variable
     expected = """
 kernel void process_buffer(buffer<f32> arg0) {
@@ -101,6 +103,7 @@ f32 normalize_value(f32 arg0) {
 
 def test_kernel_calls_callable_with_multiple_args(verify_ir):
     """Test kernel calling callable with multiple arguments."""
+
     @callable
     def lerp_func(a: Float, b: Float, t: Float) -> Float:
         return a + (b - a) * t
@@ -138,17 +141,19 @@ f32 lerp_func(f32 arg0, f32 arg1, f32 arg2) {
 
 def test_kernel_calls_nested_callable(verify_ir):
     """Test kernel calling a callable that calls another callable."""
-    @callable
-    def square(x: Float) -> Float:
-        return x * x
-
-    @callable
-    def sum_of_squares(a: Float, b: Float) -> Float:
-        return square(a) + square(b)
 
     @kernel
     def compute(buf: Buffer[Float]):
         idx = Int(0)
+
+        @callable
+        def sum_of_squares(a: Float, b: Float) -> Float:
+            @callable
+            def square(x: Float) -> Float:
+                return x * x
+
+            return square(a) + square(b)
+
         result = sum_of_squares(buf[idx], buf[idx + 1])
         buf[idx] = result
 
@@ -187,6 +192,7 @@ f32 square(f32 arg0) {
 
 def test_kernel_calls_callable_with_loop(verify_ir):
     """Test kernel calling a callable that contains a loop."""
+
     @callable
     def factorial(n: Int) -> Int:
         result = Int(1)
@@ -249,6 +255,8 @@ i32 factorial(i32 arg0) {
 """
     verify_ir(compute_factorials, expected)
 
+
 if __name__ == "__main__":
     import pytest
+
     pytest.main([__file__])

@@ -6,19 +6,21 @@ The LuisaCompute Python DSL v2 is built on a **Multistage Programming** architec
 
 ### The Compilation Pipeline
 
-1.  **Parsing (Decoration Time)**
+1.  **Stage 1: Parsing (Decoration Time)**
     *   Triggered by `@kernel` or `@callable`.
     *   The function's AST is extracted via `inspect.getsource()`.
     *   Type annotations are parsed and stored as strings (to handle forward references and template params).
     *   Captured variables from the outer scope are analyzed.
+    *   **Result**: A `TemplatedFunction` or `StagedFunction` is created with the parsed metadata.
 
-2.  **Transformation (Rewrite Time)**
+2.  **Stage 2: Transformation (Rewrite Time)**
+    *   Triggered when a `TemplatedFunction` is called or specialized with concrete types.
     *   The AST is passed through `ASTRewriter`.
     *   Every DSL-relevant operation (arithmetic, control flow, built-in calls) is replaced with a call to a runtime router (`__luisa_rt`).
     *   For templated functions: template parameter assignments are injected at the function start.
-    *   The result is a **Builder Function** that, when executed, will generate the equivalent Luisa IR.
+    *   **Result**: A **Builder Function** that, when executed, will generate the equivalent Luisa IR.
 
-3.  **Generation (StagedFunction Creation)**
+3.  **Stage 3: Generation (StagedFunction Creation)**
     *   Triggered when a `TemplatedFunction` becomes fully specialized (all template params resolved).
     *   A `StagedFunction` is created with concrete argument types.
     *   The Builder Function is executed immediately to build the IR.
@@ -26,7 +28,7 @@ The LuisaCompute Python DSL v2 is built on a **Multistage Programming** architec
     *   **DSL operations** call into the `Builder` to record instructions into a **Structured IR Tree**.
     *   The resulting IR is stored in the `StagedFunction` and cached for subsequent calls.
 
-4.  **Lowering (Backend)**
+4.  **Stage 4: Lowering (Backend)**
     *   The Structured IR is lowered to the LuisaCompute C++ AST or XIR.
     *   Structured nodes like `IF`, `LOOP`, and `SWITCH` are preserved, allowing the backend to perform higher-level optimizations before final machine code generation.
 
@@ -336,6 +338,85 @@ def outer(x: T):
     def inner(y: T):  # Captures T from outer
         return y * 2
     return inner(x)
+```
+
+---
+
+## 🔍 The `source=` Parameter for Nested Staged Functions
+
+### The Problem: Dynamic Function Definition
+
+When a nested `@callable` or `@kernel` is defined inside a dynamically executed function, Python's `inspect.getsourcelines()` cannot retrieve its source code:
+
+```python
+@kernel
+def my_kernel(buf: Buffer[Float]):
+    @callable
+    def inner(x: Float) -> Float:  # Defined during kernel execution
+        return x + 1.0
+    buf[0] = inner(1.0)
+```
+
+**Why it fails**: 
+- `inspect.getsourcelines()` relies on the function having an associated source file
+- Functions defined inside `exec()` (which the DSL uses internally) have no source file
+- Result: `OSError: could not get source code`
+
+### The Solution: Explicit Source Passing
+
+The `ASTRewriter` captures the source at rewrite time and passes it explicitly to the decorator:
+
+```python
+# What the rewriter generates:
+def inner(x: Float) -> Float:
+    return x + 1.0
+inner = callable(inner, source="def inner(x: Float) -> Float:\n    return x + 1.0")
+```
+
+**Why not just eagerly compile the nested function?**
+
+Nested functions may reference:
+- **Template parameters from outer scopes** (e.g., `T` from `my_kernel[T]()`)
+- **Local variables that don't exist at kernel rewrite time**
+- **Types that aren't resolved until the kernel is called**
+
+Therefore, the nested function must be compiled **lazily**, when it's actually called with concrete types.
+
+**Why not use function attributes?**
+
+```python
+# Alternative approach (function attributes):
+def inner(x: Float) -> Float:
+    return x + 1.0
+inner.__luisa_source__ = "..."  # Attach attribute
+inner = callable(inner)          # Decorator checks attribute
+```
+
+This is equivalent complexity but has hidden state. The `source=` parameter is preferred because:
+- **Explicit data flow**: Clear from the code what's being passed
+- **No hidden state**: No magic attributes to track
+- **Consistent interface**: All staged function decorators accept `source=`
+
+### The Multistage Data Flow
+
+```
+Decoration Time              Rewrite Time                 Execution Time
+     |                            |                              |
+     v                            v                              v
++-------------+            +--------------+             +----------------+
+| @callable   |   AST      | ASTRewriter  |   Source    | callable()     |
+| def inner() | ---------> | captures     | ----------> | creates        |
+|             |   saved    | source via   |   passed    | TemplatedFunction
++-------------+            | ast.unparse()|             +----------------+
+                           +--------------+                      |
+                                                                  v
+                                                           +----------------+
+                                                           | When called:   |
+                                                           | parse_function |
+                                                           | (source=...)   |
+                                                           | rewrites AST   |
+                                                           | builds IR      |
+                                                           +----------------+
 ```
 
 ---
