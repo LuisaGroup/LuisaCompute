@@ -66,58 +66,13 @@ class ASTRewriter(ast.NodeTransformer):
         is_top = self._is_top_level
         self._is_top_level = False
 
-        # If it's a nested function, check if it has Luisa decorators
+        # Nested functions: check if staged (needs source capture)
         if not is_top:
-            is_staged = any(self._is_staged_decorator(deco) for deco in node.decorator_list)
-
-            if is_staged:
-                # Staged functions are plain Python code that defines DSL functions.
-                # They will be processed by their own StagedFunction instance.
-                # To handle the 'inspect' failure in 'exec', we can pass the source code.
-
-                source = ast.unparse(node)
-
-                # Visit decorators
-                original_decorators = node.decorator_list
-                node.decorator_list = []  # Remove decorators from the def statement
-
-                # We return:
-                # def f(...): ...
-                # f = deco1(deco2(f), source=source)
-
-                definition = node
-                value_to_assign = ast.Name(id=node.name, ctx=ast.Load())
-
-                if original_decorators:
-                    last_deco = original_decorators[0]  # The one closest to 'def'
-                    value_to_assign = ast.Call(
-                        func=self.visit(last_deco),
-                        args=[value_to_assign],
-                        keywords=[ast.keyword(arg="source", value=ast.Constant(value=source))]
-                    )
-                    # Apply other decorators if any
-                    for deco in reversed(original_decorators[1:]):
-                        value_to_assign = ast.Call(
-                            func=self.visit(deco),
-                            args=[value_to_assign],
-                            keywords=[]
-                        )
-
-                return [
-                    definition,
-                    ast.Assign(
-                        targets=[ast.Name(id=node.name, ctx=ast.Store())],
-                        value=value_to_assign
-                    )
-                ]
-
-            # For non-staged nested functions, we treat them as local DSL helpers.
-            # They capture the builder from the parent scope.
-            # We don't change the signature, but we rewrite the body.
-            old_ref_vars = self.ref_vars.copy()
-            new_node = self.generic_visit(node)
-            self.ref_vars = old_ref_vars
-            return new_node
+            if any(self._is_staged_decorator(d) for d in node.decorator_list):
+                # Capture source since inspect fails for functions in dynamic code
+                return self._rewrite_nested_staged_function(node)
+            # Regular nested function: rewrite body for DSL
+            return self._rewrite_nested_function(node)
 
         # Top-level function: mangle for IR building
         # Detect Ref arguments
@@ -191,6 +146,43 @@ class ASTRewriter(ast.NodeTransformer):
         if isinstance(deco, ast.Subscript):
             return self._is_staged_decorator(deco.value)
         return False
+
+    def _rewrite_nested_staged_function(self, node: ast.FunctionDef) -> list:
+        """Rewrite nested @callable/@kernel to capture source for inspect."""
+        source = ast.unparse(node)
+        original_decorators = node.decorator_list
+        node.decorator_list = []
+
+        value_to_assign = ast.Name(id=node.name, ctx=ast.Load())
+        if original_decorators:
+            # Apply decorators with source keyword
+            last_deco = original_decorators[0]
+            value_to_assign = ast.Call(
+                func=self.visit(last_deco),
+                args=[value_to_assign],
+                keywords=[ast.keyword(arg="source", value=ast.Constant(value=source))]
+            )
+            for deco in reversed(original_decorators[1:]):
+                value_to_assign = ast.Call(
+                    func=self.visit(deco),
+                    args=[value_to_assign],
+                    keywords=[]
+                )
+
+        return [
+            node,
+            ast.Assign(
+                targets=[ast.Name(id=node.name, ctx=ast.Store())],
+                value=value_to_assign
+            )
+        ]
+
+    def _rewrite_nested_function(self, node: ast.FunctionDef) -> ast.FunctionDef:
+        """Rewrite regular nested function body for DSL operations."""
+        old_ref_vars = self.ref_vars.copy()
+        new_node = self.generic_visit(node)
+        self.ref_vars = old_ref_vars
+        return new_node
 
     def visit_BinOp(self, node: ast.BinOp) -> ast.Call:
         """Rewrite binary operations."""
