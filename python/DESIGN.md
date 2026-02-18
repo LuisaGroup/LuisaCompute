@@ -16,7 +16,7 @@ The LuisaCompute Python DSL v2 is built on a **Multistage Programming** architec
 2.  **Stage 2: Transformation (Rewrite Time)**
     *   Triggered when a `TemplatedFunction` is called or specialized with concrete types.
     *   The AST is passed through `ASTRewriter`.
-    *   Every DSL-relevant operation (arithmetic, control flow, built-in calls) is replaced with a direct function call (e.g., `add(a, b)`, `load(x)`, `if_(cond, ...)`).
+    *   Every DSL-relevant operation (arithmetic, control flow, built-in calls) is replaced with a `__luisa_ops` call (e.g., `__luisa_ops.add(a, b)`, `__luisa_ops.load(x)`, `__luisa_ops.if_(cond, ...)`). Nested functions are kept as-is.
     *   For templated functions: template parameter assignments are injected at the function start.
     *   **Result**: A **Builder Function** that, when executed, will generate the equivalent Luisa IR.
 
@@ -293,10 +293,13 @@ def classify(tag: Int) -> Int:
 ## 🔧 Implementation Tricks & Strategies
 
 ### 1. AST Rewriting Strategy
-The `ASTRewriter` transforms Python syntax into IR builder calls:
-- `a + b` → `add(a, b)` (direct function call)
-- `x[i] = y` → `subscript_assign(x, i, y)`
-- `if cond:` → `if_(cond, ...)`
+The `ASTRewriter` transforms Python syntax into `__luisa_ops` calls:
+- `a + b` → `__luisa_ops.add(a, b)`
+- `x[i] = y` → `__luisa_ops.subscript_assign(x, i, y)`
+- `if cond:` → `__luisa_ops.if_(cond, ...)`
+- Nested functions: kept as-is (handled by their own decorator)
+
+The `__luisa_ops` module alias is injected into the execution namespace, pointing to `luisa.lang.ops`.
 
 This allows Python's execution engine to handle control flow while DSL operations build IR.
 

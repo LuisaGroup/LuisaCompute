@@ -7,7 +7,7 @@ This document provides a condensed technical map for AI agents to understand and
 The DSL uses a four-stage pipeline to transform Python into optimized GPU IR:
 
 1.  **Parsing (Decoration Time)**: `@kernel` or `@callable` extracts the AST via `inspect.getsourcel()`.
-2.  **Transformation (Rewrite Time)**: `ASTRewriter` replaces Python ops with direct function calls (e.g., `add(a, b)`) and injects template parameters.
+2.  **Transformation (Rewrite Time)**: `ASTRewriter` replaces Python ops with `__luisa_ops` calls (e.g., `__luisa_ops.add(a, b)`) and injects template parameters. Nested functions are kept as-is.
 3.  **Generation (Execution Time)**: The rewritten "Builder Function" runs. DSL operations build a Structured IR tree, while host-side Python (e.g., `static_range`) is expanded.
 4.  **Lowering**: The Structured IR is sent to the LuisaCompute backend.
 
@@ -60,7 +60,7 @@ python/
 | Path | Purpose |
 | :--- | :--- |
 | `luisa/lang/jit.py` | Implementation of `@kernel`/`@callable`, `TemplatedFunction`, and `StagedFunction`. |
-| `luisa/lang/ops.py` | Runtime operations module. Provides direct functions like `add()`, `load()`, `store()` that handle both host execution and IR emission. |
+| `luisa/lang/ops.py` | Runtime operations module. Provides functions like `add()`, `load()`, `store()` that handle both host execution and IR emission. Accessed via `__luisa_ops` in rewritten code. |
 | `luisa/lang/types.py` | DSL type system (Scalars, Vectors, Matrices, Buffers, Structs). |
 | `luisa/lang/router.py` | `@router` decorator for automatic host/device routing. |
 | `luisa/transform/rewriter.py` | `ast.NodeTransformer` that turns Python syntax into IR builder calls. |
@@ -175,13 +175,15 @@ f32 my_func(f32 arg0) {
 - Collection literals (list, tuple, dict, set)
 
 ### 2. The Runtime Operations
-All DSL operations use direct function calls from `ops.py`:
+All DSL operations use `__luisa_ops` module calls:
 ```python
-# Rewritten code uses direct calls:
-y = add(x, 1.0)           # Instead of: __luisa_rt.binop(ast.Add(), x, 1.0)
-z = neg(y)                # Instead of: __luisa_rt.unaryop(ast.USub(), y)
-result = eq(a, b)         # Instead of: __luisa_rt.compare(ast.Eq(), a, b)
+# Rewritten code uses __luisa_ops:
+y = __luisa_ops.add(x, 1.0)
+z = __luisa_ops.neg(y)
+result = __luisa_ops.eq(a, b)
 ```
+
+The `__luisa_ops` alias is injected into the execution namespace and points to the `ops` module. Using a module prefix avoids shadowing when the built function has the same name as an operation (e.g., a function named `add`).
 
 The functions handle both cases:
 - **Host execution**: If all args are constants, compute in Python and return result
@@ -196,7 +198,7 @@ Available operations:
 - **Data**: `subscript`, `attribute`, `call`
 
 ### 3. Nested Functions
-Nested `@callable`/`@kernel` functions work naturally thanks to the linecache strategy. The outer function rewrite preserves nested function definitions, and when they execute, `inspect.getsourcelines()` finds them in linecache.
+In multistage programming, nested functions are kept as-is in the outer function's rewrite. Their own decorator (`@callable`, `@kernel`) handles them when the outer function executes. The linecache strategy ensures `inspect.getsourcelines()` works for these dynamically defined functions.
 
 ### 4. Short-Circuiting
 `and` and `or` are rewritten to `and_` and `or_` functions that take lambdas to implement lazy evaluation in the IR:
