@@ -122,13 +122,13 @@ class ASTRewriter(ast.NodeTransformer):
         )
 
     def _rt_call(self, name: str, *args: ast.expr) -> ast.Call:
-        """Helper to create a call to a runtime function."""
+        """Helper to create a call to a runtime function.
+        
+        The function is referenced directly by name (e.g., 'add', 'store').
+        The actual functions are injected into the execution namespace.
+        """
         return ast.Call(
-            func=ast.Attribute(
-                value=ast.Name(id=self.rt_alias, ctx=ast.Load()),
-                attr=name,
-                ctx=ast.Load()
-            ),
+            func=ast.Name(id=name, ctx=ast.Load()),
             args=list(args),
             keywords=[]
         )

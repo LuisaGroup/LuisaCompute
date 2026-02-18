@@ -234,21 +234,54 @@ class TemplatedFunction:
                 if hasattr(builtins, name):
                     builtin_namespace[name] = getattr(builtins, name)
 
-        namespace = {
-            "__luisa_rt": rt,
+        # Build namespace with individual ops functions (no __luisa_rt prefix)
+        # This makes rewritten code cleaner: add(a, b) instead of __luisa_rt.add(a, b)
+        ops_namespace = {
+            # Core operations
+            "binop": rt.binop,
+            "unaryop": rt.unaryop,
+            "compare": rt.compare,
+            "boolop": rt.boolop,
+            "and_": rt.and_,
+            "or_": rt.or_,
+            # Control flow
+            "if_": rt.if_,
+            "switch": rt.switch,
+            "for_": rt.for_,
+            "loop_scope": rt.loop_scope,
+            "while_": rt.while_,
+            "while_scope": rt.while_scope,
+            # Variables and memory
+            "load": rt.load,
+            "maybe_load": rt.maybe_load,
+            "store": rt.store,
+            "local_var_assign": rt.local_var_assign,
+            "local_assign": rt.local_assign,
+            # Data access
+            "subscript": rt.subscript,
+            "subscript_assign": rt.subscript_assign,
+            "attribute": rt.attribute,
+            # Functions
+            "call": rt.call,
+            "return_": rt.return_,
+            # Debugging
+            "set_location": rt.set_location,
+            # AST module needed for operator nodes
             "ast": ast,
             "static_range": static_range,
             "__luisa_spec": spec_dict,  # Template params injected via AST
             **builtin_namespace,
             **{name: var.value for name, var in self.parsed.captured_vars.items()},
         }
+        
+        # Add user's global namespace (but don't override ops)
         if self.pyfunc and hasattr(self.pyfunc, "__globals__"):
             for name, val in self.pyfunc.__globals__.items():
-                if name not in namespace:
-                    namespace[name] = val
+                if name not in ops_namespace:
+                    ops_namespace[name] = val
 
-        exec(compiled_code, namespace)
-        built_func = namespace[f"__luisa_built_{self.name}"]
+        exec(compiled_code, ops_namespace)
+        built_func = ops_namespace[f"__luisa_built_{self.name}"]
         return built_func(*args)
 
     def __getitem__(self, items) -> Union[TemplatedFunction, StagedFunction]:
