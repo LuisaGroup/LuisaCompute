@@ -85,117 +85,97 @@ def try_to_ir_value(val: Any) -> Any:
 # Operators
 # ============================================================================
 
+def _unwrap_const(left: Any, right: Any) -> tuple[Any, Any]:
+    """Unwrap ConstantValue and _ConstValue to Python values."""
+    from ..transform.ir import ConstantValue
+    from .types import _ConstValue
+    
+    if isinstance(left, ConstantValue):
+        left = left.value
+    elif isinstance(left, _ConstValue):
+        left = left._raw_value
+    if isinstance(right, ConstantValue):
+        right = right.value
+    elif isinstance(right, _ConstValue):
+        right = right._raw_value
+    return left, right
+
+
+def _is_const_value(val: Any) -> bool:
+    """Check if value is a compile-time constant."""
+    from ..transform.ir import ConstantValue
+    from .types import _ConstValue
+    return isinstance(val, (ConstantValue, _ConstValue)) or val is None or isinstance(val, (bool, int, float, str))
+
+
 def binop(op: ast.operator, left: Any, right: Any) -> Any:
     """Handle binary operations."""
     # Check if both operands are constants - if so, do host-side computation
-    from ..transform.ir import ConstantValue
-    from .types import _ConstValue
-    left_is_const = isinstance(left, (ConstantValue, _ConstValue)) or left is None or isinstance(left, (bool, int, float, str))
-    right_is_const = isinstance(right, (ConstantValue, _ConstValue)) or right is None or isinstance(right, (bool, int, float, str))
-
-    # If both are constants, do host-side computation
-    if left_is_const and right_is_const:
-        # Extract Python values from ConstantValue or _ConstValue
-        if isinstance(left, ConstantValue):
-            left = left.value
-        elif isinstance(left, _ConstValue):
-            left = left._raw_value
-        if isinstance(right, ConstantValue):
-            right = right.value
-        elif isinstance(right, _ConstValue):
-            right = right._raw_value
-
-        if isinstance(op, ast.Add):
-            return left + right
-        if isinstance(op, ast.Sub):
-            return left - right
-        if isinstance(op, ast.Mult):
-            return left * right
-        if isinstance(op, ast.Div):
-            return left / right
-        if isinstance(op, ast.Mod):
-            return left % right
-        if isinstance(op, ast.Pow):
-            return left ** right
-        if isinstance(op, ast.FloorDiv):
-            return left // right
-        if isinstance(op, ast.BitAnd):
-            return left & right
-        if isinstance(op, ast.BitOr):
-            return left | right
-        if isinstance(op, ast.BitXor):
-            return left ^ right
-        if isinstance(op, ast.LShift):
-            return left << right
-        if isinstance(op, ast.RShift):
-            return left >> right
-        if isinstance(op, ast.MatMult):
-            from .builtins.math import _matmul_host
-            return _matmul_host(left, right)
-        raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
+    if _is_const_value(left) and _is_const_value(right):
+        left, right = _unwrap_const(left, right)
+        
+        match op:
+            case ast.Add(): return left + right
+            case ast.Sub(): return left - right
+            case ast.Mult(): return left * right
+            case ast.Div(): return left / right
+            case ast.Mod(): return left % right
+            case ast.Pow(): return left ** right
+            case ast.FloorDiv(): return left // right
+            case ast.BitAnd(): return left & right
+            case ast.BitOr(): return left | right
+            case ast.BitXor(): return left ^ right
+            case ast.LShift(): return left << right
+            case ast.RShift(): return left >> right
+            case ast.MatMult():
+                from .builtins.math import _matmul_host
+                return _matmul_host(left, right)
+            case _:
+                raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
 
     if is_ir_value(left) or is_ir_value(right):
         left = to_ir_value(left)
         right = to_ir_value(right)
         builder = get_current_builder()
-        if isinstance(op, ast.Add):
-            return builder.add(left, right)
-        if isinstance(op, ast.Sub):
-            return builder.sub(left, right)
-        if isinstance(op, ast.Mult):
-            return builder.mul(left, right)
-        if isinstance(op, ast.Div):
-            return builder.div(left, right)
-        if isinstance(op, ast.Mod):
-            return builder.mod(left, right)
-        if isinstance(op, ast.Pow):
-            return builder.pow(left, right)
-        if isinstance(op, ast.FloorDiv):
-            return builder.floor(builder.div(left, right))
-        if isinstance(op, ast.BitAnd):
-            return builder.bit_and(left, right)
-        if isinstance(op, ast.BitOr):
-            return builder.bit_or(left, right)
-        if isinstance(op, ast.BitXor):
-            return builder.bit_xor(left, right)
-        if isinstance(op, ast.LShift):
-            return builder.shl(left, right)
-        if isinstance(op, ast.RShift):
-            return builder.shr(left, right)
-        if isinstance(op, ast.MatMult):
-            # Luisa uses Op.MUL for matrix-matrix and matrix-vector multiplication
-            return builder.mul(left, right)
-        raise NotImplementedError(f"Unsupported binary operator for IR: {type(op)}")
+        
+        match op:
+            case ast.Add(): return builder.add(left, right)
+            case ast.Sub(): return builder.sub(left, right)
+            case ast.Mult(): return builder.mul(left, right)
+            case ast.Div(): return builder.div(left, right)
+            case ast.Mod(): return builder.mod(left, right)
+            case ast.Pow(): return builder.pow(left, right)
+            case ast.FloorDiv(): return builder.floor(builder.div(left, right))
+            case ast.BitAnd(): return builder.bit_and(left, right)
+            case ast.BitOr(): return builder.bit_or(left, right)
+            case ast.BitXor(): return builder.bit_xor(left, right)
+            case ast.LShift(): return builder.shl(left, right)
+            case ast.RShift(): return builder.shr(left, right)
+            case ast.MatMult():
+                # Luisa uses Op.MUL for matrix-matrix and matrix-vector multiplication
+                return builder.mul(left, right)
+            case _:
+                raise NotImplementedError(f"Unsupported binary operator for IR: {type(op)}")
     else:
         # Host side
-        if isinstance(op, ast.Add):
-            return left + right
-        if isinstance(op, ast.Sub):
-            return left - right
-        if isinstance(op, ast.Mult):
-            return left * right
-        if isinstance(op, ast.Div):
-            return left / right
-        if isinstance(op, ast.Mod):
-            return left % right
-        if isinstance(op, ast.Pow):
-            return left ** right
-        if isinstance(op, ast.FloorDiv):
-            return left // right
-        if isinstance(op, ast.BitAnd):
-            return left & right
-        if isinstance(op, ast.BitOr):
-            return left | right
-        if isinstance(op, ast.BitXor):
-            return left ^ right
-        if isinstance(op, ast.LShift):
-            return left << right
-        if isinstance(op, ast.RShift):
-            return left >> right
-        if isinstance(op, ast.MatMult):
-            from .builtins.math import _matmul_host
-            return _matmul_host(left, right)
-        raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
+        match op:
+            case ast.Add(): return left + right
+            case ast.Sub(): return left - right
+            case ast.Mult(): return left * right
+            case ast.Div(): return left / right
+            case ast.Mod(): return left % right
+            case ast.Pow(): return left ** right
+            case ast.FloorDiv(): return left // right
+            case ast.BitAnd(): return left & right
+            case ast.BitOr(): return left | right
+            case ast.BitXor(): return left ^ right
+            case ast.LShift(): return left << right
+            case ast.RShift(): return left >> right
+            case ast.MatMult():
+                from .builtins.math import _matmul_host
+                return _matmul_host(left, right)
+            case _:
+                raise NotImplementedError(f"Unsupported binary operator: {type(op)}")
 
 
 # Direct binary operation functions for cleaner rewritten code
@@ -257,21 +237,19 @@ def unaryop(op: ast.unaryop, operand: Any) -> Any:
     if is_ir_value(operand):
         operand = to_ir_value(operand)
         builder = get_current_builder()
-        if isinstance(op, ast.USub):
-            return builder.neg(operand)
-        if isinstance(op, ast.Not):
-            return builder.logical_not(operand)
-        if isinstance(op, ast.Invert):
-            return builder.bit_not(operand)
-        raise NotImplementedError(f"Unsupported unary operator for IR: {type(op)}")
+        match op:
+            case ast.USub(): return builder.neg(operand)
+            case ast.Not(): return builder.logical_not(operand)
+            case ast.Invert(): return builder.bit_not(operand)
+            case _:
+                raise NotImplementedError(f"Unsupported unary operator for IR: {type(op)}")
     else:
-        if isinstance(op, ast.USub):
-            return -operand
-        if isinstance(op, ast.Not):
-            return not operand
-        if isinstance(op, ast.Invert):
-            return ~operand
-        raise NotImplementedError(f"Unsupported unary operator: {type(op)}")
+        match op:
+            case ast.USub(): return -operand
+            case ast.Not(): return not operand
+            case ast.Invert(): return ~operand
+            case _:
+                raise NotImplementedError(f"Unsupported unary operator: {type(op)}")
 
 
 # Direct unary operation functions for cleaner rewritten code
@@ -294,41 +272,29 @@ def compare(op: ast.cmpop, left: Any, right: Any) -> Any:
         left = to_ir_value(left)
         right = to_ir_value(right)
         builder = get_current_builder()
-        if isinstance(op, ast.Eq):
-            return builder.eq(left, right)
-        if isinstance(op, ast.NotEq):
-            return builder.ne(left, right)
-        if isinstance(op, ast.Lt):
-            return builder.lt(left, right)
-        if isinstance(op, ast.LtE):
-            return builder.le(left, right)
-        if isinstance(op, ast.Gt):
-            return builder.gt(left, right)
-        if isinstance(op, ast.GtE):
-            return builder.ge(left, right)
-        raise NotImplementedError(f"Unsupported comparison operator for IR: {type(op)}")
+        match op:
+            case ast.Eq(): return builder.eq(left, right)
+            case ast.NotEq(): return builder.ne(left, right)
+            case ast.Lt(): return builder.lt(left, right)
+            case ast.LtE(): return builder.le(left, right)
+            case ast.Gt(): return builder.gt(left, right)
+            case ast.GtE(): return builder.ge(left, right)
+            case _:
+                raise NotImplementedError(f"Unsupported comparison operator for IR: {type(op)}")
     else:
-        if isinstance(op, ast.Eq):
-            return left == right
-        if isinstance(op, ast.NotEq):
-            return left != right
-        if isinstance(op, ast.Lt):
-            return left < right
-        if isinstance(op, ast.LtE):
-            return left <= right
-        if isinstance(op, ast.Gt):
-            return left > right
-        if isinstance(op, ast.GtE):
-            return left >= right
-        if isinstance(op, ast.Is):
-            return left is right
-        if isinstance(op, ast.IsNot):
-            return left is right
-        if isinstance(op, ast.In):
-            return left in right
-        if isinstance(op, ast.NotIn):
-            return left not in right
-        raise NotImplementedError(f"Unsupported comparison operator: {type(op)}")
+        match op:
+            case ast.Eq(): return left == right
+            case ast.NotEq(): return left != right
+            case ast.Lt(): return left < right
+            case ast.LtE(): return left <= right
+            case ast.Gt(): return left > right
+            case ast.GtE(): return left >= right
+            case ast.Is(): return left is right
+            case ast.IsNot(): return left is right
+            case ast.In(): return left in right
+            case ast.NotIn(): return left not in right
+            case _:
+                raise NotImplementedError(f"Unsupported comparison operator: {type(op)}")
 
 
 # Direct comparison functions for cleaner rewritten code
@@ -366,25 +332,30 @@ def boolop(op: ast.boolop, values: list[Any]) -> Any:
         ir_values = [to_ir_value(v) for v in values]
         builder = get_current_builder()
         result = ir_values[0]
-        if isinstance(op, ast.And):
-            for v in ir_values[1:]:
-                result = builder.logical_and(result, v)
-        elif isinstance(op, ast.Or):
-            for v in ir_values[1:]:
-                result = builder.logical_or(result, v)
+        match op:
+            case ast.And():
+                for v in ir_values[1:]:
+                    result = builder.logical_and(result, v)
+            case ast.Or():
+                for v in ir_values[1:]:
+                    result = builder.logical_or(result, v)
+            case _:
+                raise NotImplementedError(f"Unsupported boolean operator: {type(op)}")
         return result
     else:
-        if isinstance(op, ast.And):
-            res = values[0]
-            for v in values[1:]:
-                res = res and v
-            return res
-        elif isinstance(op, ast.Or):
-            res = values[0]
-            for v in values[1:]:
-                res = res or v
-            return res
-        raise NotImplementedError(f"Unsupported boolean operator: {type(op)}")
+        match op:
+            case ast.And():
+                res = values[0]
+                for v in values[1:]:
+                    res = res and v
+                return res
+            case ast.Or():
+                res = values[0]
+                for v in values[1:]:
+                    res = res or v
+                return res
+            case _:
+                raise NotImplementedError(f"Unsupported boolean operator: {type(op)}")
 
 
 def and_(lhs_func: Callable[[], Any], rhs_func: Callable[[], Any]) -> Any:
