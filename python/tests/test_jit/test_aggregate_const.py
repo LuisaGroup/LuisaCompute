@@ -12,15 +12,15 @@ def test_vector_const_construction():
     """Test vector constant construction from various arguments."""
     # Exact components
     c1 = Const[Float2](1.0, 2.0)
-    assert c1.value == (1.0, 2.0)
+    assert c1 == (1.0, 2.0)
     
     # From tuple
     c2 = Const[Float2]((3.0, 4.0))
-    assert c2.value == (3.0, 4.0)
+    assert c2 == (3.0, 4.0)
     
     # Broadcast
     c3 = Const[Float3](5.0)
-    assert c3.value == (5.0, 5.0, 5.0)
+    assert c3 == (5.0, 5.0, 5.0)
     
     # Error cases
     with pytest.raises(ValueError, match="requires 2 components, got 3"):
@@ -34,15 +34,15 @@ def test_matrix_const_construction():
     """Test matrix constant construction."""
     # 4 components for 2x2 - stored as column-major tuple-of-tuples
     c1 = Const[Float2x2](1.0, 2.0, 3.0, 4.0)
-    assert c1.value == ((1.0, 2.0), (3.0, 4.0))  # (col0, col1)
+    assert c1 == ((1.0, 2.0), (3.0, 4.0))  # (col0, col1)
     
     # From list
     c2 = Const[Float2x2]([5.0, 6.0, 7.0, 8.0])
-    assert c2.value == ((5.0, 6.0), (7.0, 8.0))
+    assert c2 == ((5.0, 6.0), (7.0, 8.0))
     
     # Diagonal broadcast
     c3 = Const[Float2x2](2.0)
-    assert c3.value == ((2.0, 0.0), (0.0, 2.0))
+    assert c3 == ((2.0, 0.0), (0.0, 2.0))
     
     with pytest.raises(ValueError, match="requires 4 components, got 2"):
         Const[Float2x2](1.0, 2.0)
@@ -53,12 +53,12 @@ def test_matrix_column_major_construction():
     # 2x2 matrix from 2 columns - stored as column-major tuple-of-tuples
     c1 = Const[Float2x2]((1.0, 2.0), (3.0, 4.0))
     # Structure: (col0, col1) where each col is (x, y)
-    assert c1.value == ((1.0, 2.0), (3.0, 4.0))
+    assert c1 == ((1.0, 2.0), (3.0, 4.0))
     
     # 3x3 matrix from 3 columns
     from luisa import Float3x3
     c2 = Const[Float3x3]((1,2,3), (4,5,6), (7,8,9))
-    assert c2.value == ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0))
+    assert c2 == ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0), (7.0, 8.0, 9.0))
 
 
 def test_nested_aggregates(verify_ir):
@@ -106,15 +106,15 @@ def test_struct_const_construction():
         
     # Positional
     c1 = Const[Point](1.0, 2.0)
-    assert c1.value == Point(1.0, 2.0)
+    assert c1 == Point(1.0, 2.0)
     
     # Named
     c2 = Const[Point](y=4.0, x=3.0)
-    assert c2.value == Point(3.0, 4.0)
+    assert c2 == Point(3.0, 4.0)
     
     # Tuple
     c3 = Const[Point]((5.0, 6.0))
-    assert c3.value == Point(5.0, 6.0)
+    assert c3 == Point(5.0, 6.0)
 
 
 @pytest.mark.xfail(reason="Matrix constant folding not fully implemented - operations create DSL variables")
@@ -133,7 +133,7 @@ def test_matrix_folding(verify_ir):
     # Test Const construction at Python level
     m = Const[Float2x2](1.0, 2.0, 3.0, 4.0)
     # Verify the Const was constructed correctly
-    assert m.value == ((1.0, 2.0), (3.0, 4.0))
+    assert m == ((1.0, 2.0), (3.0, 4.0))
     
     # Test matrix operations are folded
     @callable
