@@ -342,7 +342,7 @@ def outer(x: T):
 
 ---
 
-## 🔍 The `source=` Parameter for Nested Staged Functions
+## 🔍 Nested Staged Functions and the Linecache Solution
 
 ### The Problem: Dynamic Function Definition
 
@@ -362,40 +362,53 @@ def my_kernel(buf: Buffer[Float]):
 - Functions defined inside `exec()` (which the DSL uses internally) have no source file
 - Result: `OSError: could not get source code`
 
-### The Solution: Explicit Source Passing
+### The Solution: Linecache Population
 
-The `ASTRewriter` captures the source at rewrite time and passes it explicitly to the decorator:
-
-```python
-# What the rewriter generates:
-def inner(x: Float) -> Float:
-    return x + 1.0
-inner = callable(inner, source="def inner(x: Float) -> Float:\n    return x + 1.0")
-```
-
-**Why not just eagerly compile the nested function?**
-
-Nested functions may reference:
-- **Template parameters from outer scopes** (e.g., `T` from `my_kernel[T]()`)
-- **Local variables that don't exist at kernel rewrite time**
-- **Types that aren't resolved until the kernel is called**
-
-Therefore, the nested function must be compiled **lazily**, when it's actually called with concrete types.
-
-**Why not use function attributes?**
+Instead of passing source explicitly, we populate Python's `linecache` module with the rewritten source before execution:
 
 ```python
-# Alternative approach (function attributes):
-def inner(x: Float) -> Float:
-    return x + 1.0
-inner.__luisa_source__ = "..."  # Attach attribute
-inner = callable(inner)          # Decorator checks attribute
+# 1. Rewrite the outer function AST
+rewritten_ast = rewriter.rewrite(original_ast)
+
+# 2. Unparse to string
+rewritten_source = ast.unparse(rewritten_ast)
+
+# 3. Populate linecache BEFORE exec()
+linecache.cache[filename] = (
+    len(rewritten_source),
+    None,  # mtime
+    rewritten_source.splitlines(keepends=True),
+    filename
+)
+
+# 4. Compile and execute
+compiled = compile(rewritten_source, filename, 'exec')
+exec(compiled, namespace)
 ```
 
-This is equivalent complexity but has hidden state. The `source=` parameter is preferred because:
-- **Explicit data flow**: Clear from the code what's being passed
-- **No hidden state**: No magic attributes to track
-- **Consistent interface**: All staged function decorators accept `source=`
+Now when `@callable` decorator runs on the nested function, `inspect.getsourcelines()` finds the source in linecache and succeeds!
+
+### Why This Works
+
+The key insight is that `inspect.getsourcelines()` checks multiple sources:
+1. Actual source files (`.py` files)
+2. `linecache` module (used for tracebacks and debugging)
+
+By populating `linecache` with our rewritten source, we make dynamically defined functions appear to have source available.
+
+### Benefits Over `source=` Parameter
+
+The previous approach required:
+- Special detection of nested staged functions
+- Capturing source via `ast.unparse(node)`
+- Passing `source=` keyword to decorator
+- Complex AST transformation for decorator application
+
+The linecache approach:
+- **No special handling** for nested staged functions
+- **Uniform treatment** of all nested functions
+- **Natural multistaging** - nested `@callable` just works
+- **Simpler code** - removed `_is_staged_decorator()` and `_rewrite_nested_staged_function()`
 
 ### The Multistage Data Flow
 
@@ -404,18 +417,24 @@ Decoration Time              Rewrite Time                 Execution Time
      |                            |                              |
      v                            v                              v
 +-------------+            +--------------+             +----------------+
-| @callable   |   AST      | ASTRewriter  |   Source    | callable()     |
-| def inner() | ---------> | captures     | ----------> | creates        |
-|             |   saved    | source via   |   passed    | TemplatedFunction
-+-------------+            | ast.unparse()|             +----------------+
-                           +--------------+                      |
+| @callable   |   AST      | ASTRewriter  |  Unparse   | populate       |
+| def inner() | ---------> | rewrites     | ---------> | linecache      |
+|             |   saved    | AST          |  to string | + exec()       |
++-------------+            +--------------+             +----------------+
+                                                                  |
                                                                   v
                                                            +----------------+
-                                                           | When called:   |
-                                                           | parse_function |
-                                                           | (source=...)   |
-                                                           | rewrites AST   |
-                                                           | builds IR      |
+                                                           | @callable runs |
+                                                           | on inner()     |
+                                                           | inspect finds  |
+                                                           | source!        |
+                                                           +----------------+
+                                                                  |
+                                                                  v
+                                                           +----------------+
+                                                           | TemplatedFunction|
+                                                           | created for    |
+                                                           | inner()        |
                                                            +----------------+
 ```
 
