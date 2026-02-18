@@ -16,7 +16,7 @@ The LuisaCompute Python DSL v2 is built on a **Multistage Programming** architec
 2.  **Stage 2: Transformation (Rewrite Time)**
     *   Triggered when a `TemplatedFunction` is called or specialized with concrete types.
     *   The AST is passed through `ASTRewriter`.
-    *   Every DSL-relevant operation (arithmetic, control flow, built-in calls) is replaced with a call to a runtime router (`__luisa_rt`).
+    *   Every DSL-relevant operation (arithmetic, control flow, built-in calls) is replaced with a direct function call (e.g., `add(a, b)`, `load(x)`, `if_(cond, ...)`).
     *   For templated functions: template parameter assignments are injected at the function start.
     *   **Result**: A **Builder Function** that, when executed, will generate the equivalent Luisa IR.
 
@@ -102,7 +102,7 @@ def func(x: Buffer[T]) -> T:
 # Rewritten AST becomes:
 def __luisa_built_func(arg0):
     T = __luisa_spec.get("T")  # <-- Injected at function start
-    __luisa_rt.set_location(...)
+    set_location(...)
     return arg0
 ```
 
@@ -294,9 +294,9 @@ def classify(tag: Int) -> Int:
 
 ### 1. AST Rewriting Strategy
 The `ASTRewriter` transforms Python syntax into IR builder calls:
-- `a + b` → `__luisa_rt.add(a, b)`
-- `x[i] = y` → `__luisa_rt.subscript_assign(x, i, y)`
-- `if cond:` → `__luisa_rt.if_(cond, ...)`
+- `a + b` → `add(a, b)` (direct function call)
+- `x[i] = y` → `subscript_assign(x, i, y)`
+- `if cond:` → `if_(cond, ...)`
 
 This allows Python's execution engine to handle control flow while DSL operations build IR.
 
