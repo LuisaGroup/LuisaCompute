@@ -66,12 +66,9 @@ class ASTRewriter(ast.NodeTransformer):
         is_top = self._is_top_level
         self._is_top_level = False
 
-        # Nested functions: rewrite body for DSL
-        # Note: nested @callable/@kernel functions will have their source available
-        # via inspect.getsourcelines() because we populate linecache with the
-        # rewritten source before exec()
+        # Nested functions: keep as-is, their own decorator will handle them
         if not is_top:
-            return self._rewrite_nested_function(node)
+            return node
 
         # Top-level function: mangle for IR building
         # Detect Ref arguments
@@ -136,13 +133,6 @@ class ASTRewriter(ast.NodeTransformer):
             args=list(args),
             keywords=[]
         )
-
-    def _rewrite_nested_function(self, node: ast.FunctionDef) -> ast.FunctionDef:
-        """Rewrite regular nested function body for DSL operations."""
-        old_ref_vars = self.ref_vars.copy()
-        new_node = self.generic_visit(node)
-        self.ref_vars = old_ref_vars
-        return new_node
 
     # Map AST operator types to direct function names
     _BINOP_MAP = {
