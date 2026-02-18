@@ -234,64 +234,10 @@ class TemplatedFunction:
                 if hasattr(builtins, name):
                     builtin_namespace[name] = getattr(builtins, name)
 
-        # Build namespace with individual ops functions (no __luisa_rt prefix)
-        # This makes rewritten code cleaner: add(a, b) instead of __luisa_rt.add(a, b)
+        # Build namespace with _rt alias for ops module
+        # Rewritten code uses _rt.X to avoid shadowing by built function
         ops_namespace = {
-            # Binary operations (direct)
-            "add": rt.add,
-            "sub": rt.sub,
-            "mul": rt.mul,
-            "div": rt.div,
-            "mod": rt.mod,
-            "pow": rt.pow,
-            "floordiv": rt.floordiv,
-            "bitand": rt.bitand,
-            "bitor": rt.bitor,
-            "bitxor": rt.bitxor,
-            "lshift": rt.lshift,
-            "rshift": rt.rshift,
-            "matmul": rt.matmul,
-            # Unary operations (direct)
-            "neg": rt.neg,
-            "logical_not": rt.logical_not,
-            "bit_not": rt.bit_not,
-            # Comparison operations (direct)
-            "eq": rt.eq,
-            "ne": rt.ne,
-            "lt": rt.lt,
-            "le": rt.le,
-            "gt": rt.gt,
-            "ge": rt.ge,
-            # Fallback operations with AST operators
-            "binop": rt.binop,
-            "unaryop": rt.unaryop,
-            "compare": rt.compare,
-            "boolop": rt.boolop,
-            "and_": rt.and_,
-            "or_": rt.or_,
-            # Control flow
-            "if_": rt.if_,
-            "switch": rt.switch,
-            "for_": rt.for_,
-            "loop_scope": rt.loop_scope,
-            "while_": rt.while_,
-            "while_scope": rt.while_scope,
-            # Variables and memory
-            "load": rt.load,
-            "maybe_load": rt.maybe_load,
-            "store": rt.store,
-            "local_var_assign": rt.local_var_assign,
-            "local_assign": rt.local_assign,
-            # Data access
-            "subscript": rt.subscript,
-            "subscript_assign": rt.subscript_assign,
-            "attribute": rt.attribute,
-            # Functions
-            "call": rt.call,
-            "return_": rt.return_,
-            # Debugging
-            "set_location": rt.set_location,
-            # AST module needed for operator nodes
+            "_rt": rt,  # Alias for ops module: _rt.add, _rt.store, etc.
             "ast": ast,
             "static_range": static_range,
             "__luisa_spec": spec_dict,  # Template params injected via AST
@@ -306,7 +252,7 @@ class TemplatedFunction:
                     ops_namespace[name] = val
 
         exec(compiled_code, ops_namespace)
-        built_func = ops_namespace[f"{self.name}_"]
+        built_func = ops_namespace[self.name]
         return built_func(*args)
 
     def __getitem__(self, items) -> Union[TemplatedFunction, StagedFunction]:

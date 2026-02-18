@@ -114,7 +114,7 @@ class ASTRewriter(ast.NodeTransformer):
         self.dsl_vars = old_dsl_vars
 
         return ast.FunctionDef(
-            name=f"{node.name}_",  # Add underscore suffix to avoid shadowing injected functions
+            name=node.name,  # Keep original function name
             args=new_args,
             body=new_body,
             decorator_list=[],  # Remove decorators
@@ -124,11 +124,15 @@ class ASTRewriter(ast.NodeTransformer):
     def _rt_call(self, name: str, *args: ast.expr) -> ast.Call:
         """Helper to create a call to a runtime function.
         
-        The function is referenced directly by name (e.g., 'add', 'store').
-        The actual functions are injected into the execution namespace.
+        Uses _rt.name to avoid shadowing by the built function itself.
+        The _rt alias is injected into the execution namespace.
         """
         return ast.Call(
-            func=ast.Name(id=name, ctx=ast.Load()),
+            func=ast.Attribute(
+                value=ast.Name(id="_rt", ctx=ast.Load()),
+                attr=name,
+                ctx=ast.Load()
+            ),
             args=list(args),
             keywords=[]
         )
