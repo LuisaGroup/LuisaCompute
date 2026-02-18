@@ -306,7 +306,7 @@ class TemplatedFunction:
                     ops_namespace[name] = val
 
         exec(compiled_code, ops_namespace)
-        built_func = ops_namespace[f"__luisa_built_{self.name}"]
+        built_func = ops_namespace[f"{self.name}_"]
         return built_func(*args)
 
     def __getitem__(self, items) -> Union[TemplatedFunction, StagedFunction]:

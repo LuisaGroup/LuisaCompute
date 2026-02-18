@@ -114,7 +114,7 @@ class ASTRewriter(ast.NodeTransformer):
         self.dsl_vars = old_dsl_vars
 
         return ast.FunctionDef(
-            name=f"__luisa_built_{node.name}",
+            name=f"{node.name}_",  # Add underscore suffix to avoid shadowing injected functions
             args=new_args,
             body=new_body,
             decorator_list=[],  # Remove decorators
