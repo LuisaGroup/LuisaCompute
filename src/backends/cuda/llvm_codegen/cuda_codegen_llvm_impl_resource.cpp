@@ -987,6 +987,16 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcep
     return result;
 }
 
+llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_payload(IB &b, uint32_t index) noexcept {
+    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", false);
+    return b.CreateCall(llvm_asm, {b.getInt32(index)});
+}
+
+void CUDACodegenLLVMImpl::_call_optix_set_payload_types(IB &b, uint32_t types) noexcept {
+    auto llvm_asm = _get_inline_asm("call (), _optix_set_payload_types, ($0);", "r", true);
+    b.CreateCall(llvm_asm, {b.getInt32(types)});
+}
+
 void CUDACodegenLLVMImpl::_call_optix_report_intersection(IB &b, llvm::Value *hit_kind, llvm::Value *t) noexcept {
     auto llvm_asm = _get_inline_asm("call ($0), _optix_report_intersection_0, ($1, $2);", "=r,f,r", true);
     b.CreateCall(llvm_asm, {t, hit_kind});

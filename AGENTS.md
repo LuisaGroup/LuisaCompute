@@ -71,3 +71,15 @@ When writing DSL kernel code inside C++, you must use the provided custom macros
 - **Refactoring:** When modifying core structures, ensure `AST`/`IR` compatibility (note: IR is actively replacing AST).
 - **Dependencies:** Stored in `src/ext/` as Git submodules. Do not add dependencies unless explicitly instructed.
 - **High Performance:** This is a performance-critical graphics framework. Avoid unnecessary allocations, deep copies, and synchronization stalls.
+
+## 5. Recent Tasks
+
+### Ray Query Lowering in CUDA LLVM Backend (Feb 2026)
+- **Objective:** Lower inline ray query loops into the OptiX ray tracing pipeline.
+- **Key Changes:**
+    - Implemented `_materialize_ray_query_loops` in `cuda_codegen_llvm_impl_rq.cpp` to clone extracted loops into intersection programs.
+    - Added `_lower_ray_query_intrinsics` to map `luisa.ray.query` intrinsics to OptiX hit object and traverse calls.
+    - Generated `__anyhit__ray_query` and `__intersection__ray_query` entry points for the OptiX pipeline.
+    - Implemented missing OptiX helper methods in `cuda_codegen_llvm_impl_resource.cpp`.
+- **Status:** Completed and verified with `luisa-compute-backend-cuda` build.
+- **Documentation:** See `src/backends/cuda/llvm_codegen/RAY_QUERY_LOWERING.md` for details.

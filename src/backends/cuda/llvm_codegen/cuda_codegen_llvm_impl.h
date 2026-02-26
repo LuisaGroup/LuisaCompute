@@ -375,6 +375,8 @@ private:
     [[nodiscard]] llvm::Value *_call_optix_get_hit_distance(IB &b) noexcept;
     [[nodiscard]] llvm::Value *_call_optix_get_hit_kind(IB &b) noexcept;
     [[nodiscard]] llvm::Value *_call_optix_get_world_space_ray(IB &b) noexcept;
+    [[nodiscard]] llvm::Value *_call_optix_get_payload(IB &b, uint32_t index) noexcept;
+    void _call_optix_set_payload_types(IB &b, uint32_t types) noexcept;
     void _call_optix_report_intersection(IB &b, llvm::Value *hit_kind, llvm::Value *t) noexcept;
     void _call_optix_ignore_intersection(IB &b) noexcept;
     void _call_optix_terminate_ray(IB &b) noexcept;
@@ -386,6 +388,7 @@ private:
     void _translate_ray_query_object_write_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectWriteInst *inst) noexcept;
     void _translate_ray_query_pipeline_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryPipelineInst *inst) noexcept;
     llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
+    void _lower_ray_query_intrinsics(llvm::Function *f) noexcept;
     void _materialize_ray_query_loops() noexcept;
 
     // autodiff instructions: autodiff_scope, autodiff_intrinsic, defined in cuda_codegen_llvm_impl_autodiff.cpp
