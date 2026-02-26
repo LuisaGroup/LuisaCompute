@@ -73,19 +73,11 @@ llvm::Function *CUDACodegenLLVMImpl::_declare_llvm_external_function(const xir::
 }
 
 llvm::Function *CUDACodegenLLVMImpl::_translate_function(const xir::FunctionDefinition *func) noexcept {
-    auto func_name = func->name().value_or("<anonymous>");
-    LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: translating function '{}'...", func_name);
     switch (func->derived_function_tag()) {
-        case xir::DerivedFunctionTag::KERNEL: {
-            auto result = _translate_kernel_function(static_cast<const xir::KernelFunction *>(func));
-            LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: kernel function '{}' translated.", func_name);
-            return result;
-        }
-        case xir::DerivedFunctionTag::CALLABLE: {
-            auto result = _translate_callable_function(static_cast<const xir::CallableFunction *>(func));
-            LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: callable function '{}' translated.", func_name);
-            return result;
-        }
+        case xir::DerivedFunctionTag::KERNEL:
+            return _translate_kernel_function(static_cast<const xir::KernelFunction *>(func));
+        case xir::DerivedFunctionTag::CALLABLE:
+            return _translate_callable_function(static_cast<const xir::CallableFunction *>(func));
         case xir::DerivedFunctionTag::EXTERNAL: LUISA_ERROR_WITH_LOCATION("Cannot translate external function.");
         default: break;
     }

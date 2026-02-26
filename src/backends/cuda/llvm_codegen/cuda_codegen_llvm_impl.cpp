@@ -389,31 +389,18 @@ luisa::string CUDACodegenLLVMImpl::_generate_ptx() const noexcept {
         LUISA_ERROR_WITH_LOCATION("TargetMachine can't emit PTX.");
     }
     pass_manager.run(*_llvm_module);
-    luisa::string ptx_str{ptx.begin(), ptx.end()};
-    static auto dump_source = [] {
-        using namespace std::string_view_literals;
-        auto env = getenv("LUISA_DUMP_SOURCE");
-        return env != nullptr && env == "1"sv;
-    }();
-    if (dump_source) {
-        llvm::errs() << ptx_str.c_str() << "\n";
-    }
-    return ptx_str;
+    return {ptx.begin(), ptx.end()};
 }
 
 luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexcept {
-    LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: analyzing ray tracing usage...");
     _analyze_ray_tracing_usage(xir_module);
-    LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: ray query usage = {}", _rt_analysis.uses_ray_query);
     _llvm_module->setSourceFileName(std::string_view{_config.source_file});
     _llvm_module->setModuleIdentifier(xir_module.name().value_or(""));
-    LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: translating functions...");
     for (auto func : xir_module.function_list()) {
         if (auto def = func->definition()) {
             [[maybe_unused]] auto llvm_f = _translate_function(def);
         }
     }
-    LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: verifying module...");
     auto verify = [&] {
         if (llvm::verifyModule(*_llvm_module, &llvm::errs())) {
             std::error_code ec;
@@ -426,9 +413,7 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
         }
     };
     verify();
-    LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: module verified, checking ray query usage...");
     if (_rt_analysis.uses_ray_query) {
-        LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: processing ray queries...");
         // we need to inline all device functions so that ray query extraction can work
         // but we must NOT inline the generated ray query intersection functions
         // as they need to be called by OptiX entry points
@@ -442,16 +427,12 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
                 }
             }
         }
-        LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: running ray query loop extraction...");
         _run_optimization_passes([](auto &MPM) noexcept {
             MPM.addPass(detail::RayQueryLoopExtraction{});
         });
-        LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: materializing ray query loops...");
         _materialize_ray_query_loops();
-        LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: verifying after ray query processing...");
         verify();
     }
-    LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: running final optimization passes...");
     _run_optimization_passes();
     static auto dump_llvm_ir = [] {
         using namespace std::string_view_literals;
