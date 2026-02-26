@@ -220,16 +220,20 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         LUISA_ASSERT(loop_call != nullptr, "Ray query loop extracted function has no call site.");
 
         llvm::CallInst *spawn_call = nullptr;
-        for (auto &BB : *loop_call->getFunction()) {
-            for (auto &I : BB) {
-                if (auto CI = llvm::dyn_cast<llvm::CallInst>(&I)) {
+        for (auto bb = loop_call->getParent(); bb != nullptr && spawn_call == nullptr; ) {
+            auto it = (bb == loop_call->getParent() ? 
+                       loop_call->getReverseIterator() : 
+                       bb->rbegin());
+            auto ie = bb->rend();
+            for (; it != ie; ++it) {
+                if (auto CI = llvm::dyn_cast<llvm::CallInst>(&*it)) {
                     if (CI->getCalledFunction() && CI->getCalledFunction()->getName() == llvm::StringRef{llvm_ray_query_intrinsic_name_spawn.data(), llvm_ray_query_intrinsic_name_spawn.size()}) {
                         spawn_call = CI;
                         break;
                     }
                 }
             }
-            if (spawn_call) break;
+            bb = bb->getSinglePredecessor();
         }
         LUISA_ASSERT(spawn_call != nullptr, "Spawn call not found for ray query loop.");
 

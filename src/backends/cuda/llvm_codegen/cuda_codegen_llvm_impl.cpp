@@ -337,18 +337,7 @@ private:
                 return nullptr;
             }();
             LUISA_ASSERT(InitCall != nullptr, "No dominating ray query 'initialize' call found for 'proceed' call.");
-            // find the outermost loop that is dominated by this `initialize` call
-            auto DominatesLoop = [&DT, InitCall](llvm::Loop *loop) noexcept {
-                return DT.dominates(InitCall->getParent(), loop->getHeader());
-            };
-            while (auto ParentL = L->getParentLoop()) {
-                if (DominatesLoop(ParentL)) {
-                    L = ParentL;
-                } else {
-                    break;
-                }
-            }
-            LUISA_ASSERT(L != nullptr && DominatesLoop(L), "Failed to find the outermost ray query loop for 'proceed' call.");
+            LUISA_ASSERT(DT.dominates(InitCall->getParent(), L->getHeader()), "Failed to find the ray query loop for 'proceed' call.");
             
             // Demote PHI nodes in the loop header to stack allocas. This ensures that the 
             // loop state is preserved in the context struct when the loop is extracted.
@@ -461,15 +450,6 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
         _materialize_ray_query_loops();
         LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: verifying after ray query processing...");
         verify();
-        // Dump IR right after materialization, before final optimization
-        {
-            std::error_code EC;
-            llvm::raw_fd_ostream file("/home/mike/CLionProjects/LuisaCompute/cmake-build-debug/debug_before_opt.ll", EC);
-            if (!EC) {
-                _llvm_module->print(file, nullptr);
-                LUISA_VERBOSE_WITH_LOCATION("Dumped IR to debug_before_opt.ll");
-            }
-        }
     }
     LUISA_VERBOSE_WITH_LOCATION("LLVM codegen: running final optimization passes...");
     _run_optimization_passes();
