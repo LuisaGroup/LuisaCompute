@@ -181,6 +181,7 @@ private:
     llvm::DenseMap<const Type *, luisa::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, luisa::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
+    llvm::SmallPtrSet<llvm::Function *, 4> _ray_query_intersection_functions;// Track intersection functions to prevent inlining
 
     template<typename T = llvm::Value>
         requires std::derived_from<T, llvm::Value>

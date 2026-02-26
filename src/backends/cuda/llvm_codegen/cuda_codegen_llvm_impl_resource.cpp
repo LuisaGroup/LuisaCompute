@@ -815,7 +815,7 @@ llvm::Value *CUDACodegenLLVMImpl::_accel_trace_any(IB &b, uint32_t flags, llvm::
 void CUDACodegenLLVMImpl::_call_optix_trace(IB &b, uint32_t payload_type, uint32_t sbt_offset, uint32_t flags,
                                             llvm::Value *accel, llvm::Value *ray, llvm::Value *time, llvm::Value *mask,
                                             llvm::ArrayRef<llvm::Value *> registers) noexcept {
-    LUISA_DEBUG_ASSERT(registers.size() <= 2);
+    LUISA_DEBUG_ASSERT(registers.size() <= 32);
     auto handle = b.CreateExtractValue(accel, llvm_accel_type_handle_index);
     auto ox = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 0});
     auto oy = b.CreateExtractValue(ray, {llvm_ray_type_origin_index, 1});
@@ -929,17 +929,17 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_hit_object_hit_kind(IB &b) noexcep
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_read_instance_index(IB &b) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0), _optix_read_instance_idx, ();", "=r", false);
+    auto llvm_asm = _get_inline_asm("call ($0), _optix_read_instance_idx, ();", "=r", true);
     return b.CreateCall(llvm_asm, {});
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_read_primitive_index(IB &b) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0), _optix_read_primitive_idx, ();", "=r", false);
+    auto llvm_asm = _get_inline_asm("call ($0), _optix_read_primitive_idx, ();", "=r", true);
     return b.CreateCall(llvm_asm, {});
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_triangle_barycentrics(IB &b) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0, $1), _optix_get_triangle_barycentrics, ();", "=f,=f", false);
+    auto llvm_asm = _get_inline_asm("call ($0, $1), _optix_get_triangle_barycentrics, ();", "=f,=f", true);
     auto llvm_uv = b.CreateCall(llvm_asm, {});
     auto llvm_u = b.CreateExtractValue(llvm_uv, 0);
     auto llvm_v = b.CreateExtractValue(llvm_uv, 1);
@@ -947,24 +947,24 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_triangle_barycentrics(IB &b) n
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_curve_parameter(IB &b) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_curve_parameter, ();", "=f", false);
+    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_curve_parameter, ();", "=f", true);
     return b.CreateCall(llvm_asm, {});
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_hit_distance(IB &b) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_ray_tmax, ();", "=f", false);
+    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_ray_tmax, ();", "=f", true);
     return b.CreateCall(llvm_asm, {});
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_hit_kind(IB &b) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_hit_kind, ();", "=r", false);
+    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_hit_kind, ();", "=r", true);
     return b.CreateCall(llvm_asm, {});
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcept {
     auto f = [&](std::string_view component) {
         auto asm_str = fmt::format("call ($0), _optix_get_{}, ();", component);
-        auto llvm_asm = _get_inline_asm(asm_str, "=f", false);
+        auto llvm_asm = _get_inline_asm(asm_str, "=f", true);
         return b.CreateCall(llvm_asm, {});
     };
     auto ox = f("world_ray_origin_x");
@@ -988,7 +988,7 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcep
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_payload(IB &b, uint32_t index) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", false);
+    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", true);
     return b.CreateCall(llvm_asm, {b.getInt32(index)});
 }
 
@@ -998,8 +998,8 @@ void CUDACodegenLLVMImpl::_call_optix_set_payload_types(IB &b, uint32_t types) n
 }
 
 void CUDACodegenLLVMImpl::_call_optix_report_intersection(IB &b, llvm::Value *hit_kind, llvm::Value *t) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0), _optix_report_intersection_0, ($1, $2);", "=r,f,r", true);
-    b.CreateCall(llvm_asm, {t, hit_kind});
+    auto llvm_asm = _get_inline_asm("{\n\t\t.reg .f32 t_hit;\n\t\tmov.b32 t_hit, $1;\n\t\tcall ($0), _optix_report_intersection_0, (t_hit, $2);\n\t}", "=r,r,r", true);
+    b.CreateCall(llvm_asm, {b.CreateBitCast(t, b.getInt32Ty()), hit_kind});
 }
 
 void CUDACodegenLLVMImpl::_call_optix_ignore_intersection(IB &b) noexcept {

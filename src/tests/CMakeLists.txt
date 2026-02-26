@@ -102,6 +102,7 @@ luisa_compute_add_executable(test_fire_simulation test_fire_simulation.cpp)
 luisa_compute_add_executable(test_reaction_diffusion test_reaction_diffusion.cpp)
 luisa_compute_add_executable(test_voxel_raytracer test_voxel_raytracer.cpp)
 luisa_compute_add_executable(test_blackhole test_blackhole.cpp)
+luisa_compute_add_executable(test_rq_simple test_rq_simple.cpp)
 
 # XIR tests
 luisa_compute_add_executable(test_ast_to_xir test_ast_to_xir.cpp)

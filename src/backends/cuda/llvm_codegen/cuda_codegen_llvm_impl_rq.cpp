@@ -6,12 +6,98 @@
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
+#include <llvm/Transforms/Utils/ValueMapper.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/InlineAsm.h>
 
 #include "cuda_codegen_llvm_impl.h"
 
 namespace luisa::compute::cuda {
+
+llvm::Value *CUDACodegenLLVMImpl::_call_ray_query_intrinsic(IB &b, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept {
+    llvm::SmallVector<llvm::Type *> arg_types;
+    for (auto arg : args) {
+        arg_types.push_back(arg->getType());
+    }
+    llvm::FunctionType *ft = llvm::FunctionType::get(ret, arg_types, false);
+    auto f = _llvm_module->getOrInsertFunction(name, ft);
+    return b.CreateCall(f, args);
+}
+
+llvm::Value *CUDACodegenLLVMImpl::_translate_ray_query_object_read_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectReadInst *inst) noexcept {
+    LUISA_DEBUG_ASSERT(inst->operand_count() == 1u, "Invalid ray query object read instruction.");
+    switch (inst->op()) {
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
+            return _call_optix_get_world_space_ray(b);
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: {
+            auto inst_id = _call_optix_read_instance_index(b);
+            auto prim_id = _call_optix_read_primitive_index(b);
+            auto hit = static_cast<llvm::Value *>(llvm::PoisonValue::get(_get_llvm_procedural_hit_type()));
+            hit = b.CreateInsertValue(hit, inst_id, llvm_procedural_hit_type_inst_id_index);
+            hit = b.CreateInsertValue(hit, prim_id, llvm_procedural_hit_type_prim_id_index);
+            return hit;
+        }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: {
+            auto inst_id = _call_optix_read_instance_index(b);
+            auto prim_id = _call_optix_read_primitive_index(b);
+            auto bary = _call_optix_get_triangle_barycentrics(b);
+            auto t = _call_optix_get_hit_distance(b);
+            auto hit = static_cast<llvm::Value *>(llvm::PoisonValue::get(_get_llvm_surface_hit_type()));
+            hit = b.CreateInsertValue(hit, inst_id, llvm_surface_hit_type_inst_id_index);
+            hit = b.CreateInsertValue(hit, prim_id, llvm_surface_hit_type_prim_id_index);
+            hit = b.CreateInsertValue(hit, bary, llvm_surface_hit_type_bary_index);
+            hit = b.CreateInsertValue(hit, t, llvm_surface_hit_type_t_index);
+            return hit;
+        }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: {
+            auto is_hit = _call_optix_hit_object_is_hit(b);
+            auto inst_id = b.CreateSelect(is_hit, _call_optix_hit_object_instance_index(b), b.getInt32(~0u));
+            auto prim_id = _call_optix_hit_object_primitive_index(b);
+            auto bary = _call_optix_hit_object_triangle_barycentrics(b);
+            auto hit_kind = _call_optix_hit_object_hit_kind(b);
+            auto kind = b.CreateSelect(is_hit,
+                                       b.CreateSelect(b.CreateICmpUGT(hit_kind, b.getInt32(127u)),
+                                                      b.getInt32(1u /* BUILTIN */),
+                                                      b.getInt32(2u /* PROCEDURAL */)),
+                                       b.getInt32(0u /* MISS */));
+            auto t = _call_optix_hit_object_ray_t_max(b);
+            auto hit = static_cast<llvm::Value *>(llvm::PoisonValue::get(_get_llvm_committed_hit_type()));
+            hit = b.CreateInsertValue(hit, inst_id, llvm_committed_hit_type_inst_id_index);
+            hit = b.CreateInsertValue(hit, prim_id, llvm_committed_hit_type_prim_id_index);
+            hit = b.CreateInsertValue(hit, bary, llvm_committed_hit_type_bary_index);
+            hit = b.CreateInsertValue(hit, kind, llvm_committed_hit_type_hit_kind_index);
+            hit = b.CreateInsertValue(hit, t, llvm_committed_hit_type_t_index);
+            return hit;
+        }
+        default:
+            LUISA_ERROR_WITH_LOCATION("Invalid ray query object read operation.");
+    }
+}
+
+void CUDACodegenLLVMImpl::_translate_ray_query_object_write_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectWriteInst *inst) noexcept {
+    switch (inst->op()) {
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE:
+            _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_commit_surface_hit, b.getVoidTy(), {});
+            break;
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL:
+            _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_commit_procedural_hit, b.getVoidTy(),
+                                      {_get_llvm_value(b, func_ctx, inst->operand(1))});
+            break;
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE:
+            _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_terminate, b.getVoidTy(), {});
+            break;
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED:
+            _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_proceed, b.getVoidTy(), {});
+            break;
+        default:
+            LUISA_ERROR_WITH_LOCATION("Invalid ray query object write operation.");
+    }
+}
+
+void CUDACodegenLLVMImpl::_translate_ray_query_pipeline_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryPipelineInst *inst) noexcept {
+    // Pipeline is handled during materialization
+    LUISA_NOT_IMPLEMENTED();
+}
 
 void CUDACodegenLLVMImpl::_translate_ray_query_loop_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryLoopInst *inst) noexcept {
     b.GetInsertBlock()->setName("ray.query.loop");
@@ -21,12 +107,6 @@ void CUDACodegenLLVMImpl::_translate_ray_query_loop_inst(IB &b, FunctionContext 
 }
 
 void CUDACodegenLLVMImpl::_translate_ray_query_dispatch_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryDispatchInst *inst) noexcept {
-    // luisa.ray.query.proceed();
-    // switch (luisa.ray.query.state()) {
-    //    case surface: br surface_block
-    //    case procedural: br procedural_block
-    //    default: br exit_block
-    // }
     _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_proceed, b.getVoidTy(), {});
     auto llvm_state = _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_state, b.getInt8Ty(), {});
     auto llvm_exit_block = func_ctx.get_local_value<llvm::BasicBlock>(inst->exit_block());
@@ -154,13 +234,28 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         LUISA_ASSERT(spawn_call != nullptr, "Spawn call not found for ray query loop.");
 
         IB b{loop_call};
-        auto ctx_ptr = loop_call->getArgOperand(0);
-        auto ctx_ptr_int = b.CreatePtrToInt(ctx_ptr, b.getInt64Ty());
+        
+        auto arg_count = loop_call->arg_size();
+        llvm::SmallVector<llvm::Type *, 8> ctx_field_types;
+        for (unsigned j = 0; j < arg_count; ++j) {
+            ctx_field_types.push_back(loop_call->getArgOperand(j)->getType());
+        }
+        auto ctx_type = llvm::StructType::get(_llvm_context, ctx_field_types);
+        auto ctx_alloca = b.CreateAlloca(ctx_type, nullptr, "rq_ctx");
+        for (unsigned j = 0; j < arg_count; ++j) {
+            auto field_ptr = b.CreateStructGEP(ctx_type, ctx_alloca, j);
+            b.CreateStore(loop_call->getArgOperand(j), field_ptr);
+        }
+        
+        auto ctx_ptr_int = b.CreatePtrToInt(ctx_alloca, b.getInt64Ty());
         auto p_ctx_hi = b.CreateTrunc(b.CreateLShr(ctx_ptr_int, 32), b.getInt32Ty());
         auto p_ctx_lo = b.CreateTrunc(ctx_ptr_int, b.getInt32Ty());
 
+        // Align with AST path packing:
+        // r0 = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
+        // r1 = static_cast<lc_uint>(p_ctx);
         auto r0 = b.CreateOr(b.CreateShl(b.getInt32(static_cast<uint32_t>(i)), 24),
-                             b.CreateAnd(p_ctx_hi, 0xffffffu));
+                             b.CreateAnd(p_ctx_hi, b.getInt32(0xffffffu)));
         auto r1 = p_ctx_lo;
 
         auto accel = spawn_call->getArgOperand(0);
@@ -171,17 +266,53 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         auto flags_int = llvm::dyn_cast<llvm::ConstantInt>(flags_val);
         LUISA_ASSERT(flags_int != nullptr, "Ray query flags must be constant.");
 
-        _call_optix_trace(b, 5 /* LC_PAYLOAD_TYPE_RAY_QUERY */, 5 /* sbt_offset */, static_cast<uint32_t>(flags_int->getZExtValue()),
+        _call_optix_trace(b, 2 /* LC_PAYLOAD_TYPE_RAY_QUERY */, 5 /* sbt_offset */, static_cast<uint32_t>(flags_int->getZExtValue()),
                           accel, ray, time, mask, {r0, r1});
+
+        // Fix reloads in the caller by identifying Argument->Argument sync patterns in F
+        llvm::DenseMap<llvm::Value *, llvm::Value *> reload_map;
+        for (auto &BB : *F) {
+            for (auto &I : BB) {
+                if (auto SI = llvm::dyn_cast<llvm::StoreInst>(&I)) {
+                    auto val = SI->getValueOperand();
+                    if (auto LI = llvm::dyn_cast<llvm::LoadInst>(val)) {
+                        auto src = LI->getPointerOperand();
+                        auto dst = SI->getPointerOperand();
+                        if (auto src_arg = llvm::dyn_cast<llvm::Argument>(src)) {
+                            if (auto dst_arg = llvm::dyn_cast<llvm::Argument>(dst)) {
+                                reload_map[loop_call->getArgOperand(dst_arg->getArgNo())] = 
+                                    loop_call->getArgOperand(src_arg->getArgNo());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        llvm::SmallVector<llvm::LoadInst *, 8> caller_reloads;
+        for (auto &I : *loop_call->getParent()) {
+            if (I.comesBefore(loop_call)) continue;
+            if (auto LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
+                if (reload_map.count(LI->getPointerOperand())) {
+                    caller_reloads.push_back(LI);
+                }
+            }
+        }
+        for (auto LI : caller_reloads) {
+            b.SetInsertPoint(LI);
+            auto new_load = b.CreateLoad(LI->getType(), reload_map[LI->getPointerOperand()]);
+            LI->replaceAllUsesWith(new_load);
+            LI->eraseFromParent();
+        }
 
         // Define return type: struct { float t, i8 committed, i8 terminated }
         auto result_type = llvm::StructType::get(_llvm_context, {b.getFloatTy(),
-                                                                b.getInt8Ty(),
-                                                                b.getInt8Ty()});
+                                                                 b.getInt8Ty(),
+                                                                 b.getInt8Ty()});
 
         auto create_intersection_func = [&](luisa::string name) {
             auto ft = llvm::FunctionType::get(result_type, {b.getPtrTy()}, false);
-            auto new_f = llvm::Function::Create(ft, llvm::Function::InternalLinkage, llvm::StringRef{name.data(), name.size()}, _llvm_module.get());
+            auto new_f = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, llvm::StringRef{name.data(), name.size()}, _llvm_module.get());
             new_f->addFnAttr(llvm::Attribute::AlwaysInline);
             return new_f;
         };
@@ -193,13 +324,51 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
 
         auto transform_intersection_func = [&](llvm::Function *new_f, bool is_triangle) {
             llvm::ValueToValueMapTy vmap;
-            vmap[F->getArg(0)] = new_f->getArg(0);
-            llvm::SmallVector<llvm::ReturnInst *, 4> returns;
-            llvm::CloneFunctionInto(new_f, F, vmap, llvm::CloneFunctionChangeType::LocalChangesOnly, returns);
-
-            // Lower intrinsics in the new function
             IB nb{_llvm_context};
-            auto &alloca_bb = new_f->getEntryBlock();
+            auto entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", new_f);
+            nb.SetInsertPoint(entry_bb);
+            
+            for (unsigned j = 0; j < arg_count; ++j) {
+                auto field_ptr = nb.CreateStructGEP(ctx_type, new_f->getArg(0), j);
+                auto val = nb.CreateLoad(ctx_field_types[j], field_ptr);
+                vmap[F->getArg(j)] = val;
+            }
+
+            for (auto &BB : *F) {
+                auto new_bb = llvm::BasicBlock::Create(_llvm_context, BB.getName(), new_f);
+                vmap[&BB] = new_bb;
+            }
+            nb.CreateBr(llvm::cast<llvm::BasicBlock>(vmap[&F->getEntryBlock()]));
+
+            for (auto &BB : *F) {
+                auto new_bb = llvm::cast<llvm::BasicBlock>(vmap[&BB]);
+                for (auto &I : BB) {
+                    if (llvm::isa<llvm::PHINode>(&I)) continue;
+                    auto new_i = I.clone();
+                    new_i->insertInto(new_bb, new_bb->end());
+                    vmap[&I] = new_i;
+                }
+            }
+
+            for (auto &BB : *F) {
+                auto new_bb = llvm::cast<llvm::BasicBlock>(vmap[&BB]);
+                for (auto &I : BB) {
+                    if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
+                        auto new_phi = phi->clone();
+                        new_phi->insertInto(new_bb, new_bb->begin());
+                        vmap[&I] = new_phi;
+                    }
+                }
+            }
+
+            for (auto &new_bb : *new_f) {
+                if (&new_bb == entry_bb) continue;
+                for (auto &new_i : new_bb) {
+                    llvm::RemapInstruction(&new_i, vmap, llvm::RF_NoModuleLevelChanges | llvm::RF_IgnoreMissingLocals);
+                }
+            }
+
+            auto &alloca_bb = *llvm::cast<llvm::BasicBlock>(vmap[&F->getEntryBlock()]);
             nb.SetInsertPoint(&alloca_bb, alloca_bb.begin());
             auto t_hit_alloca = nb.CreateAlloca(nb.getFloatTy(), nullptr, "t_hit");
             auto committed_alloca = nb.CreateAlloca(nb.getInt8Ty(), nullptr, "committed");
@@ -209,13 +378,18 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
             nb.CreateStore(nb.getInt8(0), terminated_alloca);
 
             llvm::SmallVector<llvm::Instruction *, 16> to_remove;
-            llvm::BasicBlock *dispatch_bb = nullptr;
-            llvm::BasicBlock *exit_bb = nullptr;
-
             for (auto &bb : *new_f) {
+                if (&bb == entry_bb) continue;
                 for (auto &inst : bb) {
                     if (auto call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
                         auto callee = call->getCalledFunction();
+                        if (callee == nullptr) {
+                            if (auto v = call->getCalledOperand()) {
+                                if (auto old_func = llvm::dyn_cast<llvm::Function>(v)) {
+                                    callee = old_func;
+                                }
+                            }
+                        }
                         if (callee == nullptr) continue;
                         auto name = callee->getName();
                         if (name == llvm::StringRef{llvm_ray_query_intrinsic_name_state.data(), llvm_ray_query_intrinsic_name_state.size()}) {
@@ -235,7 +409,6 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
                             nb.CreateStore(nb.getInt8(1), terminated_alloca);
                             to_remove.push_back(call);
                         } else if (name == llvm::StringRef{llvm_ray_query_intrinsic_name_dispatch.data(), llvm_ray_query_intrinsic_name_dispatch.size()}) {
-                            dispatch_bb = &bb;
                             to_remove.push_back(call);
                         }
                     }
@@ -246,18 +419,6 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
                 inst->eraseFromParent();
             }
 
-            LUISA_ASSERT(dispatch_bb != nullptr, "Dispatch block not found in ray query loop.");
-            auto dispatch_term = dispatch_bb->getTerminator();
-            if (auto sw = llvm::dyn_cast<llvm::SwitchInst>(dispatch_term)) {
-                exit_bb = sw->getDefaultDest();
-            } else if (auto br = llvm::dyn_cast<llvm::BranchInst>(dispatch_term)) {
-                if (br->isConditional()) {
-                    exit_bb = br->getSuccessor(1);
-                }
-            }
-            LUISA_ASSERT(exit_bb != nullptr, "Exit block not found in ray query loop.");
-
-            // Create a new return block
             auto ret_bb = llvm::BasicBlock::Create(_llvm_context, "return", new_f);
             nb.SetInsertPoint(ret_bb);
             auto t_hit = nb.CreateLoad(nb.getFloatTy(), t_hit_alloca);
@@ -269,59 +430,137 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
             ret_val = nb.CreateInsertValue(ret_val, terminated, 2);
             nb.CreateRet(ret_val);
 
-            // Replace all backedges to dispatch with branch to return
+            llvm::DominatorTree DT(*new_f);
+            llvm::SmallVector<std::pair<llvm::Instruction *, unsigned>, 8> backedges;
             for (auto &bb : *new_f) {
+                if (&bb == ret_bb || &bb == entry_bb) continue;
                 auto term = bb.getTerminator();
                 for (unsigned j = 0; j < term->getNumSuccessors(); ++j) {
-                    if (term->getSuccessor(j) == dispatch_bb) {
-                        term->setSuccessor(j, ret_bb);
+                    auto succ = term->getSuccessor(j);
+                    if (DT.dominates(succ, &bb)) {
+                        backedges.emplace_back(term, j);
                     }
                 }
             }
+            for (auto [term, j] : backedges) {
+                nb.SetInsertPoint(term);
+                nb.CreateStore(nb.getInt8(0), terminated_alloca);
+                term->setSuccessor(j, ret_bb);
+            }
 
-            // Replace all branches to exit with terminated = 1 and branch to return
+            llvm::SmallVector<llvm::ReturnInst *, 4> old_returns;
             for (auto &bb : *new_f) {
                 if (&bb == ret_bb) continue;
-                auto term = bb.getTerminator();
-                for (unsigned j = 0; j < term->getNumSuccessors(); ++j) {
-                    if (term->getSuccessor(j) == exit_bb) {
-                        nb.SetInsertPoint(term);
-                        nb.CreateStore(nb.getInt8(1), terminated_alloca);
-                        term->setSuccessor(j, ret_bb);
-                    }
+                if (auto ret = llvm::dyn_cast<llvm::ReturnInst>(bb.getTerminator())) {
+                    old_returns.push_back(ret);
                 }
             }
-
-            // Remove original return instructions if any (there should be none reachable now)
-            for (auto ret : returns) {
-                if (ret->getParent() != nullptr) {
-                    nb.SetInsertPoint(ret);
-                    nb.CreateBr(ret_bb);
-                    ret->eraseFromParent();
-                }
+            for (auto ret : old_returns) {
+                nb.SetInsertPoint(ret);
+                nb.CreateStore(nb.getInt8(1), terminated_alloca);
+                llvm::BranchInst::Create(ret_bb, ret->getParent());
+                ret->eraseFromParent();
             }
         };
 
         transform_intersection_func(triangle_f, true);
         transform_intersection_func(procedural_f, false);
 
-        // Remove the call to the extracted loop and the spawn call
         loop_call->eraseFromParent();
         spawn_call->eraseFromParent();
     }
 
-    // Generate __anyhit__ray_query and __intersection__ray_query entry points
-    auto generate_entry = [&](luisa::string entry_name, bool is_triangle) {
+    auto generate_anyhit_entry = [&]() {
         auto ft = llvm::FunctionType::get(llvm::Type::getVoidTy(_llvm_context), {}, false);
-        auto entry_f = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, llvm::StringRef{entry_name.data(), entry_name.size()}, _llvm_module.get());
+        auto entry_f = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "__anyhit__ray_query", _llvm_module.get());
+        auto entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", entry_f);
+        IB eb{entry_bb};
+
+        _call_optix_set_payload_types(eb, 1u << 1u /* LC_PAYLOAD_TYPE_RAY_QUERY */);
+        auto hit_kind = _call_optix_get_hit_kind(eb);
+        auto is_triangle = eb.CreateICmpUGT(hit_kind, eb.getInt32(127u));
+
+        auto triangle_bb = llvm::BasicBlock::Create(_llvm_context, "triangle", entry_f);
+        auto procedural_bb = llvm::BasicBlock::Create(_llvm_context, "procedural", entry_f);
+        auto terminate_check_bb = llvm::BasicBlock::Create(_llvm_context, "terminate_check", entry_f);
+        eb.CreateCondBr(is_triangle, triangle_bb, procedural_bb);
+
+        eb.SetInsertPoint(procedural_bb);
+        auto proc_term = eb.CreateICmpEQ(hit_kind, eb.getInt32(0x02u /* LC_HIT_KIND_PROCEDURAL_TERMINATED */));
+        eb.CreateBr(terminate_check_bb);
+
+        eb.SetInsertPoint(triangle_bb);
+        auto r0 = _call_optix_get_payload(eb, 0u);
+        auto r1 = _call_optix_get_payload(eb, 1u);
+        
+        auto query_id = eb.CreateLShr(r0, 24);
+        auto p_ctx_hi = eb.CreateAnd(r0, eb.getInt32(0xffffffu));
+        auto p_ctx_lo = r1;
+        auto p_ctx = eb.CreateIntToPtr(
+            eb.CreateOr(eb.CreateShl(eb.CreateZExt(p_ctx_hi, eb.getInt64Ty()), 32),
+                        eb.CreateZExt(p_ctx_lo, eb.getInt64Ty())),
+            eb.getPtrTy());
+
+        auto should_terminate_alloca = eb.CreateAlloca(eb.getInt1Ty(), nullptr, "should_terminate");
+        eb.CreateStore(eb.getInt1(false), should_terminate_alloca);
+
+        auto switch_exit_bb = llvm::BasicBlock::Create(_llvm_context, "switch_exit", entry_f);
+        auto sw = eb.CreateSwitch(query_id, switch_exit_bb, extracted_funcs.size());
+
+        for (size_t i = 0; i < extracted_funcs.size(); ++i) {
+            auto case_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"case_"} + llvm::Twine{i}, entry_f);
+            eb.SetInsertPoint(case_bb);
+            auto intersection_f_name = luisa::format("lc_ray_query_triangle_intersection_{}", i);
+            auto intersection_f = _llvm_module->getFunction(llvm::StringRef{intersection_f_name.data(), intersection_f_name.size()});
+            auto res = eb.CreateCall(intersection_f, {p_ctx});
+            auto committed = eb.CreateExtractValue(res, 1);
+            auto terminated = eb.CreateExtractValue(res, 2);
+
+            auto ignore_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"ignore_"} + llvm::Twine{i}, entry_f);
+            auto store_terminate_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"store_terminate_"} + llvm::Twine{i}, entry_f);
+            eb.CreateCondBr(eb.CreateICmpEQ(committed, eb.getInt8(0)), ignore_bb, store_terminate_bb);
+            eb.SetInsertPoint(ignore_bb);
+            _call_optix_ignore_intersection(eb);
+            eb.CreateBr(store_terminate_bb);
+            eb.SetInsertPoint(store_terminate_bb);
+            eb.CreateStore(eb.CreateICmpNE(terminated, eb.getInt8(0)), should_terminate_alloca);
+            eb.CreateBr(switch_exit_bb);
+
+            sw->addCase(eb.getInt32(static_cast<uint32_t>(i)), case_bb);
+        }
+        eb.SetInsertPoint(switch_exit_bb);
+        auto tri_term = eb.CreateLoad(eb.getInt1Ty(), should_terminate_alloca);
+        eb.CreateBr(terminate_check_bb);
+
+        eb.SetInsertPoint(terminate_check_bb);
+        auto phi_term = eb.CreatePHI(eb.getInt1Ty(), 2);
+        phi_term->addIncoming(proc_term, procedural_bb);
+        phi_term->addIncoming(tri_term, switch_exit_bb);
+        
+        auto do_terminate_bb = llvm::BasicBlock::Create(_llvm_context, "do_terminate", entry_f);
+        auto exit_bb = llvm::BasicBlock::Create(_llvm_context, "exit", entry_f);
+        eb.CreateCondBr(phi_term, do_terminate_bb, exit_bb);
+        
+        eb.SetInsertPoint(do_terminate_bb);
+        _call_optix_terminate_ray(eb);
+        eb.CreateBr(exit_bb);
+        
+        eb.SetInsertPoint(exit_bb);
+        eb.CreateRetVoid();
+    };
+
+    auto generate_intersection_entry = [&]() {
+        auto ft = llvm::FunctionType::get(llvm::Type::getVoidTy(_llvm_context), {}, false);
+        auto entry_f = llvm::Function::Create(ft, llvm::Function::ExternalLinkage, "__intersection__ray_query", _llvm_module.get());
         auto entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", entry_f);
         IB eb{entry_bb};
 
         _call_optix_set_payload_types(eb, 1u << 1u /* LC_PAYLOAD_TYPE_RAY_QUERY */);
         auto r0 = _call_optix_get_payload(eb, 0u);
         auto r1 = _call_optix_get_payload(eb, 1u);
+        
         auto query_id = eb.CreateLShr(r0, 24);
-        auto p_ctx_hi = eb.CreateAnd(r0, 0xffffffu);
+        auto p_ctx_hi = eb.CreateAnd(r0, eb.getInt32(0xffffffu));
         auto p_ctx_lo = r1;
         auto p_ctx = eb.CreateIntToPtr(
             eb.CreateOr(eb.CreateShl(eb.CreateZExt(p_ctx_hi, eb.getInt64Ty()), 32),
@@ -334,36 +573,21 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         for (size_t i = 0; i < extracted_funcs.size(); ++i) {
             auto case_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"case_"} + llvm::Twine{i}, entry_f);
             eb.SetInsertPoint(case_bb);
-            auto intersection_f_name = luisa::format("lc_ray_query_{}_intersection_{}", is_triangle ? "triangle" : "procedural", i);
+            auto intersection_f_name = luisa::format("lc_ray_query_procedural_intersection_{}", i);
             auto intersection_f = _llvm_module->getFunction(llvm::StringRef{intersection_f_name.data(), intersection_f_name.size()});
             auto res = eb.CreateCall(intersection_f, {p_ctx});
             auto t_hit = eb.CreateExtractValue(res, 0);
             auto committed = eb.CreateExtractValue(res, 1);
             auto terminated = eb.CreateExtractValue(res, 2);
 
-            if (is_triangle) {
-                auto ignore_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"ignore_"} + llvm::Twine{i}, entry_f);
-                auto check_terminate_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"check_terminate_"} + llvm::Twine{i}, entry_f);
-                eb.CreateCondBr(eb.CreateICmpNE(committed, eb.getInt8(0)), check_terminate_bb, ignore_bb);
-                eb.SetInsertPoint(ignore_bb);
-                _call_optix_ignore_intersection(eb);
-                eb.CreateBr(check_terminate_bb);
-                eb.SetInsertPoint(check_terminate_bb);
-                auto terminate_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"terminate_"} + llvm::Twine{i}, entry_f);
-                eb.CreateCondBr(eb.CreateICmpNE(terminated, eb.getInt8(0)), terminate_bb, exit_bb);
-                eb.SetInsertPoint(terminate_bb);
-                _call_optix_terminate_ray(eb);
-                eb.CreateBr(exit_bb);
-            } else {
-                auto report_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"report_"} + llvm::Twine{i}, entry_f);
-                eb.CreateCondBr(eb.CreateICmpNE(committed, eb.getInt8(0)), report_bb, exit_bb);
-                eb.SetInsertPoint(report_bb);
-                auto hit_kind_val = eb.CreateSelect(eb.CreateICmpNE(terminated, eb.getInt8(0)),
-                                                    eb.getInt32(0x02u /* LC_HIT_KIND_PROCEDURAL_TERMINATED */),
-                                                    eb.getInt32(0x01u /* LC_HIT_KIND_PROCEDURAL */));
-                _call_optix_report_intersection(eb, hit_kind_val, t_hit);
-                eb.CreateBr(exit_bb);
-            }
+            auto report_bb = llvm::BasicBlock::Create(_llvm_context, llvm::Twine{"report_"} + llvm::Twine{i}, entry_f);
+            eb.CreateCondBr(eb.CreateICmpNE(committed, eb.getInt8(0)), report_bb, exit_bb);
+            eb.SetInsertPoint(report_bb);
+            auto hit_kind_val = eb.CreateSelect(eb.CreateICmpNE(terminated, eb.getInt8(0)),
+                                                eb.getInt32(0x02u /* LC_HIT_KIND_PROCEDURAL_TERMINATED */),
+                                                eb.getInt32(0x01u /* LC_HIT_KIND_PROCEDURAL */));
+            _call_optix_report_intersection(eb, hit_kind_val, t_hit);
+            eb.CreateBr(exit_bb);
             sw->addCase(eb.getInt32(static_cast<uint32_t>(i)), case_bb);
         }
 
@@ -371,8 +595,8 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         eb.CreateRetVoid();
     };
 
-    generate_entry("__anyhit__ray_query", true);
-    generate_entry("__intersection__ray_query", false);
+    generate_anyhit_entry();
+    generate_intersection_entry();
 
     // Lower ray query intrinsics in all functions
     for (auto &f : *_llvm_module) {
