@@ -41,10 +41,16 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--headless]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
     Device device = context.create_device(argv[1]);
+    bool headless = false;
+    for (int i = 1; i < argc; i++) {
+        if (std::string_view{argv[i]} == "--headless") {
+            headless = true;
+        }
+    }
 
     // load the Cornell Box scene
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -310,15 +316,6 @@ int main(int argc, char *argv[]) {
         accum_image.write(p, accum + make_float4(curr, 1.f));
     };
 
-    Callable aces_tonemapping = [](Float3 x) noexcept {
-        static constexpr float a = 2.51f;
-        static constexpr float b = 0.03f;
-        static constexpr float c = 2.43f;
-        static constexpr float d = 0.59f;
-        static constexpr float e = 0.14f;
-        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
-    };
-
     Kernel2D clear_kernel = [](ImageFloat image) noexcept {
         image.write(dispatch_id().xy(), make_float4(0.0f));
     };
@@ -347,46 +344,61 @@ int main(int argc, char *argv[]) {
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
     cmd_list << clear_shader(accum_image).dispatch(resolution)
              << make_sampler_shader(seed_image).dispatch(resolution);
+    stream << cmd_list.commit();
 
-    Window window{"path tracing", resolution};
-    Swapchain swap_chain = device.create_swapchain(
-        stream,
-        SwapchainOption{
-            .display = window.native_display(),
-            .window = window.native_handle(),
-            .size = resolution,
-            .wants_hdr = false,
-            .wants_vsync = false,
-            .back_buffer_count = 2,
-        });
-    Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
-    double last_time = 0.0;
-    uint frame_count = 0u;
-    Clock clock;
+    if (headless) {
+        static constexpr uint total_spp = 512u;
+        for (uint i = 0u; i < total_spp; i += spp_per_dispatch) {
+            stream << raytracing_shader(framebuffer, seed_image, accel, resolution).dispatch(resolution)
+                   << accumulate_shader(accum_image, framebuffer).dispatch(resolution);
+            LUISA_INFO("Progress: {}/{}", i + spp_per_dispatch, total_spp);
+        }
+        Image<float> ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
+        stream << hdr2ldr_shader(accum_image, ldr_image, 1.0f, false).dispatch(resolution)
+               << ldr_image.copy_to(host_image.data())
+               << synchronize();
+        stbi_write_png("test_path_tracing_cutout.png", resolution.x, resolution.y, 4, host_image.data(), 0);
+    } else {
+        Window window{"path tracing", resolution};
+        Swapchain swap_chain = device.create_swapchain(
+            stream,
+            SwapchainOption{
+                .display = window.native_display(),
+                .window = window.native_handle(),
+                .size = resolution,
+                .wants_hdr = false,
+                .wants_vsync = false,
+                .back_buffer_count = 2,
+            });
+        Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
+        double last_time = 0.0;
+        uint frame_count = 0u;
+        Clock clock;
 
-    std::mt19937 rand{std::random_device{}()};
-    std::normal_distribution<float> dist{0.f, 1.f};
-    while (!window.should_close()) {
-        float4x4 t = translation(make_float3(0.f, dist(rand) * .03f + .1f, 0.f));
-        accel.set_transform_on_update(tall_inst, t);
-        cmd_list << accel.build(AccelBuildRequest::PREFER_UPDATE)
-                 << raytracing_shader(framebuffer, seed_image, accel, resolution)
-                        .dispatch(resolution)
-                 << accumulate_shader(accum_image, framebuffer)
-                        .dispatch(resolution);
-        cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
-        stream << cmd_list.commit()
-               << swap_chain.present(ldr_image);
-        window.poll_events();
-        double dt = clock.toc() - last_time;
-        last_time = clock.toc();
-        frame_count += spp_per_dispatch;
-        LUISA_INFO("time: {} ms", dt);
+        std::mt19937 rand{std::random_device{}()};
+        std::normal_distribution<float> dist{0.f, 1.f};
+        while (!window.should_close()) {
+            float4x4 t = translation(make_float3(0.f, dist(rand) * .03f + .1f, 0.f));
+            accel.set_transform_on_update(tall_inst, t);
+            cmd_list << accel.build(AccelBuildRequest::PREFER_UPDATE)
+                     << raytracing_shader(framebuffer, seed_image, accel, resolution)
+                            .dispatch(resolution)
+                     << accumulate_shader(accum_image, framebuffer)
+                            .dispatch(resolution);
+            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
+            stream << cmd_list.commit()
+                   << swap_chain.present(ldr_image);
+            window.poll_events();
+            double dt = clock.toc() - last_time;
+            last_time = clock.toc();
+            frame_count += spp_per_dispatch;
+            LUISA_INFO("time: {} ms", dt);
+        }
+        stream
+            << ldr_image.copy_to(host_image.data())
+            << synchronize();
+
+        LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
+        stbi_write_png("test_path_tracing_cutout.png", resolution.x, resolution.y, 4, host_image.data(), 0);
     }
-    stream
-        << ldr_image.copy_to(host_image.data())
-        << synchronize();
-
-    LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
-    stbi_write_png("test_path_tracing_cutout.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
