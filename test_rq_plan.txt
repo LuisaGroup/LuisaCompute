@@ -1,0 +1,38 @@
+1. Iterate over all functions starting with "ray.query.loop.extracted".
+2. For each extracted function (index `i`):
+   a. Create `ray.query.triangle.i` and `ray.query.procedural.i` by cloning the extracted function.
+   b. In `triangle.i`:
+      - Replace `state()` call with `1`.
+      - Create allocas for `committed` and `terminated`.
+      - Lower `commit.surface` to `committed = true`.
+      - Lower `terminate` to `terminated = true`.
+      - Find the `dispatch` block (loop header).
+      - Change all backedges to `dispatch` to branch to a new `return` block.
+      - Change all edges to `exit` to set `terminated=true` and branch to `return` block.
+      - The `return` block returns `{committed, terminated}`.
+   c. In `procedural.i`:
+      - Replace `state()` call with `2`.
+      - Create allocas for `committed`, `terminated`, `t_hit`.
+      - Lower `commit.procedural(t)` to `committed = true, t_hit = t`.
+      - Lower `terminate` to `terminated = true`.
+      - Modify backedges and exit edges similar to above.
+      - The `return` block returns `{committed, terminated, t_hit}`.
+   d. Delete the original `ray.query.loop.extracted` function? No, wait!
+      The original code calls `ray.query.loop.extracted`! We must replace the body of `ray.query.loop.extracted`!
+      Instead of running a loop, `ray.query.loop.extracted` should now just set up the trace:
+      - It takes the capture struct pointer `%ctx`.
+      - It calls `_call_optix_trace(...)` with `impl_tag = i` and `ctx = %ctx`.
+      - It checks the hit result and maybe updates the capture struct?
+      Wait, the query object itself might be in the capture struct. Does `optixTrace` return the hit?
+      In AST, `lc_ray_query_trace` sets `q.hit = lc_ray_query_decode_hit()`.
+      But in LLVM, the hit object is read via `luisa.ray.query.committed.hit`.
+      Wait, `optixTrace` implicitly updates the payload or the hit object. OptiX 7 uses the Hit Object API. `_call_optix_trace` modifies the hidden OptiX state, and subsequent `_call_optix_hit_object_*` calls will read it!
+      So `ray.query.loop.extracted` should just be replaced by:
+      ```llvm
+      define void @ray.query.loop.extracted(ptr %ctx) {
+        call void @luisa.optix.trace.wrapper(i32 %i, ptr %ctx)
+        ret void
+      }
+      ```
+      Wait, the initial ray is passed to `optixTrace`. Where do we get the ray, accel, time, mask?
+      They were passed to `luisa.ray.query.spawn`!

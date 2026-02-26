@@ -69,7 +69,7 @@ void CUDACodegenLLVMImpl::_translate_ray_query_object_write_inst(IB &b, Function
     LUISA_DEBUG_ASSERT(inst->type() == nullptr);
     LUISA_DEBUG_ASSERT(inst->operand_count() == 1 || inst->operand_count() == 2);
     llvm::SmallVector<llvm::Value *, 2> llvm_args;
-    for (auto &&op_use : inst->operand_uses().subspan(1)/* skip the query object */) {
+    for (auto &&op_use : inst->operand_uses().subspan(1) /* skip the query object */) {
         llvm_args.emplace_back(_get_llvm_value(b, func_ctx, op_use->value()));
     }
     _call_ray_query_intrinsic(b, intrinsic, b.getVoidTy(), llvm_args);
@@ -90,8 +90,65 @@ llvm::Value *CUDACodegenLLVMImpl::_call_ray_query_intrinsic(IB &b, llvm::StringR
     return b.CreateCall(func, args);
 }
 
+#include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Utils/BasicBlockUtils.h>
+
 void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
-    // TODO
+    llvm::SmallVector<llvm::Function *, 4> extracted_funcs;
+    for (auto &F : *_llvm_module) {
+        if (F.getName().starts_with("ray.query.loop.extracted")) {
+            extracted_funcs.push_back(&F);
+        }
+    }
+    if (extracted_funcs.empty()) { return; }
+
+    for (size_t i = 0; i < extracted_funcs.size(); ++i) {
+        auto F = extracted_funcs[i];
+
+        llvm::CallInst *loop_call = nullptr;
+        for (auto U : F->users()) {
+            if (auto CI = llvm::dyn_cast<llvm::CallInst>(U)) {
+                loop_call = CI;
+                break;
+            }
+        }
+        LUISA_ASSERT(loop_call != nullptr, "Ray query loop extracted function has no call site.");
+
+        llvm::CallInst *spawn_call = nullptr;
+        for (auto &BB : *loop_call->getFunction()) {
+            for (auto &I : BB) {
+                if (auto CI = llvm::dyn_cast<llvm::CallInst>(&I)) {
+                    if (CI->getCalledFunction() && CI->getCalledFunction()->getName() == llvm_ray_query_intrinsic_name_spawn) {
+                        spawn_call = CI;
+                        break;
+                    }
+                }
+            }
+            if (spawn_call) break;
+        }
+        LUISA_ASSERT(spawn_call != nullptr, "Spawn call not found for ray query loop.");
+
+        IB b{loop_call};
+        auto ctx_ptr = loop_call->getArgOperand(0);
+        auto ctx_ptr_int = b.CreatePtrToInt(ctx_ptr, b.getInt64Ty());
+        auto p_ctx_hi = b.CreateTrunc(b.CreateLShr(ctx_ptr_int, 32), b.getInt32Ty());
+        auto p_ctx_lo = b.CreateTrunc(ctx_ptr_int, b.getInt32Ty());
+
+        auto r0 = b.CreateOr(b.CreateShl(b.getInt32(static_cast<uint32_t>(i)), 24), p_ctx_hi);
+        auto r1 = p_ctx_lo;
+
+        auto accel = spawn_call->getArgOperand(0);
+        auto ray = spawn_call->getArgOperand(1);
+        auto time = spawn_call->getArgOperand(2);
+        auto mask = spawn_call->getArgOperand(3);
+        auto flags = spawn_call->getArgOperand(4);
+
+        _call_optix_trace(b, 5 /* LC_PAYLOAD_TYPE_RAY_QUERY */, 2 /* reg_count */, flags, accel, ray, time, mask, {r0, r1});
+
+        // Remove the call to the extracted loop and the spawn call
+        loop_call->eraseFromParent();
+        spawn_call->eraseFromParent();
+    }
 }
 
 }// namespace luisa::compute::cuda

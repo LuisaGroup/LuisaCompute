@@ -1,0 +1,7 @@
+{
+  "ui": {
+    "showMemoryUsage": true,
+    "showModelInfoInChat": true,
+    "showCitations": true
+  }
+}
