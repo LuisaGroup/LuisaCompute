@@ -435,15 +435,6 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
         _run_optimization_passes([](auto &MPM) noexcept {
             MPM.addPass(detail::RayQueryLoopExtraction{});
         });
-        // Dump IR after extraction to debug spawn call issue
-        {
-            std::error_code ec;
-            llvm::raw_fd_ostream file("/home/mike/CLionProjects/LuisaCompute/cmake-build-debug/debug_after_extract.ll", ec);
-            if (!ec) {
-                _llvm_module->print(file, nullptr);
-                LUISA_VERBOSE_WITH_LOCATION("Dumped IR after extraction to debug_after_extract.ll");
-            }
-        }
         _materialize_ray_query_loops();
         verify();
     }
