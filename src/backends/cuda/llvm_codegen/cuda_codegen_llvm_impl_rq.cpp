@@ -199,7 +199,6 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         LUISA_ASSERT(loop_call != nullptr, "Ray query loop extracted function has no call site.");
 
         // Find spawn call in the same function as loop_call
-        // The spawn call should dominate the loop call
         llvm::CallInst *spawn_call = nullptr;
         auto *caller_func = loop_call->getFunction();
         LUISA_ASSERT(caller_func != nullptr, "Loop call is not inside a function.");
@@ -211,6 +210,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
                     if (CI->getCalledFunction() &&
                         CI->getCalledFunction()->getName() == llvm::StringRef{llvm_ray_query_intrinsic_name_spawn.data(), llvm_ray_query_intrinsic_name_spawn.size()}) {
                         spawn_call = CI;
+                        LUISA_VERBOSE_WITH_LOCATION("Found spawn call in block: {}", BB.getName().str());
                         break;
                     }
                 }
@@ -218,6 +218,19 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
             if (spawn_call != nullptr) break;
         }
         LUISA_ASSERT(spawn_call != nullptr, "Spawn call not found in function containing ray query loop call site.");
+
+        // Debug: print spawn call location relative to loop call
+        LUISA_VERBOSE_WITH_LOCATION("Caller function: {}", caller_func->getName().str());
+        LUISA_VERBOSE_WITH_LOCATION("Extracted function: {}", F->getName().str());
+        LUISA_VERBOSE_WITH_LOCATION("Loop call in block: {}", loop_call->getParent()->getName().str());
+        LUISA_VERBOSE_WITH_LOCATION("Spawn call in block: {}", spawn_call->getParent()->getName().str());
+        if (spawn_call->getFunction() == F) {
+            LUISA_VERBOSE_WITH_LOCATION("Spawn call is INSIDE extracted function F");
+        } else if (spawn_call->getFunction() == caller_func) {
+            LUISA_VERBOSE_WITH_LOCATION("Spawn call is in caller function");
+        } else {
+            LUISA_VERBOSE_WITH_LOCATION("Spawn call is in UNKNOWN function: {}", spawn_call->getFunction()->getName().str());
+        }
 
         // Create alloca in the entry block, not at loop_call position
         auto *entry_block = &caller_func->getEntryBlock();
@@ -236,7 +249,38 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         for (unsigned j = 0; j < spawn_call->arg_size(); ++j) {
             auto arg = spawn_call->getArgOperand(j);
             spawn_args.push_back(arg);
-            spawn_arg_needs_context.push_back(!DT.dominates(arg, loop_call));
+            bool dominates = DT.dominates(arg, loop_call);
+            spawn_arg_needs_context.push_back(!dominates);
+            if (!dominates) {
+                LUISA_VERBOSE_WITH_LOCATION("Spawn arg {} ({}) does not dominate loop call", j,
+                                            arg->getName().empty() ? "unnamed" : arg->getName().str());
+                if (auto inst = llvm::dyn_cast<llvm::Instruction>(arg)) {
+                    auto parent_block = inst->getParent();
+                    LUISA_VERBOSE_WITH_LOCATION("  Defined in block: {}", parent_block->getName().str());
+                    LUISA_VERBOSE_WITH_LOCATION("  Instruction type: {}", inst->getOpcodeName());
+                    // Check relative position to spawn call
+                    if (parent_block == spawn_call->getParent()) {
+                        bool before_spawn = inst->comesBefore(spawn_call);
+                        LUISA_VERBOSE_WITH_LOCATION("  Comes before spawn call: {}", before_spawn);
+                    }
+                    // Check if it's a load from alloca (loop-carried dependency)
+                    if (auto load = llvm::dyn_cast<llvm::LoadInst>(inst)) {
+                        LUISA_VERBOSE_WITH_LOCATION("  Is load from: {}",
+                                                    load->getPointerOperand()->getName().empty() ? "unnamed" : load->getPointerOperand()->getName().str());
+                    }
+                } else if (auto arg_val = llvm::dyn_cast<llvm::Argument>(arg)) {
+                    LUISA_VERBOSE_WITH_LOCATION("  Is function argument {}", arg_val->getArgNo());
+                } else {
+                    LUISA_VERBOSE_WITH_LOCATION("  Value type: other");
+                }
+                // Check if this spawn arg is the same as any loop_call arg
+                for (unsigned k = 0; k < loop_call->arg_size(); ++k) {
+                    if (arg == loop_call->getArgOperand(k)) {
+                        LUISA_VERBOSE_WITH_LOCATION("  Matches loop_call arg {}", k);
+                        break;
+                    }
+                }
+            }
         }
 
         // Build context type: [loop_call_args..., spawn_args_that_need_context...]
@@ -254,34 +298,34 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         auto ctx_type = llvm::StructType::get(_llvm_context, ctx_field_types);
         auto ctx_alloca = entry_b.CreateAlloca(ctx_type, nullptr, "rq_ctx");
 
-        // Check if any spawn args don't dominate - if so, we can't properly handle this case
-        // because we can't store the value before it's defined
+        // For spawn args that don't dominate loop_call, we need to store them at the
+        // spawn_call position (where they're available) instead of at loop_call position
+        IB spawn_b{spawn_call};
+        unsigned ctx_idx = spawn_context_start;
         for (unsigned j = 0; j < spawn_call->arg_size(); ++j) {
             if (spawn_arg_needs_context[j]) {
-                LUISA_ERROR_WITH_LOCATION(
-                    "Ray query spawn argument {} does not dominate the loop call. "
-                    "Values constructed inside ray query loops are not supported. "
-                    "Please ensure all ray query parameters are defined before the loop.",
-                    j);
+                auto field_ptr = spawn_b.CreateStructGEP(ctx_type, ctx_alloca, ctx_idx++);
+                spawn_b.CreateStore(spawn_args[j], field_ptr);
             }
         }
 
-        // Store arguments to context at loop_call position
+        // Store loop_call arguments at loop_call position
         IB b{loop_call};
         for (unsigned j = 0; j < arg_count; ++j) {
             auto field_ptr = b.CreateStructGEP(ctx_type, ctx_alloca, j);
             b.CreateStore(loop_call->getArgOperand(j), field_ptr);
         }
 
-        auto ctx_ptr_int = b.CreatePtrToInt(ctx_alloca, b.getInt64Ty());
-        auto p_ctx_hi = b.CreateTrunc(b.CreateLShr(ctx_ptr_int, 32), b.getInt32Ty());
-        auto p_ctx_lo = b.CreateTrunc(ctx_ptr_int, b.getInt32Ty());
+        // Create payload values at spawn_call position (where context is fully populated)
+        auto ctx_ptr_int = spawn_b.CreatePtrToInt(ctx_alloca, spawn_b.getInt64Ty());
+        auto p_ctx_hi = spawn_b.CreateTrunc(spawn_b.CreateLShr(ctx_ptr_int, 32), spawn_b.getInt32Ty());
+        auto p_ctx_lo = spawn_b.CreateTrunc(ctx_ptr_int, spawn_b.getInt32Ty());
 
         // Align with AST path packing:
         // r0 = (impl_tag << 24u) | (static_cast<lc_uint>(p_ctx >> 32u) & 0xffffffu);
         // r1 = static_cast<lc_uint>(p_ctx);
-        auto r0 = b.CreateOr(b.CreateShl(b.getInt32(static_cast<uint32_t>(i)), 24),
-                             b.CreateAnd(p_ctx_hi, b.getInt32(0xffffffu)));
+        auto r0 = spawn_b.CreateOr(spawn_b.CreateShl(spawn_b.getInt32(static_cast<uint32_t>(i)), 24),
+                                   spawn_b.CreateAnd(p_ctx_hi, spawn_b.getInt32(0xffffffu)));
         auto r1 = p_ctx_lo;
 
         // Validate spawn call has expected number of arguments
@@ -295,7 +339,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         auto flags_int = llvm::dyn_cast<llvm::ConstantInt>(flags_val);
         LUISA_ASSERT(flags_int != nullptr, "Ray query flags must be constant.");
 
-        _call_optix_trace(b, 2 /* LC_PAYLOAD_TYPE_RAY_QUERY */, 5 /* sbt_offset */,
+        _call_optix_trace(spawn_b, 2 /* LC_PAYLOAD_TYPE_RAY_QUERY */, 5 /* sbt_offset */,
                           static_cast<uint32_t>(flags_int->getZExtValue()), accel,
                           ray, time, mask, {r0, r1});
 
