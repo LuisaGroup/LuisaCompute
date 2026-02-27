@@ -182,6 +182,9 @@ private:
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, luisa::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
 
+    // Track extracted ray query functions to avoid fragile name matching
+    llvm::DenseSet<llvm::Function *> _ray_query_functions;
+
     template<typename T = llvm::Value>
         requires std::derived_from<T, llvm::Value>
     [[nodiscard]] T *_get_llvm_value(IB &b, const FunctionContext &func_ctx, const xir::Value *v) noexcept {
@@ -387,6 +390,10 @@ private:
     void _translate_ray_query_pipeline_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryPipelineInst *inst) noexcept;
     llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     void _materialize_ray_query_loops() noexcept;
+    void _generate_ray_query_entry_points() noexcept;
+    void _generate_intersection_program() noexcept;
+    void _generate_anyhit_program() noexcept;
+    void _lower_ray_query_handler(llvm::Function *handler) noexcept;
 
     // autodiff instructions: autodiff_scope, autodiff_intrinsic, defined in cuda_codegen_llvm_impl_autodiff.cpp
     void _translate_autodiff_scope_inst(IB &b, FunctionContext &func_ctx, const xir::AutodiffScopeInst *inst) noexcept;

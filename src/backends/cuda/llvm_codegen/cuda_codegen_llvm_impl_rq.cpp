@@ -69,7 +69,7 @@ void CUDACodegenLLVMImpl::_translate_ray_query_object_write_inst(IB &b, Function
     LUISA_DEBUG_ASSERT(inst->type() == nullptr);
     LUISA_DEBUG_ASSERT(inst->operand_count() == 1 || inst->operand_count() == 2);
     llvm::SmallVector<llvm::Value *, 2> llvm_args;
-    for (auto &&op_use : inst->operand_uses().subspan(1)/* skip the query object */) {
+    for (auto &&op_use : inst->operand_uses().subspan(1) /* skip the query object */) {
         llvm_args.emplace_back(_get_llvm_value(b, func_ctx, op_use->value()));
     }
     _call_ray_query_intrinsic(b, intrinsic, b.getVoidTy(), llvm_args);
@@ -88,10 +88,6 @@ llvm::Value *CUDACodegenLLVMImpl::_call_ray_query_intrinsic(IB &b, llvm::StringR
         func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, name, _llvm_module.get());
     }
     return b.CreateCall(func, args);
-}
-
-void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
-    // TODO
 }
 
 }// namespace luisa::compute::cuda
