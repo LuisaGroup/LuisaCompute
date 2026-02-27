@@ -411,9 +411,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
             llvm::CloneFunctionInto(new_f, F, vmap, llvm::CloneFunctionChangeType::LocalChangesOnly, returns);
 
             // Fix extractelement with non-constant indices - NVPTX doesn't support them
-            // Store vector to alloca, use GEP to get element pointer, then load
+            // Store vector to alloca (in entry block), GEP with element type, then load
+            llvm::SmallVector<llvm::ExtractElementInst *, 8> to_fix;
             for (auto &bb : *new_f) {
-                llvm::SmallVector<llvm::ExtractElementInst *, 8> to_fix;
                 for (auto &inst : bb) {
                     if (auto extract = llvm::dyn_cast<llvm::ExtractElementInst>(&inst)) {
                         auto index = extract->getIndexOperand();
@@ -422,25 +422,28 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
                         }
                     }
                 }
-                for (auto extract : to_fix) {
-                    llvm::IRBuilder<> builder(extract);
-                    auto vec = extract->getVectorOperand();
-                    auto index = extract->getIndexOperand();
-                    auto vec_type = vec->getType();
-                    // Cast index to i32 if needed
-                    if (index->getType()->isIntegerTy(64)) {
-                        index = builder.CreateTrunc(index, builder.getInt32Ty());
-                    }
-                    // Store vector to alloca
-                    auto vec_alloca = builder.CreateAlloca(vec_type, nullptr, "vec.tmp");
-                    builder.CreateStore(vec, vec_alloca);
-                    // GEP to element
-                    auto elem_ptr = builder.CreateGEP(vec_type, vec_alloca, {builder.getInt32(0), index});
-                    // Load element
-                    auto elem = builder.CreateLoad(vec_type->getScalarType(), elem_ptr);
-                    extract->replaceAllUsesWith(elem);
-                    extract->eraseFromParent();
+            }
+            // Create allocas in entry block to avoid stack overflow
+            llvm::IRBuilder<> entry_builder(&new_f->getEntryBlock().front());
+            for (auto extract : to_fix) {
+                llvm::IRBuilder<> builder(extract);
+                auto vec = extract->getVectorOperand();
+                auto index = extract->getIndexOperand();
+                auto vec_type = llvm::cast<llvm::FixedVectorType>(vec->getType());
+                auto elem_type = vec_type->getScalarType();
+                // Cast index to i32 if needed
+                if (index->getType()->isIntegerTy(64)) {
+                    index = builder.CreateTrunc(index, builder.getInt32Ty());
                 }
+                // Create vector alloca in entry block
+                auto vec_alloca = entry_builder.CreateAlloca(vec_type, nullptr, "vec.tmp");
+                builder.CreateStore(vec, vec_alloca);
+                // GEP with element type (opaque pointers - no bitcast needed)
+                auto gep = builder.CreateGEP(elem_type, vec_alloca, index);
+                // Load element
+                auto elem = builder.CreateLoad(elem_type, gep);
+                extract->replaceAllUsesWith(elem);
+                extract->eraseFromParent();
             }
 
             // Fix entry block branch to the cloned entry block of F
