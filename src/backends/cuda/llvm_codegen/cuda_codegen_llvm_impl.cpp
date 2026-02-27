@@ -512,9 +512,41 @@ void CUDACodegenLLVMImpl::_generate_intersection_program(llvm::ArrayRef<llvm::Fu
     auto entry_block = llvm::BasicBlock::Create(_llvm_context, "entry", func);
     b.SetInsertPoint(entry_block);
 
-    // TODO: Implement full context decoding and handler dispatch
-    // This is a placeholder that will be expanded in subsequent commits
+    // Decode query ID from payload register 0
+    // r0 = (query_id << 24) | (ctx_ptr_high & 0xffffff)
+    // r1 = ctx_ptr_low
+    auto r0 = _call_optix_get_payload(b, b.getInt32(0));
+    auto query_id = b.CreateLShr(r0, 24);
 
+    // Create switch to dispatch to correct procedural handler
+    if (!handlers.empty()) {
+        auto switch_inst = b.CreateSwitch(query_id, entry_block, handlers.size());
+
+        for (size_t i = 0; i < handlers.size(); ++i) {
+            auto handler_block = llvm::BasicBlock::Create(_llvm_context,
+                                                          "handler_" + std::to_string(i), func);
+            switch_inst->addCase(b.getInt32(i), handler_block);
+            b.SetInsertPoint(handler_block);
+
+            // Call handler and get result
+            auto result = b.CreateCall(handlers[i]);
+
+            // Extract committed and terminated flags
+            auto committed = b.CreateExtractValue(result, 0);
+            auto terminated = b.CreateExtractValue(result, 1);
+
+            // If committed, report intersection
+            // TODO: Get t_hit from handler result for procedural
+            // For now, use 0.0f as placeholder
+            auto t_val = llvm::ConstantFP::get(b.getFloatTy(), 0.0);
+            auto hit_kind_val = b.getInt32(0);
+            _call_optix_report_intersection(b, hit_kind_val, t_val);
+
+            b.CreateRetVoid();
+        }
+    }
+
+    b.SetInsertPoint(entry_block);
     b.CreateRetVoid();
 }
 
@@ -529,16 +561,173 @@ void CUDACodegenLLVMImpl::_generate_anyhit_program(llvm::ArrayRef<llvm::Function
     auto entry_block = llvm::BasicBlock::Create(_llvm_context, "entry", func);
     b.SetInsertPoint(entry_block);
 
-    // TODO: Implement full context decoding and handler dispatch
-    // This is a placeholder that will be expanded in subsequent commits
+    // Decode query ID from payload register 0
+    auto r0 = _call_optix_get_payload(b, 0);
+    auto query_id = b.CreateLShr(r0, 24);
 
+    // Create switch to dispatch to correct triangle handler
+    if (!handlers.empty()) {
+        auto switch_inst = b.CreateSwitch(query_id, entry_block, handlers.size());
+
+        for (size_t i = 0; i < handlers.size(); ++i) {
+            auto handler_block = llvm::BasicBlock::Create(_llvm_context,
+                                                          "handler_" + std::to_string(i), func);
+            switch_inst->addCase(b.getInt32(i), handler_block);
+            b.SetInsertPoint(handler_block);
+
+            // Call handler and get result
+            auto result = b.CreateCall(handlers[i]);
+
+            // Extract committed and terminated flags
+            auto committed = b.CreateExtractValue(result, 0);
+            auto terminated = b.CreateExtractValue(result, 1);
+
+            // If not committed, ignore this intersection
+            // In OptiX anyhit, intersection is accepted by default unless ignored
+            // TODO: Check committed flag and conditionally ignore
+            // For now, always accept
+
+            b.CreateRetVoid();
+        }
+    }
+
+    b.SetInsertPoint(entry_block);
     b.CreateRetVoid();
 }
 
 void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noexcept {
-    // Transform pseudo-intrinsics in the handler to actual device calls
-    // TODO: Implement full intrinsic lowering
-    // This is a placeholder that will be expanded in subsequent commits
+    IB b{_llvm_context};
+
+    // Create LCIntersectionResult type: { i8 committed, i8 terminated } (bool is i8 in device code)
+    auto i8_type = b.getInt8Ty();
+    llvm::Type *result_type = nullptr;
+
+    // Try to find existing type, or create new one
+    for (auto &ty : _llvm_module->getIdentifiedStructTypes()) {
+        if (ty->hasName() && ty->getName() == "LCIntersectionResult") {
+            result_type = ty;
+            break;
+        }
+    }
+    if (!result_type) {
+        auto struct_type = llvm::StructType::create(_llvm_context, {i8_type, i8_type}, "LCIntersectionResult");
+        result_type = struct_type;
+    }
+
+    // Change function signature to return LCIntersectionResult
+    auto new_func_type = llvm::FunctionType::get(result_type, {}, false);
+    handler->mutateType(new_func_type);
+
+    // Collect all instructions that need to be replaced
+    llvm::SmallVector<llvm::CallInst *, 16> calls_to_replace;
+    for (auto &block : *handler) {
+        for (auto &inst : block) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+                if (auto *callee = call->getCalledFunction()) {
+                    calls_to_replace.push_back(call);
+                }
+            }
+        }
+    }
+
+    // Track if we've seen a commit or terminate
+    llvm::AllocaInst *committed_alloca = nullptr;
+    llvm::AllocaInst *terminated_alloca = nullptr;
+
+    for (auto *call : calls_to_replace) {
+        auto *callee = call->getCalledFunction();
+        if (!callee) continue;
+
+        auto name = callee->getName();
+        b.SetInsertPoint(call);
+
+        if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_dispatch)) {
+            // luisa.ray.query.dispatch() - this is a no-op in OptiX, just remove it
+            call->eraseFromParent();
+        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_state)) {
+            // luisa.ray.query.state() - get hit type from OptiX
+            // For now, replace with constant based on handler type
+            auto state_value = b.getInt8(llvm_ray_query_state_surface_candidate);
+            call->replaceAllUsesWith(state_value);
+            call->eraseFromParent();
+        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_world_space_ray)) {
+            // TODO: Implement inline asm for _optix_get_world_ray
+            call->eraseFromParent();
+        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_surface_candidate_hit)) {
+            // TODO: Implement inline asm for OptiX hit attributes
+            call->eraseFromParent();
+        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_procedural_candidate_hit)) {
+            // TODO: Implement inline asm for OptiX hit attributes
+            call->eraseFromParent();
+        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_commit_surface_hit)) {
+            // luisa.ray.query.commit.surface.hit() - set committed flag
+            if (!committed_alloca) {
+                b.SetInsertPoint(&handler->getEntryBlock().front());
+                committed_alloca = b.CreateAlloca(i8_type, nullptr, "committed");
+                b.CreateStore(b.getInt8(0), committed_alloca);
+            }
+            b.SetInsertPoint(call);
+            b.CreateStore(b.getInt8(1), committed_alloca);
+            call->eraseFromParent();
+        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_commit_procedural_hit)) {
+            // luisa.ray.query.commit.procedural.hit(t) - set committed flag
+            if (!committed_alloca) {
+                b.SetInsertPoint(&handler->getEntryBlock().front());
+                committed_alloca = b.CreateAlloca(i8_type, nullptr, "committed");
+                b.CreateStore(b.getInt8(0), committed_alloca);
+            }
+            b.SetInsertPoint(call);
+            b.CreateStore(b.getInt8(1), committed_alloca);
+            call->eraseFromParent();
+        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_terminate)) {
+            // luisa.ray.query.terminate() - set terminated flag
+            if (!terminated_alloca) {
+                b.SetInsertPoint(&handler->getEntryBlock().front());
+                terminated_alloca = b.CreateAlloca(i8_type, nullptr, "terminated");
+                b.CreateStore(b.getInt8(0), terminated_alloca);
+            }
+            b.SetInsertPoint(call);
+            b.CreateStore(b.getInt8(1), terminated_alloca);
+            call->eraseFromParent();
+        }
+    }
+
+    // Transform returns to return the result struct
+    for (auto &block : *handler) {
+        if (auto *ret = llvm::dyn_cast<llvm::ReturnInst>(block.getTerminator())) {
+            b.SetInsertPoint(ret);
+
+            // If we have result tracking, load values from allocas
+            // Otherwise return {0, 0}
+            if (committed_alloca || terminated_alloca) {
+                // Get committed value
+                llvm::Value *committed_val;
+                if (committed_alloca) {
+                    committed_val = b.CreateLoad(i8_type, committed_alloca, "committed");
+                } else {
+                    committed_val = b.getInt8(0);
+                }
+
+                // Get terminated value
+                llvm::Value *terminated_val;
+                if (terminated_alloca) {
+                    terminated_val = b.CreateLoad(i8_type, terminated_alloca, "terminated");
+                } else {
+                    terminated_val = b.getInt8(0);
+                }
+
+                // Create insertvalue chain to build struct
+                llvm::Value *result = llvm::UndefValue::get(result_type);
+                result = b.CreateInsertValue(result, committed_val, 0, "result.committed");
+                result = b.CreateInsertValue(result, terminated_val, 1, "result");
+                b.CreateRet(result);
+            } else {
+                // No tracking, return {0, 0}
+                b.CreateRet(llvm::Constant::getNullValue(result_type));
+            }
+            ret->eraseFromParent();
+        }
+    }
 }
 
 }// namespace luisa::compute::cuda

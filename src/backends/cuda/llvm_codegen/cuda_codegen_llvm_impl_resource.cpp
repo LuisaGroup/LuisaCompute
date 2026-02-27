@@ -1002,4 +1002,9 @@ void CUDACodegenLLVMImpl::_call_optix_terminate_ray(IB &b) noexcept {
     b.CreateCall(llvm_asm, {});
 }
 
+llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_payload(IB &b, llvm::Value *index) noexcept {
+    auto llvm_asm = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", false);
+    return b.CreateCall(llvm_asm, {index});
+}
+
 }// namespace luisa::compute::cuda

@@ -378,6 +378,7 @@ private:
     void _call_optix_report_intersection(IB &b, llvm::Value *hit_kind, llvm::Value *t) noexcept;
     void _call_optix_ignore_intersection(IB &b) noexcept;
     void _call_optix_terminate_ray(IB &b) noexcept;
+    [[nodiscard]] llvm::Value *_call_optix_get_payload(IB &b, llvm::Value *index) noexcept;
 
     // ray query instructions: ray_query_loop, ray_query_dispatch, ray_query_object_read, ray_query_object_write, ray_query_pipeline, defined in cuda_codegen_llvm_impl_rq.cpp
     void _translate_ray_query_loop_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryLoopInst *inst) noexcept;
