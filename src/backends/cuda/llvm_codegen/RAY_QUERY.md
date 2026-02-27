@@ -40,41 +40,62 @@ The generated PTX must contain these entry points:
 
 ### Important Implementation Notes
 
-#### Function Tracking (DO NOT Use Name Matching)
+#### Function Identification via Intrinsic Scanning
 
-**CRITICAL**: Never rely on fragile string matching like `func.getName().starts_with("ray.query.loop.extracted")` to identify ray query functions. Instead, use proper bookkeeping:
+**CRITICAL**: Never rely on fragile string matching or stored pointers to identify ray query functions. Functions can be:
+- **Deleted** by dead code elimination
+- **Merged** by mergefunctions pass
+- **Moved/renamed** by optimization passes
+
+**Solution**: Dynamically scan for functions containing `luisa.ray.query.dispatch` intrinsic calls:
 
 ```cpp
-// GOOD: Use tracking set
-class CUDACodegenLLVMImpl {
-private:
-    llvm::DenseSet<llvm::Function *> _ray_query_functions;
-};
+[[nodiscard]] bool _is_ray_query_handler(llvm::Function *func) noexcept {
+    if (func == nullptr || func->isDeclaration()) return false;
+    
+    for (auto &block : *func) {
+        for (auto &inst : block) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+                auto *callee = call->getCalledFunction();
+                if (callee && callee->getName() == "luisa.ray.query.dispatch") {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
 
-// In RayQueryLoopExtraction pass:
-_ray_query_functions.insert(extracted_func);
-
-// Later, iterate over tracked functions:
-for (auto *func : _ray_query_functions) {
-    // Process function
+// Usage: Scan dynamically right before processing
+llvm::SmallVector<llvm::Function *, 8> handlers;
+for (auto &func : *module) {
+    if (_is_ray_query_handler(&func)) {
+        handlers.push_back(&func);
+    }
 }
 ```
 
-**Rationale**: Names can change during optimization, multiple passes may run, and LLVM internal naming conventions may vary. Using a tracking set ensures robustness across compiler versions and optimization levels.
+**Benefits**:
+- Handles dead code elimination gracefully (deleted functions simply won't be found)
+- No risk of dangling pointers
+- Self-healing: always finds current state of module
+- Works regardless of function renaming or optimization
 
-**Function Pointer Stability**: LLVM `llvm::Function` objects are allocated in the LLVM context and their pointers remain stable throughout the compilation process unless explicitly deleted. However, functions can be:
-- **Merged** by mergefunctions pass (creates aliases, original function may be replaced)
-- **Deleted** if found to be dead/unreachable
-- **Modified** by optimization passes (but pointer stays the same)
+**Internal Linkage for Optimization**:
+Mark extracted functions with `InternalLinkage` to allow LLVM to optimize unused arguments:
+```cpp
+extracted_func->setLinkage(llvm::Function::InternalLinkage);
+// Run optimization passes here - LLVM can remove unused args
+// Then transform for ray query handling
+```
 
-To ensure stability:
-1. Extract functions first and store pointers
-2. Mark extracted functions with `NoInline` attribute initially
-3. Run optimization passes that eliminate unused arguments
-4. Transform functions for ray query handling
-5. Only then mark with `AlwaysInline` and run final optimizations
-
-This order ensures we work with stable function pointers during transformation.
+**Ordering**:
+1. Extract with `InternalLinkage`
+2. Run optimization passes (may delete dead functions)
+3. **Scan** for surviving handlers
+4. Transform handlers
+5. Generate entry points
+6. Mark `AlwaysInline` for final optimization
 
 #### Private Member Access
 
@@ -734,7 +755,7 @@ public:
 
 ### Completed ✓
 
-- [x] Infrastructure: Add `_ray_query_functions` tracking set to `CUDACodegenLLVMImpl`
+- [x] Infrastructure: Implement robust handler detection via intrinsic scanning
 - [x] Modify `RayQueryLoopExtraction` pass to use tracking set (reference passed to constructor)
 - [x] Add method declarations: `_materialize_ray_query_loops`, `_generate_ray_query_entry_points`, etc.
 - [x] Create placeholder implementations for OptiX entry points
