@@ -190,8 +190,8 @@ void CUDACodegenLLVMImpl::_translate_assert_inst(IB &b, FunctionContext &func_ct
 }
 
 void CUDACodegenLLVMImpl::_translate_assume_inst(IB &b, FunctionContext &func_ctx, const xir::AssumeInst *inst) noexcept {
-    auto cond = _get_llvm_value(b, func_ctx, inst->condition());
-    b.CreateAssumption(cond);
+    // auto cond = _get_llvm_value(b, func_ctx, inst->condition());
+    // b.CreateAssumption(cond);
 }
 
 void CUDACodegenLLVMImpl::_create_assertion_with_message(IB &b, llvm::Value *cond, luisa::string_view message) noexcept {

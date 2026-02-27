@@ -118,7 +118,7 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_kernel_function(const xir::Kerne
                 auto storage = reinterpret_cast<CUDATexture *>(binding->handle)->storage();
                 auto llvm_storage = b.CreateExtractValue(llvm_member_reg, llvm_texture_type_storage_index);
                 auto llvm_same_storage = b.CreateICmpEQ(llvm_storage, b.getInt64(luisa::to_underlying(storage)));
-                b.CreateAssumption(llvm_same_storage);
+                // b.CreateAssumption(llvm_same_storage);
             }
         }
         arg_index++;
@@ -132,11 +132,11 @@ llvm::Function *CUDACodegenLLVMImpl::_translate_kernel_function(const xir::Kerne
         func_ctx.llvm_dispatch_size = _create_llvm_vector(b, {llvm_dispatch_size_x, llvm_dispatch_size_y, llvm_dispatch_size_z});
     } else {// for normal kernels, we read the dispatch size from arguments
         auto llvm_dispatch_size_x = b.CreateExtractValue(llvm_dispatch_size_and_kernel_id, 0);
-        b.CreateAssumption(b.CreateICmpUGT(llvm_dispatch_size_x, b.getInt32(0)));
+        // b.CreateAssumption(b.CreateICmpUGT(llvm_dispatch_size_x, b.getInt32(0)));
         auto llvm_dispatch_size_y = b.CreateExtractValue(llvm_dispatch_size_and_kernel_id, 1);
-        b.CreateAssumption(b.CreateICmpUGT(llvm_dispatch_size_y, b.getInt32(0)));
+        // b.CreateAssumption(b.CreateICmpUGT(llvm_dispatch_size_y, b.getInt32(0)));
         auto llvm_dispatch_size_z = b.CreateExtractValue(llvm_dispatch_size_and_kernel_id, 2);
-        b.CreateAssumption(b.CreateICmpUGT(llvm_dispatch_size_z, b.getInt32(0)));
+        // b.CreateAssumption(b.CreateICmpUGT(llvm_dispatch_size_z, b.getInt32(0)));
         func_ctx.llvm_dispatch_size = _create_llvm_vector(b, {llvm_dispatch_size_x, llvm_dispatch_size_y, llvm_dispatch_size_z});
         func_ctx.llvm_dispatch_size->setName("sreg.dispatch.size");
     }

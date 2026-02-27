@@ -168,6 +168,11 @@ void CUDACodegenLLVMImpl::_lower_ray_query_intrinsics(llvm::Function *f) noexcep
 }
 
 void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
+    static auto dump_llvm_ir = [] {
+        using namespace std::string_view_literals;
+        auto env = getenv("LUISA_DUMP_LLVM_IR");
+        return env != nullptr && env == "1"sv;
+    }();
     llvm::SmallVector<llvm::Function *, 4> extracted_funcs;
     for (auto &F : *_llvm_module) {
         if (F.getName().starts_with("ray.query.loop.extracted")) {
@@ -216,20 +221,50 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
 
         // Create alloca in the entry block, not at loop_call position
         auto *entry_block = &caller_func->getEntryBlock();
-        llvm::Instruction *insert_point = entry_block->getFirstNonPHI();
-        if (insert_point == nullptr) {
-            // If the entry block is empty or only has PHI nodes, insert at the beginning
-            insert_point = &entry_block->front();
-        }
+        llvm::Instruction *insert_point = &*entry_block->getFirstNonPHIIt();
         IB entry_b{insert_point};
 
+        // Collect all values that need to be stored in context:
+        // 1. Loop call arguments (captured values)
+        // 2. Spawn call arguments that don't dominate (to avoid dominance violations)
         auto arg_count = loop_call->arg_size();
+        llvm::DominatorTree DT(*caller_func);
+
+        // First pass: identify which spawn args don't dominate
+        llvm::SmallVector<bool, 5> spawn_arg_needs_context;
+        llvm::SmallVector<llvm::Value *, 5> spawn_args;
+        for (unsigned j = 0; j < spawn_call->arg_size(); ++j) {
+            auto arg = spawn_call->getArgOperand(j);
+            spawn_args.push_back(arg);
+            spawn_arg_needs_context.push_back(!DT.dominates(arg, loop_call));
+        }
+
+        // Build context type: [loop_call_args..., spawn_args_that_need_context...]
         llvm::SmallVector<llvm::Type *, 8> ctx_field_types;
         for (unsigned j = 0; j < arg_count; ++j) {
             ctx_field_types.push_back(loop_call->getArgOperand(j)->getType());
         }
+        unsigned spawn_context_start = arg_count;
+        for (unsigned j = 0; j < spawn_call->arg_size(); ++j) {
+            if (spawn_arg_needs_context[j]) {
+                ctx_field_types.push_back(spawn_args[j]->getType());
+            }
+        }
+
         auto ctx_type = llvm::StructType::get(_llvm_context, ctx_field_types);
         auto ctx_alloca = entry_b.CreateAlloca(ctx_type, nullptr, "rq_ctx");
+
+        // Check if any spawn args don't dominate - if so, we can't properly handle this case
+        // because we can't store the value before it's defined
+        for (unsigned j = 0; j < spawn_call->arg_size(); ++j) {
+            if (spawn_arg_needs_context[j]) {
+                LUISA_ERROR_WITH_LOCATION(
+                    "Ray query spawn argument {} does not dominate the loop call. "
+                    "Values constructed inside ray query loops are not supported. "
+                    "Please ensure all ray query parameters are defined before the loop.",
+                    j);
+            }
+        }
 
         // Store arguments to context at loop_call position
         IB b{loop_call};
@@ -260,8 +295,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         auto flags_int = llvm::dyn_cast<llvm::ConstantInt>(flags_val);
         LUISA_ASSERT(flags_int != nullptr, "Ray query flags must be constant.");
 
-        _call_optix_trace(b, 2 /* LC_PAYLOAD_TYPE_RAY_QUERY */, 5 /* sbt_offset */, static_cast<uint32_t>(flags_int->getZExtValue()),
-                          accel, ray, time, mask, {r0, r1});
+        _call_optix_trace(b, 2 /* LC_PAYLOAD_TYPE_RAY_QUERY */, 5 /* sbt_offset */,
+                          static_cast<uint32_t>(flags_int->getZExtValue()), accel,
+                          ray, time, mask, {r0, r1});
 
         // Fix reloads in the caller by identifying Argument->Argument sync patterns in F
         llvm::DenseMap<llvm::Value *, llvm::Value *> reload_map;
@@ -324,46 +360,18 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
 
             for (unsigned j = 0; j < arg_count; ++j) {
                 auto field_ptr = nb.CreateStructGEP(ctx_type, new_f->getArg(0), j);
-                auto val = nb.CreateLoad(ctx_field_types[j], field_ptr);
-                vmap[F->getArg(j)] = val;
+                vmap[F->getArg(j)] = nb.CreateLoad(ctx_field_types[j], field_ptr);
             }
 
-            for (auto &BB : *F) {
-                auto new_bb = llvm::BasicBlock::Create(_llvm_context, BB.getName(), new_f);
-                vmap[&BB] = new_bb;
-            }
+            llvm::SmallVector<llvm::ReturnInst *, 4> returns;
+            llvm::CloneFunctionInto(new_f, F, vmap, llvm::CloneFunctionChangeType::LocalChangesOnly, returns);
+
+            // Fix entry block branch to the cloned entry block of F
+            nb.SetInsertPoint(entry_bb);
             nb.CreateBr(llvm::cast<llvm::BasicBlock>(vmap[&F->getEntryBlock()]));
 
-            for (auto &BB : *F) {
-                auto new_bb = llvm::cast<llvm::BasicBlock>(vmap[&BB]);
-                for (auto &I : BB) {
-                    if (llvm::isa<llvm::PHINode>(&I)) continue;
-                    auto new_i = I.clone();
-                    new_i->insertInto(new_bb, new_bb->end());
-                    vmap[&I] = new_i;
-                }
-            }
-
-            for (auto &BB : *F) {
-                auto new_bb = llvm::cast<llvm::BasicBlock>(vmap[&BB]);
-                for (auto &I : BB) {
-                    if (auto phi = llvm::dyn_cast<llvm::PHINode>(&I)) {
-                        auto new_phi = phi->clone();
-                        new_phi->insertInto(new_bb, new_bb->begin());
-                        vmap[&I] = new_phi;
-                    }
-                }
-            }
-
-            for (auto &new_bb : *new_f) {
-                if (&new_bb == entry_bb) continue;
-                for (auto &new_i : new_bb) {
-                    llvm::RemapInstruction(&new_i, vmap, llvm::RF_NoModuleLevelChanges | llvm::RF_IgnoreMissingLocals);
-                }
-            }
-
             auto &alloca_bb = *llvm::cast<llvm::BasicBlock>(vmap[&F->getEntryBlock()]);
-            nb.SetInsertPoint(&alloca_bb, alloca_bb.begin());
+            nb.SetInsertPoint(&*alloca_bb.getFirstNonPHIIt());
             auto t_hit_alloca = nb.CreateAlloca(nb.getFloatTy(), nullptr, "t_hit");
             auto committed_alloca = nb.CreateAlloca(nb.getInt8Ty(), nullptr, "committed");
             auto terminated_alloca = nb.CreateAlloca(nb.getInt8Ty(), nullptr, "terminated");
@@ -439,7 +447,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
             for (auto [term, j] : backedges) {
                 nb.SetInsertPoint(term);
                 nb.CreateStore(nb.getInt8(0), terminated_alloca);
+                auto succ = term->getSuccessor(j);
                 term->setSuccessor(j, ret_bb);
+                succ->removePredecessor(term->getParent());
             }
 
             llvm::SmallVector<llvm::ReturnInst *, 4> old_returns;
@@ -460,6 +470,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         transform_intersection_func(triangle_f, true);
         transform_intersection_func(procedural_f, false);
 
+        loop_call->replaceAllUsesWith(llvm::UndefValue::get(loop_call->getType()));
         loop_call->eraseFromParent();
         spawn_call->eraseFromParent();
     }
