@@ -439,21 +439,52 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
     return _generate_ptx();
 }
 
+namespace {
+// Robustly detect ray query handler functions by checking for dispatch intrinsic
+// This avoids issues with dead code elimination making stored pointers dangling
+[[nodiscard]] bool _is_ray_query_handler(llvm::Function *func) noexcept {
+    if (func == nullptr || func->isDeclaration()) {
+        return false;
+    }
+    // Check if function contains luisa.ray.query.dispatch call
+    for (auto &block : *func) {
+        for (auto &inst : block) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+                auto *callee = call->getCalledFunction();
+                if (callee != nullptr) {
+                    auto name = callee->getName();
+                    if (name == llvm::StringRef(CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_dispatch)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+}// namespace
+
 void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
-    // Use tracked ray query functions from extraction pass
-    // Note: Do NOT rely on fragile name matching
-    if (_ray_query_functions.empty()) {
+    // Scan module for ray query handler functions
+    // We scan dynamically instead of using stored pointers to handle dead code elimination
+    llvm::SmallVector<llvm::Function *, 8> ray_query_handlers;
+    for (auto &func : *_llvm_module) {
+        if (_is_ray_query_handler(&func)) {
+            ray_query_handlers.push_back(&func);
+        }
+    }
+
+    if (ray_query_handlers.empty()) {
         return;
     }
 
     // Assign unique query IDs to each function
     size_t query_id = 0;
-    for (auto *func : _ray_query_functions) {
+    for (auto *func : ray_query_handlers) {
         // Rename to include query ID for clarity
         func->setName("ray.query.handler." + std::to_string(query_id));
         // Remove NoInline and add AlwaysInline (they're incompatible)
         func->removeFnAttr(llvm::Attribute::NoInline);
-        func->addFnAttr(llvm::Attribute::AlwaysInline);
         query_id++;
     }
 
@@ -461,7 +492,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
     _generate_ray_query_entry_points();
 
     // Lower intrinsics in each handler
-    for (auto *func : _ray_query_functions) {
+    for (auto *func : ray_query_handlers) {
         _lower_ray_query_handler(func);
     }
 }
