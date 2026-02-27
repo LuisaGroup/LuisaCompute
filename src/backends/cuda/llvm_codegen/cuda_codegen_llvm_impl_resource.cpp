@@ -316,7 +316,7 @@ llvm::Value *CUDACodegenLLVMImpl::_translate_resource_query_inst(IB &b, Function
             auto llvm_flags = is_any ? b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT | optix::RAY_FLAG_TERMINATE_ON_FIRST_HIT) :
                                        b.getInt32(optix::RAY_FLAG_DISABLE_CLOSESTHIT);
             _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_initialize, b.getVoidTy(),
-                                      {llvm_accel, llvm_ray, llvm_time, llvm_mask, llvm_flags});
+                                      {llvm_accel, llvm_ray, llvm_time, llvm_mask, llvm_flags}, true);
             return llvm::Constant::getNullValue(_get_llvm_ray_query_type());
         }
     }

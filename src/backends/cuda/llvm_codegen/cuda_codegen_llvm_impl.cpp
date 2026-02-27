@@ -338,8 +338,8 @@ private:
             }();
             LUISA_ASSERT(InitCall != nullptr, "No dominating ray query 'initialize' call found for 'proceed' call.");
             LUISA_ASSERT(DT.dominates(InitCall->getParent(), L->getHeader()), "Failed to find the ray query loop for 'proceed' call.");
-            
-            // Demote PHI nodes in the loop header to stack allocas. This ensures that the 
+
+            // Demote PHI nodes in the loop header to stack allocas. This ensures that the
             // loop state is preserved in the context struct when the loop is extracted.
             auto Header = L->getHeader();
             llvm::SmallVector<llvm::PHINode *, 8> PHIs;
@@ -362,6 +362,11 @@ private:
             RayQueryFunctions.insert(NewF);
             ReplaceIntrinsic(InitCall, CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_spawn);
             ReplaceIntrinsic(Call, CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_dispatch);
+            LUISA_VERBOSE_WITH_LOCATION("RayQueryLoopExtraction: renamed {} -> {} and {} -> {}",
+                                        CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_initialize,
+                                        CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_spawn,
+                                        CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_proceed,
+                                        CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_dispatch);
             FAM.invalidate(*F, llvm::PreservedAnalyses::none());
         }
         // remove these functions
@@ -430,6 +435,15 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
         _run_optimization_passes([](auto &MPM) noexcept {
             MPM.addPass(detail::RayQueryLoopExtraction{});
         });
+        // Dump IR after extraction to debug spawn call issue
+        {
+            std::error_code ec;
+            llvm::raw_fd_ostream file("/home/mike/CLionProjects/LuisaCompute/cmake-build-debug/debug_after_extract.ll", ec);
+            if (!ec) {
+                _llvm_module->print(file, nullptr);
+                LUISA_VERBOSE_WITH_LOCATION("Dumped IR after extraction to debug_after_extract.ll");
+            }
+        }
         _materialize_ray_query_loops();
         verify();
     }

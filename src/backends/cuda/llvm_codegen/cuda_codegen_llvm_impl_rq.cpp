@@ -14,61 +14,35 @@
 
 namespace luisa::compute::cuda {
 
-llvm::Value *CUDACodegenLLVMImpl::_call_ray_query_intrinsic(IB &b, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept {
+llvm::Value *CUDACodegenLLVMImpl::_call_ray_query_intrinsic(IB &b, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args, bool sideeffect) noexcept {
     llvm::SmallVector<llvm::Type *> arg_types;
     for (auto arg : args) {
         arg_types.push_back(arg->getType());
     }
     llvm::FunctionType *ft = llvm::FunctionType::get(ret, arg_types, false);
     auto f = _llvm_module->getOrInsertFunction(name, ft);
-    return b.CreateCall(f, args);
+    auto call = b.CreateCall(f, args);
+    if (sideeffect) {
+        // Mark the function as having side effects so LLVM won't remove it
+        if (auto *fn = llvm::dyn_cast<llvm::Function>(f.getCallee())) {
+            fn->removeFnAttr(llvm::Attribute::ReadNone);
+            fn->removeFnAttr(llvm::Attribute::ReadOnly);
+        }
+    }
+    return call;
 }
 
 llvm::Value *CUDACodegenLLVMImpl::_translate_ray_query_object_read_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryObjectReadInst *inst) noexcept {
     LUISA_DEBUG_ASSERT(inst->operand_count() == 1u, "Invalid ray query object read instruction.");
     switch (inst->op()) {
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY:
-            return _call_optix_get_world_space_ray(b);
-        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: {
-            auto inst_id = _call_optix_read_instance_index(b);
-            auto prim_id = _call_optix_read_primitive_index(b);
-            auto hit = static_cast<llvm::Value *>(llvm::PoisonValue::get(_get_llvm_procedural_hit_type()));
-            hit = b.CreateInsertValue(hit, inst_id, llvm_procedural_hit_type_inst_id_index);
-            hit = b.CreateInsertValue(hit, prim_id, llvm_procedural_hit_type_prim_id_index);
-            return hit;
-        }
-        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: {
-            auto inst_id = _call_optix_read_instance_index(b);
-            auto prim_id = _call_optix_read_primitive_index(b);
-            auto bary = _call_optix_get_triangle_barycentrics(b);
-            auto t = _call_optix_get_hit_distance(b);
-            auto hit = static_cast<llvm::Value *>(llvm::PoisonValue::get(_get_llvm_surface_hit_type()));
-            hit = b.CreateInsertValue(hit, inst_id, llvm_surface_hit_type_inst_id_index);
-            hit = b.CreateInsertValue(hit, prim_id, llvm_surface_hit_type_prim_id_index);
-            hit = b.CreateInsertValue(hit, bary, llvm_surface_hit_type_bary_index);
-            hit = b.CreateInsertValue(hit, t, llvm_surface_hit_type_t_index);
-            return hit;
-        }
-        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: {
-            auto is_hit = _call_optix_hit_object_is_hit(b);
-            auto inst_id = b.CreateSelect(is_hit, _call_optix_hit_object_instance_index(b), b.getInt32(~0u));
-            auto prim_id = _call_optix_hit_object_primitive_index(b);
-            auto bary = _call_optix_hit_object_triangle_barycentrics(b);
-            auto hit_kind = _call_optix_hit_object_hit_kind(b);
-            auto kind = b.CreateSelect(is_hit,
-                                       b.CreateSelect(b.CreateICmpUGT(hit_kind, b.getInt32(127u)),
-                                                      b.getInt32(1u /* BUILTIN */),
-                                                      b.getInt32(2u /* PROCEDURAL */)),
-                                       b.getInt32(0u /* MISS */));
-            auto t = _call_optix_hit_object_ray_t_max(b);
-            auto hit = static_cast<llvm::Value *>(llvm::PoisonValue::get(_get_llvm_committed_hit_type()));
-            hit = b.CreateInsertValue(hit, inst_id, llvm_committed_hit_type_inst_id_index);
-            hit = b.CreateInsertValue(hit, prim_id, llvm_committed_hit_type_prim_id_index);
-            hit = b.CreateInsertValue(hit, bary, llvm_committed_hit_type_bary_index);
-            hit = b.CreateInsertValue(hit, kind, llvm_committed_hit_type_hit_kind_index);
-            hit = b.CreateInsertValue(hit, t, llvm_committed_hit_type_t_index);
-            return hit;
-        }
+            return _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_world_space_ray, _get_llvm_ray_type(), {});
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT:
+            return _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_procedural_candidate_hit, _get_llvm_procedural_hit_type(), {});
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT:
+            return _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_surface_candidate_hit, _get_llvm_surface_hit_type(), {});
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT:
+            return _call_ray_query_intrinsic(b, llvm_ray_query_intrinsic_name_committed_hit, _get_llvm_committed_hit_type(), {});
         default:
             LUISA_ERROR_WITH_LOCATION("Invalid ray query object read operation.");
     }
@@ -219,26 +193,29 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         }
         LUISA_ASSERT(loop_call != nullptr, "Ray query loop extracted function has no call site.");
 
+        // Find spawn call in the same function as loop_call
+        // The spawn call should dominate the loop call
         llvm::CallInst *spawn_call = nullptr;
-        for (auto bb = loop_call->getParent(); bb != nullptr && spawn_call == nullptr; ) {
-            auto it = (bb == loop_call->getParent() ? 
-                       loop_call->getReverseIterator() : 
-                       bb->rbegin());
-            auto ie = bb->rend();
-            for (; it != ie; ++it) {
-                if (auto CI = llvm::dyn_cast<llvm::CallInst>(&*it)) {
-                    if (CI->getCalledFunction() && CI->getCalledFunction()->getName() == llvm::StringRef{llvm_ray_query_intrinsic_name_spawn.data(), llvm_ray_query_intrinsic_name_spawn.size()}) {
+        auto *caller_func = loop_call->getFunction();
+        LUISA_ASSERT(caller_func != nullptr, "Loop call is not inside a function.");
+
+        // Search all blocks in the caller function for the spawn call
+        for (auto &BB : *caller_func) {
+            for (auto &I : BB) {
+                if (auto CI = llvm::dyn_cast<llvm::CallInst>(&I)) {
+                    if (CI->getCalledFunction() &&
+                        CI->getCalledFunction()->getName() == llvm::StringRef{llvm_ray_query_intrinsic_name_spawn.data(), llvm_ray_query_intrinsic_name_spawn.size()}) {
                         spawn_call = CI;
                         break;
                     }
                 }
             }
-            bb = bb->getSinglePredecessor();
+            if (spawn_call != nullptr) break;
         }
-        LUISA_ASSERT(spawn_call != nullptr, "Spawn call not found for ray query loop.");
+        LUISA_ASSERT(spawn_call != nullptr, "Spawn call not found in function containing ray query loop call site.");
 
         IB b{loop_call};
-        
+
         auto arg_count = loop_call->arg_size();
         llvm::SmallVector<llvm::Type *, 8> ctx_field_types;
         for (unsigned j = 0; j < arg_count; ++j) {
@@ -250,7 +227,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
             auto field_ptr = b.CreateStructGEP(ctx_type, ctx_alloca, j);
             b.CreateStore(loop_call->getArgOperand(j), field_ptr);
         }
-        
+
         auto ctx_ptr_int = b.CreatePtrToInt(ctx_alloca, b.getInt64Ty());
         auto p_ctx_hi = b.CreateTrunc(b.CreateLShr(ctx_ptr_int, 32), b.getInt32Ty());
         auto p_ctx_lo = b.CreateTrunc(ctx_ptr_int, b.getInt32Ty());
@@ -284,7 +261,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
                         auto dst = SI->getPointerOperand();
                         if (auto src_arg = llvm::dyn_cast<llvm::Argument>(src)) {
                             if (auto dst_arg = llvm::dyn_cast<llvm::Argument>(dst)) {
-                                reload_map[loop_call->getArgOperand(dst_arg->getArgNo())] = 
+                                reload_map[loop_call->getArgOperand(dst_arg->getArgNo())] =
                                     loop_call->getArgOperand(src_arg->getArgNo());
                             }
                         }
@@ -292,7 +269,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
                 }
             }
         }
-        
+
         llvm::SmallVector<llvm::LoadInst *, 8> caller_reloads;
         for (auto &I : *loop_call->getParent()) {
             if (I.comesBefore(loop_call)) continue;
@@ -331,7 +308,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
             IB nb{_llvm_context};
             auto entry_bb = llvm::BasicBlock::Create(_llvm_context, "entry", new_f);
             nb.SetInsertPoint(entry_bb);
-            
+
             for (unsigned j = 0; j < arg_count; ++j) {
                 auto field_ptr = nb.CreateStructGEP(ctx_type, new_f->getArg(0), j);
                 auto val = nb.CreateLoad(ctx_field_types[j], field_ptr);
@@ -496,7 +473,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         eb.SetInsertPoint(triangle_bb);
         auto r0 = _call_optix_get_payload(eb, 0u);
         auto r1 = _call_optix_get_payload(eb, 1u);
-        
+
         auto query_id = eb.CreateLShr(r0, 24);
         auto p_ctx_hi = eb.CreateAnd(r0, eb.getInt32(0xffffffu));
         auto p_ctx_lo = r1;
@@ -540,15 +517,15 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         auto phi_term = eb.CreatePHI(eb.getInt1Ty(), 2);
         phi_term->addIncoming(proc_term, procedural_bb);
         phi_term->addIncoming(tri_term, switch_exit_bb);
-        
+
         auto do_terminate_bb = llvm::BasicBlock::Create(_llvm_context, "do_terminate", entry_f);
         auto exit_bb = llvm::BasicBlock::Create(_llvm_context, "exit", entry_f);
         eb.CreateCondBr(phi_term, do_terminate_bb, exit_bb);
-        
+
         eb.SetInsertPoint(do_terminate_bb);
         _call_optix_terminate_ray(eb);
         eb.CreateBr(exit_bb);
-        
+
         eb.SetInsertPoint(exit_bb);
         eb.CreateRetVoid();
     };
@@ -562,7 +539,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         _call_optix_set_payload_types(eb, 1u << 1u /* LC_PAYLOAD_TYPE_RAY_QUERY */);
         auto r0 = _call_optix_get_payload(eb, 0u);
         auto r1 = _call_optix_get_payload(eb, 1u);
-        
+
         auto query_id = eb.CreateLShr(r0, 24);
         auto p_ctx_hi = eb.CreateAnd(r0, eb.getInt32(0xffffffu));
         auto p_ctx_lo = r1;
