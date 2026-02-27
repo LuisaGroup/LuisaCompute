@@ -1,1 +1,0 @@
-{"rustc":4826714390000139368,"features":"[]","declared_features":"[\"default\", \"serde\", \"use_std\"]","target":5928621874859211260,"profile":2040997289075261528,"path":16171095585672622147,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"release/.fingerprint/either-69969e5f5fcd3272/dep-lib-either","checksum":false}}],"rustflags":[],"config":2069994364910194474,"compile_kind":0}
