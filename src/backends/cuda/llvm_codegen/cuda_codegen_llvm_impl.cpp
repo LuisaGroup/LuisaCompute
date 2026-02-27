@@ -278,14 +278,6 @@ public:
 
 // module pass that extracts ray query loops into separate functions and normalize the pipelines
 class RayQueryLoopExtraction : public llvm::PassInfoMixin<RayQueryLoopExtraction> {
-
-private:
-    llvm::DenseSet<llvm::Function *> &_ray_query_functions;
-
-public:
-    explicit RayQueryLoopExtraction(llvm::DenseSet<llvm::Function *> &ray_query_functions) noexcept
-        : _ray_query_functions{ray_query_functions} {}
-
 private:
     [[nodiscard]] bool extractRayQueryLoops(llvm::Module &M, llvm::ModuleAnalysisManager &MAM) noexcept {
         auto Init = M.getFunction(CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_initialize);
@@ -359,7 +351,9 @@ private:
             LUISA_ASSERT(NewF != nullptr, "Failed to extract ray query loop into a separate function.");
             NewF->addFnAttr(llvm::Attribute::NoInline);
             NewF->setName("ray.query.loop.extracted");
-            _ray_query_functions.insert(NewF);
+            // Note: We no longer track functions here. Instead, we scan for them later
+            // by looking for functions containing luisa.ray.query.dispatch calls.
+            // This handles dead code elimination safely.
             ReplaceIntrinsic(InitCall, CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_spawn);
             ReplaceIntrinsic(Call, CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_dispatch);
             FAM.invalidate(*F, llvm::PreservedAnalyses::none());
@@ -421,8 +415,8 @@ luisa::string CUDACodegenLLVMImpl::generate(const xir::Module &xir_module) noexc
                 f.addFnAttr(llvm::Attribute::AlwaysInline);
             }
         }
-        _run_optimization_passes([this](auto &MPM) noexcept {
-            MPM.addPass(detail::RayQueryLoopExtraction{_ray_query_functions});
+        _run_optimization_passes([](auto &MPM) noexcept {
+            MPM.addPass(detail::RayQueryLoopExtraction{});
         });
         _materialize_ray_query_loops();
         verify();
@@ -489,7 +483,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
     }
 
     // Generate OptiX entry points that dispatch to these handlers
-    _generate_ray_query_entry_points();
+    _generate_ray_query_entry_points(ray_query_handlers);
 
     // Lower intrinsics in each handler
     for (auto *func : ray_query_handlers) {
@@ -497,17 +491,17 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
     }
 }
 
-void CUDACodegenLLVMImpl::_generate_ray_query_entry_points() noexcept {
-    if (_ray_query_functions.empty()) return;
+void CUDACodegenLLVMImpl::_generate_ray_query_entry_points(llvm::ArrayRef<llvm::Function *> handlers) noexcept {
+    if (handlers.empty()) return;
 
     // Generate __intersection__ray_query for procedural hits
-    _generate_intersection_program();
+    _generate_intersection_program(handlers);
 
     // Generate __anyhit__ray_query for triangle hits
-    _generate_anyhit_program();
+    _generate_anyhit_program(handlers);
 }
 
-void CUDACodegenLLVMImpl::_generate_intersection_program() noexcept {
+void CUDACodegenLLVMImpl::_generate_intersection_program(llvm::ArrayRef<llvm::Function *> handlers) noexcept {
     IB b{_llvm_context};
     auto void_type = llvm::Type::getVoidTy(_llvm_context);
     auto func_type = llvm::FunctionType::get(void_type, {}, false);
@@ -524,7 +518,7 @@ void CUDACodegenLLVMImpl::_generate_intersection_program() noexcept {
     b.CreateRetVoid();
 }
 
-void CUDACodegenLLVMImpl::_generate_anyhit_program() noexcept {
+void CUDACodegenLLVMImpl::_generate_anyhit_program(llvm::ArrayRef<llvm::Function *> handlers) noexcept {
     IB b{_llvm_context};
     auto void_type = llvm::Type::getVoidTy(_llvm_context);
     auto func_type = llvm::FunctionType::get(void_type, {}, false);
