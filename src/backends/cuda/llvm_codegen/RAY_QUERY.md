@@ -62,6 +62,20 @@ for (auto *func : _ray_query_functions) {
 
 **Rationale**: Names can change during optimization, multiple passes may run, and LLVM internal naming conventions may vary. Using a tracking set ensures robustness across compiler versions and optimization levels.
 
+**Function Pointer Stability**: LLVM `llvm::Function` objects are allocated in the LLVM context and their pointers remain stable throughout the compilation process unless explicitly deleted. However, functions can be:
+- **Merged** by mergefunctions pass (creates aliases, original function may be replaced)
+- **Deleted** if found to be dead/unreachable
+- **Modified** by optimization passes (but pointer stays the same)
+
+To ensure stability:
+1. Extract functions first and store pointers
+2. Mark extracted functions with `NoInline` attribute initially
+3. Run optimization passes that eliminate unused arguments
+4. Transform functions for ray query handling
+5. Only then mark with `AlwaysInline` and run final optimizations
+
+This order ensures we work with stable function pointers during transformation.
+
 #### Private Member Access
 
 Ray query implementation methods need access to private members (`_ray_query_functions`, `_llvm_module`, etc.). Implement these methods in `cuda_codegen_llvm_impl.cpp` rather than separate files to avoid friend declarations or complex access patterns.
@@ -736,13 +750,38 @@ public:
 
 ### Pending
 
-- [ ] Test 1: Basic triangle ray query
+- [x] Test 1: Basic triangle ray query (Created: `test_ray_query_simple.cpp`)
 - [ ] Test 2: Basic procedural ray query  
 - [ ] Test 3: Ray query with captured variables
 - [ ] Test 4: Resource access in ray query
 - [ ] Test 5: Multiple ray queries
 - [ ] Test 6: Complex control flow
 - [ ] Comparison testing with AST codegen
+
+## Tests
+
+### `test_ray_query_simple`
+
+A minimal headless test for ray query functionality:
+
+```bash
+# Run with CUDA LLVM codegen
+LUISA_EXPERIMENTAL_LLVM_CODEGEN=1 ./test_ray_query_simple cuda
+
+# Run with AST codegen (reference)
+./test_ray_query_simple cuda
+```
+
+**Test 1**: Basic triangle ray query
+- Creates a triangle mesh
+- Fires a ray and commits on any surface hit
+- Verifies hit distance is reasonable
+
+**Test 2**: Ray query with condition
+- Tests control flow within ray query handlers
+- Uses condition to filter which hits to commit
+
+This test will fail until ray query LLVM codegen is fully implemented.
 
 ## References
 
