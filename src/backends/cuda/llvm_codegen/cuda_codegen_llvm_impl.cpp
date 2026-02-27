@@ -482,13 +482,13 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         query_id++;
     }
 
-    // Generate OptiX entry points that dispatch to these handlers
-    _generate_ray_query_entry_points(ray_query_handlers);
-
-    // Lower intrinsics in each handler
+    // Lower intrinsics in each handler FIRST (transforms return type)
     for (auto *func : ray_query_handlers) {
         _lower_ray_query_handler(func);
     }
+
+    // Generate OptiX entry points that dispatch to these handlers
+    _generate_ray_query_entry_points(ray_query_handlers);
 }
 
 void CUDACodegenLLVMImpl::_generate_ray_query_entry_points(llvm::ArrayRef<llvm::Function *> handlers) noexcept {
@@ -520,7 +520,9 @@ void CUDACodegenLLVMImpl::_generate_intersection_program(llvm::ArrayRef<llvm::Fu
 
     // Create switch to dispatch to correct procedural handler
     if (!handlers.empty()) {
-        auto switch_inst = b.CreateSwitch(query_id, entry_block, handlers.size());
+        // Create default block for switch (fallthrough case)
+        auto default_block = llvm::BasicBlock::Create(_llvm_context, "default", func);
+        auto switch_inst = b.CreateSwitch(query_id, default_block, handlers.size());
 
         for (size_t i = 0; i < handlers.size(); ++i) {
             auto handler_block = llvm::BasicBlock::Create(_llvm_context,
@@ -528,26 +530,31 @@ void CUDACodegenLLVMImpl::_generate_intersection_program(llvm::ArrayRef<llvm::Fu
             switch_inst->addCase(b.getInt32(i), handler_block);
             b.SetInsertPoint(handler_block);
 
-            // Call handler and get result
-            auto result = b.CreateCall(handlers[i]);
+            // Allocate result struct for this handler invocation
+            auto result_alloca = b.CreateAlloca(
+                _get_llvm_intersection_result_type(), nullptr, "result");
+            b.CreateStore(
+                llvm::Constant::getNullValue(_get_llvm_intersection_result_type()),
+                result_alloca);
 
-            // Extract committed and terminated flags
-            auto committed = b.CreateExtractValue(result, 0);
-            auto terminated = b.CreateExtractValue(result, 1);
+            // Call the handler - LLVM optimization will inline it automatically
+            b.CreateCall(handlers[i]);
 
             // If committed, report intersection
-            // TODO: Get t_hit from handler result for procedural
-            // For now, use 0.0f as placeholder
             auto t_val = llvm::ConstantFP::get(b.getFloatTy(), 0.0);
             auto hit_kind_val = b.getInt32(0);
             _call_optix_report_intersection(b, hit_kind_val, t_val);
 
             b.CreateRetVoid();
         }
-    }
 
-    b.SetInsertPoint(entry_block);
-    b.CreateRetVoid();
+        // Set insert point to default block and return
+        b.SetInsertPoint(default_block);
+        b.CreateRetVoid();
+    } else {
+        // No handlers, just return
+        b.CreateRetVoid();
+    }
 }
 
 void CUDACodegenLLVMImpl::_generate_anyhit_program(llvm::ArrayRef<llvm::Function *> handlers) noexcept {
@@ -562,12 +569,14 @@ void CUDACodegenLLVMImpl::_generate_anyhit_program(llvm::ArrayRef<llvm::Function
     b.SetInsertPoint(entry_block);
 
     // Decode query ID from payload register 0
-    auto r0 = _call_optix_get_payload(b, 0);
+    auto r0 = _call_optix_get_payload(b, b.getInt32(0));
     auto query_id = b.CreateLShr(r0, 24);
 
     // Create switch to dispatch to correct triangle handler
     if (!handlers.empty()) {
-        auto switch_inst = b.CreateSwitch(query_id, entry_block, handlers.size());
+        // Create default block for switch (fallthrough case)
+        auto default_block = llvm::BasicBlock::Create(_llvm_context, "default", func);
+        auto switch_inst = b.CreateSwitch(query_id, default_block, handlers.size());
 
         for (size_t i = 0; i < handlers.size(); ++i) {
             auto handler_block = llvm::BasicBlock::Create(_llvm_context,
@@ -575,48 +584,47 @@ void CUDACodegenLLVMImpl::_generate_anyhit_program(llvm::ArrayRef<llvm::Function
             switch_inst->addCase(b.getInt32(i), handler_block);
             b.SetInsertPoint(handler_block);
 
-            // Call handler and get result
-            auto result = b.CreateCall(handlers[i]);
+            // Call the handler - LLVM optimization will inline it automatically
+            b.CreateCall(handlers[i]);
 
-            // Extract committed and terminated flags
-            auto committed = b.CreateExtractValue(result, 0);
-            auto terminated = b.CreateExtractValue(result, 1);
-
-            // If not committed, ignore this intersection
-            // In OptiX anyhit, intersection is accepted by default unless ignored
-            // TODO: Check committed flag and conditionally ignore
+            // TODO: Check committed flag and conditionally call _call_optix_ignore_intersection
             // For now, always accept
 
             b.CreateRetVoid();
         }
-    }
 
-    b.SetInsertPoint(entry_block);
-    b.CreateRetVoid();
+        // Set insert point to default block and return
+        b.SetInsertPoint(default_block);
+        b.CreateRetVoid();
+    } else {
+        // No handlers, just return
+        b.CreateRetVoid();
+    }
 }
 
 void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noexcept {
     IB b{_llvm_context};
 
-    // Create LCIntersectionResult type: { i8 committed, i8 terminated } (bool is i8 in device code)
-    auto i8_type = b.getInt8Ty();
-    llvm::Type *result_type = nullptr;
+    // Get LCIntersectionResult type: { i8 committed, i8 terminated }
+    auto result_type = _get_llvm_intersection_result_type();
+    LUISA_ASSERT(result_type != nullptr, "_get_llvm_intersection_result_type() returned null");
+    auto struct_type = llvm::dyn_cast<llvm::StructType>(result_type);
+    LUISA_ASSERT(struct_type != nullptr, "result_type is not a StructType");
 
-    // Try to find existing type, or create new one
-    for (auto &ty : _llvm_module->getIdentifiedStructTypes()) {
-        if (ty->hasName() && ty->getName() == "LCIntersectionResult") {
-            result_type = ty;
-            break;
-        }
-    }
-    if (!result_type) {
-        auto struct_type = llvm::StructType::create(_llvm_context, {i8_type, i8_type}, "LCIntersectionResult");
-        result_type = struct_type;
-    }
+    // Simpler approach: Add a pointer parameter to the existing handler
+    // We'll pass a pointer to the result struct when calling the handler
 
-    // Change function signature to return LCIntersectionResult
-    auto new_func_type = llvm::FunctionType::get(result_type, {}, false);
-    handler->mutateType(new_func_type);
+    // Allocate result struct in the entry block
+    auto entry_block = &handler->getEntryBlock();
+    b.SetInsertPoint(&entry_block->front());
+    auto result_alloca = b.CreateAlloca(result_type, nullptr, "result");
+    b.CreateStore(llvm::Constant::getNullValue(result_type), result_alloca);
+
+    // Debug: Print handler function before processing
+    std::string func_str;
+    llvm::raw_string_ostream rso(func_str);
+    handler->print(rso);
+    LUISA_INFO("Handler function before lowering:\n{}", rso.str());
 
     // Collect all instructions that need to be replaced
     llvm::SmallVector<llvm::CallInst *, 16> calls_to_replace;
@@ -629,10 +637,6 @@ void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noex
             }
         }
     }
-
-    // Track if we've seen a commit or terminate
-    llvm::AllocaInst *committed_alloca = nullptr;
-    llvm::AllocaInst *terminated_alloca = nullptr;
 
     for (auto *call : calls_to_replace) {
         auto *callee = call->getCalledFunction();
@@ -659,73 +663,27 @@ void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noex
         } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_procedural_candidate_hit)) {
             // TODO: Implement inline asm for OptiX hit attributes
             call->eraseFromParent();
-        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_commit_surface_hit)) {
-            // luisa.ray.query.commit.surface.hit() - set committed flag
-            if (!committed_alloca) {
-                b.SetInsertPoint(&handler->getEntryBlock().front());
-                committed_alloca = b.CreateAlloca(i8_type, nullptr, "committed");
-                b.CreateStore(b.getInt8(0), committed_alloca);
-            }
-            b.SetInsertPoint(call);
-            b.CreateStore(b.getInt8(1), committed_alloca);
-            call->eraseFromParent();
-        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_commit_procedural_hit)) {
-            // luisa.ray.query.commit.procedural.hit(t) - set committed flag
-            if (!committed_alloca) {
-                b.SetInsertPoint(&handler->getEntryBlock().front());
-                committed_alloca = b.CreateAlloca(i8_type, nullptr, "committed");
-                b.CreateStore(b.getInt8(0), committed_alloca);
-            }
-            b.SetInsertPoint(call);
-            b.CreateStore(b.getInt8(1), committed_alloca);
+        } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_commit_surface_hit) ||
+                   name == llvm::StringRef(llvm_ray_query_intrinsic_name_commit_procedural_hit)) {
+            // luisa.ray.query.commit.*() - set committed flag
+            LUISA_INFO("Creating GEP for commit, struct_type={}, result_alloca={}",
+                       (void *)struct_type, (void *)result_alloca);
+            LUISA_ASSERT(struct_type != nullptr, "struct_type is null");
+            LUISA_ASSERT(result_alloca != nullptr, "result_alloca is null");
+            LUISA_ASSERT(llvm::isa<llvm::StructType>(struct_type), "struct_type is not a StructType");
+
+            // Use CreateStructGEP to get pointer to committed field (index 0)
+            auto committed_ptr = b.CreateStructGEP(
+                struct_type, result_alloca, 0u, "committed.ptr");
+            b.CreateStore(b.getInt8(1), committed_ptr);
             call->eraseFromParent();
         } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_terminate)) {
             // luisa.ray.query.terminate() - set terminated flag
-            if (!terminated_alloca) {
-                b.SetInsertPoint(&handler->getEntryBlock().front());
-                terminated_alloca = b.CreateAlloca(i8_type, nullptr, "terminated");
-                b.CreateStore(b.getInt8(0), terminated_alloca);
-            }
-            b.SetInsertPoint(call);
-            b.CreateStore(b.getInt8(1), terminated_alloca);
+            // Use CreateStructGEP to get pointer to terminated field (index 1)
+            auto terminated_ptr = b.CreateStructGEP(
+                struct_type, result_alloca, 1u, "terminated.ptr");
+            b.CreateStore(b.getInt8(1), terminated_ptr);
             call->eraseFromParent();
-        }
-    }
-
-    // Transform returns to return the result struct
-    for (auto &block : *handler) {
-        if (auto *ret = llvm::dyn_cast<llvm::ReturnInst>(block.getTerminator())) {
-            b.SetInsertPoint(ret);
-
-            // If we have result tracking, load values from allocas
-            // Otherwise return {0, 0}
-            if (committed_alloca || terminated_alloca) {
-                // Get committed value
-                llvm::Value *committed_val;
-                if (committed_alloca) {
-                    committed_val = b.CreateLoad(i8_type, committed_alloca, "committed");
-                } else {
-                    committed_val = b.getInt8(0);
-                }
-
-                // Get terminated value
-                llvm::Value *terminated_val;
-                if (terminated_alloca) {
-                    terminated_val = b.CreateLoad(i8_type, terminated_alloca, "terminated");
-                } else {
-                    terminated_val = b.getInt8(0);
-                }
-
-                // Create insertvalue chain to build struct
-                llvm::Value *result = llvm::UndefValue::get(result_type);
-                result = b.CreateInsertValue(result, committed_val, 0, "result.committed");
-                result = b.CreateInsertValue(result, terminated_val, 1, "result");
-                b.CreateRet(result);
-            } else {
-                // No tracking, return {0, 0}
-                b.CreateRet(llvm::Constant::getNullValue(result_type));
-            }
-            ret->eraseFromParent();
         }
     }
 }

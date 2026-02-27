@@ -781,6 +781,8 @@ public:
 
 ## Tests
 
+**CRITICAL**: Never forget to properly set the env when using gdb!
+
 ### `test_ray_query_simple`
 
 A minimal headless test for ray query functionality:
@@ -813,10 +815,53 @@ This test will fail until ray query LLVM codegen is fully implemented.
 - `cuda_shader_optix.cpp` - CUDAShaderOptiX compatibility requirements (lines 191-207)
 - `lower_ray_query_loop.cpp` - XIR ray query structure (reference only, not used)
 
-## Notes
+## Implementation Notes & Lessons Learned
+
+### Failed Approaches
+
+#### ❌ `Function::mutateType()` 
+**DO NOT USE** - This function is dangerous and doesn't work as expected.
+```cpp
+// WRONG: This doesn't actually change the return type
+handler->mutateType(new_func_type);
+// handler->getReturnType() still returns the old type!
+```
+**Lesson**: Once a function is created, its type is effectively immutable. Create new functions with the correct type from the start instead.
+
+#### ❌ Changing Function Type After Extraction
+`llvm::CodeExtractor` creates functions with types derived from the extracted code. Since ray query loops end with `ret void`, the extracted function returns void. Attempting to change this after extraction is fragile and error-prone.
+
+**Solution**: Work with the extracted function's void return type and use alternative approaches:
+1. Pass result struct by reference (pointer) as a parameter
+2. Inline the handler body directly into entry points
+3. Create a wrapper function with the correct signature
+
+### Critical Debugging Notes
+
+**Always set environment variables when using gdb:**
+```bash
+# WRONG - runs without LLVM codegen
+gdb ./test_ray_query_simple
+
+# CORRECT - runs with LLVM codegen  
+LUISA_EXPERIMENTAL_LLVM_CODEGEN=1 gdb ./test_ray_query_simple
+```
+
+### Working Approach: Pass-by-Reference Pattern
+
+Instead of returning values, pass a pointer to the result struct:
+```cpp
+// Handler signature: void handler(LCIntersectionResult* result)
+// Entry point calls:  handler(&result);
+// Handler writes:     result->committed = 1;
+```
+
+This avoids function type mutation entirely and matches how OptiX programs naturally communicate results back.
+
+## Technical Details
 
 - Maximum 32 ray queries per kernel (limited by query ID encoding in 8 bits)
-- Handlers marked with `AlwaysInline` attribute for performance
+- Handlers marked with `AlwaysInline` attribute for performance  
 - Use `_get_inline_asm()` helper for all OptiX calls with proper side effect flags
 - Follow opaque pointer semantics (LLVM 15+): use `builder.getPtrTy()`
 - The old `cuda_device_resource.h` is a reference only; we generate all code in LLVM IR

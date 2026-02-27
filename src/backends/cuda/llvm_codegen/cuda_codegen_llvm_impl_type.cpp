@@ -381,6 +381,15 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_committed_hit_type() noexcept {
     return _llvm_committed_hit_type;
 }
 
+llvm::Type *CUDACodegenLLVMImpl::_get_llvm_intersection_result_type() noexcept {
+    if (_llvm_intersection_result_type == nullptr) {
+        auto llvm_i8_type = llvm::Type::getInt8Ty(_llvm_context);
+        _llvm_intersection_result_type = llvm::StructType::get(llvm_i8_type /* committed */,
+                                                               llvm_i8_type /* terminated */);
+    }
+    return _llvm_intersection_result_type;
+}
+
 llvm::Type *CUDACodegenLLVMImpl::_get_llvm_ray_query_type() noexcept {
     return llvm::Type::getInt8Ty(_llvm_context);
 }

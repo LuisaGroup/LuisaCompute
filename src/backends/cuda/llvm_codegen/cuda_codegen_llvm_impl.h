@@ -178,6 +178,7 @@ private:
     llvm::Type *_llvm_surface_hit_type{nullptr};        // { i32 inst_id, i32 prim_id, <2 x float> bary, float t }
     llvm::Type *_llvm_procedural_hit_type{nullptr};     // { i32 inst_id, i32 prim_id }
     llvm::Type *_llvm_committed_hit_type{nullptr};      // { i32 inst_id, i32 prim_id, <2 x float> bary, i32 hit_kind, float t }
+    llvm::Type *_llvm_intersection_result_type{nullptr};// { i8 committed, i8 terminated }
     llvm::DenseMap<const Type *, luisa::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, luisa::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
@@ -241,6 +242,7 @@ private:
     [[nodiscard]] llvm::Type *_get_llvm_surface_hit_type() noexcept;
     [[nodiscard]] llvm::Type *_get_llvm_procedural_hit_type() noexcept;
     [[nodiscard]] llvm::Type *_get_llvm_committed_hit_type() noexcept;
+    [[nodiscard]] llvm::Type *_get_llvm_intersection_result_type() noexcept;
     [[nodiscard]] llvm::Type *_get_llvm_ray_query_type() noexcept;
     [[nodiscard]] std::pair<llvm::Value *, const Type *>
     _lower_access_chain_address(IB &b, FunctionContext &func_ctx, llvm::Value *llvm_ptr,
