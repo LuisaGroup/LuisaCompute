@@ -214,7 +214,14 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         }
         LUISA_ASSERT(spawn_call != nullptr, "Spawn call not found in function containing ray query loop call site.");
 
-        IB b{loop_call};
+        // Create alloca in the entry block, not at loop_call position
+        auto *entry_block = &caller_func->getEntryBlock();
+        llvm::Instruction *insert_point = entry_block->getFirstNonPHI();
+        if (insert_point == nullptr) {
+            // If the entry block is empty or only has PHI nodes, insert at the beginning
+            insert_point = &entry_block->front();
+        }
+        IB entry_b{insert_point};
 
         auto arg_count = loop_call->arg_size();
         llvm::SmallVector<llvm::Type *, 8> ctx_field_types;
@@ -222,7 +229,10 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
             ctx_field_types.push_back(loop_call->getArgOperand(j)->getType());
         }
         auto ctx_type = llvm::StructType::get(_llvm_context, ctx_field_types);
-        auto ctx_alloca = b.CreateAlloca(ctx_type, nullptr, "rq_ctx");
+        auto ctx_alloca = entry_b.CreateAlloca(ctx_type, nullptr, "rq_ctx");
+
+        // Store arguments to context at loop_call position
+        IB b{loop_call};
         for (unsigned j = 0; j < arg_count; ++j) {
             auto field_ptr = b.CreateStructGEP(ctx_type, ctx_alloca, j);
             b.CreateStore(loop_call->getArgOperand(j), field_ptr);
