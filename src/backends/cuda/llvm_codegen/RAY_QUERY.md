@@ -760,14 +760,20 @@ public:
 - [x] Add method declarations: `_materialize_ray_query_loops`, `_generate_ray_query_entry_points`, etc.
 - [x] Create placeholder implementations for OptiX entry points
 - [x] Build system integration - compiles successfully
+- [x] Implement `_lower_ray_query_handler` - Handler extraction and intrinsic lowering
+- [x] Create `LCIntersectionResult` struct type for handler results
+- [x] Fix CreateStructGEP issues with explicit unsigned indices
+- [x] Fix entry block terminator issues (separate default block for switch)
+- [x] LLVM module verification passes successfully
+- [x] PTX generation works
 
 ### In Progress
 
-- [ ] Implement `_lower_ray_query_handler` - Transform pseudo-intrinsics to device calls
-- [ ] Implement full `_generate_intersection_program` with context decoding
-- [ ] Implement full `_generate_anyhit_program` with handler dispatch
+- [ ] Lower `luisa.ray.query.spawn` to actual OptiX trace call in kernel
+- [ ] Remove pseudo-intrinsic declarations from generated PTX
+- [ ] Implement proper result checking in entry points (committed/terminated flags)
 - [ ] Context struct generation for captured variables
-- [ ] Kernel-side ray query call emission
+- [ ] Test end-to-end with actual ray tracing
 
 ### Pending
 
@@ -828,13 +834,46 @@ handler->mutateType(new_func_type);
 ```
 **Lesson**: Once a function is created, its type is effectively immutable. Create new functions with the correct type from the start instead.
 
-#### ❌ Changing Function Type After Extraction
-`llvm::CodeExtractor` creates functions with types derived from the extracted code. Since ray query loops end with `ret void`, the extracted function returns void. Attempting to change this after extraction is fragile and error-prone.
+#### ❌ Manual Inlining with `InlineFunction`
+Attempting to manually inline functions using `llvm::InlineFunction` creates complex control flow issues:
+- Creates exit blocks without terminators
+- Multiple return points need to be connected properly
+- Error-prone and hard to debug
 
-**Solution**: Work with the extracted function's void return type and use alternative approaches:
-1. Pass result struct by reference (pointer) as a parameter
-2. Inline the handler body directly into entry points
-3. Create a wrapper function with the correct signature
+**Lesson**: Let LLVM's optimization passes handle inlining. Just mark functions with `AlwaysInline` attribute and call them normally.
+
+#### ❌ `CreateStructGEP` with Integer Literals
+**DANGEROUS**: Passing integer literals (0, 1) to `CreateStructGEP` can be interpreted as null pointers:
+```cpp
+// WRONG: 0 might be interpreted as nullptr!
+auto ptr = b.CreateStructGEP(struct_type, alloca, 0);
+
+// CORRECT: Use explicit unsigned cast
+auto ptr = b.CreateStructGEP(struct_type, alloca, static_cast<unsigned>(0));
+```
+
+#### ❌ Switch with Entry Block as Default
+Creating a switch with the entry block as the default case creates invalid LLVM IR:
+```cpp
+// WRONG: Creates predecessor for entry block
+auto switch_inst = b.CreateSwitch(query_id, entry_block, handlers.size());
+
+// CORRECT: Create separate default block
+auto default_block = llvm::BasicBlock::Create(_llvm_context, "default", func);
+auto switch_inst = b.CreateSwitch(query_id, default_block, handlers.size());
+```
+
+**Lesson**: Entry blocks must not have predecessors. Always use a separate default/fallthrough block for switches.
+
+#### ❌ Calling Functions with Wrong Argument Types
+Passing wrong types to functions causes null operand errors:
+```cpp
+// WRONG: Passing int 0 instead of Value*
+auto r0 = _call_optix_get_payload(b, 0);  // 0 is null pointer!
+
+// CORRECT: Create a constant Value*
+auto r0 = _call_optix_get_payload(b, b.getInt32(0));
+```
 
 ### Critical Debugging Notes
 
@@ -847,16 +886,35 @@ gdb ./test_ray_query_simple
 LUISA_EXPERIMENTAL_LLVM_CODEGEN=1 gdb ./test_ray_query_simple
 ```
 
-### Working Approach: Pass-by-Reference Pattern
-
-Instead of returning values, pass a pointer to the result struct:
+**Use LLVM's print for debugging:**
 ```cpp
-// Handler signature: void handler(LCIntersectionResult* result)
-// Entry point calls:  handler(&result);
-// Handler writes:     result->committed = 1;
+// Print function to string
+std::string func_str;
+llvm::raw_string_ostream rso(func_str);
+handler->print(rso);
+LUISA_INFO("Handler function:\n{}", rso.str());
 ```
 
-This avoids function type mutation entirely and matches how OptiX programs naturally communicate results back.
+**Dump IR on failure:**
+The codebase already has verification that dumps IR to `debug.ll` on failure. Check this file when LLVM verification fails.
+
+### Working Pattern: Handler Lowering
+
+1. **Extracted handler returns void** - Don't try to change return type
+2. **Allocate result struct on stack** - `alloca { i8, i8 }`
+3. **Use CreateStructGEP with explicit unsigned indices**
+4. **Mark with AlwaysInline** - Let LLVM optimizer inline it
+5. **Entry point just calls handler** - Don't manually inline
+
+### Type Identity Issues
+
+When creating GEP instructions, the type passed must match the allocated type exactly:
+```cpp
+// Get type from alloca to ensure identity
+auto alloca_inst = llvm::cast<llvm::AllocaInst>(result_alloca);
+auto struct_type = llvm::cast<llvm::StructType>(alloca_inst->getAllocatedType());
+auto ptr = b.CreateStructGEP(struct_type, result_alloca, 0u);
+```
 
 ## Technical Details
 
