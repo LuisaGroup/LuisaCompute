@@ -249,6 +249,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
                              b.CreateAnd(p_ctx_hi, b.getInt32(0xffffffu)));
         auto r1 = p_ctx_lo;
 
+        // Validate spawn call has expected number of arguments
+        LUISA_ASSERT(spawn_call->arg_size() == 5, "Spawn call must have exactly 5 arguments, got {}", spawn_call->arg_size());
+
         auto accel = spawn_call->getArgOperand(0);
         auto ray = spawn_call->getArgOperand(1);
         auto time = spawn_call->getArgOperand(2);
