@@ -451,7 +451,8 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
     for (auto *func : _ray_query_functions) {
         // Rename to include query ID for clarity
         func->setName("ray.query.handler." + std::to_string(query_id));
-        // Mark for always inline
+        // Remove NoInline and add AlwaysInline (they're incompatible)
+        func->removeFnAttr(llvm::Attribute::NoInline);
         func->addFnAttr(llvm::Attribute::AlwaysInline);
         query_id++;
     }
