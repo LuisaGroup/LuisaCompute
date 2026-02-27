@@ -423,7 +423,6 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
                     }
                 }
             }
-            LUISA_VERBOSE_WITH_LOCATION("Found {} extractelement instructions to fix in {}", to_fix.size(), new_f->getName().str());
             // Create allocas in entry block to avoid stack overflow
             llvm::IRBuilder<> entry_builder(&new_f->getEntryBlock().front());
             for (auto extract : to_fix) {
