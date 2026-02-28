@@ -414,14 +414,11 @@ private:
     llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     void _materialize_ray_query_loops() noexcept;
     void _lower_ray_query_spawn_calls() noexcept;
-    void _generate_ray_query_entry_points(llvm::ArrayRef<llvm::Function *> handlers,
-                                          llvm::ArrayRef<bool> handler_has_surface_hit,
-                                          llvm::ArrayRef<bool> handler_has_procedural_hit) noexcept;
-    void _generate_intersection_program(llvm::ArrayRef<llvm::Function *> handlers,
-                                        llvm::ArrayRef<bool> handler_has_procedural_hit,
-                                        llvm::ArrayRef<bool> handler_has_surface_hit) noexcept;
+    void _generate_ray_query_entry_points(llvm::ArrayRef<llvm::Function *> surface_handlers,
+                                          llvm::ArrayRef<llvm::Function *> procedural_handlers) noexcept;
+    void _generate_intersection_program(llvm::ArrayRef<llvm::Function *> handlers) noexcept;
     void _generate_anyhit_program(llvm::ArrayRef<llvm::Function *> handlers) noexcept;
-    [[nodiscard]] llvm::Function *_lower_ray_query_handler(llvm::Function *handler) noexcept;
+    [[nodiscard]] llvm::Function *_clone_and_lower_handler(llvm::Function *handler, uint8_t state_constant) noexcept;
 
     // autodiff instructions: autodiff_scope, autodiff_intrinsic, defined in cuda_codegen_llvm_impl_autodiff.cpp
     void _translate_autodiff_scope_inst(IB &b, FunctionContext &func_ctx, const xir::AutodiffScopeInst *inst) noexcept;

@@ -1,273 +1,225 @@
 # Ray Query Support for CUDA LLVM Codegen
 
-## Status: ✅ IMPLEMENTED
+## Status: ⚠️ PARTIALLY WORKING - NEEDS FIX
 
-This document describes the implementation of ray query support in the CUDA LLVM codegen path. The implementation transforms XIR ray query instructions into LLVM IR that's compatible with OptiX's ray tracing pipeline.
+**Last Updated:** 2026-02-28
+**Current Implementer:** Needs handoff to Gemini
 
 ## Test Results
 
-| Test | Status | Notes |
-|------|--------|-------|
-| `test_ray_query_simple` | ✅ **PASS** | Both Test 1 & Test 2 working |
-| `test_procedural` | ✅ **PASS** | Procedural intersection working |
-| `test_procedural_callable` | ✅ **PASS** | Callable programs with ray queries |
+| Test | Status | Details |
+|------|--------|---------|
+| `test_ray_query_simple` | ✅ **PASS** | Both Test 1 & Test 2 work correctly |
+| `test_procedural` | ⚠️ **PARTIAL** | Only ~28,000 non-black pixels vs 251,000 in AST codegen |
+| `test_procedural_callable` | ⚠️ **UNTESTED** | Likely same issues as test_procedural |
+
+## What's Working
+
+1. **Basic Ray Query Infrastructure**
+   - Handler detection via intrinsic scanning
+   - Ray query loop extraction from kernel
+   - Handler call removal from kernel (prevents illegal inlining)
+   - OptiX entry point generation (`__anyhit__`, `__intersection__`)
+   - Inline pass that only inlines into entry points
+
+2. **Simple Ray Queries**
+   - Triangle intersection works
+   - Basic committed hit data retrieval
+   - Test 1 & 2 in test_ray_query_simple pass
+
+3. **Handler Cloning Architecture**
+   - Creates two versions of each handler:
+     - Surface version: state constant = SURFACE_CANDIDATE (1)
+     - Procedural version: state constant = PROCEDURAL_CANDIDATE (2)
+   - LLVM constant propagation should fold switch statements and eliminate dead code
+
+## What's Broken
+
+### 1. Handler Cloning Argument Remapping
+
+**Problem:** `_clone_and_lower_handler()` creates new function versions but argument references aren't properly remapped.
+
+**Error:** `Referring to an argument in another function!`
+
+**Location:** `cuda_codegen_llvm_impl.cpp`, `_clone_and_lower_handler()` function
+
+**Current Code (Broken):**
+```cpp
+// Clone blocks with vmap
+llvm::ValueToValueMapTy vmap;
+for (auto &block : *handler) {
+    auto new_block = llvm::BasicBlock::Create(_llvm_context, block.getName(), new_handler);
+    vmap[&block] = new_block;
+}
+
+// Clone instructions
+for (auto &block : *handler) {
+    auto new_block = llvm::cast<llvm::BasicBlock>(vmap[&block]);
+    for (auto &inst : block) {
+        auto new_inst = inst.clone();
+        // ... insert instruction
+        vmap[&inst] = new_inst;
+    }
+}
+
+// Remap operands
+for (auto &block : *new_handler) {
+    for (auto &inst : block) {
+        llvm::RemapInstruction(&inst, vmap, llvm::RF_None);
+    }
+}
+```
+
+**What's Missing:**
+- Original handler's arguments aren't mapped to new_handler's arguments in vmap
+- When blocks are moved to final_handler, argument references still point to old function
+- Need to map arguments BEFORE cloning instructions
+
+**Attempted Fix (Still Broken):**
+```cpp
+// Map original handler's arguments to new_handler's arguments
+auto orig_arg = handler->arg_begin();
+auto new_arg = new_handler->arg_begin();
+for (; orig_arg != handler->arg_end(); ++orig_arg, ++new_arg) {
+    vmap[&*orig_arg] = &*new_arg;
+}
+```
+
+### 2. State Constant Not Triggering Dead Code Elimination
+
+**Problem:** Even with separate handler versions, the switch on `state()` doesn't get folded.
+
+**Expected:** LLVM should see constant state value and eliminate unreachable branches.
+
+**Actual:** Both code paths remain, causing intersection program to have surface candidate code (with illegal `optixGetTriangleBarycentrics`).
+
+**Test:** Check generated LLVM IR for dead code elimination:
+```bash
+cat debug_after_inline.ll | grep -A5 "switch.*state"
+```
+
+### 3. Result Struct Sharing
+
+**Problem:** Result pointer passing between entry point and handler may be incorrect.
+
+**Current Flow:**
+1. Entry point allocates `result_alloca`
+2. Entry point calls handler with `result_alloca` as last argument
+3. Handler writes to `result_ptr` (last argument)
+4. Entry point reads from `result_alloca`
+
+**Verification Needed:** Ensure both sides use the same memory location.
 
 ## Architecture
 
-### Pipeline Overview
+The correct architecture is implemented but buggy:
 
 ```
-XIR (RayQueryLoopInst, RayQueryDispatchInst)
-    ↓
-LLVM IR (with luisa.ray.query.* pseudo-intrinsics)
-    ↓
-RayQueryLoopExtraction Pass (extracts loop into handler function)
-    ↓
-Remove handler call from kernel (CRITICAL - prevents illegal inlining)
-    ↓
-Handler Intrinsic Lowering (transform to OptiX device calls)
-    ↓
-OptiX Entry Point Generation (__anyhit__, __intersection__)
-    ↓
-Inline Pass (only into entry points, not kernel)
-    ↓
-PTX Generation
-    ↓
-OptiX Pipeline
+Original Handler
+    ↓ Clone
+Surface Handler (state = SURFACE_CANDIDATE) → __anyhit__ray_query
+    ↓ Clone  
+Procedural Handler (state = PROCEDURAL_CANDIDATE) → __intersection__ray_query
+
+LLVM should fold:
+  switch (state) {          →  switch (1) {
+    case 1: surface();          case 1: surface();
+    case 2: procedural();       case 2: procedural(); ← Dead code, eliminated
+  }                          }
 ```
 
-### Key Components
+## Critical Files
 
-1. **`__raygen__main`** - Kernel entry point, initiates ray queries via spawn call
-2. **`__anyhit__ray_query`** - Triangle intersection handler (calls all handlers)
-3. **`__intersection__ray_query`** - Procedural intersection handler (calls procedural-only handlers)
-
-## Critical Implementation Lessons
-
-### 1. Handler Detection via Intrinsic Scanning
-
-**NEVER** rely on fragile name matching or stored pointers. Use dynamic scanning:
-
-```cpp
-[[nodiscard]] bool _is_ray_query_handler(llvm::Function *func) noexcept {
-    if (func == nullptr || func->isDeclaration()) return false;
-    
-    // Check for dispatch intrinsic OR ray.query.dispatch block
-    for (auto &block : *func) {
-        if (block.getName().contains("ray.query.dispatch")) {
-            return true;
-        }
-        for (auto &inst : block) {
-            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
-                auto *callee = call->getCalledFunction();
-                if (callee && callee->getName() == "luisa.ray.query.dispatch") {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-```
-
-**Why this matters**: Functions can be deleted by dead code elimination, merged by optimization passes, or renamed. Scanning always finds the current state.
-
-### 2. Remove Handler Call from Kernel (CRITICAL)
-
-After extracting the ray query loop, **you MUST remove the call to the handler from the kernel**:
-
-```cpp
-// In RayQueryLoopExtraction pass, after extractCodeRegion:
-for (auto &BB : *F) {
-    for (auto It = BB.begin(); It != BB.end();) {
-        auto *CI = llvm::dyn_cast<llvm::CallInst>(&*It++);
-        if (CI && CI->getCalledFunction() == NewF) {
-            CI->eraseFromParent();  // REMOVE THE CALL
-        }
-    }
-}
-```
-
-**Why this matters**: OptiX will inline the handler into ANY function that calls it. If the kernel calls the handler, OptiX inlines the handler code (with `optixGetTriangleBarycentrics` calls) into `__raygen__main`, which is **ILLEGAL** and causes "Illegal call to optixGetTriangleBarycentrics in function __raygen__main".
-
-### 3. Inline Pass Must Be Selective
-
-Only inline handlers into OptiX entry points, not the kernel:
-
-```cpp
-for (auto &func : *_llvm_module) {
-    auto func_name = func.getName();
-    bool is_optix_entry = (func_name == "__anyhit__ray_query" || 
-                           func_name == "__intersection__ray_query");
-    if (!is_optix_entry) continue;
-    
-    // Only inline handlers in entry points...
-}
-```
-
-### 4. Disable MergeFunctions for Ray Query Shaders
-
-MergeFunctions will merge `__anyhit__` and `__intersection__` programs if they look similar:
-
-```cpp
-PTO.MergeFunctions = !_rt_analysis.uses_ray_query;
-```
-
-### 5. Surface vs Procedural Handler Filtering
-
-Handlers that read triangle barycentrics (`optixGetTriangleBarycentrics`) are **ONLY** valid in `__anyhit__` programs, not `__intersection__`:
-
-```cpp
-// Check BEFORE lowering intrinsics
-bool has_surface = _handler_has_surface_candidate_hit(func);
-
-// In intersection program, skip surface handlers:
-if (!handler_has_surface_hit[i]) {
-    procedural_handlers.push_back(handlers[i]);
-}
-```
-
-### 6. Filter Non-Void Handlers
-
-Some extracted functions return values (e.g., `i1`). These are NOT valid ray query handlers for OptiX:
-
-```cpp
-if (!handler->getReturnType()->isVoidTy()) {
-    // Skip this handler - not a valid ray query handler
-}
-```
-
-### 7. Handler Argument Passing
-
-Handlers may have multiple pointer arguments. Pass null for buffer pointers, ctx_ptr for output params:
-
-```cpp
-llvm::SmallVector<llvm::Value *, 4> handler_args;
-for (auto &arg : handler->args()) {
-    auto arg_type = arg.getType();
-    if (arg_type->isPointerTy()) {
-        auto ptr_type = llvm::dyn_cast<llvm::PointerType>(arg_type);
-        if (ptr_type && ptr_type->getAddressSpace() == 0) {
-            handler_args.push_back(ctx_ptr);  // Context pointer
-        } else {
-            handler_args.push_back(llvm::ConstantPointerNull::get(ptr_type));
-        }
-    }
-}
-```
-
-### 8. Use NoDuplicate and NoInline on Entry Points
-
-Prevent optimization passes from merging entry points:
-
-```cpp
-func->addFnAttr(llvm::Attribute::NoDuplicate);
-func->addFnAttr(llvm::Attribute::NoInline);
-```
-
-## Pseudo-Intrinsics
-
-| Intrinsic | Implementation |
-|-----------|----------------|
-| `luisa.ray.query.spawn` | OptiX trace call with encoded context |
-| `luisa.ray.query.dispatch` | No-op (removed) |
-| `luisa.ray.query.state` | Returns constant based on handler type |
-| `luisa.ray.query.world.space.ray` | `_optix_get_world_ray` inline asm |
-| `luisa.ray.query.surface.candidate.hit` | `_optix_read_instance_index`, `_optix_read_primitive_index`, `_optix_get_triangle_barycentrics` |
-| `luisa.ray.query.procedural.candidate.hit` | `_optix_read_instance_index`, `_optix_read_primitive_index` |
-| `luisa.ray.query.commit.surface.hit` | Set `result.committed = true` |
-| `luisa.ray.query.commit.procedural.hit` | Set `result.committed = true` |
-| `luisa.ray.query.terminate` | Set `result.terminated = true` |
-
-## LLVM Intrinsics in Handlers
-
-Handlers may contain LLVM intrinsics that need to be lowered:
-
-- `llvm.vector.reduce.fadd.vNf32` → Extract elements and sum
-- `llvm.nvvm.sqrt.approx.ftz.f` → `llvm::Intrinsic::sqrt`
-- `llvm.nvvm.rsqrt.approx.ftz.f` → `1.0 / sqrt(x)`
-
-## Result Struct
-
-```cpp
-// LCIntersectionResult: { i8 committed, i8 terminated }
-struct_type = llvm::StructType::get(
-    llvm::Type::getInt8Ty(context),   // committed
-    llvm::Type::getInt8Ty(context)    // terminated
-);
-```
-
-## Entry Point Structure
-
-### __anyhit__ray_query
-
-```llvm
-define ptx_kernel void @__anyhit__ray_query() {
-entry:
-  call @optix_set_payload_types(2)
-  %query_id = call @optix_get_payload(0)
-  %ctx_ptr = call @optix_get_payload(1)
-  switch %query_id, label %default [
-    i32 0, label %handler_0
-    i32 1, label %handler_1
-  ]
-
-handler_0:
-  call void @ray.query.handler.0(%ctx_ptr)
-  ret void
-
-default:
-  ret void
-}
-```
-
-### __intersection__ray_query
-
-Same structure but only dispatches to procedural handlers (those without `surface.candidate.hit`).
-
-## Context Encoding
-
-```
-r0 = (query_id << 24) | (ctx_ptr_high & 0xffffff)
-r1 = ctx_ptr_low
-```
-
-## Files Modified
-
-- `cuda_codegen_llvm_impl.cpp` - Main implementation
-- `cuda_codegen_llvm_impl.h` - Declarations and constants
+- `cuda_codegen_llvm_impl.cpp` - Main implementation, contains bugs
+- `cuda_codegen_llvm_impl.h` - Declarations
 - `cuda_codegen_llvm_impl_type.cpp` - Type definitions
 - `cuda_codegen_llvm_impl_resource.cpp` - OptiX inline ASM helpers
 
-## Key Constants
+## Key Functions to Fix
 
-```cpp
-static constexpr uint32_t llvm_payload_type_ray_query = 2;
-static constexpr uint32_t llvm_hit_type_miss = 0;
-static constexpr uint32_t llvm_hit_type_builtin = 1;
-static constexpr uint32_t llvm_hit_type_procedural = 2;
-static constexpr uint32_t llvm_hit_kind_procedural = 0x01;
-static constexpr uint32_t llvm_hit_kind_procedural_terminated = 0x02;
+1. **`_clone_and_lower_handler()`** - Lines ~1216-1500
+   - Must properly remap ALL value references
+   - Arguments, blocks, instructions all need vmap entries
+   - Use `llvm::CloneFunction()` instead of manual cloning?
+
+2. **`_generate_intersection_program()`** - Lines ~974-1100
+   - Verify only procedural handlers are called
+   - Check that surface code is eliminated
+
+3. **`_generate_anyhit_program()`** - Lines ~1119-1214
+   - Verify only surface handlers are called
+   - Check that procedural code is eliminated
+
+## Testing
+
+Run tests with:
+```bash
+cd cmake-build-debug
+
+# Test simple (should pass)
+LUISA_EXPERIMENTAL_LLVM_CODEGEN=1 ./bin/test_ray_query_simple cuda
+
+# Test procedural (currently broken)
+LUISA_EXPERIMENTAL_LLVM_CODEGEN=1 ./bin/test_procedural cuda
+
+# Compare with AST codegen
+./bin/test_procedural cuda  # AST version
+mv test_procedural.png test_procedural_ast.png
+LUISA_EXPERIMENTAL_LLVM_CODEGEN=1 ./bin/test_procedural cuda  # LLVM version
+
+# Check pixel counts
+python3 -c "
+from PIL import Image
+ast = Image.open('test_procedural_ast.png')
+llvm = Image.open('test_procedural.png')
+ast_px = list(ast.getdata())
+llvm_px = list(llvm.getdata())
+ast_non_black = sum(1 for p in ast_px if p[0] > 10 or p[1] > 10 or p[2] > 10)
+llvm_non_black = sum(1 for p in llvm_px if p[0] > 10 or p[1] > 10 or p[2] > 10)
+print(f'AST: {ast_non_black}, LLVM: {llvm_non_black}')
+"
 ```
+
+## What Needs to Be Done
+
+1. **Fix Handler Cloning**
+   - Rewrite `_clone_and_lower_handler()` to properly clone functions
+   - Ensure all value references are remapped
+   - Consider using `llvm::CloneFunction()` utility
+   - Verify no "argument in another function" errors
+
+2. **Verify Dead Code Elimination**
+   - Check that LLVM actually eliminates unreachable branches
+   - May need to run specific optimization passes
+   - Verify intersection program has no surface candidate code
+
+3. **Test Mixed Handlers**
+   - Handlers with both surface and procedural candidates
+   - Should produce correct results matching AST codegen
+
+4. **Performance**
+   - Current implementation is slow (handler cloning)
+   - May need optimization
 
 ## Lessons Learned
 
-1. **Never use Function::mutateType()** - It's dangerous and doesn't work
-2. **Always use intrinsic scanning** - Name matching breaks with optimization
-3. **Remove handler calls from kernel** - Critical for preventing illegal OptiX inlining
-4. **Test constantly** - Run tests after every change to catch issues early
-5. **Filter handlers carefully** - Surface handlers can't go in intersection programs
-6. **Handle all LLVM intrinsics** - Vector reductions, math intrinsics, etc.
-
-## Future Improvements
-
-- Support for context struct with captured variables
-- More efficient payload encoding
-- Support for ray query continuation
-- Better handling of complex control flow
+1. **Don't manually clone LLVM functions** - Use `llvm::CloneFunction()`
+2. **ValueToValueMap needs ALL mappings** - Arguments, blocks, instructions
+3. **RemapInstruction must be called after ALL mappings are set**
+4. **Test constantly** - Run pixel comparison after every change
+5. **Debug with `debug_after_*.ll` files** - Check generated IR
 
 ## References
 
-- `cuda_device_resource.h` - OptiX inline ASM reference
-- `cuda_codegen_xir.cpp` - AST codegen reference implementation
+- `RAY_QUERY.md` (this file) - Design document
+- `test_procedural.cpp` - Test case with mixed hit types
+- AST codegen in `cuda_codegen_xir.cpp` - Reference implementation
 - OptiX Programming Guide - Entry point semantics
+
+## Handoff Notes for Gemini
+
+The architecture is correct but implementation has bugs in function cloning. The key insight is that we need TWO versions of each handler with different state constants, and LLVM should fold the switch statements.
+
+Focus on fixing `_clone_and_lower_handler()` - it's the root cause of all current issues. Once cloning works correctly, everything else should fall into place.
+
+Good luck.
