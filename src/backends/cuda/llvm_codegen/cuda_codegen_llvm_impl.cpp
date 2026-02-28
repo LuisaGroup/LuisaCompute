@@ -736,7 +736,7 @@ namespace {
 }
 
 // Check if handler contains surface candidate hit (triangle) processing
-// This is used to determine if the handler should be called from __intersection__
+// This is used to determine if the handler should be called from __anyhit__
 [[nodiscard]] bool _handler_has_surface_candidate_hit(llvm::Function *func) noexcept {
     if (func == nullptr || func->isDeclaration()) {
         return false;
@@ -748,6 +748,28 @@ namespace {
                 if (callee != nullptr) {
                     auto name = callee->getName();
                     if (name == llvm::StringRef(CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_surface_candidate_hit)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// Check if handler contains procedural candidate hit processing
+// This is used to determine if the handler should be called from __intersection__
+[[nodiscard]] bool _handler_has_procedural_candidate_hit(llvm::Function *func) noexcept {
+    if (func == nullptr || func->isDeclaration()) {
+        return false;
+    }
+    for (auto &block : *func) {
+        for (auto &inst : block) {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+                auto *callee = call->getCalledFunction();
+                if (callee != nullptr) {
+                    auto name = callee->getName();
+                    if (name == llvm::StringRef(CUDACodegenLLVMImpl::llvm_ray_query_intrinsic_name_procedural_candidate_hit)) {
                         return true;
                     }
                 }
@@ -837,16 +859,23 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
         return;
     }
 
-    // Check which handlers handle surface candidates (triangles) BEFORE lowering
+    // Check which handlers handle surface and procedural candidates BEFORE lowering
     // This must be done before _lower_ray_query_handler because intrinsics are replaced
     llvm::SmallVector<bool, 8> handler_has_surface_hit;
+    llvm::SmallVector<bool, 8> handler_has_procedural_hit;
     for (auto *func : ray_query_handlers) {
         bool has_surface = _handler_has_surface_candidate_hit(func);
+        bool has_procedural = _handler_has_procedural_candidate_hit(func);
         handler_has_surface_hit.push_back(has_surface);
-        if (has_surface) {
+        handler_has_procedural_hit.push_back(has_procedural);
+        if (has_surface && has_procedural) {
+            LUISA_INFO("Handler {} handles BOTH surface and procedural candidates", func->getName().str());
+        } else if (has_surface) {
             LUISA_INFO("Handler {} handles surface candidates (triangles)", func->getName().str());
+        } else if (has_procedural) {
+            LUISA_INFO("Handler {} handles procedural candidates", func->getName().str());
         } else {
-            LUISA_INFO("Handler {} is procedural only", func->getName().str());
+            LUISA_INFO("Handler {} has no candidate handlers", func->getName().str());
         }
     }
 
@@ -854,10 +883,12 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
     // Handlers with non-void returns are not valid ray query handlers for OptiX
     llvm::SmallVector<llvm::Function *, 8> void_handlers;
     llvm::SmallVector<bool, 8> void_handler_has_surface_hit;
+    llvm::SmallVector<bool, 8> void_handler_has_procedural_hit;
     for (size_t i = 0; i < ray_query_handlers.size(); ++i) {
         if (ray_query_handlers[i]->getReturnType()->isVoidTy()) {
             void_handlers.push_back(ray_query_handlers[i]);
             void_handler_has_surface_hit.push_back(handler_has_surface_hit[i]);
+            void_handler_has_procedural_hit.push_back(handler_has_procedural_hit[i]);
         } else {
             LUISA_INFO("Skipping handler {}: does not return void, returns {}",
                        ray_query_handlers[i]->getName().str(),
@@ -868,6 +899,7 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
     }
     ray_query_handlers = std::move(void_handlers);
     handler_has_surface_hit = std::move(void_handler_has_surface_hit);
+    handler_has_procedural_hit = std::move(void_handler_has_procedural_hit);
 
     if (ray_query_handlers.empty()) {
         LUISA_INFO("No void-returning ray query handlers found");
@@ -886,8 +918,9 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
     }
 
     // Lower intrinsics in each handler FIRST (transforms return type)
-    for (auto *func : ray_query_handlers) {
-        _lower_ray_query_handler(func);
+    // Note: _lower_ray_query_handler may clone the handler, so we need to update our pointers
+    for (auto &func : ray_query_handlers) {
+        func = _lower_ray_query_handler(func);
     }
 
     // Generate OptiX entry points that dispatch to these handlers
@@ -895,21 +928,23 @@ void CUDACodegenLLVMImpl::_materialize_ray_query_loops() noexcept {
     for (size_t i = 0; i < ray_query_handlers.size(); ++i) {
         LUISA_INFO("Handler {}: name={}, ptr={}", i, ray_query_handlers[i]->getName().str(), (void *)ray_query_handlers[i]);
     }
-    _generate_ray_query_entry_points(ray_query_handlers, handler_has_surface_hit);
+    _generate_ray_query_entry_points(ray_query_handlers, handler_has_surface_hit, handler_has_procedural_hit);
 }
 
 void CUDACodegenLLVMImpl::_generate_ray_query_entry_points(llvm::ArrayRef<llvm::Function *> handlers,
-                                                           llvm::ArrayRef<bool> handler_has_surface_hit) noexcept {
+                                                           llvm::ArrayRef<bool> handler_has_surface_hit,
+                                                           llvm::ArrayRef<bool> handler_has_procedural_hit) noexcept {
     if (handlers.empty()) return;
 
     // Generate __intersection__ray_query for procedural hits
-    _generate_intersection_program(handlers, handler_has_surface_hit);
+    _generate_intersection_program(handlers, handler_has_procedural_hit, handler_has_surface_hit);
 
     // Generate __anyhit__ray_query for triangle hits
     _generate_anyhit_program(handlers);
 }
 
 void CUDACodegenLLVMImpl::_generate_intersection_program(llvm::ArrayRef<llvm::Function *> handlers,
+                                                         llvm::ArrayRef<bool> handler_has_procedural_hit,
                                                          llvm::ArrayRef<bool> handler_has_surface_hit) noexcept {
     IB b{_llvm_context};
     auto void_type = llvm::Type::getVoidTy(_llvm_context);
@@ -942,18 +977,18 @@ void CUDACodegenLLVMImpl::_generate_intersection_program(llvm::ArrayRef<llvm::Fu
     auto ctx_int = b.CreateOr(ctx_hi_shifted, ctx_lo_64);
     auto ctx_ptr = b.CreateIntToPtr(ctx_int, b.getPtrTy(), "ctx.ptr");
 
-    // Filter handlers to only include those that handle procedural hits
-    // Surface candidate (triangle) handlers should NOT be called from intersection program
-    // because they use optixGetTriangleBarycentrics which is invalid in __intersection__
+    // Filter handlers to only include those that handle ONLY procedural hits
+    // A handler should ONLY be called from intersection program if it handles procedural candidates
+    // AND does NOT handle surface candidates. Handlers with both should only be called from anyhit
+    // to avoid inlining optixGetTriangleBarycentrics into the intersection program.
     llvm::SmallVector<llvm::Function *, 8> procedural_handlers;
     for (size_t i = 0; i < handlers.size(); ++i) {
-        // Use the pre-computed handler_has_surface_hit array (checked before intrinsics were lowered)
-        if (!handler_has_surface_hit[i]) {
+        if (handler_has_procedural_hit[i] && !handler_has_surface_hit[i]) {
             procedural_handlers.push_back(handlers[i]);
-            LUISA_INFO("Intersection program: Including procedural handler {}: {}",
+            LUISA_INFO("Intersection program: Including handler {}: {} (procedural-only)",
                        procedural_handlers.size() - 1, handlers[i]->getName().str());
         } else {
-            LUISA_INFO("Intersection program: Skipping surface handler {}: {} (contains surface candidate hit)",
+            LUISA_INFO("Intersection program: Skipping handler {}: {} (has surface candidate handling)",
                        i, handlers[i]->getName().str());
         }
     }
@@ -1097,27 +1132,51 @@ void CUDACodegenLLVMImpl::_generate_anyhit_program(llvm::ArrayRef<llvm::Function
             switch_inst->addCase(b.getInt32(i), handler_block);
             b.SetInsertPoint(handler_block);
 
+            // Allocate result struct for this handler invocation
+            // LCIntersectionResult: { float t_hit, i8 committed, i8 terminated }
+            auto result_type = _get_llvm_intersection_result_type();
+            auto result_alloca = b.CreateAlloca(result_type, nullptr, "result");
+            b.CreateStore(llvm::Constant::getNullValue(result_type), result_alloca);
+
             // Call the handler - LLVM optimization will inline it automatically
             // Build argument list - pass null for buffer pointers, ctx_ptr for output params
             LUISA_INFO("Anyhit program: Creating call to handler {}: name={}, ptr={}, num_args={}",
                        i, handlers[i]->getName().str(), (void *)handlers[i], handlers[i]->arg_size());
 
+            // Build argument list
+            // Pass null for buffer pointers, ctx_ptr for other generic pointers
+            // The LAST argument is always the result pointer
             llvm::SmallVector<llvm::Value *, 4> handler_args;
+            llvm::Value *last_ptr_arg = nullptr;
+
             for (auto &arg : handlers[i]->args()) {
                 auto arg_type = arg.getType();
                 if (arg_type->isPointerTy()) {
-                    // Check if this is a context pointer (generic pointer) or buffer pointer (addrspace(1))
                     auto ptr_type = llvm::dyn_cast<llvm::PointerType>(arg_type);
                     if (ptr_type && ptr_type->getAddressSpace() == 0) {
-                        // Generic pointer - assume this is the context pointer
+                        // Generic pointer - could be context or result
+                        // Track the last one we see
+                        last_ptr_arg = ctx_ptr;
                         handler_args.push_back(ctx_ptr);
                     } else {
-                        // Buffer pointer or other - pass null for now
+                        // Buffer pointer - pass null
                         handler_args.push_back(llvm::ConstantPointerNull::get(ptr_type));
                     }
                 } else {
                     // Non-pointer argument - pass 0
                     handler_args.push_back(llvm::Constant::getNullValue(arg_type));
+                }
+            }
+
+            // Replace the last pointer argument with result_alloca
+            // The handler expects result_alloca as its LAST argument
+            if (!handler_args.empty()) {
+                // Find the last pointer argument and replace it with result_alloca
+                for (int idx = handler_args.size() - 1; idx >= 0; --idx) {
+                    if (handler_args[idx]->getType()->isPointerTy()) {
+                        handler_args[idx] = result_alloca;
+                        break;
+                    }
                 }
             }
 
@@ -1142,7 +1201,7 @@ void CUDACodegenLLVMImpl::_generate_anyhit_program(llvm::ArrayRef<llvm::Function
     }
 }
 
-void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noexcept {
+llvm::Function *CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noexcept {
     IB b{_llvm_context};
 
     // Get LCIntersectionResult type: { i8 committed, i8 terminated }
@@ -1151,14 +1210,71 @@ void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noex
     auto struct_type = llvm::dyn_cast<llvm::StructType>(result_type);
     LUISA_ASSERT(struct_type != nullptr, "result_type is not a StructType");
 
-    // Simpler approach: Add a pointer parameter to the existing handler
-    // We'll pass a pointer to the result struct when calling the handler
+    // The handler needs to write to a result struct that the entry point can read.
+    // We add a result pointer parameter to the handler using LLVM's argument mutation.
 
-    // Allocate result struct in the entry block
-    auto entry_block = &handler->getEntryBlock();
-    b.SetInsertPoint(&entry_block->front());
-    auto result_alloca = b.CreateAlloca(result_type, nullptr, "result");
-    b.CreateStore(llvm::Constant::getNullValue(result_type), result_alloca);
+    // Create new function type with result pointer as last parameter
+    auto result_ptr_type = llvm::PointerType::get(result_type, 0);
+    llvm::SmallVector<llvm::Type *, 8> param_types;
+    for (auto &arg : handler->args()) {
+        param_types.push_back(arg.getType());
+    }
+    param_types.push_back(result_ptr_type);
+
+    auto new_func_type = llvm::FunctionType::get(handler->getReturnType(), param_types, false);
+
+    // Mutate the function type
+    llvm::SmallVector<llvm::Type *, 8> new_params;
+    for (auto &arg : handler->args()) {
+        new_params.push_back(arg.getType());
+    }
+    new_params.push_back(result_ptr_type);
+
+    // Actually, let's just use the existing approach of passing as last argument
+    // but properly update the function signature
+
+    // Create a new function with the correct signature
+    auto new_handler = llvm::Function::Create(new_func_type, handler->getLinkage(),
+                                              handler->getName(), handler->getParent());
+    new_handler->copyAttributesFrom(handler);
+    new_handler->addFnAttr(llvm::Attribute::NoInline);
+
+    // Move basic blocks to new function
+    llvm::SmallVector<llvm::BasicBlock *, 8> blocks;
+    for (auto &block : *handler) {
+        blocks.push_back(&block);
+    }
+    for (auto block : blocks) {
+        block->removeFromParent();
+        block->insertInto(new_handler);
+    }
+
+    // Update argument references: old args -> new args
+    llvm::ValueToValueMapTy vmap;
+    auto old_it = handler->arg_begin();
+    auto new_it = new_handler->arg_begin();
+    for (; old_it != handler->arg_end(); ++old_it, ++new_it) {
+        vmap[&*old_it] = &*new_it;
+        new_it->setName(old_it->getName());
+    }
+
+    // The last new argument is the result pointer
+    new_it->setName("result.ptr");
+    llvm::Value *result_ptr = &*new_it;
+
+    // Remap all instructions
+    for (auto &block : *new_handler) {
+        for (auto &inst : block) {
+            llvm::RemapInstruction(&inst, vmap, llvm::RF_None);
+        }
+    }
+
+    // Replace old handler with new handler
+    handler->replaceAllUsesWith(new_handler);
+    handler->eraseFromParent();
+
+    // Update handler pointer
+    handler = new_handler;
 
     // Debug: Print handler function before processing
     std::string func_str;
@@ -1238,16 +1354,16 @@ void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noex
         } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_commit_surface_hit) ||
                    name == llvm::StringRef(llvm_ray_query_intrinsic_name_commit_procedural_hit)) {
             // luisa.ray.query.commit.*() - set committed flag
-            LUISA_INFO("Creating GEP for commit, struct_type={}, result_alloca={}",
-                       (void *)struct_type, (void *)result_alloca);
-            LUISA_ASSERT(struct_type != nullptr, "struct_type is null");
-            LUISA_ASSERT(result_alloca != nullptr, "result_alloca is null");
-            LUISA_ASSERT(llvm::isa<llvm::StructType>(struct_type), "struct_type is not a StructType");
-
             // Use CreateStructGEP to get pointer to committed field
             // LCIntersectionResult: { float t_hit, i8 committed, i8 terminated }
+            LUISA_INFO("Creating GEP for commit, struct_type={}, result_ptr={}",
+                       (void *)struct_type, (void *)result_ptr);
+            LUISA_ASSERT(struct_type != nullptr, "struct_type is null");
+            LUISA_ASSERT(result_ptr != nullptr, "result_ptr is null");
+            LUISA_ASSERT(llvm::isa<llvm::StructType>(struct_type), "struct_type is not a StructType");
+
             auto committed_ptr = b.CreateStructGEP(
-                struct_type, result_alloca, CUDACodegenLLVMImpl::llvm_intersection_result_committed_index, "committed.ptr");
+                struct_type, result_ptr, CUDACodegenLLVMImpl::llvm_intersection_result_committed_index, "committed.ptr");
             b.CreateStore(b.getInt8(1), committed_ptr);
             call->eraseFromParent();
         } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_terminate)) {
@@ -1255,14 +1371,27 @@ void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noex
             // Use CreateStructGEP to get pointer to terminated field
             // LCIntersectionResult: { float t_hit, i8 committed, i8 terminated }
             auto terminated_ptr = b.CreateStructGEP(
-                struct_type, result_alloca, CUDACodegenLLVMImpl::llvm_intersection_result_terminated_index, "terminated.ptr");
+                struct_type, result_ptr, CUDACodegenLLVMImpl::llvm_intersection_result_terminated_index, "terminated.ptr");
             b.CreateStore(b.getInt8(1), terminated_ptr);
             call->eraseFromParent();
         } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_committed_hit)) {
             // luisa.ray.query.committed.hit() - get committed hit data from OptiX
-            // For now, replace with undef values
-            auto undef_val = llvm::UndefValue::get(call->getType());
-            call->replaceAllUsesWith(undef_val);
+            // Returns LCCommittedHit { i32 inst, i32 prim, <2 x float> bary, i32 hit_kind, float t }
+            auto inst_id = _call_optix_read_instance_index(b);
+            auto prim_id = _call_optix_read_primitive_index(b);
+            auto bary = _call_optix_get_triangle_barycentrics(b);
+            auto hit_kind = _call_optix_get_hit_kind(b);
+            auto t_hit = _call_optix_get_hit_distance(b);
+
+            // Construct LCCommittedHit struct
+            llvm::Value *result = llvm::PoisonValue::get(call->getType());
+            result = b.CreateInsertValue(result, inst_id, CUDACodegenLLVMImpl::llvm_committed_hit_type_inst_id_index);
+            result = b.CreateInsertValue(result, prim_id, CUDACodegenLLVMImpl::llvm_committed_hit_type_prim_id_index);
+            result = b.CreateInsertValue(result, bary, CUDACodegenLLVMImpl::llvm_committed_hit_type_bary_index);
+            result = b.CreateInsertValue(result, hit_kind, CUDACodegenLLVMImpl::llvm_committed_hit_type_hit_kind_index);
+            result = b.CreateInsertValue(result, t_hit, CUDACodegenLLVMImpl::llvm_committed_hit_type_t_index);
+
+            call->replaceAllUsesWith(result);
             call->eraseFromParent();
         } else if (name.starts_with("llvm.vector.reduce.fadd")) {
             // Vector horizontal sum reduction
@@ -1339,6 +1468,8 @@ void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noex
     llvm::raw_string_ostream rso_after(func_str_after);
     handler->print(rso_after);
     LUISA_INFO("Handler function after lowering:\n{}", rso_after.str());
+
+    return handler;
 }
 
 }// namespace luisa::compute::cuda
