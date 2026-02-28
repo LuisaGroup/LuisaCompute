@@ -143,6 +143,11 @@ public:
     static constexpr auto llvm_ray_query_state_surface_candidate = 1;
     static constexpr auto llvm_ray_query_state_procedural_candidate = 2;
 
+    // LCIntersectionResult: { float t_hit, i8 committed, i8 terminated }
+    static constexpr auto llvm_intersection_result_t_hit_index = 0;
+    static constexpr auto llvm_intersection_result_committed_index = 1;
+    static constexpr auto llvm_intersection_result_terminated_index = 2;
+
     static constexpr std::string_view llvm_ray_query_intrinsic_name_world_space_ray = "luisa.ray.query.world.space.ray";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_procedural_candidate_hit = "luisa.ray.query.procedural.candidate.hit";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_surface_candidate_hit = "luisa.ray.query.surface.candidate.hit";

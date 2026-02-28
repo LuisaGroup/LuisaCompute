@@ -1007,12 +1007,12 @@ void CUDACodegenLLVMImpl::_generate_intersection_program(llvm::ArrayRef<llvm::Fu
             }
 
             // Read result fields and conditionally report intersection
-            // committed is at index 1, terminated at index 2, t_hit at index 0
-            auto committed_ptr = b.CreateStructGEP(result_type, result_alloca, 1u, "committed.ptr");
+            // LCIntersectionResult: { float t_hit, i8 committed, i8 terminated }
+            auto committed_ptr = b.CreateStructGEP(result_type, result_alloca, CUDACodegenLLVMImpl::llvm_intersection_result_committed_index, "committed.ptr");
             auto committed_val = b.CreateLoad(b.getInt8Ty(), committed_ptr, "committed");
             auto is_committed = b.CreateICmpNE(committed_val, b.getInt8(0), "is.committed");
 
-            auto terminated_ptr = b.CreateStructGEP(result_type, result_alloca, 2u, "terminated.ptr");
+            auto terminated_ptr = b.CreateStructGEP(result_type, result_alloca, CUDACodegenLLVMImpl::llvm_intersection_result_terminated_index, "terminated.ptr");
             auto terminated_val = b.CreateLoad(b.getInt8Ty(), terminated_ptr, "terminated");
             auto is_terminated = b.CreateICmpNE(terminated_val, b.getInt8(0), "is.terminated");
 
@@ -1025,8 +1025,9 @@ void CUDACodegenLLVMImpl::_generate_intersection_program(llvm::ArrayRef<llvm::Fu
             // Report intersection block
             b.SetInsertPoint(report_block);
 
-            // Read t_hit from result (index 0)
-            auto t_hit_ptr = b.CreateStructGEP(result_type, result_alloca, 0u, "t_hit.ptr");
+            // Read t_hit from result
+            // LCIntersectionResult: { float t_hit, i8 committed, i8 terminated }
+            auto t_hit_ptr = b.CreateStructGEP(result_type, result_alloca, CUDACodegenLLVMImpl::llvm_intersection_result_t_hit_index, "t_hit.ptr");
             auto t_hit_val = b.CreateLoad(b.getFloatTy(), t_hit_ptr, "t_hit");
 
             // Determine hit kind: PROCEDURAL_TERMINATED if terminated, else PROCEDURAL
@@ -1243,16 +1244,18 @@ void CUDACodegenLLVMImpl::_lower_ray_query_handler(llvm::Function *handler) noex
             LUISA_ASSERT(result_alloca != nullptr, "result_alloca is null");
             LUISA_ASSERT(llvm::isa<llvm::StructType>(struct_type), "struct_type is not a StructType");
 
-            // Use CreateStructGEP to get pointer to committed field (index 0)
+            // Use CreateStructGEP to get pointer to committed field
+            // LCIntersectionResult: { float t_hit, i8 committed, i8 terminated }
             auto committed_ptr = b.CreateStructGEP(
-                struct_type, result_alloca, 0u, "committed.ptr");
+                struct_type, result_alloca, CUDACodegenLLVMImpl::llvm_intersection_result_committed_index, "committed.ptr");
             b.CreateStore(b.getInt8(1), committed_ptr);
             call->eraseFromParent();
         } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_terminate)) {
             // luisa.ray.query.terminate() - set terminated flag
-            // Use CreateStructGEP to get pointer to terminated field (index 1)
+            // Use CreateStructGEP to get pointer to terminated field
+            // LCIntersectionResult: { float t_hit, i8 committed, i8 terminated }
             auto terminated_ptr = b.CreateStructGEP(
-                struct_type, result_alloca, 1u, "terminated.ptr");
+                struct_type, result_alloca, CUDACodegenLLVMImpl::llvm_intersection_result_terminated_index, "terminated.ptr");
             b.CreateStore(b.getInt8(1), terminated_ptr);
             call->eraseFromParent();
         } else if (name == llvm::StringRef(llvm_ray_query_intrinsic_name_committed_hit)) {
