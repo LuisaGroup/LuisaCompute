@@ -383,8 +383,12 @@ llvm::Type *CUDACodegenLLVMImpl::_get_llvm_committed_hit_type() noexcept {
 
 llvm::Type *CUDACodegenLLVMImpl::_get_llvm_intersection_result_type() noexcept {
     if (_llvm_intersection_result_type == nullptr) {
+        auto llvm_float_type = llvm::Type::getFloatTy(_llvm_context);
         auto llvm_i8_type = llvm::Type::getInt8Ty(_llvm_context);
-        _llvm_intersection_result_type = llvm::StructType::get(llvm_i8_type /* committed */,
+        // Match LCIntersectionResult from cuda_device_resource.h:
+        // { float t_hit, bool committed, bool terminated }
+        _llvm_intersection_result_type = llvm::StructType::get(llvm_float_type /* t_hit */,
+                                                               llvm_i8_type /* committed */,
                                                                llvm_i8_type /* terminated */);
     }
     return _llvm_intersection_result_type;

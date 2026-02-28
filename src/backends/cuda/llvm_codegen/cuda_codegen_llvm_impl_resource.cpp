@@ -988,8 +988,19 @@ llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_world_space_ray(IB &b) noexcep
 }
 
 void CUDACodegenLLVMImpl::_call_optix_report_intersection(IB &b, llvm::Value *hit_kind, llvm::Value *t) noexcept {
-    auto llvm_asm = _get_inline_asm("call ($0), _optix_report_intersection_0, ($1, $2);", "=r,f,r", true);
-    b.CreateCall(llvm_asm, {t, hit_kind});
+    // Ensure t is float type and use explicit float register
+    // NVPTX generates integer registers, so we need to explicitly move to float register
+    t = _safe_fp_cast(b, t, b.getFloatTy());
+    auto llvm_asm = _get_inline_asm(
+        "{\n"
+        "\t\t.reg .f32 t_f32;\n"
+        "\t\tmov.b32 t_f32, $1;\n"
+        "\t\tcall ($0), _optix_report_intersection_0, (t_f32, $2);\n"
+        "}",
+        "=r,r,r", true);
+    // Bitcast float to i32 for the "r" constraint
+    auto t_bits = b.CreateBitCast(t, b.getInt32Ty(), "t.bits");
+    b.CreateCall(llvm_asm, {t_bits, hit_kind});
 }
 
 void CUDACodegenLLVMImpl::_call_optix_ignore_intersection(IB &b) noexcept {
@@ -1005,6 +1016,11 @@ void CUDACodegenLLVMImpl::_call_optix_terminate_ray(IB &b) noexcept {
 llvm::Value *CUDACodegenLLVMImpl::_call_optix_get_payload(IB &b, llvm::Value *index) noexcept {
     auto llvm_asm = _get_inline_asm("call ($0), _optix_get_payload, ($1);", "=r,r", false);
     return b.CreateCall(llvm_asm, {index});
+}
+
+void CUDACodegenLLVMImpl::_call_optix_set_payload_types(IB &b, llvm::Value *payload_type_id) noexcept {
+    auto llvm_asm = _get_inline_asm("call _optix_set_payload_types, ($0);", "r", true);
+    b.CreateCall(llvm_asm, {payload_type_id});
 }
 
 }// namespace luisa::compute::cuda

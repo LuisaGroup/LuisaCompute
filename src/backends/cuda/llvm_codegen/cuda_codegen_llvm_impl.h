@@ -159,6 +159,21 @@ public:
     static constexpr std::string_view llvm_ray_query_intrinsic_name_dispatch = "luisa.ray.query.dispatch";
     static constexpr std::string_view llvm_ray_query_intrinsic_name_terminate = "luisa.ray.query.terminate";
 
+    // Payload type constants matching cuda_device_resource.h
+    static constexpr uint32_t llvm_payload_type_id_0 = 1u << 0u;
+    static constexpr uint32_t llvm_payload_type_id_1 = 1u << 1u;
+    static constexpr uint32_t llvm_payload_type_ray_trace = llvm_payload_type_id_0;
+    static constexpr uint32_t llvm_payload_type_ray_query = llvm_payload_type_id_1;
+
+    // LCHitType enum values matching cuda_device_resource.h
+    static constexpr uint32_t llvm_hit_type_miss = 0u;
+    static constexpr uint32_t llvm_hit_type_builtin = 1u;
+    static constexpr uint32_t llvm_hit_type_procedural = 2u;
+
+    // LC_HIT_KIND constants matching cuda_device_resource.h
+    static constexpr uint32_t llvm_hit_kind_procedural = 0x01u;
+    static constexpr uint32_t llvm_hit_kind_procedural_terminated = 0x02u;
+
 private:
     CUDACodegenLLVMConfig _config;
     llvm::TargetMachine *_target_machine{nullptr};
@@ -178,7 +193,7 @@ private:
     llvm::Type *_llvm_surface_hit_type{nullptr};        // { i32 inst_id, i32 prim_id, <2 x float> bary, float t }
     llvm::Type *_llvm_procedural_hit_type{nullptr};     // { i32 inst_id, i32 prim_id }
     llvm::Type *_llvm_committed_hit_type{nullptr};      // { i32 inst_id, i32 prim_id, <2 x float> bary, i32 hit_kind, float t }
-    llvm::Type *_llvm_intersection_result_type{nullptr};// { i8 committed, i8 terminated }
+    llvm::Type *_llvm_intersection_result_type{nullptr};// { float t_hit, i8 committed, i8 terminated }
     llvm::DenseMap<const Type *, luisa::unique_ptr<LLVMTypeInfo>> _xir_to_llvm_type;
     llvm::DenseMap<const xir::Value *, llvm::Constant *> _xir_to_llvm_global;
     llvm::DenseMap<const xir::KernelFunction *, luisa::unique_ptr<KernelArgumentStruct>> _kernel_arg_struct_types;
@@ -221,6 +236,8 @@ private:
     void _initialize() noexcept;
     using LLVMModulePassManagerCallback = llvm::function_ref<void(llvm::ModulePassManager &)>;
     void _run_optimization_passes(LLVMModulePassManagerCallback callback = {}) noexcept;
+    void _run_inline_pass_only() noexcept;
+    void _remove_unused_pseudo_intrinsics() noexcept;
     void _dump_module(const std::filesystem::path &path) const noexcept;
     [[nodiscard]] luisa::string _generate_ptx() const noexcept;
 
@@ -381,6 +398,7 @@ private:
     void _call_optix_ignore_intersection(IB &b) noexcept;
     void _call_optix_terminate_ray(IB &b) noexcept;
     [[nodiscard]] llvm::Value *_call_optix_get_payload(IB &b, llvm::Value *index) noexcept;
+    void _call_optix_set_payload_types(IB &b, llvm::Value *payload_type_id) noexcept;
 
     // ray query instructions: ray_query_loop, ray_query_dispatch, ray_query_object_read, ray_query_object_write, ray_query_pipeline, defined in cuda_codegen_llvm_impl_rq.cpp
     void _translate_ray_query_loop_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryLoopInst *inst) noexcept;
@@ -390,8 +408,11 @@ private:
     void _translate_ray_query_pipeline_inst(IB &b, FunctionContext &func_ctx, const xir::RayQueryPipelineInst *inst) noexcept;
     llvm::Value *_call_ray_query_intrinsic(IB &b, llvm::StringRef name, llvm::Type *ret, llvm::ArrayRef<llvm::Value *> args) noexcept;
     void _materialize_ray_query_loops() noexcept;
-    void _generate_ray_query_entry_points(llvm::ArrayRef<llvm::Function *> handlers) noexcept;
-    void _generate_intersection_program(llvm::ArrayRef<llvm::Function *> handlers) noexcept;
+    void _lower_ray_query_spawn_calls() noexcept;
+    void _generate_ray_query_entry_points(llvm::ArrayRef<llvm::Function *> handlers,
+                                          llvm::ArrayRef<bool> handler_has_surface_hit) noexcept;
+    void _generate_intersection_program(llvm::ArrayRef<llvm::Function *> handlers,
+                                        llvm::ArrayRef<bool> handler_has_surface_hit) noexcept;
     void _generate_anyhit_program(llvm::ArrayRef<llvm::Function *> handlers) noexcept;
     void _lower_ray_query_handler(llvm::Function *handler) noexcept;
 
