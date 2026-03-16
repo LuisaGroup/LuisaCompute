@@ -12,7 +12,7 @@ namespace luisa {
 
 /**
  * @brief Find next 2^n of v
- * 
+ *
  * @tparam uint32 or uint64
  * @param v input number
  * @return same as v
@@ -695,7 +695,9 @@ template<size_t N>
     return scaling(make_float3(s));
 }
 
-[[nodiscard]] constexpr auto sign(float x) noexcept { return x < 0.f ? -1.f : 1.f; }
+[[nodiscard]] constexpr auto sign(float x) noexcept {
+    return static_cast<float>(x > 0.0f) - static_cast<float>(x < 0.0f);
+}
 
 [[nodiscard]] constexpr auto sign(float2 v) noexcept {
     return make_float2(sign(v.x), sign(v.y));
@@ -755,7 +757,9 @@ template<size_t N>
     return scaling(make_double3(s));
 }
 
-[[nodiscard]] constexpr auto sign(double x) noexcept { return x < 0. ? -1. : 1.; }
+[[nodiscard]] constexpr auto sign(double x) noexcept {
+    return static_cast<double>(x > 0.0) - static_cast<double>(x < 0.0);
+}
 
 [[nodiscard]] constexpr auto sign(double2 v) noexcept {
     return make_double2(sign(v.x), sign(v.y));
@@ -769,8 +773,9 @@ template<size_t N>
     return make_double4(sign(v.x), sign(v.y), sign(v.z), sign(v.w));
 }
 
-
-[[nodiscard]] constexpr auto sign(int x) noexcept { return x < 0 ? -1 : 1; }
+[[nodiscard]] constexpr auto sign(int x) noexcept {
+    return static_cast<int>(x > 0) - static_cast<int>(x < 0);
+}
 
 [[nodiscard]] constexpr auto sign(int2 v) noexcept {
     return make_int2(sign(v.x), sign(v.y));
