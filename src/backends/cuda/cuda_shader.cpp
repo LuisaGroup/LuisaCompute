@@ -14,7 +14,9 @@ inline void patch_ptx_version(luisa::string &ptx) noexcept {
         "The PTX version is not supported by the installed CUDA driver. "
         "Trying to patch the PTX to make it compatible with the driver. "
         "This might cause unexpected behavior. "
-        "Please consider upgrading your CUDA driver.");
+        "Please consider upgrading your CUDA driver. "
+        "After upgrading, please clear the cache and recompile."
+    );
 
     // For users with newer CUDA and older driver,
     // the generated PTX might be reported invalid.
