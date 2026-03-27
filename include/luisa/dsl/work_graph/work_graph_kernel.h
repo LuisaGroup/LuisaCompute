@@ -5,38 +5,28 @@
 
 namespace luisa::compute {
 
+class WorkGraphEmptyRecord {};
+
 template<typename InputRecord, typename T>
-class WorkGraphNode {
+class WorkGraphNodeKernel {
     static_assert(always_false_v<T>);
 };
 
 template<typename InputRecord, typename Ret, typename... Args>
-class WorkGraphNode<InputRecord, Ret(Args...)> {
+class WorkGraphNodeKernel<InputRecord, Ret(Args...)> {
     static_assert(std::is_void_v<Ret>, "work graph nodes must have void return type");
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
     // verify that Args[0] == Var<InputRecord>
-    static constexpr bool InputRecordEmpty = std::is_empty_v<InputRecord>;
+    static constexpr bool InputRecordEmpty = std::is_same_v<InputRecord, WorkGraphEmptyRecord>;
 
     static_assert(
         InputRecordEmpty || sizeof...(Args) >= 1,
         "must be at least one argument for input record (unless input record type is empty)"
     );
 
-    template<typename InputRecord, typename... Args>
-    requires (std::is_empty_v<InputRecord> || std::is_same_v<Var<InputRecord>, std::tuple_element_t<0, std::tuple<Args...>>>)
-    struct FirstArgumentIsInputRecord {
-        static constexpr bool value = true;
-    };
-
-    static_assert(
-        FirstArgumentIsInputRecord<InputRecord, Args...>::value,
-        "first argument must have type Var<InputRecord> (unless input record type is empty)"
-    );
-
 private:
     luisa::shared_ptr<const detail::FunctionBuilder> _builder;
-    WorkGraphLaunchType _launch_type;
 
 public:
     /**
@@ -49,7 +39,7 @@ public:
     template<typename Def>
         requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
                  std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
-    WorkGraphNode(WorkGraphLaunchType launch_type, Def &&f) noexcept : _launch_type(launch_type) {
+    WorkGraphNodeKernel(Def &&f) noexcept {
         static_assert(std::is_invocable_r_v<void, Def, detail::prototype_to_creation_t<Args>...>);
         _builder = detail::FunctionBuilder::define_work_graph_node([&f] {
             auto create = []<size_t... i>(auto &&def, std::index_sequence<i...>) noexcept {
@@ -62,13 +52,10 @@ public:
                                    static_cast<detail::prototype_to_creation_t<
                                        std::tuple_element_t<i, arg_tuple>> &&>(std::get<i>(args))...);
             };
-            if constexpr (std::is_same_v<Ret, void>) {
-                create(std::forward<Def>(f), std::index_sequence_for<Args...>{});
-                detail::FunctionBuilder::current()->return_(nullptr);// to check if any previous $return called with non-void types
-            } else {
-                auto ret = def<Ret>(create(std::forward<Def>(f), std::index_sequence_for<Args...>{}));
-                detail::FunctionBuilder::current()->return_(ret.expression());
-            }
+
+            // return type is always void
+            create(std::forward<Def>(f), std::index_sequence_for<Args...>{});
+            detail::FunctionBuilder::current()->return_(nullptr);// to check if any previous $return called with non-void types
         });
     }
     /// Get the underlying AST
@@ -79,15 +66,34 @@ public:
 
 namespace detail {
 template<typename InputRecord, typename T>
-struct dsl_function<WorkGraphNode<InputRecord, T>> {
+struct dsl_function<WorkGraphNodeKernel<InputRecord, T>> {
     using type = T;
 };
 }// namespace detail
 
-// I can't seem to get CTAD to work, so just have a helper
-template<typename InputRecord, typename T>
-auto make_work_graph_node(WorkGraphLaunchType launch_type, T&& t) {
-    return WorkGraphNode<InputRecord, detail::dsl_function_t<std::remove_cvref_t<T>>>(launch_type, std::forward<T>(t));
-}
+template<typename T>
+struct FirstArgumentOrEmptyRecord {
+    static_assert(always_false_v<T>);
+    using type = void;
+};
+
+template<typename Ret, typename... Args>
+requires (sizeof...(Args) == 0)
+struct FirstArgumentOrEmptyRecord<Ret(Args...)> {
+    using type = WorkGraphEmptyRecord;
+};
+
+
+template<typename Ret, typename... Args>
+requires (sizeof...(Args) >= 1)
+struct FirstArgumentOrEmptyRecord<Ret(Args...)> {
+    using type = std::tuple_element_t<0, std::tuple<Args...>>;
+};
+
+template<typename T>
+WorkGraphNodeKernel(T &&) -> WorkGraphNodeKernel<
+    typename FirstArgumentOrEmptyRecord<detail::dsl_function_t<std::remove_cvref_t<T>>>::type,
+    detail::dsl_function_t<std::remove_cvref_t<T>>
+>;
 
 }// namespace luisa::compute

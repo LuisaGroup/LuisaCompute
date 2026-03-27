@@ -341,7 +341,7 @@ public:
     [[nodiscard]] const RefExpr *texture(const Type *type) noexcept;
     /// Add bindless array argument
     [[nodiscard]] const RefExpr *bindless_array() noexcept;
-    /// Add accleration structure argument
+    /// Add acceleration structure argument
     [[nodiscard]] const RefExpr *accel() noexcept;
 
     // expressions
