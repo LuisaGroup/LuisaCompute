@@ -350,3 +350,4 @@ agents.*
 AGENTS.*
 /*agent.py
 /agent*.py
+.claude/
