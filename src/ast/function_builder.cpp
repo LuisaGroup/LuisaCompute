@@ -644,6 +644,7 @@ luisa::string FunctionBuilder::debug_name() const noexcept {
             case Tag::CALLABLE: return "callable"sv;
             case Tag::KERNEL: return "kernel"sv;
             case Tag::RASTER_STAGE: return "raster_stage"sv;
+            case Tag::WORK_GRAPH_NODE: return "work_graph_node"sv;
         }
         return "unknown"sv;
     }();

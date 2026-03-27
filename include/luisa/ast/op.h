@@ -447,6 +447,9 @@ enum struct CallOp : uint32_t {
     // set z_depth that assumed less or equal than origin (only in pixel shader, without disable early-z)
     RASTER_SET_Z_DEPTH_LESS_EQUAL,// (float): void
 
+    // work graphs
+    WORK_GRAPH_OUTPUT, // (output_index: uint, array_index: uint, record_data: <RecordType>, should_write: bool): void
+
     // Derivative Operations for 2x2 quad
     // partial derivative
     DDX,// (arg: float vector): float vector
@@ -633,6 +636,9 @@ public:
                test(CallOp::TYPED_BINDLESS_COOPERATIVE_MUL) ||
                test(CallOp::COOPERATIVE_OUTER_PRODUCT_ACCUMULATE) ||
                test(CallOp::COOPERATIVE_VECTOR_ACCUMULATE);
+    }
+    [[nodiscard]] auto uses_work_graph() const noexcept {
+        return test(CallOp::WORK_GRAPH_OUTPUT);
     }
 };
 

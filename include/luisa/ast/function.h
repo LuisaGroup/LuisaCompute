@@ -51,7 +51,8 @@ public:
     enum struct Tag : uint {
         KERNEL,
         CALLABLE,
-        RASTER_STAGE
+        RASTER_STAGE,
+        WORK_GRAPH_NODE
     };
 
     using FunctionAttribute = detail::LiteralValueVariant;
