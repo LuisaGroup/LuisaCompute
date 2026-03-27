@@ -4,35 +4,36 @@ For now, we will only support `BROADCASTING` and `THREAD` launch modes, since th
 ## User-facing API
 ```cpp
 // 1. Record types are regular LUISA_STRUCT types
-struct MyRecord { float3 position; uint data; };
-LUISA_STRUCT(MyRecord, position, data) {};
+struct ProducerRecord { float3 position; uint data; };
+LUISA_STRUCT(ProducerRecord, position, data) {};
 
-struct LeafRecord { float value; };
-LUISA_STRUCT(LeafRecord, value) {};
+struct ConsumerRecord { float value; };
+LUISA_STRUCT(ConsumerRecord, value) {};
 
-// 2. Define node kernels (new WorkGraphNodeKernel template)
-// *requires* that input record is either empty, or that it is the first argument to lambda
-WorkGraphNodeKernel<MyRecord> producer{
-    [&](Var<MyRecord> input, BufferVar<float> buf) {
-        // node body -- buf is a "shared" bound resource
-    }
-};
-
-WorkGraphNodeKernel<LeafRecord> consumer{
-    [&](Var<LeafRecord> input, BufferVar<float> result) {
-        // leaf node body
-    }
-};
-
-// 3. Build graph with explicit edges
+// 2. Start constructing work graph. this first step defines the "shape" of a given node (what its input and output records look like), and the assignment fills in what its implementation should look like. 
 WorkGraphBuilder builder;
-auto n0 = builder.add_node("Producer", producer);
-auto n1 = builder.add_node("Consumer", consumer);
-builder.add_edge<LeafRecord>(n0, n1, {.max_records = 256});
-builder.set_entrypoint(n0);
-auto desc = builder.build(); // validates types
 
-// 4. Compile & dispatch
+auto producer_node = builder.add_node<ProducerRecord>("Producer");
+auto producer_output = producer_node.output<ConsumerRecord>(/*max_records=*/4);
+WorkGraphKernelNode producer_kernel = [&](Var<ProducerRecord> input, BufferVar<float> buf) {
+    Var<ConsumerRecord> r = def();
+    producer_output.write(r, true);
+};
+producer_node.define(producer_kernel);
+
+auto consumer_node = builder.add_node<ConsumerRecord>("Consumer");
+WorkGraphKernelNode consumer_kernel = [&](Var<ConsumerRecord> input, BufferVar<float> buf) {
+    // do work
+}; 
+consumer_node.define(consumer_kernel);
+
+// 3. Create edges between work graph nodes
+consumer_node << producer_output;
+
+// 4. Finalize the work graph
+auto desc = builder.build()
+
+// 5. Compile & dispatch
 auto wg = device.compile(desc, shader_option);
-stream << wg(buf, result).dispatch(input_records) << synchronize();
+stream << wg(buf).dispatch(input_records) << synchronize();
 ```

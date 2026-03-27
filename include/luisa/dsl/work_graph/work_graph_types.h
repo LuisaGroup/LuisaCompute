@@ -15,8 +15,4 @@ enum class WorkGraphLaunchType : uint8_t {
 template<typename T>
 struct DispatchGrid { T value; };
 
-struct WorkGraphEdgeConfig {
-    uint max_records{1};
-};
-
 } // namespace luisa::compute
