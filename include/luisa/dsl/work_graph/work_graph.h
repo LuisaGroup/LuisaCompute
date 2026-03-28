@@ -88,6 +88,8 @@ public:
     void define(const WorkGraphNodeKernel<InputRecord, Def>& kernel) noexcept {
         static_assert(std::is_same_v<T, InputRecord>, "type mismatch between work graph node and its definition");
 
+        LUISA_ASSERT(!inner()->defined, "redefining node kernel is not allowed");
+
         // yoink the function builder, make sure type of input record matches what we were declared with
         inner()->fn_builder = kernel.function_builder();
         inner()->defined = true;
@@ -118,11 +120,19 @@ private:
 
 class WorkGraph {
 public:
+    WorkGraph() = delete;
 
-
+    [[nodiscard]] auto& nodes() const noexcept { return _nodes; }
+    [[nodiscard]] auto node_count() const noexcept { return _nodes.size(); }
+    [[nodiscard]] auto& entry_points() const noexcept { return _entry_points; }
 
 private:
+    friend class WorkGraphBuilder;
+    explicit WorkGraph(luisa::vector<detail::WorkGraphNode> nodes, luisa::vector<uint32_t> entry_points) noexcept :
+        _nodes(std::move(nodes)), _entry_points(std::move(entry_points)) {}
+
     luisa::vector<detail::WorkGraphNode> _nodes;
+    luisa::vector<uint32_t> _entry_points;
 };
 
 class WorkGraphBuilder {
@@ -150,7 +160,7 @@ public:
         return WorkGraphNode<InputRecord>(this, node_index);
     }
 
-    LUISA_DSL_API void build() noexcept;
+    LUISA_DSL_API WorkGraph build() noexcept;
 
 private:
     friend detail::WorkGraphNode& detail::index_to_node(WorkGraphBuilder*, uint) noexcept;
