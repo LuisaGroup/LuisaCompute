@@ -10,6 +10,9 @@ if (LUISA_COMPUTE_ENABLE_DSL)
     set(LUISA_COMPUTE_DSL_RASTER_SOURCES
             raster/raster_kernel.cpp)
 
+    set (LUISA_COMPUTE_DSL_WORK_GRAPH_SOURCES
+            work_graph/work_graph.cpp)
+
     set(LUISA_COMPUTE_DSL_SOURCES
             builtin.cpp
             dispatch_indirect.cpp
@@ -20,7 +23,8 @@ if (LUISA_COMPUTE_ENABLE_DSL)
             soa.cpp
             sugar.cpp
             ${LUISA_COMPUTE_DSL_RTX_SOURCES}
-            ${LUISA_COMPUTE_DSL_RASTER_SOURCES})
+            ${LUISA_COMPUTE_DSL_RASTER_SOURCES}
+            ${LUISA_COMPUTE_DSL_WORK_GRAPH_SOURCES})
 
     add_library(luisa-compute-dsl SHARED ${LUISA_COMPUTE_DSL_SOURCES})
     target_link_libraries(luisa-compute-dsl PUBLIC luisa-compute-ast luisa-compute-runtime luisa-compute-ir)
