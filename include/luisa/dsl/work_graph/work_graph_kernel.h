@@ -17,9 +17,7 @@ class WorkGraphNodeKernel<InputRecord, Ret(Args...)> {
     static_assert(std::is_void_v<Ret>, "work graph nodes must have void return type");
     static_assert(std::negation_v<std::disjunction<std::is_pointer<Args>...>>);
 
-    // verify that Args[0] == Var<InputRecord>
     static constexpr bool InputRecordEmpty = std::is_same_v<InputRecord, WorkGraphEmptyRecord>;
-
     static_assert(
         InputRecordEmpty || sizeof...(Args) >= 1,
         "must be at least one argument for input record (unless input record type is empty)"

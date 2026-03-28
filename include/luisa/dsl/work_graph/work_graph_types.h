@@ -1,6 +1,5 @@
 #pragma once
 #include <cstdint>
-#include <luisa/core/basic_types.h>
 
 namespace luisa::compute {
 
