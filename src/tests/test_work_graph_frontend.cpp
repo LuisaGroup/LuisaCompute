@@ -33,7 +33,7 @@ int main() {
 
     consumer << producer_output;
 
-    work_graph.build();
+    WorkGraph wg = work_graph.build();
 
     return 0;
 }

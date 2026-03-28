@@ -59,6 +59,10 @@ class RasterShader;
 template<typename VertCallable, typename PixelCallable>
 class RasterKernel;
 
+class WorkGraph;
+
+class WorkGraphProgram;
+
 template<typename... Args>
 struct Kernel1D;
 
@@ -324,6 +328,8 @@ public:
         const MeshFormat &mesh_format,
         luisa::string_view serialization_path,
         const ShaderOption &option = {}) noexcept;
+
+    [[nodiscard]] WorkGraphProgram compile(const WorkGraph &work_graph, const ShaderOption &option) noexcept;
 
     template<typename... Args>
     RasterShader<Args...> load_raster_shader(

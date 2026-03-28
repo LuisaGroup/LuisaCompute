@@ -3,6 +3,7 @@
 namespace luisa::compute {
 
 namespace detail {
+
 LUISA_DSL_API WorkGraphNode &index_to_node(WorkGraphBuilder *builder, uint node_index) noexcept {
     return builder->_nodes[node_index];
 }
@@ -11,14 +12,13 @@ LUISA_DSL_API WorkGraphEdge &indices_to_edge(WorkGraphBuilder *builder, uint nod
     return builder->_nodes[node_index].out_edges[edge_index];
 }
 
-
-}
+} // namespace luisa::compute::detail
 
 static bool visit(
     size_t i,
     luisa::span<const detail::WorkGraphNode> nodes,
     luisa::span<uint8_t> marks,
-    luisa::vector<uint32_t> entry_points
+    luisa::vector<uint32_t>& entry_points
 ) {
     // marks: (has_in_edge << 2) | (heavy_mark << 1) | (light_mark)
     if (marks[i] & 2) {
@@ -32,7 +32,7 @@ static bool visit(
     marks[i] |= 1;
 
     for (auto const& neighbor : nodes[i].out_edges) {
-        marks[i] |= 4;
+        marks[neighbor.dest] |= 4;
         bool ok = luisa::compute::visit(neighbor.dest, nodes, marks, entry_points);
         if (!ok) { return false; }
     }
@@ -43,7 +43,7 @@ static bool visit(
 }
 
 // validates topology of work graph, populates entry points
-LUISA_DSL_API void WorkGraphBuilder::build() noexcept {
+LUISA_DSL_API WorkGraph WorkGraphBuilder::build() noexcept {
     // DFS to verify it is a DAG
     luisa::vector<uint8_t> marks;
     luisa::vector<uint32_t> entry_points;
@@ -56,10 +56,12 @@ LUISA_DSL_API void WorkGraphBuilder::build() noexcept {
     }
 
     for (size_t i = 0; i < _nodes.size(); i += 1) {
-        if (marks[i] & 4) {
+        if ((marks[i] & 4) == 0) {
             entry_points.push_back(i);
         }
     }
+
+    return WorkGraph(std::move(_nodes), std::move(entry_points));
 }
 
 } // namespace luisa::compute

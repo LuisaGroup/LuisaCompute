@@ -197,7 +197,8 @@ public:
         SPARSE_TEXTURE,
         SPARSE_BUFFER_HEAP,
         SPARSE_TEXTURE_HEAP,
-        TENSOR_GRAPH
+        TENSOR_GRAPH,
+        WORK_GRAPH_PROGRAM
     };
 
 private:
