@@ -64,5 +64,11 @@ public:
         vstd::string_view code,
         bool optimize,
         uint shaderModel = 63);*/
+    [[nodiscard]] CompileResult compile_work_graph(
+        vstd::string_view code,
+        bool optimize,
+        uint shaderModel,
+        bool enableUnsafeMath,
+        bool debug) const;
 };
 }// namespace lc::hlsl

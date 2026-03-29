@@ -12,7 +12,7 @@ template<typename>
     const ShaderOption &option) noexcept {
 
     if (extension<WorkGraphExt>() == nullptr) {
-        LUISA_ERROR("work graphs not supported on this device");
+        LUISA_ERROR("work graphs not supported on this backend");
     }
 
     return _create<WorkGraphProgram>(extension<WorkGraphExt>(), work_graph, option);

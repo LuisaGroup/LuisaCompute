@@ -170,7 +170,7 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         WorkGraphExt::name,
 #endif
         [](LCDevice *device) -> DeviceExtension * {
-            return new DxWorkGraphExt;
+            return new DxWorkGraphExt(*device);
         },
         [](DeviceExtension *ext) {
             delete static_cast<DxWorkGraphExt *>(ext);
