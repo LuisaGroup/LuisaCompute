@@ -244,5 +244,30 @@ CompileResult ShaderCompiler::compile_raytracing(
     }
     return compile(code, args);
 }
+
+CompileResult ShaderCompiler::compile_work_graph(
+    vstd::string_view code,
+    bool optimize,
+    uint shaderModel,
+    bool enableUnsafeMath,
+    bool debug
+) const {
+    if (shaderModel < 68) {
+        LUISA_ERROR("work graphs require shader model 6.8+");
+    }
+
+    vstd::fixed_vector<LPCWSTR, 32> args;
+    vstd::wstring smStr;
+    smStr << L"lib_" << GetSM(shaderModel);
+    args.emplace_back(L"-T");
+    args.emplace_back(smStr.c_str());
+
+    if (optimize) {
+        args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
+    }
+
+    return compile(code, args);
+}
+
 #undef LC_DXC_THROW_IF_FAILED
 }// namespace lc::hlsl

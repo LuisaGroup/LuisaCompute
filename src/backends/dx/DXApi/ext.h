@@ -249,7 +249,10 @@ public:
 };
 
 class DxWorkGraphExt final : public luisa::compute::WorkGraphExt {
+    LCDevice& _device;
 public:
+    explicit DxWorkGraphExt(LCDevice& device);
+
     luisa::compute::ResourceCreationInfo create_work_graph_program(
         const luisa::compute::WorkGraph& work_graph,
         const luisa::compute::ShaderOption& option) noexcept override;

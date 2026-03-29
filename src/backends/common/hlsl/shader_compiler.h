@@ -67,5 +67,11 @@ public:
         bool enableUnsafeMath,
         bool spirv,
         bool debug) const;
+    [[nodiscard]] CompileResult compile_work_graph(
+        vstd::string_view code,
+        bool optimize,
+        uint shaderModel,
+        bool enableUnsafeMath,
+        bool debug) const;
 };
 }// namespace lc::hlsl

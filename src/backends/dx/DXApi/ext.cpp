@@ -436,6 +436,13 @@ luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(Stream &strea
 #endif
 
 namespace lc::dx {
+DxWorkGraphExt::DxWorkGraphExt(LCDevice &device) : _device(device) {
+    LUISA_ASSERT(
+        device.nativeDevice.feature_check.work_graph_supported(),
+        "this device doesn't support DX12 work graphs"
+    );
+}
+
 luisa::compute::ResourceCreationInfo DxWorkGraphExt::create_work_graph_program(
     const luisa::compute::WorkGraph &work_graph,
     const luisa::compute::ShaderOption &option
