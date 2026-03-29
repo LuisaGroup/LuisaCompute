@@ -7,6 +7,7 @@
 #include <luisa/backends/ext/raster_ext_interface.h>
 #include <luisa/backends/ext/dx_cuda_interop.h>
 #include <luisa/backends/ext/dstorage_ext_interface.h>
+#include <luisa/backends/ext/work_graph_ext_interface.h>
 #include <luisa/core/dynamic_module.h>
 #include <dstorage/dstorage.h>
 #include "../d3dx12.h"
@@ -246,4 +247,14 @@ public:
     explicit DxPinnedMemoryExt(LCDevice *device) : _device(device) {}
     [[nodiscard]] DeviceInterface *device() const noexcept override;
 };
+
+class DxWorkGraphExt final : public luisa::compute::WorkGraphExt {
+public:
+    luisa::compute::ResourceCreationInfo create_work_graph_program(
+        const luisa::compute::WorkGraph& work_graph,
+        const luisa::compute::ShaderOption& option) noexcept override;
+
+    void destroy_work_graph_program(uint64_t handle) noexcept override;
+};
+
 }// namespace lc::dx

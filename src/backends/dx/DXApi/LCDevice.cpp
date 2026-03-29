@@ -162,6 +162,19 @@ LCDevice::LCDevice(Context &&ctx, DeviceConfig const *settings)
         [](DeviceExtension *ext) {
             delete static_cast<DxRasterExt *>(ext);
         });
+
+    exts.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{WorkGraphExt::name},
+#else
+        WorkGraphExt::name,
+#endif
+        [](LCDevice *device) -> DeviceExtension * {
+            return new DxWorkGraphExt;
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<DxWorkGraphExt *>(ext);
+        });
 }
 LCDevice::~LCDevice() = default;
 //Hash128 LCDevice::device_hash() const noexcept {
