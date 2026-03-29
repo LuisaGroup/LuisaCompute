@@ -42,7 +42,8 @@ static bool visit(
     return true;
 }
 
-// validates topology of work graph, populates entry points
+// validates topology of work graph, validates names of nodes are unique,
+// and populates entry points
 LUISA_DSL_API WorkGraph WorkGraphBuilder::build() noexcept {
     // DFS to verify it is a DAG
     luisa::vector<uint8_t> marks;
@@ -53,6 +54,12 @@ LUISA_DSL_API WorkGraph WorkGraphBuilder::build() noexcept {
         bool ok = luisa::compute::visit(i, _nodes, marks, entry_points);
         // TODO: allow for single node cycle
         LUISA_ASSERT(ok, "work graph must be a DAG");
+    }
+
+    luisa::unordered_set<luisa::string_view> node_names;
+    for (auto const& node : _nodes) {
+        auto [_, name_unique] = node_names.insert(node.name);
+        LUISA_ASSERT(name_unique, "names of work graph nodes must be unique");
     }
 
     for (size_t i = 0; i < _nodes.size(); i += 1) {
