@@ -246,6 +246,7 @@ end
 if has_config("lc_dx_backend") then
     test_proj("test_raster", true)
     test_proj("test_dml")
+    test_proj('test_work_graph')
 end
 
 -- Raytracing weekend test (uses main.cpp subdirectory)
