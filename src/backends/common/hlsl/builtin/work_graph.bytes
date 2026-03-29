@@ -1,0 +1,9 @@
+// TOutput should be of type NodeOutput<TRecord>
+template<typename TOutput, typename TRecord>
+void _work_graph_output(TOutput output, TRecord data, bool should_write) {
+    ThreadNodeOutputRecords<TRecord> _out = output.GetThreadNodeOutputRecords(should_write ? 1 : 0);
+    if (should_write) {
+        _out.Get() = data;
+    }
+    _out.OutputComplete();
+}
