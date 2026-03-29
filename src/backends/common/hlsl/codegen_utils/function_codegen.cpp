@@ -10,7 +10,7 @@
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
-
+#include "../constant_printer.h"
 
 // External declaration for shared variable from hlsl_codegen_util.cpp
 extern bool shown_buffer_warning;
