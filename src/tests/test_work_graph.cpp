@@ -1,11 +1,9 @@
-
-
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/work_graph/work_graph.h>
 #include <luisa/dsl/work_graph/work_graph_kernel.h>
 #include <luisa/backends/ext/work_graph_ext.h>
 #include <luisa/runtime/work_graph/work_graph_program.h>
-
+#include "Windows.h"
 // see note in DX backend `Device.cpp`
 extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = 616;
 extern "C" __declspec(dllexport) LPCSTR D3D12SDKPath = ".\\D3D12\\";
