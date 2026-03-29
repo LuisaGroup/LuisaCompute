@@ -434,3 +434,15 @@ luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(Stream &strea
 }
 }// namespace lc::dx
 #endif
+
+namespace lc::dx {
+luisa::compute::ResourceCreationInfo DxWorkGraphExt::create_work_graph_program(
+    const luisa::compute::WorkGraph &work_graph,
+    const luisa::compute::ShaderOption &option
+) noexcept {
+    LUISA_ASSERT(false, "unimplemented");
+}
+void DxWorkGraphExt::destroy_work_graph_program(uint64_t handle) noexcept {
+    LUISA_ASSERT(false, "unimplemented");
+}
+} // namespace lc::dx
