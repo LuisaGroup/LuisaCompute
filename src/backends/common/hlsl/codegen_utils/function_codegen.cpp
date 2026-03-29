@@ -1494,6 +1494,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "_z_depth_lequal=";
             args[0]->accept(vis);
             return;
+        case CallOp::WORK_GRAPH_OUTPUT: {
+            LUISA_ASSERT(opt->isWorkGraph, "Work Graph Output can only be used in work graph nodes");
+            str << "_work_graph_output(";
+            str << "_work_graph_output_";
+            auto literal = static_cast<const LiteralExpr *>(args[0]);
+            auto output_index = luisa::get<uint>(literal->value());
+            str << output_index << ", ";
+            args[2]->accept(vis);
+            str << ", ";
+            args[3]->accept(vis);
+            str << ")";
+        } return;
         case CallOp::DDX: {
             if (opt->isRaster) {
                 LUISA_ASSERT(opt->isPixelShader, "ddx can only be used in pixel shader");
@@ -2024,5 +2036,59 @@ o0=pixel(p,primId)"sv;
     // TODO
     // pixel return value
     // value assignment
+}
+
+void CodegenUtility::CodegenWorkGraphNode(const compute::detail::WorkGraphNode& node, vstd::StringBuilder &result, vstd::unordered_set<uint64_t>& callableMap, bool cbufferNonEmpty) {
+    auto codegenOneFunc = [&](Function func) {
+        auto constants = func.constants();
+        for (auto &&i : constants) {
+            vstd::StringBuilder constValueName;
+            if (!GetConstName(i.hash(), i, constValueName)) continue;
+            result << "static const "sv;
+            GetTypeName(*i.type(), result, Usage::READ);
+            result << ' ' << constValueName << " = "sv;
+            CodegenConstantPrinter printer{*this, result};
+            i.decode(printer);
+            result << ";\n"sv;
+        }
+#ifdef LUISA_ENABLE_IR
+        vstd::unordered_set<Variable> grad_vars;
+        // glob_variables_with_grad(func, grad_vars);
+#endif
+
+        opt->funcType = CodegenStackData::FuncType::Callable;
+        GetFunctionDecl(func, result);
+        result << "{\n"sv;
+        {
+
+            StringStateVisitor vis(func, result, this);
+            vis.sharedVariables = &opt->sharedVariable;
+            vis.VisitFunction(
+#ifdef LUISA_ENABLE_IR
+                grad_vars,
+#endif
+                func);
+        }
+        result << "}\n"sv;
+    };
+
+    auto callable = [&](auto &&callable, Function func) -> void {
+        for (auto &&i : func.custom_callables()) {
+            if (callableMap.emplace(i->hash()).second) {
+                callable(callable, i->function());
+            }
+        }
+        codegenOneFunc(func);
+    };
+
+    auto node_func = node.fn_builder->function();
+    for (auto &&i : node_func.custom_callables()) {
+        if (callableMap.emplace(i->hash()).second) {
+            callable(callable, i->function());
+        }
+    }
+
+    result << luisa::format("// node name: {}\n", node.name);
+    result << luisa::format("void {} (\n", node_func.name());
 }
 }// namespace lc::hlsl

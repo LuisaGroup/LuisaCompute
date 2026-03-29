@@ -4,6 +4,7 @@
 #include <luisa/ast/function.h>
 #include <luisa/ast/expression.h>
 #include <luisa/ast/statement.h>
+#include <luisa/dsl/work_graph/work_graph.h>
 #include <luisa/vstl/md5.h>
 #include "shader_property.h"
 #include <luisa/runtime/raster/raster_state.h>
@@ -66,6 +67,7 @@ public:
         bool codegen_self);
     void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty);
     void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
+    void CodegenWorkGraphNode(const compute::detail::WorkGraphNode &node, vstd::StringBuilder &result, vstd::unordered_set<uint64_t> &callableMap, bool cbufferNonEmpty);
     bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
     bool IsCBufferNonEmpty(Function func);
     static vstd::MD5 GetTypeMD5(vstd::span<Type const *const> types);
@@ -102,6 +104,12 @@ public:
         uint custom_mask,
         bool isSpirV,
         bool noRegister = false);
+    CodegenResult WorkGraphCodegen(
+        const WorkGraph& work_graph,
+        luisa::string_view native_code,
+        uint custom_mask,
+        bool noRegister = false
+    );
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
     uint AddPrinter(vstd::string_view name, luisa::compute::Type const *structType);
     vstd::StringBuilder GetNewTempVarName();
