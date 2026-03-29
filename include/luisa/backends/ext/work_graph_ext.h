@@ -6,7 +6,8 @@
 
 namespace luisa::compute {
 
-[[nodiscard]] inline WorkGraphProgram Device::compile(
+template<typename>
+[[nodiscard]] WorkGraphProgram Device::compile(
     const WorkGraph &work_graph,
     const ShaderOption &option) noexcept {
 

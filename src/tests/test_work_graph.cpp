@@ -3,6 +3,8 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/work_graph/work_graph.h>
 #include <luisa/dsl/work_graph/work_graph_kernel.h>
+#include <luisa/backends/ext/work_graph_ext.h>
+#include <luisa/runtime/work_graph/work_graph_program.h>
 
 using namespace luisa::compute;
 
@@ -12,8 +14,7 @@ struct ConsumerRecord {
 
 LUISA_STRUCT(ConsumerRecord, datum) {};
 
-int main() {
-
+WorkGraph describe_work_graph() {
     WorkGraphBuilder work_graph;
 
     auto producer = work_graph.add_node<WorkGraphEmptyRecord>("producer");
@@ -33,7 +34,16 @@ int main() {
 
     consumer << producer_output;
 
-    WorkGraph wg = work_graph.build();
+    return work_graph.build();
+}
+
+int main(int argc, char **argv) {
+    Context ctx { argv[0] };
+    Device device = ctx.create_device("dx");
+
+    WorkGraph wg = describe_work_graph();
+
+    WorkGraphProgram wg_program = device.compile(wg);
 
     return 0;
 }

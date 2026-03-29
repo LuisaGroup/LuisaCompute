@@ -329,7 +329,8 @@ public:
         luisa::string_view serialization_path,
         const ShaderOption &option = {}) noexcept;
 
-    [[nodiscard]] WorkGraphProgram compile(const WorkGraph &work_graph, const ShaderOption &option) noexcept;
+    template<typename = void>
+    [[nodiscard]] WorkGraphProgram compile(const WorkGraph &work_graph, const ShaderOption &option = {}) noexcept;
 
     template<typename... Args>
     RasterShader<Args...> load_raster_shader(
