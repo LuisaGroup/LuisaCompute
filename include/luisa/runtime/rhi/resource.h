@@ -260,8 +260,6 @@ public:
 
     // give out the ownership of the resource without destroying it
     [[nodiscard]] ResourceCreationInfo release() noexcept;
-    // destroy the resource and reset the handle to invalid
-    void reset() noexcept;
 };
 
 }// namespace luisa::compute

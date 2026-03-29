@@ -10,8 +10,7 @@
 #include <luisa/core/dynamic_module.h>
 #include <luisa/core/logging.h>
 #include <luisa/ast/external_function.h>
-#include "../constant_printer.h"
-#include "../register_indexer.h"
+
 
 // External declaration for shared variable from hlsl_codegen_util.cpp
 extern bool shown_buffer_warning;
@@ -1845,105 +1844,6 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     str << ')';
 }
 
-void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty, bool codegen_self) {
-    auto codegenOneFunc = [&](Function func) {
-        auto constants = func.constants();
-        for (auto &&i : constants) {
-            vstd::StringBuilder constValueName;
-            if (!GetConstName(i.hash(), i, constValueName)) continue;
-            result << "static const "sv;
-            GetTypeName(*i.type(), result, Usage::READ);
-            result << ' ' << constValueName << " = "sv;
-            CodegenConstantPrinter printer{*this, result};
-            i.decode(printer);
-            result << ";\n"sv;
-        }
-#ifdef LUISA_ENABLE_IR
-        vstd::unordered_set<Variable> grad_vars;
-        glob_variables_with_grad(func, grad_vars);
-#endif
-        if (func.tag() == Function::Tag::KERNEL) {
-            opt->funcType = CodegenStackData::FuncType::Kernel;
-            auto warp_size = func.allowed_warp_size();
-            if (warp_size.has_value()) {
-                result << luisa::format("[WaveSize({})]\n", int(warp_size.value()));
-            }
-            result << "[numthreads("
-                   << vstd::to_string(func.block_size().x)
-                   << ','
-                   << vstd::to_string(func.block_size().y)
-                   << ','
-                   << vstd::to_string(func.block_size().z)
-                   << R"()]
-void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grpId:SV_GroupId){
-)"sv;
-            auto blockSize = func.block_size();
-            vstd::fixed_vector<char, 3> swizzle;
-            //  result << "if(any(dspId >= dsp_c.xyz)) return;\n"sv;
-            if (blockSize.x > 1) {
-                swizzle.emplace_back('x');
-            }
-            if (blockSize.y > 1) {
-                swizzle.emplace_back('y');
-            }
-            if (blockSize.z > 1) {
-                swizzle.emplace_back('z');
-            }
-            if (!swizzle.empty()) {
-                auto dsp_c = opt->isSpirv ? "dsp_c.v"sv : "dsp_c"sv;
-                if (swizzle.size() == 1) {
-                    result << "if(dspId."sv << swizzle[0] << ">="sv << dsp_c << "."sv << swizzle[0] << ") return;\n"sv;
-                } else {
-                    vstd::string_view strv(swizzle.data(), swizzle.size());
-                    result << "if(any(dspId."sv << strv << ">="sv << dsp_c << "."sv << strv << ")) return;\n"sv;
-                }
-            }
-            if (cbufferNonEmpty) {
-                result << "_Args a = _Global[0];\n"sv;
-            }
-            opt->arguments.clear();
-            opt->arguments.reserve(func.arguments().size());
-            size_t idx = 0;
-            for (auto &&i : func.arguments()) {
-                opt->arguments.try_emplace(i.uid(), idx);
-                ++idx;
-            }
-        } else {
-            opt->funcType = CodegenStackData::FuncType::Callable;
-            GetFunctionDecl(func, result);
-            result << "{\n"sv;
-        }
-        {
-
-            StringStateVisitor vis(func, result, this);
-            vis.sharedVariables = &opt->sharedVariable;
-            vis.VisitFunction(
-#ifdef LUISA_ENABLE_IR
-                grad_vars,
-#endif
-                func);
-        }
-        result << "}\n"sv;
-    };
-    vstd::unordered_set<uint64_t> callableMap;
-    auto callable = [&](auto &&callable, Function func) -> void {
-        for (auto &&i : func.custom_callables()) {
-            if (callableMap.emplace(i->hash()).second) {
-                callable(callable, i->function());
-            }
-        }
-        codegenOneFunc(func);
-    };
-    if (codegen_self)
-        callable(callable, func);
-    else {
-        for (auto &&i : func.custom_callables()) {
-            if (callableMap.emplace(i->hash()).second) {
-                callable(callable, i->function());
-            }
-        }
-    }
-}
 void CodegenUtility::CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty) {
     CodegenFunction(vert, result, cBufferNonEmpty, false);
     auto args = vert.arguments();

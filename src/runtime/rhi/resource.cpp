@@ -53,11 +53,4 @@ ResourceCreationInfo Resource::release() noexcept {
     return info;
 }
 
-void Resource::reset() noexcept {
-    if (*this) [[likely]] {
-        this->~Resource();
-        _info.invalidate();
-    }
-}
-
 }// namespace luisa::compute

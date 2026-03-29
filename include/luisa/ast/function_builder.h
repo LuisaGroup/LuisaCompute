@@ -92,6 +92,7 @@ private:
     luisa::optional<const Type *> _return_type;
     luisa::vector<luisa::unique_ptr<Expression>> _all_expressions;
     luisa::vector<luisa::unique_ptr<Statement>> _all_statements;
+    luisa::unordered_map<luisa::string, Function::FunctionAttribute> _func_attributes;
     luisa::vector<ScopeStmt *> _scope_stack;
     luisa::vector<Variable> _builtin_variables;
     luisa::vector<Constant> _captured_constants;
@@ -479,6 +480,8 @@ public:
     /// Duplicate the function builder, also perform certain simplifications and canonicalizations.
     [[nodiscard]] luisa::shared_ptr<const FunctionBuilder> duplicate() const noexcept;
     [[nodiscard]] bool operator==(const FunctionBuilder &rhs) const noexcept;
+    [[nodiscard]] luisa::unordered_map<luisa::string, Function::FunctionAttribute> &func_attributes() noexcept;
+    [[nodiscard]] luisa::unordered_map<luisa::string, Function::FunctionAttribute> const &func_attributes() const noexcept;
 };
 
 }// namespace luisa::compute::detail

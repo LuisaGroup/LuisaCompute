@@ -151,4 +151,8 @@ bool Function::use_cooperative_operations() const noexcept {
 luisa::string_view Function::get_variable_name(uint32_t uid) const noexcept {
     return _builder->get_variable_name(uid);
 }
+
+luisa::unordered_map<luisa::string, Function::FunctionAttribute> const &Function::func_attributes() const noexcept {
+    return _builder->func_attributes();
+}
 }// namespace luisa::compute

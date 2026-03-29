@@ -277,14 +277,14 @@ public:
 
 namespace detail {
 
-template<typename T>
+template<typename ... Args>
 struct make_literal_value {
-    static_assert(always_false_v<T>);
+    static_assert(always_false_v<Args...>);
 };
 
-template<typename... T>
-struct make_literal_value<std::tuple<T...>> {
-    using type = luisa::variant<T...>;
+template<typename... T, typename ... Others>
+struct make_literal_value<std::tuple<T...>, Others...> {
+    using type = luisa::variant<T..., Others...>;
 };
 
 template<typename T>

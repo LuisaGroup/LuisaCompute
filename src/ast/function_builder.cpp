@@ -1313,4 +1313,12 @@ size_t FuncBuilderHash::operator()(const FunctionBuilder *ptr, uint64_t hash) co
         return 0;
     }
 }
+
+luisa::unordered_map<luisa::string, Function::FunctionAttribute> &FunctionBuilder::func_attributes() noexcept {
+    return _func_attributes;
+}
+
+luisa::unordered_map<luisa::string, Function::FunctionAttribute> const &FunctionBuilder::func_attributes() const noexcept {
+    return _func_attributes;
+}
 }// namespace luisa::compute::detail
