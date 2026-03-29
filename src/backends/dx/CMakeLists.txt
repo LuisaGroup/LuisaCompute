@@ -52,7 +52,7 @@ if (WIN32)
             SUPPORT_DIR ${LUISA_COMPUTE_DX_SDK_DIR})
     target_include_directories(luisa-compute-backend-dx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(luisa-compute-backend-dx PRIVATE D3D12 d3dcompiler dxgi DirectML dcomp luisa-compute-hlsl-codegen)
-    target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE)
+    target_compile_definitions(luisa-compute-backend-dx PRIVATE UNICODE LUISA_DX_SDK)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_definitions(luisa-compute-backend-dx PRIVATE
                 _XM_NO_INTRINSICS_
