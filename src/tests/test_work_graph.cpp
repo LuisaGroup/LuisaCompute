@@ -6,6 +6,10 @@
 #include <luisa/backends/ext/work_graph_ext.h>
 #include <luisa/runtime/work_graph/work_graph_program.h>
 
+// see note in DX backend `Device.cpp`
+extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = 616;
+extern "C" __declspec(dllexport) LPCSTR D3D12SDKPath = ".\\D3D12\\";
+
 using namespace luisa::compute;
 
 struct ConsumerRecord {

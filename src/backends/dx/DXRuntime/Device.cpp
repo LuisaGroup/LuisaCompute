@@ -9,9 +9,10 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/context.h>
 #ifdef LUISA_DX_SDK
-extern "C" extern const uint32_t D3D12SDKVersion = D3D12_PREVIEW_SDK_VERSION;
-
-extern "C" extern LPCSTR D3D12SDKPath = ".\\D3D12\\";
+// TODO: these don't actually seem to work. probably need to use
+//   SetSDKVersion instead
+extern "C" __declspec(dllexport) const uint32_t D3D12SDKVersion = D3D12_SDK_VERSION;
+extern "C" __declspec(dllexport) const char *D3D12SDKPath = ".\\D3D12\\";
 #endif
 
 namespace lc::dx {
