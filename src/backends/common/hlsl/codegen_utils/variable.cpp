@@ -6,7 +6,7 @@
 namespace lc::hlsl {
 
 // Get variable name by components
-void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vstd::StringBuilder &str) {
+void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vstd::StringBuilder &str) const {
     switch (type) {
         case Variable::Tag::BLOCK_ID:
             LUISA_ASSERT(!opt->isRaster, "block id only allowed in compute shader");
@@ -179,7 +179,7 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
 }
 
 // Get variable name from variable object
-void CodegenUtility::GetVariableName(Function f, Variable const &type, vstd::StringBuilder &str) {
+void CodegenUtility::GetVariableName(Function f, Variable const &type, vstd::StringBuilder &str) const {
     GetVariableName(f, type.tag(), type.uid(), str);
 }
 

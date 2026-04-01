@@ -6,7 +6,7 @@
 namespace lc::hlsl {
 
 // Generate unique temporary variable names
-vstd::StringBuilder CodegenUtility::GetNewTempVarName() {
+vstd::StringBuilder CodegenUtility::GetNewTempVarName() const {
     vstd::StringBuilder name;
     name << "tmp"sv;
     vstd::to_string(opt->tempCount, name);

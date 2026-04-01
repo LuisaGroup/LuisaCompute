@@ -6,7 +6,7 @@
 namespace lc::hlsl {
 
 // Get/generate constant name
-bool CodegenUtility::GetConstName(uint64 hash, ConstantData const &data, vstd::StringBuilder &str) {
+bool CodegenUtility::GetConstName(uint64 hash, ConstantData const &data, vstd::StringBuilder &str) const {
     auto constCount = opt->GetConstCount(hash);
     str << "c";
     vstd::to_string((constCount.first), str);

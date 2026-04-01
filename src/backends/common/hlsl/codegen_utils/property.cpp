@@ -26,7 +26,7 @@ void CodegenUtility::GenerateBindless(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &str,
     bool isSpirV,
-    uint &bind_count) {
+    uint &bind_count) const {
     uint table_idx = isSpirV ? 2 : 1;
     auto add_prop = [&](ShaderVariableType svt) {
         properties.emplace_back(
@@ -75,7 +75,7 @@ void CodegenUtility::PreprocessCodegenProperties(
     CodegenResult::Properties &properties,
     vstd::StringBuilder &varData,
     RegisterIndexer &registerCount,
-    bool cbufferNonEmpty, bool isRaster, bool isSpirv, uint &bind_count) {
+    bool cbufferNonEmpty, bool isRaster, bool isSpirv, uint &bind_count) const {
     // 1,0,0
     registerCount.init();
     if (isSpirv) {
@@ -184,7 +184,7 @@ void CodegenUtility::PostprocessCodegenProperties(vstd::StringBuilder &finalResu
 }
 
 // Add debug printer for struct types
-uint CodegenUtility::AddPrinter(vstd::string_view name, luisa::compute::Type const *structType) {
+uint CodegenUtility::AddPrinter(vstd::string_view name, luisa::compute::Type const *structType) const {
     auto z = opt->printer.size();
     opt->printer.emplace_back(name, structType);
     return z;
