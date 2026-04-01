@@ -520,6 +520,79 @@ uint obj_id:register(b0);
         immutableHeaderSize,
         GetTypeMD5(funcs)};
 }
+CodegenResult CodegenUtility::WorkGraphCodegen(
+    const WorkGraph &work_graph,
+    luisa::string_view native_code,
+    uint custom_mask,
+    bool noRegister) {
+    opt = CodegenStackData::Allocate(this);
+    opt->noRegister = noRegister;
+    opt->isWorkGraph = true;
+    auto disposeOpt = vstd::scope_exit([&] {
+        opt->isWorkGraph = false;
+        CodegenStackData::DeAllocate(std::move(opt));
+    });
+    vstd::StringBuilder codegenData;
+    vstd::StringBuilder varData;
+    vstd::StringBuilder finalResult;
+    vstd::StringBuilder incrementalFunc;
+    opt->incrementalFunc = &incrementalFunc;
+    finalResult.reserve(65500);
+    CallOpSet opSet{};
+    auto linalg = false;
+    for (const auto &node : work_graph.nodes()) {
+        linalg |= node.fn_builder->use_cooperative_operations();
+        opSet.propagate(node.fn_builder->propagated_builtin_callables());
+    }
+    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, false, true, false, noRegister, linalg);
+
+    finalResult << native_code << "\n//"sv;
+    static_cast<void>(vstd::to_string(custom_mask));
+    finalResult << '\n';
+
+    // Add work graph builtin template
+    finalResult << ReadInternalHLSLFile("work_graph"sv);
+    finalResult << "\n"sv;
+
+    vstd::unordered_set<uint64_t> globalCallableMap;
+    const auto& nodes = work_graph.nodes();
+    const auto& entry_points = work_graph.entry_points();
+    vstd::unordered_set<uint32_t> entry_point_set;
+    for (auto ep : entry_points) {
+        entry_point_set.emplace(ep);
+    }
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        bool is_entry_point = entry_point_set.contains(static_cast<uint32_t>(i));
+        CodegenWorkGraphNode(work_graph, i, is_entry_point, codegenData, globalCallableMap, false);
+    }
+
+    // Append the generated code for all nodes
+    finalResult << codegenData;
+
+    // Post-process properties (generates struct definitions)
+    PostprocessCodegenProperties(finalResult, false);
+
+    // Create the result
+    vstd::vector<Type const *> recordTypes;
+    recordTypes.reserve(nodes.size());
+    for (auto &&node : nodes) {
+        if (node.input_record_type != nullptr) {
+            recordTypes.push_back(node.input_record_type);
+        }
+    }
+
+    auto result = CodegenResult(
+        std::move(finalResult),
+        std::move(opt->printer),
+        {},  // No properties for work graphs (resource bindings are handled differently)
+        opt->useTex2DBindless,
+        opt->useTex3DBindless,
+        opt->useBufferBindless,
+        immutableHeaderSize,
+        GetTypeMD5(recordTypes));
+
+    return result;
+}
 
 void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty, bool codegen_self) {
     auto codegenOneFunc = [&](Function func) {
@@ -634,44 +707,4 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
         }
     }
 }
-CodegenResult CodegenUtility::WorkGraphCodegen(
-    const WorkGraph& work_graph,
-    luisa::string_view native_code,
-    uint custom_mask,
-    bool noRegister
-) {
-    opt = CodegenStackData::Allocate(this);
-    opt->noRegister = noRegister;
-    opt->isRaster = true;
-    auto disposeOpt = vstd::scope_exit([&] {
-        opt->isRaster = false;
-        CodegenStackData::DeAllocate(std::move(opt));
-    });
-    vstd::StringBuilder codegenData;
-    vstd::StringBuilder varData;
-    vstd::StringBuilder finalResult;
-    vstd::StringBuilder incrementalFunc;
-    opt->incrementalFunc = &incrementalFunc;
-    finalResult.reserve(65500);
-    CallOpSet opSet {};
-    auto linalg = false;
-    for (const auto& node : work_graph.nodes()) {
-        linalg |= node.fn_builder->use_cooperative_operations();
-        opSet.propagate(node.fn_builder->propagated_builtin_callables());
-    }
-    uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, false, true, false, noRegister, linalg);
-
-    finalResult << native_code << "\n//"sv;
-    static_cast<void>(vstd::to_string(custom_mask));
-    finalResult << '\n';
-
-    vstd::unordered_set<uint64_t> globalCallableMap;
-    for (const auto& node : work_graph.nodes()) {
-        CodegenWorkGraphNode(node, codegenData, globalCallableMap, false /* TODO: handle cbuffer-based arguments */);
-    }
-
-    LUISA_ASSERT(false, "unimplemented");
-}
-
-
 }// namespace lc::hlsl

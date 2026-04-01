@@ -23,6 +23,7 @@
 
 extern "C" {
 LC_HLSL_DECL_VARNAME(hlsl_header_bytes)
+LC_HLSL_DECL_VARNAME(work_graph_bytes)
 LC_HLSL_DECL_VARNAME(dx_linalg_bytes)
 LC_HLSL_DECL_VARNAME(hlsl_header_fallback_bytes)
 LC_HLSL_DECL_VARNAME(raytracing_header_bytes)
@@ -63,6 +64,7 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) {
         luisa::unordered_map<luisa::string_view, HLSLCompressedHeader> dict;
         Dict() {
             LC_HLSL_INSERT_VARNAME(hlsl_header_bytes, "hlsl_header")
+            LC_HLSL_INSERT_VARNAME(work_graph_bytes, "work_graph")
             LC_HLSL_INSERT_VARNAME(spv_alias_bytes, "spv_alias")
             LC_HLSL_INSERT_VARNAME(dx_linalg_bytes, "dx_linalg")
             LC_HLSL_INSERT_VARNAME(hlsl_header_fallback_bytes, "hlsl_header_fallback")

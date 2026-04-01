@@ -67,7 +67,21 @@ public:
         bool codegen_self);
     void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty);
     void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
-    void CodegenWorkGraphNode(const compute::detail::WorkGraphNode &node, vstd::StringBuilder &result, vstd::unordered_set<uint64_t> &callableMap, bool cbufferNonEmpty);
+    void CodegenWorkGraphNode(const WorkGraph &work_graph, size_t node_index, bool is_entry_point, vstd::StringBuilder &result, vstd::unordered_set<uint64_t> &callableMap, bool cbufferNonEmpty);
+    
+    // Work graph helper methods
+    void GenerateMaxRecordsAttribute(uint max_records, vstd::StringBuilder &result);
+    void GenerateNodeOutputDecl(const Type *record_type, uint max_records, luisa::string_view var_name_prefix, int output_index, vstd::StringBuilder &result);
+    void GenerateNodeInputDecl(const Type *record_type, luisa::string_view var_name, vstd::StringBuilder &result);
+    void GenerateNodeShaderAttributes(bool is_entry_point, luisa::string_view node_name, vstd::StringBuilder &result);
+    luisa::vector<luisa::vector<const luisa::compute::detail::WorkGraphEdge*>> CollectOutputEdgesByIndex(const luisa::compute::detail::WorkGraphNode &node);
+    const Type* GetOutputRecordType(const luisa::vector<const luisa::compute::detail::WorkGraphEdge*> &edges, const luisa::vector<luisa::compute::detail::WorkGraphNode> &nodes);
+    void GenerateNodeFunctionSignature(Function node_func, const luisa::compute::detail::WorkGraphNode &node, const luisa::vector<luisa::compute::detail::WorkGraphNode> &all_nodes, vstd::StringBuilder &result);
+    void GenerateWorkGraphOutputCall(int output_index, luisa::string_view record_var_name, vstd::StringBuilder &result);
+    void GenerateRecordStructDef(const Type *record_type, vstd::StringBuilder &result);
+    void GenerateNodeDispatchGrid(const uint3 &grid_size, vstd::StringBuilder &result);
+    void GenerateNodeFunctionBody(Function node_func, vstd::StringBuilder &result);
+    
     bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
     bool IsCBufferNonEmpty(Function func);
     static vstd::MD5 GetTypeMD5(vstd::span<Type const *const> types);

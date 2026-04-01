@@ -57,6 +57,7 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             codegen_utils/constant.cpp
             codegen_utils/entry_points.cpp
             codegen_utils/function_codegen.cpp
+            codegen_utils/work_graph_codegen.cpp
             codegen_utils/property.cpp
             codegen_utils/resource.cpp
             codegen_utils/type_system.cpp
