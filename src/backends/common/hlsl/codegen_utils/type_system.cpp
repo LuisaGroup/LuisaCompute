@@ -6,7 +6,8 @@
 namespace lc::hlsl {
 
 // Check if type is boolean
-uint CodegenUtility::IsBool(Type const &type) {
+uint CodegenUtility::IsBool(Type const &type) {// NOLINT: readability-convert-member-functions-to-static
+
     if (type.tag() == Type::Tag::BOOL) {
         return 1;
     } else if (type.tag() == Type::Tag::VECTOR && type.element()->tag() == Type::Tag::BOOL) {
@@ -210,7 +211,7 @@ void CodegenUtility::OriginToAliased(luisa::compute::Type const *t, vstd::String
         str << "}\n"sv;
     } else {
         auto members = t->members();
-        for (size_t i : vstd::range(members.size())) {
+        for (size_t i : vstd::range(static_cast<int64>(members.size()))) {
             auto m = members[i];
             if (TypeIsAliased(m)) {
                 str << luisa::format("r.v{}=", i);
@@ -265,7 +266,7 @@ void CodegenUtility::AliasedToOrigin(luisa::compute::Type const *t, vstd::String
         str << "}\n"sv;
     } else {
         auto members = t->members();
-        for (size_t i : vstd::range(members.size())) {
+        for (size_t i : vstd::range(static_cast<int64>(members.size()))) {
             auto m = members[i];
             if (TypeIsAliased(m)) {
                 str << luisa::format("r.v{}=", i);

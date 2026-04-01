@@ -29,7 +29,7 @@ bool IsCBuffer(Variable::Tag t) {
 
 // Check if CBuffer has data (multiple ranges)
 bool CodegenUtility::IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> fs) {
-    for (auto &&f : fs) {
+    for (auto f : fs) {
         for (auto &&i : *f) {
             if (detail::IsCBuffer(i.tag())) {
                 return true;

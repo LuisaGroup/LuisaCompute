@@ -440,11 +440,11 @@ uint obj_id:register(b0);
         }
         opt->internalStruct.try_emplace(appdataType, "_mesh");
         codegenData << "struct _mesh{\n"sv;
-        for (auto i : vstd::range(appdataAttris.size())) {
+        for (int64_t i : vstd::range(static_cast<int64_t>(appdataAttris.size()))) {
             auto member = appdataMems[static_cast<size_t>(i)];
             auto &attr = appdataAttris[static_cast<size_t>(i)];
             if (attr.key.empty()) [[unlikely]] {
-                LUISA_ERROR("Mesh-to-vertex structure member {} miss attributes.", static_cast<int64_t>(i));
+                LUISA_ERROR("Mesh-to-vertex structure member {} miss attributes.", i);
             }
             if (!(member->is_scalar() || member->is_vector())) [[unlikely]] {
                 LUISA_ERROR("Mesh-to-vertex structure do not support type {}", member->description());

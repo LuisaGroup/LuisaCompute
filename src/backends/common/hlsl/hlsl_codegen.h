@@ -50,10 +50,10 @@ public:
     vstd::unordered_map<vstd::string, std::pair<vstd::string, Type const *>> attributes;
     CodegenUtility();
     ~CodegenUtility();
-    uint IsBool(Type const &type);
-    bool GetConstName(uint64 hash, ConstantData const &data, vstd::StringBuilder &str);
-    void GetVariableName(Function func, Variable const &type, vstd::StringBuilder &str);
-    void GetVariableName(Function func, Variable::Tag type, uint id, vstd::StringBuilder &str);
+    static uint IsBool(Type const &type);
+    bool GetConstName(uint64 hash, ConstantData const &data, vstd::StringBuilder &str) const;
+    void GetVariableName(Function func, Variable const &type, vstd::StringBuilder &str) const;
+    void GetVariableName(Function func, Variable::Tag type, uint id, vstd::StringBuilder &str) const;
     void GetTypeName(Type const &type, vstd::StringBuilder &str, Usage usage, bool local_var = true);
     void GetFunctionDecl(Function func, vstd::StringBuilder &str);
     void GetFunctionName(Function callable, vstd::StringBuilder &result);
@@ -70,20 +70,20 @@ public:
     void CodegenWorkGraphNode(const WorkGraph &work_graph, size_t node_index, bool is_entry_point, vstd::StringBuilder &result, vstd::unordered_set<uint64_t> &callableMap, bool cbufferNonEmpty);
     
     // Work graph helper methods
-    void GenerateMaxRecordsAttribute(uint max_records, vstd::StringBuilder &result);
+    static void GenerateMaxRecordsAttribute(uint max_records, vstd::StringBuilder &result);
     void GenerateNodeOutputDecl(const Type *record_type, uint max_records, luisa::string_view var_name_prefix, int output_index, vstd::StringBuilder &result);
     void GenerateNodeInputDecl(const Type *record_type, luisa::string_view var_name, vstd::StringBuilder &result);
-    void GenerateNodeShaderAttributes(bool is_entry_point, luisa::string_view node_name, vstd::StringBuilder &result);
-    luisa::vector<luisa::vector<const luisa::compute::detail::WorkGraphEdge*>> CollectOutputEdgesByIndex(const luisa::compute::detail::WorkGraphNode &node);
-    const Type* GetOutputRecordType(const luisa::vector<const luisa::compute::detail::WorkGraphEdge*> &edges, const luisa::vector<luisa::compute::detail::WorkGraphNode> &nodes);
+    static void GenerateNodeShaderAttributes(bool is_entry_point, luisa::string_view node_name, vstd::StringBuilder &result);
+    static luisa::vector<luisa::vector<const luisa::compute::detail::WorkGraphEdge*>> CollectOutputEdgesByIndex(const luisa::compute::detail::WorkGraphNode &node);
+    static const Type* GetOutputRecordType(const luisa::vector<const luisa::compute::detail::WorkGraphEdge*> &edges, const luisa::vector<luisa::compute::detail::WorkGraphNode> &nodes);
     void GenerateNodeFunctionSignature(Function node_func, const luisa::compute::detail::WorkGraphNode &node, const luisa::vector<luisa::compute::detail::WorkGraphNode> &all_nodes, vstd::StringBuilder &result);
-    void GenerateWorkGraphOutputCall(int output_index, luisa::string_view record_var_name, vstd::StringBuilder &result);
+    static void GenerateWorkGraphOutputCall(int output_index, luisa::string_view record_var_name, vstd::StringBuilder &result);
     void GenerateRecordStructDef(const Type *record_type, vstd::StringBuilder &result);
-    void GenerateNodeDispatchGrid(const uint3 &grid_size, vstd::StringBuilder &result);
+    static void GenerateNodeDispatchGrid(const uint3 &grid_size, vstd::StringBuilder &result);
     void GenerateNodeFunctionBody(Function node_func, vstd::StringBuilder &result);
     
-    bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
-    bool IsCBufferNonEmpty(Function func);
+    static bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
+    static bool IsCBufferNonEmpty(Function func);
     static vstd::MD5 GetTypeMD5(vstd::span<Type const *const> types);
     static vstd::MD5 GetTypeMD5(std::initializer_list<vstd::IRange<Variable> *> f);
     static vstd::MD5 GetTypeMD5(Function func);
@@ -95,12 +95,12 @@ public:
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str,
         bool isSpirV,
-        uint &bind_count);
+        uint &bind_count) const;
     void PreprocessCodegenProperties(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &varData,
         RegisterIndexer &registerCount,
-        bool cbufferNonEmpty, bool isRaster, bool isSpirv, uint &bind_count);
+        bool cbufferNonEmpty, bool isRaster, bool isSpirv, uint &bind_count) const;
     void PostprocessCodegenProperties(vstd::StringBuilder &finalResult, bool use_autodiff);
     void CodegenProperties(
         CodegenResult::Properties &properties,
@@ -125,8 +125,8 @@ public:
         bool noRegister = false
     );
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
-    uint AddPrinter(vstd::string_view name, luisa::compute::Type const *structType);
-    vstd::StringBuilder GetNewTempVarName();
+    uint AddPrinter(vstd::string_view name, luisa::compute::Type const *structType) const;
+    vstd::StringBuilder GetNewTempVarName() const;
     bool TypeIsAliased(luisa::compute::Type const *t) const;
     bool VectorShouldBeAliased(luisa::compute::Type const *t) const;
     void OriginToAliased(luisa::compute::Type const *t, vstd::StringBuilder &sb);
