@@ -447,9 +447,9 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
     bool noRegister) {
     opt = CodegenStackData::Allocate(this);
     opt->noRegister = noRegister;
-    opt->isRaster = true;
+    opt->isWorkGraph = true;
     auto disposeOpt = vstd::scope_exit([&] {
-        opt->isRaster = false;
+        opt->isWorkGraph = false;
         CodegenStackData::DeAllocate(std::move(opt));
     });
     vstd::StringBuilder codegenData;
@@ -470,12 +470,48 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
     static_cast<void>(vstd::to_string(custom_mask));
     finalResult << '\n';
 
+    // Add work graph builtin template
+    finalResult << ReadInternalHLSLFile("work_graph"sv);
+    finalResult << "\n"sv;
+
     vstd::unordered_set<uint64_t> globalCallableMap;
-    for (const auto &node : work_graph.nodes()) {
-        CodegenWorkGraphNode(node, codegenData, globalCallableMap, false /* TODO: handle cbuffer-based arguments */);
+    const auto& nodes = work_graph.nodes();
+    const auto& entry_points = work_graph.entry_points();
+    vstd::unordered_set<uint32_t> entry_point_set;
+    for (auto ep : entry_points) {
+        entry_point_set.emplace(ep);
+    }
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        bool is_entry_point = entry_point_set.contains(static_cast<uint32_t>(i));
+        CodegenWorkGraphNode(work_graph, i, is_entry_point, codegenData, globalCallableMap, false);
     }
 
-    LUISA_ASSERT(false, "unimplemented");
+    // Append the generated code for all nodes
+    finalResult << codegenData;
+
+    // Post-process properties (generates struct definitions)
+    PostprocessCodegenProperties(finalResult, false);
+
+    // Create the result
+    vstd::vector<Type const *> recordTypes;
+    recordTypes.reserve(nodes.size());
+    for (auto &&node : nodes) {
+        if (node.input_record_type != nullptr) {
+            recordTypes.push_back(node.input_record_type);
+        }
+    }
+    
+    auto result = CodegenResult(
+        std::move(finalResult),
+        std::move(opt->printer),
+        {},  // No properties for work graphs (resource bindings are handled differently)
+        opt->useTex2DBindless,
+        opt->useTex3DBindless,
+        opt->useBufferBindless,
+        immutableHeaderSize,
+        GetTypeMD5(recordTypes));
+
+    return result;
 }
 
 void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty, bool codegen_self) {
