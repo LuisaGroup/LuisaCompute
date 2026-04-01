@@ -112,9 +112,9 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
     }
     if (tempIdx > 0) {
         str << "template<"sv;
-        for (uint64 i : vstd::range(tempIdx)) {
+        for (int64_t i : vstd::range(static_cast<int64_t>(tempIdx))) {
             str << "typename T"sv;
-            vstd::to_string(static_cast<int64_t>(i), str);
+            vstd::to_string(i, str);
             str << ',';
         }
         *(str.end() - 1) = '>';
@@ -124,12 +124,15 @@ void CodegenUtility::GetFunctionDecl(Function func, vstd::StringBuilder &str) {
 }
 
 // Get callable function name
-void CodegenUtility::GetFunctionName(Function callable, vstd::StringBuilder &str) {
+void CodegenUtility::GetFunctionName(Function callable, vstd::StringBuilder &result) {
+    auto &str = result;
     auto &&count_and_name = opt->GetFuncCountAndName(callable);
     str << (count_and_name.second.empty() ? "custom_"sv : luisa::string_view{count_and_name.second}) << luisa::format("{}", count_and_name.first);
 }
 
-void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &str, StringStateVisitor &vis) {
+void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &result, StringStateVisitor &visitor) {
+    auto &str = result;
+    auto &vis = visitor;
 
     auto args = expr->arguments();
     auto IsNumVec3 = [&](Type const &t) {
@@ -140,8 +143,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     auto PrintArgs = [&](size_t offset = 0) {
         if (args.empty()) return;
         auto last = args.size() - 1;
-        for (auto i : vstd::range(static_cast<size_t>(offset), static_cast<size_t>(last))) {
-            args[i]->accept(vis);
+        for (auto i : vstd::range(static_cast<int64_t>(offset), static_cast<int64_t>(last))) {
+            args[static_cast<size_t>(i)]->accept(vis);
             str << ',';
         }
         args.back()->accept(vis);
@@ -564,8 +567,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             str << '(';
             auto last = args.size() - 1;
-            for (auto i : vstd::range(static_cast<size_t>(0), static_cast<size_t>(last))) {
-                args[i]->accept(vis);
+            for (auto i : vstd::range(static_cast<int64_t>(0), static_cast<int64_t>(last))) {
+                args[static_cast<size_t>(i)]->accept(vis);
                 str << ',';
             }
             if (aliasStruct) {
@@ -2025,8 +2028,8 @@ o0=pixel(p,primId)"sv;
         result << " o=pixel(p,primId"sv;
         write_arg();
         result << ");\n"sv;
-        for (auto i : vstd::range(retType->members().size())) {
-            auto num = vstd::to_string(static_cast<int64_t>(i));
+        for (auto i : vstd::range(static_cast<int64_t>(retType->members().size()))) {
+            auto num = vstd::to_string(i);
             result << 'o' << num << "=o.v"sv << num << ";\n"sv;
         }
         result << "}\n"sv;
