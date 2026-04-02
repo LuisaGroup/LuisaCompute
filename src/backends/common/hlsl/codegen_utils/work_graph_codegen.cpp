@@ -294,6 +294,8 @@ void CodegenUtility::CodegenWorkGraphNode(const WorkGraph &work_graph, size_t no
     GenerateNodeShaderAttributes(is_entry_point, node.name, result);
 
     // Generate node function signature
+    // use actual name from frontend here, rather than custom_<i>, since node names are meaningful
+    LUISA_ASSERT(!node_func.name().empty(), "work graph node's FunctionBuilder has invalid name");
     result << "void "sv << node_func.name() << "(\n"sv;
 
     // Generate node function parameters using helper

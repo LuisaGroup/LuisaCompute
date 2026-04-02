@@ -59,6 +59,7 @@ LUISA_DSL_API WorkGraph WorkGraphBuilder::build() noexcept {
     luisa::unordered_set<luisa::string_view> node_names;
     for (auto const& node : _nodes) {
         auto [_, name_unique] = node_names.insert(node.name);
+        LUISA_ASSERT(!node.name.empty(), "names of work graph nodes cannot be empty");
         LUISA_ASSERT(name_unique, "names of work graph nodes must be unique");
     }
 
