@@ -120,6 +120,18 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
                         }
                     }
                 } break;
+                case CodegenStackData::FuncType::WorkGraphNode: {
+                    if (opt->arguments.find(id) != opt->arguments.end()) {
+                        id += opt->argOffset;
+                        str << "a.l"sv;
+                    } else {
+                        auto custom_name = f.get_variable_name(id);
+                        if (!custom_name.empty())
+                            str << custom_name << '_';
+                        str << 'l';
+                    }
+                    vstd::to_string(id, str);
+                } break;
                 default: {
                     auto custom_name = f.get_variable_name(id);
                     if (!custom_name.empty())
