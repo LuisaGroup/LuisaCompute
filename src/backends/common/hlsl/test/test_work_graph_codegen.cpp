@@ -42,7 +42,7 @@ WorkGraph create_simple_entry_to_consumer() {
     WorkGraphBuilder wg;
 
     // Entry point node (always uses WorkGraphEmptyRecord)
-    auto entry = wg.add_node<WorkGraphEmptyRecord>("entry_node");
+    auto entry = wg.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("entry_node");
     auto entry_output = entry.output<SimpleRecord>(16);
 
     WorkGraphNodeKernel entry_kernel = [&]() {
@@ -53,7 +53,7 @@ WorkGraph create_simple_entry_to_consumer() {
     entry.define(entry_kernel);
 
     // Consumer node (receives SimpleRecord)
-    auto consumer = wg.add_node<SimpleRecord>("consumer_node");
+    auto consumer = wg.add_node<WorkGraphLaunchType::THREAD, SimpleRecord>("consumer_node");
     WorkGraphNodeKernel consumer_kernel = [&](Var<SimpleRecord> input) {
         auto val = input->value;
         (void)val;
@@ -71,7 +71,7 @@ WorkGraph create_multi_output_node() {
     WorkGraphBuilder wg;
 
     // Entry with multiple outputs
-    auto entry = wg.add_node<WorkGraphEmptyRecord>("multi_out_entry");
+    auto entry = wg.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("multi_out_entry");
     auto output_a = entry.output<SimpleRecord>(8);
     auto output_b = entry.output<ComplexRecord>(4);
 
@@ -90,7 +90,7 @@ WorkGraph create_multi_output_node() {
     entry.define(entry_kernel);
 
     // Consumer A (receives SimpleRecord)
-    auto consumer_a = wg.add_node<SimpleRecord>("consumer_a");
+    auto consumer_a = wg.add_node<WorkGraphLaunchType::THREAD, SimpleRecord>("consumer_a");
     WorkGraphNodeKernel consumer_a_kernel = [&](Var<SimpleRecord> input) {
         auto val = input->value;
         (void)val;
@@ -98,7 +98,7 @@ WorkGraph create_multi_output_node() {
     consumer_a.define(consumer_a_kernel);
 
     // Consumer B (receives ComplexRecord)
-    auto consumer_b = wg.add_node<ComplexRecord>("consumer_b");
+    auto consumer_b = wg.add_node<WorkGraphLaunchType::THREAD, ComplexRecord>("consumer_b");
     WorkGraphNodeKernel consumer_b_kernel = [&](Var<ComplexRecord> input) {
         auto id = input->id;
         auto pos = input->position;
@@ -119,7 +119,7 @@ WorkGraph create_chained_nodes() {
     WorkGraphBuilder wg;
 
     // Node A: Entry point
-    auto node_a = wg.add_node<WorkGraphEmptyRecord>("node_a");
+    auto node_a = wg.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("node_a");
     auto output_a = node_a.output<SimpleRecord>(32);
 
     WorkGraphNodeKernel node_a_kernel = [&]() {
@@ -130,7 +130,7 @@ WorkGraph create_chained_nodes() {
     node_a.define(node_a_kernel);
 
     // Node B: Middle node (processes and forwards)
-    auto node_b = wg.add_node<SimpleRecord>("node_b");
+    auto node_b = wg.add_node<WorkGraphLaunchType::THREAD, SimpleRecord>("node_b");
     auto output_b = node_b.output<SimpleRecord>(16);
 
     WorkGraphNodeKernel node_b_kernel = [&](Var<SimpleRecord> input) {
@@ -141,7 +141,7 @@ WorkGraph create_chained_nodes() {
     node_b.define(node_b_kernel);
 
     // Node C: Final node
-    auto node_c = wg.add_node<SimpleRecord>("node_c");
+    auto node_c = wg.add_node<WorkGraphLaunchType::THREAD, SimpleRecord>("node_c");
     WorkGraphNodeKernel node_c_kernel = [&](Var<SimpleRecord> input) {
         auto val = input->value;
         (void)val;
@@ -160,7 +160,7 @@ WorkGraph create_terminal_entry_node() {
     WorkGraphBuilder wg;
 
     // Entry point that doesn't output anything
-    auto entry = wg.add_node<WorkGraphEmptyRecord>("terminal_entry");
+    auto entry = wg.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("terminal_entry");
 
     WorkGraphNodeKernel entry_kernel = [&]() {
         // Just do some work, no outputs
