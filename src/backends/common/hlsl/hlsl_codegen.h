@@ -74,13 +74,11 @@ public:
     void GenerateNodeOutputDecl(const Type *record_type, uint max_records, luisa::string_view var_name_prefix, int output_index, vstd::StringBuilder &result);
     void GenerateNodeInputDecl(const Type *record_type, luisa::string_view var_name, vstd::StringBuilder &result);
     static void GenerateNodeShaderAttributes(bool is_entry_point, luisa::string_view node_name, vstd::StringBuilder &result);
-    static luisa::vector<luisa::vector<const luisa::compute::detail::WorkGraphEdge*>> CollectOutputEdgesByIndex(const luisa::compute::detail::WorkGraphNode &node);
-    static const Type* GetOutputRecordType(const luisa::vector<const luisa::compute::detail::WorkGraphEdge*> &edges, const luisa::vector<luisa::compute::detail::WorkGraphNode> &nodes);
     void GenerateNodeFunctionSignature(Function node_func, const luisa::compute::detail::WorkGraphNode &node, const luisa::vector<luisa::compute::detail::WorkGraphNode> &all_nodes, vstd::StringBuilder &result);
     static void GenerateWorkGraphOutputCall(int output_index, luisa::string_view record_var_name, vstd::StringBuilder &result);
     void GenerateRecordStructDef(const Type *record_type, vstd::StringBuilder &result);
     static void GenerateNodeDispatchGrid(const uint3 &grid_size, vstd::StringBuilder &result);
-    void GenerateNodeFunctionBody(Function node_func, vstd::StringBuilder &result);
+    void GenerateNodeFunctionBody(Function node_func, const luisa::compute::detail::WorkGraphNode& node, vstd::StringBuilder &result);
     
     static bool IsCBufferNonEmpty(std::initializer_list<vstd::IRange<Variable> *> f);
     static bool IsCBufferNonEmpty(Function func);

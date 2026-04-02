@@ -27,7 +27,8 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
         Kernel,
         Vert,
         Pixel,
-        Callable
+        Callable,
+        WorkGraphNode
     };
     enum class CondOptValue : uint32_t {
         None = 0,

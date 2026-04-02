@@ -77,34 +77,6 @@ void CodegenUtility::GenerateNodeShaderAttributes(
     }
 }
 
-// Helper to collect output edges grouped by source_output_index
-luisa::vector<luisa::vector<const luisa::compute::detail::WorkGraphEdge *>>
-CodegenUtility::CollectOutputEdgesByIndex(const luisa::compute::detail::WorkGraphNode &node) {
-    using luisa::compute::detail::WorkGraphEdge;
-
-    luisa::vector<luisa::vector<const WorkGraphEdge *>> output_edges_by_index;
-    for (const auto &edge : node.out_edges) {
-        if (edge.source_output_index >= output_edges_by_index.size()) {
-            output_edges_by_index.resize(edge.source_output_index + 1);
-        }
-        output_edges_by_index[edge.source_output_index].push_back(&edge);
-    }
-    return output_edges_by_index;
-}
-
-// Helper to get the output record type for a set of edges
-const Type *CodegenUtility::GetOutputRecordType(
-    const luisa::vector<const luisa::compute::detail::WorkGraphEdge *> &edges,
-    const luisa::vector<luisa::compute::detail::WorkGraphNode> &nodes) {
-
-    for (const auto *edge : edges) {
-        if (edge->dest < nodes.size()) {
-            return nodes[edge->dest].input_record_type;
-        }
-    }
-    return nullptr;
-}
-
 // Helper to generate work graph node function signature
 void CodegenUtility::GenerateNodeFunctionSignature(
     Function node_func,
@@ -123,7 +95,7 @@ void CodegenUtility::GenerateNodeFunctionSignature(
     if (has_input_record) {
         result << "    "sv;
         GenerateNodeInputDecl(node.input_record_type, "_work_graph_input"sv, result);
-        opt->arguments.emplace(0, arg_index++);
+        arg_index += 1;
 
         if (!node.out_edges.empty() || node_func.arguments().size() > 1) {
             result << ",\n"sv;
@@ -131,20 +103,17 @@ void CodegenUtility::GenerateNodeFunctionSignature(
     }
 
     // Collect and generate NodeOutput parameters
-    auto output_edges_by_index = CollectOutputEdgesByIndex(node);
+    for (size_t i = 0; i < node.out_edges.size(); ++i) {
+        const auto &edge = node.out_edges[i];
 
-    for (size_t i = 0; i < output_edges_by_index.size(); ++i) {
-        const auto &edges = output_edges_by_index[i];
-        if (edges.empty()) continue;
-
-        uint max_records = edges[0]->max_records;
-        const Type *output_record_type = GetOutputRecordType(edges, all_nodes);
+        uint max_records = edge.max_records;
+        const Type *output_record_type = all_nodes[edge.dest].input_record_type;
 
         result << "    "sv;
         GenerateNodeOutputDecl(output_record_type, max_records, "_work_graph_output_"sv,
                                static_cast<int>(i), result);
 
-        bool is_last_output = (i == output_edges_by_index.size() - 1);
+        bool is_last_output = (i == node.out_edges.size() - 1);
         bool has_more_args = node_func.arguments().size() > (has_input_record ? 1 : 0);
         if (!is_last_output || has_more_args) {
             result << ",\n"sv;
@@ -213,12 +182,22 @@ void CodegenUtility::GenerateNodeDispatchGrid(
 // Helper to generate the complete node function body
 void CodegenUtility::GenerateNodeFunctionBody(
     Function node_func,
+    const luisa::compute::detail::WorkGraphNode& node,
     vstd::StringBuilder &result) {
 
     result << " {\n"sv;
 
+    // extract input record
+    if (node.input_record_type != nullptr) {
+        auto &first_arg = node_func.arguments()[0];
+        GetTypeName(*node.input_record_type, result, Usage::READ);
+        result << " "sv << "l"sv;
+        vstd::to_string(first_arg.uid(), result);
+        result << " = _work_graph_input.Get();\n"sv;
+    }
+
     // Generate function body using StringStateVisitor
-    opt->funcType = CodegenStackData::FuncType::Kernel;
+    opt->funcType = CodegenStackData::FuncType::WorkGraphNode;
 
 #ifdef LUISA_ENABLE_IR
     vstd::unordered_set<Variable> grad_vars;
@@ -301,8 +280,10 @@ void CodegenUtility::CodegenWorkGraphNode(const WorkGraph &work_graph, size_t no
     // Generate node function parameters using helper
     GenerateNodeFunctionSignature(node_func, node, nodes, result);
 
+    result << "\n)"sv;
+
     // Generate function body using helper
-    GenerateNodeFunctionBody(node_func, result);
+    GenerateNodeFunctionBody(node_func, node, result);
 }
 
 }// namespace lc::hlsl
