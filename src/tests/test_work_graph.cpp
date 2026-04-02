@@ -19,7 +19,8 @@ LUISA_STRUCT(ConsumerRecord, datum) {};
 WorkGraph describe_work_graph() {
     WorkGraphBuilder work_graph;
 
-    auto producer = work_graph.add_node<WorkGraphEmptyRecord>("producer");
+    auto producer = work_graph.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("producer");
+    producer.set_threadgroup_size({64, 1, 1});
     auto producer_output = producer.output<ConsumerRecord>(16);
     WorkGraphNodeKernel producer_kernel = [&]() {
         Var<ConsumerRecord> out;
@@ -28,7 +29,7 @@ WorkGraph describe_work_graph() {
     producer.define(producer_kernel);
 
 
-    auto consumer = work_graph.add_node<ConsumerRecord>("consumer");
+    auto consumer = work_graph.add_node<WorkGraphLaunchType::THREAD, ConsumerRecord>("consumer");
     WorkGraphNodeKernel consumer_kernel = [&](Var<ConsumerRecord> input) {
         // do work
     };

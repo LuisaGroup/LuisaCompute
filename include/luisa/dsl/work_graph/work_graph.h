@@ -24,8 +24,12 @@ struct WorkGraphNode {
     luisa::shared_ptr<const detail::FunctionBuilder> fn_builder;
 
     luisa::string name;
+    WorkGraphLaunchType node_type;
     const Type* input_record_type;
     luisa::vector<WorkGraphEdge> out_edges;
+    uint3 threadgroup_dim = uint3(1, 1, 1);
+    uint3 dispatch_dim = uint3(1, 1, 1);
+    luisa::optional<uint> dispatch_grid_member = luisa::nullopt;
     bool defined = false;
 };
 
@@ -60,7 +64,7 @@ private:
     uint _edge_index;
 };
 
-template<typename T>
+template<WorkGraphLaunchType NodeType, typename T>
 class WorkGraphNode {
 public:
     explicit WorkGraphNode(WorkGraphBuilder* builder, uint node_index) noexcept : _builder(builder), _node_index(node_index) {}
@@ -84,10 +88,8 @@ public:
         return WorkGraphNodeOutput<EdgeRecord>(_builder, _node_index, e.source_output_index);
     }
 
-    template<typename InputRecord, typename Def>
-    void define(const WorkGraphNodeKernel<InputRecord, Def>& kernel) noexcept {
-        static_assert(std::is_same_v<T, InputRecord>, "type mismatch between work graph node and its definition");
-
+    template<typename Def>
+    void define(const WorkGraphNodeKernel<T, Def>& kernel) noexcept {
         LUISA_ASSERT(!inner()->defined, "redefining node kernel is not allowed");
 
         // yoink the function builder, make sure type of input record matches what we were declared with
@@ -109,6 +111,35 @@ public:
         LUISA_ASSERT(output.builder() == _builder, "all edges must be between nodes from same work graph builder");
 
         edge->dest = inner()->index;
+    }
+
+    // specifying NumThreads (threadgroup size) is not allowed for per-thread node launch
+    void set_threadgroup_size(uint3 size) const requires (NodeType != WorkGraphLaunchType::THREAD) {
+        inner()->threadgroup_dim = size;
+    }
+
+    // for broadcasting nodes, this is either the static size of a dispatch, or the max size
+    // (if its dynamically sized using SV_DispatchGrid)
+    void set_dispatch_size(uint3 size) const requires (NodeType == WorkGraphLaunchType::BROADCASTING) {
+        inner()->dispatch_dim = size;
+    }
+
+    // sets field in InputRecord type to be marked with SV_DispatchGrid
+    void set_dispatch_grid_field(uint index) const requires (NodeType == WorkGraphLaunchType::BROADCASTING) {
+        auto t = Type::of<T>();
+        auto members = t->members();
+
+        LUISA_ASSERT(index < members.size(), "dispatch grid field index out of bounds");
+
+        auto member_type = members[index];
+        LUISA_ASSERT(
+            member_type == Type::of<uint>() ||
+            member_type == Type::of<uint2>() ||
+            member_type == Type::of<uint3>(),
+            "dispatch grid field must be uint, uint2, or uint3"
+        );
+
+        inner()->dispatch_grid_member = index;
     }
 
 private:
@@ -139,8 +170,8 @@ private:
 class WorkGraphBuilder {
 public:
 
-    template<typename InputRecord>
-    WorkGraphNode<InputRecord> add_node(luisa::string name) noexcept {
+    template<WorkGraphLaunchType NodeType, typename InputRecord>
+    WorkGraphNode<NodeType, InputRecord> add_node(luisa::string name) noexcept {
         const Type* input_record_type;
         if constexpr (std::is_same_v<InputRecord, WorkGraphEmptyRecord>) {
             input_record_type = nullptr;
@@ -155,10 +186,11 @@ public:
             nullptr,
 
             std::move(name),
+            NodeType,
             input_record_type
         );
 
-        return WorkGraphNode<InputRecord>(this, node_index);
+        return WorkGraphNode<NodeType, InputRecord>(this, node_index);
     }
 
     LUISA_DSL_API WorkGraph build() noexcept;

@@ -59,22 +59,47 @@ void CodegenUtility::GenerateNodeInputDecl(
 
 // Helper to generate node shader attributes
 void CodegenUtility::GenerateNodeShaderAttributes(
-    bool is_entry_point,
-    luisa::string_view node_name,
+    const luisa::compute::detail::WorkGraphNode &node,
     vstd::StringBuilder &result) {
 
     // [Shader("node")] attribute (required for all work graph nodes)
     result << "[Shader(\"node\")]\n"sv;
 
-    // Entry point nodes need [NodeLaunch("broadcasting")]
-    if (is_entry_point) {
-        result << "[NodeLaunch(\"broadcasting\")]\n"sv;
+    switch (node.node_type) {
+        case WorkGraphLaunchType::BROADCASTING: {
+            result << "[NodeLaunch(\"broadcasting\")]\n"sv;
+
+            luisa::string threadgroup_dim = luisa::format(
+                "[NumThreads({}, {}, {})]",
+                node.threadgroup_dim.x, node.threadgroup_dim.y, node.threadgroup_dim.z
+            );
+            result << threadgroup_dim << '\n';
+
+            luisa::string dispatch_properties;
+            if (node.dispatch_grid_member) {
+                dispatch_properties = luisa::format(
+                    "[NodeMaxDispatchGrid({}, {}, {})]",
+                    node.dispatch_dim.x, node.dispatch_dim.y, node.dispatch_dim.z
+                );
+            }
+            else {
+                dispatch_properties = luisa::format(
+                    "[NodeDispatchGrid({}, {}, {})]",
+                    node.dispatch_dim.x, node.dispatch_dim.y, node.dispatch_dim.z
+                );
+            }
+            result << dispatch_properties << '\n';
+        } break;
+        case WorkGraphLaunchType::THREAD: {
+            result << "[NodeLaunch(\"thread\")]\n"sv;
+        } break;
     }
 
     // Add comment with node name for debugging
-    if (!node_name.empty()) {
-        result << "// node name: "sv << node_name << "\n"sv;
+    if (!node.name.empty()) {
+        result << "// node name: "sv << node.name << "\n"sv;
     }
+
 }
 
 // Helper to generate work graph node function signature
@@ -270,7 +295,7 @@ void CodegenUtility::CodegenWorkGraphNode(const WorkGraph &work_graph, size_t no
     }
 
     // Generate node shader attributes using helper
-    GenerateNodeShaderAttributes(is_entry_point, node.name, result);
+    GenerateNodeShaderAttributes(node, result);
 
     // Generate node function signature
     // use actual name from frontend here, rather than custom_<i>, since node names are meaningful
