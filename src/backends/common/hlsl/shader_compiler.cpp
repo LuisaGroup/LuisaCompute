@@ -261,6 +261,7 @@ CompileResult ShaderCompiler::compile_work_graph(
     smStr << L"lib_" << GetSM(shaderModel);
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());
+    AddCompileFlags(args, debug);
 
     if (optimize) {
         args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);

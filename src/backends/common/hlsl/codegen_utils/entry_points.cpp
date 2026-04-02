@@ -550,10 +550,6 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
     static_cast<void>(vstd::to_string(custom_mask));
     finalResult << '\n';
 
-    // Add work graph builtin template
-    finalResult << ReadInternalHLSLFile("work_graph"sv);
-    finalResult << "\n"sv;
-
     vstd::unordered_set<uint64_t> globalCallableMap;
     const auto& nodes = work_graph.nodes();
     const auto& entry_points = work_graph.entry_points();
@@ -566,11 +562,11 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
         CodegenWorkGraphNode(work_graph, i, is_entry_point, codegenData, globalCallableMap, false);
     }
 
-    // Append the generated code for all nodes
-    finalResult << codegenData;
-
     // Post-process properties (generates struct definitions)
     PostprocessCodegenProperties(finalResult, false);
+
+    // Append the generated code for all nodes
+    finalResult << codegenData;
 
     // Create the result
     vstd::vector<Type const *> recordTypes;
