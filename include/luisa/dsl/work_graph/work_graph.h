@@ -92,6 +92,7 @@ public:
 
         // yoink the function builder, make sure type of input record matches what we were declared with
         inner()->fn_builder = kernel.function_builder();
+        inner()->fn_builder->set_name(inner()->name);
         inner()->defined = true;
     }
 
