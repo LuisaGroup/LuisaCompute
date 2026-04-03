@@ -42,19 +42,37 @@ void CodegenUtility::GenerateNodeOutputDecl(
     vstd::to_string(static_cast<int64_t>(output_index), result);
 }
 
-// Helper to generate NodeInput<T> declaration
+// Helper to generate node input parameter
 void CodegenUtility::GenerateNodeInputDecl(
-    const Type *record_type,
+    const luisa::compute::detail::WorkGraphNode& node,
     luisa::string_view var_name,
+    bool more_arguments,
     vstd::StringBuilder &result) {
 
-    result << "NodeInput<"sv;
-    if (record_type != nullptr) {
-        GetTypeName(*record_type, result, Usage::READ);
-    } else {
-        result << "uint"sv;// Fallback
+    result << "    "sv;
+
+    bool has_input_record = node.input_record_type != nullptr;
+    if (!has_input_record) {
+        result << "// empty input record\n"sv;
+        return;
     }
-    result << "> "sv << var_name;
+
+    switch (node.node_type) {
+        case WorkGraphLaunchType::BROADCASTING: {
+            result << "DispatchNodeInputRecord<"sv;
+            GetTypeName(*node.input_record_type, result, Usage::READ);
+            result << "> "sv << var_name;
+        } break;
+        case WorkGraphLaunchType::THREAD: {
+            result << "ThreadNodeInputRecord<"sv;
+            GetTypeName(*node.input_record_type, result, Usage::READ);
+            result << "> "sv << var_name;
+        } break;
+    }
+
+    if (more_arguments) {
+        result << ",\n"sv;
+    }
 }
 
 // Helper to generate node shader attributes
@@ -117,15 +135,9 @@ void CodegenUtility::GenerateNodeFunctionSignature(
 
     // Generate NodeInput parameter for input record
     bool has_input_record = node.input_record_type != nullptr;
-    if (has_input_record) {
-        result << "    "sv;
-        GenerateNodeInputDecl(node.input_record_type, "_work_graph_input"sv, result);
-        arg_index += 1;
-
-        if (!node.out_edges.empty() || node_func.arguments().size() > 1) {
-            result << ",\n"sv;
-        }
-    }
+    bool more_arguments = !node.out_edges.empty() || node_func.arguments().size() > 1;
+    GenerateNodeInputDecl(node, "_work_graph_input"sv, more_arguments, result);
+    arg_index += 1;
 
     // Collect and generate NodeOutput parameters
     for (size_t i = 0; i < node.out_edges.size(); ++i) {
