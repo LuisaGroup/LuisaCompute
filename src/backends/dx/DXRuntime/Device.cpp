@@ -130,7 +130,7 @@ Device::Device(Context &&ctx, DeviceConfig const *settings)
     }
     if (use_runtime) {
         if (use_experimental) {
-            UUID Features[] = {D3D12ExperimentalShaderModels, D3D12CooperativeVectorExperiment};
+            UUID Features[] = {D3D12ExperimentalShaderModels, /* D3D12CooperativeVectorExperiment */};
             ThrowIfFailed(D3D12EnableExperimentalFeatures(_countof(Features), Features, nullptr, nullptr));
         }
         auto gen_adapter_guid = [](DXGI_ADAPTER_DESC1 const &desc) {

@@ -34,7 +34,7 @@ private:
     uint _wave_lane_count_min{0};
     uint _wave_lane_count_max{0};
     D3D12_RAYTRACING_TIER _raytracing_tier{D3D12_RAYTRACING_TIER_NOT_SUPPORTED};
-    D3D12_COOPERATIVE_VECTOR_TIER _cooperative_vector_tier{D3D12_COOPERATIVE_VECTOR_TIER_NOT_SUPPORTED};
+    // D3D12_COOPERATIVE_VECTOR_TIER _cooperative_vector_tier{D3D12_COOPERATIVE_VECTOR_TIER_NOT_SUPPORTED};
     D3D12_WORK_GRAPHS_TIER _work_graphs_tier{D3D12_WORK_GRAPHS_TIER_NOT_SUPPORTED};
 
 public:
@@ -95,9 +95,9 @@ public:
     }
 
     /// Get cooperative vector tier level
-    [[nodiscard]] D3D12_COOPERATIVE_VECTOR_TIER cooperative_vector_tier() const noexcept {
-        return _cooperative_vector_tier;
-    }
+    // [[nodiscard]] D3D12_COOPERATIVE_VECTOR_TIER cooperative_vector_tier() const noexcept {
+    //     return _cooperative_vector_tier;
+    // }
 
     /// Get work graphs tier level
     [[nodiscard]] D3D12_WORK_GRAPHS_TIER work_graphs_tier() const noexcept {
