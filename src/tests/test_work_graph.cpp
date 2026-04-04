@@ -17,7 +17,7 @@ struct ConsumerRecord {
 LUISA_STRUCT(ConsumerRecord, datum) {};
 
 WorkGraph describe_work_graph() {
-    WorkGraphBuilder work_graph;
+    WorkGraphBuilder work_graph { "basic-work-graph" };
 
     auto producer = work_graph.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("producer");
     producer.set_threadgroup_size({64, 1, 1});

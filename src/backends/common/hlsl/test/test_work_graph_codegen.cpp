@@ -39,7 +39,7 @@ LUISA_STRUCT(ComplexRecord, position, normal, id) {};
 
 // Test 1: Simple entry point to single consumer
 WorkGraph create_simple_entry_to_consumer() {
-    WorkGraphBuilder wg;
+    WorkGraphBuilder wg { "test_1 "};
 
     // Entry point node (always uses WorkGraphEmptyRecord)
     auto entry = wg.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("entry_node");
@@ -68,7 +68,7 @@ WorkGraph create_simple_entry_to_consumer() {
 
 // Test 2: Multiple outputs from single node
 WorkGraph create_multi_output_node() {
-    WorkGraphBuilder wg;
+    WorkGraphBuilder wg { "test_2" };
 
     // Entry with multiple outputs
     auto entry = wg.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("multi_out_entry");
@@ -116,7 +116,7 @@ WorkGraph create_multi_output_node() {
 
 // Test 3: Chain of nodes (A -> B -> C)
 WorkGraph create_chained_nodes() {
-    WorkGraphBuilder wg;
+    WorkGraphBuilder wg { "test_3" };
 
     // Node A: Entry point
     auto node_a = wg.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("node_a");
@@ -157,7 +157,7 @@ WorkGraph create_chained_nodes() {
 
 // Test 4: Entry with no outputs (terminal node)
 WorkGraph create_terminal_entry_node() {
-    WorkGraphBuilder wg;
+    WorkGraphBuilder wg { "test_4" };
 
     // Entry point that doesn't output anything
     auto entry = wg.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("terminal_entry");
