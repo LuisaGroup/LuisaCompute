@@ -154,21 +154,24 @@ class WorkGraph {
 public:
     WorkGraph() = delete;
 
+    [[nodiscard]] luisa::string_view name() const noexcept { return _name; }
     [[nodiscard]] auto& nodes() const noexcept { return _nodes; }
     [[nodiscard]] auto node_count() const noexcept { return _nodes.size(); }
     [[nodiscard]] auto& entry_points() const noexcept { return _entry_points; }
 
 private:
     friend class WorkGraphBuilder;
-    explicit WorkGraph(luisa::vector<detail::WorkGraphNode> nodes, luisa::vector<uint32_t> entry_points) noexcept :
-        _nodes(std::move(nodes)), _entry_points(std::move(entry_points)) {}
+    explicit WorkGraph(luisa::string name, luisa::vector<detail::WorkGraphNode> nodes, luisa::vector<uint32_t> entry_points) noexcept :
+        _name(std::move(name)), _nodes(std::move(nodes)), _entry_points(std::move(entry_points)) {}
 
+    luisa::string _name;
     luisa::vector<detail::WorkGraphNode> _nodes;
     luisa::vector<uint32_t> _entry_points;
 };
 
 class WorkGraphBuilder {
 public:
+    LUISA_DSL_API explicit WorkGraphBuilder(luisa::string name);
 
     template<WorkGraphLaunchType NodeType, typename InputRecord>
     WorkGraphNode<NodeType, InputRecord> add_node(luisa::string name) noexcept {
@@ -198,6 +201,8 @@ public:
 private:
     friend detail::WorkGraphNode& detail::index_to_node(WorkGraphBuilder*, uint) noexcept;
     friend detail::WorkGraphEdge& detail::indices_to_edge(WorkGraphBuilder*, uint, uint) noexcept;
+
+    luisa::string _name;
     luisa::vector<detail::WorkGraphNode> _nodes;
 };
 

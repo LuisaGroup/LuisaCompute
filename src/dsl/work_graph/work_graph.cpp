@@ -42,6 +42,8 @@ static bool visit(
     return true;
 }
 
+LUISA_DSL_API WorkGraphBuilder::WorkGraphBuilder(luisa::string name) : _name(std::move(name)), _nodes() {}
+
 // validates topology of work graph, validates names of nodes are unique,
 // and populates entry points
 LUISA_DSL_API WorkGraph WorkGraphBuilder::build() noexcept {
@@ -69,7 +71,7 @@ LUISA_DSL_API WorkGraph WorkGraphBuilder::build() noexcept {
         }
     }
 
-    return WorkGraph(std::move(_nodes), std::move(entry_points));
+    return WorkGraph(std::move(_name), std::move(_nodes), std::move(entry_points));
 }
 
 } // namespace luisa::compute
