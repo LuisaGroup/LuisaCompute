@@ -7,7 +7,7 @@ namespace luisa::compute {
 
 namespace detail {
 
-class LUISA_RUNTIME_API WorkGraphProgramInvoke {
+class WorkGraphProgramInvoke {
     uint64_t _handle;
 
 public:

@@ -43,10 +43,12 @@ WorkGraph describe_work_graph() {
 int main(int argc, char **argv) {
     Context ctx { argv[0] };
     Device device = ctx.create_device("dx", nullptr, true);
+    Stream stream = device.create_stream(StreamTag::COMPUTE);
 
     WorkGraph wg = describe_work_graph();
-
     WorkGraphProgram wg_program = device.compile(wg);
+
+    stream << wg_program().dispatch(1, 0, nullptr) << synchronize();
 
     return 0;
 }

@@ -35,6 +35,9 @@ public:
     );
 
     [[nodiscard]] void* native_handle() const noexcept { return stateObject.Get(); }
+    [[nodiscard]] D3D12_PROGRAM_IDENTIFIER const &ProgramId() const noexcept { return programId; }
+    [[nodiscard]] ID3D12Resource *BackingMemory() const noexcept { return backingMemory.resource.Get(); }
+    [[nodiscard]] size_t BackingMemorySize() const noexcept { return backingMemorySize; }
 
 private:
     ComPtr<ID3D12StateObject> stateObject;

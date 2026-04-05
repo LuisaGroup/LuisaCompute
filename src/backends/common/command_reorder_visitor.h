@@ -6,6 +6,7 @@
 #include <luisa/vstl/common.h>
 #include <luisa/runtime/rhi/command.h>
 #include <luisa/backends/ext/raster_cmd.h>
+#include <luisa/backends/ext/work_graph_cmd.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/rhi/argument.h>
 #include <luisa/core/logging.h>
@@ -966,9 +967,18 @@ public:
             case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<CustomDispatchCommand const *>(custom_cmd));
                 break;
+            case to_underlying(CustomCommandUUID::WORK_GRAPH_DISPATCH):
+                visit(static_cast<WorkGraphDispatchCommand const *>(custom_cmd));
+                break;
             default:
                 LUISA_ERROR("Custom command not supported by reorder.");
         }
+    }
+
+    void visit(const WorkGraphDispatchCommand *command) noexcept {
+        // Work graph dispatch has no externally tracked resource dependencies —
+        // treat as a standalone command that serializes with everything before it.
+        add_command(command, 0);
     }
 
     void visit(const MotionInstanceBuildCommand *command) noexcept override {

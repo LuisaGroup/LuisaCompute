@@ -18,6 +18,8 @@
 #include <luisa/runtime/swapchain.h>
 #include <Resource/SparseTexture.h>
 #include <luisa/backends/ext/dx_custom_cmd.h>
+#include <luisa/backends/ext/work_graph_cmd.h>
+#include <Shader/WorkGraphProgram.h>
 #include "../../common/shader_print_formatter.h"
 #ifdef LCDX_ENABLE_WINPIX
 #include <WinPixEventRuntime/pix3.h>
@@ -445,9 +447,18 @@ public:
             case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<DXCustomCmd const *>(cmd));
                 break;
+            case to_underlying(CustomCommandUUID::WORK_GRAPH_DISPATCH):
+                visit(static_cast<WorkGraphDispatchCommand const *>(cmd));
+                break;
             default:
                 LUISA_ERROR("Custom command not supported by this queue.");
         }
+    }
+
+    void visit(const WorkGraphDispatchCommand *cmd) noexcept {
+        // Work graph dispatch needs no special preprocessing —
+        // bound resources are handled via the shader's root signature bindings,
+        // and backing memory is managed by the WorkGraphProgram itself.
     }
 
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
@@ -1024,9 +1035,45 @@ public:
             case to_underlying(CustomCommandUUID::CUSTOM_DISPATCH):
                 visit(static_cast<DXCustomCmd const *>(cmd));
                 break;
+            case to_underlying(CustomCommandUUID::WORK_GRAPH_DISPATCH):
+                visit(static_cast<WorkGraphDispatchCommand const *>(cmd));
+                break;
             default:
                 LUISA_ERROR("Custom command not supported by this queue.");
         }
+    }
+    void visit(const WorkGraphDispatchCommand *cmd) noexcept {
+        auto program = reinterpret_cast<WorkGraphProgram const *>(cmd->handle());
+        auto cmdList4 = bd->GetCB()->CmdList();
+
+        // QI to ID3D12GraphicsCommandList10 for SetProgram/DispatchGraph
+        ComPtr<ID3D12GraphicsCommandList10> cmdList10;
+        ThrowIfFailed(cmdList4->QueryInterface(IID_PPV_ARGS(&cmdList10)));
+
+        // Set root signature and bind resources (same pattern as compute dispatch)
+        cmdList10->SetComputeRootSignature(program->RootSig());
+        // TODO: bind captured resources once argument tracking is in place
+
+        // Set up the work graph program
+        D3D12_SET_PROGRAM_DESC setProgramDesc{};
+        setProgramDesc.Type = D3D12_PROGRAM_TYPE_WORK_GRAPH;
+        setProgramDesc.WorkGraph.ProgramIdentifier = program->ProgramId();
+        setProgramDesc.WorkGraph.Flags = D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
+        if (program->BackingMemory()) {
+            setProgramDesc.WorkGraph.BackingMemory.StartAddress = program->BackingMemory()->GetGPUVirtualAddress();
+            setProgramDesc.WorkGraph.BackingMemory.SizeInBytes = program->BackingMemorySize();
+        }
+        setProgramDesc.WorkGraph.NodeLocalRootArgumentsTable = {};
+        cmdList10->SetProgram(&setProgramDesc);
+
+        // Dispatch with CPU-provided input records
+        D3D12_DISPATCH_GRAPH_DESC dispatchDesc{};
+        dispatchDesc.Mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+        dispatchDesc.NodeCPUInput.EntrypointIndex = 0;
+        dispatchDesc.NodeCPUInput.NumRecords = static_cast<UINT>(cmd->record_count());
+        dispatchDesc.NodeCPUInput.RecordStrideInBytes = static_cast<UINT>(cmd->record_stride());
+        dispatchDesc.NodeCPUInput.pRecords = cmd->records();
+        cmdList10->DispatchGraph(&dispatchDesc);
     }
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
 #ifdef LCDX_ENABLE_WINPIX
