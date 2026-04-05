@@ -9,6 +9,7 @@
 #include <Resource/ExternalDepth.h>
 #include <Resource/UploadBuffer.h>
 #include <Resource/ReadbackBuffer.h>
+#include <Shader/WorkGraphProgram.h>
 #include <DXApi/LCEvent.h>
 #include <DXApi/LCSwapChain.h>
 #include <DXRuntime/DStorageCommandQueue.h>
@@ -447,9 +448,25 @@ luisa::compute::ResourceCreationInfo DxWorkGraphExt::create_work_graph_program(
     const luisa::compute::WorkGraph &work_graph,
     const luisa::compute::ShaderOption &option
 ) noexcept {
-    LUISA_ASSERT(false, "unimplemented");
+    auto codegen = hlsl::CodegenUtility{}.WorkGraphCodegen(work_graph, ""sv, 0);
+
+    auto program = WorkGraphProgram::CompileWorkGraph(
+        &_device.nativeDevice,
+        work_graph.name(),
+        [&]() { return std::move(codegen); },
+        68,
+        false,
+        false
+    );
+
+    ResourceCreationInfo info {
+        .handle = reinterpret_cast<uint64_t>(program),
+        .native_handle = program->native_handle()
+    };
+
+    return info;
 }
 void DxWorkGraphExt::destroy_work_graph_program(uint64_t handle) noexcept {
-    LUISA_ASSERT(false, "unimplemented");
+    delete reinterpret_cast<WorkGraphProgram *>(handle);
 }
 } // namespace lc::dx
