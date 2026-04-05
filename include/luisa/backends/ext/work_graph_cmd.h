@@ -5,7 +5,7 @@
 
 namespace luisa::compute {
 
-class LUISA_RUNTIME_API WorkGraphDispatchCommand final : public CustomCommand {
+class WorkGraphDispatchCommand final : public CustomCommand {
 
 private:
     uint64_t _handle;
