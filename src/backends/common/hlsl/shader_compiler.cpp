@@ -261,12 +261,16 @@ CompileResult ShaderCompiler::compile_work_graph(
     smStr << L"lib_" << GetSM(shaderModel);
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());
-    AddCompileFlags(args, debug);
 
+    args.emplace_back(L"-enable-16bit-types");
+    args.emplace_back(DXC_ARG_PACK_MATRIX_ROW_MAJOR);
+    args.emplace_back(L"-HV 2021");
+    if (debug) {
+        args.emplace_back(DXC_ARG_DEBUG);
+    }
     if (optimize) {
         args.emplace_back(DXC_ARG_OPTIMIZATION_LEVEL3);
     }
-
     return compile(code, args);
 }
 

@@ -46,7 +46,8 @@ public:
     enum class Tag : uint8_t {
         ComputeShader,
         RayTracingShader,
-        RasterShader
+        RasterShader,
+        WorkGraphProgram
     };
     virtual Tag get_tag() const = 0;
 

@@ -21,24 +21,31 @@ void CodegenUtility::GenerateMaxRecordsAttribute(uint max_records, vstd::StringB
 
 // Helper to generate NodeOutput<T> declaration
 void CodegenUtility::GenerateNodeOutputDecl(
-    const Type *record_type,
+    const luisa::compute::detail::WorkGraphNode& dest,
     uint max_records,
     luisa::string_view var_name_prefix,
     int output_index,
     vstd::StringBuilder &result) {
 
+    const Type* record_type = dest.input_record_type;
+
     // Generate [MaxRecords(n)] attribute
     GenerateMaxRecordsAttribute(max_records, result);
     result << ' ';
 
-    // Generate NodeOutput<T>
-    result << "NodeOutput<"sv;
+    // Generating [NodeId(id)] for output
+    result << "[NodeId(\""sv << dest.name << "\")] "sv;
+
+    // Generate NodeOutput<T> or EmptyNodeOutput
     if (record_type != nullptr) {
+        result << "NodeOutput<"sv;
         GetTypeName(*record_type, result, Usage::READ);
+        result << "> "sv;
     } else {
-        result << "uint"sv;// Fallback for empty records
+        result << "EmptyNodeOutput "sv;
     }
-    result << "> "sv << var_name_prefix;
+
+    result  << var_name_prefix;
     vstd::to_string(static_cast<int64_t>(output_index), result);
 }
 
@@ -142,12 +149,12 @@ void CodegenUtility::GenerateNodeFunctionSignature(
     // Collect and generate NodeOutput parameters
     for (size_t i = 0; i < node.out_edges.size(); ++i) {
         const auto &edge = node.out_edges[i];
+        const auto &dest = all_nodes[edge.dest];
 
         uint max_records = edge.max_records;
-        const Type *output_record_type = all_nodes[edge.dest].input_record_type;
 
         result << "    "sv;
-        GenerateNodeOutputDecl(output_record_type, max_records, "_work_graph_output_"sv,
+        GenerateNodeOutputDecl(dest, max_records, "_work_graph_output_"sv,
                                static_cast<int>(i), result);
 
         bool is_last_output = (i == node.out_edges.size() - 1);
