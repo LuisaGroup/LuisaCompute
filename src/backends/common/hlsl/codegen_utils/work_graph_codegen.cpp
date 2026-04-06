@@ -344,7 +344,7 @@ void CodegenUtility::CodegenWorkGraphNode(
     GenerateNodeFunctionBody(node_func, node, result);
 }
 
-vstd::vector<WorkGraphCapturedBinding> CodegenUtility::CollectWorkGraphBindings(
+vstd::vector<CodegenUtility::WorkGraphCapturedBinding> CodegenUtility::CollectWorkGraphBindings(
     const WorkGraph &work_graph,
     CodegenResult::Properties &out_properties,
     vstd::unordered_map<uint64_t, uint32_t> &out_uid_map,
