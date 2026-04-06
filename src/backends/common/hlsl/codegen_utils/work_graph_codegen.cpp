@@ -1,5 +1,6 @@
 // Work Graph Code Generation Helpers
 
+#include <algorithm>
 #include "../hlsl_codegen.h"
 #include "../codegen_stack_data.h"
 #include "../register_indexer.h"
@@ -343,28 +344,23 @@ void CodegenUtility::CodegenWorkGraphNode(
     GenerateNodeFunctionBody(node_func, node, result);
 }
 
-vstd::unordered_map<uint64_t, uint32_t> CodegenUtility::CodegenWorkGraphProperties(
-    CodegenResult::Properties &properties,
-    vstd::StringBuilder &varData,
+vstd::vector<WorkGraphCapturedBinding> CodegenUtility::CollectWorkGraphBindings(
     const WorkGraph &work_graph,
-    RegisterIndexer &registerCount,
-    uint &bind_count) {
+    CodegenResult::Properties &out_properties,
+    vstd::unordered_map<uint64_t, uint32_t> &out_uid_map,
+    uint &out_bind_count) {
 
-    vstd::unordered_map<uint64_t, uint32_t> handle_to_canonical_uid;
+    // Maps for merging usage across nodes (keyed by handle)
     vstd::unordered_map<uint64_t, Usage> handle_to_usage;
     vstd::unordered_map<uint64_t, Function::Binding> handle_to_binding;
-    vstd::unordered_map<uint64_t, const Type*> handle_to_type;
-
+    vstd::unordered_map<uint64_t, const Type *> handle_to_type;
     uint32_t uid_counter = 0;
 
-    Function primary_function;
+    // First-encounter traversal: assign UIDs in node/binding order, merge usage for duplicates
     for (const auto &node : work_graph.nodes()) {
         auto func = node.fn_builder->function();
-        if (primary_function.builder() == nullptr) { primary_function = func; }
-
         auto args = func.arguments();
         auto bindings = func.bound_arguments();
-
         LUISA_ASSERT(args.size() == bindings.size(), "`args` and `bindings` of AST function should be parallel, same size");
 
         for (size_t j = 0; j < bindings.size(); j++) {
@@ -384,95 +380,76 @@ vstd::unordered_map<uint64_t, uint32_t> CodegenUtility::CodegenWorkGraphProperti
                 auto *type = var.type();
                 auto usage = func.variable_usage(var.uid());
 
-                if (handle_to_canonical_uid.find(handle) != handle_to_canonical_uid.end()) {
-                    auto [_, existing_binding] = *handle_to_binding.find(handle);
-                    auto [_1, existing_type] = *handle_to_type.find(handle);
-                    if (Function::Binding(binding) != existing_binding) {
+                if (out_uid_map.find(handle) != out_uid_map.end()) {
+                    // Already seen: validate compatibility and merge usage
+                    if (Function::Binding(binding) != handle_to_binding[handle])
                         LUISA_ERROR("aliasing different views of buffer / different mip levels of texture not supported");
-                    }
-
-                    if (type != existing_type) {
-                        LUISA_ERROR("aliasing different type of buffer / texture not supported");
-                    }
-
-                    auto existing_usage = handle_to_usage[handle];
-                    handle_to_usage[handle] = Usage(luisa::to_underlying(existing_usage) | luisa::to_underlying(usage));
+                    if (type != handle_to_type[handle])
+                        LUISA_ERROR("aliasing different types of buffer / texture not supported");
+                    handle_to_usage[handle] = Usage(luisa::to_underlying(handle_to_usage[handle]) | luisa::to_underlying(usage));
                     return;
                 }
 
-                handle_to_canonical_uid.emplace(handle, uid_counter);
+                out_uid_map.emplace(handle, uid_counter++);
                 handle_to_type.emplace(handle, type);
                 handle_to_binding.emplace(handle, binding);
                 handle_to_usage.emplace(handle, usage);
-                uid_counter += 1;
             }, bindings[j]);
         }
     }
 
-    // Index into registerCount: 0=CBV(b), 1=UAV(u), 2=SRV(t)
+    // Sort handles into UID order (= first-encounter order) so that out_properties[i]
+    // and the returned captured[i] correspond to the same resource.
+    vstd::vector<std::pair<uint32_t, uint64_t>> sorted; // (uid, handle)
+    sorted.reserve(out_uid_map.size());
+    for (auto &[handle, uid] : out_uid_map) {
+        sorted.emplace_back(uid, handle);
+    }
+    std::sort(sorted.begin(), sorted.end());
+
+    // Index into DXILRegisterIndexer: 0=CBV(b), 1=UAV(u), 2=SRV(t)
     constexpr uint kUAV = 1u;
     constexpr uint kSRV = 2u;
+    // Default-construct without calling init(): work graphs have no dispatch constant,
+    // so all register counters start at 0 (unlike compute kernels where b0 is reserved).
+    DXILRegisterIndexer registers{};
 
-    auto emit_global = [&](const Type* type, Variable::Tag tag, uint32_t uid, Usage usage, uint reg_type, char reg_char) {
-        GetTypeName(*type, varData, usage);
-        varData << ' ';
-        if (tag == Variable::Tag::BUFFER) {
-            varData << "_b"sv;
-        }
-        else if (tag == Variable::Tag::TEXTURE) {
-            varData << "_t"sv;
-        }
-        else {
-            LUISA_ERROR("only buffer / texture supported for now");
-        }
-        vstd::to_string(uid, varData);
+    vstd::vector<WorkGraphCapturedBinding> captured;
+    captured.reserve(sorted.size());
 
-        if (!opt->noRegister) {
-            auto &r = registerCount.get(reg_type);
-            varData << " : register(" << reg_char;
-            vstd::to_string(r, varData);
-            varData << ");\n";
-            r++;
-        } else {
-            varData << ";\n";
-        }
-    };
+    for (auto &[uid, handle] : sorted) {
+        auto usage = handle_to_usage[handle];
+        auto *type = handle_to_type[handle];
+        bool writable = (to_underlying(usage) & to_underlying(Usage::WRITE)) != 0;
 
-    for (const auto [handle, uid] : handle_to_canonical_uid) {
-        auto binding = handle_to_binding[handle];
-        luisa::visit([&]<typename T>(T const& binding) {
+        luisa::visit([&]<typename T>(T const &binding) noexcept {
             if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                auto usage_union = handle_to_usage[binding.handle];
-                bool writable = (to_underlying(usage_union) & to_underlying(Usage::WRITE)) != 0;
                 auto reg_type = writable ? kUAV : kSRV;
-                auto reg_char = writable ? 'u' : 't';
                 auto stype = writable ? ShaderVariableType::RWStructuredBuffer : ShaderVariableType::StructuredBuffer;
-                auto &r = registerCount.get(reg_type);
-                properties.emplace_back(Property{stype, 0, r, 1});
+                out_properties.emplace_back(Property{stype, 0u, registers.get(reg_type)++, 1u});
+                out_bind_count += 2;
 
-                auto var_type = handle_to_type[handle];
-                emit_global(var_type, Variable::Tag::BUFFER, uid, usage_union, reg_type, reg_char);
-                bind_count += 2;
+                Argument arg{};
+                arg.tag = Argument::Tag::BUFFER;
+                arg.buffer = binding;
+                captured.emplace_back(WorkGraphCapturedBinding{arg, usage, type});
             } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                auto usage_union = handle_to_usage[binding.handle];
-                bool writable = (to_underlying(usage_union) & to_underlying(Usage::WRITE)) != 0;
                 auto reg_type = writable ? kUAV : kSRV;
-                auto reg_char = writable ? 'u' : 't';
                 auto stype = writable ? ShaderVariableType::UAVTextureHeap : ShaderVariableType::SRVTextureHeap;
-                auto &r = registerCount.get(reg_type);
-                properties.emplace_back(Property{stype, 0, r, 1});
+                out_properties.emplace_back(Property{stype, 0u, registers.get(reg_type)++, 1u});
+                out_bind_count += 1;
 
-                auto var_type = handle_to_type[handle];
-                emit_global(var_type, Variable::Tag::TEXTURE, uid, usage_union, reg_type, reg_char);
-                bind_count += 1;
-            }
-            else {
+                Argument arg{};
+                arg.tag = Argument::Tag::TEXTURE;
+                arg.texture = binding;
+                captured.emplace_back(WorkGraphCapturedBinding{arg, usage, type});
+            } else {
                 LUISA_ERROR("this should not happen");
             }
-        }, binding);
+        }, handle_to_binding[handle]);
     }
 
-    return handle_to_canonical_uid;
+    return captured;
 }
 
 }// namespace lc::hlsl

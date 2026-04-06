@@ -456,9 +456,35 @@ public:
     }
 
     void visit(const WorkGraphDispatchCommand *cmd) noexcept {
-        // Work graph dispatch needs no special preprocessing —
-        // bound resources are handled via the shader's root signature bindings,
-        // and backing memory is managed by the WorkGraphProgram itself.
+        auto program = reinterpret_cast<WorkGraphProgram const *>(cmd->handle());
+        auto savedArg = program->Args().data();
+        struct WGBarrierVisitor {
+            LCPreProcessVisitor *self;
+            SavedArgument const *&arg;
+            void operator()(Argument::Buffer const &bf) {
+                auto res = reinterpret_cast<Buffer const *>(bf.handle);
+                if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
+                    LUISA_ASSERT(is_device_buffer(res), "Unordered access buffer can not be host-buffer.");
+                    self->stateTracker->Record(BufferView{res, bf.offset, bf.size}, EnhancedBarrierTracker::Usage::ComputeUAV);
+                } else if (is_device_buffer(res)) {
+                    self->stateTracker->Record(BufferView{res, bf.offset, bf.size}, EnhancedBarrierTracker::Usage::ComputeRead);
+                }
+                ++arg;
+            }
+            void operator()(Argument::Texture const &bf) {
+                auto rt = reinterpret_cast<TextureBase *>(bf.handle);
+                if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
+                    self->stateTracker->Record(EnhancedBarrierTracker::TexView{rt, bf.level}, EnhancedBarrierTracker::Usage::ComputeUAV);
+                } else {
+                    self->stateTracker->Record(EnhancedBarrierTracker::TexView{rt, bf.level}, EnhancedBarrierTracker::Usage::ComputeRead);
+                }
+                ++arg;
+            }
+            void operator()(Argument::Uniform const &) {}
+            void operator()(Argument::BindlessArray const &) {}
+            void operator()(Argument::Accel const &) {}
+        };
+        DecodeCmd(program->ArgBindings(), WGBarrierVisitor{this, savedArg});
     }
 
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
@@ -1044,36 +1070,19 @@ public:
     }
     void visit(const WorkGraphDispatchCommand *cmd) noexcept {
         auto program = reinterpret_cast<WorkGraphProgram const *>(cmd->handle());
-        auto cmdList4 = bd->GetCB()->CmdList();
 
-        // QI to ID3D12GraphicsCommandList10 for SetProgram/DispatchGraph
-        ComPtr<ID3D12GraphicsCommandList10> cmdList10;
-        ThrowIfFailed(cmdList4->QueryInterface(IID_PPV_ARGS(&cmdList10)));
+        // Build bind properties: only captured resources (work graph root sig has no sampler/bindless slots)
+        bindProps->clear();
+        Visitor visitor{this, program->Args().data()};
+        DecodeCmd(program->ArgBindings(), visitor);
 
-        // Set root signature and bind resources (same pattern as compute dispatch)
-        cmdList10->SetComputeRootSignature(program->RootSig());
-        // TODO: bind captured resources once argument tracking is in place
-
-        // Set up the work graph program
-        D3D12_SET_PROGRAM_DESC setProgramDesc{};
-        setProgramDesc.Type = D3D12_PROGRAM_TYPE_WORK_GRAPH;
-        setProgramDesc.WorkGraph.ProgramIdentifier = program->ProgramId();
-        setProgramDesc.WorkGraph.Flags = D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
-        if (program->BackingMemory()) {
-            setProgramDesc.WorkGraph.BackingMemory.StartAddress = program->BackingMemory()->GetGPUVirtualAddress();
-            setProgramDesc.WorkGraph.BackingMemory.SizeInBytes = program->BackingMemorySize();
-        }
-        setProgramDesc.WorkGraph.NodeLocalRootArgumentsTable = {};
-        cmdList10->SetProgram(&setProgramDesc);
-
-        // Dispatch with CPU-provided input records
         D3D12_DISPATCH_GRAPH_DESC dispatchDesc{};
         dispatchDesc.Mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
         dispatchDesc.NodeCPUInput.EntrypointIndex = 0;
         dispatchDesc.NodeCPUInput.NumRecords = static_cast<UINT>(cmd->record_count());
         dispatchDesc.NodeCPUInput.RecordStrideInBytes = static_cast<UINT>(cmd->record_stride());
         dispatchDesc.NodeCPUInput.pRecords = cmd->records();
-        cmdList10->DispatchGraph(&dispatchDesc);
+        bd->DispatchWorkGraph(program, dispatchDesc, *bindProps);
     }
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
 #ifdef LCDX_ENABLE_WINPIX

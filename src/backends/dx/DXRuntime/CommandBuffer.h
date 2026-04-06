@@ -14,6 +14,7 @@ class RTShader;
 class RasterShader;
 class CommandBuffer;
 class CommandQueue;
+class WorkGraphProgram;
 class CommandBufferBuilder {
     friend class CommandBuffer;
 
@@ -50,6 +51,10 @@ public:
         Buffer const &indirectBuffer,
         uint32_t indirectOffset,
         uint32_t maxIndirectCount,
+        vstd::span<const BindProperty> resources);
+    void DispatchWorkGraph(
+        WorkGraphProgram const *program,
+        D3D12_DISPATCH_GRAPH_DESC const &dispatchDesc,
         vstd::span<const BindProperty> resources);
     /*void DispatchRT(
         RTShader const *rt,

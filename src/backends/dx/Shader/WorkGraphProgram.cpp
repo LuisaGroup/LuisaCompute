@@ -1,4 +1,5 @@
 #include "WorkGraphProgram.h"
+#include "ShaderSerializer.h"
 
 #include "../../common/hlsl/shader_compiler.h"
 #include <Resource/GpuAllocator.h>
@@ -11,7 +12,8 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
     Device *device,
     luisa::string_view workGraphName,
     vstd::function<hlsl::CodegenResult()> const& codegen,
-    // vstd::vector<luisa::compute::Argument> bindings,
+    vstd::vector<luisa::compute::Argument> argBindings,
+    vstd::vector<SavedArgument> savedArgs,
     uint shaderModel,
     bool enableUnsafeMath,
     bool debug
@@ -44,6 +46,19 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
     auto buffer = std::move(compile_result.get<0>());
 
     CD3DX12_STATE_OBJECT_DESC state_object_desc { D3D12_STATE_OBJECT_TYPE_EXECUTABLE };
+
+    ComPtr<ID3DBlob> root_sig_blob = ShaderSerializer::SerializeRootSig(codegen_result.properties, false);
+    ComPtr<ID3D12RootSignature> root_sig;
+
+    ThrowIfFailed(device->device->CreateRootSignature(
+        0,
+        root_sig_blob->GetBufferPointer(),
+        root_sig_blob->GetBufferSize(),
+        IID_PPV_ARGS(root_sig.GetAddressOf())
+    ));
+
+    auto* global_root_sig_desc = state_object_desc.CreateSubobject<CD3DX12_GLOBAL_ROOT_SIGNATURE_SUBOBJECT>();
+    global_root_sig_desc->SetRootSignature(root_sig.Get());
 
     auto* library_desc = state_object_desc.CreateSubobject<CD3DX12_DXIL_LIBRARY_SUBOBJECT>();
     CD3DX12_SHADER_BYTECODE library_code { buffer->GetBufferPointer(), buffer->GetBufferSize() };
@@ -110,15 +125,15 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
     if (codegen_result.useTex3DBindless) bindlessBufferCount++;
 
     auto work_graph_program = new WorkGraphProgram(
-        device,
         std::move(codegen_result.properties),
-        // std::move(kernelArgs),
-        // std::move(bindings),
+        std::move(savedArgs),
+        std::move(root_sig),
         std::move(codegen_result.printers),
         std::move(state_object),
         std::move(backing_memory),
         memory_requirements.MaxSizeInBytes,
-        program_id
+        program_id,
+        std::move(argBindings)
     );
     work_graph_program->bindlessCount = bindlessBufferCount;
     return work_graph_program;
@@ -126,18 +141,21 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
 }
 
 WorkGraphProgram::WorkGraphProgram(
-    Device* device,
     vstd::vector<hlsl::Property> prop,
+    vstd::vector<SavedArgument> savedArgs,
+    ComPtr<ID3D12RootSignature> rootSignature,
     vstd::vector<std::pair<vstd::string, Type const *>> printers,
     ComPtr<ID3D12StateObject> stateObject,
     AllocHandle backingMemory,
     size_t backingMemorySize,
-    D3D12_PROGRAM_IDENTIFIER programId
-) : Shader { std::move(prop), luisa::vector<SavedArgument> {}, device->device, std::move(printers), false },
+    D3D12_PROGRAM_IDENTIFIER programId,
+    vstd::vector<luisa::compute::Argument> argBindings
+) : Shader { std::move(prop), std::move(savedArgs), std::move(rootSignature), std::move(printers) },
     stateObject(std::move(stateObject)),
     backingMemory(std::move(backingMemory)),
     backingMemorySize(backingMemorySize),
-    programId(programId) {}
+    programId(programId),
+    argBindings(std::move(argBindings)) {}
 
 
 WorkGraphProgram::~WorkGraphProgram() = default;
