@@ -2,10 +2,12 @@
 
 #include "../hlsl_codegen.h"
 #include "../codegen_stack_data.h"
+#include "../register_indexer.h"
 #include <luisa/vstl/string_utility.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/logging.h>
 #include "../constant_printer.h"
+#include "../shader_property.h"
 
 namespace lc::hlsl {
 
@@ -242,7 +244,13 @@ void CodegenUtility::GenerateNodeFunctionBody(
     result << "}\n\n"sv;
 }
 
-void CodegenUtility::CodegenWorkGraphNode(const WorkGraph &work_graph, size_t node_index, bool is_entry_point, vstd::StringBuilder &result, vstd::unordered_set<uint64_t> &callableMap, bool cbufferNonEmpty) {
+void CodegenUtility::CodegenWorkGraphNode(
+    const WorkGraph &work_graph,
+    size_t node_index,
+    vstd::StringBuilder &result,
+    vstd::unordered_set<uint64_t> &callableMap,
+    const vstd::unordered_map<uint64_t, uint32_t>& handle_to_canonical_uid
+) {
     using luisa::compute::detail::WorkGraphEdge;
     const auto &nodes = work_graph.nodes();
     const auto &node = nodes[node_index];
@@ -286,7 +294,29 @@ void CodegenUtility::CodegenWorkGraphNode(const WorkGraph &work_graph, size_t no
                 callable(callable, i->function());
             }
         }
+
+        // Remap this callable's captured variables before generating its body
+        auto c_args = func.arguments();
+        auto c_bindings = func.bound_arguments();
+        auto old_remap = std::move(opt->uid_remap);
+        opt->uid_remap = {};
+
+        for (size_t j = 0; j < c_bindings.size(); j++) {
+            luisa::visit([&]<typename T>(T const &b) noexcept {
+                if constexpr (std::is_same_v<T, Function::BufferBinding> ||
+                              std::is_same_v<T, Function::TextureBinding>) {
+                    auto it = handle_to_canonical_uid.find(b.handle);
+                    LUISA_ASSERT(it != handle_to_canonical_uid.end(), "all bound arguments should be canonicalized");
+
+                    uint32_t canonical_uid = it->second;
+                    uint32_t current_uid = c_args[j].uid();
+                    opt->uid_remap[current_uid] = canonical_uid;
+                }
+            }, c_bindings[j]);
+        }
+
         codegenOneFunc(func);
+        opt->uid_remap = std::move(old_remap);
     };
 
     auto node_func = node.fn_builder->function();
@@ -311,6 +341,138 @@ void CodegenUtility::CodegenWorkGraphNode(const WorkGraph &work_graph, size_t no
 
     // Generate function body using helper
     GenerateNodeFunctionBody(node_func, node, result);
+}
+
+vstd::unordered_map<uint64_t, uint32_t> CodegenUtility::CodegenWorkGraphProperties(
+    CodegenResult::Properties &properties,
+    vstd::StringBuilder &varData,
+    const WorkGraph &work_graph,
+    RegisterIndexer &registerCount,
+    uint &bind_count) {
+
+    vstd::unordered_map<uint64_t, uint32_t> handle_to_canonical_uid;
+    vstd::unordered_map<uint64_t, Usage> handle_to_usage;
+    vstd::unordered_map<uint64_t, Function::Binding> handle_to_binding;
+    vstd::unordered_map<uint64_t, const Type*> handle_to_type;
+
+    uint32_t uid_counter = 0;
+
+    Function primary_function;
+    for (const auto &node : work_graph.nodes()) {
+        auto func = node.fn_builder->function();
+        if (primary_function.builder() == nullptr) { primary_function = func; }
+
+        auto args = func.arguments();
+        auto bindings = func.bound_arguments();
+
+        LUISA_ASSERT(args.size() == bindings.size(), "`args` and `bindings` of AST function should be parallel, same size");
+
+        for (size_t j = 0; j < bindings.size(); j++) {
+            luisa::visit([&]<typename T>(T const &binding) noexcept {
+                uint64_t handle;
+                if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                    handle = binding.handle;
+                } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                    handle = binding.handle;
+                } else if constexpr (std::is_same_v<T, luisa::monostate>) {
+                    return;
+                } else {
+                    LUISA_ERROR("only capturing buffers / textures is supported for now");
+                }
+
+                auto &var = args[j];
+                auto *type = var.type();
+                auto usage = func.variable_usage(var.uid());
+
+                if (handle_to_canonical_uid.find(handle) != handle_to_canonical_uid.end()) {
+                    auto [_, existing_binding] = *handle_to_binding.find(handle);
+                    auto [_1, existing_type] = *handle_to_type.find(handle);
+                    if (Function::Binding(binding) != existing_binding) {
+                        LUISA_ERROR("aliasing different views of buffer / different mip levels of texture not supported");
+                    }
+
+                    if (type != existing_type) {
+                        LUISA_ERROR("aliasing different type of buffer / texture not supported");
+                    }
+
+                    auto existing_usage = handle_to_usage[handle];
+                    handle_to_usage[handle] = Usage(luisa::to_underlying(existing_usage) | luisa::to_underlying(usage));
+                    return;
+                }
+
+                handle_to_canonical_uid.emplace(handle, uid_counter);
+                handle_to_type.emplace(handle, type);
+                handle_to_binding.emplace(handle, binding);
+                handle_to_usage.emplace(handle, usage);
+                uid_counter += 1;
+            }, bindings[j]);
+        }
+    }
+
+    // Index into registerCount: 0=CBV(b), 1=UAV(u), 2=SRV(t)
+    constexpr uint kUAV = 1u;
+    constexpr uint kSRV = 2u;
+
+    auto emit_global = [&](const Type* type, Variable::Tag tag, uint32_t uid, Usage usage, uint reg_type, char reg_char) {
+        GetTypeName(*type, varData, usage);
+        varData << ' ';
+        if (tag == Variable::Tag::BUFFER) {
+            varData << "_b"sv;
+        }
+        else if (tag == Variable::Tag::TEXTURE) {
+            varData << "_t"sv;
+        }
+        else {
+            LUISA_ERROR("only buffer / texture supported for now");
+        }
+        vstd::to_string(uid, varData);
+
+        if (!opt->noRegister) {
+            auto &r = registerCount.get(reg_type);
+            varData << " : register(" << reg_char;
+            vstd::to_string(r, varData);
+            varData << ");\n";
+            r++;
+        } else {
+            varData << ";\n";
+        }
+    };
+
+    for (const auto [handle, uid] : handle_to_canonical_uid) {
+        auto binding = handle_to_binding[handle];
+        luisa::visit([&]<typename T>(T const& binding) {
+            if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                auto usage_union = handle_to_usage[binding.handle];
+                bool writable = (to_underlying(usage_union) & to_underlying(Usage::WRITE)) != 0;
+                auto reg_type = writable ? kUAV : kSRV;
+                auto reg_char = writable ? 'u' : 't';
+                auto stype = writable ? ShaderVariableType::RWStructuredBuffer : ShaderVariableType::StructuredBuffer;
+                auto &r = registerCount.get(reg_type);
+                properties.emplace_back(Property{stype, 0, r, 1});
+
+                auto var_type = handle_to_type[handle];
+                emit_global(var_type, Variable::Tag::BUFFER, uid, usage_union, reg_type, reg_char);
+                bind_count += 2;
+            } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                auto usage_union = handle_to_usage[binding.handle];
+                bool writable = (to_underlying(usage_union) & to_underlying(Usage::WRITE)) != 0;
+                auto reg_type = writable ? kUAV : kSRV;
+                auto reg_char = writable ? 'u' : 't';
+                auto stype = writable ? ShaderVariableType::UAVTextureHeap : ShaderVariableType::SRVTextureHeap;
+                auto &r = registerCount.get(reg_type);
+                properties.emplace_back(Property{stype, 0, r, 1});
+
+                auto var_type = handle_to_type[handle];
+                emit_global(var_type, Variable::Tag::TEXTURE, uid, usage_union, reg_type, reg_char);
+                bind_count += 1;
+            }
+            else {
+                LUISA_ERROR("this should not happen");
+            }
+        }, binding);
+    }
+
+    return handle_to_canonical_uid;
 }
 
 }// namespace lc::hlsl

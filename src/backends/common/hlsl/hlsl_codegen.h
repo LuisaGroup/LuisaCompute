@@ -67,7 +67,13 @@ public:
         bool codegen_self);
     void CodegenVertex(Function vert, vstd::StringBuilder &result, bool cBufferNonEmpty);
     void CodegenPixel(Function pixel, vstd::StringBuilder &result, bool cBufferNonEmpty);
-    void CodegenWorkGraphNode(const WorkGraph &work_graph, size_t node_index, bool is_entry_point, vstd::StringBuilder &result, vstd::unordered_set<uint64_t> &callableMap, bool cbufferNonEmpty);
+    void CodegenWorkGraphNode(
+        const WorkGraph &work_graph,
+        size_t node_index,
+        vstd::StringBuilder &result,
+        vstd::unordered_set<uint64_t> &callableMap,
+        const vstd::unordered_map<uint64_t, uint32_t>& handle_to_canonical_uid
+    );
     
     // Work graph helper methods
     static void GenerateMaxRecordsAttribute(uint max_records, vstd::StringBuilder &result);
@@ -105,6 +111,13 @@ public:
         vstd::StringBuilder &varData,
         Function kernel,
         uint offset,
+        RegisterIndexer &registerCount,
+        uint &bind_count);
+    // handle -> canonicalized uid across different nodes in work graph
+    vstd::unordered_map<uint64_t, uint32_t> CodegenWorkGraphProperties(
+        CodegenResult::Properties &properties,
+        vstd::StringBuilder &varData,
+        const luisa::compute::WorkGraph &work_graph,
         RegisterIndexer &registerCount,
         uint &bind_count);
     CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);

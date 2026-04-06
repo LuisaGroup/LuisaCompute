@@ -27,6 +27,24 @@ uint64_t Function::BindlessArrayBinding::hash() const noexcept {
     return hash_value(handle, seed);
 }
 
+bool Function::BufferBinding::operator==(BufferBinding other) const noexcept {
+    // should size be part of == / hash?
+    return handle == other.handle && offset == other.offset;
+}
+
+bool Function::TextureBinding::operator==(TextureBinding other) const noexcept {
+    return handle == other.handle && level == other.level;
+}
+
+bool Function::AccelBinding::operator==(AccelBinding other) const noexcept {
+    return handle == other.handle;
+}
+
+bool Function::BindlessArrayBinding::operator==(BindlessArrayBinding other) const noexcept {
+    return handle == other.handle;
+}
+
+
 luisa::span<const Variable> Function::builtin_variables() const noexcept {
     return _builder->builtin_variables();
 }
