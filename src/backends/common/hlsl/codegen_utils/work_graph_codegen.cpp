@@ -136,15 +136,16 @@ void CodegenUtility::GenerateNodeFunctionSignature(
 
     using luisa::compute::detail::WorkGraphEdge;
 
-    // Track arguments for mapping
-    opt->arguments.clear();
-    uint arg_index = 0;
+    // Generate system values for broadcasting nodes
+    if (node.node_type == WorkGraphLaunchType::BROADCASTING) {
+        result << "    "sv << "uint3 thdId : SV_GroupThreadID,\n"sv;
+        result << "    "sv << "uint3 grpId : SV_GroupID,\n"sv;
+        result << "    "sv << "uint3 dspId : SV_DispatchThreadID,\n"sv;
+    }
 
     // Generate NodeInput parameter for input record
-    bool has_input_record = node.input_record_type != nullptr;
-    bool more_arguments = !node.out_edges.empty() || node_func.arguments().size() > 1;
+    bool more_arguments = !node.out_edges.empty();
     GenerateNodeInputDecl(node, "_work_graph_input"sv, more_arguments, result);
-    arg_index += 1;
 
     // Collect and generate NodeOutput parameters
     for (size_t i = 0; i < node.out_edges.size(); ++i) {
@@ -158,25 +159,7 @@ void CodegenUtility::GenerateNodeFunctionSignature(
                                static_cast<int>(i), result);
 
         bool is_last_output = (i == node.out_edges.size() - 1);
-        bool has_more_args = node_func.arguments().size() > (has_input_record ? 1 : 0);
-        if (!is_last_output || has_more_args) {
-            result << ",\n"sv;
-        }
-    }
-
-    // Generate remaining arguments (buffers, textures, etc.)
-    auto args = node_func.arguments();
-    size_t start_idx = has_input_record ? 1 : 0;
-    for (size_t i = start_idx; i < args.size(); ++i) {
-        auto &arg = args[i];
-        result << "    "sv;
-        GetTypeName(*arg.type(), result, Usage::READ);
-        vstd::StringBuilder var_name;
-        GetVariableName(node_func, arg, var_name);
-        result << ' ' << var_name;
-        opt->arguments.emplace(arg.uid(), arg_index++);
-
-        if (i < args.size() - 1) {
+        if (!is_last_output) {
             result << ",\n"sv;
         }
     }

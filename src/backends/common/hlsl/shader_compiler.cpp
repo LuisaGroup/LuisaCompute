@@ -256,6 +256,10 @@ CompileResult ShaderCompiler::compile_work_graph(
         LUISA_ERROR("work graphs require shader model 6.8+");
     }
 
+    auto file = fopen("work_graph_dump.hlsl", "w");
+    fwrite(code.data(), 1, code.size(), file);
+    fflush(file);
+
     vstd::fixed_vector<LPCWSTR, 32> args;
     vstd::wstring smStr;
     smStr << L"lib_" << GetSM(shaderModel);
