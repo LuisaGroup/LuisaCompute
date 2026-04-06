@@ -448,12 +448,37 @@ luisa::compute::ResourceCreationInfo DxWorkGraphExt::create_work_graph_program(
     const luisa::compute::WorkGraph &work_graph,
     const luisa::compute::ShaderOption &option
 ) noexcept {
-    auto codegen = hlsl::CodegenUtility{}.WorkGraphCodegen(work_graph, ""sv, 0);
+    // Single traversal: collect properties, uid_map, and per-binding runtime data.
+    // This is the authoritative ordering for both the HLSL root signature and the DX runtime bindings.
+    hlsl::CodegenUtility codegen_util;
+    hlsl::CodegenResult::Properties properties;
+    vstd::unordered_map<uint64_t, uint32_t> uid_map;
+    uint bind_count = 0;
+    auto captured = codegen_util.CollectWorkGraphBindings(work_graph, properties, uid_map, bind_count);
+
+    // Build argBindings and savedArgs directly from captured (same order as properties).
+    vstd::vector<luisa::compute::Argument> argBindings;
+    vstd::vector<SavedArgument> savedArgs;
+    argBindings.reserve(captured.size());
+    savedArgs.reserve(captured.size());
+    for (auto &c : captured) {
+        argBindings.emplace_back(c.argument);
+        SavedArgument sa{c.type};
+        sa.varUsage = c.usage;
+        savedArgs.emplace_back(sa);
+    }
+
+    auto codegen_result = codegen_util.WorkGraphCodegen(
+        work_graph, ""sv, 0,
+        captured, std::move(properties), std::move(uid_map), bind_count
+    );
 
     auto program = WorkGraphProgram::CompileWorkGraph(
         &_device.nativeDevice,
         work_graph.name(),
-        [&]() { return std::move(codegen); },
+        [&]() { return std::move(codegen_result); },
+        std::move(argBindings),
+        std::move(savedArgs),
         68,
         false,
         false

@@ -520,10 +520,27 @@ uint obj_id:register(b0);
         immutableHeaderSize,
         GetTypeMD5(funcs)};
 }
+// Convenience overload for callers (e.g. tests) that don't need the captured binding data.
 CodegenResult CodegenUtility::WorkGraphCodegen(
     const WorkGraph &work_graph,
     luisa::string_view native_code,
     uint custom_mask,
+    bool noRegister) {
+    CodegenResult::Properties properties;
+    vstd::unordered_map<uint64_t, uint32_t> uid_map;
+    uint bind_count = 0;
+    auto captured = CollectWorkGraphBindings(work_graph, properties, uid_map, bind_count);
+    return WorkGraphCodegen(work_graph, native_code, custom_mask, captured, std::move(properties), std::move(uid_map), bind_count, noRegister);
+}
+
+CodegenResult CodegenUtility::WorkGraphCodegen(
+    const WorkGraph &work_graph,
+    luisa::string_view native_code,
+    uint custom_mask,
+    vstd::span<const WorkGraphCapturedBinding> captured,
+    CodegenResult::Properties properties,
+    vstd::unordered_map<uint64_t, uint32_t> handle_to_canonical_uid,
+    uint bind_count,
     bool noRegister) {
     opt = CodegenStackData::Allocate(this);
     opt->noRegister = noRegister;
@@ -551,39 +568,37 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
     finalResult << '\n';
 
     vstd::unordered_set<uint64_t> globalCallableMap;
-    const auto& nodes = work_graph.nodes();
-    const auto& entry_points = work_graph.entry_points();
-
-    vstd::unordered_set<uint32_t> entry_point_set;
-    for (auto ep : entry_points) {
-        entry_point_set.emplace(ep);
-    }
-
-    CodegenResult::Properties properties;
-    DXILRegisterIndexer dxilRegisters;
-    uint bind_count = 0;
-
-    // Collect all bound resources across nodes, deduplicate by handle,
-    // emit one global declaration per unique resource.
-    vstd::unordered_map<uint64_t, uint32_t> handle_to_canonical_uid = CodegenWorkGraphProperties(
-        properties,
-        varData,
-        work_graph,
-        dxilRegisters,
-        bind_count
-    );
+    const auto &nodes = work_graph.nodes();
 
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR(
             "Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device."
             "Try to use bindless instead.",
-            bind_count
-        );
+            bind_count);
+    }
+
+    // Emit one global variable declaration per captured binding (in UID/first-encounter order)
+    for (size_t i = 0; i < captured.size(); i++) {
+        auto &c = captured[i];
+        auto &prop = properties[i];
+        GetTypeName(*c.type, varData, c.usage);
+        varData << ' ';
+        varData << (c.argument.tag == Argument::Tag::BUFFER ? "_b"sv : "_t"sv);
+        vstd::to_string(i, varData);
+        if (!opt->noRegister) {
+            bool is_uav = (prop.type == ShaderVariableType::RWStructuredBuffer ||
+                           prop.type == ShaderVariableType::UAVTextureHeap ||
+                           prop.type == ShaderVariableType::UAVBufferHeap);
+            varData << " : register("sv << (is_uav ? 'u' : 't');
+            vstd::to_string(prop.register_index, varData);
+            varData << ");\n"sv;
+        } else {
+            varData << ";\n"sv;
+        }
     }
 
     for (size_t i = 0; i < nodes.size(); ++i) {
-        // Set uid_remap for this node so that non-canonical variable uids resolve
-        // to the canonical global name (the one whose declaration was emitted in CodegenWorkGraphProperties).
+        // Map each node's variable UIDs to the canonical UIDs from CollectWorkGraphBindings
         opt->uid_remap.clear();
         auto func = nodes[i].fn_builder->function();
         auto args = func.arguments();
@@ -594,10 +609,7 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
                               std::is_same_v<T, Function::TextureBinding>) {
                     auto it = handle_to_canonical_uid.find(binding.handle);
                     LUISA_ASSERT(it != handle_to_canonical_uid.end(), "all bindings should be canonicalized");
-
-                    uint32_t canonical_uid = it->second;
-                    uint32_t current_uid = args[j].uid();
-                    opt->uid_remap[current_uid] = canonical_uid;
+                    opt->uid_remap[args[j].uid()] = it->second;
                 }
             }, bindings[j]);
         }
@@ -608,11 +620,8 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
 
     // Post-process properties (generates struct definitions)
     PostprocessCodegenProperties(finalResult, false);
-
-    // Append the generated code for all nodes
     finalResult << varData << codegenData;
 
-    // Create the result
     vstd::vector<Type const *> recordTypes;
     recordTypes.reserve(nodes.size());
     for (auto &&node : nodes) {
@@ -621,7 +630,7 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
         }
     }
 
-    auto result = CodegenResult(
+    return CodegenResult(
         std::move(finalResult),
         std::move(opt->printer),
         std::move(properties),
@@ -630,8 +639,6 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
         opt->useBufferBindless,
         immutableHeaderSize,
         GetTypeMD5(recordTypes));
-
-    return result;
 }
 
 void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty, bool codegen_self) {

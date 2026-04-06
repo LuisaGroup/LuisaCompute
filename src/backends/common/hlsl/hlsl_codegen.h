@@ -113,13 +113,19 @@ public:
         uint offset,
         RegisterIndexer &registerCount,
         uint &bind_count);
-    // handle -> canonicalized uid across different nodes in work graph
-    vstd::unordered_map<uint64_t, uint32_t> CodegenWorkGraphProperties(
-        CodegenResult::Properties &properties,
-        vstd::StringBuilder &varData,
+    // Single-pass traversal over all work graph nodes: deduplicates bound resources by handle,
+    // assigns canonical UIDs in first-encounter order, fills out_properties and out_uid_map,
+    // and returns one WorkGraphCapturedBinding per unique resource (also in first-encounter order).
+    struct WorkGraphCapturedBinding {
+        luisa::compute::Argument argument;  // buffer/texture handle + offset/level for runtime binding
+        luisa::compute::Usage usage;        // merged usage across all nodes (READ|WRITE)
+        luisa::compute::Type const *type;   // element type, for HLSL type name emission
+    };
+    vstd::vector<WorkGraphCapturedBinding> CollectWorkGraphBindings(
         const luisa::compute::WorkGraph &work_graph,
-        RegisterIndexer &registerCount,
-        uint &bind_count);
+        CodegenResult::Properties &out_properties,
+        vstd::unordered_map<uint64_t, uint32_t> &out_uid_map,
+        uint &out_bind_count);
     CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);
     CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);
     CodegenResult RasterCodegen(
@@ -129,12 +135,22 @@ public:
         uint custom_mask,
         bool isSpirV,
         bool noRegister = false);
+    // Primary overload: takes pre-computed binding data from CollectWorkGraphBindings.
     CodegenResult WorkGraphCodegen(
-        const WorkGraph& work_graph,
+        const WorkGraph &work_graph,
         luisa::string_view native_code,
         uint custom_mask,
-        bool noRegister = false
-    );
+        vstd::span<const WorkGraphCapturedBinding> captured,
+        CodegenResult::Properties properties,
+        vstd::unordered_map<uint64_t, uint32_t> handle_to_canonical_uid,
+        uint bind_count,
+        bool noRegister = false);
+    // Convenience overload: calls CollectWorkGraphBindings internally (e.g. for tests).
+    CodegenResult WorkGraphCodegen(
+        const WorkGraph &work_graph,
+        luisa::string_view native_code,
+        uint custom_mask,
+        bool noRegister = false);
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
     uint AddPrinter(vstd::string_view name, luisa::compute::Type const *structType) const;
     vstd::StringBuilder GetNewTempVarName() const;

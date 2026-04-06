@@ -4,6 +4,7 @@
 #include <Resource/Buffer.h>
 #include <Shader/ComputeShader.h>
 #include <Shader/RasterShader.h>
+#include <Shader/WorkGraphProgram.h>
 #include <Resource/SparseTexture.h>
 #include <luisa/core/logging.h>
 namespace lc::dx {
@@ -329,6 +330,29 @@ CommandBufferBuilder::CommandBufferBuilder(CommandBufferBuilder &&v)
 
 CommandBuffer::~CommandBuffer() {
     _close();
+}
+
+void CommandBufferBuilder::DispatchWorkGraph(
+    WorkGraphProgram const *program,
+    D3D12_DISPATCH_GRAPH_DESC const &dispatchDesc,
+    vstd::span<const BindProperty> resources) {
+    ComPtr<ID3D12GraphicsCommandList10> cmdList10;
+    ThrowIfFailed(cb->CmdList()->QueryInterface(IID_PPV_ARGS(&cmdList10)));
+
+    cmdList10->SetComputeRootSignature(program->RootSig());
+    SetComputeResources(program, resources);
+
+    D3D12_SET_PROGRAM_DESC setProgramDesc{};
+    setProgramDesc.Type = D3D12_PROGRAM_TYPE_WORK_GRAPH;
+    setProgramDesc.WorkGraph.ProgramIdentifier = program->ProgramId();
+    setProgramDesc.WorkGraph.Flags = D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
+    if (program->BackingMemory()) {
+        setProgramDesc.WorkGraph.BackingMemory.StartAddress = program->BackingMemory()->GetGPUVirtualAddress();
+        setProgramDesc.WorkGraph.BackingMemory.SizeInBytes = program->BackingMemorySize();
+    }
+    setProgramDesc.WorkGraph.NodeLocalRootArgumentsTable = {};
+    cmdList10->SetProgram(&setProgramDesc);
+    cmdList10->DispatchGraph(&dispatchDesc);
 }
 
 }// namespace lc::dx
