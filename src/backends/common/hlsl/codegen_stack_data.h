@@ -21,6 +21,7 @@ struct CodegenStackData : public vstd::IOperatorNewBase {
     vstd::unordered_set<Type const *> originToAliasedTypes;
     vstd::unordered_set<Type const *> aliasedToOriginTypes;
     vstd::unordered_map<uint, uint> arguments;
+    vstd::unordered_map<uint32_t, uint32_t> uid_remap; // per-function uid -> global uid (work graph)
     vstd::unordered_map<Type const *, vstd::string> internalStruct;
     vstd::vector<std::pair<vstd::string, Type const *>> printer;
     enum class FuncType : uint8_t {
