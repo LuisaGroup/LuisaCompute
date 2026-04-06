@@ -9,6 +9,7 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/mesh.h>
 #include <stb/stb_image_write.h>
 #include <luisa/gui/window.h>
 #include <luisa/ast/ast2json.h>
