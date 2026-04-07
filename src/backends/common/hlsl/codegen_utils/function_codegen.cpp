@@ -1505,6 +1505,19 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             auto output_index = luisa::get<uint>(literal->value());
             vstd::to_string(output_index, str);
             str << ", "sv;
+            args[1]->accept(vis);
+            str << ", "sv;
+            args[2]->accept(vis);
+            str << ")"sv;
+        } return;
+        case CallOp::WORK_GRAPH_OUTPUT_ARRAY: {
+            LUISA_ASSERT(opt->isWorkGraph, "Work Graph Array Output can only be used in work graph nodes");
+            str << "_work_graph_output("sv;
+            str << "_work_graph_output_"sv;
+            auto literal = static_cast<const LiteralExpr *>(args[0]);
+            auto output_index = luisa::get<uint>(literal->value());
+            vstd::to_string(output_index, str);
+            str << "["sv; args[1]->accept(vis); str << "], "sv;
             args[2]->accept(vis);
             str << ", "sv;
             args[3]->accept(vis);

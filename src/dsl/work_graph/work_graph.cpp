@@ -12,11 +12,16 @@ LUISA_DSL_API WorkGraphEdge &indices_to_edge(WorkGraphBuilder *builder, uint nod
     return builder->_nodes[node_index].out_edges[edge_index];
 }
 
+LUISA_DSL_API WorkGraphNodeArray &index_to_node_array(WorkGraphBuilder *builder, uint node_array_index) noexcept {
+    return builder->_node_arrays[node_array_index];
+}
+
 } // namespace luisa::compute::detail
 
 static bool visit(
     size_t i,
     luisa::span<const detail::WorkGraphNode> nodes,
+    luisa::span<const detail::WorkGraphNodeArray> node_arrays,
     luisa::span<uint8_t> marks,
     luisa::vector<uint32_t>& entry_points
 ) {
@@ -31,10 +36,20 @@ static bool visit(
 
     marks[i] |= 1;
 
-    for (auto const& neighbor : nodes[i].out_edges) {
-        marks[neighbor.dest] |= 4;
-        bool ok = luisa::compute::visit(neighbor.dest, nodes, marks, entry_points);
-        if (!ok) { return false; }
+    for (auto const& edge : nodes[i].out_edges) {
+        if (edge.dest_array != ~0u) {
+            auto const& array = node_arrays[edge.dest_array];
+            for (uint s = array.start; s < array.start + array.count; s += 1) {
+                marks[s] |= 4;
+                bool ok = luisa::compute::visit(s, nodes, node_arrays, marks, entry_points);
+                if (!ok) { return false; }
+            }
+        }
+        else {
+            marks[edge.dest] |= 4;
+            bool ok = luisa::compute::visit(edge.dest, nodes, node_arrays, marks, entry_points);
+            if (!ok) { return false; }
+        }
     }
 
     marks[i] &= ~1;
@@ -53,16 +68,26 @@ LUISA_DSL_API WorkGraph WorkGraphBuilder::build() noexcept {
     marks.resize(_nodes.size(), 0);
 
     for (size_t i = 0; i < _nodes.size(); i += 1) {
-        bool ok = luisa::compute::visit(i, _nodes, marks, entry_points);
+        LUISA_ASSERT(_nodes[i].defined, "all nodes must be defined");
+
+        bool ok = luisa::compute::visit(i, _nodes, _node_arrays, marks, entry_points);
+
         // TODO: allow for single node cycle
         LUISA_ASSERT(ok, "work graph must be a DAG");
     }
 
-    luisa::unordered_set<luisa::string_view> node_names;
+    luisa::unordered_set<luisa::string_view> names;
     for (auto const& node : _nodes) {
-        auto [_, name_unique] = node_names.insert(node.name);
+        auto [_, name_unique] = names.insert(node.name);
         LUISA_ASSERT(!node.name.empty(), "names of work graph nodes cannot be empty");
         LUISA_ASSERT(name_unique, "names of work graph nodes must be unique");
+    }
+
+    names.clear();
+    for (auto const& node_array : _node_arrays) {
+        auto [_, name_unique] = names.insert(node_array.array_name);
+        LUISA_ASSERT(!node_array.array_name.empty(), "names of work graph node arrays cannot be empty");
+        LUISA_ASSERT(name_unique, "names of work graph node arrays must be unique");
     }
 
     for (size_t i = 0; i < _nodes.size(); i += 1) {
@@ -71,7 +96,7 @@ LUISA_DSL_API WorkGraph WorkGraphBuilder::build() noexcept {
         }
     }
 
-    return WorkGraph(std::move(_name), std::move(_nodes), std::move(entry_points));
+    return WorkGraph(std::move(_name), std::move(_nodes), std::move(_node_arrays), std::move(entry_points));
 }
 
 } // namespace luisa::compute

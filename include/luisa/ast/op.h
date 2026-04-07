@@ -448,7 +448,8 @@ enum struct CallOp : uint32_t {
     RASTER_SET_Z_DEPTH_LESS_EQUAL,// (float): void
 
     // work graphs
-    WORK_GRAPH_OUTPUT, // (output_index: uint, array_index: uint, record_data: <RecordType>, should_write: bool): void
+    WORK_GRAPH_OUTPUT,       // (output_index: uint, record_data: <RecordType>, should_write: bool): void
+    WORK_GRAPH_OUTPUT_ARRAY, // (output_index: uint, array_index: uint, record_data: <RecordType>, should_write: bool): void
 
     // Derivative Operations for 2x2 quad
     // partial derivative
@@ -638,7 +639,7 @@ public:
                test(CallOp::COOPERATIVE_VECTOR_ACCUMULATE);
     }
     [[nodiscard]] auto uses_work_graph() const noexcept {
-        return test(CallOp::WORK_GRAPH_OUTPUT);
+        return test(CallOp::WORK_GRAPH_OUTPUT) || test(CallOp::WORK_GRAPH_OUTPUT_ARRAY);
     }
 };
 

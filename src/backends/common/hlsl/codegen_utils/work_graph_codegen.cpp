@@ -22,33 +22,58 @@ void CodegenUtility::GenerateMaxRecordsAttribute(uint max_records, vstd::StringB
     result << ")]"sv;
 }
 
-// Helper to generate NodeOutput<T> declaration
+// Helper to generate NodeOutput(Array)<T> declaration
 void CodegenUtility::GenerateNodeOutputDecl(
-    const luisa::compute::detail::WorkGraphNode& dest,
-    uint max_records,
-    luisa::string_view var_name_prefix,
-    int output_index,
-    vstd::StringBuilder &result) {
+    const luisa::compute::WorkGraph& work_graph,
+    const luisa::compute::detail::WorkGraphEdge& edge,
+    vstd::StringBuilder &result
+) {
+    const auto& dest = work_graph.nodes().at(edge.dest);
+    LUISA_ASSERT(edge.dest_array == ~0u || dest.array == edge.dest_array);
 
+    uint max_records = edge.max_records;
+    uint output_index = edge.source_output_index;
     const Type* record_type = dest.input_record_type;
 
     // Generate [MaxRecords(n)] attribute
     GenerateMaxRecordsAttribute(max_records, result);
     result << ' ';
 
-    // Generating [NodeId(id)] for output
-    result << "[NodeId(\""sv << dest.name << "\")] "sv;
+    // Generating [NodeID(id)] or [NodeID(array, index)] for output
+    if (dest.array != ~0u) {
+        const auto& dest_array = work_graph.node_arrays().at(dest.array);
+        uint index = edge.dest_array == ~0u ? edge.dest - dest_array.start : 0;
+        result << "[NodeID(\""sv << dest_array.array_name << "\", "sv << index << ")] ";
+    }
+    else {
+        result << "[NodeID(\""sv << dest.name << "\")] "sv;
+    }
 
-    // Generate NodeOutput<T> or EmptyNodeOutput
+    if (edge.dest_array != ~0u) {
+        const auto& dest_array = work_graph.node_arrays().at(edge.dest_array);
+        result << "[NodeArraySize(" << dest_array.count << ")] "sv;
+    }
+
+    // Generate NodeOutput(Array)<T> or EmptyNodeOutput
     if (record_type != nullptr) {
-        result << "NodeOutput<"sv;
+        if (edge.dest_array != ~0u) {
+            result << "NodeOutputArray<"sv;
+        }
+        else {
+            result << "NodeOutput<"sv;
+        }
         GetTypeName(*record_type, result, Usage::READ);
         result << "> "sv;
     } else {
-        result << "EmptyNodeOutput "sv;
+        if (edge.dest_array != ~0u) {
+            result << "EmptyNodeOutputArray "sv;
+        }
+        else {
+            result << "EmptyNodeOutput "sv;
+        }
     }
 
-    result  << var_name_prefix;
+    result << "_work_graph_output_"sv;
     vstd::to_string(static_cast<int64_t>(output_index), result);
 }
 
@@ -88,10 +113,21 @@ void CodegenUtility::GenerateNodeInputDecl(
 // Helper to generate node shader attributes
 void CodegenUtility::GenerateNodeShaderAttributes(
     const luisa::compute::detail::WorkGraphNode &node,
+    luisa::span<const luisa::compute::detail::WorkGraphNodeArray> node_arrays,
     vstd::StringBuilder &result) {
 
     // [Shader("node")] attribute (required for all work graph nodes)
     result << "[Shader(\"node\")]\n"sv;
+
+    // use NodeId annotation to group nodes into array
+    if (node.array != ~0u) {
+        const auto& array = node_arrays[node.array];
+        result << "[NodeID(\""sv
+               << array.array_name
+               << "\", "sv
+               << node.index - array.start
+               << ")]\n";
+    }
 
     switch (node.node_type) {
         case WorkGraphLaunchType::BROADCASTING: {
@@ -133,8 +169,8 @@ void CodegenUtility::GenerateNodeShaderAttributes(
 // Helper to generate work graph node function signature
 void CodegenUtility::GenerateNodeFunctionSignature(
     Function node_func,
+    const luisa::compute::WorkGraph &work_graph,
     const luisa::compute::detail::WorkGraphNode &node,
-    const luisa::vector<luisa::compute::detail::WorkGraphNode> &all_nodes,
     vstd::StringBuilder &result) {
 
     using luisa::compute::detail::WorkGraphEdge;
@@ -153,13 +189,9 @@ void CodegenUtility::GenerateNodeFunctionSignature(
     // Collect and generate NodeOutput parameters
     for (size_t i = 0; i < node.out_edges.size(); ++i) {
         const auto &edge = node.out_edges[i];
-        const auto &dest = all_nodes[edge.dest];
-
-        uint max_records = edge.max_records;
 
         result << "    "sv;
-        GenerateNodeOutputDecl(dest, max_records, "_work_graph_output_"sv,
-                               static_cast<int>(i), result);
+        GenerateNodeOutputDecl(work_graph, edge, result);
 
         bool is_last_output = (i == node.out_edges.size() - 1);
         if (!is_last_output) {
@@ -328,7 +360,7 @@ void CodegenUtility::CodegenWorkGraphNode(
     }
 
     // Generate node shader attributes using helper
-    GenerateNodeShaderAttributes(node, result);
+    GenerateNodeShaderAttributes(node, work_graph.node_arrays(), result);
 
     // Generate node function signature
     // use actual name from frontend here, rather than custom_<i>, since node names are meaningful
@@ -336,7 +368,7 @@ void CodegenUtility::CodegenWorkGraphNode(
     result << "void "sv << node_func.name() << "(\n"sv;
 
     // Generate node function parameters using helper
-    GenerateNodeFunctionSignature(node_func, node, nodes, result);
+    GenerateNodeFunctionSignature(node_func, work_graph, node, result);
 
     result << "\n)"sv;
 

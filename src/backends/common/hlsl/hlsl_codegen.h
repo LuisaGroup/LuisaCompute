@@ -77,10 +77,10 @@ public:
     
     // Work graph helper methods
     static void GenerateMaxRecordsAttribute(uint max_records, vstd::StringBuilder &result);
-    void GenerateNodeOutputDecl(const luisa::compute::detail::WorkGraphNode& dest, uint max_records, luisa::string_view var_name_prefix, int output_index, vstd::StringBuilder &result);
+    void GenerateNodeOutputDecl(const luisa::compute::WorkGraph& work_graph, const luisa::compute::detail::WorkGraphEdge& edge, vstd::StringBuilder &result);
     void GenerateNodeInputDecl(const luisa::compute::detail::WorkGraphNode& node, luisa::string_view var_name, bool more_arguments, vstd::StringBuilder &result);
-    static void GenerateNodeShaderAttributes(const luisa::compute::detail::WorkGraphNode& node, vstd::StringBuilder &result);
-    void GenerateNodeFunctionSignature(Function node_func, const luisa::compute::detail::WorkGraphNode &node, const luisa::vector<luisa::compute::detail::WorkGraphNode> &all_nodes, vstd::StringBuilder &result);
+    static void GenerateNodeShaderAttributes(const luisa::compute::detail::WorkGraphNode& node, luisa::span<const luisa::compute::detail::WorkGraphNodeArray> node_arrays, vstd::StringBuilder &result);
+    void GenerateNodeFunctionSignature(Function node_func, const luisa::compute::WorkGraph& work_graph, const luisa::compute::detail::WorkGraphNode &node, vstd::StringBuilder &result);
     static void GenerateWorkGraphOutputCall(int output_index, luisa::string_view record_var_name, vstd::StringBuilder &result);
     void GenerateRecordStructDef(const Type *record_type, vstd::StringBuilder &result);
     static void GenerateNodeDispatchGrid(const uint3 &grid_size, vstd::StringBuilder &result);
