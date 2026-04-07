@@ -46,16 +46,44 @@ WorkGraph basic_work_graph(const Buffer<uint>& out) {
     return work_graph.build();
 }
 
+void basic_work_graph_test(Device& device, Stream& stream) {
+    auto d_buffer = device.create_buffer<uint>(128);
+    luisa::vector<uint> h_buffer;
+    h_buffer.resize(128, 0);
+
+    WorkGraph basic_wg = basic_work_graph(d_buffer);
+    WorkGraphProgram basic_wg_program = device.compile(basic_wg);
+
+    stream << basic_wg_program().dispatch(1, 0, nullptr) << synchronize();
+    stream << d_buffer.copy_to(h_buffer.data()) << synchronize();
+
+    for (size_t i = 0; i < h_buffer.size(); i += 1) {
+        LUISA_ASSERT(h_buffer[i] == i, "expected {}, got {}", i, h_buffer[i]);
+    }
+}
+
+WorkGraph dynamic_dispatch_grid(const Buffer<uint>& out) {
+    LUISA_ASSERT(false, "unimplemented");
+}
+
+void dynamic_dispatch_grid_test(Device& device, Stream& stream) {
+    LUISA_ASSERT(false, "unimplemented");
+}
+
+WorkGraph node_array(const Buffer<uint>& out) {
+    LUISA_ASSERT(false, "unimplemented");
+}
+
+void node_array_test(Device& device, Stream& stream) {
+    LUISA_ASSERT(false, "unimplemented");
+}
+
 int main(int argc, char **argv) {
     Context ctx { argv[0] };
     Device device = ctx.create_device("dx", nullptr, true);
     Stream stream = device.create_stream(StreamTag::COMPUTE);
 
-    auto buffer = device.create_buffer<uint>(128);
-    WorkGraph basic_wg = basic_work_graph(buffer);
-    WorkGraphProgram basic_wg_program = device.compile(basic_wg);
-
-    stream << basic_wg_program().dispatch(1, 0, nullptr) << synchronize();
+    basic_work_graph_test(device, stream);
 
     return 0;
 }
