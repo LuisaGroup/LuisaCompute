@@ -2,8 +2,11 @@
 // Created by mike on 3/18/26.
 //
 
+#include <luisa/dsl/rtx/ray_query.h>
+
 #include "hip_codegen_llvm_impl.h"
 #include "../hip_bindless_array.h"
+#include "../hip_buffer.h"
 
 namespace luisa::compute::hip {
 
@@ -158,6 +161,13 @@ const HIPCodegenLLVMImpl::LLVMTypeInfo *HIPCodegenLLVMImpl::_get_llvm_type(const
                 auto llvm_type = _get_llvm_accel_type();
                 return make_info(llvm_type, llvm_type, 16u, 16u);
             }
+            case Type::Tag::CUSTOM: {
+                if (type == Type::of<RayQueryAll>() || type == Type::of<RayQueryAny>()) {
+                    auto llvm_type = _get_llvm_ray_query_type();
+                    return make_info(llvm_type, llvm_type, sizeof(uint8_t), alignof(uint8_t));
+                }
+                LUISA_NOT_IMPLEMENTED("Custom type: {}.", type->description());
+            }
             default: LUISA_ERROR_WITH_LOCATION("Unsupported type with tag {}.", static_cast<uint32_t>(type->tag()));
         }
     }();
@@ -222,6 +232,10 @@ llvm::Type *HIPCodegenLLVMImpl::_get_llvm_buffer_type() noexcept {
         auto ptr_type = llvm::PointerType::get(_llvm_context, amdgpu_address_space_global);
         auto llvm_i64_type = llvm::Type::getInt64Ty(_llvm_context);
         _llvm_buffer_type = llvm::StructType::get(_llvm_context, {ptr_type, llvm_i64_type}, false);
+        detail::luisa_check_llvm_type_size_and_alignment(
+            *_data_layout, _llvm_buffer_type,
+            sizeof(HIPBuffer::Binding),
+            alignof(HIPBuffer::Binding));
     }
     return _llvm_buffer_type;
 }

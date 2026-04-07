@@ -37,6 +37,14 @@ llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_kernel_function(const xir::Ker
     }();
     auto llvm_kernel = llvm::Function::Create(llvm_func_type, llvm::Function::ExternalLinkage, llvm_func_name, _llvm_module.get());
     llvm_kernel->setCallingConv(llvm::CallingConv::AMDGPU_KERNEL);
+    llvm_kernel->addFnAttr("amdgpu-unsafe-fp-atomics", "true");
+
+    // Set occupancy hints: tell the AMDGPU backend the exact workgroup size
+    // so it can optimize register allocation and occupancy accordingly.
+    auto block_size = _config.block_size[0] * _config.block_size[1] * _config.block_size[2];
+    auto block_size_str = std::to_string(block_size);
+    llvm_kernel->addFnAttr("amdgpu-flat-work-group-size", block_size_str + "," + block_size_str);
+
     return llvm_kernel;
 }
 
@@ -63,6 +71,7 @@ llvm::Function *HIPCodegenLLVMImpl::_declare_llvm_callable_function(const xir::C
     auto llvm_func_type = llvm::FunctionType::get(llvm_ret_type, llvm_arg_types, false);
     auto llvm_func = llvm::Function::Create(llvm_func_type, llvm::Function::PrivateLinkage, 0,
                                             func->name().value_or("callable"), _llvm_module.get());
+    llvm_func->addFnAttr("amdgpu-unsafe-fp-atomics", "true");
     return llvm_func;
 }
 

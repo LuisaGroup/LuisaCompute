@@ -6,10 +6,11 @@
 
 namespace luisa::compute::hip {
 
-llvm::Value *HIPCodegenLLVMImpl::_translate_alloca_inst(IB &b, FunctionContext &, const xir::AllocaInst *inst) noexcept {
+llvm::Value *HIPCodegenLLVMImpl::_translate_alloca_inst(IB &b, FunctionContext &func_ctx, const xir::AllocaInst *inst) noexcept {
     auto llvm_type = _get_llvm_type(inst->type())->mem_type;
     if (inst->is_local()) {
-        auto llvm_alloca = b.CreateAlloca(llvm_type, nullptr, inst->name().value_or(""));
+        IB alloca_builder{func_ctx.llvm_alloca_block->getTerminator()};
+        auto llvm_alloca = alloca_builder.CreateAlloca(llvm_type, nullptr, inst->name().value_or(""));
         llvm_alloca->setAlignment(llvm::Align{_get_type_alignment(inst->type())});
         return llvm_alloca;
     }

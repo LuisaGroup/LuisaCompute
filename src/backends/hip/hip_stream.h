@@ -45,6 +45,9 @@ private:
     std::atomic_uint64_t _finished_ticket{0u};
     luisa::queue<CallbackPackage> _callback_lists{};
     spin_mutex _dispatch_mutex;
+    bool _profiling_enabled{false};
+    double _total_gpu_time_ms{0.0};
+    uint64_t _dispatch_count{0u};
 
 private:
     void _create_callback_semaphore() noexcept;

@@ -39,7 +39,7 @@ void HIPStageBufferPool::View::recycle() noexcept {
     if (is_pooled()) [[likely]] {
         _pool->recycle(node());
     } else {
-        luisa::deallocate_with_allocator(static_cast<std::byte *>(_handle));
+        LUISA_CHECK_HIP(hipHostFree(static_cast<std::byte *>(_handle)));
     }
     host_buffer_recycle_context_pool().destroy(this);
 }
@@ -72,7 +72,9 @@ HIPStageBufferPool::View *HIPStageBufferPool::allocate(size_t size, bool fallbac
             warned = true;
         }
         if (fallback_if_failed) {
-            view = View::create(luisa::allocate_with_allocator<std::byte>(size));
+            std::byte *p = nullptr;
+            LUISA_CHECK_HIP(hipHostMalloc(reinterpret_cast<void **>(&p), size, hipHostMallocMapped));
+            view = View::create(p);
         }
     }
     return view;

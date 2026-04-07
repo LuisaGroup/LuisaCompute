@@ -110,6 +110,17 @@ HIPDevice::HIPDevice(Context &&ctx, const DeviceConfig *config) noexcept
     LUISA_CHECK_HIPRT(hiprtCreateGlobalStackBuffer(_hiprt_context, stack_input, _hiprt_global_stack_buffer));
     LUISA_INFO("Created HIPRT global stack buffer (stackSize={}, threadCount={}).",
                stack_input.stackSize, stack_input.threadCount);
+
+    // hipLimitStackSize controls per-thread scratch allocation for uses_dynamic_stack=true kernels.
+    // HIPRT traversal uses its own GlobalStack (LDS + global memory), not this.
+    // With full LTO inlining of HIPRT functions, no dynamic call stack is needed.
+    {
+        auto ret = hipDeviceSetLimit(hipLimitStackSize, 0u);
+        if (ret != hipSuccess) {
+            LUISA_WARNING("hipDeviceSetLimit(hipLimitStackSize) failed: {}",
+                          hipGetErrorString(ret));
+        }
+    }
 }
 
 HIPDevice::~HIPDevice() noexcept {

@@ -21,7 +21,7 @@ static HLSLCompressedHeader get_hlsl_builtin(luisa::string_view ss) { return {};
 #endif
 namespace lc::hlsl {
 #ifdef LUISA_ENABLE_IR
-static void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
+void glob_variables_with_grad(Function f, vstd::unordered_set<Variable> &gradient_variables) noexcept {
     if (f.requires_autodiff())
         traverse_expressions<true>(
             f.body(),

@@ -375,7 +375,7 @@ def print_help():
     print('          [no-]metal         Enable (disable) Metal backend')
     print('          [no-]vulkan        Enable (disable) Vulkan backend')
     print('          [no-]clangcxx      Enable (disable) ClangTooling-based C++ AOT shading language')
-    print('          [no-]tests         Enable (disable) tests (requires and will enable the `dsl` feature if set on)')
+    print('          [no-]tests         Enable (disable) tests (requires and will enable the `dsl` and the `gui` feature if set on)')
     print('  --clean   | -C         Clean build directory')
     print('  --install | -i [deps]  Install dependencies')
     print('      Dependencies:')
@@ -806,9 +806,10 @@ def parse_cli_args(args):
                 valid_features.add(f)
                 if f == "tests":
                     valid_features.add("dsl")
+                    valid_features.add("gui")
             elif f.startswith('no-'):
                 valid_features.discard(f[3:])
-                if f[3:] == "dsl":
+                if f[3:] == "dsl" or f[3:] == "gui":
                     valid_features.discard("tests")
             else:
                 print_red(f'Ignoring invalid feature "{f}"')

@@ -2,7 +2,10 @@
 // Created by mike on 1/9/26.
 //
 
+#include <cstdlib>
+
 #include <luisa/core/stl/memory.h>
+#include <luisa/core/logging.h>
 #include <luisa/core/pool.h>
 
 #include "hip_check.h"
@@ -93,13 +96,25 @@ void HIPStream::_shutdown_callback_thread() noexcept {
 HIPStream::HIPStream(HIPDevice *device) noexcept
     : _device{device}, _stream{},
       _upload_pool{64_M, true},
-      _download_pool{32_M, false} {
+      _download_pool{64_M, false} {
     LUISA_CHECK_HIP(hipStreamCreate(&_stream));
     _create_callback_semaphore();
     _spawn_callback_thread();
+    if (auto env = std::getenv("LUISA_HIP_PROFILE"); env != nullptr) {
+        _profiling_enabled = (std::string_view{env} == "1" || std::string_view{env} == "true");
+        if (_profiling_enabled) {
+            LUISA_INFO("HIP stream profiling enabled (LUISA_HIP_PROFILE=1).");
+        }
+    }
 }
 
 HIPStream::~HIPStream() noexcept {
+    if (_profiling_enabled && _dispatch_count > 0u) {
+        LUISA_INFO("HIP stream profiling summary: {} dispatches, total GPU time = {:.3f} ms, "
+                   "avg = {:.3f} ms/dispatch",
+                   _dispatch_count, _total_gpu_time_ms,
+                   _total_gpu_time_ms / static_cast<double>(_dispatch_count));
+    }
     _destroy_callback_semaphore();
     _shutdown_callback_thread();
     LUISA_CHECK_HIP(hipStreamDestroy(_stream));
@@ -111,9 +126,31 @@ void HIPStream::dispatch(CommandList &&command_list) noexcept {
         auto commands = command_list.steal_commands();
         auto callbacks = command_list.steal_callbacks();
         std::scoped_lock lock{_dispatch_mutex};
+
+        hipEvent_t start_event{}, stop_event{};
+        if (_profiling_enabled) {
+            LUISA_CHECK_HIP(hipEventCreate(&start_event));
+            LUISA_CHECK_HIP(hipEventCreate(&stop_event));
+            LUISA_CHECK_HIP(hipEventRecord(start_event, _stream));
+        }
+
         for (auto &cmd : commands) {
             cmd->accept(encoder);
         }
+
+        if (_profiling_enabled) {
+            LUISA_CHECK_HIP(hipEventRecord(stop_event, _stream));
+            LUISA_CHECK_HIP(hipEventSynchronize(stop_event));
+            float gpu_ms = 0.f;
+            LUISA_CHECK_HIP(hipEventElapsedTime(&gpu_ms, start_event, stop_event));
+            _total_gpu_time_ms += gpu_ms;
+            _dispatch_count++;
+            LUISA_INFO("HIP dispatch #{}: {} cmd(s), GPU time = {:.3f} ms (total = {:.3f} ms)",
+                       _dispatch_count, commands.size(), gpu_ms, _total_gpu_time_ms);
+            LUISA_CHECK_HIP(hipEventDestroy(start_event));
+            LUISA_CHECK_HIP(hipEventDestroy(stop_event));
+        }
+
         encoder.commit(std::move(callbacks));
     }
 }

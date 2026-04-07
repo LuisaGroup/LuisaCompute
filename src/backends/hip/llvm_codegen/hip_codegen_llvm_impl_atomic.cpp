@@ -28,13 +28,18 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_atomic_inst(IB &b, FunctionContext &
     for (auto value_use : inst->value_uses()) {
         llvm_values.emplace_back(_get_llvm_value(b, func_ctx, value_use->value()));
     }
+    // Use "agent" (device) syncscope for all atomics on AMDGPU.
+    // Default (no syncscope) maps to SCOPE_SYS which can be problematic on some targets.
+    auto agent_scope = _llvm_context.getOrInsertSyncScopeID("agent");
     switch (inst->op()) {
         case xir::AtomicOp::EXCHANGE: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1);
-            return b.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg,
-                                     llvm_elem_ptr, llvm_values[0],
-                                     llvm::MaybeAlign{elem_type->alignment()},
-                                     llvm::AtomicOrdering::Monotonic);
+            auto *rmw = b.CreateAtomicRMW(llvm::AtomicRMWInst::Xchg,
+                                          llvm_elem_ptr, llvm_values[0],
+                                          llvm::MaybeAlign{elem_type->alignment()},
+                                          llvm::AtomicOrdering::Monotonic);
+            rmw->setSyncScopeID(agent_scope);
+            return static_cast<llvm::Value *>(rmw);
         }
         case xir::AtomicOp::COMPARE_EXCHANGE: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 2);
@@ -52,6 +57,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_atomic_inst(IB &b, FunctionContext &
                                                   llvm::MaybeAlign{elem_type->alignment()},
                                                   llvm::AtomicOrdering::Monotonic,
                                                   llvm::AtomicOrdering::Monotonic);
+            llvm_ret->setSyncScopeID(agent_scope);
             auto llvm_old_value = b.CreateExtractValue(llvm_ret, 0);
             if (llvm_value_type->isFloatingPointTy()) {
                 llvm_old_value = b.CreateBitCast(llvm_old_value, llvm_value_type);
@@ -61,55 +67,69 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_atomic_inst(IB &b, FunctionContext &
         case xir::AtomicOp::FETCH_ADD: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1);
             auto llvm_op = elem_type->is_float() ? llvm::AtomicRMWInst::FAdd : llvm::AtomicRMWInst::Add;
-            return b.CreateAtomicRMW(llvm_op, llvm_elem_ptr, llvm_values[0],
-                                     llvm::MaybeAlign{elem_type->alignment()},
-                                     llvm::AtomicOrdering::Monotonic);
+            auto *rmw = b.CreateAtomicRMW(llvm_op, llvm_elem_ptr, llvm_values[0],
+                                          llvm::MaybeAlign{elem_type->alignment()},
+                                          llvm::AtomicOrdering::Monotonic);
+            rmw->setSyncScopeID(agent_scope);
+            return static_cast<llvm::Value *>(rmw);
         }
         case xir::AtomicOp::FETCH_SUB: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1);
             auto llvm_op = elem_type->is_float() ? llvm::AtomicRMWInst::FSub : llvm::AtomicRMWInst::Sub;
-            return b.CreateAtomicRMW(llvm_op, llvm_elem_ptr, llvm_values[0],
-                                     llvm::MaybeAlign{elem_type->alignment()},
-                                     llvm::AtomicOrdering::Monotonic);
+            auto *rmw = b.CreateAtomicRMW(llvm_op, llvm_elem_ptr, llvm_values[0],
+                                          llvm::MaybeAlign{elem_type->alignment()},
+                                          llvm::AtomicOrdering::Monotonic);
+            rmw->setSyncScopeID(agent_scope);
+            return static_cast<llvm::Value *>(rmw);
         }
         case xir::AtomicOp::FETCH_AND: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1 && llvm_values[0]->getType()->isIntegerTy());
-            return b.CreateAtomicRMW(llvm::AtomicRMWInst::And,
-                                     llvm_elem_ptr, llvm_values[0],
-                                     llvm::MaybeAlign{elem_type->alignment()},
-                                     llvm::AtomicOrdering::Monotonic);
+            auto *rmw = b.CreateAtomicRMW(llvm::AtomicRMWInst::And,
+                                          llvm_elem_ptr, llvm_values[0],
+                                          llvm::MaybeAlign{elem_type->alignment()},
+                                          llvm::AtomicOrdering::Monotonic);
+            rmw->setSyncScopeID(agent_scope);
+            return static_cast<llvm::Value *>(rmw);
         }
         case xir::AtomicOp::FETCH_OR: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1 && llvm_values[0]->getType()->isIntegerTy());
-            return b.CreateAtomicRMW(llvm::AtomicRMWInst::Or,
-                                     llvm_elem_ptr, llvm_values[0],
-                                     llvm::MaybeAlign{elem_type->alignment()},
-                                     llvm::AtomicOrdering::Monotonic);
+            auto *rmw = b.CreateAtomicRMW(llvm::AtomicRMWInst::Or,
+                                          llvm_elem_ptr, llvm_values[0],
+                                          llvm::MaybeAlign{elem_type->alignment()},
+                                          llvm::AtomicOrdering::Monotonic);
+            rmw->setSyncScopeID(agent_scope);
+            return static_cast<llvm::Value *>(rmw);
         }
         case xir::AtomicOp::FETCH_XOR: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1 && llvm_values[0]->getType()->isIntegerTy());
-            return b.CreateAtomicRMW(llvm::AtomicRMWInst::Xor,
-                                     llvm_elem_ptr, llvm_values[0],
-                                     llvm::MaybeAlign{elem_type->alignment()},
-                                     llvm::AtomicOrdering::Monotonic);
+            auto *rmw = b.CreateAtomicRMW(llvm::AtomicRMWInst::Xor,
+                                          llvm_elem_ptr, llvm_values[0],
+                                          llvm::MaybeAlign{elem_type->alignment()},
+                                          llvm::AtomicOrdering::Monotonic);
+            rmw->setSyncScopeID(agent_scope);
+            return static_cast<llvm::Value *>(rmw);
         }
         case xir::AtomicOp::FETCH_MIN: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1);
             auto llvm_op = elem_type->is_int()  ? llvm::AtomicRMWInst::Min :
                            elem_type->is_uint() ? llvm::AtomicRMWInst::UMin :
                                                   llvm::AtomicRMWInst::FMin;
-            return b.CreateAtomicRMW(llvm_op, llvm_elem_ptr, llvm_values[0],
-                                     llvm::MaybeAlign{elem_type->alignment()},
-                                     llvm::AtomicOrdering::Monotonic);
+            auto *rmw = b.CreateAtomicRMW(llvm_op, llvm_elem_ptr, llvm_values[0],
+                                          llvm::MaybeAlign{elem_type->alignment()},
+                                          llvm::AtomicOrdering::Monotonic);
+            rmw->setSyncScopeID(agent_scope);
+            return static_cast<llvm::Value *>(rmw);
         }
         case xir::AtomicOp::FETCH_MAX: {
             LUISA_DEBUG_ASSERT(llvm_values.size() == 1);
             auto llvm_op = elem_type->is_int()  ? llvm::AtomicRMWInst::Max :
                            elem_type->is_uint() ? llvm::AtomicRMWInst::UMax :
                                                   llvm::AtomicRMWInst::FMax;
-            return b.CreateAtomicRMW(llvm_op, llvm_elem_ptr, llvm_values[0],
-                                     llvm::MaybeAlign{elem_type->alignment()},
-                                     llvm::AtomicOrdering::Monotonic);
+            auto *rmw = b.CreateAtomicRMW(llvm_op, llvm_elem_ptr, llvm_values[0],
+                                          llvm::MaybeAlign{elem_type->alignment()},
+                                          llvm::AtomicOrdering::Monotonic);
+            rmw->setSyncScopeID(agent_scope);
+            return static_cast<llvm::Value *>(rmw);
         }
         default: break;
     }

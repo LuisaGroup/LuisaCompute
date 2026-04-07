@@ -74,31 +74,43 @@ HIPShaderNative::HIPShaderNative(HIPDevice *device, luisa::string code,
       _device{device},
       _is_rt{true} {
 
-    const char *func_name = entry;
-    hiprtApiFunction api_func = nullptr;
-    auto hiprt_err = hiprtBuildTraceKernelsFromBitcode(
-        hiprt_ctx,
-        1u,
-        &func_name,
-        "rt_module",
-        code.data(),
-        code.size(),
-        0u,
-        1u,
-        nullptr,
-        &api_func,
-        false);
-
-    if (hiprt_err != hiprtSuccess) {
-        LUISA_ERROR_WITH_LOCATION(
-            "hiprtBuildTraceKernelsFromBitcode failed with error code {}.",
-            static_cast<int>(hiprt_err));
+    // RT shaders now have HIPRT library fully inlined by our LLVM pipeline.
+    // Use the same hiprtc ISA-generation path as non-RT shaders.
+    hiprtcLinkState link_state{};
+    auto create_result = hiprtcLinkCreate(0, nullptr, nullptr, &link_state);
+    if (create_result != hiprtcResult::HIPRTC_SUCCESS) {
+        LUISA_ERROR_WITH_LOCATION("Failed to create hiprtc link state for RT shader: {}",
+                                  hiprtcGetErrorString(create_result));
     }
 
-    _function = static_cast<hipFunction_t>(api_func);
-    _module = nullptr;
+    auto add_result = hiprtcLinkAddData(link_state,
+                                        hipJitInputLLVMBitcode,
+                                        code.data(),
+                                        code.size(),
+                                        entry,
+                                        0, nullptr, nullptr);
+    if (add_result != hiprtcResult::HIPRTC_SUCCESS) {
+        hiprtcLinkDestroy(link_state);
+        LUISA_ERROR_WITH_LOCATION("Failed to add LLVM bitcode to hiprtc linker for RT shader: {}",
+                                  hiprtcGetErrorString(add_result));
+    }
 
-    LUISA_INFO("RT shader compiled successfully via HIPRT.");
+    void *linked_binary = nullptr;
+    size_t linked_binary_size = 0;
+    auto complete_result = hiprtcLinkComplete(link_state, &linked_binary, &linked_binary_size);
+    if (complete_result != hiprtcResult::HIPRTC_SUCCESS) {
+        hiprtcLinkDestroy(link_state);
+        LUISA_ERROR_WITH_LOCATION("Failed to complete hiprtc linking for RT shader: {}",
+                                  hiprtcGetErrorString(complete_result));
+    }
+
+    auto ret = hipModuleLoadData(&_module, linked_binary);
+    hiprtcLinkDestroy(link_state);
+    if (ret != hipSuccess) {
+        LUISA_ERROR_WITH_LOCATION("Failed to load HIP RT module: {}", hipGetErrorString(ret));
+    }
+    LUISA_CHECK_HIP(hipModuleGetFunction(&_function, _module, entry));
+    LUISA_INFO("RT shader compiled via LTO pipeline (bypassing HIPRT compiler).");
 }
 
 HIPShaderNative::~HIPShaderNative() noexcept {
@@ -194,22 +206,17 @@ void HIPShaderNative::_launch(HIPCommandEncoder &encoder, ShaderDispatchCommand 
     auto hip_stream = encoder.stream()->handle();
     auto block_size = make_uint3(_block_size[0], _block_size[1], _block_size[2]);
     auto blocks = (dispatch_size + block_size - 1u) / block_size;
-    void *arguments = argument_buffer.data();
 
-    static std::once_flag stack_limit_flag;
-    std::call_once(stack_limit_flag, [] {
-        auto ret = hipDeviceSetLimit(hipLimitStackSize, 16384u);
-        if (ret != hipSuccess) {
-            LUISA_WARNING("hipDeviceSetLimit(hipLimitStackSize) failed: {}",
-                          hipGetErrorString(ret));
-        }
-    });
-
+    auto arg_size = argument_buffer_offset;
+    void *extra[] = {
+        HIP_LAUNCH_PARAM_BUFFER_POINTER, argument_buffer.data(),
+        HIP_LAUNCH_PARAM_BUFFER_SIZE, &arg_size,
+        HIP_LAUNCH_PARAM_END};
     LUISA_CHECK_HIP(hipModuleLaunchKernel(
         _function,
         blocks.x, blocks.y, blocks.z,
         block_size.x, block_size.y, block_size.z,
-        0u, hip_stream, &arguments, nullptr));
+        0u, hip_stream, nullptr, extra));
 }
 
 }// namespace luisa::compute::hip
