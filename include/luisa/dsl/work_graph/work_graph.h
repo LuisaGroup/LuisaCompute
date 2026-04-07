@@ -12,11 +12,20 @@ namespace detail {
 
 struct WorkGraphNode;
 
+struct WorkGraphNodeArray {
+    luisa::string array_name;
+    uint start;
+    uint count;
+};
+
 struct WorkGraphEdge {
     uint source;
     uint dest;
     uint max_records;
     uint source_output_index;
+    // note: work graph edge can go an entire array, or a specific node in that array
+    // (or a node not in an array, of course)
+    uint dest_array = ~0u;
 };
 
 struct WorkGraphNode {
@@ -31,10 +40,12 @@ struct WorkGraphNode {
     uint3 dispatch_dim = uint3(1, 1, 1);
     luisa::optional<uint> dispatch_grid_member = luisa::nullopt;
     bool defined = false;
+    uint array = ~0u;
 };
 
 LUISA_DSL_API WorkGraphNode& index_to_node(WorkGraphBuilder* builder, uint node_index) noexcept;
 LUISA_DSL_API WorkGraphEdge& indices_to_edge(WorkGraphBuilder* builder, uint node_index, uint edge_index) noexcept;
+LUISA_DSL_API WorkGraphNodeArray& index_to_node_array(WorkGraphBuilder* builder, uint node_array_index) noexcept;
 
 } // namespace luisa::compute::detail
 
@@ -48,7 +59,32 @@ public:
         auto f = detail::FunctionBuilder::current();
         f->call(CallOp::WORK_GRAPH_OUTPUT, {
             f->literal(Type::of<uint>(), _edge_index),
-            f->literal(Type::of<uint>(), 0u),
+            data.expression(),
+            should_write.expression()
+        });
+    }
+
+    // invalidated by modifying graph
+    [[nodiscard]] detail::WorkGraphEdge* edge() const noexcept { return &detail::indices_to_edge(_builder, _node_index, _edge_index); }
+    [[nodiscard]] WorkGraphBuilder* builder() const noexcept { return _builder; }
+
+private:
+    WorkGraphBuilder* _builder;
+    uint _node_index;
+    uint _edge_index;
+};
+
+template<typename T>
+class WorkGraphNodeArrayOutput {
+public:
+    explicit WorkGraphNodeArrayOutput(WorkGraphBuilder* builder, uint node_index, uint edge_index) noexcept :
+        _builder(builder), _node_index(node_index), _edge_index(edge_index) {}
+
+    void write(Expr<T> data, Expr<uint> index, Expr<bool> should_write) const noexcept {
+        auto f = detail::FunctionBuilder::current();
+        f->call(CallOp::WORK_GRAPH_OUTPUT_ARRAY, {
+            f->literal(Type::of<uint>(), _edge_index),
+            index.expression(),
             data.expression(),
             should_write.expression()
         });
@@ -86,6 +122,24 @@ public:
 
         inner()->out_edges.push_back(e);
         return WorkGraphNodeOutput<EdgeRecord>(_builder, _node_index, e.source_output_index);
+    }
+
+    // max_records is shared across *all* nodes in the array
+    template<typename EdgeRecord>
+    [[nodiscard]] WorkGraphNodeArrayOutput<EdgeRecord> array_output(uint max_records) noexcept {
+        if (inner()->defined) {
+            LUISA_WARNING("adding array output to already defined work graph node, this is probably undesirable");
+        }
+
+        auto array_edge = detail::WorkGraphEdge {
+            inner()->index,
+            ~0u,
+            max_records,
+            static_cast<uint>(inner()->out_edges.size())
+        };
+
+        inner()->out_edges.push_back(array_edge);
+        return WorkGraphNodeArrayOutput<EdgeRecord>(_builder, _node_index, array_edge.source_output_index);
     }
 
     template<typename Def>
@@ -150,22 +204,58 @@ private:
     uint _node_index;
 };
 
+template<WorkGraphLaunchType NodeType, typename T>
+class WorkGraphNodeArray {
+public:
+    explicit WorkGraphNodeArray(WorkGraphBuilder* builder, uint node_array_index) noexcept :
+        _builder(builder), _node_array_index(node_array_index) {}
+
+    WorkGraphNode<NodeType, T> operator[](uint i) const noexcept {
+        return WorkGraphNode<NodeType, T>(_builder, inner()->start + i);
+    }
+
+    template<typename EdgeRecord>
+    void operator<<(const WorkGraphNodeArrayOutput<EdgeRecord>& output) {
+        static_assert(std::is_same_v<T, EdgeRecord>, "type mismatch between work graph node array and incoming edge");
+        auto* edge = output.edge();
+
+        // node outputs must have fanout of 1
+        LUISA_ASSERT(edge->dest == ~0u, "cannot add edge, it is already connected to different node");
+
+        // ensure they come from same work graph
+        LUISA_ASSERT(output.builder() == _builder, "all edges must be between nodes from same work graph builder");
+
+        edge->dest = inner()->start;
+        edge->dest_array = _node_array_index;
+    }
+
+private:
+    // invalidated by modifying graph
+    [[nodiscard]] detail::WorkGraphNodeArray* inner() const noexcept { return &detail::index_to_node_array(_builder, _node_array_index); }
+
+    WorkGraphBuilder* _builder;
+    uint _node_array_index;
+};
+
 class WorkGraph {
 public:
     WorkGraph() = delete;
 
     [[nodiscard]] luisa::string_view name() const noexcept { return _name; }
     [[nodiscard]] auto& nodes() const noexcept { return _nodes; }
-    [[nodiscard]] auto node_count() const noexcept { return _nodes.size(); }
+    [[nodiscard]] auto& node_arrays() const noexcept { return _node_arrays; }
     [[nodiscard]] auto& entry_points() const noexcept { return _entry_points; }
+
+    [[nodiscard]] auto node_count() const noexcept { return _nodes.size(); }
 
 private:
     friend class WorkGraphBuilder;
-    explicit WorkGraph(luisa::string name, luisa::vector<detail::WorkGraphNode> nodes, luisa::vector<uint32_t> entry_points) noexcept :
-        _name(std::move(name)), _nodes(std::move(nodes)), _entry_points(std::move(entry_points)) {}
+    explicit WorkGraph(luisa::string name, luisa::vector<detail::WorkGraphNode> nodes, luisa::vector<detail::WorkGraphNodeArray> node_arrays, luisa::vector<uint32_t> entry_points) noexcept :
+        _name(std::move(name)), _nodes(std::move(nodes)), _node_arrays(std::move(node_arrays)), _entry_points(std::move(entry_points)) {}
 
     luisa::string _name;
     luisa::vector<detail::WorkGraphNode> _nodes;
+    luisa::vector<detail::WorkGraphNodeArray> _node_arrays;
     luisa::vector<uint32_t> _entry_points;
 };
 
@@ -196,14 +286,47 @@ public:
         return WorkGraphNode<NodeType, InputRecord>(this, node_index);
     }
 
+    template<WorkGraphLaunchType NodeType, typename InputRecord>
+    WorkGraphNodeArray<NodeType, InputRecord> add_node_array(luisa::string array_name, uint count) {
+        const Type* input_record_type;
+        if constexpr (std::is_same_v<InputRecord, WorkGraphEmptyRecord>) {
+            input_record_type = nullptr;
+        }
+        else {
+            input_record_type = Type::of<InputRecord>();
+        }
+
+        uint node_array_start_index = _nodes.size();
+        uint node_array_index = _node_arrays.size();
+        _node_arrays.emplace_back(array_name, node_array_start_index, count);
+
+        _nodes.reserve(node_array_start_index + count);
+        for (size_t i = 0; i < count; ++i) {
+            detail::WorkGraphNode node {
+                .index = uint(node_array_start_index + i),
+                .fn_builder = nullptr,
+                .name = luisa::format("{}_{}", array_name, i),
+                .node_type = NodeType,
+                .input_record_type = input_record_type,
+                .array = node_array_index
+            };
+
+            _nodes.push_back(node);
+        }
+
+        return WorkGraphNodeArray<NodeType, InputRecord>(this, node_array_index);
+    }
+
     LUISA_DSL_API WorkGraph build() noexcept;
 
 private:
     friend detail::WorkGraphNode& detail::index_to_node(WorkGraphBuilder*, uint) noexcept;
     friend detail::WorkGraphEdge& detail::indices_to_edge(WorkGraphBuilder*, uint, uint) noexcept;
+    friend detail::WorkGraphNodeArray& detail::index_to_node_array(WorkGraphBuilder*, uint) noexcept;
 
     luisa::string _name;
     luisa::vector<detail::WorkGraphNode> _nodes;
+    luisa::vector<detail::WorkGraphNodeArray> _node_arrays;
 };
 
 } // namespace luisa::compute
