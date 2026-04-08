@@ -22,7 +22,7 @@ WorkGraph basic_work_graph(const Buffer<uint>& out) {
 
     auto producer = work_graph.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("producer");
     producer.set_threadgroup_size({64, 1, 1});
-    producer.set_dispatch_size({128, 1, 1});
+    producer.set_dispatch_size({2, 1, 1}); // 2 groups * 64 threads = 128 total
 
     auto producer_output = producer.output<ConsumerRecord>(1);
     WorkGraphNodeKernel producer_kernel = [&]() {
@@ -95,7 +95,36 @@ WorkGraph dynamic_dispatch_grid(const Buffer<uint>& out) {
 }
 
 void dynamic_dispatch_grid_test(Device& device, Stream& stream) {
-    LUISA_ASSERT(false, "unimplemented");
+    // max_dispatch_size is {128, 1, 1} with 64 threads/group → 8192 max elements
+    constexpr uint max_groups = 128u;
+    constexpr uint threads_per_group = 64u;
+    constexpr uint buffer_size = max_groups * threads_per_group;
+
+    auto d_buffer = device.create_buffer<uint>(buffer_size);
+    luisa::vector<uint> zeros(buffer_size, 0u);
+    luisa::vector<uint> h_buffer(buffer_size);
+
+    WorkGraph wg = dynamic_dispatch_grid(d_buffer);
+    WorkGraphProgram program = device.compile(wg);
+
+    auto run = [&](uint groups) {
+        stream << d_buffer.copy_from(zeros.data()) << synchronize();
+        ProducerRecord record{};
+        record.size = uint3(groups, 1u, 1u);
+        stream << program().dispatch(1, sizeof(ProducerRecord), &record) << synchronize();
+        stream << d_buffer.copy_to(h_buffer.data()) << synchronize();
+        const uint count = groups * threads_per_group;
+        for (uint i = 0; i < count; i++)
+            LUISA_ASSERT(h_buffer[i] == i, "groups={}: expected {} at [{}], got {}", groups, i, i, h_buffer[i]);
+        for (uint i = count; i < buffer_size; i++)
+            LUISA_ASSERT(h_buffer[i] == 0u, "groups={}: unexpected write at [{}] = {}", groups, i, h_buffer[i]);
+        LUISA_INFO("dynamic_dispatch_grid: {} groups ({} threads) passed", groups, count);
+    };
+
+    run(1u);
+    run(4u);
+    run(16u);
+    run(max_groups);
 }
 
 WorkGraph node_array(const Buffer<uint>& out) {
@@ -112,6 +141,7 @@ int main(int argc, char **argv) {
     Stream stream = device.create_stream(StreamTag::COMPUTE);
 
     basic_work_graph_test(device, stream);
+    dynamic_dispatch_grid_test(device, stream);
 
     return 0;
 }

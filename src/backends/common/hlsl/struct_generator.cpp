@@ -175,6 +175,15 @@ void StructGenerator::InitAsStruct(
     };
     size_t varIdx = 0;
     for (auto &&i : vars) {
+        if (util->opt->dispatch_grid_records.contains(originType) && varIdx == 0) {
+            structDesc << "uint3 v0 : SV_DispatchGrid;\n"sv;
+            structDesc << "int _v0_pad;\n"sv;
+            structSize += 16;
+            last_type = i;
+            varIdx += 1;
+            continue;
+        }
+
         Align(i->alignment());
         if (last_type && (half_type_adjacent_with_bool(last_type, i) || half_type_adjacent_with_bool(i, last_type))) [[unlikely]] {
             LUISA_ERROR("HLSL do not support 16-bit variables adjacent with bool");
@@ -191,9 +200,6 @@ void StructGenerator::InitAsStruct(
         structSize += i->size();
         util->GetTypeName(*i, structDesc, Usage::READ, false);
         structDesc << " v"sv << vstd::to_string(varIdx);
-        if (util->opt->dispatch_grid_records.contains(originType) && varIdx == 0) {
-            structDesc << " : SV_DispatchGrid"sv;
-        }
         varIdx++;
         if (i->tag() == Type::Tag::BOOL) {
             structDesc << ":8"sv;
