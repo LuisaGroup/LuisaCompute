@@ -140,7 +140,7 @@ void CodegenUtility::GenerateNodeShaderAttributes(
             result << threadgroup_dim << '\n';
 
             luisa::string dispatch_properties;
-            if (node.dispatch_grid_member) {
+            if (node.input_record_has_dispatch_grid) {
                 dispatch_properties = luisa::format(
                     "[NodeMaxDispatchGrid({}, {}, {})]",
                     node.dispatch_dim.x, node.dispatch_dim.y, node.dispatch_dim.z

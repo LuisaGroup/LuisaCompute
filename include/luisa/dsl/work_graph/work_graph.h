@@ -38,7 +38,7 @@ struct WorkGraphNode {
     luisa::vector<WorkGraphEdge> out_edges;
     uint3 threadgroup_dim = uint3(1, 1, 1);
     uint3 dispatch_dim = uint3(1, 1, 1);
-    luisa::optional<uint> dispatch_grid_member = luisa::nullopt;
+    bool input_record_has_dispatch_grid = false;
     bool defined = false;
     uint array = ~0u;
 };
@@ -172,28 +172,16 @@ public:
         inner()->threadgroup_dim = size;
     }
 
-    // for broadcasting nodes, this is either the static size of a dispatch, or the max size
-    // (if its dynamically sized using SV_DispatchGrid)
-    void set_dispatch_size(uint3 size) const requires (NodeType == WorkGraphLaunchType::BROADCASTING) {
+    // for broadcasting nodes, the `dispatch_dim` field is either the static size of a dispatch, or the max size
+    // (dynamically sized using SV_DispatchGrid annotation)
+    void set_dispatch_size(uint3 size) const
+    requires (NodeType == WorkGraphLaunchType::BROADCASTING && !std::is_base_of_v<DispatchGridRecord, T>) {
         inner()->dispatch_dim = size;
     }
 
-    // sets field in InputRecord type to be marked with SV_DispatchGrid
-    void set_dispatch_grid_field(uint index) const requires (NodeType == WorkGraphLaunchType::BROADCASTING) {
-        auto t = Type::of<T>();
-        auto members = t->members();
-
-        LUISA_ASSERT(index < members.size(), "dispatch grid field index out of bounds");
-
-        auto member_type = members[index];
-        LUISA_ASSERT(
-            member_type == Type::of<uint>() ||
-            member_type == Type::of<uint2>() ||
-            member_type == Type::of<uint3>(),
-            "dispatch grid field must be uint, uint2, or uint3"
-        );
-
-        inner()->dispatch_grid_member = index;
+    void set_max_dispatch_size(uint3 size) const
+    requires (NodeType == WorkGraphLaunchType::BROADCASTING && std::is_base_of_v<DispatchGridRecord, T>) {
+        inner()->dispatch_dim = size;
     }
 
 private:
@@ -282,6 +270,8 @@ public:
             NodeType,
             input_record_type
         );
+        _nodes.back().input_record_has_dispatch_grid =
+            NodeType == WorkGraphLaunchType::BROADCASTING && std::is_base_of_v<DispatchGridRecord, InputRecord>;
 
         return WorkGraphNode<NodeType, InputRecord>(this, node_index);
     }
@@ -310,6 +300,9 @@ public:
                 .input_record_type = input_record_type,
                 .array = node_array_index
             };
+
+            node.input_record_has_dispatch_grid =
+                NodeType == WorkGraphLaunchType::BROADCASTING && std::is_base_of_v<DispatchGridRecord, InputRecord>;
 
             _nodes.push_back(node);
         }
