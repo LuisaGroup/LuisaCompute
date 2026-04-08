@@ -30,6 +30,8 @@ void CodegenStackData::Clear() {
     customStructVector.clear();
     customStructAliased.clear();
     customStructVectorAliased.clear();
+    uid_remap.clear();
+    dispatch_grid_records.clear();
     originToAliasedTypes.clear();
     aliasedToOriginTypes.clear();
     atomicsFuncs.clear();

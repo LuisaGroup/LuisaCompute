@@ -570,6 +570,12 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
     vstd::unordered_set<uint64_t> globalCallableMap;
     const auto &nodes = work_graph.nodes();
 
+    for (const auto& node : nodes) {
+        if (node.input_record_has_dispatch_grid) {
+            opt->dispatch_grid_records.emplace(node.input_record_type);
+        }
+    }
+
     if (bind_count >= 64) [[unlikely]] {
         LUISA_ERROR(
             "Arguments binding size: {} exceeds 64 32-bit units not supported by hardware device."

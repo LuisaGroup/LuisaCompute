@@ -191,6 +191,9 @@ void StructGenerator::InitAsStruct(
         structSize += i->size();
         util->GetTypeName(*i, structDesc, Usage::READ, false);
         structDesc << " v"sv << vstd::to_string(varIdx);
+        if (util->opt->dispatch_grid_records.contains(originType) && varIdx == 0) {
+            structDesc << " : SV_DispatchGrid"sv;
+        }
         varIdx++;
         if (i->tag() == Type::Tag::BOOL) {
             structDesc << ":8"sv;

@@ -62,8 +62,36 @@ void basic_work_graph_test(Device& device, Stream& stream) {
     }
 }
 
+struct ProducerRecord : DispatchGridRecord {};
+LUISA_STRUCT(ProducerRecord, size) {};
+
 WorkGraph dynamic_dispatch_grid(const Buffer<uint>& out) {
-    LUISA_ASSERT(false, "unimplemented");
+    WorkGraphBuilder work_graph { "basic-work-graph" };
+
+    auto producer = work_graph.add_node<WorkGraphLaunchType::BROADCASTING, ProducerRecord>("producer");
+    producer.set_threadgroup_size({64, 1, 1});
+    producer.set_max_dispatch_size({128, 1, 1});
+
+    auto producer_output = producer.output<ConsumerRecord>(1);
+    WorkGraphNodeKernel producer_kernel = [&](Var<ProducerRecord>) {
+        Var<ConsumerRecord> out;
+        UInt index = dispatch_x();
+        out.index = index;
+        out.data = index;
+        producer_output.write(out, true);
+    };
+    producer.define(producer_kernel);
+
+    auto consumer = work_graph.add_node<WorkGraphLaunchType::THREAD, ConsumerRecord>("consumer");
+    WorkGraphNodeKernel consumer_kernel = [&](Var<ConsumerRecord> input) {
+        // do work
+        out->write(input.index, input.data);
+    };
+    consumer.define(consumer_kernel);
+
+    consumer << producer_output;
+
+    return work_graph.build();
 }
 
 void dynamic_dispatch_grid_test(Device& device, Stream& stream) {
