@@ -43,7 +43,7 @@ void CodegenUtility::GenerateNodeOutputDecl(
     if (dest.array != ~0u) {
         const auto& dest_array = work_graph.node_arrays().at(dest.array);
         uint index = edge.dest_array == ~0u ? edge.dest - dest_array.start : 0;
-        result << "[NodeID(\""sv << dest_array.array_name << "\", "sv << index << ")] ";
+        result << "[NodeID(\""sv << dest_array.array_name << "\", "sv; vstd::to_string(index, result); result << ")] "sv;
     }
     else {
         result << "[NodeID(\""sv << dest.name << "\")] "sv;
@@ -51,7 +51,7 @@ void CodegenUtility::GenerateNodeOutputDecl(
 
     if (edge.dest_array != ~0u) {
         const auto& dest_array = work_graph.node_arrays().at(edge.dest_array);
-        result << "[NodeArraySize(" << dest_array.count << ")] "sv;
+        result << "[NodeArraySize("sv; vstd::to_string(dest_array.count, result); result << ")] "sv;
     }
 
     // Generate NodeOutput(Array)<T> or EmptyNodeOutput
@@ -124,9 +124,9 @@ void CodegenUtility::GenerateNodeShaderAttributes(
         const auto& array = node_arrays[node.array];
         result << "[NodeID(\""sv
                << array.array_name
-               << "\", "sv
-               << node.index - array.start
-               << ")]\n";
+               << "\", "sv;
+        vstd::to_string(node.index - array.start, result);;
+        result << ")]\n"sv;
     }
 
     switch (node.node_type) {
@@ -364,8 +364,7 @@ void CodegenUtility::CodegenWorkGraphNode(
 
     // Generate node function signature
     // use actual name from frontend here, rather than custom_<i>, since node names are meaningful
-    LUISA_ASSERT(!node_func.name().empty(), "work graph node's FunctionBuilder has invalid name");
-    result << "void "sv << node_func.name() << "(\n"sv;
+    result << "void "sv << node.name << "(\n"sv;
 
     // Generate node function parameters using helper
     GenerateNodeFunctionSignature(node_func, work_graph, node, result);

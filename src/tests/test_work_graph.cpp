@@ -128,11 +128,55 @@ void dynamic_dispatch_grid_test(Device& device, Stream& stream) {
 }
 
 WorkGraph node_array(const Buffer<uint>& out) {
-    LUISA_ASSERT(false, "unimplemented");
+    constexpr uint array_size = 4u;
+    WorkGraphBuilder work_graph { "node-array-work-graph" };
+
+    // Producer: 1 group × 4 threads, each routes dispatch_x() to consumer[dispatch_x()]
+    auto producer = work_graph.add_node<WorkGraphLaunchType::BROADCASTING, WorkGraphEmptyRecord>("producer");
+    producer.set_threadgroup_size({array_size, 1, 1});
+    producer.set_dispatch_size({1, 1, 1});
+
+    auto consumer_output = producer.array_output<ConsumerRecord>(1);
+
+    WorkGraphNodeKernel producer_kernel = [&]() {
+        UInt i = dispatch_x();
+        Var<ConsumerRecord> record;
+        record.index = i;
+        record.data = i;
+        consumer_output.write(record, i, true);
+    };
+    producer.define(producer_kernel);
+
+    // Consumer array: 4 independent THREAD nodes, each writes out[input.index] = input.data
+    auto consumers = work_graph.add_node_array<WorkGraphLaunchType::THREAD, ConsumerRecord>("consumer", array_size);
+    WorkGraphNodeKernel consumer_kernel = [&](Var<ConsumerRecord> input) {
+        out->write(input.index, input.data);
+    };
+    for (uint i = 0u; i < array_size; i++) {
+        consumers[i].define(consumer_kernel);
+    }
+
+    consumers << consumer_output;
+
+    return work_graph.build();
 }
 
 void node_array_test(Device& device, Stream& stream) {
-    LUISA_ASSERT(false, "unimplemented");
+    constexpr uint array_size = 4u;
+    auto d_buffer = device.create_buffer<uint>(array_size);
+    luisa::vector<uint> zeros(array_size, 0u);
+    luisa::vector<uint> h_buffer(array_size);
+
+    WorkGraph wg = node_array(d_buffer);
+    WorkGraphProgram program = device.compile(wg);
+
+    stream << d_buffer.copy_from(zeros.data()) << synchronize();
+    stream << program().dispatch(1, 0, nullptr) << synchronize();
+    stream << d_buffer.copy_to(h_buffer.data()) << synchronize();
+
+    for (uint i = 0u; i < array_size; i++)
+        LUISA_ASSERT(h_buffer[i] == i, "consumer[{}]: expected {}, got {}", i, i, h_buffer[i]);
+    LUISA_INFO("node_array: passed");
 }
 
 int main(int argc, char **argv) {
@@ -142,6 +186,7 @@ int main(int argc, char **argv) {
 
     basic_work_graph_test(device, stream);
     dynamic_dispatch_grid_test(device, stream);
+    node_array_test(device, stream);
 
     return 0;
 }

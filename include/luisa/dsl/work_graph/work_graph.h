@@ -146,9 +146,8 @@ public:
     void define(const WorkGraphNodeKernel<T, Def>& kernel) noexcept {
         LUISA_ASSERT(!inner()->defined, "redefining node kernel is not allowed");
 
-        // yoink the function builder, make sure type of input record matches what we were declared with
+        // add another reference to the function builder; multiple nodes can reference the same underlying function
         inner()->fn_builder = kernel.function_builder();
-        inner()->fn_builder->set_name(inner()->name);
         inner()->defined = true;
     }
 
