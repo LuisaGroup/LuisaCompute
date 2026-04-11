@@ -23,8 +23,15 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
     std::mbstowcs(wide_name.data(), workGraphName.data(), workGraphName.size());
 
     hlsl::CodegenResult codegen_result = codegen();
+
+    luisa::string dump_name = luisa::format("work_graph_dump_{}.hlsl", workGraphName);
+    auto file = fopen(dump_name.c_str(), "w");
+    auto code = codegen_result.result.view();
+    fwrite(code.data(), 1, code.size(), file);
+    fflush(file);
+
     auto compile_result = Device::Compiler()->compile_work_graph(
-        codegen_result.result.view(),
+        code,
         true,
         shaderModel,
         enableUnsafeMath,
