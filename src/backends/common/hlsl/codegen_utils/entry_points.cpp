@@ -636,7 +636,6 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
                 auto &prop = properties[prop_idx];
                 GetTypeName(*c.type, varData, c.usage);
                 varData << " _b"sv;
-                varData << (c.argument.tag == Argument::Tag::BUFFER ? "_b"sv : "_t"sv);
                 vstd::to_string(i, varData);
                 if (!opt->noRegister) {
                     bool is_uav = (prop.type == ShaderVariableType::RWStructuredBuffer ||
