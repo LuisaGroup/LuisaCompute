@@ -160,7 +160,7 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
             auto custom_name = f.get_variable_name(id);
             if (auto it = opt->uid_remap.find(id); it != opt->uid_remap.end()) {
                 id = it->second;
-                if (custom_name != ""sv) {
+                if (!custom_name.empty()) {
                     LUISA_WARNING("erasing custom variable name due to remap");
                     custom_name = ""sv;
                 }
@@ -173,7 +173,7 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
             auto custom_name = f.get_variable_name(id);
             if (auto it = opt->uid_remap.find(id); it != opt->uid_remap.end()) {
                 id = it->second;
-                if (custom_name != ""sv) {
+                if (!custom_name.empty()) {
                     LUISA_WARNING("erasing custom variable name due to remap");
                     custom_name = ""sv;
                 }
@@ -184,12 +184,26 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
         } break;
         case Variable::Tag::BINDLESS_ARRAY: {
             auto custom_name = f.get_variable_name(id);
+            if (auto it = opt->uid_remap.find(id); it != opt->uid_remap.end()) {
+                id = it->second;
+                if (!custom_name.empty()) {
+                    LUISA_WARNING("erasing custom variable name due to remap");
+                    custom_name = ""sv;
+                }
+            }
             str << custom_name;
             str << "_ba"sv;
             vstd::to_string(id, str);
         } break;
         case Variable::Tag::ACCEL: {
             auto custom_name = f.get_variable_name(id);
+            if (auto it = opt->uid_remap.find(id); it != opt->uid_remap.end()) {
+                id = it->second;
+                if (!custom_name.empty()) {
+                    LUISA_WARNING("erasing custom variable name due to remap");
+                    custom_name = ""sv;
+                }
+            }
             str << custom_name;
             str << "_ac"sv;
             vstd::to_string(id, str);
