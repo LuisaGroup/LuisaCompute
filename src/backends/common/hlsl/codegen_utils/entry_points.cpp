@@ -717,7 +717,7 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
 
     // Post-process properties (generates struct definitions)
     PostprocessCodegenProperties(finalResult, false);
-    finalResult << varData << codegenData;
+    finalResult << varData << incrementalFunc << codegenData;
 
     vstd::vector<Type const *> recordTypes;
     recordTypes.reserve(nodes.size());
