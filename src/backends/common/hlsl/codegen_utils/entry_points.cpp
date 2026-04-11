@@ -529,8 +529,9 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
     CodegenResult::Properties properties;
     vstd::unordered_map<uint64_t, uint32_t> uid_map;
     uint bind_count = 0;
-    auto captured = CollectWorkGraphBindings(work_graph, properties, uid_map, bind_count);
-    return WorkGraphCodegen(work_graph, native_code, custom_mask, captured, std::move(properties), std::move(uid_map), bind_count, noRegister);
+    uint preamble_count = 0;
+    auto captured = CollectWorkGraphBindings(work_graph, properties, uid_map, bind_count, preamble_count);
+    return WorkGraphCodegen(work_graph, native_code, custom_mask, captured, std::move(properties), std::move(uid_map), bind_count, preamble_count, noRegister);
 }
 
 CodegenResult CodegenUtility::WorkGraphCodegen(
@@ -541,6 +542,7 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
     CodegenResult::Properties properties,
     vstd::unordered_map<uint64_t, uint32_t> handle_to_canonical_uid,
     uint bind_count,
+    uint preamble_count,
     bool noRegister) {
     opt = CodegenStackData::Allocate(this);
     opt->noRegister = noRegister;
@@ -583,24 +585,112 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
             bind_count);
     }
 
-    // Emit one global variable declaration per captured binding (in UID/first-encounter order)
+    // Emit global variable declarations for all captured bindings.
+    // preamble_count properties at the front are heap slots (sampler/bindless); skip them here.
+    // Accel emits two properties (TLAS + inst buffer) per one captured entry.
+    size_t prop_idx = preamble_count;
     for (size_t i = 0; i < captured.size(); i++) {
         auto &c = captured[i];
-        auto &prop = properties[i];
-        GetTypeName(*c.type, varData, c.usage);
-        varData << ' ';
-        varData << (c.argument.tag == Argument::Tag::BUFFER ? "_b"sv : "_t"sv);
-        vstd::to_string(i, varData);
-        if (!opt->noRegister) {
-            bool is_uav = (prop.type == ShaderVariableType::RWStructuredBuffer ||
-                           prop.type == ShaderVariableType::UAVTextureHeap ||
-                           prop.type == ShaderVariableType::UAVBufferHeap);
-            varData << " : register("sv << (is_uav ? 'u' : 't');
-            vstd::to_string(prop.register_index, varData);
-            varData << ");\n"sv;
-        } else {
-            varData << ";\n"sv;
+        switch (c.argument.tag) {
+            case Argument::Tag::ACCEL: {
+                auto &accel_prop = properties[prop_idx];
+                auto &inst_prop  = properties[prop_idx + 1];
+                // TLAS: RaytracingAccelerationStructure _ac{i}
+                varData << "RaytracingAccelerationStructure _ac"sv;
+                vstd::to_string(i, varData);
+                if (!opt->noRegister) {
+                    varData << " : register(t"sv;
+                    vstd::to_string(accel_prop.register_index, varData);
+                    varData << ");\n"sv;
+                } else {
+                    varData << ";\n"sv;
+                }
+                // Instance data buffer: StructuredBuffer<_MeshInst> _ac{i}Inst
+                varData << "StructuredBuffer<_MeshInst> _ac"sv;
+                vstd::to_string(i, varData);
+                varData << "Inst"sv;
+                if (!opt->noRegister) {
+                    varData << " : register(t"sv;
+                    vstd::to_string(inst_prop.register_index, varData);
+                    varData << ");\n"sv;
+                } else {
+                    varData << ";\n"sv;
+                }
+                prop_idx += 2;
+            } break;
+            case Argument::Tag::BINDLESS_ARRAY: {
+                auto &prop = properties[prop_idx];
+                // Indirection buffer: StructuredBuffer<uint> _ba{i}
+                varData << "StructuredBuffer<uint> _ba"sv;
+                vstd::to_string(i, varData);
+                if (!opt->noRegister) {
+                    varData << " : register(t"sv;
+                    vstd::to_string(prop.register_index, varData);
+                    varData << ");\n"sv;
+                } else {
+                    varData << ";\n"sv;
+                }
+                prop_idx += 1;
+            } break;
+            case Argument::Tag::BUFFER: {
+                auto &prop = properties[prop_idx];
+                GetTypeName(*c.type, varData, c.usage);
+                varData << " _b"sv;
+                varData << (c.argument.tag == Argument::Tag::BUFFER ? "_b"sv : "_t"sv);
+                vstd::to_string(i, varData);
+                if (!opt->noRegister) {
+                    bool is_uav = (prop.type == ShaderVariableType::RWStructuredBuffer ||
+                                   prop.type == ShaderVariableType::UAVTextureHeap ||
+                                   prop.type == ShaderVariableType::UAVBufferHeap);
+                    varData << " : register("sv << (is_uav ? 'u' : 't');
+                    vstd::to_string(prop.register_index, varData);
+                    varData << ");\n"sv;
+                } else {
+                    varData << ";\n"sv;
+                }
+                prop_idx += 1;
+            } break;
+            case Argument::Tag::TEXTURE: {
+                auto &prop = properties[prop_idx];
+                GetTypeName(*c.type, varData, c.usage);
+                varData << " _t"sv;
+                vstd::to_string(i, varData);
+                if (!opt->noRegister) {
+                    bool is_uav = (prop.type == ShaderVariableType::RWStructuredBuffer ||
+                                   prop.type == ShaderVariableType::UAVTextureHeap ||
+                                   prop.type == ShaderVariableType::UAVBufferHeap);
+                    varData << " : register("sv << (is_uav ? 'u' : 't');
+                    vstd::to_string(prop.register_index, varData);
+                    varData << ");\n"sv;
+                } else {
+                    varData << ";\n"sv;
+                }
+                prop_idx += 1;
+            } break;
         }
+    }
+
+    // If any bindless arrays were captured, emit the unbounded array declarations
+    // so the shader can index into them. The preamble properties already reserved
+    // spaces 2/3/4 for these; we just need to set the flags and emit the HLSL.
+    if (preamble_count > 0) {
+        opt->useBufferBindless = true;
+        opt->useTex2DBindless  = true;
+        opt->useTex3DBindless  = true;
+        // Emit the declarations directly into varData (GenerateBindless also writes to
+        // properties, which we've already built, so we replicate only the HLSL part).
+        uint table_idx = 2u;
+        if (!opt->noRegister) {
+            varData << "ByteAddressBuffer bdls[] : register(t0,space"sv << vstd::to_string(table_idx++) << ");\n"sv;
+            varData << "Texture2D<float4> _BindlessTex[] : register(t0,space"sv << vstd::to_string(table_idx++) << ");\n"sv;
+            varData << "Texture3D<float4> _BindlessTex3D[] : register(t0,space"sv << vstd::to_string(table_idx++) << ");\n"sv;
+        } else {
+            varData << "ByteAddressBuffer bdls[];\n"sv;
+            varData << "Texture2D<float4> _BindlessTex[];\n"sv;
+            varData << "Texture3D<float4> _BindlessTex3D[];\n"sv;
+        }
+        varData << ReadInternalHLSLFile("tex2d_bindless");
+        varData << ReadInternalHLSLFile("tex3d_bindless");
     }
 
     for (size_t i = 0; i < nodes.size(); ++i) {
@@ -612,7 +702,9 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
         for (size_t j = 0; j < bindings.size(); j++) {
             luisa::visit([&]<typename T>(T const &binding) noexcept {
                 if constexpr (std::is_same_v<T, Function::BufferBinding> ||
-                              std::is_same_v<T, Function::TextureBinding>) {
+                              std::is_same_v<T, Function::TextureBinding> ||
+                              std::is_same_v<T, Function::AccelBinding> ||
+                              std::is_same_v<T, Function::BindlessArrayBinding>) {
                     auto it = handle_to_canonical_uid.find(binding.handle);
                     LUISA_ASSERT(it != handle_to_canonical_uid.end(), "all bindings should be canonicalized");
                     opt->uid_remap[args[j].uid()] = it->second;

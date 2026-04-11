@@ -481,8 +481,33 @@ public:
                 ++arg;
             }
             void operator()(Argument::Uniform const &) {}
-            void operator()(Argument::BindlessArray const &) {}
-            void operator()(Argument::Accel const &) {}
+            void operator()(Argument::BindlessArray const &bf) {
+                auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
+                vstd::fixed_vector<vstd::HashMap<Resource const *, size_t>::Index, 16> writeMap;
+                auto &write_state_map = self->stateTracker->WriteStateMap();
+                arr->Lock();
+                for (auto iter = write_state_map.begin(); iter != write_state_map.end(); ++iter) {
+                    auto &i = *iter;
+                    if (arr->IsPtrInBindless(reinterpret_cast<size_t>(i.first)))
+                        writeMap.emplace_back(write_state_map.get_index(iter));
+                }
+                arr->Unlock();
+                for (auto &&iter : writeMap) {
+                    self->stateTracker->Record(iter.key(), EnhancedBarrierTracker::Range(0, iter.value()), EnhancedBarrierTracker::Usage::ComputeRead);
+                    write_state_map.remove(iter);
+                }
+                self->stateTracker->Record(BufferView(arr->BindlessBuffer()), EnhancedBarrierTracker::Usage::ComputeRead);
+                ++arg;
+            }
+            void operator()(Argument::Accel const &bf) {
+                auto accel = reinterpret_cast<TopAccel *>(bf.handle);
+                if (accel->GetInstBuffer()) [[likely]] {
+                    self->stateTracker->Record(BufferView{accel->GetInstBuffer(), 0, accel->GetInstBuffer()->GetByteSize()}, EnhancedBarrierTracker::Usage::ComputeRead);
+                    auto accelBuffer = accel->GetAccelBuffer();
+                    self->stateTracker->Record(BufferView{accelBuffer, 0, accelBuffer->GetByteSize()}, EnhancedBarrierTracker::Usage::ComputeAccelRead);
+                }
+                ++arg;
+            }
         };
         DecodeCmd(program->ArgBindings(), WGBarrierVisitor{this, savedArg});
     }
@@ -1071,8 +1096,15 @@ public:
     void visit(const WorkGraphDispatchCommand *cmd) noexcept {
         auto program = reinterpret_cast<WorkGraphProgram const *>(cmd->handle());
 
-        // Build bind properties: only captured resources (work graph root sig has no sampler/bindless slots)
         bindProps->clear();
+        // If bindless arrays are captured, push sampler heap + global heap views first
+        // so they land at the root parameter indices reserved by the preamble properties.
+        if (program->BindlessCount() > 0) {
+            bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
+            vstd::push_back_func(*bindProps, program->BindlessCount(), [&] {
+                return DescriptorHeapView(device->globalHeap.get());
+            });
+        }
         Visitor visitor{this, program->Args().data()};
         DecodeCmd(program->ArgBindings(), visitor);
 

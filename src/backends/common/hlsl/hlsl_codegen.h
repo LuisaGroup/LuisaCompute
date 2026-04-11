@@ -125,7 +125,8 @@ public:
         const luisa::compute::WorkGraph &work_graph,
         CodegenResult::Properties &out_properties,
         vstd::unordered_map<uint64_t, uint32_t> &out_uid_map,
-        uint &out_bind_count);
+        uint &out_bind_count,
+        uint &out_preamble_count);
     CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);
     CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);
     CodegenResult RasterCodegen(
@@ -144,6 +145,7 @@ public:
         CodegenResult::Properties properties,
         vstd::unordered_map<uint64_t, uint32_t> handle_to_canonical_uid,
         uint bind_count,
+        uint preamble_count,
         bool noRegister = false);
     // Convenience overload: calls CollectWorkGraphBindings internally (e.g. for tests).
     CodegenResult WorkGraphCodegen(

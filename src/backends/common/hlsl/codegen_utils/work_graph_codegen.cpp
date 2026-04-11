@@ -337,7 +337,9 @@ void CodegenUtility::CodegenWorkGraphNode(
         for (size_t j = 0; j < c_bindings.size(); j++) {
             luisa::visit([&]<typename T>(T const &b) noexcept {
                 if constexpr (std::is_same_v<T, Function::BufferBinding> ||
-                              std::is_same_v<T, Function::TextureBinding>) {
+                              std::is_same_v<T, Function::TextureBinding> ||
+                              std::is_same_v<T, Function::AccelBinding> ||
+                              std::is_same_v<T, Function::BindlessArrayBinding>) {
                     auto it = handle_to_canonical_uid.find(b.handle);
                     LUISA_ASSERT(it != handle_to_canonical_uid.end(), "all bound arguments should be canonicalized");
 
@@ -379,7 +381,9 @@ vstd::vector<CodegenUtility::WorkGraphCapturedBinding> CodegenUtility::CollectWo
     const WorkGraph &work_graph,
     CodegenResult::Properties &out_properties,
     vstd::unordered_map<uint64_t, uint32_t> &out_uid_map,
-    uint &out_bind_count) {
+    uint &out_bind_count,
+    uint &out_preamble_count) {
+    out_preamble_count = 0;
 
     // Maps for merging usage across nodes (keyed by handle)
     vstd::unordered_map<uint64_t, Usage> handle_to_usage;
@@ -401,10 +405,14 @@ vstd::vector<CodegenUtility::WorkGraphCapturedBinding> CodegenUtility::CollectWo
                     handle = binding.handle;
                 } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
                     handle = binding.handle;
+                } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                    handle = binding.handle;
+                } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                    handle = binding.handle;
                 } else if constexpr (std::is_same_v<T, luisa::monostate>) {
                     return;
                 } else {
-                    LUISA_ERROR("only capturing buffers / textures is supported for now");
+                    LUISA_ERROR("unsupported captured binding type in work graph");
                 }
 
                 auto &var = args[j];
@@ -429,7 +437,7 @@ vstd::vector<CodegenUtility::WorkGraphCapturedBinding> CodegenUtility::CollectWo
         }
     }
 
-    // Sort handles into UID order (= first-encounter order) so that out_properties[i]
+    // Sort handles into UID order (= first-encounter order) so that out_properties[preamble + prop_offset(i)]
     // and the returned captured[i] correspond to the same resource.
     vstd::vector<std::pair<uint32_t, uint64_t>> sorted; // (uid, handle)
     sorted.reserve(out_uid_map.size());
@@ -437,6 +445,27 @@ vstd::vector<CodegenUtility::WorkGraphCapturedBinding> CodegenUtility::CollectWo
         sorted.emplace_back(uid, handle);
     }
     std::sort(sorted.begin(), sorted.end());
+
+    // Check whether any bindless array was captured so we can emit the preamble properties.
+    bool has_bindless = false;
+    for (auto &[uid, handle] : sorted) {
+        luisa::visit([&]<typename T>(T const &) noexcept {
+            if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>)
+                has_bindless = true;
+        }, handle_to_binding[handle]);
+        if (has_bindless) break;
+    }
+
+    // Preamble: sampler heap (space 1) + three bindless heaps (spaces 2/3/4).
+    // Added conservatively when any bindless array is captured; unused heap slots
+    // in the root signature are harmless.
+    if (has_bindless) {
+        out_properties.emplace_back(Property{ShaderVariableType::SamplerHeap,    1u, 0u, 16u});
+        out_properties.emplace_back(Property{ShaderVariableType::SRVBufferHeap,  2u, 0u, 1u});
+        out_properties.emplace_back(Property{ShaderVariableType::SRVTextureHeap, 3u, 0u, 1u});
+        out_properties.emplace_back(Property{ShaderVariableType::SRVTextureHeap, 4u, 0u, 1u});
+        out_preamble_count = 4u;
+    }
 
     // Index into DXILRegisterIndexer: 0=CBV(b), 1=UAV(u), 2=SRV(t)
     constexpr uint kUAV = 1u;
@@ -473,6 +502,26 @@ vstd::vector<CodegenUtility::WorkGraphCapturedBinding> CodegenUtility::CollectWo
                 Argument arg{};
                 arg.tag = Argument::Tag::TEXTURE;
                 arg.texture = binding;
+                captured.emplace_back(WorkGraphCapturedBinding{arg, usage, type});
+            } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                // Accel (read-only): two SRV root descriptors (TLAS buffer + instance data buffer).
+                LUISA_ASSERT(!writable, "only support read-only acceleration structure for now");
+                out_properties.emplace_back(Property{ShaderVariableType::StructuredBuffer, 0u, registers.get(kSRV)++, 1u});
+                out_properties.emplace_back(Property{ShaderVariableType::StructuredBuffer, 0u, registers.get(kSRV)++, 1u});
+                out_bind_count += 4;
+
+                Argument arg{};
+                arg.tag = Argument::Tag::ACCEL;
+                arg.accel = binding;
+                captured.emplace_back(WorkGraphCapturedBinding{arg, usage, type});
+            } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                // Indirection buffer for this specific bindless array (space 0).
+                out_properties.emplace_back(Property{ShaderVariableType::StructuredBuffer, 0u, registers.get(kSRV)++, 1u});
+                out_bind_count += 2;
+
+                Argument arg{};
+                arg.tag = Argument::Tag::BINDLESS_ARRAY;
+                arg.bindless_array = binding;
                 captured.emplace_back(WorkGraphCapturedBinding{arg, usage, type});
             } else {
                 LUISA_ERROR("this should not happen");

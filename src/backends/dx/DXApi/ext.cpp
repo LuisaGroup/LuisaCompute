@@ -454,7 +454,8 @@ luisa::compute::ResourceCreationInfo DxWorkGraphExt::create_work_graph_program(
     hlsl::CodegenResult::Properties properties;
     vstd::unordered_map<uint64_t, uint32_t> uid_map;
     uint bind_count = 0;
-    auto captured = codegen_util.CollectWorkGraphBindings(work_graph, properties, uid_map, bind_count);
+    uint preamble_count = 0;
+    auto captured = codegen_util.CollectWorkGraphBindings(work_graph, properties, uid_map, bind_count, preamble_count);
 
     // Build argBindings and savedArgs directly from captured (same order as properties).
     vstd::vector<luisa::compute::Argument> argBindings;
@@ -470,7 +471,7 @@ luisa::compute::ResourceCreationInfo DxWorkGraphExt::create_work_graph_program(
 
     auto codegen_result = codegen_util.WorkGraphCodegen(
         work_graph, ""sv, 0,
-        captured, std::move(properties), std::move(uid_map), bind_count
+        captured, std::move(properties), std::move(uid_map), bind_count, preamble_count
     );
 
     auto program = WorkGraphProgram::CompileWorkGraph(
