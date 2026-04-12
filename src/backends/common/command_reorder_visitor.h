@@ -48,6 +48,8 @@ concept ReorderFuncTable =
         t.lock_bindless(uint64_v);
         t.unlock_bindless(uint64_v);
         requires(std::is_same_v<luisa::span<const Argument>, decltype(t.shader_bindings(uint64_v))>);
+        requires(std::is_same_v<luisa::span<const Argument>, decltype(t.work_graph_bindings(uint64_v))>);
+        requires(std::is_same_v<Usage, decltype(t.work_graph_get_usage(uint64_v, size_v))>);
     };
 
 template<ReorderFuncTable FuncTable, bool supportConcurrentCopy, size_t fixedVectorSize = 2>
@@ -976,9 +978,94 @@ public:
     }
 
     void visit(const WorkGraphDispatchCommand *command) noexcept {
-        // Work graph dispatch has no externally tracked resource dependencies —
-        // treat as a standalone command that serializes with everything before it.
-        add_command(command, 0);
+        // Track resource dependencies for work graph dispatch, just like shader dispatch.
+        // All arguments come from the program's captured bindings (no per-dispatch arguments).
+        // TODO: unify this with the normal shader path;
+        //       WorkGraphDispatchCommand should probably inherit from ShaderDispatchCommandBase
+        _dispatch_read_handle.clear();
+        _dispatch_write_handle.clear();
+        _use_bindless_in_pass = false;
+        _use_accel_in_pass = false;
+        _dispatch_layer = 0;
+        size_t arg_idx = 0;
+        auto shader_handle = command->handle();
+        using Tag = Argument::Tag;
+
+        for (auto &&i : _func_table.work_graph_bindings(shader_handle)) {
+            switch (i.tag) {
+                case Tag::BUFFER: {
+                    auto &&bf = i.buffer;
+                    bool is_write = ((uint)_func_table.work_graph_get_usage(shader_handle, arg_idx) & (uint)Usage::WRITE) != 0;
+                    Range buffer_range(bf.offset, bf.size);
+                    add_dispatch_handle(
+                        bf.handle,
+                        ResourceType::Texture_Buffer,
+                        buffer_range,
+                        is_write);
+                    ++arg_idx;
+                } break;
+                case Tag::TEXTURE: {
+                    auto &&tex = i.texture;
+                    add_dispatch_handle(
+                        tex.handle,
+                        ResourceType::Texture_Buffer,
+                        Range(tex.level),
+                        ((uint)_func_table.work_graph_get_usage(shader_handle, arg_idx) & (uint)Usage::WRITE) != 0);
+                    ++arg_idx;
+                } break;
+                case Tag::UNIFORM: {
+                    ++arg_idx;
+                } break;
+                case Tag::BINDLESS_ARRAY: {
+                    auto &&arr = i.bindless_array;
+                    _use_bindless_in_pass = true;
+                    {
+                        _func_table.lock_bindless(arr.handle);
+                        auto unlocker = vstd::scope_exit([&] {
+                            _func_table.unlock_bindless(arr.handle);
+                        });
+                        for (auto &&res : _write_res_map) {
+                            if (_func_table.is_res_in_bindless(arr.handle, res)) {
+                                add_dispatch_handle(
+                                    res,
+                                    ResourceType::Texture_Buffer,
+                                    Range{},
+                                    false);
+                            }
+                        }
+                    }
+                    add_dispatch_handle(
+                        arr.handle,
+                        ResourceType::Bindless,
+                        Range(),
+                        false);
+                    ++arg_idx;
+                } break;
+                case Tag::ACCEL: {
+                    auto &&acc = i.accel;
+                    _use_accel_in_pass = true;
+                    add_dispatch_handle(
+                        acc.handle,
+                        ResourceType::Accel,
+                        Range(),
+                        false);
+                    ++arg_idx;
+                } break;
+            }
+        }
+        for (auto &&i : _dispatch_read_handle) {
+            set_read_layer(i.second, i.first, _dispatch_layer);
+        }
+        for (auto &&i : _dispatch_write_handle) {
+            set_write_layer(i.second, i.first, _dispatch_layer);
+        }
+        add_command(command, _dispatch_layer);
+        if (_use_bindless_in_pass) {
+            _bindless_max_layer = std::max<int64_t>(_bindless_max_layer, _dispatch_layer);
+        }
+        if (_use_accel_in_pass) {
+            _max_accel_read_level = std::max<int64_t>(_max_accel_read_level, _dispatch_layer);
+        }
     }
 
     void visit(const MotionInstanceBuildCommand *command) noexcept override {

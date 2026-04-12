@@ -128,6 +128,9 @@ struct ReorderFuncTable {
         auto cs = reinterpret_cast<Shader *>(handle);
         return cs->captured();
     }
+    // Work graph is DX12-only; Vulkan stubs satisfy the concept but are never called.
+    luisa::span<const Argument> work_graph_bindings(uint64_t) const noexcept { return {}; }
+    Usage work_graph_get_usage(uint64_t, size_t) const noexcept { return Usage::READ; }
     void lock_bindless(uint64_t bindless_handle) const noexcept;
     void unlock_bindless(uint64_t bindless_handle) const noexcept;
 };

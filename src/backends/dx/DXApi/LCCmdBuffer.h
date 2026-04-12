@@ -11,6 +11,7 @@
 #include "../../common/command_reorder_visitor.h"
 #include <Resource/BindlessArray.h>
 #include <Shader/ComputeShader.h>
+#include <Shader/WorkGraphProgram.h>
 #include <Resource/BottomAccel.h>
 #include <luisa/runtime/buffer.h>
 #include <DXApi/CmdQueueBase.h>
@@ -48,6 +49,12 @@ struct ReorderFuncTable {
     }
     luisa::span<const Argument> shader_bindings(uint64_t handle) const noexcept {
         return reinterpret_cast<ComputeShader const *>(handle)->arg_bindings();
+    }
+    luisa::span<const Argument> work_graph_bindings(uint64_t handle) const noexcept {
+        return reinterpret_cast<WorkGraphProgram const *>(handle)->ArgBindings();
+    }
+    Usage work_graph_get_usage(uint64_t handle, size_t argument_index) const noexcept {
+        return reinterpret_cast<WorkGraphProgram const *>(handle)->Args()[argument_index].varUsage;
     }
     void lock_bindless(uint64_t bindless_handle) const noexcept {
         reinterpret_cast<BindlessArray *>(bindless_handle)->Lock();
