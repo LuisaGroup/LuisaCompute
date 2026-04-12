@@ -107,6 +107,9 @@ public:
 
     [[nodiscard]] luisa::string_view name() const noexcept { return inner()->name; }
 
+    /* Note that max_records is per-threadgroup for BROADCASTING launch mode, and per-thread for THREAD launch mode.
+     * Exceeding max_records leads to UB (and no validation guards against this)
+     */
     template<typename EdgeRecord>
     [[nodiscard]] WorkGraphNodeOutput<EdgeRecord> output(uint max_records) noexcept {
         if (inner()->defined) {

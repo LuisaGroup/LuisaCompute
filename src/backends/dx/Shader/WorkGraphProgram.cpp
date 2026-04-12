@@ -29,6 +29,7 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
     auto code = codegen_result.result.view();
     fwrite(code.data(), 1, code.size(), file);
     fflush(file);
+    fclose(file);
 
     auto compile_result = Device::Compiler()->compile_work_graph(
         code,
