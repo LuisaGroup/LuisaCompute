@@ -87,6 +87,7 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
 
     D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS memory_requirements;
     work_graph_properties->GetWorkGraphMemoryRequirements(0, &memory_requirements);
+    LUISA_INFO("work graph ({}) allocated {} bytes of backing memory", workGraphName, memory_requirements.MaxSizeInBytes);
 
     AllocHandle backing_memory { nullptr };
 
