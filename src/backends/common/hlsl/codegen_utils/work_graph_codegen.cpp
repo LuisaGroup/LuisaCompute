@@ -361,6 +361,19 @@ void CodegenUtility::CodegenWorkGraphNode(
         }
     }
 
+    // Emit static const declarations for the node function's own constants
+    auto node_constants = node_func.constants();
+    for (auto &&i : node_constants) {
+        vstd::StringBuilder constValueName;
+        if (!GetConstName(i.hash(), i, constValueName)) continue;
+        result << "static const "sv;
+        GetTypeName(*i.type(), result, Usage::READ);
+        result << ' ' << constValueName << " = "sv;
+        CodegenConstantPrinter printer{*this, result};
+        i.decode(printer);
+        result << ";\n"sv;
+    }
+
     // Generate node shader attributes using helper
     GenerateNodeShaderAttributes(node, work_graph.node_arrays(), result);
 
