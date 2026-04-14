@@ -634,6 +634,10 @@ CodegenResult CodegenUtility::WorkGraphCodegen(
             } break;
             case Argument::Tag::BUFFER: {
                 auto &prop = properties[prop_idx];
+                // temporary hack for now
+                if (prop.type == ShaderVariableType::RWStructuredBuffer) {
+                    varData << "globallycoherent "sv;
+                }
                 GetTypeName(*c.type, varData, c.usage);
                 varData << " _b"sv;
                 vstd::to_string(i, varData);
