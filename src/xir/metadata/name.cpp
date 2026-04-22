@@ -11,7 +11,7 @@ inline void name_metadata_validate(luisa::string_view name) noexcept {
             return std::isalpha(c) || c == '_';
         };
         static constexpr auto is_valid_name_tail = [](char c) noexcept {
-            return std::isalnum(c) || c == '_';
+            return std::isalnum(c) || c == '_' || c == '.';
         };
         LUISA_ASSERT(is_valid_name_head(name.front()) &&
                          std::all_of(name.begin() + 1, name.end(), is_valid_name_tail),

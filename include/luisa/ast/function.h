@@ -51,7 +51,8 @@ public:
     enum struct Tag : uint {
         KERNEL,
         CALLABLE,
-        RASTER_STAGE
+        RASTER_STAGE,
+        COROUTINE
     };
 
     using Constant = ConstantData;
@@ -137,6 +138,8 @@ public:
     [[nodiscard]] luisa::span<const Binding> bound_arguments() const noexcept;
     /// Return unbound arguments
     [[nodiscard]] luisa::span<const Variable> unbound_arguments() const noexcept;
+    /// Return the captured external expression for an internalized argument, or nullptr if the argument is explicit.
+    [[nodiscard]] const Expression *captured_argument(Variable arg) const noexcept;
     /// Return custom callables
     [[nodiscard]] detail::FuncBuilderMap const &custom_callables() const noexcept;
     /// Return external callables

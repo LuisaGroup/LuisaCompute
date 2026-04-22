@@ -1953,6 +1953,14 @@ template<typename T>
             {LUISA_EXPR(x)}));
 }
 
+[[nodiscard]] inline auto coro_id() noexcept {
+    return def<uint3>(detail::FunctionBuilder::current()->coro_id());
+}
+
+[[nodiscard]] inline auto coro_token() noexcept {
+    return def<uint>(detail::FunctionBuilder::current()->coro_token());
+}
+
 template<typename T>
 [[nodiscard]] inline auto grad(const Local<T> &x) noexcept {
     auto b = detail::FunctionBuilder::current();

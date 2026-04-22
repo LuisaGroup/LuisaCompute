@@ -69,6 +69,11 @@ enum struct DerivedInstructionTag {
     ASSUME,// assumption
 
     OUTLINE,// mark that the body might be outlined (e.g., for faster compilation)
+
+    CORO_ID,
+    CORO_TOKEN,
+    CORO_REGISTER,
+    SUSPEND
 };
 
 [[nodiscard]] constexpr luisa::string_view to_string(DerivedInstructionTag tag) noexcept {
@@ -111,6 +116,10 @@ enum struct DerivedInstructionTag {
         case DerivedInstructionTag::OUTLINE: return "outline"sv;
         case DerivedInstructionTag::AUTODIFF_SCOPE: return "autodiff_scope"sv;
         case DerivedInstructionTag::AUTODIFF_INTRINSIC: return "autodiff_intrinsic"sv;
+        case DerivedInstructionTag::CORO_ID: return "coro_id"sv;
+        case DerivedInstructionTag::CORO_TOKEN: return "coro_token"sv;
+        case DerivedInstructionTag::CORO_REGISTER: return "coro_register"sv;
+        case DerivedInstructionTag::SUSPEND: return "suspend"sv;
     }
     return "unknown"sv;
 }

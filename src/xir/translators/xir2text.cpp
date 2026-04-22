@@ -18,6 +18,10 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro/id.h>
+#include <luisa/xir/instructions/coro/register.h>
+#include <luisa/xir/instructions/coro/suspend.h>
+#include <luisa/xir/instructions/coro/token.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/autodiff.h>
 #include <luisa/xir/instructions/load.h>
@@ -433,6 +437,24 @@ private:
         _emit_operands(inst);
     }
 
+    void _emit_suspend_inst(const SuspendInst *inst) noexcept {
+        _main << "suspend " << inst->coro_token;
+    }
+
+    void _emit_coro_id_inst(const CoroIdInst *inst [[maybe_unused]]) noexcept {
+        _main << "coro_id";
+    }
+
+    void _emit_coro_token_inst(const CoroTokenInst *inst [[maybe_unused]]) noexcept {
+        _main << "coro_token";
+    }
+
+    void _emit_coro_register_inst(const CoroRegisterInst *inst) noexcept {
+        _main << "coro_register ";
+        _emit_string_escaped(_main, inst->name());
+        _main << ", " << _value_ident(inst->value());
+    }
+
     void _emit_branch_inst(const BranchInst *inst) noexcept {
         LUISA_DEBUG_ASSERT(inst->target_block() != nullptr,
                            "Branch target block must not be null.");
@@ -585,6 +607,18 @@ private:
                 break;
             case DerivedInstructionTag::DEBUG_BREAK:
                 _emit_debug_break_inst(static_cast<const DebugBreakInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_ID:
+                _emit_coro_id_inst(static_cast<const CoroIdInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_TOKEN:
+                _emit_coro_token_inst(static_cast<const CoroTokenInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_REGISTER:
+                _emit_coro_register_inst(static_cast<const CoroRegisterInst *>(inst));
+                break;
+            case DerivedInstructionTag::SUSPEND:
+                _emit_suspend_inst(static_cast<const SuspendInst *>(inst));
                 break;
         }
         _main << ";";

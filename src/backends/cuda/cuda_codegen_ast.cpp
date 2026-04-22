@@ -1846,6 +1846,19 @@ void CUDACodegenAST::visit(const Type *type) noexcept {
         emit_decl(false);
         emit_decl(true);
     }
+    if (type == _ray_type ||
+        type == _triangle_hit_type ||
+        type == _committed_hit_type ||
+        type == _motion_srt_type) {
+        _scratch << "struct alignas(" << type->alignment() << ") "
+                 << "S" << hash_to_string(type->hash()) << "_int {\n";
+        for (auto i = 0u; i < type->members().size(); i++) {
+            _scratch << "  ";
+            _emit_type_name(type->members()[i], true);
+            _scratch << " m" << i << "{};\n";
+        }
+        _scratch << "};\n\n";
+    }
     if (type->is_structure()) {
         // lc_zero and lc_one
         auto lc_make_value = [&](luisa::string_view name) noexcept {
@@ -1930,15 +1943,31 @@ void CUDACodegenAST::_emit_type_name(const Type *type, bool hack_float_to_int) n
             break;
         case Type::Tag::STRUCTURE: {
             if (type == _ray_type) {
-                _scratch << "LCRay";
+                if (hack_float_to_int) {
+                    _scratch << "S" << hash_to_string(type->hash()) << "_int";
+                } else {
+                    _scratch << "LCRay";
+                }
             } else if (type == _triangle_hit_type) {
-                _scratch << "LCTriangleHit";
+                if (hack_float_to_int) {
+                    _scratch << "S" << hash_to_string(type->hash()) << "_int";
+                } else {
+                    _scratch << "LCTriangleHit";
+                }
             } else if (type == _procedural_hit_type) {
                 _scratch << "LCProceduralHit";
             } else if (type == _committed_hit_type) {
-                _scratch << "LCCommittedHit";
+                if (hack_float_to_int) {
+                    _scratch << "S" << hash_to_string(type->hash()) << "_int";
+                } else {
+                    _scratch << "LCCommittedHit";
+                }
             } else if (type == _motion_srt_type) {
-                _scratch << "LCMotionSRT";
+                if (hack_float_to_int) {
+                    _scratch << "S" << hash_to_string(type->hash()) << "_int";
+                } else {
+                    _scratch << "LCMotionSRT";
+                }
             } else {
                 _scratch << "S" << hash_to_string(type->hash());
                 if (hack_float_to_int) { _scratch << "_int"; }

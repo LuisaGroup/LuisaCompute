@@ -458,6 +458,47 @@ inline void return_(T &&t) noexcept {
         detail::extract_expression(std::forward<T>(t)));
 }
 
+[[nodiscard]] inline auto suspend_get_var_list() noexcept {
+    return luisa::vector<std::pair<const Expression *, luisa::string>>{};
+}
+
+template<typename U, typename V, typename... Args>
+[[nodiscard]] inline auto suspend_get_var_list(std::pair<U, V> &&p, Args &&...args) noexcept {
+    auto rets = suspend_get_var_list(std::forward<Args>(args)...);
+    rets.push_back(std::make_pair(detail::extract_expression(p.first), luisa::string{p.second}));
+    return rets;
+}
+
+template<typename S, typename... Args>
+    requires std::convertible_to<S, luisa::string_view>
+inline auto suspend(S &&desc, Args &&...args) noexcept {
+    detail::comment(luisa::string{"CoroSplitMark("}.append(desc).append(")"));
+    auto rets = suspend_get_var_list(std::forward<Args>(args)...);
+    for (auto &ret : rets) {
+        detail::FunctionBuilder::current()->bind_promise_(ret.first, ret.second);
+    }
+    return detail::FunctionBuilder::current()->suspend_(luisa::string{desc});
+}
+
+inline auto suspend() noexcept {
+    using namespace std::string_view_literals;
+    return compute::dsl::suspend(""sv);
+}
+
+template<typename S, typename... Args>
+    requires(!std::convertible_to<S, luisa::string_view>)
+inline auto suspend(S &&first, Args &&...args) noexcept {
+    using namespace std::string_view_literals;
+    return compute::dsl::suspend(""sv, std::forward<S>(first), std::forward<Args>(args)...);
+}
+
+template<typename T>
+inline void promise(luisa::string name, T &&value) noexcept {
+    detail::FunctionBuilder::current()->bind_promise_(
+        detail::extract_expression(std::forward<T>(value)),
+        std::move(name));
+}
+
 inline void return_() noexcept {
     detail::FunctionBuilder::current()->return_();
 }

@@ -36,11 +36,16 @@ if not has_config("lc_yyjson_use_xrepo") then
 end
 table.remove(_config_rules, rename_rule_idx)
 includes("core", "vstl", "runtime")
+includes("rust", "ir")
+if has_config("lc_enable_xir") then
+    includes("xir")
+end
 if has_config("lc_enable_osl") then
     includes("osl")
 end
 if has_config("lc_enable_dsl") then
     includes("dsl")
+    includes("coro")
 end
 if has_config("lc_enable_gui") then
     includes("gui")

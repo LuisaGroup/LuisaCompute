@@ -14,9 +14,9 @@ option("lc_enable_simd", {default = true})
 -- enable DirectX-12 backend
 option("lc_dx_backend", {default = true})
 -- enable fallback CPU backend for platforms without GPU support
-option("lc_fallback_backend", {default = false})
+option("lc_fallback_backend", {default = true})
 -- enable XIR (Intermediate Representation) support
-option("lc_enable_xir", {default = false})
+option("lc_enable_xir", {default = true})
 -- use external Marl library instead of bundled version
 option("lc_external_marl", {default = false})
 -- enable DirectX-CUDA interoperability
@@ -36,7 +36,7 @@ option("lc_cuda_ext_lcub", {default = false})
 -- enable Metal backend
 option("lc_metal_backend", {default = true})
 -- enable tests module
-option("lc_enable_tests", {default = true})
+option("lc_enable_tests", {default = false})
 -- C++ standard version (e.g., cxx17, cxx20, cxx23)
 option("lc_cxx_standard", {default = 'cxx20'})
 -- C standard version (e.g., c11, clatest)

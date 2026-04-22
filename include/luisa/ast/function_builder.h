@@ -111,6 +111,7 @@ private:
     luisa::vector<Variable> _shared_variables;
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
+    luisa::unordered_map<luisa::string, uint> _coro_tokens;
     CallOpSet _direct_builtin_callables;
     CallOpSet _propagated_builtin_callables;
     uint64_t _hash;
@@ -215,6 +216,13 @@ public:
     [[nodiscard]] auto bound_arguments() const noexcept { return luisa::span{_bound_arguments}; }
     /// Return a span of unbound arguments.
     [[nodiscard]] auto unbound_arguments() const noexcept { return luisa::span{_arguments}.subspan(_bound_arguments.size()); }
+    /// Return the captured external expression for an internalized argument, or nullptr if the argument is explicit.
+    [[nodiscard]] const Expression *captured_argument(Variable arg) const noexcept {
+        if (auto iter = _internalizer_arguments.find(arg); iter != _internalizer_arguments.end()) {
+            return iter->second;
+        }
+        return nullptr;
+    }
     /// Return a span of custom callables.
     [[nodiscard]] auto const &custom_callables() const noexcept { return _used_custom_callables; }
     /// Return a span of external callables.
@@ -255,6 +263,8 @@ public:
     [[nodiscard]] bool requires_autodiff() const noexcept;
     /// Return if uses printing.
     [[nodiscard]] bool requires_printing() const noexcept;
+    /// Return suspend description-to-token map.
+    [[nodiscard]] const luisa::unordered_map<luisa::string, uint> &coro_tokens() const noexcept { return _coro_tokens; }
 
     // build primitives
     /// Define a kernel function with given definition
@@ -274,6 +284,12 @@ public:
     template<typename Def>
     static auto define_raster_stage(Def &&def) {
         return _define(Function::Tag::RASTER_STAGE, std::forward<Def>(def));
+    }
+
+    /// Define a coroutine function with given definition
+    template<typename Def>
+    static auto define_coroutine(Def &&def) {
+        return _define(Function::Tag::COROUTINE, std::forward<Def>(def));
     }
 
     // config
@@ -421,6 +437,19 @@ public:
     [[nodiscard]] RayQueryStmt *ray_query_(const RefExpr *query) noexcept;
     /// Add auto diff statement
     [[nodiscard]] AutoDiffStmt *autodiff_() noexcept;
+    /// Add suspend statement
+    [[nodiscard]] uint suspend_(luisa::string desc) noexcept;
+    /// Add suspend statement with an explicit token (used by XIR round-tripping).
+    void suspend_token_(uint token) noexcept;
+    // For coroutine use only
+    /// Check if the function is a coroutine.
+    void check_is_coroutine() noexcept;
+    /// Bind a promise value to a named frame slot.
+    void bind_promise_(const Expression *var, luisa::string name) noexcept;
+    /// Return coroutine id in the coroutine frame.
+    [[nodiscard]] const CallExpr *coro_id() noexcept;
+    /// Return coroutine token in the coroutine frame.
+    [[nodiscard]] const CallExpr *coro_token() noexcept;
     /// Add print statement
     void print_(luisa::string format, luisa::span<const Expression *const> args) noexcept;
     /// Add debug break statement
