@@ -357,7 +357,7 @@ int main(int argc, char *argv[]) {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
         Float3 ldr = linear_to_srgb(clamp(hdr.xyz() / hdr.w * scale, 0.f, 1.f));
-        ldr_image.write(coord, make_float4(ldr, 0.2f));
+        ldr_image.write(coord, make_float4(ldr, 0.0f));
     };
 
     // Compile shaders
@@ -383,7 +383,7 @@ int main(int argc, char *argv[]) {
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("path tracing", resolution, false);
+        window = std::make_unique<Window>("path tracing", resolution, false, false, true);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{
@@ -391,6 +391,7 @@ int main(int argc, char *argv[]) {
                 .window = window->native_handle(),
                 .size = make_uint2(resolution),
                 .wants_hdr = false,
+                .wants_transparent = true,
                 .wants_vsync = false,
                 .back_buffer_count = 2,
             }));
