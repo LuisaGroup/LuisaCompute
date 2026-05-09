@@ -229,3 +229,11 @@ std::string_view code(static_cast<const char*>(header.ptr), header.size);
 3. Register: `LC_HLSL_INSERT_VARNAME(my_bytes, "my_key")`
 
 Build system compiles `.hlsl` → `.bytes` and shaders → `.dxil`, then embeds via `bin2obj`.
+
+### Codegen Debug
+
+1. set environment var `LUISA_DUMP_SOURCE`.
+2. delete old `hlsl_output.hlsl` on binary dir if exists.
+    - note: new codegen result append to `hlsl_output.hlsl`.
+3. run program.
+4. read new `hlsl_output.hlsl`.
