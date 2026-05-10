@@ -42,6 +42,8 @@ luisa_compute_add_test(test_hash               unit/core/test_hash.cpp          
 luisa_compute_add_test(test_spin_mutex         unit/core/test_spin_mutex.cpp         LABELS "unit;unit_core")
 luisa_compute_add_test(test_fiber              unit/core/test_fiber.cpp              LABELS "unit;unit_core")
 luisa_compute_add_test(test_platform_utils     unit/core/test_platform.cpp           LABELS "unit;unit_core")
+luisa_compute_add_test(test_glslang_spirv      unit/ext/test_glslang_spirv.cpp       LABELS "unit;unit_ext")
+target_link_libraries(test_glslang_spirv PRIVATE glslang-default-resource-limits)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
 endif ()

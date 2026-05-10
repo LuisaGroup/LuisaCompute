@@ -5,6 +5,7 @@ includes("ext/volk", "ext/stb")
 lc_eastl_enable_custom_malloc = has_config("lc_enable_custom_malloc")
 lc_eastl_enable_mimalloc = has_config("lc_enable_mimalloc")
 includes("ext/EASTL")
+includes("ext/glslang")
 if not has_config("lc_spdlog_use_xrepo") then
     includes("ext/spdlog")
 end

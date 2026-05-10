@@ -35,3 +35,6 @@
 [submodule "src/ext/HIPRT"]
 	path = src/ext/HIPRT
 	url = https://github.com/LuisaGroup/HIPRT.git
+[submodule "src/ext/glslang"]
+	path = src/ext/glslang
+	url = https://github.com/LuisaGroup/glslang
