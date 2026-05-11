@@ -383,7 +383,7 @@ int main(int argc, char *argv[]) {
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
     if (!force_offline) {
-        window = std::make_unique<Window>("path tracing", resolution, false, false, true);
+        window = std::make_unique<Window>("path tracing", resolution, false, false, false);
         swap_chain.emplace(device.create_swapchain(
             stream,
             SwapchainOption{
@@ -391,7 +391,7 @@ int main(int argc, char *argv[]) {
                 .window = window->native_handle(),
                 .size = make_uint2(resolution),
                 .wants_hdr = false,
-                .wants_transparent = true,
+                .wants_transparent = false,
                 .wants_vsync = false,
                 .back_buffer_count = 2,
             }));

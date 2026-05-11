@@ -31,7 +31,7 @@ foreach (sdk ${COMPONENTS})
     set(valid TRUE)
     if (sdk STREQUAL "dx")
         download_sdk(${sdk}
-                "https://github.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk_20250816.zip"
+                "https://github.com/LuisaGroup/SDKs/releases/download/sdk/dx_sdk_20260511.zip"
                 "5b2b59a687ceeab14b9a49bbd1635cb43ed8c4101df99abcca102376076f7787")
     else ()
         set(valid FALSE)

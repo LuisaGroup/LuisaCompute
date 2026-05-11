@@ -1,0 +1,15 @@
+#pragma once
+#include <filesystem>
+#include <luisa/core/dynamic_module.h>
+#include <luisa/core/basic_traits.h>
+#include <luisa/vstl/common.h>
+#include <luisa/vstl/md5.h>
+#include <luisa/vstl/functional.h>
+#include <luisa/core/platform.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl/string.h>
+#include <luisa/ast/external_function.h>
+#include <luisa/ast/function.h>
+#include <luisa/ast/expression.h>
+#include <luisa/ast/statement.h>
+#include <SPIRV/SpvBuilder.h>
