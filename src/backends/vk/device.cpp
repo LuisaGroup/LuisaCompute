@@ -32,6 +32,8 @@
 #ifdef LUISA_XIR_TO_SPIRV
 #include <spirv_codegen/entry.h>
 #include <spirv_codegen/utils.h>
+#include <SPIRV/disassemble.h>
+#include <fstream>
 #endif
 
 namespace lc::vk {
@@ -1126,6 +1128,13 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
 // Clock clk;
 #ifdef LUISA_XIR_TO_SPIRV
         auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option);
+        if (print_code()) {
+            std::ofstream file("spv_output.spvasm", std::ios::app);
+            if (file) {
+                file << "; ==SPIRV==\n";
+                spv::Disassemble(file, spv_result.spv_bin);
+            }
+        }
         auto shader = new ComputeShader(
             this,
             kernel.block_size(),

@@ -11,15 +11,8 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, ShaderOption const
     std::vector<unsigned int> words;
     codegen._builder.dump(words);
     auto printers = std::move(codegen).move_print_formats();
-    auto byte_size = words.size() * sizeof(unsigned int);
-    auto ptr = new std::byte[byte_size];
-    std::memcpy(ptr, words.data(), byte_size);
-    luisa::BinaryBlob blob{
-        ptr,
-        byte_size,
-        [](void *p) { delete[] static_cast<std::byte *>(p); }};
     return SpirvResult{
-        std::move(blob),
+        std::move(words),
         {},
         std::move(printers),
         false,

@@ -293,3 +293,12 @@ static inline const auto reg = [] {
 }();
 
 int main() {}
+
+// int main(int argc, char *argv[]) {
+//     auto dc = luisa::test::create_device_from_ut(argc, argv);
+//     if (!dc) {
+//         return 0;
+//     }
+//     auto &device = dc->device;
+//     test_dsl(device);
+// }

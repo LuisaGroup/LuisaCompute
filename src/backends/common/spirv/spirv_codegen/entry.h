@@ -16,7 +16,7 @@ using namespace luisa;
 using namespace luisa::compute;
 struct SpirvResult {
     using Properties = vstd::vector<Property>;
-    luisa::BinaryBlob spv_bin;
+    std::vector<uint32_t> spv_bin;
     Properties properties;
     vstd::vector<std::pair<vstd::string, luisa::compute::Type const *>> printers;
     bool useTex2DBindless;

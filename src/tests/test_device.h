@@ -66,5 +66,15 @@ inline const char *safe_argv0() noexcept {
     compute::Device device = context.create_device(argv[1]);
     return DeviceContext{std::move(context), std::move(device)};
 }
+[[nodiscard]] inline std::optional<DeviceContext> create_device_from_ut(int argc, char *argv[]) {
+    const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
+    if (argc <= 1) {
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", exe);
+        return std::nullopt;
+    }
+    compute::Context context{exe};
+    compute::Device device = context.create_device(argv[1]);
+    return DeviceContext{std::move(context), std::move(device)};
+}
 
 }// namespace luisa::test
