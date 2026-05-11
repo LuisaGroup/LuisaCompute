@@ -1,14 +1,28 @@
 #pragma once
 
-#ifdef LUISA_ENABLE_XIR
-
+#include <luisa/core/binary_io.h>
+#include <luisa/ast/function.h>
 #include <luisa/vstl/common.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/function.h>
+#include <luisa/ast/function.h>
 #include <luisa/core/string_scratch.h>
 #include <SPIRV/SpvBuilder.h>
+#include <luisa/runtime/rhi/resource.h>
+#include "property.h"
 
-namespace luisa::compute::spirv {
-
+namespace lc::spirv {
+using namespace luisa;
+using namespace luisa::compute;
+struct SpirvResult {
+    using Properties = vstd::vector<Property>;
+    luisa::BinaryBlob spv_bin;
+    Properties properties;
+    vstd::vector<std::pair<vstd::string, luisa::compute::Type const *>> printers;
+    bool useTex2DBindless;
+    bool useTex3DBindless;
+    bool useBufferBindless;
+};
 class SpirvCodegenEntry {
 
 public:
@@ -74,8 +88,7 @@ public:
     void emit(const xir::Module *module, luisa::span<const Function::Binding> bindings,
               luisa::string_view device_lib, luisa::string_view native_include) noexcept;
     [[nodiscard]] auto move_print_formats() && noexcept { return std::move(_print_formats); }
+    static SpirvResult compile_spirv(Function kernel, const ShaderOption &option);
 };
 
-}// namespace luisa::compute::spirv
-
-#endif
+}// namespace lc::spirv

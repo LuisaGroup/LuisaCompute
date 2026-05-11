@@ -29,6 +29,10 @@
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
 #include "vk_cuda_interop_ext.h"
 #endif
+#ifdef LUISA_XIR_TO_SPIRV
+#include <spirv_codegen/entry.h>
+#include <spirv_codegen/utils.h>
+#endif
 
 namespace lc::vk {
 using namespace std::string_literals;
@@ -278,7 +282,7 @@ ResourceCreationInfo Device::create_procedural_primitive(
 }
 
 uint Device::compute_warp_size() const noexcept {
-    return 32;// TODO
+    return 32;
 }
 uint64_t Device::memory_granularity() const noexcept {
     return kSparseBufferSize;
@@ -302,8 +306,7 @@ ResourceCreationInfo Device::create_motion_instance(const AccelMotionOption &opt
     auto instance = new MotionInstance(this, option);
     return ResourceCreationInfo{
         .handle = reinterpret_cast<uint64_t>(instance),
-        .native_handle = nullptr
-    };
+        .native_handle = nullptr};
 }
 
 void Device::destroy_motion_instance(uint64_t handle) noexcept {
@@ -580,8 +583,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             // Enable motion blur extension if available (NVIDIA only)
             // VK_NV_ray_tracing_motion_blur requires VK_KHR_ray_tracing_pipeline
             if (supported_ext.find(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME) != supported_ext.end() &&
-                supported_ext.find(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) != supported_ext.end()
-            ) {
+                supported_ext.find(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) != supported_ext.end()) {
                 _enable_device_exts.emplace_back(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME);
                 _enable_device_exts.emplace_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
                 enable_motion_blur = true;
@@ -652,17 +654,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
         .pNext = &enable_rayquery_features,
         .accelerationStructure = VK_TRUE};
-    VkPhysicalDeviceRayTracingMotionBlurFeaturesNV motion_blur_features {
+    VkPhysicalDeviceRayTracingMotionBlurFeaturesNV motion_blur_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MOTION_BLUR_FEATURES_NV,
         .pNext = &enabled_acceleration_structure_features,
         .rayTracingMotionBlur = VK_TRUE,
-        .rayTracingMotionBlurPipelineTraceRaysIndirect = VK_FALSE
-    };
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_pipeline_features {
+        .rayTracingMotionBlurPipelineTraceRaysIndirect = VK_FALSE};
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_pipeline_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
         .pNext = &motion_blur_features,
-        .rayTracingPipeline = VK_TRUE
-    };
+        .rayTracingPipeline = VK_TRUE};
     if (raytracing_enabled) {
         if (enable_motion_blur) {
             feature_next = &rt_pipeline_features;
@@ -1123,75 +1123,94 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
     } else {
-    // Clock clk;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
-    vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
-    if (option.compile_only) {
-        assert(!option.name.empty());
-        info.invalidate();
-        if (print_code()) {
-            auto f = fopen("hlsl_output.hlsl", "ab");
-            fwrite(code.result.view().data(), code.result.view().size(), 1, f);
-            fclose(f);
-        }
-        auto comp_result = Device::compiler()->compile_compute(
-            code.result.view(),
-            !option.enable_debug_info,
-            kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
-            option.enable_fast_math,
-            true,
-            option.enable_debug_info);
-        comp_result.multi_visit(
-            [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
-                auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
-                ShaderSerializer::serialize_bytecode(
-                    code.properties,
-                    saved_args,
-                    check_md5,
-                    code.typeMD5,
-                    kernel.block_size(),
-                    option.name,
-                    {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
-                    SerdeType::kByteCode,
-                    _binary_io, code.useTex2DBindless,
-                    code.useTex3DBindless,
-                    code.useBufferBindless,
-                    code.printers);
-            },
-            [](auto &&err) {
-                LUISA_ERROR("Compile Error: {}", err);
-                return nullptr;
-            });
-
-    } else {
-        vstd::string_view file_name;
-        vstd::string str_cache;
-        SerdeType serde_type;
-        if (option.enable_cache) {
-            if (option.name.empty()) {
-                str_cache << check_md5.to_string(false) << ".spv"sv;
-                file_name = str_cache;
-                serde_type = SerdeType::kCache;
-            } else {
-                file_name = option.name;
-                serde_type = SerdeType::kByteCode;
-            }
-        }
-        auto shader = ComputeShader::compile(
-            _binary_io,
+// Clock clk;
+#ifdef LUISA_XIR_TO_SPIRV
+        auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option);
+        auto shader = new ComputeShader(
             this,
-            ShaderSerializer::serialize_saved_args(kernel),
-            [&]() { return std::move(code); },
-            check_md5,
-            hlsl::binding_to_arg(kernel.bound_arguments()),
             kernel.block_size(),
-            file_name,
-            serde_type,
-            kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
-            option.enable_fast_math);
+            vstd::span<hlsl::Property const>{spv_result.properties.data(), spv_result.properties.size()},
+            ShaderSerializer::serialize_saved_args(kernel),
+            vstd::span<uint const>{reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() / sizeof(uint)},
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            {},
+            spv_result.useTex2DBindless,
+            spv_result.useTex3DBindless,
+            spv_result.useBufferBindless,
+            std::move(spv_result.printers));
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
-    }
+
+#else
+        auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
+        vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
+        if (option.compile_only) {
+            assert(!option.name.empty());
+            info.invalidate();
+            if (print_code()) {
+                auto f = fopen("hlsl_output.hlsl", "ab");
+                fwrite(code.result.view().data(), code.result.view().size(), 1, f);
+                fclose(f);
+            }
+            auto comp_result = Device::compiler()->compile_compute(
+                code.result.view(),
+                !option.enable_debug_info,
+                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+                option.enable_fast_math,
+                true,
+                option.enable_debug_info);
+            comp_result.multi_visit(
+                [&](hlsl::ComUniquePtr<IDxcBlob> const &buffer) {
+                    auto saved_args = ShaderSerializer::serialize_saved_args(kernel);
+                    ShaderSerializer::serialize_bytecode(
+                        code.properties,
+                        saved_args,
+                        check_md5,
+                        code.typeMD5,
+                        kernel.block_size(),
+                        option.name,
+                        {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},
+                        SerdeType::kByteCode,
+                        _binary_io, code.useTex2DBindless,
+                        code.useTex3DBindless,
+                        code.useBufferBindless,
+                        code.printers);
+                },
+                [](auto &&err) {
+                    LUISA_ERROR("Compile Error: {}", err);
+                    return nullptr;
+                });
+
+        } else {
+            vstd::string_view file_name;
+            vstd::string str_cache;
+            SerdeType serde_type;
+            if (option.enable_cache) {
+                if (option.name.empty()) {
+                    str_cache << check_md5.to_string(false) << ".spv"sv;
+                    file_name = str_cache;
+                    serde_type = SerdeType::kCache;
+                } else {
+                    file_name = option.name;
+                    serde_type = SerdeType::kByteCode;
+                }
+            }
+            auto shader = ComputeShader::compile(
+                _binary_io,
+                this,
+                ShaderSerializer::serialize_saved_args(kernel),
+                [&]() { return std::move(code); },
+                check_md5,
+                hlsl::binding_to_arg(kernel.bound_arguments()),
+                kernel.block_size(),
+                file_name,
+                serde_type,
+                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+                option.enable_fast_math);
+            info.handle = reinterpret_cast<uint64_t>(shader);
+            info.native_handle = shader->pipeline();
+        }
+#endif
     }// end else (non-motion-blur path)
     info.block_size = kernel.block_size();
     return info;

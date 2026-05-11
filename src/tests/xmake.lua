@@ -35,9 +35,11 @@ test_proj("test_mathematics", "unit/core/test_mathematics.cpp")
 test_proj("test_matrix", "unit/core/test_matrix.cpp")
 test_proj("test_pool", "unit/core/test_pool.cpp")
 test_proj("test_type", "unit/core/test_type.cpp")
-test_proj("test_glslang_spirv", "unit/ext/test_glslang_spirv.cpp", false, function()
-    add_deps("lc-glslang")
-end)
+if has_config('lc_vk_backend_use_xir_spirv') then
+    test_proj("test_glslang_spirv", "unit/ext/test_glslang_spirv.cpp", false, function()
+        add_deps("lc-glslang")
+    end)
+end
 test_proj("test_normal_encoding", "unit/dsl/test_normal_encoding.cpp", true)
 
 -- unit/ast

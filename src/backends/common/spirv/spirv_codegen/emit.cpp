@@ -1,8 +1,7 @@
 #include "entry.h"
 
-#ifdef LUISA_ENABLE_XIR
-
 #include <sstream>
+#include <luisa/core/logging.h>
 #include <luisa/ast/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/function.h>
@@ -41,7 +40,7 @@
 #include <luisa/xir/instructions/raster_discard.h>
 #include <SPIRV/disassemble.h>
 
-namespace luisa::compute::spirv {
+namespace lc::spirv {
 
 SpirvCodegenEntry::SpirvCodegenEntry(StringScratch &scratch, bool allow_indirect) noexcept
     : _scratch{scratch},
@@ -189,11 +188,17 @@ spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
     spv::Id id = spv::NoResult;
     switch (type->tag()) {
         case Type::Tag::BOOL:
-        case Type::Tag::INT8: case Type::Tag::UINT8:
-        case Type::Tag::INT16: case Type::Tag::UINT16:
-        case Type::Tag::INT32: case Type::Tag::UINT32:
-        case Type::Tag::INT64: case Type::Tag::UINT64:
-        case Type::Tag::FLOAT16: case Type::Tag::FLOAT32: case Type::Tag::FLOAT64:
+        case Type::Tag::INT8:
+        case Type::Tag::UINT8:
+        case Type::Tag::INT16:
+        case Type::Tag::UINT16:
+        case Type::Tag::INT32:
+        case Type::Tag::UINT32:
+        case Type::Tag::INT64:
+        case Type::Tag::UINT64:
+        case Type::Tag::FLOAT16:
+        case Type::Tag::FLOAT32:
+        case Type::Tag::FLOAT64:
             id = spirv_codegen_emit_scalar_constant(_builder, type, c->data());
             break;
         case Type::Tag::VECTOR: {
@@ -241,10 +246,10 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
                 default:
                     LUISA_NOT_IMPLEMENTED("SPIR-V special register {}.", xir::to_string(reg->derived_special_register_tag()));
             }
-            auto var = _builder.createVariable(spv::Decoration::NoPrecision, spv::StorageClass::Input,
+            auto var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Input,
                                                _convert_type(reg->type()), "sr");
             _builder.addDecoration(var, spv::Decoration::BuiltIn, (int)builtin);
-            id = _builder.createLoad(var, spv::Decoration::NoPrecision);
+            id = _builder.createLoad(var, spv::NoPrecision);
             break;
         }
         case xir::DerivedValueTag::FUNCTION:
@@ -294,7 +299,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                 LUISA_NOT_IMPLEMENTED("SPIR-V shared alloca.");
             }
             auto type = _convert_type(alloca->type());
-            auto var = _builder.createVariable(spv::Decoration::NoPrecision,
+            auto var = _builder.createVariable(spv::NoPrecision,
                                                spv::StorageClass::Function,
                                                type, "alloca");
             set_result(var);
@@ -303,7 +308,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::LOAD: {
             auto load = static_cast<const xir::LoadInst *>(inst);
             auto ptr = _emit_value(load->variable());
-            auto id = _builder.createLoad(ptr, spv::Decoration::NoPrecision);
+            auto id = _builder.createLoad(ptr, spv::NoPrecision);
             set_result(id);
             break;
         }
@@ -355,17 +360,30 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                 } else if (from->is_bool() && to->is_scalar()) {
                     spv::Id zero = spv::NoResult;
                     spv::Id one = spv::NoResult;
-                    if (to->is_int32()) { zero = _builder.makeIntConstant(0); one = _builder.makeIntConstant(1); }
-                    else if (to->is_uint32()) { zero = _builder.makeUintConstant(0); one = _builder.makeUintConstant(1); }
-                    else if (to->is_float32()) { zero = _builder.makeFloatConstant(0.0f); one = _builder.makeFloatConstant(1.0f); }
-                    else { LUISA_NOT_IMPLEMENTED("SPIR-V bool-to-scalar cast for {}.", to->description()); }
+                    if (to->is_int32()) {
+                        zero = _builder.makeIntConstant(0);
+                        one = _builder.makeIntConstant(1);
+                    } else if (to->is_uint32()) {
+                        zero = _builder.makeUintConstant(0);
+                        one = _builder.makeUintConstant(1);
+                    } else if (to->is_float32()) {
+                        zero = _builder.makeFloatConstant(0.0f);
+                        one = _builder.makeFloatConstant(1.0f);
+                    } else {
+                        LUISA_NOT_IMPLEMENTED("SPIR-V bool-to-scalar cast for {}.", to->description());
+                    }
                     id = _builder.createTriOp(spv::Op::OpSelect, spv_to, val, one, zero);
                 } else if (to->is_bool() && from->is_scalar()) {
                     spv::Id zero = spv::NoResult;
-                    if (from->is_int32()) { zero = _builder.makeIntConstant(0); }
-                    else if (from->is_uint32()) { zero = _builder.makeUintConstant(0); }
-                    else if (from->is_float32()) { zero = _builder.makeFloatConstant(0.0f); }
-                    else { LUISA_NOT_IMPLEMENTED("SPIR-V scalar-to-bool cast for {}.", from->description()); }
+                    if (from->is_int32()) {
+                        zero = _builder.makeIntConstant(0);
+                    } else if (from->is_uint32()) {
+                        zero = _builder.makeUintConstant(0);
+                    } else if (from->is_float32()) {
+                        zero = _builder.makeFloatConstant(0.0f);
+                    } else {
+                        LUISA_NOT_IMPLEMENTED("SPIR-V scalar-to-bool cast for {}.", from->description());
+                    }
                     if (from->is_float()) {
                         id = _builder.createBinOp(spv::Op::OpFOrdNotEqual, spv_to, val, zero);
                     } else {
@@ -464,81 +482,121 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
 
     switch (inst->op()) {
         case xir::ArithmeticOp::UNARY_MINUS:
-            if (is_float) id = _builder.createUnaryOp(spv::Op::OpFNegate, type, operand(0));
-            else id = _builder.createUnaryOp(spv::Op::OpSNegate, type, operand(0));
+            if (is_float)
+                id = _builder.createUnaryOp(spv::Op::OpFNegate, type, operand(0));
+            else
+                id = _builder.createUnaryOp(spv::Op::OpSNegate, type, operand(0));
             break;
         case xir::ArithmeticOp::UNARY_BIT_NOT:
-            if (is_bool) id = _builder.createUnaryOp(spv::Op::OpLogicalNot, type, operand(0));
-            else id = _builder.createUnaryOp(spv::Op::OpNot, type, operand(0));
+            if (is_bool)
+                id = _builder.createUnaryOp(spv::Op::OpLogicalNot, type, operand(0));
+            else
+                id = _builder.createUnaryOp(spv::Op::OpNot, type, operand(0));
             break;
         case xir::ArithmeticOp::BINARY_ADD:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFAdd, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpIAdd, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFAdd, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpIAdd, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_SUB:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFSub, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpISub, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFSub, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpISub, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_MUL:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFMul, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpIMul, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFMul, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpIMul, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_DIV:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFDiv, type, operand(0), operand(1));
-            else if (is_signed_int) id = _builder.createBinOp(spv::Op::OpSDiv, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpUDiv, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFDiv, type, operand(0), operand(1));
+            else if (is_signed_int)
+                id = _builder.createBinOp(spv::Op::OpSDiv, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpUDiv, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_MOD:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFMod, type, operand(0), operand(1));
-            else if (is_signed_int) id = _builder.createBinOp(spv::Op::OpSMod, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpUMod, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFMod, type, operand(0), operand(1));
+            else if (is_signed_int)
+                id = _builder.createBinOp(spv::Op::OpSMod, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpUMod, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_BIT_AND:
-            if (is_bool) id = _builder.createBinOp(spv::Op::OpLogicalAnd, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpBitwiseAnd, type, operand(0), operand(1));
+            if (is_bool)
+                id = _builder.createBinOp(spv::Op::OpLogicalAnd, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpBitwiseAnd, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_BIT_OR:
-            if (is_bool) id = _builder.createBinOp(spv::Op::OpLogicalOr, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpBitwiseOr, type, operand(0), operand(1));
+            if (is_bool)
+                id = _builder.createBinOp(spv::Op::OpLogicalOr, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpBitwiseOr, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_BIT_XOR:
-            if (is_bool) id = _builder.createBinOp(spv::Op::OpLogicalNotEqual, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpBitwiseXor, type, operand(0), operand(1));
+            if (is_bool)
+                id = _builder.createBinOp(spv::Op::OpLogicalNotEqual, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpBitwiseXor, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_SHIFT_LEFT:
             id = _builder.createBinOp(spv::Op::OpShiftLeftLogical, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_SHIFT_RIGHT:
-            if (is_signed_int) id = _builder.createBinOp(spv::Op::OpShiftRightArithmetic, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpShiftRightLogical, type, operand(0), operand(1));
+            if (is_signed_int)
+                id = _builder.createBinOp(spv::Op::OpShiftRightArithmetic, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpShiftRightLogical, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_LESS:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFOrdLessThan, type, operand(0), operand(1));
-            else if (is_signed_int) id = _builder.createBinOp(spv::Op::OpSLessThan, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpULessThan, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFOrdLessThan, type, operand(0), operand(1));
+            else if (is_signed_int)
+                id = _builder.createBinOp(spv::Op::OpSLessThan, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpULessThan, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_GREATER:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFOrdGreaterThan, type, operand(0), operand(1));
-            else if (is_signed_int) id = _builder.createBinOp(spv::Op::OpSGreaterThan, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpUGreaterThan, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFOrdGreaterThan, type, operand(0), operand(1));
+            else if (is_signed_int)
+                id = _builder.createBinOp(spv::Op::OpSGreaterThan, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpUGreaterThan, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_LESS_EQUAL:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFOrdLessThanEqual, type, operand(0), operand(1));
-            else if (is_signed_int) id = _builder.createBinOp(spv::Op::OpSLessThanEqual, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpULessThanEqual, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFOrdLessThanEqual, type, operand(0), operand(1));
+            else if (is_signed_int)
+                id = _builder.createBinOp(spv::Op::OpSLessThanEqual, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpULessThanEqual, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFOrdGreaterThanEqual, type, operand(0), operand(1));
-            else if (is_signed_int) id = _builder.createBinOp(spv::Op::OpSGreaterThanEqual, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpUGreaterThanEqual, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFOrdGreaterThanEqual, type, operand(0), operand(1));
+            else if (is_signed_int)
+                id = _builder.createBinOp(spv::Op::OpSGreaterThanEqual, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpUGreaterThanEqual, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_EQUAL:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFOrdEqual, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpIEqual, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFOrdEqual, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpIEqual, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::BINARY_NOT_EQUAL:
-            if (is_float) id = _builder.createBinOp(spv::Op::OpFOrdNotEqual, type, operand(0), operand(1));
-            else id = _builder.createBinOp(spv::Op::OpINotEqual, type, operand(0), operand(1));
+            if (is_float)
+                id = _builder.createBinOp(spv::Op::OpFOrdNotEqual, type, operand(0), operand(1));
+            else
+                id = _builder.createBinOp(spv::Op::OpINotEqual, type, operand(0), operand(1));
             break;
         case xir::ArithmeticOp::SELECT:
             id = _builder.createTriOp(spv::Op::OpSelect, type, operand(0), operand(1), operand(2));
@@ -573,14 +631,34 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
 }
 
 void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
-    auto merge = _get_or_create_block(inst->merge_block());
-    auto true_block = _get_or_create_block(inst->true_block());
-    auto false_block = _get_or_create_block(inst->false_block());
     auto cond = _emit_value(inst->condition());
-    _builder.createSelectionMerge(merge, spv::SelectionControlMask::MaskNone);
+    auto &function = _builder.getBuildPoint()->getParent();
+    auto true_block = new spv::Block(_builder.getUniqueId(), function);
+    auto false_block = new spv::Block(_builder.getUniqueId(), function);
+    auto merge_block = new spv::Block(_builder.getUniqueId(), function);
+    _block_map[inst->true_block()] = true_block;
+    _block_map[inst->false_block()] = false_block;
+    _block_map[inst->merge_block()] = merge_block;
+    auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
+    selection_merge->reserveOperands(2);
+    selection_merge->addIdOperand(merge_block->getId());
+    selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+    _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
     _builder.createConditionalBranch(cond, true_block, false_block);
+    function.addBlock(true_block);
+    _builder.setBuildPoint(true_block);
     _emit_block(inst->true_block());
+    if (!_builder.getBuildPoint()->isTerminated()) {
+        _builder.createBranch(false, merge_block);
+    }
+    function.addBlock(false_block);
+    _builder.setBuildPoint(false_block);
     _emit_block(inst->false_block());
+    if (!_builder.getBuildPoint()->isTerminated()) {
+        _builder.createBranch(false, merge_block);
+    }
+    function.addBlock(merge_block);
+    _builder.setBuildPoint(merge_block);
     _emit_block(inst->merge_block());
 }
 
@@ -631,7 +709,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
         param_types.emplace_back(_convert_type(arg->type()));
     }
     spv::Block *entry = nullptr;
-    auto func = _builder.makeFunctionEntry(spv::Decoration::NoPrecision, ret_type, "main",
+    auto func = _builder.makeFunctionEntry(spv::NoPrecision, ret_type, "main",
                                            spv::LinkageType::Max, param_types, {}, &entry);
     _value_map.emplace(kernel, func->getId());
     _function_map.emplace(kernel, func);
@@ -666,8 +744,8 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable) no
         param_types.emplace_back(_convert_type(arg->type()));
     }
     spv::Block *entry = nullptr;
-    auto func = _builder.makeFunctionEntry(spv::Decoration::NoPrecision, ret_type,
-                                           callable->name().value_or("callable").c_str(),
+    auto func = _builder.makeFunctionEntry(spv::NoPrecision, ret_type,
+                                           luisa::string{callable->name().value_or("callable")}.c_str(),
                                            spv::LinkageType::Max,
                                            param_types, {}, &entry);
     _value_map.emplace(callable, func->getId());
@@ -754,6 +832,4 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     _scratch << oss.str();
 }
 
-}// namespace luisa::compute::spirv
-
-#endif
+}

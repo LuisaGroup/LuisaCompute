@@ -13,7 +13,10 @@ on_load(function(target)
         })
     end
 end)
-add_files("*.cpp")
-lc_set_pcxxheader("lc_spirv_pch.h")
+add_files("spirv_codegen/*.cpp")
+lc_set_pcxxheader("spirv_codegen/lc_spirv_pch.h")
 add_headerfiles("*.h")
+add_includedirs('.', {
+    public = true
+})
 target_end()

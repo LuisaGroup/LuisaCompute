@@ -40,7 +40,7 @@ set_showmenu(false)
 -- Declare dependencies on all backend and feature options
 add_deps("lc_dx_backend", "lc_vk_backend", "lc_cuda_backend", "lc_metal_backend", "lc_enable_tests", "lc_py_include",
     "lc_cuda_ext_lcub", "lc_enable_dsl", "lc_enable_gui", "lc_bin_dir", "lc_dx_cuda_interop", "lc_vk_cuda_interop",
-    "_lc_enable_py", "lc_enable_py", "lc_enable_xir", "lc_fallback_backend", "lc_llvm_path", "lc_embree_path")
+    "_lc_enable_py", "lc_enable_py", "lc_enable_xir", 'lc_vk_backend_use_xir_spirv', "lc_fallback_backend", "lc_llvm_path", "lc_embree_path")
 
 before_check(function(option)
     -- Load custom options from options.lua if in project root
@@ -99,11 +99,17 @@ before_check(function(option)
     local lc_llvm_path = option:dep("lc_llvm_path")
     local lc_embree_path = option:dep("lc_embree_path")
     local lc_enable_xir = option:dep("lc_enable_xir")
+    local lc_vk_backend_use_xir_spirv = option:dep("lc_vk_backend_use_xir_spirv")
 
     -- Enable XIR if fallback backend or LLVM path is set
     if lc_fallback_backend:enabled() or lc_llvm_path:enabled() then
         lc_enable_xir:enable(true, {
             force = true
+        })
+    end
+    if not lc_enable_xir:enabled() then
+        lc_vk_backend_use_xir_spirv:enable(false, {
+            force = false
         })
     end
 

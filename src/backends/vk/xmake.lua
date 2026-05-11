@@ -31,4 +31,8 @@ on_load(function(target)
         target:add('deps', '_lc_cuda_base')
     end
 end)
+if has_config('lc_vk_backend_use_xir_spirv') then
+    add_deps('lc-spirv')
+    add_defines('LUISA_XIR_TO_SPIRV')
+end
 target_end()

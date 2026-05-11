@@ -1,8 +1,8 @@
 if (has_config("lc_vk_backend") or has_config("lc_dx_backend")) then
     includes("hlsl")
-    -- if has_config('lc_enable_xir') then
-    --     includes('spirv')
-    -- end
+    if has_config('lc_vk_backend_use_xir_spirv') then
+        includes('spirv')
+    end
 end
 if has_config("lc_cuda_backend") then
     target("lc-vulkan-swapchain")
