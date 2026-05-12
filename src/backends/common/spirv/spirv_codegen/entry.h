@@ -10,6 +10,8 @@
 #include <SPIRV/SpvBuilder.h>
 #include <luisa/runtime/rhi/resource.h>
 #include "property.h"
+#include <luisa/xir/op.h>
+#include <luisa/ast/usage.h>
 
 namespace lc::spirv {
 using namespace luisa;
@@ -49,6 +51,13 @@ private:
     luisa::vector<const xir::Instruction *> _control_flow_stack;
     bool _allow_indirect_dispatch;
     bool _requires_printing{false};
+    SpirvResult::Properties _properties;
+    luisa::vector<spv::Id> _property_ids;
+    bool _use_tex2d_bindless{false};
+    bool _use_tex3d_bindless{false};
+    bool _use_buffer_bindless{false};
+    spv::Id _glsl450{spv::NoResult};
+    luisa::unordered_map<spv::Id, bool> _is_storage_image_map;
 
 private:
     struct InstructionUsageAnalysis {
@@ -59,7 +68,7 @@ private:
     void _analyze_instruction_usage(const xir::Function *f, InstructionUsageAnalysis &analysis,
                                     luisa::unordered_set<const xir::Function *> &visited) noexcept;
 
-    spv::Id _convert_type(const Type *type) noexcept;
+    spv::Id _convert_type(const Type *type, Usage usage) noexcept;
     spv::Id _emit_constant(const xir::Constant *c) noexcept;
     spv::Id _emit_value(const xir::Value *value) noexcept;
     spv::Block *_get_or_create_block(const xir::BasicBlock *bb) noexcept;
@@ -81,6 +90,7 @@ private:
     void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
     void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
+    spv::Id _resolve_resource_argument(const xir::Argument *arg) noexcept;
 
 public:
     SpirvCodegenEntry(StringScratch &scratch, bool allow_indirect) noexcept;
@@ -88,6 +98,8 @@ public:
     void emit(const xir::Module *module, luisa::span<const Function::Binding> bindings,
               luisa::string_view device_lib, luisa::string_view native_include) noexcept;
     [[nodiscard]] auto move_print_formats() && noexcept { return std::move(_print_formats); }
+    void generate_binding(Function kernel);
+
     static SpirvResult compile_spirv(Function kernel, const ShaderOption &option);
 };
 

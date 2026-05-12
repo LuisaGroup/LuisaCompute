@@ -1126,29 +1126,32 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         info.native_handle = shader->pipeline();
     } else {
 // Clock clk;
+#undef LUISA_XIR_TO_SPIRV
 #ifdef LUISA_XIR_TO_SPIRV
         auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option);
         if (print_code()) {
-            std::ofstream file("spv_output.spvasm", std::ios::app);
+            std::ofstream file("spv_output.spvasm", std::ios::out);
             if (file) {
                 file << "; ==SPIRV==\n";
                 spv::Disassemble(file, spv_result.spv_bin);
             }
         }
-        auto shader = new ComputeShader(
-            this,
-            kernel.block_size(),
-            vstd::span<hlsl::Property const>{spv_result.properties.data(), spv_result.properties.size()},
-            ShaderSerializer::serialize_saved_args(kernel),
-            vstd::span<uint const>{reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() / sizeof(uint)},
-            hlsl::binding_to_arg(kernel.bound_arguments()),
-            {},
-            spv_result.useTex2DBindless,
-            spv_result.useTex3DBindless,
-            spv_result.useBufferBindless,
-            std::move(spv_result.printers));
-        info.handle = reinterpret_cast<uint64_t>(shader);
-        info.native_handle = shader->pipeline();
+        info.invalidate();
+        // TODO: the spirv codegen is not ready yet
+        // auto shader = new ComputeShader(
+        //     this,
+        //     kernel.block_size(),
+        //     vstd::span<hlsl::Property const>{spv_result.properties.data(), spv_result.properties.size()},
+        //     ShaderSerializer::serialize_saved_args(kernel),
+        //     vstd::span<uint const>{reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() / sizeof(uint)},
+        //     hlsl::binding_to_arg(kernel.bound_arguments()),
+        //     {},
+        //     spv_result.useTex2DBindless,
+        //     spv_result.useTex3DBindless,
+        //     spv_result.useBufferBindless,
+        //     std::move(spv_result.printers));
+        // info.handle = reinterpret_cast<uint64_t>(shader);
+        // info.native_handle = shader->pipeline();
 
 #else
         auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
