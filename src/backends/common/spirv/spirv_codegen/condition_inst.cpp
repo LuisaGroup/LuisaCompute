@@ -57,7 +57,53 @@ void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) 
 }
 
 void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept {
-    LUISA_NOT_IMPLEMENTED("SPIR-V switch instruction.");
+    auto selector = _emit_value(inst->value());
+    auto case_count = inst->case_count();
+    auto &function = _builder.getBuildPoint()->getParent();
+    std::vector<spv::Block *> segment_blocks;
+    segment_blocks.reserve(case_count + 1);
+    for (auto i = 0u; i <= case_count; ++i) {
+        segment_blocks.push_back(new spv::Block(_builder.getUniqueId(), function));
+    }
+    auto merge_block = new spv::Block(_builder.getUniqueId(), function);
+    for (auto i = 0u; i < case_count; ++i) {
+        _block_map[inst->case_block(i)] = segment_blocks[i];
+    }
+    _block_map[inst->default_block()] = segment_blocks[case_count];
+    _block_map[inst->merge_block()] = merge_block;
+    auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
+    selection_merge->reserveOperands(2);
+    selection_merge->addIdOperand(merge_block->getId());
+    selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+    _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
+    auto switch_inst = new spv::Instruction(spv::Op::OpSwitch);
+    switch_inst->reserveOperands((case_count * 2) + 2);
+    switch_inst->addIdOperand(selector);
+    switch_inst->addIdOperand(segment_blocks[case_count]->getId());
+    segment_blocks[case_count]->addPredecessor(_builder.getBuildPoint());
+    for (auto i = 0u; i < case_count; ++i) {
+        switch_inst->addImmediateOperand(inst->case_value(i));
+        switch_inst->addIdOperand(segment_blocks[i]->getId());
+        segment_blocks[i]->addPredecessor(_builder.getBuildPoint());
+    }
+    _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(switch_inst));
+    for (auto i = 0u; i < case_count; ++i) {
+        function.addBlock(segment_blocks[i]);
+        _builder.setBuildPoint(segment_blocks[i]);
+        _emit_block(inst->case_block(i));
+        if (!_builder.getBuildPoint()->isTerminated()) {
+            _builder.createBranch(false, merge_block);
+        }
+    }
+    function.addBlock(segment_blocks[case_count]);
+    _builder.setBuildPoint(segment_blocks[case_count]);
+    _emit_block(inst->default_block());
+    if (!_builder.getBuildPoint()->isTerminated()) {
+        _builder.createBranch(false, merge_block);
+    }
+    function.addBlock(merge_block);
+    _builder.setBuildPoint(merge_block);
+    _emit_block(inst->merge_block());
 }
 
 void SpirvCodegenEntry::_emit_branch_inst(const xir::BranchInst *inst) noexcept {

@@ -43,25 +43,66 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             id = _builder.makeStructType(member_types, member_debug, "Struct", false);
             break;
         }
-        case Type::Tag::BUFFER:
-        /*
-TODO: according to 'bin\debug\shader.spv' definition of type_StructuredBuffer_uint and . generate type like 'type_RWStructuredBuffer_float' and 'type_StructuredBuffer_uint'. according to usage, if the usage no contain write,  OpMemberDecorate with NonWritable.
-        */
-        case Type::Tag::TEXTURE:
-        /*
-TODO: according to 'bin\debug\shader.spv':
-- for 2 dimension, no write usage, definition like type_2d_image
-- for 2 dimension, write usage, definition like type_2d_image_0
-- for 3 dimension, no write usage, definition like type_3d_image
-- for 3 dimension, write usage, definition like type_3d_image_0
-        */
-        case Type::Tag::BINDLESS_ARRAY:
-/*
-TODO: according to 'bin\debug\hlsl_output_bindless.hlsl' and 'bin\debug\shader_bindless.spv'
-- define a global ByteAddressBuffer bindless 'bdls' at register 0, space 2
-- define a global Texture2D<float4> bindless '_BindlessTex' at register 0, space 3
-*/
+        case Type::Tag::BUFFER: {
+            spv::Id elem_spv_type;
+            auto elem = type->element();
+            if (elem != nullptr && !elem->is_buffer()) {
+                elem_spv_type = _convert_type(elem, usage);
+            } else {
+                elem_spv_type = _builder.makeUintType(32);
+            }
+            auto runtime_array = _builder.makeRuntimeArray(elem_spv_type);
+            auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
+            size_t stride = (elem != nullptr) ? elem->size() : 4u;
+            _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, static_cast<int>(stride));
+            _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
+            if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) == 0) {
+                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
+            }
+            _builder.addDecoration(struct_type, spv::Decoration::Block);
+            id = struct_type;
+            break;
+        }
+        case Type::Tag::TEXTURE: {
+            auto elem = type->element();
+            if (elem != nullptr && elem->is_vector()) { elem = elem->element(); }
+            LUISA_ASSERT(elem != nullptr && (elem->is_float32() || elem->is_int32() || elem->is_uint32()),
+                         "SPIR-V texture element must be float32, int32, or uint32, got {}.",
+                         type->description());
+            spv::Id sampled_type;
+            spv::ImageFormat storage_format;
+            if (elem->is_float32()) {
+                sampled_type = _builder.makeFloatType(32);
+                storage_format = spv::ImageFormat::Rgba32f;
+            } else if (elem->is_int32()) {
+                sampled_type = _builder.makeIntType(32);
+                storage_format = spv::ImageFormat::Rgba32i;
+            } else {
+                sampled_type = _builder.makeUintType(32);
+                storage_format = spv::ImageFormat::Rgba32ui;
+            }
+            spv::Dim dim = (type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
+            bool is_writable = (static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0;
+            unsigned sampled = is_writable ? 2 : 1;
+            spv::ImageFormat fmt = is_writable ? storage_format : spv::ImageFormat::Unknown;
+            id = _builder.makeImageType(sampled_type, dim, false, false, false,
+                                        sampled, fmt, "image");
+            break;
+        }
+        case Type::Tag::BINDLESS_ARRAY: {
+            auto uint_type = _builder.makeUintType(32);
+            auto runtime_array = _builder.makeRuntimeArray(uint_type);
+            auto struct_type = _builder.makeStructType({runtime_array}, {}, "BindlessArray", false);
+            _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, 4);
+            _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
+            _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
+            _builder.addDecoration(struct_type, spv::Decoration::Block);
+            id = struct_type;
+            break;
+        }
         case Type::Tag::ACCEL:
+            id = _builder.makeAccelerationStructureType();
+            break;
         case Type::Tag::CUSTOM:
             LUISA_NOT_IMPLEMENTED("SPIR-V type conversion for resource/custom type {}.", type->description());
     }

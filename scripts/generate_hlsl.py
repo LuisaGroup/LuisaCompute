@@ -25,7 +25,7 @@ def main():
     parser.add_argument(
         "--spv-path",
         type=Path,
-        default=_DEFAULT_spv_path,
+        default="shader.spv",
         help=f"Output SPIR-V path (default: {_DEFAULT_spv_path})",
     )
     args = parser.parse_args()
@@ -58,7 +58,7 @@ def main():
     cmd = [
         str(DXC_PATH),
         "-spirv",
-        "-T", "cs_6_5",
+        "-T", "cs_6_6",
         "-E", "main",
         str(HLSL_PATH),
         "-enable-16bit-types",
@@ -66,7 +66,11 @@ def main():
         "-Fc", str(spv_path),
     ]
     print("Running:", " ".join(cmd))
-    result = subprocess.run(cmd, cwd=ROOT_DIR)
+    result = subprocess.run(cmd, cwd=ROOT_DIR, capture_output=True, text=True)
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr, file=sys.stderr)
     if result.returncode != 0:
         print(f"Error: dxc failed with code {result.returncode}", file=sys.stderr)
         sys.exit(1)
