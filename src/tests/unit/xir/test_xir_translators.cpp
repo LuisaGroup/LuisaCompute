@@ -14,7 +14,14 @@ using namespace boost::ut::literals;
 
 // ---- AST to XIR translation ----
 
-static inline const auto reg_ast2xir = [] {
+// ---- XIR to text translation ----
+
+// ---- XIR to JSON translation ----
+
+// ---- Direct XIR module to text/json ----
+
+void reg_ast2xir() {
+
     "xir_ast_to_xir_simple_kernel"_test = [] {
         Kernel1D kernel = [](BufferFloat buf) {
             auto idx = dispatch_id().x;
@@ -73,12 +80,10 @@ static inline const auto reg_ast2xir = [] {
         for ([[maybe_unused]] auto *f : module->function_list()) { func_count++; }
         expect(func_count >= 1u);
     };
-    return 0;
-}();
+}
 
-// ---- XIR to text translation ----
+void reg_xir2text() {
 
-static inline const auto reg_xir2text = [] {
     "xir_to_text_basic"_test = [] {
         Kernel1D kernel = [](BufferFloat buf) {
             auto idx = dispatch_id().x;
@@ -101,12 +106,10 @@ static inline const auto reg_xir2text = [] {
         expect(!text_debug.empty());
         expect(text_debug.size() >= text_no_debug.size()) << "debug info should add content";
     };
-    return 0;
-}();
+}
 
-// ---- XIR to JSON translation ----
+void reg_xir2json() {
 
-static inline const auto reg_xir2json = [] {
     "xir_to_json_basic"_test = [] {
         Kernel1D kernel = [](BufferFloat buf) {
             auto idx = dispatch_id().x;
@@ -126,12 +129,10 @@ static inline const auto reg_xir2json = [] {
         auto json = xir_to_json_translate(module.get());
         expect(!json.empty());
     };
-    return 0;
-}();
+}
 
-// ---- Direct XIR module to text/json ----
+void reg_direct_module() {
 
-static inline const auto reg_direct_module = [] {
     "xir_text_translate_empty_module"_test = [] {
         Module module;
         auto text = xir_to_text_translate(&module, false);
@@ -156,7 +157,14 @@ static inline const auto reg_direct_module = [] {
         auto text = xir_to_text_translate(&module, true);
         expect(!text.empty());
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_ast2xir();
+    reg_xir2text();
+    reg_xir2json();
+    reg_direct_module();
+    return 0;
+}

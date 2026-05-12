@@ -44,7 +44,6 @@ void test_texture_compress(Device &device) {
     Buffer<uint> bc7_buffer{device.create_buffer<uint>(bc7_image.view().size_bytes() / sizeof(uint))};
     stream << byte4_image.copy_from(luisa::span{image_pixels, static_cast<size_t>(image_width * image_height * 4)}) << synchronize();
 
-
     // Compress to BC6H format (HDR, no alpha)
     Clock clk;
     tex_ext->compress_bc6h(stream, byte4_image, bc6h_buffer);
@@ -91,14 +90,13 @@ void test_texture_compress(Device &device) {
     stbi_write_png("test_bc6h_compress.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
 
-static inline const auto reg = [] {
-    "texture_compress"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_texture_compress(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_texture_compress(device);
+}

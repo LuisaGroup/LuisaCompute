@@ -281,19 +281,7 @@ void test_dsl(Device &device) {
     // auto command = kernel(float_buffer, 12u).dispatch(1024u);
     // auto launch_command = static_cast<ShaderDispatchCommand *>(command.get());
 }
-
-static inline const auto reg = [] {
-    "dsl"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) { return; }
-        auto &device = dc->device;
-        test_dsl(device);
-    };
-    return 0;
-}();
-
-int main() {}
-
+// TODO Change 'static inline const auto reg" to: 
 // int main(int argc, char *argv[]) {
 //     auto dc = luisa::test::create_device_from_ut(argc, argv);
 //     if (!dc) {
@@ -302,3 +290,14 @@ int main() {}
 //     auto &device = dc->device;
 //     test_dsl(device);
 // }
+
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+
+    auto &device = dc->device;
+    test_dsl(device);
+}

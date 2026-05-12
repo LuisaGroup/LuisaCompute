@@ -478,14 +478,13 @@ void test_decoupled_look_back(Device &device) {
     expect(inclusive_ok) << "decoupled_look_back_inclusive_scan";
 }
 
-static inline const auto reg = [] {
-    "decoupled_look_back"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_decoupled_look_back(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_decoupled_look_back(device);
+}

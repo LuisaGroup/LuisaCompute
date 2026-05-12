@@ -18,17 +18,18 @@ int g_allocate_count = 0;
 int g_dispose_count = 0;
 }// namespace
 
-static inline const auto _luisa_reg_binaryblob_default_construction = [] {
+void _luisa_reg_binaryblob_default_construction() {
+
     boost::ut::detail::test{"test", "BinaryBlob default construction"} = [] {
         BinaryBlob blob;
         boost::ut::expect(static_cast<bool>(blob.data() == nullptr));
         boost::ut::expect(static_cast<bool>(blob.size() == 0));
         boost::ut::expect(static_cast<bool>(blob.empty() == true));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_construction_with_data = [] {
+void _luisa_reg_binaryblob_construction_with_data() {
+
     boost::ut::detail::test{"test", "BinaryBlob construction with data"} = [] {
         g_allocate_count = 0;
         g_dispose_count = 0;
@@ -54,10 +55,10 @@ static inline const auto _luisa_reg_binaryblob_construction_with_data = [] {
         // Destructor should have called disposer
         boost::ut::expect(static_cast<bool>(g_dispose_count == 1));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_move_construction = [] {
+void _luisa_reg_binaryblob_move_construction() {
+
     boost::ut::detail::test{"test", "BinaryBlob move construction"} = [] {
         size_t size = 256;
         auto *ptr = static_cast<std::byte *>(::operator new(size));
@@ -79,10 +80,10 @@ static inline const auto _luisa_reg_binaryblob_move_construction = [] {
         boost::ut::expect(static_cast<bool>(blob2.size() == size));
         boost::ut::expect(static_cast<bool>(blob2.empty() == false));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_move_assignment = [] {
+void _luisa_reg_binaryblob_move_assignment() {
+
     boost::ut::detail::test{"test", "BinaryBlob move assignment"} = [] {
         size_t size1 = 128;
         size_t size2 = 256;
@@ -120,10 +121,10 @@ static inline const auto _luisa_reg_binaryblob_move_assignment = [] {
         // Both blobs disposed
         boost::ut::expect(static_cast<bool>(dispose_count == 2));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_const_and_non_const_data_access = [] {
+void _luisa_reg_binaryblob_const_and_non_const_data_access() {
+
     boost::ut::detail::test{"test", "BinaryBlob const and non-const data access"} = [] {
         size_t size = 64;
         auto *ptr = static_cast<std::byte *>(::operator new(size));
@@ -155,10 +156,10 @@ static inline const auto _luisa_reg_binaryblob_const_and_non_const_data_access =
             boost::ut::expect(static_cast<bool>(data == ptr2));
         }
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_span_conversion = [] {
+void _luisa_reg_binaryblob_span_conversion() {
+
     boost::ut::detail::test{"test", "BinaryBlob span conversion"} = [] {
         size_t size = 32;
         auto data = new std::byte[size];
@@ -195,10 +196,10 @@ static inline const auto _luisa_reg_binaryblob_span_conversion = [] {
             boost::ut::expect(static_cast<bool>(const_span.data() == data2));
         }
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_empty_check = [] {
+void _luisa_reg_binaryblob_empty_check() {
+
     boost::ut::detail::test{"test", "BinaryBlob empty check"} = [] {
         BinaryBlob empty_blob;
         boost::ut::expect(static_cast<bool>(empty_blob.empty() == true));
@@ -210,10 +211,10 @@ static inline const auto _luisa_reg_binaryblob_empty_check = [] {
             [](void *p) { ::operator delete(p); }};
         boost::ut::expect(static_cast<bool>(non_empty_blob.empty() == false));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_self_move_assignment = [] {
+void _luisa_reg_binaryblob_self_move_assignment() {
+
     boost::ut::detail::test{"test", "BinaryBlob self-move assignment"} = [] {
         size_t size = 64;
         auto *ptr = static_cast<std::byte *>(::operator new(size));
@@ -235,10 +236,10 @@ static inline const auto _luisa_reg_binaryblob_self_move_assignment = [] {
         boost::ut::expect(static_cast<bool>(blob.size() == size));
         boost::ut::expect(static_cast<bool>(dispose_count == 0));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_multiple_moves = [] {
+void _luisa_reg_binaryblob_multiple_moves() {
+
     boost::ut::detail::test{"test", "BinaryBlob multiple moves"} = [] {
         size_t size = 100;
         auto *ptr = static_cast<std::byte *>(::operator new(size));
@@ -266,10 +267,10 @@ static inline const auto _luisa_reg_binaryblob_multiple_moves = [] {
 
         boost::ut::expect(static_cast<bool>(dispose_count == 1));
     };
-    return 0;
-}();
+}
 
-static inline const auto _luisa_reg_binaryblob_with_custom_allocator = [] {
+void _luisa_reg_binaryblob_with_custom_allocator() {
+
     boost::ut::detail::test{"test", "BinaryBlob with custom allocator"} = [] {
         struct TestAllocator {
             size_t allocated = 0;
@@ -300,7 +301,20 @@ static inline const auto _luisa_reg_binaryblob_with_custom_allocator = [] {
 
         boost::ut::expect(static_cast<bool>(allocator.deallocated == size));
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    _luisa_reg_binaryblob_default_construction();
+    _luisa_reg_binaryblob_construction_with_data();
+    _luisa_reg_binaryblob_move_construction();
+    _luisa_reg_binaryblob_move_assignment();
+    _luisa_reg_binaryblob_const_and_non_const_data_access();
+    _luisa_reg_binaryblob_span_conversion();
+    _luisa_reg_binaryblob_empty_check();
+    _luisa_reg_binaryblob_self_move_assignment();
+    _luisa_reg_binaryblob_multiple_moves();
+    _luisa_reg_binaryblob_with_custom_allocator();
+    return 0;
+}

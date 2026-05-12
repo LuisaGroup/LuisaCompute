@@ -1462,7 +1462,6 @@ unsigned int simplecpp::TokenList::fileIndex(const std::string &filename)
     return files.size() - 1U;
 }
 
-
 namespace simplecpp {
     class Macro;
 #if __cplusplus >= 201103L
@@ -3861,7 +3860,6 @@ simplecpp::cppstd_t simplecpp::getCppStd(const std::string &std)
         return CPP26;
     return CPPUnknown;
 }
-
 
 std::string simplecpp::getCppStdString(cppstd_t std)
 {

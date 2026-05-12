@@ -275,26 +275,14 @@ int test_builtin_kernel(Device &device) {
     return 0;
 }
 
-static inline const auto reg = [] {
-    "builtin_kernel"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-#ifdef __cpp_exceptions
-        try {
-            test_builtin_kernel(device);
-            expect(true);
-        } catch (const std::exception &e) {
-            expect(false) << e.what();
-        } catch (...) {
-            expect(false) << "unknown exception";
-        }
-#else
-        test_builtin_kernel(device);
-        expect(true);
-#endif
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_builtin_kernel(device);
+    test_builtin_kernel(device);
+}

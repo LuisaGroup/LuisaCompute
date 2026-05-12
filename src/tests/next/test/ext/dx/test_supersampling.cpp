@@ -26,8 +26,6 @@ using namespace luisa::compute;
 
 namespace luisa::test {
 
-
-
 } // namespace luisa::test
 
 TEST_SUITE("dx_ext") {

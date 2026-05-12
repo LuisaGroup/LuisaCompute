@@ -139,14 +139,13 @@ void test_dsl_sugar(Device &device) {
     expect(launch_command != nullptr) << "dispatch command created";
 }
 
-static inline const auto reg = [] {
-    "dsl_sugar"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) { return; }
-        auto &device = dc->device;
-        test_dsl_sugar(device);
-    };
-    return 0;
-}();
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
-int main() {}
+    auto &device = dc->device;
+    test_dsl_sugar(device);
+}

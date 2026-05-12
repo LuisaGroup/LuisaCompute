@@ -47,14 +47,12 @@ void test_select_device(Device &device) {
     [[maybe_unused]] auto selected_device = context.create_device(device.backend_name(), &device_config);
 }
 
-static inline const auto reg = [] {
-    "test_select_device"_test = [] {
-        auto dc = luisa::test::create_device_from_ut();
-        if (!dc) return;
-        auto &device = dc->device;
-        test_select_device(device);
-    };
-    return 0;
-}();
-
-int main() {}
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) {
+        return 0;
+    }
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    auto &device = dc->device;
+    test_select_device(device);
+}

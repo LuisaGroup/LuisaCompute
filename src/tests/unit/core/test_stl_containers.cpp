@@ -19,7 +19,22 @@ using namespace boost::ut::literals;
 
 // ---- vector helpers ----
 
-static inline const auto reg_vector_basic = [] {
+// ---- string ----
+
+// ---- format ----
+
+// ---- map / set ----
+
+// ---- unordered_map / unordered_set ----
+
+// ---- optional ----
+
+// ---- lru_cache ----
+
+// ---- allocator helpers ----
+
+void reg_vector_basic() {
+
     "vector_basic_operations"_test = [] {
         luisa::vector<int> v;
         expect(v.empty());
@@ -36,10 +51,10 @@ static inline const auto reg_vector_basic = [] {
         v.clear();
         expect(v.empty());
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_vector_enlarge_by = [] {
+void reg_vector_enlarge_by() {
+
     "vector_enlarge_by"_test = [] {
         luisa::vector<int> v;
         v.push_back(10);
@@ -64,10 +79,10 @@ static inline const auto reg_vector_enlarge_by = [] {
         luisa::enlarge_by(v, 0u);
         expect(v.size() == 5u);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_vector_size_bytes = [] {
+void reg_vector_size_bytes() {
+
     "vector_size_bytes"_test = [] {
         luisa::vector<float> v;
         expect(luisa::size_bytes(v) == 0u);
@@ -79,10 +94,10 @@ static inline const auto reg_vector_size_bytes = [] {
         vd.resize(5u);
         expect(luisa::size_bytes(vd) == 5u * sizeof(double));
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_vector_resize = [] {
+void reg_vector_resize() {
+
     "vector_resize"_test = [] {
         luisa::vector<int> v;
         luisa::vector_resize(v, 100u);
@@ -94,10 +109,10 @@ static inline const auto reg_vector_resize = [] {
         luisa::vector_resize(v, 50u);
         expect(v.size() == 50u);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_fixed_vector = [] {
+void reg_fixed_vector() {
+
     "fixed_vector_basic"_test = [] {
         luisa::fixed_vector<int, 8> fv;
         for (int i = 0; i < 8; ++i) {
@@ -110,12 +125,10 @@ static inline const auto reg_fixed_vector = [] {
         expect(fv.size() == 9u);
         expect(fv[8] == 99_i);
     };
-    return 0;
-}();
+}
 
-// ---- string ----
+void reg_string_basic() {
 
-static inline const auto reg_string_basic = [] {
     "string_basic"_test = [] {
         luisa::string s;
         expect(s.empty());
@@ -131,22 +144,20 @@ static inline const auto reg_string_basic = [] {
         auto sub = s2.substr(6, 5);
         expect(sub == "world");
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_string_view = [] {
+void reg_string_view() {
+
     "string_view_interop"_test = [] {
         luisa::string s = "test string";
         luisa::string_view sv = s;
         expect(sv == "test string");
         expect(sv.size() == s.size());
     };
-    return 0;
-}();
+}
 
-// ---- format ----
+void reg_format_basic() {
 
-static inline const auto reg_format_basic = [] {
     "format_basic"_test = [] {
         auto s = luisa::format("hello {}", "world");
         expect(s == "hello world");
@@ -157,10 +168,10 @@ static inline const auto reg_format_basic = [] {
         auto s3 = luisa::format("{:.2f}", 3.14159);
         expect(s3 == "3.14");
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_format_hash_to_string = [] {
+void reg_format_hash_to_string() {
+
     "hash_to_string"_test = [] {
         auto s = luisa::hash_to_string(0u);
         expect(s.size() == 16u);// 16 hex digits
@@ -169,12 +180,10 @@ static inline const auto reg_format_hash_to_string = [] {
         auto s2 = luisa::hash_to_string(0xDEADBEEFu);
         expect(s2 == "00000000DEADBEEF");
     };
-    return 0;
-}();
+}
 
-// ---- map / set ----
+void reg_map_basic() {
 
-static inline const auto reg_map_basic = [] {
     "map_basic"_test = [] {
         luisa::map<int, luisa::string> m;
         m[1] = "one";
@@ -195,10 +204,10 @@ static inline const auto reg_map_basic = [] {
         expect(m.size() == 2u);
         expect(m.find(2) == m.end());
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_set_basic = [] {
+void reg_set_basic() {
+
     "set_basic"_test = [] {
         luisa::set<int> s;
         s.insert(5);
@@ -212,12 +221,10 @@ static inline const auto reg_set_basic = [] {
         s.erase(3);
         expect(s.size() == 2u);
     };
-    return 0;
-}();
+}
 
-// ---- unordered_map / unordered_set ----
+void reg_unordered_map_basic() {
 
-static inline const auto reg_unordered_map_basic = [] {
     "unordered_map_basic"_test = [] {
         luisa::unordered_map<int, luisa::string> m;
         m[10] = "ten";
@@ -232,10 +239,10 @@ static inline const auto reg_unordered_map_basic = [] {
         m.erase(20);
         expect(m.size() == 2u);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_unordered_set_basic = [] {
+void reg_unordered_set_basic() {
+
     "unordered_set_basic"_test = [] {
         luisa::unordered_set<int> s;
         s.insert(1);
@@ -249,10 +256,10 @@ static inline const auto reg_unordered_set_basic = [] {
         s.erase(2);
         expect(s.size() == 2u);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_unordered_map_string_key = [] {
+void reg_unordered_map_string_key() {
+
     "unordered_map_string_key"_test = [] {
         luisa::unordered_map<luisa::string, int> m;
         m["alpha"] = 1;
@@ -265,12 +272,10 @@ static inline const auto reg_unordered_map_string_key = [] {
         m["alpha"] = 100;
         expect(m["alpha"] == 100_i);
     };
-    return 0;
-}();
+}
 
-// ---- optional ----
+void reg_optional_basic() {
 
-static inline const auto reg_optional_basic = [] {
     "optional_basic"_test = [] {
         luisa::optional<int> empty;
         expect(!empty.has_value());
@@ -282,19 +287,19 @@ static inline const auto reg_optional_basic = [] {
         val.reset();
         expect(!val.has_value());
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_optional_make = [] {
+void reg_optional_make() {
+
     "optional_make_optional"_test = [] {
         auto opt = luisa::make_optional(3.14);
         expect(opt.has_value());
         expect(static_cast<bool>(*opt > 3.13 && *opt < 3.15));
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_optional_nullopt = [] {
+void reg_optional_nullopt() {
+
     "optional_nullopt"_test = [] {
         luisa::optional<luisa::string> s = luisa::nullopt;
         expect(!s.has_value());
@@ -306,10 +311,10 @@ static inline const auto reg_optional_nullopt = [] {
         s = luisa::nullopt;
         expect(!s.has_value());
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_optional_value_or = [] {
+void reg_optional_value_or() {
+
     "optional_value_or"_test = [] {
         luisa::optional<int> empty;
         expect(empty.value_or(99) == 99_i);
@@ -317,12 +322,10 @@ static inline const auto reg_optional_value_or = [] {
         luisa::optional<int> full = 42;
         expect(full.value_or(99) == 42_i);
     };
-    return 0;
-}();
+}
 
-// ---- lru_cache ----
+void reg_lru_cache_basic() {
 
-static inline const auto reg_lru_cache_basic = [] {
     "lru_cache_basic"_test = [] {
         luisa::lru_cache<int, luisa::string> cache{3};
 
@@ -351,10 +354,10 @@ static inline const auto reg_lru_cache_basic = [] {
         expect(v4.has_value());
         expect(*v4 == "four");
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_lru_cache_touch = [] {
+void reg_lru_cache_touch() {
+
     "lru_cache_touch"_test = [] {
         luisa::lru_cache<int, int> cache{2};
         cache.emplace(1, 10);
@@ -375,10 +378,10 @@ static inline const auto reg_lru_cache_touch = [] {
         auto not_touched = cache.touch(999);
         expect(!not_touched);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_lru_cache_overwrite = [] {
+void reg_lru_cache_overwrite() {
+
     "lru_cache_overwrite"_test = [] {
         luisa::lru_cache<int, luisa::string> cache{2};
 #ifdef LUISA_USE_SYSTEM_STL
@@ -395,10 +398,10 @@ static inline const auto reg_lru_cache_overwrite = [] {
         expect(*v == "new");
 #endif
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_lru_cache_delete_callback = [] {
+void reg_lru_cache_delete_callback() {
+
     "lru_cache_delete_callback"_test = [] {
         int evicted_value = -1;
         luisa::lru_cache<int, int> cache{2};
@@ -412,10 +415,10 @@ static inline const auto reg_lru_cache_delete_callback = [] {
 
         expect(evicted_value == 100_i) << "delete callback should have been called with evicted value";
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_lru_cache_capacity_one = [] {
+void reg_lru_cache_capacity_one() {
+
     "lru_cache_capacity_one"_test = [] {
         luisa::lru_cache<int, int> cache{1};
         cache.emplace(1, 10);
@@ -427,10 +430,10 @@ static inline const auto reg_lru_cache_capacity_one = [] {
         expect(!cache.at(1).has_value());
         expect(cache.at(2).has_value());
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_lru_cache_thread_safe = [] {
+void reg_lru_cache_thread_safe() {
+
     "LRUCache_thread_safe"_test = [] {
         auto cache = luisa::LRUCache<int, int>::create(64);
 
@@ -450,12 +453,10 @@ static inline const auto reg_lru_cache_thread_safe = [] {
         expect(v.has_value());
         expect(*v == 990_i);
     };
-    return 0;
-}();
+}
 
-// ---- allocator helpers ----
+void reg_allocator_helpers() {
 
-static inline const auto reg_allocator_helpers = [] {
     "allocate_with_allocator"_test = [] {
         auto *p = luisa::allocate_with_allocator<int>(10);
         expect(static_cast<bool>(p != nullptr));
@@ -468,10 +469,10 @@ static inline const auto reg_allocator_helpers = [] {
         }
         luisa::deallocate_with_allocator(p);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_new_delete_allocator = [] {
+void reg_new_delete_allocator() {
+
     "new_delete_with_allocator"_test = [] {
         struct Foo {
             int x;
@@ -487,10 +488,10 @@ static inline const auto reg_new_delete_allocator = [] {
         // delete nullptr should be safe
         luisa::delete_with_allocator<Foo>(nullptr);
     };
-    return 0;
-}();
+}
 
-static inline const auto reg_size_literals = [] {
+void reg_size_literals() {
+
     "size_literals"_test = [] {
         using namespace luisa::size_literals;
         expect(1_k == 1024u);
@@ -499,7 +500,37 @@ static inline const auto reg_size_literals = [] {
         expect(2_k == 2048u);
         expect(4_M == 4u * 1024u * 1024u);
     };
-    return 0;
-}();
+}
 
-int main() {}
+int main(int argc, char *argv[]) {
+
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
+    reg_vector_basic();
+    reg_vector_enlarge_by();
+    reg_vector_size_bytes();
+    reg_vector_resize();
+    reg_fixed_vector();
+    reg_string_basic();
+    reg_string_view();
+    reg_format_basic();
+    reg_format_hash_to_string();
+    reg_map_basic();
+    reg_set_basic();
+    reg_unordered_map_basic();
+    reg_unordered_set_basic();
+    reg_unordered_map_string_key();
+    reg_optional_basic();
+    reg_optional_make();
+    reg_optional_nullopt();
+    reg_optional_value_or();
+    reg_lru_cache_basic();
+    reg_lru_cache_touch();
+    reg_lru_cache_overwrite();
+    reg_lru_cache_delete_callback();
+    reg_lru_cache_capacity_one();
+    reg_lru_cache_thread_safe();
+    reg_allocator_helpers();
+    reg_new_delete_allocator();
+    reg_size_literals();
+    return 0;
+}
