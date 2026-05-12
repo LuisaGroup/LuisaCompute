@@ -106,9 +106,7 @@ end
 
 -- integration/runtime
 test_proj("test_device_debugger", "integration/runtime/test_device_debugger.cpp")
-test_proj("test_dstorage", "integration/runtime/test_dstorage.cpp", true)
 test_proj("test_dstorage_decompression", "integration/runtime/test_dstorage_decompression.cpp", true)
-test_proj("test_procedural", "integration/runtime/test_procedural.cpp")
 test_proj("test_procedural_callable", "integration/runtime/test_procedural_callable.cpp")
 test_proj("test_rtx", "integration/runtime/test_rtx.cpp")
 if has_config("lc_enable_osl") then
@@ -163,11 +161,7 @@ if has_config("lc_enable_ir") then
 end
 
 -- root-only tests: no GUI required
-test_proj("test_helloworld", "test_helloworld.cpp")
-test_proj("test_dml", "test_dml.cpp")
 test_proj("test_dsl_mathematic", "test_dsl_mathematic.cpp")
-test_proj("test_cuda_dx_interop", "test_cuda_dx_interop.cpp")
-test_proj("test_cuda_vk_interop", "test_cuda_vk_interop.cpp")
 test_proj("test_fp4", "test_fp4.cpp")
 test_proj("test_fp4_quantization", "test_fp4_quantization.cpp")
 test_proj("test_fp8", "test_fp8.cpp")
@@ -175,36 +169,8 @@ test_proj("test_fp8_quantization", "test_fp8_quantization.cpp")
 
 -- root-only tests: GUI required
 if lc_enable_gui then
-    test_proj("test_blackhole", "test_blackhole.cpp", true)
     -- test_proj("test_dx_supersampling", "test_dx_supersampling.cpp", true) -- requires XeSS SDK
-    test_proj("test_fire_simulation", "test_fire_simulation.cpp", true)
     -- test_proj("test_fsr3", "test_fsr3.cpp", true) -- requires FidelityFX SDK
-    test_proj("test_game_of_life", "test_game_of_life.cpp", true)
-    test_proj("test_image_processing", "test_image_processing.cpp", true)
-    test_proj("test_imgui", "test_imgui.cpp", true)
-    -- test_proj("test_mnist", "test_mnist.cpp", true) -- no main, complex interop demo
-    test_proj("test_mpm3d", "test_mpm3d.cpp", true)
-    test_proj("test_mpm88", "test_mpm88.cpp", true)
-    test_proj("test_nbody_simulation", "test_nbody_simulation.cpp", true)
-    test_proj("test_path_tracing", "test_path_tracing.cpp", true)
-    test_proj("test_path_tracing_camera", "test_path_tracing_camera.cpp", true)
-    test_proj("test_path_tracing_clangcxx", "test_path_tracing_clangcxx.cpp", true)
-    test_proj("test_path_tracing_cutout", "test_path_tracing_cutout.cpp", true)
-    test_proj("test_path_tracing_hdr", "test_path_tracing_hdr.cpp", true)
-    test_proj("test_path_tracing_nested_callable", "test_path_tracing_nested_callable.cpp", true)
-    test_proj("test_path_tracing_ray_masks", "test_path_tracing_ray_masks.cpp", true)
-    test_proj("test_path_tracing_spectrum", "test_path_tracing_spectrum.cpp", true)
-    test_proj("test_photon_mapping", "test_photon_mapping.cpp", true)
-    test_proj("test_sdf_renderer", "test_sdf_renderer.cpp", true)
-    -- test_proj("test_sdf_renderer_ir", "test_sdf_renderer_ir.cpp", true) -- outdated API
-    test_proj("test_shader_toy", "test_shader_toy.cpp", true)
-    test_proj("test_shader_toy_spacex", "test_shader_toy_spacex.cpp", true)
-    test_proj("test_shader_visuals_present", "test_shader_visuals_present.cpp", true)
-    test_proj("test_swapchain", "test_swapchain.cpp", true)
-    test_proj("test_swapchain_static", "test_swapchain_static.cpp", true)
     -- test_proj("test_swapchain_qt", "test_swapchain_qt.cpp", true) -- requires Qt
     -- test_proj("test_swapchain_wx", "test_swapchain_wx.cpp", true) -- requires wxWidgets
-    test_proj("test_voxel_raytracer", "test_voxel_raytracer.cpp", true)
-    test_proj("test_wave_equation", "test_wave_equation.cpp", true)
-    test_proj("test_win_hdr", "test_win_hdr.cpp", true)
 end

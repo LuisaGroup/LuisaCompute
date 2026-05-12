@@ -1,3 +1,6 @@
+---
+name: spirv_codegen
+---
 # SPIR-V Codegen Skill
 
 SPIR-V backend code generator for LuisaCompute. Translates XIR (extended IR) to SPIR-V binary using glslang's `spv::Builder`. Located in `src/backends/common/spirv/spirv_codegen/`.

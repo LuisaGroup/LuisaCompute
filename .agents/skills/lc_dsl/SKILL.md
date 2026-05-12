@@ -57,20 +57,20 @@ Kernels are the entry points for GPU execution. They capture variables from the 
 
 ```cpp
 // 1D kernel - processes linear data
-Kernel1D kernel1d = [&](BufferVar<float> buffer, Var<uint> count) noexcept {
+Kernel1D kernel1d = [](BufferVar<float> buffer, Var<uint> count) noexcept {
     auto idx = dispatch_id().x;
     buffer.write(idx, buffer.read(idx) + 1.0f);
 };
 
 // 2D kernel - processes 2D data (images, textures)
-Kernel2D kernel2d = [&](ImageFloat image) noexcept {
+Kernel2D kernel2d = [](ImageFloat image) noexcept {
     UInt2 coord = dispatch_id().xy();
     Float4 color = image.read(coord);
     image.write(coord, color * 2.0f);
 };
 
 // 3D kernel - processes volumetric data
-Kernel3D kernel3d = [&](VolumeFloat volume) noexcept {
+Kernel3D kernel3d = [](VolumeFloat volume) noexcept {
     UInt3 coord = dispatch_id().xyz();
     // Process 3D volume data
 };
@@ -91,7 +91,7 @@ stream << shader2d(image).dispatch(width, height);
 // Set kernel name (for debugging)
 kernel1d.function_builder()->set_name("my_kernel");
 // Or using DSL sugar:
-Kernel2D kernel = [&]() noexcept {
+Kernel2D kernel = []() noexcept {
     set_name("my_kernel");
     // kernel body
 };
@@ -100,7 +100,7 @@ Kernel2D kernel = [&]() noexcept {
 ### Block Size Configuration
 
 ```cpp
-Kernel2D kernel = [&]() noexcept {
+Kernel2D kernel = []() noexcept {
     set_block_size(16u, 16u, 1u);  // 16x16 threads per block
     // kernel body
 };
@@ -116,19 +116,19 @@ Callables are reusable functions that can capture variables and be called from k
 
 ```cpp
 // Simple callable
-Callable add = [&](Var<int> a, Var<int> b) noexcept {
+Callable add = [](Var<int> a, Var<int> b) noexcept {
     a.set_name("a");  // Name parameters for debugging
     b.set_name("b");
     return a + b;
 };
 
 // Callable with explicit return type
-Callable<float(float, float)> multiply = [&](Var<float> a, Var<float> b) noexcept {
+Callable<float(float, float)> multiply = [](Var<float> a, Var<float> b) noexcept {
     return a * b;
 };
 
 // Template callable
-Callable<int(int, int)> add = [&]<typename T>(Var<T> a, Var<T> b) noexcept {
+Callable<int(int, int)> add = []<typename T>(Var<T> a, Var<T> b) noexcept {
     return cast<int>(a + b);
 };
 ```
@@ -140,17 +140,17 @@ Buffer<float> buffer = device.create_buffer<float>(1024);
 Buffer<float> another_buffer = device.create_buffer<float>(1024);
 
 // Callable captures 'buffer' automatically
-Callable c1 = [&](UInt a) noexcept {
+Callable c1 = [&buffer](UInt a) noexcept {
     return buffer->read(a);
 };
 
 // Callable c2 captures both c1's captures AND 'another_buffer'
-Callable c2 = [&](UInt b) noexcept {
+Callable c2 = [&c1, &another_buffer](UInt b) noexcept {
     return c1(b) + another_buffer->read(b);
 };
 
 // Kernel captures all callable captures transitively
-Kernel1D kernel = [&] {
+Kernel1D kernel = [&c2] {
     auto v = c2(dispatch_x());
     // ...
 };
@@ -160,12 +160,12 @@ Kernel1D kernel = [&] {
 
 ```cpp
 // Use compose() to return multiple values as a tuple
-Callable add_mul = [&](Var<int> a, Var<int> b) noexcept {
+Callable add_mul = [](Var<int> a, Var<int> b) noexcept {
     return compose(a + b, a * b);
 };
 
 // Unpack results
-Kernel1D kernel = [&] {
+Kernel1D kernel = [&add_mul] {
     Var am = add_mul(3, 4);
     Var sum = am.get<0>();      // 7
     Var product = am.get<1>();  // 12
@@ -215,7 +215,7 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
 };
 
 // Usage in kernel
-Kernel1D kernel = [&] {
+Kernel1D kernel = [&local_vec] {
     Var<Onb> onb = ...;
     Float3 world_vec = onb->to_world(local_vec);
 };
@@ -254,7 +254,7 @@ struct KeyValuePair {
 LUISA_TEMPLATE_STRUCT(LUISA_KEY_VALUE_PAIR_TEMPLATE, LUISA_KEY_VALUE_PAIR, key, value) {};
 
 // Usage
-Kernel1D kernel = [&] {
+Kernel1D kernel = [] {
     Var<KeyValuePair<int, float>> kvp{10, 3.14f};
     Var<int> k = kvp.key;
     Var<float> v = kvp.value;
@@ -264,7 +264,7 @@ Kernel1D kernel = [&] {
 ### Using Structs in Kernels
 
 ```cpp
-Kernel1D kernel = [&] {
+Kernel1D kernel = [] {
     // Default construction
     Var<Point3D> p1;
     
@@ -334,7 +334,7 @@ auto lz = 0_ulong2;       // Var<ulong2>
 ### Basic Buffer Operations
 
 ```cpp
-Kernel1D kernel = [&](BufferVar<float> buffer) noexcept {
+Kernel1D kernel = [&index, &new_value, &captured_buffer](BufferVar<float> buffer) noexcept {
     // Read from buffer
     Var<float> val = buffer.read(index);
     
@@ -349,7 +349,7 @@ Kernel1D kernel = [&](BufferVar<float> buffer) noexcept {
 ### Volatile Operations
 
 ```cpp
-Kernel1D kernel = [&](BufferVar<float> buffer, 
+Kernel1D kernel = [](BufferVar<float> buffer, 
                       BufferVar<int3> b0,
                       BufferVar<float4x4> b1,
                       Var<ByteBuffer> bb) noexcept {
@@ -369,7 +369,7 @@ Kernel1D kernel = [&](BufferVar<float> buffer,
 
 ```cpp
 // In kernel parameters
-Kernel1D kernel = [&](BufferVar<float> buf,           // Generic buffer
+Kernel1D kernel = [](BufferVar<float> buf,           // Generic buffer
                       BufferFloat float_buf,           // Typed buffer alias
                       BufferUInt uint_buf,             // Typed buffer alias
                       BufferVar<MyStruct> struct_buf   // Custom struct buffer
@@ -462,7 +462,7 @@ Atomic operations provide thread-safe concurrent memory access.
 ### Atomic Operations on Buffers
 
 ```cpp
-Kernel1D kernel = [&](BufferUInt counter_buffer) noexcept {
+Kernel1D kernel = [&buffer](BufferUInt counter_buffer) noexcept {
     // fetch_add: atomically add and return old value
     Var x = buffer->atomic(3u).fetch_add(1u);
     
@@ -527,7 +527,7 @@ Shared memory is fast on-chip memory shared among threads in a block.
 ### Shared Memory Declaration
 
 ```cpp
-Kernel1D kernel = [&]() noexcept {
+Kernel1D kernel = []() noexcept {
     // Allocate shared memory
     Shared<float4> shared_floats{16};  // 16 float4 elements
     Shared<float> shared_array{256};   // 256 float elements
@@ -541,7 +541,7 @@ Kernel1D kernel = [&]() noexcept {
 ### Atomic Operations on Shared Memory
 
 ```cpp
-Kernel1D kernel = [&]() noexcept {
+Kernel1D kernel = []() noexcept {
     Shared<float> s{16};
     
     // Atomic compare-exchange on shared memory
@@ -561,7 +561,7 @@ Constants are read-only data embedded in the shader.
 ### Constant Declaration
 
 ```cpp
-Kernel1D kernel = [&]() noexcept {
+Kernel1D kernel = []() noexcept {
     // Constant array from initializer list
     Constant float_consts = {1.0f, 2.0f};
     
@@ -581,7 +581,7 @@ Kernel1D kernel = [&]() noexcept {
 // Create constant outside kernel
 Constant float_consts = {1.0f, 2.0f};
 
-Kernel1D kernel = [&]() noexcept {
+Kernel1D kernel = [&float_consts]() noexcept {
     // Access captured constant
     Var<float> val = float_consts[0];
 };
@@ -594,7 +594,7 @@ Kernel1D kernel = [&]() noexcept {
 ### Explicit Casting
 
 ```cpp
-Kernel1D kernel = [&]() noexcept {
+Kernel1D kernel = [&buffer, &a, &b]() noexcept {
     Var<int> i = 10;
     Var<float> f = 3.14f;
     
@@ -610,7 +610,7 @@ Kernel1D kernel = [&]() noexcept {
 ### Method-style Casting
 
 ```cpp
-Kernel1D kernel = [&]() noexcept {
+Kernel1D kernel = []() noexcept {
     Var<int> i = 10;
     Var<float> f = i.cast<float>();  // Method syntax
 };
@@ -699,19 +699,19 @@ $for (x, 1) {  // Loop from 0 to count-1
 ### Dispatch IDs
 
 ```cpp
-Kernel1D kernel1d = [&]() noexcept {
+Kernel1D kernel1d = []() noexcept {
     // 1D dispatch ID
     UInt idx = dispatch_id().x;
     UInt x = dispatch_x();  // Shorthand
 };
 
-Kernel2D kernel2d = [&]() noexcept {
+Kernel2D kernel2d = []() noexcept {
     // 2D dispatch ID
     UInt2 coord = dispatch_id().xy();
     UInt2 size = dispatch_size().xy();
 };
 
-Kernel3D kernel3d = [&]() noexcept {
+Kernel3D kernel3d = []() noexcept {
     // 3D dispatch ID
     UInt3 coord = dispatch_id().xyz();
 };
@@ -720,7 +720,7 @@ Kernel3D kernel3d = [&]() noexcept {
 ### Thread IDs
 
 ```cpp
-Kernel1D kernel = [&]() noexcept {
+Kernel1D kernel = []() noexcept {
     // Thread ID within the block
     UInt tx = thread_id().x;
     UInt tx_shorthand = thread_x();
@@ -761,13 +761,13 @@ int main(int argc, char *argv[]) {
     Buffer<Particle> particles = device.create_buffer<Particle>(1024);
     
     // Define callable
-    Callable update_position = [&]($Particle p, $float dt) noexcept {
+    Callable update_position = []($Particle p, $float dt) noexcept {
         p.position = p.position + p.velocity * dt;
         return p;
     };
     
     // Define kernel
-    Kernel1D update_kernel = [&]($buffer<Particle> buf, $float dt) noexcept {
+    Kernel1D update_kernel = [&update_position]($buffer<Particle> buf, $float dt) noexcept {
         $ idx = dispatch_x();
         $ p = buf.read(idx);
         p = update_position(p, dt);
@@ -789,10 +789,10 @@ int main(int argc, char *argv[]) {
 
 | Feature | Syntax | Description |
 |---------|--------|-------------|
-| Kernel1D | `Kernel1D k = [&](...) { ... };` | 1D compute kernel |
-| Kernel2D | `Kernel2D k = [&](...) { ... };` | 2D compute kernel |
-| Kernel3D | `Kernel3D k = [&](...) { ... };` | 3D compute kernel |
-| Callable | `Callable c = [&](...) { ... };` | Reusable function |
+| Kernel1D | `Kernel1D k = [](...) { ... };` | 1D compute kernel |
+| Kernel2D | `Kernel2D k = [](...) { ... };` | 2D compute kernel |
+| Kernel3D | `Kernel3D k = [](...) { ... };` | 3D compute kernel |
+| Callable | `Callable c = [](...) { ... };` | Reusable function |
 | Struct | `LUISA_STRUCT(Name, m1, m2) {}` | Register struct |
 | Template Struct | `LUISA_TEMPLATE_STRUCT(...)` | Register template struct |
 | Variable | `Var<T> v` or `$T v` | DSL variable |

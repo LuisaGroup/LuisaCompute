@@ -1,3 +1,6 @@
+---
+name: glslang
+---
 # glslang SPIR-V Usage
 
 Khronos reference compiler SPIR-V components located in `src/ext/glslang/SPIRV`.
