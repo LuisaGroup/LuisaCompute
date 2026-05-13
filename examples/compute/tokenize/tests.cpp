@@ -132,7 +132,7 @@ static void test_file_builder() {
     };
     luisa::filesystem::path output = luisa::filesystem::temp_directory_path() / "tokenize_file_builder_test";
 
-    FileBuilder builder(paths, output, 2, 1.2, 0.75);
+    FileBuilder builder(paths, output, {}, {}, 2, 1.2, 0.75);
     check(!builder.empty(), "FileBuilder index not empty");
 
     auto results = builder.search("compute shader", 5);

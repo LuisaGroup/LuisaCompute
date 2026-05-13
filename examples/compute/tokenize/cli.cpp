@@ -9,9 +9,15 @@ using FunctionListType = luisa::unordered_map<
     luisa::string,
     luisa::move_only_function<luisa::string(cli::ArgumentList)>>;
 
-int run_cli() {
+int run_cli(int argc, char *argv[]) {
+    for (int i = 1; i < argc; ++i) {
+        if (luisa::string{argv[i]} == "--cache-path" && i + 1 < argc) {
+            cli::global_cache_path() = argv[++i];
+        } else if (luisa::string{argv[i]} == "--index-path" && i + 1 < argc) {
+            cli::global_index_path() = argv[++i];
+        }
+    }
     luisa::log_level_error();
-    std::cout << "Input:" << std::endl;
     luisa::fiber::scheduler global_scheduler;
     FunctionListType functions;
     functions.emplace("add_builder", cli::cmd_add_builder);

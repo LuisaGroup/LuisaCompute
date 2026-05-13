@@ -20,16 +20,24 @@ static constexpr uint8_t CACHE_VERSION = 1;
 
 FileBuilder::FileBuilder(luisa::vector<luisa::filesystem::path> paths,
                          luisa::filesystem::path output_path,
+                         luisa::filesystem::path cache_path,
+                         luisa::filesystem::path index_path,
                          int n,
                          double k1,
                          double b)
     : _paths(std::move(paths)),
       _output_path(std::move(output_path)),
+      _cache_path(std::move(cache_path)),
+      _index_path(std::move(index_path)),
       _n(n), _k1(k1), _b(b) {
-    _cache_path = _output_path;
-    _cache_path += ".cache";
-    _index_path = _output_path;
-    _index_path += ".index";
+    if (_cache_path.empty()) {
+        _cache_path = _output_path;
+        _cache_path += ".cache";
+    }
+    if (_index_path.empty()) {
+        _index_path = _output_path;
+        _index_path += ".index";
+    }
     _tokenizer = NgramTokenizer(_n);
     if (_cache_valid() && luisa::filesystem::exists(_index_path)) {
         if (_load_cache()) {
@@ -40,14 +48,227 @@ FileBuilder::FileBuilder(luisa::vector<luisa::filesystem::path> paths,
     _save_cache();
 }
 
+static bool _is_valid_utf8(const char *data, size_t len) {
+    size_t i = 0;
+    while (i < len) {
+        uint8_t c = static_cast<uint8_t>(data[i]);
+        if (c == 0) return false;
+        if (c < 0x80) {
+            ++i;
+        } else if (c < 0xC2) {
+            return false;
+        } else if (c < 0xE0) {
+            if (i + 1 >= len) return false;
+            uint8_t c1 = static_cast<uint8_t>(data[i + 1]);
+            if ((c1 & 0xC0) != 0x80) return false;
+            i += 2;
+        } else if (c < 0xF0) {
+            if (i + 2 >= len) return false;
+            uint8_t c1 = static_cast<uint8_t>(data[i + 1]);
+            uint8_t c2 = static_cast<uint8_t>(data[i + 2]);
+            if ((c1 & 0xC0) != 0x80) return false;
+            if ((c2 & 0xC0) != 0x80) return false;
+            if (c == 0xE0 && c1 < 0xA0) return false;
+            if (c == 0xED && c1 >= 0xA0) return false;
+            i += 3;
+        } else if (c < 0xF5) {
+            if (i + 3 >= len) return false;
+            uint8_t c1 = static_cast<uint8_t>(data[i + 1]);
+            uint8_t c2 = static_cast<uint8_t>(data[i + 2]);
+            uint8_t c3 = static_cast<uint8_t>(data[i + 3]);
+            if ((c1 & 0xC0) != 0x80) return false;
+            if ((c2 & 0xC0) != 0x80) return false;
+            if ((c3 & 0xC0) != 0x80) return false;
+            if (c == 0xF0 && c1 < 0x90) return false;
+            if (c == 0xF4 && c1 >= 0x90) return false;
+            i += 4;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool _has_text_extension(const luisa::filesystem::path &path) {
+    luisa::string ext = path.extension().string().c_str();
+    luisa::string fname = path.filename().string().c_str();
+    if (!ext.empty()) {
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    }
+    static const luisa::unordered_set<luisa::string> text_exts = {
+        ".txt", ".md", ".rst",
+        ".c", ".cpp", ".h", ".hpp", ".cc", ".cxx", ".c++", ".inl", ".inc",
+        ".py", ".pyw", ".pyi",
+        ".java",
+        ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs",
+        ".json", ".jsonc", ".json5", ".xml", ".yaml", ".yml", ".toml",
+        ".html", ".htm", ".xhtml", ".css", ".scss", ".sass", ".less", ".styl",
+        ".sh", ".bash", ".zsh", ".fish", ".ps1", ".bat", ".cmd",
+        ".ini", ".cfg", ".conf", ".config", ".env", ".properties",
+        ".log", ".csv", ".tsv",
+        ".tex", ".latex", ".bib",
+        ".lua", ".rb", ".gemspec", ".rake",
+        ".go", ".rs", ".swift", ".kt", ".kts",
+        ".scala", ".sc", ".r", ".m", ".mm", ".pl", ".pm", ".php", ".phtml",
+        ".asp", ".aspx", ".jsp", ".vue", ".svelte", ".astro",
+        ".sql", ".ddl", ".dml",
+        ".cmake", ".make", ".mk",
+        ".dockerfile", ".containerfile",
+        ".gitignore", ".gitattributes", ".gitmodules", ".gitconfig",
+        ".editorconfig", ".eslintrc", ".prettierrc", ".babelrc", ".stylelintrc",
+        ".npmignore", ".nvmrc", ".node-version", ".python-version", ".ruby-version",
+        ".htaccess", ".nginx", ".apache",
+        ".awk", ".sed", ".man", ".org", ".adoc", ".asciidoc", ".pod", ".rd",
+        ".gradle", ".sbt", ".clj", ".cljs", ".erl", ".hrl", ".ex", ".exs",
+        ".fs", ".fsx", ".ml", ".mli", ".hs", ".lhs", ".jl", ".nim", ".d",
+        ".cr", ".v", ".sv", ".svh", ".vhd", ".vhdl", ".tf", ".tfvars", ".hcl",
+        ".proto", ".capnp", ".thrift",
+        ".graphql", ".gql", ".prisma", ".dart", ".groovy", ".jenkinsfile",
+        ".pp", ".puppet", ".wdl", ".cwl", ".snakemake", ".smk",
+        ".nextflow", ".nf",
+        ".cs", ".csx", ".vb", ".fsi", ".nuspec", ".csproj", ".vbproj", ".sln",
+        ".xaml", ".resx", ".plist", ".storyboard", ".xcconfig",
+        ".ipynb", ".rmd", ".rnw", ".roxygen",
+        ".sage", ".pyx", ".pxd", ".pxi",
+        ".tcl", ".tk",
+        ".cob", ".cbl", ".cpy", ".f", ".for", ".f90", ".f95", ".f03", ".f08",
+        ".pas", ".pp", ".dpr", ".lpr", ".ada", ".adb", ".ads",
+        ".zig", ".zon", ".vsh", ".fsh", ".glsl", ".hlsl", ".cg", ".cginc",
+        ".shader", ".compute", ".cu", ".cuh", ".hip", ".cl", ".metal",
+        ".ispc", ".isph",
+        ".ll", ".bc", ".mlir",
+        ".asm", ".s", ".nasm", ".masm",
+        ".qml", ".qbs", ".pro", ".pri",
+        ".sas", ".sps",
+        ".thy", ".sml", ".sig", ".fun", ".cm",
+        ".rkt", ".ss", ".scm", ".sch", ".sls", ".sld", ".lsp", ".lisp", ".el", ".emacs", ".vim",
+        ".eex", ".leex", ".heex",
+        ".elm", ".pure", ".idris", ".idr", ".lidr", ".agda", ".lagda",
+        ".coq", ".lean", ".lean4", ".hlean",
+        ".rules", ".bzl", ".bazelrc", ".bazelversion", ".star",
+        ".gn", ".gni", ".mojom", ".idl", ".midl",
+        ".fbs", ".flatbuffers", ".pbtxt", ".textproto",
+        ".graphqls", ".sdl", ".schema",
+        ".buck", ".buckconfig", ".fx",
+        ".repo", ".manifest", ".mf",
+        ".pom", ".ivy",
+        ".pubxml", ".suo", ".user",
+        ".axaml", ".resw", ".resources",
+        ".strings", ".pbxproj", ".podspec", ".podfile", ".cartfile",
+        ".gemfile", ".rakefile", ".irbrc", ".pryrc", ".ruby-gemset",
+        ".gemrc", ".railsrc", ".simplecov", ".yardopts",
+        ".phpunit", ".phpcs", ".php_cs", ".phpstan", ".psalm",
+        ".composer", ".hhconfig",
+        ".drupal", ".theme", ".install", ".profile",
+        ".perl", ".t", ".al", ".cgi", ".plx",
+        ".xs", ".xsc",
+        ".di", ".ddoc", ".sdl",
+        ".purs", ".dhall", ".nix", ".nixexpr", ".cabal", ".project", ".freeze",
+        ".hpack", ".package.yaml", ".stack.yaml",
+        ".opam", ".dune", ".dune-project", ".jbuild", ".merlin",
+        ".mll", ".mly", ".mlpack", ".odocl",
+        ".elmx", ".ports",
+        ".ipkg", ".ibc",
+        ".agda-lib",
+        ".olean",
+        ".ML", ".grm",
+        ".rprofile", ".renviron",
+        ".i", ".ii", ".mi", ".mii",
+        ".opt", ".air",
+        ".vert", ".frag", ".geom", ".tesc", ".tese", ".comp",
+        ".rgen", ".rmiss", ".rchit", ".rahit", ".rint", ".rcall",
+        ".mak", ".nmake", ".gmake",
+        ".dockerignore", ".npmrc", ".yarnrc", ".pnpmfile",
+        ".jshintrc", ".jscsrc", ".jsbeautifyrc",
+    };
+    if (!ext.empty() && text_exts.contains(ext)) return true;
+
+    static const luisa::unordered_set<luisa::string> known_names = {
+        "Makefile", "makefile", "GNUmakefile",
+        "CMakeLists.txt",
+        "Dockerfile", "dockerfile", "Containerfile", "containerfile",
+        "Dockerfile.prod", "Dockerfile.dev",
+        "docker-compose.yml", "docker-compose.yaml",
+        "README", "README.md", "README.txt", "README.rst",
+        "LICENSE", "LICENSE.txt", "LICENSE.md",
+        "CHANGELOG", "CHANGELOG.md", "CHANGELOG.txt",
+        "AUTHORS", "AUTHORS.txt", "CONTRIBUTORS", "CONTRIBUTORS.txt",
+        "TODO", "TODO.txt", "NOTES", "NOTES.txt",
+        "INSTALL", "INSTALL.txt", "COPYING", "COPYING.txt", "NEWS", "NEWS.txt",
+        "CITATIONS", "CODE_OF_CONDUCT", "CONTRIBUTING", "SECURITY", "SUPPORT", "FAQ",
+        "Jenkinsfile", "jenkinsfile", "Vagrantfile", "Rakefile", "Gemfile", "Guardfile",
+        "Berksfile", "Capfile", "Cheffile", "Doxyfile",
+        "Procfile", "Procfile.dev",
+        "build.gradle", "settings.gradle", "gradlew", "gradlew.bat",
+        "pom.xml", "build.xml", "ivy.xml",
+        "CMakeCache.txt",
+        "configure", "configure.ac", "Makefile.am", "Makefile.in", "aclocal.m4", "config.h.in",
+        "meson.build", "meson_options.txt",
+        "BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel",
+        "SConstruct", "SConscript",
+        "wscript", "setup.py", "setup.cfg", "pyproject.toml", "requirements.txt", "Pipfile", "Pipfile.lock",
+        "tox.ini", "pytest.ini",
+        "Cargo.toml", "Cargo.lock", "rustfmt.toml", "clippy.toml",
+        "stack.yaml", "package.yaml", "cabal.project", "cabal.config",
+        "pubspec.yaml", "pubspec.lock", "analysis_options.yaml",
+        "Package.swift", "Package.resolved",
+        "go.mod", "go.sum", "go.work",
+        "composer.json", "composer.lock",
+        "config.ru",
+        "build.boot", "build.cljs", "deps.edn", "shadow-cljs.edn",
+        "project.clj",
+        "Info.plist", "Entitlements.plist",
+        ".gitignore", ".gitattributes", ".gitmodules", ".gitconfig", ".gitkeep",
+        ".editorconfig", ".env", ".env.local", ".env.example",
+        ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.yaml", ".eslintrc.yml",
+        ".prettierrc", ".prettierrc.json", ".prettierrc.js", ".prettierrc.yaml", ".prettierrc.yml", ".prettierrc.toml",
+        ".babelrc", ".babelrc.json", ".babelrc.js",
+        ".postcssrc", ".postcssrc.json", ".postcssrc.js", ".postcssrc.yaml", ".postcssrc.yml",
+        ".stylelintrc", ".stylelintrc.json", ".stylelintrc.js", ".stylelintrc.yaml", ".stylelintrc.yml",
+        ".npmignore", ".nvmrc", ".node-version", ".python-version", ".ruby-version", ".tool-versions",
+        ".htaccess", ".htpasswd",
+        ".yardopts", ".rspec", ".simplecov", ".pryrc", ".irbrc", ".railsrc",
+        ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile",
+        ".zshrc", ".zprofile", ".zlogin", ".zlogout",
+        ".vimrc", ".gvimrc", ".exrc", ".nvimrc", ".ideavimrc",
+        ".tmux.conf", ".screenrc", ".inputrc", ".wgetrc", ".curlrc", ".netrc", ".my.cnf",
+        ".Xresources", ".Xdefaults", ".xinitrc", ".xsession", ".xsessionrc",
+        ".mailcap", ".mime.types", ".muttrc", ".fetchmailrc", ".procmailrc",
+        ".quiltrc", ".ackrc", ".agignore", ".rgignore", ".fdignore", ".ignore",
+        ".dockerignore", ".eslintignore", ".prettierignore", ".stylelintignore", ".coffeelintignore",
+        ".gruntfile", ".gulpfile",
+        ".clang-format", ".clang-tidy", ".clangd",
+        ".luacheckrc", ".stylua.toml", ".selene.toml", ".luarc.json",
+        ".scalafmt.conf", ".scalariform.conf",
+        ".scalafix.conf", ".scala-steward.conf",
+        ".kotlin-version", ".ktlint", ".detekt",
+        ".swift-version", ".swiftformat", ".swiftlint.yml",
+        ".golangci.yml", ".golangci.yaml", ".go-version",
+        ".rustfmt.toml", ".rust-toolchain", ".rust-toolchain.toml",
+        ".perltidyrc", ".perlcriticrc",
+        ".pylintrc", ".flake8", ".black", ".isort.cfg", ".mypy.ini", "mypy.ini", ".bandit",
+        ".coveragerc",
+        ".dir-locals.el", ".projectile", ".ccls", ".ccls-root", "compile_commands.json",
+        ".astylerc", ".uncrustify.cfg", ".indent.pro",
+        ".git-blame-ignore", ".git-for-windows-updater", ".git-prompt.sh",
+        ".mailmap", ".mention-bot", ".pullapprove.yml", ".mergify.yml", ".dependabot.yml", ".renovaterc", ".renovaterc.json",
+    };
+    return known_names.contains(fname);
+}
+
 bool FileBuilder::_is_text_file(const luisa::filesystem::path &path) const {
+    if (!_has_text_extension(path)) return false;
+
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
+
     char buf[8192];
-    f.read(buf, sizeof(buf));
-    auto n = f.gcount();
-    for (std::streamsize i = 0; i < n; ++i) {
-        if (buf[i] == '\0') return false;
+    while (f.read(buf, sizeof(buf)) || f.gcount() > 0) {
+        auto n = f.gcount();
+        if (!_is_valid_utf8(buf, static_cast<size_t>(n))) {
+            return false;
+        }
     }
     return true;
 }

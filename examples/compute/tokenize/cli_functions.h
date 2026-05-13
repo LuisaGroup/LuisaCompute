@@ -39,6 +39,16 @@ inline vstd::HashMap<uint64_t> &builder_handles() {
     return instance;
 }
 
+inline luisa::filesystem::path &global_cache_path() {
+    static luisa::filesystem::path instance;
+    return instance;
+}
+
+inline luisa::filesystem::path &global_index_path() {
+    static luisa::filesystem::path instance;
+    return instance;
+}
+
 inline luisa::string make_builder_key(const luisa::vector<luisa::filesystem::path> &paths) {
     luisa::vector<luisa::string> canonicals;
     canonicals.reserve(paths.size());
@@ -68,21 +78,36 @@ inline luisa::filesystem::path make_output_path(const luisa::string &key) {
 inline luisa::string cmd_add_builder(ArgumentList args) {
     if (args.empty()) return luisa::string{"error: missing paths"};
 
-    luisa::vector<luisa::filesystem::path> paths;
-    paths.reserve(args.size());
-    for (auto &a : args) {
-        paths.emplace_back(a);
+    int n = 2;
+    double k1 = 1.2;
+    double b = 0.75;
+    size_t path_count = args.size();
+    if (args.size() >= 4) {
+        if (parse_i32(args[args.size() - 3], n) &&
+            parse_f64(args[args.size() - 2], k1) &&
+            parse_f64(args[args.size() - 1], b)) {
+            path_count = args.size() - 3;
+        }
     }
 
-    if (paths.empty()) return luisa::string{"error: empty paths"};
+    if (path_count == 0) return luisa::string{"error: empty paths"};
+
+    luisa::vector<luisa::filesystem::path> paths;
+    paths.reserve(path_count);
+    for (size_t i = 0; i < path_count; ++i) {
+        paths.emplace_back(args[i]);
+    }
 
     auto key = make_builder_key(paths);
     auto &g_builders = builders();
     auto idx_builder = g_builders.find(key);
     if (!idx_builder) {
         auto out_path = make_output_path(key);
+        auto cache_path = global_cache_path();
+        auto index_path = global_index_path();
         idx_builder = g_builders.emplace(
-            key, std::move(paths), std::move(out_path), 2, 1.2, 0.75);
+            key, std::move(paths), std::move(out_path),
+            std::move(cache_path), std::move(index_path), n, k1, b);
     }
 
     auto *builder = &idx_builder.value();
@@ -157,7 +182,7 @@ inline luisa::string cmd_search(ArgumentList args) {
     sb.append(luisa::format("result count: {}\n", results.size()));
     for (auto &r : results) {
         sb.append("[score=");
-        sb << luisa::format("{:2f}", r.score);
+        sb << luisa::format("{:.2f}", r.score);
         sb.append(", path=");
         sb.append(r.path);
         sb.append(", line=");

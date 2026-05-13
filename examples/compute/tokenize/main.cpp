@@ -16,5 +16,5 @@ int main(int argc, char *argv[]) {
         return run_tests(argc, argv);
     }
     // otherwise run interactive CLI
-    return run_cli();
+    return run_cli(argc, argv);
 }

@@ -20,6 +20,8 @@ class FileBuilder {
 public:
     FileBuilder(luisa::vector<luisa::filesystem::path> paths,
                 luisa::filesystem::path output_path,
+                luisa::filesystem::path cache_path = {},
+                luisa::filesystem::path index_path = {},
                 int n = 2,
                 double k1 = 1.2,
                 double b = 0.75);

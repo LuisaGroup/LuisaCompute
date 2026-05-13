@@ -37,7 +37,7 @@ def read_response(proc, timeout=30):
 
 def main():
     proc = subprocess.Popen(
-        ["xmake", "run", "tokenizer"],
+        ['xmake', 'run', "tokenizer"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -47,13 +47,8 @@ def main():
     )
 
     try:
-        # Read initial prompt
-        init_line = proc.stdout.readline()
-        if init_line:
-            print(f"[TEST] stdout <- {init_line.rstrip()}")
-
         # Step 1: add_builder with .agents/ dir
-        send_command(proc, "add_builder", ["../../.agents/"])
+        send_command(proc, "add_builder", ["../../.agents/", "2", "1.2", "0.75"])
         handle_str = read_response(proc)
         if not handle_str or handle_str.startswith("error"):
             log_error(f"add_builder failed: {handle_str}")
