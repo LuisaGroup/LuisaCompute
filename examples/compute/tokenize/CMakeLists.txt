@@ -22,3 +22,5 @@ target_include_directories(tokenizer PRIVATE
     ${CMAKE_SOURCE_DIR}/src/tests/
     ${CMAKE_SOURCE_DIR}/examples/
 )
+
+target_link_libraries(tokenizer PRIVATE luisa-compute-ext-yyjson-interface)

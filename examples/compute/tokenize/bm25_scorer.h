@@ -14,7 +14,7 @@ public:
     BM25Scorer(const InvertedIndex &index, double k1 = 1.2, double b = 0.75);
     BM25Scorer(const BM25Scorer &other);
     BM25Scorer &operator=(const BM25Scorer &other);
-    BM25Scorer(BM25Scorer &&other) = default;
+    BM25Scorer(BM25Scorer &&other) = delete;
     BM25Scorer &operator=(BM25Scorer &&other) = default;
     ~BM25Scorer();
 

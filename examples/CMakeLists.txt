@@ -53,7 +53,6 @@ endif ()
 
 # compute (headless)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp)
-add_subdirectory(compute/tokenize)
 
 # --- GUI toolkit integration examples (wxWidgets, Qt) ---
 
