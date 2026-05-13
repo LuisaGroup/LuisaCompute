@@ -11,6 +11,7 @@
 #include "phonetic.h"
 #include "porter_stemmer.h"
 #include "levenshtein_automaton.h"
+#include "file_builder.h"
 #include <luisa/core/logging.h>
 #include <luisa/core/platform.h>
 #include <luisa/luisa-compute.h>
@@ -131,6 +132,31 @@ static void test_cpu(const InvertedIndex &index) {
     check(cosine_similarity_tfidf(va, vb) > 0, "cosine similarity");
 }
 
+static void test_file_builder() {
+    std::cout << "\n=== FileBuilder Tests ===\n";
+
+    // Use the current example source directory as input
+    auto exe = luisa::filesystem::path(luisa::compute::current_executable_path());
+    auto project_root = exe.parent_path().parent_path().parent_path();
+    luisa::vector<luisa::filesystem::path> paths = {
+        project_root / "examples" / "compute" / "tokenize"
+    };
+    luisa::filesystem::path output = luisa::filesystem::temp_directory_path() / "tokenize_file_builder_test";
+
+    FileBuilder builder(paths, output, 2, 1.2, 0.75);
+    check(!builder.empty(), "FileBuilder index not empty");
+
+    auto results = builder.search("compute shader", 5);
+    check(!results.empty(), "FileBuilder search returns results");
+
+    auto results2 = builder.search("tokenize", 5, false, 0.5, true, true, true, false);
+    check(!results2.empty(), "FileBuilder search with string similarity");
+
+    // Update should succeed without crashing
+    builder.update();
+    check(true, "FileBuilder update succeeds");
+}
+
 static bool backend_available(luisa::string_view backend) {
     luisa::compute::Context ctx(luisa::compute::current_executable_path().c_str());
     for (auto &b : ctx.installed_backends()) {
@@ -247,6 +273,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Index built: N={}, avgdl={}", index.N(), index.avgdl());
 
     test_cpu(index);
+    test_file_builder();
 
     luisa::vector<luisa::string_view> gpu_backends;
     if (argc > 1) {

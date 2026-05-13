@@ -19,6 +19,7 @@ This skill documents the usage patterns for the LuisaCompute core library based 
 9. [Mathematics](#mathematics)
 10. [Pool Allocator](#pool-allocator)
 11. [Fiber](#fiber)
+12. [STL Containers & Utilities](#stl-containers--utilities)
 
 ---
 
@@ -328,7 +329,9 @@ float4x4 m4b = make_float4x4(
 
 ## Binary File Stream
 
-**Header**: `<luisa/core/binary_file_stream.h>`
+**Header**: `<luisa/core/binary_file_stream.h>` (or `include\luisa\core\binary_file_stream.h`)
+
+> **Important**: Do not use `std::ifstream` directly. Always use `luisa::BinaryFileStream` first for binary file I/O in LuisaCompute.
 
 Read-only binary file streaming with seeking support.
 
@@ -922,7 +925,7 @@ luisa::fiber::parallel(1000, [](uint32_t i) noexcept {}, /*internal_jobs=*/10);
 ### Iterator Parallel For
 
 ```cpp
-std::vector<int> data(1000);
+luisa::vector<int> data(1000);
 
 // Blocking iterator parallel for
 luisa::fiber::parallel(data.begin(), data.end(), 64,
@@ -954,6 +957,298 @@ uint32_t n = luisa::fiber::worker_thread_count();
 
 ---
 
+## STL Containers & Utilities
+
+**Location**: `include/luisa/core/stl/`
+
+LuisaCompute provides a wrapper STL layer that uses either the system STL (`std::`) or EASTL (`eastl::`) depending on the `LUISA_USE_SYSTEM_STL` macro. All types are placed in the `luisa` namespace.
+
+### Memory & Allocation
+
+**Header**: `<luisa/core/stl/memory.h>`
+
+```cpp
+// Custom allocator (uses Luisa's internal allocator by default)
+luisa::allocator<T> alloc;
+
+// Size literals
+auto sz1 = 64_k;       // 65536
+auto sz2 = 16_M;       // 16777216
+auto sz3 = 2_G;        // 2147483648
+
+// Smart pointers (same API as std)
+luisa::unique_ptr<T> up = luisa::make_unique<T>(args...);
+luisa::shared_ptr<T> sp = luisa::make_shared<T>(args...);
+luisa::weak_ptr<T> wp = sp;
+
+// Span
+luisa::span<T> s(data, count);
+luisa::span<const T> cs = vec;
+
+// Raw allocation helpers
+T* p = luisa::allocate_with_allocator<T>(n);
+luisa::deallocate_with_allocator(p);
+T* obj = luisa::new_with_allocator<T>(args...);
+luisa::delete_with_allocator(obj);
+
+// Bit cast
+auto u = luisa::bit_cast<uint32_t>(3.14f);
+```
+
+### Strings
+
+**Header**: `<luisa/core/stl/string.h>`
+
+```cpp
+luisa::string s = "hello";
+luisa::u8string u8s = u8"hello";
+luisa::wstring ws = L"hello";
+
+// String views (from std)
+std::string_view sv = s;
+
+// String hash (for unordered containers)
+luisa::string_hash h;
+uint64_t hash = h("hello");
+```
+
+**Header**: `<luisa/core/stl/format.h>`
+
+```cpp
+// Format strings
+luisa::string s = luisa::format("Value: {}, {}", 42, 3.14);
+
+// Format vector/matrix types
+auto s2 = luisa::to_string(float3(1.0f, 2.0f, 3.0f));
+
+// Hash to hex string
+auto hex = luisa::hash_to_string(0x1234ABCD);
+```
+
+### Containers
+
+**Header**: `<luisa/core/stl/vector.h>`
+
+```cpp
+luisa::vector<int> vec = {1, 2, 3};
+vec.push_back(4);
+
+// Fixed-capacity vector
+luisa::fixed_vector<int, 64> fvec;
+
+// Bit vector
+luisa::bitvector bits(100);
+
+// Utility functions
+auto* raw = luisa::enlarge_by(vec, 10);    // Push 10 uninitialized elements, return pointer to first new
+luisa::vector_resize(vec, 100);             // Resize (uninitialized in EASTL mode)
+size_t bytes = luisa::size_bytes(vec);      // Total byte size
+```
+
+**Header**: `<luisa/core/stl/unordered_map.h>`
+
+```cpp
+// Dense hash map (default, faster than std::unordered_map)
+luisa::unordered_map<string, int> map;
+map.emplace("key", 42);
+luisa::unordered_set<int> set;
+```
+
+**Header**: `<luisa/core/stl/map.h>`
+
+```cpp
+luisa::map<string, int> omap;
+luisa::set<int> oset;
+luisa::multimap<string, int> mm;
+luisa::multiset<int> ms;
+```
+
+**Header**: `<luisa/core/stl/fixed_map.h>`
+
+```cpp
+// Fixed-capacity containers (fallback to std when using system STL)
+luisa::fixed_map<int, string, 64> fmap;
+luisa::fixed_set<int, 64> fset;
+luisa::fixed_unordered_map<int, string, 64> fumap;
+luisa::fixed_unordered_set<int, 64> fus;
+luisa::fixed_multimap<int, string, 64> fmm;
+luisa::fixed_multiset<int, 64> fms;
+```
+
+**Header**: `<luisa/core/stl/vector_map.h>`
+
+```cpp
+// Sorted vector-based map/set (better cache locality for small sets)
+luisa::vector_map<int, string> vm;
+luisa::vector_set<int> vs;
+luisa::vector_multimap<int, string> vmm;
+luisa::vector_multiset<int> vms;
+```
+
+**Header**: `<luisa/core/stl/deque.h>`, `<luisa/core/stl/queue.h>`, `<luisa/core/stl/stack.h>`, `<luisa/core/stl/priority_queue.h>`
+
+```cpp
+luisa::deque<int> dq;
+luisa::queue<int> q;
+luisa::stack<int> st;
+luisa::priority_queue<int> pq;
+```
+
+**Header**: `<luisa/core/stl/list.h>`
+
+```cpp
+luisa::list<int> lst;
+luisa::forward_list<int> flst;
+luisa::fixed_list<int, 64> fl;
+luisa::fixed_forward_list<int, 64> ffl;
+```
+
+**Header**: `<luisa/core/stl/ring_buffer.h>` (EASTL only)
+
+```cpp
+luisa::ring_buffer<int> rb;
+luisa::fixed_ring_buffer<int, 64> frb;
+```
+
+**Header**: `<luisa/core/stl/lru_cache.h>`
+
+```cpp
+// Simple LRU cache
+luisa::lru_cache<string, int> cache(100);
+cache.emplace("key", 42);
+auto val = cache.at("key");     // luisa::optional<int>
+cache.touch("key");             // Move to front
+
+// Thread-safe LRU cache
+auto tc = luisa::LRUCache<string, int>::create(100);
+tc->set_delete_callback([](const int &v) { /* cleanup */ });
+auto v = tc->fetch("key");      // luisa::optional<int>
+tc->update("key", 42);
+```
+
+### Optional & Variant
+
+**Header**: `<luisa/core/stl/optional.h>`
+
+```cpp
+luisa::optional<int> opt = 42;
+if (opt) { int v = *opt; }
+auto n = luisa::nullopt;
+auto o2 = luisa::make_optional(3.14);
+```
+
+**Header**: `<luisa/core/stl/variant.h>`
+
+```cpp
+luisa::variant<int, float, string> v = 3.14f;
+if (luisa::holds_alternative<float>(v)) { ... }
+auto f = luisa::get<float>(v);
+auto p = luisa::get_if<int>(&v);
+luisa::visit([](auto &&x) { ... }, v);
+```
+
+### Functional
+
+**Header**: `<luisa/core/stl/functional.h>`
+
+```cpp
+// Function wrappers
+luisa::function<void(int)> fn = [](int x) {};
+luisa::move_only_function<void(int)> mfn = [p = make_unique<int>()](int x) {};
+
+// Comparison functors
+luisa::less<> lt;
+luisa::equal_to<> eq;
+luisa::greater<> gt;
+
+// Overloaded visitor helper
+auto visitor = luisa::make_overloaded(
+    [](int i) { return "int"; },
+    [](float f) { return "float"; }
+);
+
+// Lazy construction
+auto obj = luisa::lazy_construct([] { return make_unique<Resource>(); });
+
+// Scope guard (EASTL only)
+auto guard = luisa::make_finally([] { cleanup(); });
+```
+
+### Hashing
+
+**Header**: `<luisa/core/stl/hash.h>`
+
+```cpp
+// Generic hash value
+uint64_t h = luisa::hash_value(42);
+uint64_t h2 = luisa::hash_value("hello");
+
+// Combine hashes
+uint64_t hc = luisa::hash_combine({h1, h2, h3});
+
+// 128-bit hash
+luisa::Hash128 h128 = luisa::hash128(data, size, seed);
+luisa::string s = h128.to_string();
+```
+
+### Iterators & Ranges
+
+**Header**: `<luisa/core/stl/iterator.h>`
+
+```cpp
+// Numeric range (like Python range)
+for (auto i : luisa::range(10)) { }           // 0..9
+for (auto i : luisa::range(2, 10)) { }        // 2..9
+for (auto i : luisa::range(0, 10, 2)) { }    // 0,2,4,6,8
+
+// Equivalent factory functions
+auto r1 = luisa::make_range(10);
+auto r2 = luisa::make_range(2, 10, 2);
+```
+
+### Algorithms
+
+**Header**: `<luisa/core/stl/algorithm.h>`
+
+```cpp
+// Pattern-defeating quicksort (default sort in luisa)
+luisa::sort(vec.begin(), vec.end());
+luisa::sort(vec.begin(), vec.end(), luisa::greater<>{});
+
+// Also available: pdqsort directly
+#include <luisa/core/stl/pdqsort.h>
+pdqsort(vec.begin(), vec.end());
+pdqsort_branchless(vec.begin(), vec.end());
+
+// Standard algorithms
+luisa::transform(a.begin(), a.end(), b.begin(), op);
+bool found = luisa::binary_search(vec.begin(), vec.end(), val);
+```
+
+### Filesystem
+
+**Header**: `<luisa/core/stl/filesystem.h>`
+
+```cpp
+luisa::filesystem::path p = "/some/path";
+luisa::string s = luisa::to_string(p);
+```
+
+### String Streams
+
+**Header**: `<luisa/core/stl/sstream.h>`
+
+```cpp
+luisa::stringstream ss;
+ss << "value = " << 42;
+luisa::string s = ss.str();
+
+luisa::ostringstream oss;
+luisa::istringstream iss("42 3.14");
+```
+
+---
+
 ## Summary Table
 
 | Component | Header | Key Classes/Functions |
@@ -970,3 +1265,12 @@ uint32_t n = luisa::fiber::worker_thread_count();
 | Mathematics | `<luisa/core/mathematics.h>` | `sin()`, `dot()`, `normalize()`, `transpose()`, `inverse()`, `lerp()`, `clamp()` |
 | Pool | `<luisa/core/pool.h>` | `Pool<T>::allocate()`, `create()`, `destroy()` |
 | Fiber | `<luisa/core/fiber.h>` | `scheduler`, `schedule()`, `async()`, `parallel()`, `async_parallel()`, `event`, `counter` |
+| STL Memory | `<luisa/core/stl/memory.h>` | `allocator`, `unique_ptr`, `shared_ptr`, `span`, `make_unique`, `make_shared` |
+| STL String | `<luisa/core/stl/string.h>` | `string`, `string_hash`, `u8string`, `wstring` |
+| STL Vector | `<luisa/core/stl/vector.h>` | `vector`, `fixed_vector`, `bitvector`, `enlarge_by`, `vector_resize` |
+| STL Map | `<luisa/core/stl/unordered_map.h>` | `unordered_map`, `unordered_set` |
+| STL Algorithm | `<luisa/core/stl/algorithm.h>` | `sort`, `transform`, `binary_search` |
+| STL Format | `<luisa/core/stl/format.h>` | `format`, `to_string`, `hash_to_string` |
+| STL Functional | `<luisa/core/stl/functional.h>` | `function`, `move_only_function`, `overloaded`, `lazy_construct` |
+| STL Hash | `<luisa/core/stl/hash.h>` | `hash_value`, `hash_combine`, `Hash128` |
+| STL LRU Cache | `<luisa/core/stl/lru_cache.h>` | `lru_cache`, `LRUCache` |
