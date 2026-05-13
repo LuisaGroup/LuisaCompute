@@ -18,7 +18,7 @@ double dcg(const luisa::vector<double> &scores) {
 
 double ideal_dcg(const luisa::vector<double> &scores) {
     auto sorted = scores;
-    std::sort(sorted.begin(), sorted.end(), std::greater<double>());
+    luisa::sort(sorted.begin(), sorted.end(), std::greater<double>());
     return dcg(sorted);
 }
 
@@ -101,7 +101,7 @@ luisa::vector<std::pair<int, double>> LambdaMART::rank(const luisa::vector<std::
     luisa::vector<std::pair<int, double>> result;
     result.reserve(scores.size());
     for (size_t i = 0; i < scores.size(); ++i) result.emplace_back(ids[i], scores[i]);
-    std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
+    luisa::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
         return a.second > b.second || (a.second == b.second && a.first < b.first);
     });
     return result;

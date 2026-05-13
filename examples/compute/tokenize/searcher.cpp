@@ -6,7 +6,6 @@ namespace tokenize {
 
 Searcher::Searcher(const InvertedIndex &index,
                    const NgramTokenizer *tokenizer,
-                   const BM25Scorer *scorer,
                    double k1,
                    double b,
                    double min_should_match,
@@ -15,7 +14,7 @@ Searcher::Searcher(const InvertedIndex &index,
                    int prefix_length)
     : _index(index),
       _tokenizer(tokenizer ? *tokenizer : NgramTokenizer()),
-      _scorer(scorer ? *scorer : BM25Scorer(index, k1, b)),
+      _scorer(index, k1, b),
       _k1(k1), _b(b),
       _min_should_match(min_should_match),
       _fuzziness(std::move(fuzziness)),
@@ -74,7 +73,10 @@ luisa::vector<luisa::string> Searcher::expand_token(luisa::string_view token) {
     return result;
 }
 
-luisa::vector<std::pair<int, double>> Searcher::search(luisa::string_view query, int top_k) {
+luisa::vector<std::pair<int, double>> Searcher::search(
+    luisa::compute::Device &device,
+    luisa::compute::Stream &stream,
+    luisa::string_view query, int top_k) {
     if (_index.N() == 0) return {};
 
     auto query_tokens = _tokenizer.tokenize(query);
@@ -103,87 +105,11 @@ luisa::vector<std::pair<int, double>> Searcher::search(luisa::string_view query,
     }
     if (hits < min_match) return {};
 
-    // Parallel posting intersection with thread-local doc counts
-    luisa::unordered_set<int> *candidate_docs_ptr = nullptr;
-    luisa::unordered_set<int> candidate_docs;
-    if (min_match > 1 || (_index.N() > 50000 && min_match >= 1)) {
-        struct LocalCounts {
-            luisa::unordered_map<int, int> counts;
-        };
-        luisa::vector<LocalCounts> locals;
-        luisa::fiber::mutex mtx;
-
-        luisa::fiber::parallel(static_cast<uint32_t>(token_expansions.size()), [&](uint32_t begin, uint32_t end) noexcept {
-            LocalCounts local;
-            for (uint32_t idx = begin; idx < end; ++idx) {
-                const auto &expanded = token_expansions[idx];
-                if (expanded.empty()) continue;
-                luisa::vector<luisa::span<const int>> all_docs;
-                for (const auto &t : expanded) {
-                    auto p = _index.get_postings(t);
-                    if (p) all_docs.push_back(p->docs);
-                }
-                if (all_docs.empty()) continue;
-                size_t total_len = 0;
-                for (const auto &sp : all_docs) total_len += sp.size();
-                if (total_len > 512 || expanded.size() > 2) {
-                    luisa::vector<int> concat;
-                    concat.reserve(total_len);
-                    for (const auto &sp : all_docs) {
-                        for (int d : sp) concat.push_back(d);
-                    }
-                    std::sort(concat.begin(), concat.end());
-                    int prev = -1;
-                    for (int d : concat) {
-                        if (d == prev) continue;
-                        prev = d;
-                        auto it = local.counts.find(d);
-                        if (it == local.counts.end()) local.counts.emplace(d, 1);
-                        else ++(it->second);
-                    }
-                } else {
-                    luisa::unordered_set<int> seen_docs;
-                    for (const auto &sp : all_docs) {
-                        for (int d : sp) {
-                            if (!seen_docs.contains(d)) {
-                                seen_docs.insert(d);
-                                auto it = local.counts.find(d);
-                                if (it == local.counts.end()) local.counts.emplace(d, 1);
-                                else ++(it->second);
-                            }
-                        }
-                    }
-                }
-            }
-            {
-                luisa::fiber::lock lck(mtx);
-                locals.push_back(std::move(local));
-            }
-        });
-
-        luisa::unordered_map<int, int> doc_token_counts;
-        for (auto &local : locals) {
-            for (auto &[doc_id, count] : local.counts) {
-                auto it = doc_token_counts.find(doc_id);
-                if (it == doc_token_counts.end()) doc_token_counts.emplace(doc_id, count);
-                else it->second += count;
-            }
-        }
-
-        if (!doc_token_counts.empty()) {
-            for (const auto &[doc_id, count] : doc_token_counts) {
-                if (count >= min_match) candidate_docs.insert(doc_id);
-            }
-        }
-        candidate_docs_ptr = &candidate_docs;
-    }
-
     luisa::vector<luisa::string> expanded_tokens;
     for (const auto &expanded : token_expansions) {
         for (const auto &t : expanded) expanded_tokens.push_back(t);
     }
     if (expanded_tokens.empty()) return {};
-    if (candidate_docs_ptr && candidate_docs.empty()) return {};
 
     // deduplicate expanded tokens
     luisa::vector<luisa::string> deduped;
@@ -195,7 +121,7 @@ luisa::vector<std::pair<int, double>> Searcher::search(luisa::string_view query,
         }
     }
 
-    return _scorer.score_topk(deduped, top_k, candidate_docs_ptr);
+    return _scorer.gpu_score_topk(device, stream, deduped, top_k);
 }
 
 }// namespace tokenize

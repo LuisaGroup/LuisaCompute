@@ -12,7 +12,6 @@ class Searcher {
 public:
     Searcher(const InvertedIndex &index,
              const NgramTokenizer *tokenizer = nullptr,
-             const BM25Scorer *scorer = nullptr,
              double k1 = 1.2,
              double b = 0.75,
              double min_should_match = 0.5,
@@ -20,7 +19,10 @@ public:
              int max_expansions = 50,
              int prefix_length = 1);
 
-    [[nodiscard]] luisa::vector<std::pair<int, double>> search(luisa::string_view query, int top_k = 10);
+    [[nodiscard]] luisa::vector<std::pair<int, double>> search(
+        luisa::compute::Device &device,
+        luisa::compute::Stream &stream,
+        luisa::string_view query, int top_k = 10);
 
 private:
     [[nodiscard]] static bool is_latin_token(luisa::string_view token);

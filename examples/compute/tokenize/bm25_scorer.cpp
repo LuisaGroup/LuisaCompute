@@ -307,7 +307,7 @@ luisa::vector<std::pair<int, double>> BM25Scorer::gpu_score_topk(Device &device,
     }
 
     if (top_k >= static_cast<int>(items.size())) {
-        std::sort(items.begin(), items.end(), [](const auto &a, const auto &b) {
+        luisa::sort(items.begin(), items.end(), [](const auto &a, const auto &b) {
             return a.second > b.second || (a.second == b.second && a.first < b.first);
         });
         return items;
@@ -383,7 +383,7 @@ luisa::vector<double> BM25Scorer::accumulate(const luisa::vector<luisa::string> 
     if (candidate_docs) {
         cand_sorted.reserve(candidate_docs->size());
         for (int d : *candidate_docs) cand_sorted.push_back(d);
-        std::sort(cand_sorted.begin(), cand_sorted.end());
+        luisa::sort(cand_sorted.begin(), cand_sorted.end());
     }
     const luisa::vector<int> *cand_ptr = cand_sorted.empty() ? nullptr : &cand_sorted;
 
@@ -414,7 +414,7 @@ luisa::unordered_map<int, double> BM25Scorer::accumulate_sparse(const luisa::vec
     if (candidate_docs) {
         cand_sorted.reserve(candidate_docs->size());
         for (int d : *candidate_docs) cand_sorted.push_back(d);
-        std::sort(cand_sorted.begin(), cand_sorted.end());
+        luisa::sort(cand_sorted.begin(), cand_sorted.end());
     }
     const luisa::vector<int> *cand_ptr = cand_sorted.empty() ? nullptr : &cand_sorted;
 
@@ -469,7 +469,7 @@ luisa::vector<std::pair<int, double>> BM25Scorer::score_topk(const luisa::vector
         items.reserve(scores.size());
         for (auto &[d, s] : scores) items.emplace_back(d, s);
         if (top_k >= static_cast<int>(items.size())) {
-            std::sort(items.begin(), items.end(), [](const auto &a, const auto &b) {
+            luisa::sort(items.begin(), items.end(), [](const auto &a, const auto &b) {
                 return a.second > b.second || (a.second == b.second && a.first < b.first);
             });
             return items;
@@ -487,7 +487,7 @@ luisa::vector<std::pair<int, double>> BM25Scorer::score_topk(const luisa::vector
         for (size_t i = 0; i < scores_arr.size(); ++i) {
             if (scores_arr[i] > 0.0) result.emplace_back(static_cast<int>(i), scores_arr[i]);
         }
-        std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
+        luisa::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
             return a.second > b.second || (a.second == b.second && a.first < b.first);
         });
         return result;
@@ -514,7 +514,7 @@ luisa::vector<std::pair<int, double>> BM25Scorer::score_topk(const luisa::vector
         result.push_back(min_heap.top());
         min_heap.pop();
     }
-    std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
+    luisa::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
         return a.second > b.second || (a.second == b.second && a.first < b.first);
     });
     return result;

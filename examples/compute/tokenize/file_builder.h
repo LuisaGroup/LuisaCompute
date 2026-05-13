@@ -27,6 +27,8 @@ public:
                 double b = 0.75);
 
     [[nodiscard]] luisa::vector<FileBuilderResult> search(
+        luisa::compute::Device &device,
+        luisa::compute::Stream &stream,
         luisa::string_view keywords,
         int top_k = 5,
         bool diversify = false,

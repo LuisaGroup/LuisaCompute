@@ -49,6 +49,16 @@ inline luisa::filesystem::path &global_index_path() {
     return instance;
 }
 
+inline luisa::compute::Device *&global_device() {
+    static luisa::compute::Device *instance = nullptr;
+    return instance;
+}
+
+inline luisa::compute::Stream *&global_stream() {
+    static luisa::compute::Stream *instance = nullptr;
+    return instance;
+}
+
 inline luisa::string make_builder_key(const luisa::vector<luisa::filesystem::path> &paths) {
     luisa::vector<luisa::string> canonicals;
     canonicals.reserve(paths.size());
@@ -174,7 +184,13 @@ inline luisa::string cmd_search(ArgumentList args) {
     if (args.size() > 7) use_string_similarity = (args[7] == "true");
     if (args.size() > 8) use_adaptive_scoring = (args[8] == "true");
 
+    auto *device = global_device();
+    auto *stream = global_stream();
+    if (!device || !stream) {
+        return luisa::string{"error: device not initialized"};
+    }
     auto results = builder->search(
+        *device, *stream,
         keywords, top_k, diversify, diversity_lambda,
         use_spelling, use_stemming, use_string_similarity, use_adaptive_scoring);
 

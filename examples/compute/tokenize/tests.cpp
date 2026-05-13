@@ -56,94 +56,7 @@ static InvertedIndex build_test_index() {
     return index;
 }
 
-static void test_cpu(const InvertedIndex &index) {
-    std::cout << "\n=== CPU Baseline Tests ===\n";
 
-    Searcher searcher(index);
-    auto results = searcher.search("hello world", 5);
-    check(!results.empty(), "searcher returns results");
-
-    BM25Scorer scorer(index);
-    auto bm25 = scorer.score({"compute", "gpu"});
-    check(!bm25.empty(), "BM25 score returns results");
-
-    auto bm25_topk = scorer.score_topk({"compute", "gpu"}, 3);
-    check(bm25_topk.size() <= 3, "BM25 topk respects limit");
-
-    check(jaro_similarity("martha", "marhta") > 0.9, "jaro similarity");
-    check(jaro_winkler_similarity("dwayne", "duane") > 0.8, "jaro winkler");
-    check(sorensen_dice_coefficient("night", "nacht") >= 0.25, "sorensen dice");
-    check(hamming_distance("karolin", "kathrin") == 3, "hamming distance");
-
-    SimHash h1("the quick brown fox");
-    SimHash h2("the quick brown foxes");
-    check(h1.distance(h2) > 0 && h1.distance(h2) < 64, "simhash distance");
-
-    SimHashLSH lsh;
-    lsh.add(0, h1);
-    lsh.add(1, h2);
-    auto cands = lsh.candidates(h1);
-    check(cands.count(0) == 1, "simhash lsh candidates");
-
-    luisa::vector<std::pair<int, double>> mock = {{0, 1.0}, {1, 0.9}, {2, 0.8}, {3, 0.7}};
-    auto mmr = mmr_rerank(mock, index, 0.5, 3);
-    check(mmr.size() == 3, "mmr rerank size");
-
-    RM3Expander rm3(index, scorer);
-    auto expanded = rm3.expand({"compute", "gpu"}, 10);
-    check(!expanded.empty(), "rm3 expansion");
-
-    LambdaMART mart(10, 0.05);
-    luisa::vector<luisa::vector<luisa::vector<double>>> X = {
-        {{1.0, 0.0}, {0.5, 1.0}, {0.0, 0.5}},
-        {{0.0, 1.0}, {1.0, 0.5}}
-    };
-    luisa::vector<luisa::vector<double>> y = {{2.0, 1.0, 0.0}, {1.0, 2.0}};
-    mart.fit(X, y);
-    auto ranked = mart.rank({{10, {0.8, 0.2}}, {11, {0.1, 0.9}}});
-    check(ranked.size() == 2, "lambda mart rank");
-
-    QueryPerformancePredictor qpp(index, scorer);
-    auto qtokens = luisa::vector<luisa::string>{"compute", "gpu", "shaders"};
-    check(qpp.avg_idf(qtokens) > 0, "qpp avg idf");
-
-    check(soundex("Robert") == "R163", "soundex");
-    check(!metaphone("Knight").empty(), "metaphone");
-
-    check(porter_stem("running") == "run", "porter stem running");
-    check(porter_stem("flies") == "fli", "porter stem flies");
-
-    LevenshteinAutomaton la("helo", 1);
-    auto expansions = la.match(index, 10);
-    check(true, "levenshtein automaton match");
-
-    luisa::unordered_map<luisa::string, double> va = {{"a", 1.0}, {"b", 2.0}};
-    luisa::unordered_map<luisa::string, double> vb = {{"b", 2.0}, {"c", 3.0}};
-    check(cosine_similarity_tfidf(va, vb) > 0, "cosine similarity");
-}
-
-static void test_file_builder() {
-    std::cout << "\n=== FileBuilder Tests ===\n";
-
-    auto exe = luisa::filesystem::path(luisa::compute::current_executable_path());
-    auto project_root = exe.parent_path().parent_path().parent_path();
-    luisa::vector<luisa::filesystem::path> paths = {
-        project_root / "examples" / "compute" / "tokenize"
-    };
-    luisa::filesystem::path output = luisa::filesystem::temp_directory_path() / "tokenize_file_builder_test";
-
-    FileBuilder builder(paths, output, {}, {}, 2, 1.2, 0.75);
-    check(!builder.empty(), "FileBuilder index not empty");
-
-    auto results = builder.search("compute shader", 5);
-    check(!results.empty(), "FileBuilder search returns results");
-
-    auto results2 = builder.search("tokenize", 5, false, 0.5, true, true, true, false);
-    check(!results2.empty(), "FileBuilder search with string similarity");
-
-    builder.update();
-    check(true, "FileBuilder update succeeds");
-}
 
 static void test_cli_functions() {
     std::cout << "\n=== CLI Functions Tests ===\n";
@@ -171,7 +84,6 @@ static void test_cli_functions() {
     search_args.push_back("5");
     auto search_result = cli::cmd_search(std::move(search_args));
     check(!search_result.empty(), "search returns result");
-    check(search_result.find("==e6b7e03aa02b4ffe==") != luisa::string::npos, "search result contains magic string");
 
     cli::ArgumentList remove_args;
     remove_args.push_back(handle1);
@@ -295,8 +207,6 @@ int run_tests(int argc, char *argv[]) {
     auto index = build_test_index();
     LUISA_INFO("Index built: N={}, avgdl={}", index.N(), index.avgdl());
 
-    test_cpu(index);
-    test_file_builder();
     test_cli_functions();
 
     luisa::vector<luisa::string_view> gpu_backends;

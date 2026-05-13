@@ -4,6 +4,7 @@
 #include <yyjson.h>
 #include <luisa/core/stl/functional.h>
 #include <luisa/core/logging.h>
+#include <luisa/luisa-compute.h>
 
 using FunctionListType = luisa::unordered_map<
     luisa::string,
@@ -19,6 +20,25 @@ int run_cli(int argc, char *argv[]) {
     }
     luisa::log_level_error();
     luisa::fiber::scheduler global_scheduler;
+
+    luisa::compute::Context ctx(luisa::compute::current_executable_path().c_str());
+    luisa::compute::Device device;
+    for (auto backend : {"dx", "vk"}) {
+        for (auto &b : ctx.installed_backends()) {
+            if (b == backend) {
+                device = ctx.create_device(backend);
+                break;
+            }
+        }
+        if (device) break;
+    }
+    luisa::compute::Stream stream;
+    if (device) {
+        stream = device.create_stream();
+        cli::global_device() = &device;
+        cli::global_stream() = &stream;
+    }
+
     FunctionListType functions;
     functions.emplace("add_builder", cli::cmd_add_builder);
     functions.emplace("remove_builder", cli::cmd_remove_builder);

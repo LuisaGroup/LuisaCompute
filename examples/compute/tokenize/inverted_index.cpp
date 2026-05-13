@@ -205,7 +205,7 @@ void InvertedIndex::finalize(double stop_threshold, luisa::optional<int> prune_d
             for (size_t j = 0; j < w.pl->doc_ids.size(); ++j) {
                 postings.emplace_back(w.pl->doc_ids[j], w.pl->tfs[j]);
             }
-            std::sort(postings.begin(), postings.end(), [](const auto &a, const auto &b) {
+            luisa::sort(postings.begin(), postings.end(), [](const auto &a, const auto &b) {
                 return a.first < b.first;
             });
             for (size_t j = 0; j < postings.size(); ++j) {
@@ -419,7 +419,7 @@ void InvertedIndex::save(const std::filesystem::path &path, bool include_forward
         (void)tid;
         term_list.push_back(term);
     }
-    std::sort(term_list.begin(), term_list.end(), [&](const auto &a, const auto &b) {
+    luisa::sort(term_list.begin(), term_list.end(), [&](const auto &a, const auto &b) {
         return _term_to_id.at(a) < _term_to_id.at(b);
     });
 
