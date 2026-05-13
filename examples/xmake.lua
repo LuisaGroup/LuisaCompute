@@ -55,6 +55,7 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 -- compute
 example_proj("example_helloworld", "compute/helloworld.cpp", false)
 example_proj("example_image_processing", "compute/image_processing.cpp", true)
+includes("compute/tokenize")
 
 -- extension
 if has_config("lc_dx_backend") then

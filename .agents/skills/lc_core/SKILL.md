@@ -18,6 +18,7 @@ This skill documents the usage patterns for the LuisaCompute core library based 
 8. [Logging](#logging)
 9. [Mathematics](#mathematics)
 10. [Pool Allocator](#pool-allocator)
+11. [Fiber](#fiber)
 
 ---
 
@@ -814,6 +815,145 @@ luisa::Pool<MyClass> pool2(std::move(pool));
 
 ---
 
+## Fiber
+
+**Header**: `<luisa/core/fiber.h>`
+
+Fiber-based task scheduler and parallel primitives built on top of marl.
+
+### Scheduler
+
+```cpp
+#include <luisa/core/fiber.h>
+
+// Default scheduler (uses all cores)
+luisa::fiber::scheduler sched;
+
+// Scheduler with fixed thread count
+luisa::fiber::scheduler sched(4);
+
+// RAII: binds on construction, unbinds on destruction
+```
+
+### Defer
+
+```cpp
+// Defer execution until end of scope (like Go's defer but scope-based)
+{
+    luisa_fiber_defer(printf("world\n"));
+    printf("hello ");
+}
+```
+
+### Synchronization Primitives
+
+```cpp
+// Event (Manual or Auto reset)
+luisa::fiber::event evt(luisa::fiber::event::Mode::Manual, false);
+evt.signal();        // Set signalled
+evt.clear();         // Reset to unsignalled
+evt.wait();          // Block until signalled
+bool ready = evt.test();
+bool ready2 = evt.is_signalled();
+
+// Counter (WaitGroup)
+luisa::fiber::counter cnt(3);
+cnt.add(2);          // Increment count
+cnt.done();          // Decrement count
+cnt.wait();          // Block until count reaches 0
+
+// Mutex / Lock / ConditionVariable
+luisa::fiber::mutex mtx;
+luisa::fiber::lock lck(mtx);
+luisa::fiber::condition_variable cv;
+```
+
+### Task Submission
+
+```cpp
+// Schedule fire-and-forget task
+luisa::fiber::schedule([]() noexcept {
+    // do work
+});
+
+// Async task with completion event/future
+auto evt = luisa::fiber::async([]() noexcept {
+    return 42;
+});
+evt.wait();
+
+// Async task returning void
+auto evt_void = luisa::fiber::async([]() noexcept {
+    // do work
+});
+evt_void.wait();
+```
+
+### Parallel For
+
+```cpp
+// Blocking parallel for (waits for completion)
+luisa::fiber::parallel(100, [](uint32_t i) noexcept {
+    // process item i
+});
+
+// Blocking parallel for with range callback
+luisa::fiber::parallel(100, [](uint32_t begin, uint32_t end) noexcept {
+    // process range [begin, end)
+});
+
+// Async parallel for (returns counter)
+auto cnt = luisa::fiber::async_parallel(100, [](uint32_t i) noexcept {
+    // process item i
+});
+cnt.wait();
+
+// Async parallel for with external counter
+luisa::fiber::counter cnt(0);
+luisa::fiber::async_parallel(cnt, 100, [](uint32_t i) noexcept {
+    // process item i
+});
+cnt.wait();
+
+// Control batch size (items per fiber task)
+luisa::fiber::parallel(1000, [](uint32_t i) noexcept {}, /*internal_jobs=*/10);
+```
+
+### Iterator Parallel For
+
+```cpp
+std::vector<int> data(1000);
+
+// Blocking iterator parallel for
+luisa::fiber::parallel(data.begin(), data.end(), 64,
+    [](auto l, auto r) {
+        // process range [l, r)
+    });
+
+// Async iterator parallel for
+auto cnt = luisa::fiber::async_parallel(data.begin(), data.end(), 64,
+    [](auto l, auto r) {
+        // process range [l, r)
+    });
+cnt.wait();
+
+// Async with external counter
+luisa::fiber::counter cnt(0);
+luisa::fiber::async_parallel(cnt, data.begin(), data.end(), 64,
+    [](auto l, auto r) {
+        // process range [l, r)
+    });
+cnt.wait();
+```
+
+### Query Worker Threads
+
+```cpp
+uint32_t n = luisa::fiber::worker_thread_count();
+```
+
+---
+
 ## Summary Table
 
 | Component | Header | Key Classes/Functions |
@@ -829,3 +969,4 @@ luisa::Pool<MyClass> pool2(std::move(pool));
 | Logging | `<luisa/core/logging.h>` | `LUISA_INFO()`, `LUISA_WARNING()`, `log_level_info()` |
 | Mathematics | `<luisa/core/mathematics.h>` | `sin()`, `dot()`, `normalize()`, `transpose()`, `inverse()`, `lerp()`, `clamp()` |
 | Pool | `<luisa/core/pool.h>` | `Pool<T>::allocate()`, `create()`, `destroy()` |
+| Fiber | `<luisa/core/fiber.h>` | `scheduler`, `schedule()`, `async()`, `parallel()`, `async_parallel()`, `event`, `counter` |
