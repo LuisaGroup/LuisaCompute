@@ -1,6 +1,9 @@
 luisa_compute_add_executable(tokenizer
     main.cpp
+    cli.cpp
+    tests.cpp
     bm25_scorer.cpp
+    file_builder.cpp
     inverted_index.cpp
     lambda_mart.cpp
     levenshtein_automaton.cpp

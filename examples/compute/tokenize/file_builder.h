@@ -41,7 +41,7 @@ public:
 
 private:
     struct LineEntry {
-        luisa::string rel;
+        luisa::string path;
         int line_idx = 0;
         luisa::string content;
         luisa::vector<luisa::string> tokens;

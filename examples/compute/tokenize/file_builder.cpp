@@ -85,8 +85,6 @@ luisa::string FileBuilder::_compute_fingerprint(luisa::string_view text) const {
 void FileBuilder::_scan_and_build() {
     luisa::vector<std::pair<luisa::string, luisa::filesystem::path>> files;
     std::error_code ec;
-    auto cwd = luisa::filesystem::current_path(ec);
-    if (ec) cwd = luisa::filesystem::path{};
     for (const auto &root : _paths) {
         LUISA_INFO("FileBuilder scanning root: {}", luisa::to_string(root));
         if (!luisa::filesystem::exists(root, ec) || ec) {
@@ -94,9 +92,9 @@ void FileBuilder::_scan_and_build() {
             continue;
         }
         if (luisa::filesystem::is_regular_file(root, ec) && !ec) {
-            luisa::string rel = luisa::to_string(luisa::filesystem::relative(root, cwd, ec));
-            if (rel.empty() || ec) rel = root.filename().string();
-            files.emplace_back(std::move(rel), root);
+            luisa::string abs_path = luisa::to_string(luisa::filesystem::canonical(root, ec));
+            if (ec) abs_path = luisa::to_string(luisa::filesystem::absolute(root));
+            files.emplace_back(std::move(abs_path), root);
             continue;
         }
         luisa::filesystem::recursive_directory_iterator iter(root, ec);
@@ -108,10 +106,9 @@ void FileBuilder::_scan_and_build() {
             if (ec) { ec.clear(); continue; }
             const auto &entry = *iter;
             if (entry.is_regular_file(ec) && !ec) {
-                luisa::string rel = luisa::to_string(luisa::filesystem::relative(entry.path(), cwd, ec));
-                if (rel.empty() || ec) rel = luisa::to_string(luisa::filesystem::relative(entry.path(), root, ec));
-                if (rel.empty() || ec) rel = entry.path().filename().string();
-                files.emplace_back(std::move(rel), entry.path());
+                luisa::string abs_path = luisa::to_string(luisa::filesystem::canonical(entry.path(), ec));
+                if (ec) abs_path = luisa::to_string(luisa::filesystem::absolute(entry.path()));
+                files.emplace_back(std::move(abs_path), entry.path());
             }
         }
     }
@@ -123,45 +120,45 @@ void FileBuilder::_scan_and_build() {
     }
 
     // Parallel hash + text filter
-    luisa::vector<luisa::string> rels;
+    luisa::vector<luisa::string> paths;
     luisa::vector<luisa::string> hashes;
     luisa::fiber::mutex hash_mtx;
 
     luisa::fiber::parallel(static_cast<uint32_t>(files.size()), [&](uint32_t i) noexcept {
-        const auto &rel = files[i].first;
+        const auto &path_str = files[i].first;
         const auto &path = files[i].second;
         if (!const_cast<FileBuilder *>(this)->_is_text_file(path)) return;
         auto h = const_cast<FileBuilder *>(this)->_hash_file(path);
         if (h.empty()) return;
         luisa::fiber::lock lck(hash_mtx);
-        rels.push_back(rel);
+        paths.push_back(path_str);
         hashes.push_back(std::move(h));
     });
 
     _file_hashes.clear();
-    for (size_t i = 0; i < rels.size(); ++i) {
-        _file_hashes.emplace(std::move(rels[i]), std::move(hashes[i]));
+    for (size_t i = 0; i < paths.size(); ++i) {
+        _file_hashes.emplace(std::move(paths[i]), std::move(hashes[i]));
     }
     LUISA_INFO("FileBuilder text files: {}", _file_hashes.size());
 
     // Parallel line processing per file
     struct FileLines {
-        luisa::string rel;
+        luisa::string path;
         luisa::vector<LineEntry> lines;
     };
     luisa::vector<FileLines> all_file_lines;
     luisa::fiber::mutex lines_mtx;
 
     luisa::fiber::parallel(static_cast<uint32_t>(files.size()), [&](uint32_t i) noexcept {
-        const auto &rel = files[i].first;
+        const auto &path_str = files[i].first;
         const auto &path = files[i].second;
-        auto it = const_cast<FileBuilder *>(this)->_file_hashes.find(rel);
+        auto it = const_cast<FileBuilder *>(this)->_file_hashes.find(path_str);
         if (it == const_cast<FileBuilder *>(this)->_file_hashes.end()) return;
 
         std::ifstream f(path);
         if (!f) return;
         FileLines fl;
-        fl.rel = rel;
+        fl.path = path_str;
         luisa::string line;
         int line_idx = 0;
         while (std::getline(f, line)) {
@@ -176,10 +173,10 @@ void FileBuilder::_scan_and_build() {
             }
             stripped = line.substr(b, e - b);
             LineEntry entry;
-            entry.rel = rel;
+            entry.path = path_str;
             entry.line_idx = line_idx;
             entry.content = std::move(stripped);
-            luisa::string query_text = rel + ": " + entry.content;
+            luisa::string query_text = path_str + ": " + entry.content;
             entry.tokens = const_cast<FileBuilder *>(this)->_tokenizer.tokenize(query_text);
             entry.simhash = SimHash(entry.content).value();
             entry.fingerprint = const_cast<FileBuilder *>(this)->_compute_fingerprint(entry.content);
@@ -195,7 +192,7 @@ void FileBuilder::_scan_and_build() {
     // Flatten lines deterministically
     luisa::vector<LineEntry> all_lines;
     std::sort(all_file_lines.begin(), all_file_lines.end(), [](const auto &a, const auto &b) {
-        return a.rel < b.rel;
+        return a.path < b.path;
     });
     for (auto &fl : all_file_lines) {
         for (auto &ln : fl.lines) {
@@ -252,7 +249,7 @@ void FileBuilder::_build_index(const luisa::vector<LineEntry> &lines) {
 
     for (size_t i = 0; i < deduped.size(); ++i) {
         index->add_document(static_cast<int>(i), deduped[i].tokens);
-        _doc_info.push_back({deduped[i].rel, deduped[i].line_idx, deduped[i].content});
+        _doc_info.push_back({deduped[i].path, deduped[i].line_idx, deduped[i].content});
     }
 
     LUISA_INFO("FileBuilder deduped lines: {}", deduped.size());
@@ -277,9 +274,9 @@ void FileBuilder::_save_cache() {
         f.write(reinterpret_cast<const char *>(CACHE_MAGIC.data()), 4);
         write_u8(CACHE_VERSION);
         write_u32(static_cast<uint32_t>(_file_hashes.size()));
-        for (const auto &[rel, h] : _file_hashes) {
-            write_u16(static_cast<uint16_t>(rel.size()));
-            f.write(rel.data(), static_cast<std::streamsize>(rel.size()));
+        for (const auto &[path, h] : _file_hashes) {
+            write_u16(static_cast<uint16_t>(path.size()));
+            f.write(path.data(), static_cast<std::streamsize>(path.size()));
             write_u16(static_cast<uint16_t>(h.size()));
             f.write(h.data(), static_cast<std::streamsize>(h.size()));
         }
@@ -325,13 +322,13 @@ bool FileBuilder::_load_cache() {
     uint32_t num_hashes = read_u32();
     _file_hashes.clear();
     for (uint32_t i = 0; i < num_hashes; ++i) {
-        uint16_t rel_len = read_u16();
-        luisa::string rel(rel_len, '\0');
-        f.read(rel.data(), rel_len);
+        uint16_t path_len = read_u16();
+        luisa::string path(path_len, '\0');
+        f.read(path.data(), path_len);
         uint16_t h_len = read_u16();
         luisa::string h(h_len, '\0');
         f.read(h.data(), h_len);
-        _file_hashes.emplace(std::move(rel), std::move(h));
+        _file_hashes.emplace(std::move(path), std::move(h));
     }
 
     uint32_t num_docs = read_u32();
@@ -359,8 +356,8 @@ bool FileBuilder::_cache_valid() const {
     if (!luisa::filesystem::exists(_cache_path)) return false;
     // Validate hashes by re-scanning files quickly (check mtimes first, then hashes)
     // For simplicity, just check existence and that all hashed files still exist
-    for (const auto &[rel, h] : _file_hashes) {
-        auto p = luisa::filesystem::path(rel);
+    for (const auto &[path, h] : _file_hashes) {
+        auto p = luisa::filesystem::path(path);
         if (!luisa::filesystem::exists(p)) return false;
     }
     // Also check no new files at top level (simplified: always rebuild if paths changed)

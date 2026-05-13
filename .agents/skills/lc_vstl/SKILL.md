@@ -58,7 +58,7 @@ Custom hash map using power-of-2 capacity, open addressing with per-bucket red-b
 ```cpp
 vstd::HashMap<Key, Value> map;                 // default capacity
 vstd::HashMap<Key, Value> map(capacity);       // pre-sized
-vstd::HashMap<Key, void> set;                  // HashSet when V=void
+vstd::HashMap<Key> set;                  // HashSet when V=void
 ```
 
 Template parameters: `HashMap<K, V=void, Hash=HashValue, Compare=compare<K>, allocType=VEngine>`

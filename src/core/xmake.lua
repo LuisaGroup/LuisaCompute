@@ -19,7 +19,7 @@ on_load(function(target)
                 target:add('defines', 'LUISA_DISABLE_WIN_MESSAGE_BOX')
             end
         end
-        target:add("defines", "NOMINMAX", "LUISA_PLATFORM_WINDOWS", "_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR", {
+        target:add("defines", "NOMINMAX", "_CRT_SECURE_NO_WARNINGS", "LUISA_PLATFORM_WINDOWS", "_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR", {
             public = true
         })
     elseif target:is_plat("linux") then
@@ -42,9 +42,6 @@ on_load(function(target)
         })
     end
     target:add("defines", "LUISA_CORE_EXPORT_DLL")
-    if target:is_plat("windows") then
-        target:add("defines", "_CRT_SECURE_NO_WARNINGS")
-    end
     target:add("deps", "eastl")
     if has_config("lc_spdlog_use_xrepo") then
         target:add("packages", "spdlog")

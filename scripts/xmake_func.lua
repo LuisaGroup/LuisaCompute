@@ -286,6 +286,9 @@ on_load(function(target)
             target:set("exceptions", "cxx")
         else
             target:set("exceptions", "no-cxx")
+            if target:is_plat('windows') then
+                target:add('defines', '_HAS_EXCEPTIONS=0')
+            end
         end
     end
 
