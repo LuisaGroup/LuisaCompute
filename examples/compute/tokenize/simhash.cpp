@@ -129,14 +129,14 @@ uint64_t SimHash::gpu_compute_from_hashes(Device &device, Stream &stream, const 
     auto gpu_v = device.create_buffer<int>(hashbits);
     luisa::vector<int> zero_v(static_cast<size_t>(hashbits), 0);
 
+    luisa::vector<int> v(static_cast<size_t>(hashbits));
     CommandList cmdlist = CommandList::create();
     cmdlist << gpu_hashes.copy_from(luisa::span{token_hashes.data(), token_hashes.size()})
             << gpu_v.copy_from(luisa::span{zero_v.data(), zero_v.size()})
-            << compute_shader(gpu_hashes, gpu_v, n, hashbits).dispatch(n);
-    stream << cmdlist.commit();
+            << compute_shader(gpu_hashes, gpu_v, n, hashbits).dispatch(n)
+            << gpu_v.copy_to(luisa::span{v.data(), v.size()}) ;
 
-    luisa::vector<int> v(static_cast<size_t>(hashbits));
-    stream << gpu_v.copy_to(luisa::span{v.data(), v.size()}) << synchronize();
+    stream << cmdlist.commit() << synchronize();
 
     uint64_t result = 0;
     for (int i = 0; i < hashbits; ++i) {
@@ -183,12 +183,11 @@ luisa::vector<int> SimHash::gpu_batch_distance(Device &device, Stream &stream, u
     auto gpu_dists = device.create_buffer<int>(hashes.size());
 
     CommandList cmdlist = CommandList::create();
-    cmdlist << gpu_hashes.copy_from(luisa::span{hashes.data(), hashes.size()})
-            << distance_shader(gpu_hashes, gpu_dists, query, n, hashbits).dispatch(n);
-    stream << cmdlist.commit();
-
     luisa::vector<int> dists(static_cast<size_t>(n));
-    stream << gpu_dists.copy_to(luisa::span{dists.data(), dists.size()}) << synchronize();
+    cmdlist << gpu_hashes.copy_from(luisa::span{hashes.data(), hashes.size()})
+            << distance_shader(gpu_hashes, gpu_dists, query, n, hashbits).dispatch(n)
+            << gpu_dists.copy_to(luisa::span{dists.data(), dists.size()});
+    stream << cmdlist.commit() << synchronize();
     return dists;
 }
 

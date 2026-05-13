@@ -204,6 +204,7 @@ luisa::vector<double> BM25Scorer::gpu_accumulate(Device &device, Stream &stream,
 
     float k1f = static_cast<float>(_k1);
 
+    luisa::vector<float> scores_f(N);
     // Launch one dispatch per query term
     for (size_t i = 0; i < term_ids.size(); ++i) {
         int tid = term_ids[i];
@@ -216,11 +217,8 @@ luisa::vector<double> BM25Scorer::gpu_accumulate(Device &device, Stream &stream,
             start, end, idfs[i], k1f, weights[i]
         ).dispatch(count);
     }
-    stream << cmdlist.commit();
-
-    // Download results
-    luisa::vector<float> scores_f(N);
-    stream << gpu_scores.copy_to(luisa::span{scores_f.data(), scores_f.size()}) << synchronize();
+    cmdlist << gpu_scores.copy_to(luisa::span{scores_f.data(), scores_f.size()});
+    stream << cmdlist.commit() << synchronize();
 
     luisa::vector<double> scores(N);
     for (int i = 0; i < N; ++i) scores[i] = static_cast<double>(scores_f[i]);

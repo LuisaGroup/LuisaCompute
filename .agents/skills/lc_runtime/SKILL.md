@@ -428,6 +428,23 @@ luisa::vector<float> data(size);
 stream << buffer.copy_to(data.data()) << synchronize();
 ```
 
+### Merge Commit and Synchronize
+
+`commit()` and `synchronize()` are performance-costly operations. Avoid splitting a single logical workload into multiple stream submissions when possible.
+
+Merge the download (or upload) commands into the same `CommandList` before committing, so both kernel dispatches and data transfers are submitted together and synchronized once:
+
+```cpp
+CommandList cmdlist = CommandList::create();
+cmdlist << kernel.dispatch(width, height)
+        << buffer.copy_to(host_data);
+
+// Single commit + synchronize instead of separate submissions
+stream << cmdlist.commit() << synchronize();
+```
+
+> **Merge-commit change:** Uncommitted changes in `examples/compute/tokenize/bm25_scorer.cpp` and `examples/compute/tokenize/simhash.cpp` adopted this pattern by moving `copy_to` calls into the `CommandList` and combining them with `.commit() << synchronize()` into a single stream operation.
+
 ## File List
 
 Key runtime headers:
