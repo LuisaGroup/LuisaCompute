@@ -1,1261 +1,463 @@
 ---
 name: lc_core
+description: LuisaCompute core library — basic traits/types, binary I/O, clock, dynamic module, allocators, logging, math, fiber, and STL containers
 ---
 
-# LuisaCompute Core Library (lc_core) Usage Guide
+# LuisaCompute Core Library (lc_core)
 
-This skill documents the usage patterns for the LuisaCompute core library based on test cases in `src/tests/for_agent/*.cpp`.
-
-## Table of Contents
-
-1. [Basic Traits](#basic-traits)
-2. [Basic Types](#basic-types)
-3. [Binary File Stream](#binary-file-stream)
-4. [Binary IO (BinaryBlob)](#binary-io-binaryblob)
-5. [Clock](#clock)
-6. [Dynamic Module](#dynamic-module)
-7. [First Fit Allocator](#first-fit-allocator)
-8. [Logging](#logging)
-9. [Mathematics](#mathematics)
-10. [Pool Allocator](#pool-allocator)
-11. [Fiber](#fiber)
-12. [STL Containers & Utilities](#stl-containers--utilities)
-
----
+Based on test cases in `src/tests/for_agent/*.cpp`.
 
 ## Basic Traits
 
 **Header**: `<luisa/core/basic_traits.h>`
 
-Type traits for compile-time type checking and vector/matrix type analysis.
-
 ### Type Predicates
-
 ```cpp
-// Boolean type predicates
-luisa::always_false_v<T...>           // Always false (for static_assert)
-luisa::always_true_v<T...>            // Always true
-
-// Scalar type checks
-luisa::is_integral_v<T>               // Check if integral type
-luisa::is_boolean_v<T>                // Check if bool
-luisa::is_floating_point_v<T>         // Check if float/double/half
-luisa::is_signed_v<T>                 // Check if signed
-luisa::is_unsigned_v<T>               // Check if unsigned
-luisa::is_signed_integral_v<T>        // Check if signed integral
-luisa::is_unsigned_integral_v<T>      // Check if unsigned integral
-luisa::is_scalar_v<T>                 // Check if scalar (integral, float, or bool)
-
-// Vector type checks
-luisa::is_vector_v<T>                 // Check if any vector
-luisa::is_vector_v<T, N>              // Check if vector with dimension N
-luisa::is_vector2_v<T>                // Check if 2-component vector
-luisa::is_vector3_v<T>                // Check if 3-component vector
-luisa::is_vector4_v<T>                // Check if 4-component vector
-luisa::is_boolean_vector_v<T>         // Check if vector<bool, N>
-luisa::is_floating_point_vector_v<T>  // Check if vector of floats
-luisa::is_integral_vector_v<T>        // Check if vector of integrals
-luisa::is_signed_integral_vector_v<T> // Check if vector of signed integrals
-luisa::is_unsigned_integral_vector_v<T>
-
-// Matrix type checks
-luisa::is_matrix_v<T>                 // Check if any matrix
-luisa::is_matrix_v<T, N>              // Check if NxN matrix
-luisa::is_matrix2_v<T>                // Check if 2x2 matrix
-luisa::is_matrix3_v<T>                // Check if 3x3 matrix
-luisa::is_matrix4_v<T>                // Check if 4x4 matrix
-
-// Combined checks
-luisa::is_basic_v<T>                  // Check if scalar, vector, or matrix
-luisa::is_boolean_or_vector_v<T>
-luisa::is_floating_point_or_vector_v<T>
-luisa::is_integral_or_vector_v<T>
-luisa::is_signed_integral_or_vector_v<T>
-luisa::is_unsigned_integral_or_vector_v<T>
+luisa::always_false_v<T...>           // always false (for static_assert)
+luisa::always_true_v<T...>            // always true
+// Scalars
+luisa::is_integral_v<T>               // is_boolean_v, is_floating_point_v, is_signed_v, is_unsigned_v
+luisa::is_signed_integral_v<T>        // is_unsigned_integral_v, is_scalar_v
+// Vectors
+luisa::is_vector_v<T> / is_vector_v<T,N> / is_vector2_v / is_vector3_v / is_vector4_v
+luisa::is_boolean_vector_v<T>         // is_floating_point_vector_v, is_integral_vector_v
+luisa::is_signed_integral_vector_v<T> // is_unsigned_integral_vector_v
+// Matrices
+luisa::is_matrix_v<T> / is_matrix_v<T,N> / is_matrix2_v / is_matrix3_v / is_matrix4_v
+// Combined
+luisa::is_basic_v<T>                  // scalar||vector||matrix
+luisa::is_boolean_or_vector_v<T>      // is_floating_point_or_vector_v, is_integral_or_vector_v
+luisa::is_signed_integral_or_vector_v<T> // is_unsigned_integral_or_vector_v
 luisa::is_vector_same_dimension_v<T1, T2, ...>
 ```
 
 ### Type Transformations
-
 ```cpp
-// Get element type of vector
-using ElementType = luisa::vector_element_t<VectorType>;
-
-// Get element type of matrix
-using ElementType = luisa::matrix_element_t<MatrixType>;
-
-// Convert enum to underlying type
-auto value = luisa::to_underlying(Enum::Value);  // Returns underlying integer
+using Elem = luisa::vector_element_t<VecType>;
+using Elem = luisa::matrix_element_t<MatType>;
+auto val = luisa::to_underlying(Enum::Value);
+constexpr size_t dim = luisa::vector_dimension_v<T>;  // 1 for scalars
+constexpr size_t dim = luisa::matrix_dimension_v<T>;  // 1 for scalars
 ```
-
-### Dimension Queries
-
-```cpp
-constexpr size_t dim = luisa::vector_dimension_v<VectorType>;  // 1 for scalars
-constexpr size_t dim = luisa::matrix_dimension_v<MatrixType>;  // 1 for scalars
-```
-
----
 
 ## Basic Types
 
 **Header**: `<luisa/core/basic_types.h>`
 
-Vector and matrix types with GLSL/HLSL-like syntax.
-
-### Type Aliases
-
+### Aliases
 ```cpp
-// Scalar types
-using luisa::byte;       // int8_t
-using luisa::ubyte;      // uint8_t
-using luisa::ushort;     // uint16_t
-using luisa::uint;       // uint32_t
-using luisa::ulong;      // uint64_t
-using luisa::slong;      // int64_t
-using luisa::half;       // 16-bit float
-
-// Vector types (2, 3, 4 components)
-using luisa::bool2, bool3, bool4;
-using luisa::short2, short3, short4;
-using luisa::ushort2, ushort3, ushort4;
-using luisa::byte2, byte3, byte4;
-using luisa::ubyte2, ubyte3, ubyte4;
-using luisa::int2, int3, int4;
-using luisa::uint2, uint3, uint4;
-using luisa::slong2, slong3, slong4;
-using luisa::ulong2, ulong3, ulong4;
-using luisa::half2, half3, half4;
-using luisa::float2, float3, float4;
-using luisa::double2, double3, double4;
-
-// Matrix types (NxN)
-using luisa::float2x2, float3x3, float4x4;
-using luisa::double2x2, double3x3, double4x4;
-using luisa::half2x2, half3x3, half4x4;
+// Scalars
+luisa::byte(int8_t), ubyte(uint8_t), ushort(uint16_t), uint(uint32_t), ulong(uint64_t), slong(int64_t), half(16-bit)
+// Vectors (2/3/4): bool, short, ushort, byte, ubyte, int, uint, slong, ulong, half, float, double
+// Matrices (2x2/3x3/4x4): float, double, half
 ```
 
-### Vector Construction
-
+### Construction
 ```cpp
-// Scalar broadcast
-float2 f2(1.0f);                    // (1.0, 1.0)
-float3 f3(2.0f);                    // (2.0, 2.0, 2.0)
-float4 f4(3.0f);                    // (3.0, 3.0, 3.0, 3.0)
+float2 f(1.0f);                // broadcast
+int2 i(1, 2);                  // component-wise
+auto z = float2::zero();       // (0,0)
+auto o = float2::one();        // (1,1)
 
-// Component-wise
-int2 i2(1, 2);                      // (1, 2)
-int3 i3(1, 2, 3);                   // (1, 2, 3)
-int4 i4(1, 2, 3, 4);                // (1, 2, 3, 4)
-
-// Factory methods
-auto z2 = float2::zero();           // (0.0, 0.0)
-auto o2 = float2::one();            // (1.0, 1.0)
+// Matrix (default = identity)
+float2x2 m2;                   // identity
+float2x2 m2c(float2(1,2), float2(3,4)); // from cols
+auto eye = float2x2::eye(2.0f); // 2*identity
+auto fill = float2x2::fill(3.0f);
 ```
 
-### Vector Element Access
-
+### Element Access
 ```cpp
-float3 v(1.0f, 2.0f, 3.0f);
-
-// Named accessors
-float x = v.x;
-float y = v.y;
-float z = v.z;
-
-// Array accessor
-float first = v[0];
-v[1] = 5.0f;                        // Modify through index
+float3 v(1,2,3); v.x, v.y, v.z; v[0]; v[1] = 5.0f;
+float3x3 m; m[0], m[1], m[2];  // column access
+float e = m[col][row];
 ```
 
-### Vector Operators
-
+### Operators
 ```cpp
-float2 a(1.0f, 2.0f);
-float2 b(3.0f, 4.0f);
+a+b, a-b, a*b, a/b            // component-wise
+a*2.0f, 3.0f*a                // scalar
+-a, +a                         // unary
+~i, i<<1                       // bitwise (integral)
+a==b, a<b                      // comparison → bool vector
+b1||b2, b1&&b2                 // bool logic
+any(b), all(b), none(b)        // bool vector reduce
 
-// Arithmetic
-auto sum = a + b;                   // (4, 6)
-auto diff = b - a;                  // (2, 2)
-auto prod = a * b;                  // (3, 8) - component-wise
-auto quot = b / a;                  // (3, 2) - component-wise
-
-// Scalar operations
-auto scaled = a * 2.0f;             // (2, 4)
-auto scaled2 = 3.0f * a;            // (3, 6)
-
-// Unary
-auto neg = -a;                      // (-1, -2)
-auto pos = +a;                      // (1, 2)
-
-// Bitwise (integral vectors)
-int2 i(0x0F, 0xF0);
-int2 xi = ~i;                       // Bitwise NOT
-int2 shifted = i << 1;              // Left shift
-
-// Comparison (returns bool vector)
-bool2 eq = (a == b);                // Component-wise equality
-bool2 lt = (a < b);                 // Component-wise less than
-
-// Boolean logic (bool vectors)
-bool2 b1(true, false);
-bool2 b2(true, true);
-bool2 bor = b1 || b2;               // (true, true)
-bool2 band = b1 && b2;              // (true, false)
-```
-
-### Vector Assignment Operators
-
-```cpp
-float2 a(1.0f, 2.0f);
-a += float2(3.0f, 4.0f);            // (4, 6)
-a -= float2(1.0f, 2.0f);            // (3, 4)
-a *= float2(2.0f, 2.0f);            // (6, 8)
-a /= float2(3.0f, 4.0f);            // (2, 2)
-```
-
-### Boolean Vector Functions
-
-```cpp
-bool2 b(true, false);
-
-bool any_result = any(b);           // true if any component is true
-bool all_result = all(b);           // true if all components are true
-bool none_result = none(b);         // true if no component is true
-```
-
-### Matrix Construction
-
-```cpp
-// Default (identity matrix)
-float2x2 m2;                        // [[1,0],[0,1]]
-float3x3 m3;                        // Identity 3x3
-float4x4 m4;                        // Identity 4x4
-
-// From column vectors
-float2x2 m2c(float2(1.0f, 2.0f), float2(3.0f, 4.0f));
-// Results in: col0=(1,2), col1=(3,4)
-// Matrix: [[1,3],[2,4]] (row-major view)
-
-// Factory methods
-auto eye2 = float2x2::eye(2.0f);    // 2 * identity
-auto fill2 = float2x2::fill(3.0f);  // All elements = 3.0
-```
-
-### Matrix Element Access
-
-```cpp
-float3x3 m(...);
-
-// Column access (returns vector)
-float3 col0 = m[0];
-float3 col1 = m[1];
-float3 col2 = m[2];
-
-// Element access
-float elem = m[col][row];
-
-// Modify column
-m[1] = float3(10.0f, 11.0f, 12.0f);
-```
-
-### Matrix Operations
-
-```cpp
-float2x2 m(...);
-
-// Scalar multiplication
-auto scaled = m * 2.0f;
-auto scaled2 = 3.0f * m;
-
-// Scalar division
-auto divided = m / 2.0f;
-
-// Matrix-vector multiplication
-float2 v(1.0f, 1.0f);
-float2 r = m * v;                   // Linear transformation
-
-// Matrix-matrix multiplication
-float2x2 a(...), b(...);
-float2x2 c = a * b;
-
-// Addition/Subtraction
-float2x2 sum = a + b;
-float2x2 diff = a - b;
+// Matrix
+m*2.0f, 3.0f*m, m/2.0f        // scalar
+m * v                          // matrix-vector
+a * b                          // matrix-matrix
+a + b, a - b                   // element-wise
 ```
 
 ### Make Functions
-
 ```cpp
-// Vector make functions
-float2 f2a = make_float2(1.0f);                         // Broadcast
-float2 f2b = make_float2(1.0f, 2.0f);                   // Components
-float2 f2c = make_float2(float3(1.0f, 2.0f, 3.0f));     // From larger vector
-float2 f2d = make_float2(float4(1.0f, 2.0f, 3.0f, 4.0f));
+make_float2(1.0f);                        // broadcast
+make_float2(1.0f, 2.0f);                 // components
+make_float2(float3(1,2,3));              // from larger vec
+make_float3(float2(1,2), 3.0f);          // vec + scalar
+make_float3(1.0f, float2(2,3));          // scalar + vec
+make_float4(float2(1,2), float2(3,4));   // vec + vec
 
-float3 f3a = make_float3(1.0f);                         // Broadcast
-float3 f3b = make_float3(1.0f, 2.0f, 3.0f);             // Components
-float3 f3c = make_float3(float2(1.0f, 2.0f), 3.0f);     // From float2 + scalar
-float3 f3d = make_float3(1.0f, float2(2.0f, 3.0f));     // From scalar + float2
-float3 f3e = make_float3(float4(1.0f, 2.0f, 3.0f, 4.0f));
-
-float4 f4a = make_float4(1.0f);                         // Broadcast
-float4 f4b = make_float4(1.0f, 2.0f, 3.0f, 4.0f);       // Components
-float4 f4c = make_float4(float2(1.0f, 2.0f), 3.0f, 4.0f);
-float4 f4d = make_float4(float3(1.0f, 2.0f, 3.0f), 4.0f);
-float4 f4e = make_float4(1.0f, float3(2.0f, 3.0f, 4.0f));
-float4 f4f = make_float4(float2(1.0f, 2.0f), float2(3.0f, 4.0f));
-
-// Matrix make functions
-float2x2 m2a = make_float2x2(2.0f);                     // Diagonal fill
-float2x2 m2b = make_float2x2(1.0f, 2.0f, 3.0f, 4.0f);   // Row-major elements
-float2x2 m2c = make_float2x2(float2(1.0f, 2.0f), float2(3.0f, 4.0f)); // Columns
-
-float3x3 m3a = make_float3x3(2.0f);                     // Diagonal fill
-float3x3 m3b = make_float3x3(
-    1.0f, 2.0f, 3.0f,
-    4.0f, 5.0f, 6.0f,
-    7.0f, 8.0f, 9.0f);                                  // Row-major elements
-
-float4x4 m4a = make_float4x4(2.0f);                     // Diagonal fill
-float4x4 m4b = make_float4x4(
-    1.0f, 2.0f, 3.0f, 4.0f,
-    5.0f, 6.0f, 7.0f, 8.0f,
-    9.0f, 10.0f, 11.0f, 12.0f,
-    13.0f, 14.0f, 15.0f, 16.0f);                        // Row-major elements
+make_float2x2(2.0f);                      // diagonal fill
+make_float2x2(1,2,3,4);                  // row-major
+make_float2x2(float2(1,2), float2(3,4)); // columns
+make_float3x3(1,2,3, 4,5,6, 7,8,9);     // row-major
+make_float4x4(1,2,3,4, 5,6,7,8, 9,10,11,12, 13,14,15,16);
 ```
-
----
 
 ## Binary File Stream
 
-**Header**: `<luisa/core/binary_file_stream.h>` (or `include\luisa\core\binary_file_stream.h`)
-
-> **Important**: Do not use `std::ifstream` directly. Always use `luisa::BinaryFileStream` first for binary file I/O in LuisaCompute.
-
-Read-only binary file streaming with seeking support.
+**Header**: `<luisa/core/binary_file_stream.h>`. Use instead of `std::ifstream` for binary I/O.
 
 ```cpp
-#include <luisa/core/binary_file_stream.h>
-
-// Construction from file path
-luisa::BinaryFileStream stream(luisa::string{"file.bin"});
-
-// Check validity
-if (stream.valid()) { /* ... */ }
-if (stream) { /* operator bool */ }
-
-// File info
-size_t len = stream.length();               // File size in bytes
-size_t pos = stream.pos();                  // Current position
-
-// Seeking
-stream.set_pos(128);                        // Seek to offset
-stream.set_pos(0);                          // Seek to beginning
-
-// Reading
-luisa::vector<std::byte> buffer(256);
-stream.read(luisa::span<std::byte>(buffer.data(), buffer.size()));
-
-// Explicit close
+luisa::BinaryFileStream stream("file.bin");
+if (stream.valid()) { /* or operator bool */ }
+size_t len = stream.length(), pos = stream.pos();
+stream.set_pos(128); stream.set_pos(0);
+stream.read(luisa::span<std::byte>(buf.data(), buf.size()));
 stream.close();
-
-// Move semantics
-luisa::BinaryFileStream stream2(std::move(stream));
+luisa::BinaryFileStream s2(std::move(stream));  // move semantics
 ```
-
----
 
 ## Binary IO (BinaryBlob)
 
 **Header**: `<luisa/core/binary_io.h>`
 
-RAII wrapper for binary data with custom disposal.
-
 ```cpp
-#include <luisa/core/binary_io.h>
-
-// Construction with custom disposer
-size_t size = 1024;
-auto* ptr = static_cast<std::byte*>(::operator new(size));
-luisa::BinaryBlob blob{
-    ptr,
-    size,
-    [](void* p) { ::operator delete(p); }    // Custom disposer
-};
-
-// Default construction (empty)
-luisa::BinaryBlob empty_blob;
-
-// Data access
-std::byte* data = blob.data();
-const std::byte* cdata = blob.data();       // For const blob
-size_t sz = blob.size();
-bool is_empty = blob.empty();
-
-// Span conversion
-luisa::span<std::byte> mutable_span = static_cast<luisa::span<std::byte>>(blob);
-luisa::span<const std::byte> const_span = static_cast<luisa::span<const std::byte>>(blob);
-
-// Move semantics
-luisa::BinaryBlob blob2(std::move(blob));   // Move construct
-luisa::BinaryBlob blob3;
-blob3 = std::move(blob2);                   // Move assign
-
-// Release (returns raw pointer, blob becomes empty)
-void* released = blob.release();
-// Remember to manually delete released pointer!
+luisa::BinaryBlob blob{ptr, size, [](void* p) { ::operator delete(p); }};
+luisa::BinaryBlob empty;
+std::byte* d = blob.data(); size_t sz = blob.size(); bool e = blob.empty();
+luisa::span<std::byte> sp = static_cast<luisa::span<std::byte>>(blob);
+luisa::BinaryBlob b2(std::move(blob)); b3 = std::move(b2);
+void* raw = blob.release();  // blob becomes empty; manual delete required
 ```
-
----
 
 ## Clock
 
 **Header**: `<luisa/core/clock.h>`
 
-High-resolution timer for performance measurement.
-
 ```cpp
-#include <luisa/core/clock.h>
-
-// Construction (starts timing automatically)
-luisa::Clock clock;
-
-// Reset/start timing
-clock.tic();
-
-// Get elapsed time in milliseconds (does NOT reset)
-double elapsed_ms = clock.toc();
-
-// Multiple measurements
-clock.tic();
-// ... work ...
-double t1 = clock.toc();
-// ... more work ...
-double t2 = clock.toc();                    // t2 > t1
+luisa::Clock clock;           // starts timing on construction
+clock.tic();                  // reset
+double ms = clock.toc();      // elapsed ms since tic (does NOT reset)
+double t1 = clock.toc();      // cumulative
 ```
-
----
 
 ## Dynamic Module
 
 **Header**: `<luisa/core/dynamic_module.h>`
 
-Cross-platform dynamic library loading.
-
 ```cpp
-#include <luisa/core/dynamic_module.h>
+auto mod = luisa::DynamicModule::load("name");           // platform-specific
+auto mod = luisa::DynamicModule::load("/path", "name");  // from dir
+auto mod = luisa::DynamicModule::load_exact("/path/lib.so");
+if (mod) { void* h = mod.handle(); }
+void* addr = mod.address("fn");
+auto* fn = mod.function<MyFunc>("fn");
+void* raw = mod.release(); luisa::dynamic_module_destroy(raw);
+mod.reset();
 
-// Load by name (platform-specific)
-auto module = luisa::DynamicModule::load("library_name");
-// Windows: "kernel32" -> kernel32.dll
-// Linux: "c" -> libc.so
-
-// Load from specific directory
-auto module = luisa::DynamicModule::load("/path/to/libs", "library_name");
-
-// Load by full path
-auto module = luisa::DynamicModule::load_exact("/path/to/lib.so");
-
-// Check if loaded
-if (module) { /* valid */ }
-if (!module) { /* failed */ }
-
-// Get raw handle
-void* handle = module.handle();
-
-// Get function address
-void* addr = module.address("function_name");
-
-// Get typed function pointer
-using MyFunc = int(int, int);
-auto* func = module.function<MyFunc>("function_name");
-if (func) {
-    int result = func(1, 2);
-}
-
-// Release handle (manual cleanup)
-void* raw = module.release();
-if (raw) {
-    luisa::dynamic_module_destroy(raw);
-}
-
-// Reset (unload)
-module.reset();
-
-// Move semantics
-luisa::DynamicModule mod2(std::move(module));
+// Search paths
+luisa::DynamicModule::add_search_path(dir);
+luisa::DynamicModule::remove_search_path(dir);
 ```
-
-### Search Path Management
-
-```cpp
-#include <luisa/core/platform.h>
-
-// Add search path
-auto exe_dir = std::filesystem::path(luisa::current_executable_path()).parent_path();
-luisa::DynamicModule::add_search_path(exe_dir);
-
-// Remove search path (decrements ref count)
-luisa::DynamicModule::remove_search_path(exe_dir);
-```
-
----
 
 ## First Fit Allocator
 
 **Header**: `<luisa/core/first_fit.h>`
 
-Simple memory allocator with first-fit and best-fit strategies.
-
 ```cpp
-#include <luisa/core/first_fit.h>
-
-// Construction
-luisa::FirstFit allocator(1024, 8);         // 1024 bytes, 8-byte alignment
-luisa::FirstFit allocator(4096, 64);        // 4096 bytes, 64-byte alignment
-
-// Allocation
-luisa::FirstFit::Node* node = allocator.allocate(100);
-if (node) {
-    size_t offset = node->offset();         // Byte offset in arena
-    size_t size = node->size();             // Allocated size (may be larger than requested)
-}
-
-// Best-fit allocation (finds smallest fitting block)
-luisa::FirstFit::Node* node = allocator.allocate_best_fit(100);
-
-// Deallocation
-allocator.free(node);
-
-// Properties
-size_t sz = allocator.size();               // Total arena size
-size_t align = allocator.alignment();       // Alignment requirement
-
-// Debug - dump free list
-luisa::string free_list = allocator.dump_free_list();
-
-// Move semantics
-luisa::FirstFit allocator2(std::move(allocator));
+luisa::FirstFit alloc(1024, 8);          // size, alignment
+luisa::FirstFit::Node* n = alloc.allocate(100);
+if (n) { size_t off = n->offset(), sz = n->size(); }
+n = alloc.allocate_best_fit(100);
+alloc.free(n);
+size_t sz = alloc.size(), align = alloc.alignment();
+luisa::string fl = alloc.dump_free_list();
 ```
-
----
 
 ## Logging
 
 **Header**: `<luisa/core/logging.h>`
 
-Formatted logging with multiple severity levels.
-
-### Log Level Control
-
 ```cpp
-#include <luisa/core/logging.h>
-
-// Set log level
-luisa::log_level_verbose();                 // Show all
-luisa::log_level_info();                    // Info and above
-luisa::log_level_warning();                 // Warnings and above
-luisa::log_level_error();                   // Errors only
-
-// Flush log buffer
+luisa::log_level_verbose();  // log_level_info(), log_level_warning(), log_level_error()
 luisa::log_flush();
+
+// Function-style
+luisa::log_verbose("msg"); luisa::log_info("v: {}", 42); luisa::log_warning("warn");
+
+// Macro-style (recommended)
+LUISA_VERBOSE("msg"); LUISA_INFO("v: {}, {}", 1, 2); LUISA_WARNING("warn");
+LUISA_VERBOSE_WITH_LOCATION("dbg: {}", val);
+LUISA_INFO_WITH_LOCATION("proc: {}", name);
+LUISA_WARNING_WITH_LOCATION("deprecated: {}", api);
 ```
 
-### Function-Style Logging
-
-```cpp
-// Simple messages
-luisa::log_verbose("Verbose message");
-luisa::log_info("Info message");
-luisa::log_warning("Warning message");
-
-// Formatted messages
-luisa::log_info("Value: {}, Result: {}", 42, 3.14);
-luisa::log_warning("File: {}, Line: {}", filename, line);
-```
-
-### Macro-Style Logging (Recommended)
-
-```cpp
-// Basic macros
-LUISA_VERBOSE("Verbose message");
-LUISA_INFO("Info message");
-LUISA_WARNING("Warning message");
-
-// With format arguments
-LUISA_INFO("Values: {}, {}", 1, 2);
-LUISA_WARNING("Result: {}", 3.14159);
-
-// With source location
-LUISA_VERBOSE_WITH_LOCATION("Debug: {}", value);
-LUISA_INFO_WITH_LOCATION("Processing: {}", name);
-LUISA_WARNING_WITH_LOCATION("Deprecated: {}", api);
-```
-
-### Format Specifiers
-
-```cpp
-LUISA_INFO("Integer: {}", -123456);
-LUISA_INFO("Unsigned: {}", 123456u);
-LUISA_INFO("Float: {}", 3.14159f);
-LUISA_INFO("Double: {}", 2.718281828);
-LUISA_INFO("String: {}", "text");
-LUISA_INFO("Boolean: {}", true);
-LUISA_INFO("Pointer: {}", static_cast<void*>(ptr));
-LUISA_INFO("Hex: {:x}", 255);               // ff
-LUISA_INFO("Binary: {:b}", 170);            // 10101010
-LUISA_INFO("Scientific: {:e}", 12345.6789);
-LUISA_INFO("Fixed: {:.2f}", 3.14159);       // 3.14
-```
-
----
+Format: `{}` (default), `{:x}` (hex), `{:b}` (binary), `{:e}` (scientific), `{:.2f}` (fixed precision).
 
 ## Mathematics
 
 **Header**: `<luisa/core/mathematics.h>`
 
-Math functions for scalars and vectors (SIMD-friendly).
-
-### Power of 2
-
+### Scalar
 ```cpp
-// Next power of 2
-uint32_t p2 = luisa::next_pow2(100u);       // 128
-uint64_t p2_64 = luisa::next_pow2(1025ull); // 2048
+luisa::next_pow2(100u);          // 128
+luisa::fract(3.7f);              // 0.7 (-3.7f → 0.3)
+luisa::radians(180.0f);          // pi
+luisa::degrees(constants::pi);   // 180
+luisa::sin(x), cos(x), sqrt(x), abs(x), min(a,b), max(a,b)
 ```
 
-### Scalar Math
-
+### Vector (component-wise)
 ```cpp
-// Fractional part
-float f = luisa::fract(3.7f);               // 0.7
-float f_neg = luisa::fract(-3.7f);          // 0.3
+luisa::sin(v2), cos(v2), sqrt(v2), abs(v2), floor(v2), ceil(v2), fract(v2)
+luisa::min(a, b), max(a, b), pow(a, b), atan2(y, x), fmod(a, b)
+luisa::min(2.0f, a)              // scalar-vector
+luisa::isnan(v2), isinf(v2)
 
-// Angle conversion
-float rad = luisa::radians(180.0f);         // pi
-float deg = luisa::degrees(luisa::constants::pi); // 180
-
-// Standard functions
-float s = luisa::sin(angle);
-float c = luisa::cos(angle);
-float sq = luisa::sqrt(x);
-float a = luisa::abs(x);
-float mn = luisa::min(a, b);
-float mx = luisa::max(a, b);
+luisa::dot(a, b);                // scalar result
+luisa::length(a);                // sqrt(dot(a,a))
+luisa::distance(a, b);
+luisa::normalize(a);             // a/length(a)
+luisa::cross(c, d);              // 3D only
 ```
 
-### Vector Math
-
+### Matrix
 ```cpp
-// Unary functions (component-wise)
-float2 v2 = luisa::make_float2(0.0f, luisa::constants::pi / 2.0f);
-float2 sin2 = luisa::sin(v2);               // (0, 1)
-float2 cos2 = luisa::cos(v2);
-float2 sqrt2 = luisa::sqrt(v2);
-float2 abs2 = luisa::abs(v2);
-float2 floor2 = luisa::floor(v2);
-float2 ceil2 = luisa::ceil(v2);
-float2 fract2 = luisa::fract(v2);
-float2 rad2 = luisa::radians(v2);
-float2 deg2 = luisa::degrees(v2);
+luisa::transpose(m);             // 2x2/3x3/4x4
+luisa::inverse(m);
+luisa::determinant(m);
 
-// Binary functions (component-wise)
-float2 a = luisa::make_float2(1.0f, 2.0f);
-float2 b = luisa::make_float2(3.0f, 4.0f);
-float2 min2 = luisa::min(a, b);             // (1, 2)
-float2 max2 = luisa::max(a, b);             // (3, 4)
-float2 pow2 = luisa::pow(a, b);             // (1^3, 2^4) = (1, 16)
-float2 atan2_2 = luisa::atan2(y, x);
-float2 fmod2 = luisa::fmod(a, b);
-
-// Scalar-vector operations
-float2 min_s2 = luisa::min(2.0f, a);        // min(2, each component)
-float2 max_s2 = luisa::max(a, 2.0f);        // max(each component, 2)
-
-// Special values check
-bool2 isnan2 = luisa::isnan(v2);
-bool2 isinf2 = luisa::isinf(v2);
+// Transformations (float4x4)
+luisa::translation(1,2,3);      // or translation(float3)
+luisa::scaling(2,3,4);          // non-uniform; scaling(5.0f) = uniform
+luisa::rotation(axis_float3, angle_rad);
 ```
 
-### Vector Operations
-
+### Interpolation & Selection
 ```cpp
-float2 a = luisa::make_float2(1.0f, 2.0f);
-float2 b = luisa::make_float2(3.0f, 4.0f);
-float3 c = luisa::make_float3(1.0f, 2.0f, 3.0f);
-float3 d = luisa::make_float3(4.0f, 5.0f, 6.0f);
-
-// Dot product
-float dot2 = luisa::dot(a, b);              // 1*3 + 2*4 = 11
-float dot3 = luisa::dot(c, d);              // 1*4 + 2*5 + 3*6 = 32
-
-// Length (magnitude)
-float len = luisa::length(a);               // sqrt(1+4) = sqrt(5)
-
-// Distance
-float dist = luisa::distance(a, b);
-
-// Normalize
-float2 n = luisa::normalize(a);             // a / length(a)
-
-// Cross product (3D only)
-float3 cr = luisa::cross(c, d);
-```
-
-### Matrix Operations
-
-```cpp
-float2x2 m2 = luisa::make_float2x2(1.0f, 2.0f, 3.0f, 4.0f);
-float3x3 m3 = luisa::make_float3x3(...);
-float4x4 m4 = luisa::make_float4x4(...);
-
-// Transpose
-float2x2 t2 = luisa::transpose(m2);
-float3x3 t3 = luisa::transpose(m3);
-float4x4 t4 = luisa::transpose(m4);
-
-// Inverse
-float2x2 inv2 = luisa::inverse(m2);
-float3x3 inv3 = luisa::inverse(m3);
-float4x4 inv4 = luisa::inverse(m4);
-
-// Determinant
-float det2 = luisa::determinant(m2);
-float det3 = luisa::determinant(m3);
-float det4 = luisa::determinant(m4);
-```
-
-### Transformation Matrices
-
-```cpp
-// Translation
-float4x4 trans = luisa::translation(1.0f, 2.0f, 3.0f);
-float4x4 trans_vec = luisa::translation(luisa::make_float3(1.0f, 2.0f, 3.0f));
-
-// Scaling
-float4x4 scale = luisa::scaling(2.0f, 3.0f, 4.0f);     // Non-uniform
-float4x4 scale_u = luisa::scaling(5.0f);                // Uniform
-
-// Rotation (axis + angle)
-float4x4 rot = luisa::rotation(
-    luisa::make_float3(0.0f, 0.0f, 1.0f),               // Axis
-    luisa::constants::pi / 2.0f                         // Angle (radians)
-);
-```
-
-### Selection and Interpolation
-
-```cpp
-// Select (ternary operator)
-float result = luisa::select(0.0f, 1.0f, true);         // 1.0 (false -> 0.0, true -> 1.0)
-float2 sel2 = luisa::select(a, b, luisa::make_bool2(true, false));
-
-// Linear interpolation
-float lerp = luisa::lerp(0.0f, 10.0f, 0.5f);            // 5.0
-float2 lerp2 = luisa::lerp(a, b, 0.5f);                 // Component-wise
-
-// Clamp
-float clamped = luisa::clamp(5.0f, 0.0f, 10.0f);        // 5.0
-float clamped2 = luisa::clamp(-5.0f, 0.0f, 10.0f);      // 0.0
-float clamped3 = luisa::clamp(15.0f, 0.0f, 10.0f);      // 10.0
-float3 clamp3 = luisa::clamp(v3, 0.0f, 10.0f);
-
-// Sign
-float s = luisa::sign(5.0f);                            // 1.0
-float s2 = luisa::sign(-3.0f);                          // -1.0
-float s3 = luisa::sign(0.0f);                           // 1.0
-float3 sign3 = luisa::sign(v3);
-int si = luisa::sign(-5);                               // -1
-
-// Fused multiply-add: a * b + c
-float fma = luisa::fma(2.0f, 3.0f, 4.0f);               // 2*3 + 4 = 10
-float3 fma3 = luisa::fma(a3, b3, c3);                   // Component-wise
-float3 fma_s3 = luisa::fma(2.0f, a3, c3);               // Scalar * vector + vector
+luisa::select(false_val, true_val, cond);          // scalar/vector
+luisa::lerp(a, b, t);                               // a+(b-a)*t (scalar/vector)
+luisa::clamp(v, lo, hi);                            // scalar/vector
+luisa::sign(x);                                     // 1.0/-1.0 (scalar/vector, float/int)
+luisa::fma(a, b, c);                                // a*b+c
 ```
 
 ### Constants
-
 ```cpp
-luisa::constants::pi;           // 3.14159265...
-luisa::constants::pi_over_2;    // pi / 2
-luisa::constants::pi_over_4;    // pi / 4
-luisa::constants::two_pi;       // 2 * pi
-luisa::constants::inv_pi;       // 1 / pi
-luisa::constants::e;            // 2.71828182... (Euler's number)
+luisa::constants::pi, pi_over_2, pi_over_4, two_pi, inv_pi, e
 ```
-
----
 
 ## Pool Allocator
 
 **Header**: `<luisa/core/pool.h>`
 
-Fast object pool allocator with thread-safe and non-thread-safe variants.
-
 ```cpp
-#include <luisa/core/pool.h>
-
-// Thread-safe pool (default)
-luisa::Pool<MyClass> pool;
-
-// Non-thread-safe pool (for single-threaded use)
-luisa::Pool<MyClass, false> pool_nt;
-
-// Raw allocation (constructor not called)
-MyClass* obj = pool.allocate();
+luisa::Pool<MyClass> pool;                  // thread-safe
+luisa::Pool<MyClass, false> pool_nt;        // non-thread-safe
+MyClass* obj = pool.allocate();             // raw (no ctor)
 pool.deallocate(obj);
-
-// Constructed allocation
-MyClass* obj2 = pool.create();              // Default construct
-MyClass* obj3 = pool.create(args...);       // Construct with args
-pool.destroy(obj2);                         // Destruct and return to pool
-pool.destroy(obj3);
-
-// Move semantics
-luisa::Pool<MyClass> pool2(std::move(pool));
+MyClass* obj2 = pool.create();              // default-construct
+MyClass* obj3 = pool.create(args...);       // construct with args
+pool.destroy(obj2);
 ```
-
----
 
 ## Fiber
 
-**Header**: `<luisa/core/fiber.h>`
-
-Fiber-based task scheduler and parallel primitives built on top of marl.
+**Header**: `<luisa/core/fiber.h>`. Built on marl.
 
 ### Scheduler
-
 ```cpp
-#include <luisa/core/fiber.h>
-
-// Default scheduler (uses all cores)
-luisa::fiber::scheduler sched;
-
-// Scheduler with fixed thread count
-luisa::fiber::scheduler sched(4);
-
+luisa::fiber::scheduler sched;     // all cores
+luisa::fiber::scheduler sched(4);  // fixed threads
 // RAII: binds on construction, unbinds on destruction
 ```
 
-### Defer
-
+### Sync Primitives
 ```cpp
-// Defer execution until end of scope (like Go's defer but scope-based)
-{
-    luisa_fiber_defer(printf("world\n"));
-    printf("hello ");
-}
-```
-
-### Synchronization Primitives
-
-```cpp
-// Event (Manual or Auto reset)
 luisa::fiber::event evt(luisa::fiber::event::Mode::Manual, false);
-evt.signal();        // Set signalled
-evt.clear();         // Reset to unsignalled
-evt.wait();          // Block until signalled
-bool ready = evt.test();
-bool ready2 = evt.is_signalled();
+evt.signal(); evt.clear(); evt.wait(); bool r = evt.test()/evt.is_signalled();
 
-// Counter (WaitGroup)
 luisa::fiber::counter cnt(3);
-cnt.add(2);          // Increment count
-cnt.done();          // Decrement count
-cnt.wait();          // Block until count reaches 0
+cnt.add(2); cnt.done(); cnt.wait();
 
-// Mutex / Lock / ConditionVariable
 luisa::fiber::mutex mtx;
 luisa::fiber::lock lck(mtx);
 luisa::fiber::condition_variable cv;
 ```
 
-### Task Submission
-
+### Tasks
 ```cpp
-// Schedule fire-and-forget task
-luisa::fiber::schedule([]() noexcept {
-    // do work
-});
-
-// Async task with completion event/future
-auto evt = luisa::fiber::async([]() noexcept {
-    return 42;
-});
-evt.wait();
-
-// Async task returning void
-auto evt_void = luisa::fiber::async([]() noexcept {
-    // do work
-});
-evt_void.wait();
+luisa::fiber::schedule([]() noexcept { /* work */ });
+auto evt = luisa::fiber::async([]() noexcept { return 42; }); evt.wait();
 ```
 
 ### Parallel For
-
 ```cpp
-// Blocking parallel for (waits for completion)
-luisa::fiber::parallel(100, [](uint32_t i) noexcept {
-    // process item i
-});
+// Blocking
+luisa::fiber::parallel(100, [](uint32_t i) noexcept {});
+luisa::fiber::parallel(100, [](uint32_t begin, uint32_t end) noexcept {});
+// Async
+auto cnt = luisa::fiber::async_parallel(100, [](uint32_t i) noexcept {}); cnt.wait();
+// Iterator
+luisa::fiber::parallel(data.begin(), data.end(), 64, [](auto l, auto r) {});
+auto cnt = luisa::fiber::async_parallel(data.begin(), data.end(), 64, [](auto l, auto r) {}); cnt.wait();
+// With external counter
+luisa::fiber::counter cnt(0); luisa::fiber::async_parallel(cnt, 100, [](uint32_t i){});
+// Control batch size
+luisa::fiber::parallel(1000, []{}, /*internal_jobs=*/10);
 
-// Blocking parallel for with range callback
-luisa::fiber::parallel(100, [](uint32_t begin, uint32_t end) noexcept {
-    // process range [begin, end)
-});
-
-// Async parallel for (returns counter)
-auto cnt = luisa::fiber::async_parallel(100, [](uint32_t i) noexcept {
-    // process item i
-});
-cnt.wait();
-
-// Async parallel for with external counter
-luisa::fiber::counter cnt(0);
-luisa::fiber::async_parallel(cnt, 100, [](uint32_t i) noexcept {
-    // process item i
-});
-cnt.wait();
-
-// Control batch size (items per fiber task)
-luisa::fiber::parallel(1000, [](uint32_t i) noexcept {}, /*internal_jobs=*/10);
-```
-
-### Iterator Parallel For
-
-```cpp
-luisa::vector<int> data(1000);
-
-// Blocking iterator parallel for
-luisa::fiber::parallel(data.begin(), data.end(), 64,
-    [](auto l, auto r) {
-        // process range [l, r)
-    });
-
-// Async iterator parallel for
-auto cnt = luisa::fiber::async_parallel(data.begin(), data.end(), 64,
-    [](auto l, auto r) {
-        // process range [l, r)
-    });
-cnt.wait();
-
-// Async with external counter
-luisa::fiber::counter cnt(0);
-luisa::fiber::async_parallel(cnt, data.begin(), data.end(), 64,
-    [](auto l, auto r) {
-        // process range [l, r)
-    });
-cnt.wait();
-```
-
-### Query Worker Threads
-
-```cpp
 uint32_t n = luisa::fiber::worker_thread_count();
 ```
 
----
+### Defer
+```cpp
+{ luisa_fiber_defer(printf("world\n")); printf("hello "); }
+```
 
 ## STL Containers & Utilities
 
-**Location**: `include/luisa/core/stl/`
+**Location**: `include/luisa/core/stl/`. Uses `std::` or EASTL based on `LUISA_USE_SYSTEM_STL`. All in `luisa` namespace.
 
-LuisaCompute provides a wrapper STL layer that uses either the system STL (`std::`) or EASTL (`eastl::`) depending on the `LUISA_USE_SYSTEM_STL` macro. All types are placed in the `luisa` namespace.
-
-### Memory & Allocation
-
+### Memory
 **Header**: `<luisa/core/stl/memory.h>`
-
 ```cpp
-// Custom allocator (uses Luisa's internal allocator by default)
 luisa::allocator<T> alloc;
-
-// Size literals
-auto sz1 = 64_k;       // 65536
-auto sz2 = 16_M;       // 16777216
-auto sz3 = 2_G;        // 2147483648
-
-// Smart pointers (same API as std)
+auto sz1 = 64_k;  // 65536 (also 16_M, 2_G)
 luisa::unique_ptr<T> up = luisa::make_unique<T>(args...);
 luisa::shared_ptr<T> sp = luisa::make_shared<T>(args...);
 luisa::weak_ptr<T> wp = sp;
-
-// Span
 luisa::span<T> s(data, count);
-luisa::span<const T> cs = vec;
-
-// Raw allocation helpers
-T* p = luisa::allocate_with_allocator<T>(n);
-luisa::deallocate_with_allocator(p);
-T* obj = luisa::new_with_allocator<T>(args...);
-luisa::delete_with_allocator(obj);
-
-// Bit cast
+T* p = luisa::allocate_with_allocator<T>(n); luisa::deallocate_with_allocator(p);
+T* obj = luisa::new_with_allocator<T>(args...); luisa::delete_with_allocator(obj);
 auto u = luisa::bit_cast<uint32_t>(3.14f);
 ```
 
-### Strings
-
-**Header**: `<luisa/core/stl/string.h>`
-
+### Strings & Format
+**Header**: `<luisa/core/stl/string.h>`, `<luisa/core/stl/format.h>`
 ```cpp
-luisa::string s = "hello";
-luisa::u8string u8s = u8"hello";
-luisa::wstring ws = L"hello";
-
-// String views (from std)
-std::string_view sv = s;
-
-// String hash (for unordered containers)
-luisa::string_hash h;
-uint64_t hash = h("hello");
-```
-
-**Header**: `<luisa/core/stl/format.h>`
-
-```cpp
-// Format strings
+luisa::string s = "hello"; luisa::u8string u8s = u8"hello"; luisa::wstring ws = L"hello";
+luisa::string_hash h; uint64_t hash = h("hello");
 luisa::string s = luisa::format("Value: {}, {}", 42, 3.14);
-
-// Format vector/matrix types
-auto s2 = luisa::to_string(float3(1.0f, 2.0f, 3.0f));
-
-// Hash to hex string
+auto s2 = luisa::to_string(float3(1,2,3));
 auto hex = luisa::hash_to_string(0x1234ABCD);
 ```
 
 ### Containers
-
-**Header**: `<luisa/core/stl/vector.h>`
-
 ```cpp
-luisa::vector<int> vec = {1, 2, 3};
-vec.push_back(4);
-
-// Fixed-capacity vector
+// <stl/vector.h>
+luisa::vector<int> vec = {1,2,3}; vec.push_back(4);
 luisa::fixed_vector<int, 64> fvec;
-
-// Bit vector
 luisa::bitvector bits(100);
+auto* raw = luisa::enlarge_by(vec, 10);  // push 10 uninit, return ptr to first
+luisa::vector_resize(vec, 100);
+size_t bytes = luisa::size_bytes(vec);
 
-// Utility functions
-auto* raw = luisa::enlarge_by(vec, 10);    // Push 10 uninitialized elements, return pointer to first new
-luisa::vector_resize(vec, 100);             // Resize (uninitialized in EASTL mode)
-size_t bytes = luisa::size_bytes(vec);      // Total byte size
-```
-
-**Header**: `<luisa/core/stl/unordered_map.h>`
-
-```cpp
-// Dense hash map (default, faster than std::unordered_map)
-luisa::unordered_map<string, int> map;
-map.emplace("key", 42);
+// <stl/unordered_map.h> — dense hash map (faster than std)
+luisa::unordered_map<string, int> map; map.emplace("key", 42);
 luisa::unordered_set<int> set;
+
+// <stl/map.h> — ordered
+luisa::map<string,int> omap; luisa::set<int> oset; luisa::multimap<string,int> mm; luisa::multiset<int> ms;
+
+// <stl/fixed_map.h> — fixed-capacity
+luisa::fixed_map<int,string,64> fmap; luisa::fixed_set<int,64> fset;
+luisa::fixed_unordered_map<int,string,64> fumap; luisa::fixed_unordered_set<int,64> fus;
+luisa::fixed_multimap<int,string,64> fmm; luisa::fixed_multiset<int,64> fms;
+
+// <stl/vector_map.h> — sorted-vector-based (better cache locality)
+luisa::vector_map<int,string> vm; luisa::vector_set<int> vs;
+luisa::vector_multimap<int,string> vmm; luisa::vector_multiset<int> vms;
+
+// <stl/deque.h>, <stl/queue.h>, <stl/stack.h>, <stl/priority_queue.h>
+luisa::deque<int> dq; luisa::queue<int> q; luisa::stack<int> st; luisa::priority_queue<int> pq;
+
+// <stl/list.h>
+luisa::list<int> lst; luisa::forward_list<int> flst;
+luisa::fixed_list<int,64> fl; luisa::fixed_forward_list<int,64> ffl;
+
+// <stl/ring_buffer.h> (EASTL only)
+luisa::ring_buffer<int> rb; luisa::fixed_ring_buffer<int,64> frb;
 ```
 
-**Header**: `<luisa/core/stl/map.h>`
-
-```cpp
-luisa::map<string, int> omap;
-luisa::set<int> oset;
-luisa::multimap<string, int> mm;
-luisa::multiset<int> ms;
-```
-
-**Header**: `<luisa/core/stl/fixed_map.h>`
-
-```cpp
-// Fixed-capacity containers (fallback to std when using system STL)
-luisa::fixed_map<int, string, 64> fmap;
-luisa::fixed_set<int, 64> fset;
-luisa::fixed_unordered_map<int, string, 64> fumap;
-luisa::fixed_unordered_set<int, 64> fus;
-luisa::fixed_multimap<int, string, 64> fmm;
-luisa::fixed_multiset<int, 64> fms;
-```
-
-**Header**: `<luisa/core/stl/vector_map.h>`
-
-```cpp
-// Sorted vector-based map/set (better cache locality for small sets)
-luisa::vector_map<int, string> vm;
-luisa::vector_set<int> vs;
-luisa::vector_multimap<int, string> vmm;
-luisa::vector_multiset<int> vms;
-```
-
-**Header**: `<luisa/core/stl/deque.h>`, `<luisa/core/stl/queue.h>`, `<luisa/core/stl/stack.h>`, `<luisa/core/stl/priority_queue.h>`
-
-```cpp
-luisa::deque<int> dq;
-luisa::queue<int> q;
-luisa::stack<int> st;
-luisa::priority_queue<int> pq;
-```
-
-**Header**: `<luisa/core/stl/list.h>`
-
-```cpp
-luisa::list<int> lst;
-luisa::forward_list<int> flst;
-luisa::fixed_list<int, 64> fl;
-luisa::fixed_forward_list<int, 64> ffl;
-```
-
-**Header**: `<luisa/core/stl/ring_buffer.h>` (EASTL only)
-
-```cpp
-luisa::ring_buffer<int> rb;
-luisa::fixed_ring_buffer<int, 64> frb;
-```
-
+### LRU Cache
 **Header**: `<luisa/core/stl/lru_cache.h>`
-
 ```cpp
-// Simple LRU cache
-luisa::lru_cache<string, int> cache(100);
-cache.emplace("key", 42);
-auto val = cache.at("key");     // luisa::optional<int>
-cache.touch("key");             // Move to front
-
-// Thread-safe LRU cache
-auto tc = luisa::LRUCache<string, int>::create(100);
-tc->set_delete_callback([](const int &v) { /* cleanup */ });
-auto v = tc->fetch("key");      // luisa::optional<int>
-tc->update("key", 42);
+luisa::lru_cache<string, int> cache(100); cache.emplace("key", 42);
+auto val = cache.at("key");  // luisa::optional<int>
+cache.touch("key");
+auto tc = luisa::LRUCache<string, int>::create(100);  // thread-safe
+tc->set_delete_callback([](const int &v) {});
+auto v = tc->fetch("key"); tc->update("key", 42);
 ```
 
 ### Optional & Variant
-
-**Header**: `<luisa/core/stl/optional.h>`
-
+**Header**: `<luisa/core/stl/optional.h>`, `<luisa/core/stl/variant.h>`
 ```cpp
-luisa::optional<int> opt = 42;
-if (opt) { int v = *opt; }
-auto n = luisa::nullopt;
-auto o2 = luisa::make_optional(3.14);
-```
+luisa::optional<int> opt = 42; if (opt) { int v = *opt; }
+auto o = luisa::make_optional(3.14); auto n = luisa::nullopt;
 
-**Header**: `<luisa/core/stl/variant.h>`
-
-```cpp
-luisa::variant<int, float, string> v = 3.14f;
-if (luisa::holds_alternative<float>(v)) { ... }
+luisa::variant<int,float,string> v = 3.14f;
+if (luisa::holds_alternative<float>(v)) {}
 auto f = luisa::get<float>(v);
 auto p = luisa::get_if<int>(&v);
-luisa::visit([](auto &&x) { ... }, v);
+luisa::visit([](auto&& x){}, v);
 ```
 
 ### Functional
-
 **Header**: `<luisa/core/stl/functional.h>`
-
 ```cpp
-// Function wrappers
-luisa::function<void(int)> fn = [](int x) {};
-luisa::move_only_function<void(int)> mfn = [p = make_unique<int>()](int x) {};
-
-// Comparison functors
-luisa::less<> lt;
-luisa::equal_to<> eq;
-luisa::greater<> gt;
-
-// Overloaded visitor helper
-auto visitor = luisa::make_overloaded(
-    [](int i) { return "int"; },
-    [](float f) { return "float"; }
-);
-
-// Lazy construction
-auto obj = luisa::lazy_construct([] { return make_unique<Resource>(); });
-
-// Scope guard (EASTL only)
-auto guard = luisa::make_finally([] { cleanup(); });
+luisa::function<void(int)> fn = [](int){};
+luisa::move_only_function<void(int)> mfn = [p=make_unique<int>()](int){};
+luisa::less<> lt; luisa::equal_to<> eq; luisa::greater<> gt;
+auto visitor = luisa::make_overloaded([](int i){ return "int"; }, [](float f){ return "float"; });
+auto obj = luisa::lazy_construct([]{ return make_unique<Resource>(); });
+auto guard = luisa::make_finally([]{ cleanup(); });  // EASTL only
 ```
 
 ### Hashing
-
 **Header**: `<luisa/core/stl/hash.h>`
-
 ```cpp
-// Generic hash value
 uint64_t h = luisa::hash_value(42);
-uint64_t h2 = luisa::hash_value("hello");
-
-// Combine hashes
 uint64_t hc = luisa::hash_combine({h1, h2, h3});
-
-// 128-bit hash
 luisa::Hash128 h128 = luisa::hash128(data, size, seed);
 luisa::string s = h128.to_string();
 ```
 
-### Iterators & Ranges
-
-**Header**: `<luisa/core/stl/iterator.h>`
-
+### Iterators & Algorithms
+**Header**: `<luisa/core/stl/iterator.h>`, `<luisa/core/stl/algorithm.h>`
 ```cpp
-// Numeric range (like Python range)
-for (auto i : luisa::range(10)) { }           // 0..9
-for (auto i : luisa::range(2, 10)) { }        // 2..9
-for (auto i : luisa::range(0, 10, 2)) { }    // 0,2,4,6,8
+for (auto i : luisa::range(10)) {}          // 0..9
+for (auto i : luisa::range(2, 10)) {}       // 2..9
+for (auto i : luisa::range(0, 10, 2)) {}    // 0,2,4,6,8
 
-// Equivalent factory functions
-auto r1 = luisa::make_range(10);
-auto r2 = luisa::make_range(2, 10, 2);
-```
-
-### Algorithms
-
-**Header**: `<luisa/core/stl/algorithm.h>`
-
-```cpp
-// Pattern-defeating quicksort (default sort in luisa)
-luisa::sort(vec.begin(), vec.end());
+luisa::sort(vec.begin(), vec.end());         // pdqsort
 luisa::sort(vec.begin(), vec.end(), luisa::greater<>{});
+luisa::transform(a.begin(), a.end(), b.begin(), op);
+bool found = luisa::binary_search(vec.begin(), vec.end(), val);
 
-// Also available: pdqsort directly
 #include <luisa/core/stl/pdqsort.h>
 pdqsort(vec.begin(), vec.end());
 pdqsort_branchless(vec.begin(), vec.end());
-
-// Standard algorithms
-luisa::transform(a.begin(), a.end(), b.begin(), op);
-bool found = luisa::binary_search(vec.begin(), vec.end(), val);
 ```
 
-### Filesystem
-
-**Header**: `<luisa/core/stl/filesystem.h>`
-
+### Other
 ```cpp
-luisa::filesystem::path p = "/some/path";
-luisa::string s = luisa::to_string(p);
+// <stl/filesystem.h>
+luisa::filesystem::path p = "/some/path"; luisa::string s = luisa::to_string(p);
+// <stl/sstream.h>
+luisa::stringstream ss; ss << "value=" << 42; luisa::string s = ss.str();
+luisa::ostringstream oss; luisa::istringstream iss("42 3.14");
 ```
 
-### String Streams
+## Summary
 
-**Header**: `<luisa/core/stl/sstream.h>`
-
-```cpp
-luisa::stringstream ss;
-ss << "value = " << 42;
-luisa::string s = ss.str();
-
-luisa::ostringstream oss;
-luisa::istringstream iss("42 3.14");
-```
-
----
-
-## Summary Table
-
-| Component | Header | Key Classes/Functions |
-|-----------|--------|----------------------|
+| Component | Header | Key |
+|---|---|---|
 | Basic Traits | `<luisa/core/basic_traits.h>` | `is_vector_v`, `is_matrix_v`, `vector_element_t`, `to_underlying` |
 | Basic Types | `<luisa/core/basic_types.h>` | `float2/3/4`, `float2x2/3x3/4x4`, `make_float2/3/4`, `make_float2x2/3x3/4x4` |
-| Binary Buffer | `<luisa/core/binary_buffer.h>` | `BinaryBuffer`, `BinaryBufferReader` |
 | Binary File Stream | `<luisa/core/binary_file_stream.h>` | `BinaryFileStream` |
 | Binary IO | `<luisa/core/binary_io.h>` | `BinaryBlob` |
 | Clock | `<luisa/core/clock.h>` | `Clock::tic()`, `Clock::toc()` |
@@ -1267,10 +469,10 @@ luisa::istringstream iss("42 3.14");
 | Fiber | `<luisa/core/fiber.h>` | `scheduler`, `schedule()`, `async()`, `parallel()`, `async_parallel()`, `event`, `counter` |
 | STL Memory | `<luisa/core/stl/memory.h>` | `allocator`, `unique_ptr`, `shared_ptr`, `span`, `make_unique`, `make_shared` |
 | STL String | `<luisa/core/stl/string.h>` | `string`, `string_hash`, `u8string`, `wstring` |
+| STL Format | `<luisa/core/stl/format.h>` | `format()`, `to_string()`, `hash_to_string()` |
 | STL Vector | `<luisa/core/stl/vector.h>` | `vector`, `fixed_vector`, `bitvector`, `enlarge_by`, `vector_resize` |
 | STL Map | `<luisa/core/stl/unordered_map.h>` | `unordered_map`, `unordered_set` |
-| STL Algorithm | `<luisa/core/stl/algorithm.h>` | `sort`, `transform`, `binary_search` |
-| STL Format | `<luisa/core/stl/format.h>` | `format`, `to_string`, `hash_to_string` |
+| STL Algorithm | `<luisa/core/stl/algorithm.h>` | `sort`, `transform`, `binary_search`, `pdqsort` |
 | STL Functional | `<luisa/core/stl/functional.h>` | `function`, `move_only_function`, `overloaded`, `lazy_construct` |
 | STL Hash | `<luisa/core/stl/hash.h>` | `hash_value`, `hash_combine`, `Hash128` |
 | STL LRU Cache | `<luisa/core/stl/lru_cache.h>` | `lru_cache`, `LRUCache` |

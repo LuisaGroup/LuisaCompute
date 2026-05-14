@@ -1,11 +1,11 @@
 ---
 name: glslang
+description: glslang SPIR-V builder API — types, constants, functions, control flow, memory, textures, decorations, debug info, and GlslangToSpv patterns
 ---
+
 # glslang SPIR-V Usage
 
-Khronos reference compiler SPIR-V components located in `src/ext/glslang/SPIRV`.
-
-## Headers
+Located in `src/ext/glslang/SPIRV`. Headers:
 
 ```cpp
 #include "SPIRV/SpvBuilder.h"
@@ -21,13 +21,10 @@ Khronos reference compiler SPIR-V components located in `src/ext/glslang/SPIRV`.
 ```cpp
 spv::SpvBuildLogger logger;
 spv::Builder builder(spv::Spv_1_5, 0, &logger);
-
 builder.setSource(spv::SourceLanguage::GLSL, 450);
 builder.setMemoryModel(spv::AddressingModel::Logical, spv::MemoryModel::GLSL450);
 builder.addCapability(spv::Capability::Shader);
-
-// ... build module ...
-
+// ... build ...
 std::vector<unsigned int> spirv;
 builder.dump(spirv);
 ```
@@ -38,19 +35,13 @@ builder.dump(spirv);
 builder.setSource(spv::SourceLanguage::GLSL, 450);
 builder.setDebugMainSourceFile("shader.frag");
 builder.setDebugSourceLocation(10, "shader.frag");
-
 builder.addCapability(spv::Capability::Shader);
 builder.addExtension("SPV_KHR_ray_tracing");
-
 builder.setMemoryModel(spv::AddressingModel::Logical, spv::MemoryModel::GLSL450);
-
-// Imports (e.g., GLSL.std.450)
 spv::Id glsl450 = builder.import("GLSL.std.450");
 ```
 
-## Types
-
-All type creation is canonicalized (returns existing type if already made).
+## Types (canonicalized)
 
 ```cpp
 spv::Id voidTy   = builder.makeVoidType();
@@ -67,39 +58,32 @@ spv::Id float8e4 = builder.makeFloatE4M3Type();
 
 spv::Id vec4Ty   = builder.makeVectorType(floatTy, 4);
 spv::Id mat4x4Ty = builder.makeMatrixType(floatTy, 4, 4);
-
 spv::Id arrTy    = builder.makeArrayType(floatTy, builder.makeUintConstant(16), 0);
 spv::Id runArrTy = builder.makeRuntimeArray(floatTy);
 
-std::vector<spv::Id> members = { floatTy, int32Ty };
-std::vector<spv::StructMemberDebugInfo> memberDebug;
-spv::Id structTy = builder.makeStructType(members, memberDebug, "MyStruct", false);
+std::vector<spv::Id> members = {floatTy, int32Ty};
+spv::Id structTy = builder.makeStructType(members, {}, "MyStruct", false);
 
-spv::Id ptrTy    = builder.makePointer(spv::StorageClass::Function, floatTy);
-spv::Id fwdPtrTy = builder.makeForwardPointer(spv::StorageClass::PhysicalStorageBufferEXT);
-spv::Id untypedPtr = builder.makeUntypedPointer(spv::StorageClass::StorageBuffer);
+spv::Id ptrTy     = builder.makePointer(spv::StorageClass::Function, floatTy);
+spv::Id fwdPtrTy  = builder.makeForwardPointer(spv::StorageClass::PhysicalStorageBufferEXT);
+spv::Id untypedPtr= builder.makeUntypedPointer(spv::StorageClass::StorageBuffer);
+spv::Id fnTy      = builder.makeFunctionType(voidTy, {floatTy, int32Ty});
 
-spv::Id fnTy     = builder.makeFunctionType(voidTy, { floatTy, int32Ty });
+spv::Id imgTy       = builder.makeImageType(floatTy, spv::Dim::Dim2D, false, false, false, 1, spv::ImageFormat::Rgba32f, "texture2D");
+spv::Id sampledImgTy= builder.makeSampledImageType(imgTy, "sampler2D");
+spv::Id samplerTy   = builder.makeSamplerType("sampler");
 
-spv::Id imgTy    = builder.makeImageType(floatTy, spv::Dim::Dim2D, false, false, false,
-                                          1, spv::ImageFormat::Rgba32f, "texture2D");
-spv::Id sampledImgTy = builder.makeSampledImageType(imgTy, "sampler2D");
-spv::Id samplerTy    = builder.makeSamplerType("sampler");
-
-// Acceleration structure / ray query / hit object
 spv::Id asTy = builder.makeAccelerationStructureType();
 spv::Id rqTy = builder.makeRayQueryType();
 spv::Id hoTy = builder.makeHitObjectEXTType();
 
-// Cooperative matrix / vector / tensor
 spv::Id coopMatTy = builder.makeCooperativeMatrixTypeKHR(floatTy, scopeId, rowsId, colsId, useId);
 spv::Id coopVecTy = builder.makeCooperativeVectorTypeNV(floatTy, componentsId);
 spv::Id tensorTy  = builder.makeTensorTypeARM(floatTy, rankId);
 
-// Generic custom type
-std::vector<spv::IdImmediate> ops;
-ops.emplace_back(true, someId);
-spv::Id genericTy = builder.makeGenericType(spv::Op::OpType... , ops);
+// Generic
+std::vector<spv::IdImmediate> ops = {{true, someId}};
+spv::Id genericTy = builder.makeGenericType(spv::Op::OpType..., ops);
 ```
 
 ## Type Queries
@@ -118,78 +102,41 @@ bool isImage   = builder.isImageType(typeId);
 bool isSampler = builder.isSamplerType(typeId);
 int  width     = builder.getScalarTypeWidth(typeId);
 spv::Id scalar = builder.getScalarTypeId(typeId);
-spv::Id contained = builder.getContainedTypeId(typeId);      // single member
-spv::Id contained = builder.getContainedTypeId(typeId, n);   // nth member
+spv::Id contained = builder.getContainedTypeId(typeId);     // single
+spv::Id contained = builder.getContainedTypeId(typeId, n);  // nth
 unsigned cols = builder.getNumColumns(id);
 unsigned rows = builder.getNumRows(id);
-unsigned comps = builder.getNumComponents(id);
+unsigned comps= builder.getNumComponents(id);
 ```
 
-## Constants
-
-Created constants are deduplicated (except specialization constants).
+## Constants (deduplicated; spec constants not)
 
 ```cpp
-spv::Id trueConst  = builder.makeBoolConstant(true);
-spv::Id falseConst = builder.makeBoolConstant(false);
+spv::Id t = builder.makeBoolConstant(true), f = builder.makeBoolConstant(false);
+spv::Id i32 = builder.makeIntConstant(5), u32 = builder.makeUintConstant(7);
+spv::Id i64 = builder.makeInt64Constant(9), u64 = builder.makeUint64Constant(11);
+spv::Id i8  = builder.makeInt8Constant(1),  u8  = builder.makeUint8Constant(2);
+spv::Id i16 = builder.makeInt16Constant(3), u16 = builder.makeUint16Constant(4);
+spv::Id f32 = builder.makeFloatConstant(1.0f), f64 = builder.makeDoubleConstant(2.0);
+spv::Id f16 = builder.makeFloat16Constant(3.0f), bf16 = builder.makeBFloat16Constant(4.0f);
+spv::Id fp  = builder.makeFpConstant(floatTy, 1.5, false);
+spv::Id null= builder.makeNullConstant(structTy);
 
-spv::Id i32_5  = builder.makeIntConstant(5);
-spv::Id u32_7  = builder.makeUintConstant(7);
-spv::Id i64_9  = builder.makeInt64Constant(9);
-spv::Id u64_11 = builder.makeUint64Constant(11);
-spv::Id i8_1   = builder.makeInt8Constant(1);
-spv::Id u8_2   = builder.makeUint8Constant(2);
-spv::Id i16_3  = builder.makeInt16Constant(3);
-spv::Id u16_4  = builder.makeUint16Constant(4);
+// Composite
+spv::Id vec4 = builder.makeCompositeConstant(vec4Ty, {f32, f32, f32, f32});
 
-spv::Id f32_1  = builder.makeFloatConstant(1.0f);
-spv::Id f64_2  = builder.makeDoubleConstant(2.0);
-spv::Id f16_3  = builder.makeFloat16Constant(3.0f);
-spv::Id bf16_4 = builder.makeBFloat16Constant(4.0f);
-
-spv::Id fpVal  = builder.makeFpConstant(floatTy, 1.5, false);
-spv::Id nullVal = builder.makeNullConstant(structTy);
-
-// Composite constant
-std::vector<spv::Id> comps = { f32_1, f32_1, f32_1, f32_1 };
-spv::Id vec4Const = builder.makeCompositeConstant(vec4Ty, comps);
-
-// Specialization constants
-spv::Id specI32 = builder.makeIntConstant(builder.makeIntType(32), 10, true);  // specConstant=true
+// Spec constants
+spv::Id specI32 = builder.makeIntConstant(builder.makeIntType(32), 10, true);
 spv::Id specVec = builder.makeCompositeConstant(vec4Ty, comps, true);
 ```
 
 ## Variables
 
 ```cpp
-// Global variable
-spv::Id globalVar = builder.createVariable(
-    spv::Decoration::NoPrecision,
-    spv::StorageClass::Private,
-    floatTy,
-    "myGlobal",
-    builder.makeFloatConstant(0.0f)
-);
-
-// Local variable (Function storage class)
-spv::Id localVar = builder.createVariable(
-    spv::Decoration::NoPrecision,
-    spv::StorageClass::Function,
-    floatTy,
-    "myLocal"
-);
-
-// Untyped variable
-spv::Id untypedVar = builder.createUntypedVariable(
-    spv::Decoration::NoPrecision,
-    spv::StorageClass::StorageBuffer,
-    "untypedVar",
-    dataTypeId,   // optional data type
-    initializerId // optional initializer
-);
-
-// Undefined value
-spv::Id undef = builder.createUndefined(floatTy);
+spv::Id global = builder.createVariable(spv::Decoration::NoPrecision, spv::StorageClass::Private, floatTy, "g", builder.makeFloatConstant(0.0f));
+spv::Id local  = builder.createVariable(spv::Decoration::NoPrecision, spv::StorageClass::Function, floatTy, "l");
+spv::Id untyped= builder.createUntypedVariable(spv::Decoration::NoPrecision, spv::StorageClass::StorageBuffer, "u", dataTypeId, initId);
+spv::Id undef  = builder.createUndefined(floatTy);
 ```
 
 ## Functions
@@ -202,231 +149,133 @@ builder.addExecutionMode(entry, spv::ExecutionMode::OriginUpperLeft);
 
 // Regular function
 spv::Block* entryBlock = nullptr;
-std::vector<spv::Id> paramTypes = { floatTy, int32Ty };
-std::vector<std::vector<spv::Decoration>> paramDecs = {
-    { spv::Decoration::NoPrecision },
-    { spv::Decoration::NoPrecision }
-};
 spv::Function* func = builder.makeFunctionEntry(
-    spv::Decoration::NoPrecision,
-    floatTy,           // return type
-    "myFunc",
-    spv::LinkageType::Max,
-    paramTypes,
-    paramDecs,
-    &entryBlock
-);
+    spv::Decoration::NoPrecision, floatTy, "myFunc", spv::LinkageType::Max,
+    {floatTy, int32Ty},
+    {{spv::Decoration::NoPrecision}, {spv::Decoration::NoPrecision}},
+    &entryBlock);
 
 builder.enterFunction(func);
 builder.setBuildPoint(entryBlock);
-
-// Parameters are assigned IDs sequentially from a base ID:
 spv::Id p0 = func->getParamId(0);
 spv::Id p1 = func->getParamId(1);
-
-// Body instructions...
-builder.makeReturn(false, resultId);
-
+builder.makeReturn(false, resultId);  // or makeReturn(false) for void
 builder.leaveFunction();
 ```
 
 ## Control Flow
 
 ### If-Then-Else
-
 ```cpp
-spv::Id cond = ...; // bool
-{
-    spv::Builder::If ifBuilder(cond, spv::SelectionControlMask::MaskNone, builder);
-    // then block
-    builder.createStore(..., ...);
-
-    ifBuilder.makeBeginElse();
-    // else block
-    builder.createStore(..., ...);
-
-    ifBuilder.makeEndIf();
-}
-// builder is now at merge block
+spv::Builder::If ifBuilder(cond, spv::SelectionControlMask::MaskNone, builder);
+// then block
+ifBuilder.makeBeginElse();
+// else block
+ifBuilder.makeEndIf();
+// merge block
 ```
 
 ### Switch
-
 ```cpp
-std::vector<int> caseValues = { 0, 1 };
-std::vector<int> valueToSegment = { 0, 1 };
-int defaultSegment = 2;
-int numSegments = 3;
+std::vector<int> caseValues = {0, 1}, valueToSegment = {0, 1};
+int defaultSegment = 2, numSegments = 3;
 std::vector<Block*> segmentBB;
-
-builder.makeSwitch(selectorId, spv::SelectionControlMask::MaskNone,
-                   numSegments, caseValues, valueToSegment, defaultSegment, segmentBB);
-
-// Segment 0 (case 0)
-builder.nextSwitchSegment(segmentBB, 0);
-// ... code ...
-builder.addSwitchBreak(false);
-
-// Segment 1 (case 1)
-builder.nextSwitchSegment(segmentBB, 1);
-// ... code ...
-builder.addSwitchBreak(false);
-
-// Segment 2 (default)
-builder.nextSwitchSegment(segmentBB, 2);
-// ... code ...
-builder.addSwitchBreak(false);
-
+builder.makeSwitch(selectorId, spv::SelectionControlMask::MaskNone, numSegments, caseValues, valueToSegment, defaultSegment, segmentBB);
+builder.nextSwitchSegment(segmentBB, 0); /* ... */ builder.addSwitchBreak(false);
+builder.nextSwitchSegment(segmentBB, 1); /* ... */ builder.addSwitchBreak(false);
+builder.nextSwitchSegment(segmentBB, 2); /* ... */ builder.addSwitchBreak(false);
 builder.endSwitch(segmentBB);
 ```
 
 ### Loops
-
 ```cpp
 spv::Builder::LoopBlocks& loop = builder.makeNewLoop();
 builder.setBuildPoint(&loop.head);
-// loop header test
 builder.createBranch(false, &loop.body);
-
 builder.setBuildPoint(&loop.body);
 // loop body
-// continue
 builder.createLoopContinue();
-
 builder.setBuildPoint(&loop.continue_target);
-// continue block (e.g., increment)
 builder.createBranch(false, &loop.head);
-
 builder.setBuildPoint(&loop.merge);
-// after loop
-
 builder.closeLoop();
-
-// Break / continue inside loop
-builder.createLoopExit();     // break
-builder.createLoopContinue(); // continue
+// break: builder.createLoopExit();  continue: builder.createLoopContinue();
 ```
 
-## Arithmetic & Logic Instructions
+## Arithmetic & Logic
 
 ```cpp
-// Unary
-spv::Id neg = builder.createUnaryOp(spv::Op::OpSNegate, int32Ty, val);
+spv::Id neg  = builder.createUnaryOp(spv::Op::OpSNegate, int32Ty, val);
 spv::Id notb = builder.createUnaryOp(spv::Op::OpLogicalNot, boolTy, bval);
-
-// Binary
-spv::Id add = builder.createBinOp(spv::Op::OpFAdd, floatTy, a, b);
-spv::Id sub = builder.createBinOp(spv::Op::OpISub, int32Ty, a, b);
-spv::Id mul = builder.createBinOp(spv::Op::OpIMul, int32Ty, a, b);
-spv::Id div = builder.createBinOp(spv::Op::OpFDiv, floatTy, a, b);
+spv::Id add  = builder.createBinOp(spv::Op::OpFAdd, floatTy, a, b);
+spv::Id sub  = builder.createBinOp(spv::Op::OpISub, int32Ty, a, b);
+spv::Id mul  = builder.createBinOp(spv::Op::OpIMul, int32Ty, a, b);
+spv::Id div  = builder.createBinOp(spv::Op::OpFDiv, floatTy, a, b);
 spv::Id and_ = builder.createBinOp(spv::Op::OpBitwiseAnd, uint32Ty, a, b);
 
-// Ternary
-std::vector<spv::Id> extOps = { glsl450, GLSLstd450Fma, a, b, c };
-spv::Id fma = builder.createOp(spv::Op::OpExtInst, floatTy, extOps);
+// ExtInst (ternary)
+spv::Id fma = builder.createOp(spv::Op::OpExtInst, floatTy, {glsl450, GLSLstd450Fma, a, b, c});
 
 // Generic n-ary
-std::vector<spv::Id> ops = { a, b, c };
-spv::Id res = builder.createOp(spv::Op::OpVectorTimesMatrix, vec4Ty, ops);
+spv::Id r = builder.createOp(spv::Op::OpVectorTimesMatrix, vec4Ty, {a, b, c});
 
-// Generic with immediates mixed
-std::vector<spv::IdImmediate> mixed;
-mixed.emplace_back(true, idOp);
-mixed.emplace_back(false, (unsigned)spv::MemoryAccessMask::Aligned);
+// Mixed ID/immediates
+std::vector<spv::IdImmediate> mixed = {{true, idOp}, {false, (unsigned)spv::MemoryAccessMask::Aligned}};
 spv::Id r = builder.createOp(spv::Op::Op..., typeId, mixed);
 
 // SpecConstantOp
-spv::Id specAdd = builder.createSpecConstantOp(
-    spv::Op::OpIAdd, int32Ty,
-    { specA, specB },
-    {} // literals
-);
+spv::Id specAdd = builder.createSpecConstantOp(spv::Op::OpIAdd, int32Ty, {specA, specB}, {});
 ```
 
 ## Memory Instructions
 
 ```cpp
-// Load / Store
 spv::Id loaded = builder.createLoad(ptrId, spv::Decoration::NoPrecision);
 builder.createStore(valueId, ptrId);
-
-// With memory access
-builder.createStore(valueId, ptrId,
-    spv::MemoryAccessMask::NonUniformPointerEXT,
-    spv::Scope::Device, 4);
+builder.createStore(valueId, ptrId, spv::MemoryAccessMask::NonUniformPointerEXT, spv::Scope::Device, 4);
 
 // Access chain
-std::vector<spv::Id> indexes = { builder.makeUintConstant(0), builder.makeUintConstant(2) };
+std::vector<spv::Id> indexes = {builder.makeUintConstant(0), builder.makeUintConstant(2)};
 spv::Id chain = builder.createAccessChain(spv::StorageClass::Function, basePtr, indexes);
 
-// Array length
-spv::Id len = builder.createArrayLength(bufferPtr, memberIndex, 32);
+// Composite
+spv::Id elem  = builder.createCompositeExtract(composite, elemType, 2);
+spv::Id elem  = builder.createCompositeExtract(composite, elemType, std::vector<unsigned>{0, 1});
+spv::Id ins   = builder.createCompositeInsert(newVal, composite, compositeType, 0);
+spv::Id dynEl = builder.createVectorExtractDynamic(vec, elemType, indexId);
+spv::Id dynVec= builder.createVectorInsertDynamic(vec, vecType, newElem, indexId);
+spv::Id comp  = builder.createCompositeConstruct(vec4Ty, {a, b, c, d});
 
-// Composite extract / insert
-spv::Id elem = builder.createCompositeExtract(composite, elemType, 2);
-spv::Id elem = builder.createCompositeExtract(composite, elemType, std::vector<unsigned>{0, 1});
-spv::Id inserted = builder.createCompositeInsert(newVal, composite, compositeType, 0);
-
-// Vector dynamic extract / insert
-spv::Id dynElem = builder.createVectorExtractDynamic(vec, elemType, indexId);
-spv::Id dynVec = builder.createVectorInsertDynamic(vec, vecType, newElem, indexId);
-
-// Composite construct
-std::vector<spv::Id> constituents = { a, b, c, d };
-spv::Id comp = builder.createCompositeConstruct(vec4Ty, constituents);
-
-// Constructors (vector/matrix/scalar promotion)
-std::vector<spv::Id> srcs = { scalarId };
-spv::Id vec4Id = builder.createConstructor(spv::Decoration::NoPrecision, srcs, vec4Ty);
-spv::Id matId = builder.createMatrixConstructor(spv::Decoration::NoPrecision, srcs, mat4x4Ty);
+spv::Id vec4 = builder.createConstructor(spv::Decoration::NoPrecision, {scalarId}, vec4Ty);
+spv::Id mat  = builder.createMatrixConstructor(spv::Decoration::NoPrecision, srcs, mat4x4Ty);
 
 // Swizzle
-std::vector<unsigned> channels = { 2, 1, 0, 3 };
-spv::Id swizzled = builder.createRvalueSwizzle(spv::Decoration::NoPrecision, vec4Ty, vec, channels);
-spv::Id merged  = builder.createLvalueSwizzle(vec4Ty, target, source, channels);
+spv::Id swz = builder.createRvalueSwizzle(spv::Decoration::NoPrecision, vec4Ty, vec, {2, 1, 0, 3});
+spv::Id lswz= builder.createLvalueSwizzle(vec4Ty, target, source, {2, 1, 0, 3});
 
-// Scalar promotion (smear scalar to vector width)
-Id left = scalar, right = vector;
+// Scalar promotion (in-place)
 builder.promoteScalar(spv::Decoration::NoPrecision, left, right);
-// one of the arguments is rewritten in-place
-
-// Smear explicitly
 spv::Id smeared = builder.smearScalar(spv::Decoration::NoPrecision, scalarId, vec4Ty);
 ```
 
 ## Access Chain Helper
 
-`Builder` maintains one active access chain for l-value / r-value tracking.
+Builder maintains one active access chain for l-value/r-value tracking:
 
 ```cpp
 builder.clearAccessChain();
-builder.setAccessChainLValue(ptrId);     // base is a pointer
-builder.setAccessChainRValue(valueId);   // base is an r-value
-
+builder.setAccessChainLValue(ptrId);    // base is pointer
+builder.setAccessChainRValue(valueId);  // base is r-value
 builder.accessChainPush(indexId, coherentFlags, alignment);
-builder.accessChainPushSwizzle(swizzleChannels, preSwizzleBaseType, coherentFlags, alignment);
+builder.accessChainPushSwizzle(channels, preSwizzleBaseType, coherentFlags, alignment);
 builder.accessChainPushComponent(componentId, preSwizzleBaseType, coherentFlags, alignment);
 
-// Load through the chain
-spv::Id result = builder.accessChainLoad(
-    spv::Decoration::NoPrecision,   // precision
-    spv::Decoration::Max,           // l-value nonuniform
-    spv::Decoration::Max,           // r-value nonuniform
-    resultType,
-    spv::MemoryAccessMask::MaskNone,
-    spv::Scope::Max, 0
-);
-
-// Store through the chain
-builder.accessChainStore(valueId, spv::Decoration::Max);
-
-// Get direct l-value pointer
+spv::Id result = builder.accessChainLoad(precision, lvalNonUniform, rvalNonUniform, resultType, memAccess, scope, n);
+builder.accessChainStore(valueId, nonUniform);
 spv::Id lval = builder.accessChainGetLValue();
-
-// Get inferred type after chain dereferences
 spv::Id inferred = builder.accessChainGetInferredType();
 
-// Save/restore chain
+// Save/restore
 spv::Builder::AccessChain saved = builder.getAccessChain();
 builder.setAccessChain(saved);
 ```
@@ -434,37 +283,15 @@ builder.setAccessChain(saved);
 ## Texture Operations
 
 ```cpp
-spv::Builder::TextureParameters params;
+spv::Builder::TextureParameters params = {};
 params.sampler = sampledImageId;
 params.coords = coordsId;
-params.bias = spv::NoResult;
-params.lod = lodId;
-params.Dref = spv::NoResult;
-params.offset = offsetId;
-params.gradX = spv::NoResult;
-params.gradY = spv::NoResult;
-params.component = spv::NoResult;
-params.sample = spv::NoResult;
-params.texelOut = spv::NoResult;
-params.lodClamp = spv::NoResult;
-params.granularity = spv::NoResult;
-params.coarse = spv::NoResult;
-params.offsets = spv::NoResult;
-params.nonprivate = false;
-params.volatil = false;
-params.nontemporal = false;
+params.lod = lodId;  // etc: bias, Dref, offset, gradX, gradY, component, sample, lodClamp, ...
+// nonprivate, volatil, nontemporal = false
 
-spv::Id texResult = builder.createTextureCall(
-    spv::Decoration::NoPrecision,
-    resultType,
-    false,   // sparse
-    false,   // fetch
-    false,   // proj
-    false,   // gather
-    false,   // noImplicit
-    params,
-    spv::ImageOperandsMask::MaskNone
-);
+spv::Id tex = builder.createTextureCall(precision, resultType,
+    false/*sparse*/, false/*fetch*/, false/*proj*/, false/*gather*/, false/*noImplicit*/,
+    params, spv::ImageOperandsMask::MaskNone);
 ```
 
 ## Decorations & Names
@@ -472,26 +299,16 @@ spv::Id texResult = builder.createTextureCall(
 ```cpp
 builder.addName(id, "myVar");
 builder.addMemberName(structTy, 0, "field0");
-
 builder.addDecoration(id, spv::Decoration::Location, 0);
 builder.addDecoration(id, spv::Decoration::Binding, 2);
 builder.addDecoration(id, spv::Decoration::DescriptorSet, 0);
 builder.addDecoration(id, spv::Decoration::NoContraction);
 builder.addDecoration(id, spv::Decoration::RelaxedPrecision);
 builder.addDecoration(id, spv::Decoration::BuiltIn, (int)spv::BuiltIn::Position);
-
-// Member decorations
 builder.addMemberDecoration(structTy, 0, spv::Decoration::Offset, 0);
 builder.addMemberDecoration(structTy, 1, spv::Decoration::Offset, 16);
-
-// Decoration with vector literals
-builder.addDecoration(id, spv::Decoration::WorkgroupSize,
-    std::vector<unsigned>{64, 1, 1});
-
-// DecorationId
+builder.addDecoration(id, spv::Decoration::WorkgroupSize, std::vector<unsigned>{64, 1, 1});
 builder.addDecorationId(id, spv::Decoration::ArrayStrideIdEXT, strideId);
-
-// Linkage
 builder.addLinkageDecoration(id, "myFunc", spv::LinkageType::Export);
 ```
 
@@ -499,17 +316,13 @@ builder.addLinkageDecoration(id, "myFunc", spv::LinkageType::Export);
 
 ```cpp
 builder.createControlBarrier(spv::Scope::Workgroup, spv::Scope::Device,
-    spv::MemorySemanticsMask::UniformMemory |
-    spv::MemorySemanticsMask::WorkgroupMemory);
-
-builder.createMemoryBarrier(spv::Scope::Device,
-    spv::MemorySemanticsMask::ImageMemory);
+    spv::MemorySemanticsMask::UniformMemory | spv::MemorySemanticsMask::WorkgroupMemory);
+builder.createMemoryBarrier(spv::Scope::Device, spv::MemorySemanticsMask::ImageMemory);
 ```
 
 ## Debug Info
 
-### SPIR-V Standard Debug (OpLine / OpSource)
-
+### SPIR-V Standard (OpLine/OpSource)
 ```cpp
 builder.setEmitSpirvDebugInfo();
 builder.setDebugMainSourceFile("shader.glsl");
@@ -518,89 +331,57 @@ builder.setSourceText(sourceText);
 ```
 
 ### NonSemantic Shader Debug Info
-
 ```cpp
-builder.setEmitNonSemanticShaderDebugInfo(true); // true = emit source text
-
-// Types are automatically mapped. Retrieve debug type:
+builder.setEmitNonSemanticShaderDebugInfo(true);
 spv::Id debugType = builder.getDebugType(spirvTypeId);
-
-// Debug scopes / lexical blocks
 builder.enterLexicalBlock(line, column);
 builder.leaveLexicalBlock();
-
-// Debug function setup (call after makeFunctionEntry)
 builder.setupFunctionDebugInfo(func, "myFunc", paramTypes, paramNames);
-
-// Debug variables
 spv::Id dbgGlobal = builder.createDebugGlobalVariable(debugType, "globalVar", varId);
 spv::Id dbgLocal  = builder.createDebugLocalVariable(debugType, "localVar", argNumber);
 spv::Id dbgDecl   = builder.makeDebugDeclare(dbgLocal, ptrId);
 spv::Id dbgVal    = builder.makeDebugValue(dbgLocal, valueId);
 ```
 
-## Function Calls
+## Function Calls & Builtins
 
 ```cpp
-spv::Id result = builder.createFunctionCall(calleeFunc, { arg0, arg1, arg2 });
+spv::Id result = builder.createFunctionCall(calleeFunc, {arg0, arg1, arg2});
+spv::Id sqrtVal = builder.createBuiltinCall(floatTy, glsl450, GLSLstd450Sqrt, {val});
 ```
 
-## Builtin Call (GLSL.std.450)
+## Post-Processing & Serialization
 
 ```cpp
-spv::Id glsl450 = builder.import("GLSL.std.450");
-spv::Id sqrtVal = builder.createBuiltinCall(floatTy, glsl450, GLSLstd450Sqrt, { val });
-```
+builder.postProcess(false);       // prune + caps/extensions
+builder.postProcessCFG();         // prune unreachable
+builder.postProcessFeatures();    // add caps/extensions from instructions
+builder.postProcessSamplers();    // move OpSampledImage near users
 
-## Post-Processing
-
-```cpp
-builder.postProcess(false);      // prune unreachable blocks, add caps/extensions
-builder.postProcessCFG();        // prune unreachable blocks
-builder.postProcessFeatures();   // add capabilities/extensions from instructions
-builder.postProcessSamplers();   // move OpSampledImage next to users
-```
-
-## Serialization
-
-```cpp
 std::vector<unsigned int> spirv;
 builder.dump(spirv);
-
-// Disassemble
 spv::Disassemble(std::cout, spirv);
-
-// Save binary
 glslang::OutputSpvBin(spirv, "out.spv");
-
-// Save C header
 glslang::OutputSpvHex(spirv, "out.h", "g_spv");
 ```
 
-## IR Classes
-
-`spvIR.h` defines the in-memory IR:
+## IR Classes (`spvIR.h`)
 
 ```cpp
-// Instruction
 spv::Instruction* inst = new spv::Instruction(resultId, typeId, spv::Op::OpIAdd);
 inst->addIdOperand(opA);
 inst->addIdOperand(opB);
 
-// Block (owns instructions)
 spv::Block* block = new spv::Block(blockId, *function);
 block->addInstruction(std::unique_ptr<spv::Instruction>(inst));
 block->addLocalVariable(std::unique_ptr<spv::Instruction>(varInst));
 bool terminated = block->isTerminated();
 
-// Function (owns blocks)
-spv::Function* func = new spv::Function(funcId, retType, funcType, firstParamId,
-                                        linkage, name, module);
+spv::Function* func = new spv::Function(funcId, retType, funcType, firstParamId, linkage, name, module);
 func->addBlock(block);
 func->setReturnPrecision(spv::Decoration::RelaxedPrecision);
 func->addParamPrecision(0, spv::Decoration::RelaxedPrecision);
 
-// Module (owns functions, instruction map)
 spv::Module module;
 module.addFunction(func);
 module.mapInstruction(inst);
@@ -608,29 +389,27 @@ spv::Instruction* found = module.getInstruction(id);
 spv::Id typeId = module.getTypeId(resultId);
 ```
 
-
-## Key Types Summary
+## Key Types
 
 | Type | Purpose |
-|------|---------|
+|---|---|
 | `spv::Builder` | SPIR-V module construction |
 | `spv::Instruction` | Single SPIR-V instruction |
-| `spv::Block` | Basic block (label + instructions) |
+| `spv::Block` | Basic block |
 | `spv::Function` | SPIR-V function |
-| `spv::Module` | Module root, ID-to-instruction map |
+| `spv::Module` | Module root, ID→instruction map |
 | `spv::Builder::If` | Structured if-then-else helper |
 | `spv::Builder::LoopBlocks` | Structured loop blocks |
-| `spv::Builder::AccessChain` | L-value / R-value access chain |
+| `spv::Builder::AccessChain` | L-value/R-value access chain |
 | `spv::Builder::TextureParameters` | Texture op parameters |
-| `spv::IdImmediate` | Operand that is either ID or immediate |
-| `glslang::SpvOptions` | Options for `GlslangToSpv` |
+| `spv::IdImmediate` | Operand: ID or immediate |
+| `glslang::SpvOptions` | GlslangToSpv options |
 
-## GlslangToSpv Visit Functions
+## GlslangToSpv Patterns
 
-Representative `spv::Builder` patterns extracted from `TGlslangToSpvTraverser` in `src/ext/glslang/SPIRV/GlslangToSpv.cpp`.
+From `TGlslangToSpvTraverser` (`src/ext/glslang/SPIRV/GlslangToSpv.cpp`). Common pattern: clear access chain → traverse → load/store → set R-value.
 
 ### visitSymbol
-
 ```cpp
 builder.clearAccessChain();
 if (isRValue || !builder.isPointerType(builder.getTypeId(id)))
@@ -646,248 +425,125 @@ builder.addExtension("SPV_GOOGLE_hlsl_functionality1");
 builder.addDecorationId(id, spv::Decoration::HlslCounterBufferGOOGLE, counterId);
 ```
 
-### visitBinary
-
+### visitBinary (Assignment)
 ```cpp
-// Assignment
-builder.clearAccessChain();
-node->getLeft()->traverse(this);
-spv::Builder::AccessChain lValue = builder.getAccessChain();
-
-builder.clearAccessChain();
-node->getRight()->traverse(this);
+builder.clearAccessChain(); node->getLeft()->traverse(this);
+auto lValue = builder.getAccessChain();
+builder.clearAccessChain(); node->getRight()->traverse(this);
 spv::Id rValue = accessChainLoad(node->getRight()->getType());
-
 builder.setAccessChain(lValue);
 multiTypeStore(node->getLeft()->getType(), rValue);
-
-builder.clearAccessChain();
-builder.setAccessChainRValue(rValue);
+builder.clearAccessChain(); builder.setAccessChainRValue(rValue);
 ```
 
+### visitBinary (Array/Vector Index)
 ```cpp
-// Array / vector index with unsigned zero-extend
-spv::Id indexType = builder.getTypeId(index);
-if (builder.isUintType(indexType) && builder.getScalarTypeWidth(indexType) < 32) {
-    spv::Id uintType = builder.makeUintType(32);
-    index = builder.createUnaryOp(spv::Op::OpUConvert, uintType, index);
-}
-
-builder.accessChainPush(index, coherent_flags, alignment);
+// zero-extend narrow uint indexes to 32-bit
+if (builder.isUintType(indexType) && builder.getScalarTypeWidth(indexType) < 32)
+    index = builder.createUnaryOp(spv::Op::OpUConvert, builder.makeUintType(32), index);
+builder.accessChainPush(index, coherentFlags, alignment);
 ```
 
+### visitBinary (Swizzle)
 ```cpp
-// Vector component swizzle
 builder.accessChainPushSwizzle(swizzle, convertGlslangToSpvType(node->getLeft()->getType()),
                                coherentFlags, alignment);
 ```
 
-### visitUnary
-
+### visitUnary (Inc/Dec)
 ```cpp
-// Pre / post increment & decrement
 spv::Id operand = builder.accessChainGetLValue();
 spv::Id one = builder.makeIntConstant(1);
 spv::Id result = builder.createBinOp(op, type, operand, one);
-builder.accessChainStore(result, TranslateNonUniformDecoration(builder.getAccessChain().coherentFlags));
-builder.clearAccessChain();
-builder.setAccessChainRValue(result);
+builder.accessChainStore(result, ...);
+builder.clearAccessChain(); builder.setAccessChainRValue(result);
 ```
 
+### visitUnary (Builtin / NoResult / ArrayLength)
 ```cpp
-// Builtin call (e.g. sqrt, abs)
-spv::Id result = builder.createBuiltinCall(resultType(), glsl450, opcode, { operand });
-builder.clearAccessChain();
-builder.setAccessChainRValue(result);
-```
-
-```cpp
-// Special no-result ops
-builder.createNoResultOp(spv::Op::OpKill, spv::NoResult);
-builder.createNoResultOp(spv::Op::OpTerminateInvocation, spv::NoResult);
-builder.createNoResultOp(spv::Op::OpDemoteToHelperInvocationEXT, spv::NoResult);
+// Builtin
+spv::Id result = builder.createBuiltinCall(resultType(), glsl450, opcode, {operand});
+// No-result
+builder.createNoResultOp(spv::Op::OpKill);
+builder.createNoResultOp(spv::Op::OpTerminateInvocation);
+builder.createNoResultOp(spv::Op::OpDemoteToHelperInvocationEXT);
 builder.createNoResultOp(spv::Op::OpAssumeTrueKHR, operand);
-```
-
-```cpp
 // Array length
-spv::Id length = builder.createArrayLength(builder.accessChainGetLValue(), member, bits);
-length = builder.createUnaryOp(spv::Op::OpBitcast, builder.makeIntType(bits), length);
-builder.clearAccessChain();
-builder.setAccessChainRValue(length);
-```
-
-```cpp
-// Cooperative matrix / vector length
+spv::Id len = builder.createArrayLength(builder.accessChainGetLValue(), member, bits);
+len = builder.createUnaryOp(spv::Op::OpBitcast, builder.makeIntType(bits), len);
+// Cooperative matrix/vector
 spv::Id lenKHR = builder.createCooperativeMatrixLengthKHR(typeId);
 spv::Id lenNV  = builder.createCooperativeMatrixLengthNV(typeId);
 spv::Id lenVec = builder.getCooperativeVectorNumComponents(typeId);
-```
-
-```cpp
-// Tensor layout / view
-spv::Id tensorLayout = builder.createOp(spv::Op::OpCreateTensorLayoutNV, resultType(), {});
-spv::Id tensorView   = builder.createOp(spv::Op::OpCreateTensorViewNV, resultType(), {});
-builder.clearAccessChain();
-builder.setAccessChainRValue(tensorLayout);
+// Tensor
+spv::Id layout = builder.createOp(spv::Op::OpCreateTensorLayoutNV, resultType(), {});
+spv::Id view   = builder.createOp(spv::Op::OpCreateTensorViewNV, resultType(), {});
 ```
 
 ### visitAggregate
-
 ```cpp
-// Function entry / leave
+// Function entry/leave
 builder.setBuildPoint(shaderEntry->getLastBlock());
-builder.enterFunction(shaderEntry);
-// ... emit body ...
-builder.leaveFunction();
-```
-
-```cpp
+builder.enterFunction(shaderEntry); /* body */ builder.leaveFunction();
 // Function call
 spv::Id result = builder.createFunctionCall(callee, arguments);
-builder.clearAccessChain();
-builder.setAccessChainRValue(result);
-```
-
-```cpp
 // Constructors
-spv::Id constructed = builder.createConstructor(precision, arguments, resultType());
-spv::Id matConstructed = builder.createMatrixConstructor(precision, arguments, resultType());
-builder.clearAccessChain();
-builder.setAccessChainRValue(constructed);
-```
-
-```cpp
-// Builtin call (e.g. GLSL.std.450)
-spv::Id result = builder.createBuiltinCall(resultType(), extInst, opcode, arguments);
-builder.clearAccessChain();
-builder.setAccessChainRValue(result);
-```
-
-```cpp
-// Texture op (inside image/texture helper)
-spv::Builder::TextureParameters params;
-params.sampler = sampledImageId;
-params.coords  = coordsId;
-params.lod     = lodId;
-// ... fill remaining fields ...
-
-spv::Id texResult = builder.createTextureCall(
-    precision, resultType(), sparse, fetch, proj, gather, noImplicit,
-    params, spv::ImageOperandsMask::MaskNone);
-```
-
-```cpp
+spv::Id c = builder.createConstructor(precision, arguments, resultType());
+spv::Id m = builder.createMatrixConstructor(precision, arguments, resultType());
+// Builtin
+spv::Id r = builder.createBuiltinCall(resultType(), extInst, opcode, arguments);
+// Texture
+spv::Builder::TextureParameters params = {sampledImageId, coordsId, /*...*/};
+spv::Id tex = builder.createTextureCall(precision, resultType(), sparse, fetch, proj, gather, noImplicit, params, mask);
 // Sampled image
-spv::Id sampled = builder.createOp(spv::Op::OpSampledImage, resultType(),
-                                    { imageId, samplerId });
-```
-
-```cpp
+spv::Id sampled = builder.createOp(spv::Op::OpSampledImage, resultType(), {imageId, samplerId});
 // Cooperative matrix conversion
 spv::Id coop = builder.createCooperativeMatrixConversion(resultType(), arguments[0]);
-```
-
-```cpp
-// Variable declaration
-spv::Id var = builder.createVariable(precision, spv::StorageClass::Function, type, name, initializer);
-```
-
-```cpp
-// Load / store
+// Variable
+spv::Id var = builder.createVariable(precision, spv::StorageClass::Function, type, name, init);
+// Load/store
 spv::Id loaded = builder.createLoad(ptrId, precision);
 builder.createStore(valueId, ptrId);
-```
-
-```cpp
-// Lexical debug scopes
-builder.enterLexicalBlock(loc.line, loc.column);
-// ... body ...
-builder.leaveLexicalBlock();
+// Debug scopes
+builder.enterLexicalBlock(loc.line, loc.column); /* body */ builder.leaveLexicalBlock();
 ```
 
 ### visitSelection
-
 ```cpp
-// Scalar ternary / OpSelect
-spv::Id cond     = accessChainLoad(node->getCondition()->getType());
-spv::Id trueVal  = ...;
-spv::Id falseVal = ...;
-spv::Id result   = builder.createTriOp(spv::Op::OpSelect, resultType(), cond, trueVal, falseVal);
-builder.clearAccessChain();
-builder.setAccessChainRValue(result);
-```
-
-```cpp
-// Vector selection via smeared scalar condition
+// Scalar ternary
+spv::Id result = builder.createTriOp(spv::Op::OpSelect, resultType(), cond, trueVal, falseVal);
+// Vector selection via smeared scalar cond
 spv::Id condVec = builder.smearScalar(precision, cond, builder.makeVectorType(boolTy, components));
 spv::Id result  = builder.createUnaryOp(spv::Op::OpCopyLogical, resultType(), ...);
 ```
 
 ### visitSwitch
-
 ```cpp
-std::vector<int> caseValues      = { 0, 1, 2 };
-std::vector<int> valueToSegment  = { 0, 1, 2 };
-int defaultSegment = 3;
-int numSegments    = 4;
-std::vector<Block*> segmentBB;
-
-builder.makeSwitch(selectorId, spv::SelectionControlMask::MaskNone,
-                   numSegments, caseValues, valueToSegment, defaultSegment, segmentBB);
-
-builder.nextSwitchSegment(segmentBB, 0);
-// ... case 0 body ...
-builder.addSwitchBreak(false);
-
+std::vector<int> caseValues = {0,1,2}, valueToSegment = {0,1,2};
+builder.makeSwitch(selectorId, spv::SelectionControlMask::MaskNone, 4, caseValues, valueToSegment, 3, segmentBB);
+builder.nextSwitchSegment(segmentBB, 0); /* case 0 */ builder.addSwitchBreak(false);
+// ...
 builder.endSwitch(segmentBB);
 ```
 
-### visitConstantUnion
-
-```cpp
-spv::Id constantId = createSpvConstant(node);
-builder.clearAccessChain();
-builder.setAccessChainRValue(constantId);
-```
-
 ### visitLoop
-
 ```cpp
 spv::Builder::LoopBlocks& loop = builder.makeNewLoop();
 builder.setBuildPoint(&loop.head);
-
-// Loop merge & continue target
-builder.createLoopMerge(&loop.merge, &loop.continue_target,
-                        spv::LoopControlMask::MaskNone, std::vector<unsigned>{});
-
-// Conditional branch to body or merge
+builder.createLoopMerge(&loop.merge, &loop.continue_target, spv::LoopControlMask::MaskNone, {});
 builder.createConditionalBranch(cond, &loop.body, &loop.merge);
-
-builder.setBuildPoint(&loop.body);
-// ... loop body ...
-builder.createLoopContinue();
-
-builder.setBuildPoint(&loop.continue_target);
-// ... increment ...
-builder.createBranch(false, &loop.head);
-
+builder.setBuildPoint(&loop.body); /* body */ builder.createLoopContinue();
+builder.setBuildPoint(&loop.continue_target); /* increment */ builder.createBranch(false, &loop.head);
 builder.setBuildPoint(&loop.merge);
 builder.closeLoop();
 ```
 
 ### visitBranch
-
 ```cpp
-// Return
 builder.makeReturn(false, returnValue);   // with value
 builder.makeReturn(false);                // void
-
-// Break / continue
-builder.createLoopExit();      // break
-builder.createLoopContinue();  // continue
-
-// Discard / demote / terminate
+builder.createLoopExit();                 // break
+builder.createLoopContinue();             // continue
 builder.makeStatementTerminator(spv::Op::OpKill, "post-discard");
 builder.makeStatementTerminator(spv::Op::OpTerminateInvocation, "post-terminate");
 builder.createNoResultOp(spv::Op::OpDemoteToHelperInvocationEXT);
@@ -895,14 +551,19 @@ builder.makeStatementTerminator(spv::Op::OpTerminateRayKHR, "post-terminate-ray"
 builder.makeStatementTerminator(spv::Op::OpIgnoreIntersectionKHR, "post-ignore");
 ```
 
-### visitVariableDecl
+### visitConstantUnion
+```cpp
+spv::Id constantId = createSpvConstant(node);
+builder.clearAccessChain();
+builder.setAccessChainRValue(constantId);
+```
 
+### visitVariableDecl
 ```cpp
 builder.setDebugSourceLocation(node->getLoc().line, node->getLoc().getFilename());
 ```
 
 ### visitFunctions
-
 ```cpp
 // No direct builder usage; drives traversal of the translation unit.
 ```

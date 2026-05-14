@@ -1,14 +1,11 @@
 ---
 name: cmake
+description: CMake build system for LuisaCompute — options, architecture, custom functions, and backend patterns
 ---
 
 # CMake Build Guide
 
-## Requirements
-
-- CMake 3.26+
-- Ninja (recommended)
-- C++20 compiler (MSVC/Clang/GCC)
+**Requirements**: CMake 3.26+, Ninja (recommended), C++20 compiler (MSVC/Clang/GCC).
 
 ## Quick Start
 
@@ -18,11 +15,34 @@ cmake --build build
 cmake --install build --prefix dist
 ```
 
+**Platform specifics**:
+
+Linux:
+```bash
+export CC=clang-20 CXX=clang++-20
+cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
+```
+
+macOS:
+```bash
+export PATH="$PATH:/opt/homebrew/opt/llvm/bin"
+export CC=/opt/homebrew/opt/llvm/bin/clang
+export CXX=/opt/homebrew/opt/llvm/bin/clang++
+export SDKROOT=$(xcrun --show-sdk-path)
+cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
+```
+
+Windows: Requires VS Developer Command Prompt. Or use Python bootstrap:
+```python
+import bootstrap
+bootstrap.prepare_msvc_environment()
+```
+
 ## Build Options
 
 | Option | Default | Description |
-|--------|---------|-------------|
-| `CMAKE_BUILD_TYPE` | - | `Release` or `Debug` |
+|---|---|---|
+| `CMAKE_BUILD_TYPE` | - | `Release` / `Debug` |
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | C++ DSL |
 | `LUISA_COMPUTE_ENABLE_CUDA` | ON | CUDA backend |
 | `LUISA_COMPUTE_ENABLE_METAL` | ON | Metal (macOS) |
@@ -36,158 +56,99 @@ cmake --install build --prefix dist
 | `LUISA_COMPUTE_ENABLE_SANITIZERS` | OFF | Address/UB sanitizers |
 | `LUISA_COMPUTE_USE_SYSTEM_LIBS` | OFF | Prefer system libs |
 
-## Platform-Specific
-
-### Linux
+**CI minimal build**:
 ```bash
-export CC=clang-20 CXX=clang++-20
-cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
-```
-
-### macOS
-```bash
-export PATH="$PATH:/opt/homebrew/opt/llvm/bin"
-export CC=/opt/homebrew/opt/llvm/bin/clang
-export CXX=/opt/homebrew/opt/llvm/bin/clang++
-export SDKROOT=$(xcrun --show-sdk-path)
-cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
-```
-
-### Windows
-
-**Recommended (Python bootstrap):**
-```python
-import bootstrap
-bootstrap.prepare_msvc_environment()
-```
-
-**Manual (VS Developer Command Prompt required):**
-```cmd
-cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release
-```
-
-## CI Example
-
-```bash
-cmake -S . -B build -G Ninja \
-  -D LUISA_COMPUTE_ENABLE_RUST=OFF \
-  -D LUISA_COMPUTE_ENABLE_REMOTE=OFF \
-  -D LUISA_COMPUTE_ENABLE_CPU=OFF \
-  -D CMAKE_BUILD_TYPE=Release
+cmake -S . -B build -G Ninja -D CMAKE_BUILD_TYPE=Release \
+  -D LUISA_COMPUTE_ENABLE_RUST=OFF -D LUISA_COMPUTE_ENABLE_REMOTE=OFF \
+  -D LUISA_COMPUTE_ENABLE_CPU=OFF
 cmake --build build
 ```
 
-
-## Build System Architecture
-
-### Target Naming Conventions
+## Target Naming
 
 | Prefix | Example | Purpose |
-|--------|---------|---------|
-| `luisa-compute-<module>` | `luisa-compute-core` | Internal library targets |
-| `luisa-compute-backend-<name>` | `luisa-compute-backend-cuda` | Backend plugin targets (output as `luisa-backend-<name>`) |
-| `luisa-compute-ext-<name>` | `luisa-compute-ext-spdlog` | Third-party extension targets |
-| `luisa::compute` | Alias | Interface target linking all core modules |
+|---|---|---|
+| `luisa-compute-<module>` | `luisa-compute-core` | Internal library |
+| `luisa-compute-backend-<name>` | `luisa-compute-backend-cuda` | Backend plugin (output: `luisa-backend-<name>`) |
+| `luisa-compute-ext-<name>` | `luisa-compute-ext-spdlog` | Third-party ext |
+| `luisa::compute` | Alias | Interface target for all core modules |
 
-### Module Hierarchy
+## Module Hierarchy
 
 ```
-luisa-compute-include (INTERFACE header-only)
-    ↓
-luisa-compute-ext (INTERFACE third-party deps)
-    ↓
-luisa-compute-core (SHARED)
-    ↓
-luisa-compute-ast (SHARED) → luisa-compute-xir (SHARED)
-    ↓
-luisa-compute-runtime (SHARED)
-    ↓
-luisa-compute-dsl, luisa-compute-gui, luisa-compute-ir
-    ↓
-luisa-compute-backends (INTERFACE aggregator)
+luisa-compute-include (INTERFACE, header-only)
+  → luisa-compute-ext (INTERFACE, third-party deps)
+    → luisa-compute-core (SHARED)
+      → luisa-compute-ast (SHARED) → luisa-compute-xir (SHARED)
+        → luisa-compute-runtime (SHARED)
+          → luisa-compute-dsl, luisa-compute-gui, luisa-compute-ir
+            → luisa-compute-backends (INTERFACE aggregator)
 ```
 
-### Custom CMake Functions
+## Custom CMake Functions
 
-#### `luisa_compute_install(target)`
+### `luisa_compute_add_backend(name)`
+Creates backend plugin MODULE target. Links `ast`, `runtime`, `gui`. Output name: `luisa-backend-<name>`. Installed to `bin/`, not `lib/`.
+```cmake
+luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
+```
 
-Installs a target with consistent destination paths:
+### `luisa_compute_install(target)`
+Installs target with consistent destination paths.
 ```cmake
 luisa_compute_install(core SOURCES ${LUISA_COMPUTE_CORE_SOURCES})
 ```
 
-#### `luisa_compute_add_backend(name)`
-
-Creates a backend plugin MODULE target:
-```cmake
-luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
-```
-
-- Creates `luisa-compute-backend-${name}` MODULE
-- Links to `ast`, `runtime`, `gui`, optionally `dsl`
-- Sets output name to `luisa-backend-${name}`
-- Installs to `${CMAKE_INSTALL_BINDIR}` (bin, not lib)
-
-#### `luisa_compute_add_executable(name)`
-
-Creates executable linked to `luisa::compute`:
+### `luisa_compute_add_executable(name)`
+Creates executable linked to `luisa::compute`.
 ```cmake
 luisa_compute_add_executable(my_app)
 ```
 
-#### `luisa_compute_test_suite(name)` / `luisa_compute_add_test(name)`
-
-Test creation helpers:
+### `luisa_compute_test_suite(name)` / `luisa_compute_add_test(name)`
 ```cmake
-luisa_compute_test_suite(feat)  # globs next/test/feat/**.cpp
-luisa_compute_add_test(my_test) # adds to test_main executable
+luisa_compute_test_suite(feat)   # globs next/test/feat/**.cpp
+luisa_compute_add_test(my_test)  # adds to test_main executable
 ```
 
-### Backend Plugin Build Pattern
+## Backend Plugin Build
 
-Backends are built as `MODULE` (shared libraries) loaded at runtime:
+Backends built as `MODULE` (runtime-loadable shared libs):
 ```cmake
 luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 ```
 
-Key properties:
-- Output renamed to `luisa-backend-<name>` (without `compute-`)
-- Installed to `bin/` not `lib/` because they are runtime plugins
-- Support for builtin device libraries via `luisa_embed_device_lib`
+Key: output renamed to `luisa-backend-<name>`, installed to `bin/`, supports `luisa_embed_device_lib` for builtin device libs.
 
-### Rust Integration
+## Rust Integration
 
 **File**: `src/rust/CMakeLists.txt`
 
-1. Custom command invokes `cargo build`
-2. Profile: `dev` (Debug) or `release` (Release)
-3. CMake targets:
-   - `luisa-compute-rust-meta` (INTERFACE): Static Rust libs
-   - `luisa_compute_backend_impl` (INTERFACE): Shared Rust backend
+Custom command invokes `cargo build` (profile: `dev` for Debug, `release` for Release). CMake targets:
+- `luisa-compute-rust-meta` (INTERFACE): static Rust libs
+- `luisa_compute_backend_impl` (INTERFACE): shared Rust backend
 
-### Third-Party Extension Pattern
+## Third-Party Extension Pattern
 
-Each extension in `src/ext/` follows:
+Each `src/ext/<lib>/`:
 ```cmake
 if (LUISA_COMPUTE_USE_SYSTEM_<LIB>)
     find_package(<LIB> REQUIRED)
     target_link_libraries(luisa-compute-ext INTERFACE <target>)
     target_compile_definitions(luisa-compute-ext INTERFACE LUISA_USE_SYSTEM_<LIB>=1)
-else ()
+else()
     add_subdirectory(<lib>)
     target_link_libraries(luisa-compute-ext INTERFACE <target>)
     luisa_compute_install_extension(<target> ...)
-endif ()
+endif()
 ```
 
-### Output Directories
+## Output & RPATH
 
 ```
 ${CMAKE_BINARY_DIR}/bin  → Runtime outputs (DLLs, executables)
 ${CMAKE_BINARY_DIR}/lib  → Archive outputs (static libs, PDBs)
 ```
-
-### RPATH Configuration
 
 - **macOS**: `@loader_path`, `@loader_path/../bin`, `@loader_path/../lib`
 - **Linux**: `$ORIGIN`, `$ORIGIN/../bin`, `$ORIGIN/../lib`

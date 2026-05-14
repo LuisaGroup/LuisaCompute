@@ -1177,6 +1177,11 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             }
             // Test HLSL
             auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
+            auto f = fopen("hlsl_output.hlsl", "ab");
+            if (f) {
+                fwrite(code.result.view().data(), code.result.view().size(), 1, f);
+                fclose(f);
+            }
             auto comp_result = Device::compiler()->compile_compute(
                 code.result.view(),
                 !option.enable_debug_info,
@@ -1192,7 +1197,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                     std::ofstream file("spirv_output_hlsl.spvasm", std::ios::out);
                     if (file) {
                         file << "; ==SPIRV==\n";
-                        auto&& blob = comp_result.force_get<lc::hlsl::ComUniquePtr<IDxcBlob>>();
+                        auto &&blob = comp_result.force_get<lc::hlsl::ComUniquePtr<IDxcBlob>>();
                         std::vector<uint32_t> vec((blob->GetBufferSize() + sizeof(uint) - 1) / sizeof(uint));
                         std::memcpy(vec.data(), blob->GetBufferPointer(), blob->GetBufferSize());
                         spv::Disassemble(file, vec);
