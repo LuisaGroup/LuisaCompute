@@ -44,7 +44,8 @@ namespace lc::spirv {
 
 SpirvCodegenEntry::SpirvCodegenEntry(StringScratch &scratch, bool allow_indirect) noexcept
     : _scratch{scratch},
-      _builder{spv::Spv_1_5, 0, &_logger},
+      _builder_ptr{std::make_unique<spv::Builder>(spv::Spv_1_5, 0, &_logger)},
+      _builder{*_builder_ptr},
       _allow_indirect_dispatch{allow_indirect} {
     _builder.setSource(spv::SourceLanguage::Unknown, 0);
     _builder.setMemoryModel(spv::AddressingModel::Logical, spv::MemoryModel::GLSL450);
@@ -52,7 +53,23 @@ SpirvCodegenEntry::SpirvCodegenEntry(StringScratch &scratch, bool allow_indirect
     _glsl450 = _builder.import("GLSL.std.450");
 }
 
-SpirvCodegenEntry::~SpirvCodegenEntry() noexcept = default;
+SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
+    _is_storage_image_map.clear();
+    _type_map.clear();
+    _value_map.clear();
+    _function_map.clear();
+    _block_map.clear();
+    _loop_header_info.clear();
+    _loop_header_redirect.clear();
+    _emitted_blocks.clear();
+    _print_info.clear();
+    _print_formats.clear();
+    _control_flow_stack.clear();
+    _properties.clear();
+    _property_ids.clear();
+    _entry_point_inst = nullptr;
+    _builder_ptr.release();
+}
 
 void SpirvCodegenEntry::_analyze_instruction_usage(
     const xir::Function *f, InstructionUsageAnalysis &analysis,
@@ -130,11 +147,8 @@ namespace {
 
 }// namespace
 
-spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
-    if (auto it = _value_map.find(c); it != _value_map.end()) { return it->second; }
-    auto type = c->type();
+spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noexcept {
     auto spv_type = _convert_type(type, Usage::READ);
-    spv::Id id = spv::NoResult;
     switch (type->tag()) {
         case Type::Tag::BOOL:
         case Type::Tag::INT8:
@@ -148,8 +162,7 @@ spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
         case Type::Tag::FLOAT16:
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
-            id = spirv_codegen_emit_scalar_constant(_builder, type, c->data());
-            break;
+            return spirv_codegen_emit_scalar_constant(_builder, type, data);
         case Type::Tag::VECTOR: {
             auto elem_type = type->element();
             auto dim = type->dimension();
@@ -157,15 +170,58 @@ spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
             std::vector<spv::Id> comps;
             comps.reserve(dim);
             for (auto i = 0u; i < dim; ++i) {
-                auto elem_data = static_cast<const std::byte *>(c->data()) + i * elem_stride;
-                comps.emplace_back(spirv_codegen_emit_scalar_constant(_builder, elem_type, elem_data));
+                auto elem_data = static_cast<const std::byte *>(data) + i * elem_stride;
+                comps.emplace_back(_emit_literal(elem_type, elem_data));
             }
-            id = _builder.makeCompositeConstant(spv_type, comps);
-            break;
+            return _builder.makeCompositeConstant(spv_type, comps);
+        }
+        case Type::Tag::MATRIX: {
+            auto elem_type = type->element();
+            auto dim = type->dimension();
+            auto col_type = Type::vector(elem_type, dim);
+            auto col_stride = col_type->size();
+            std::vector<spv::Id> cols;
+            cols.reserve(dim);
+            for (auto i = 0u; i < dim; ++i) {
+                auto col_data = static_cast<const std::byte *>(data) + i * col_stride;
+                cols.emplace_back(_emit_literal(col_type, col_data));
+            }
+            return _builder.makeCompositeConstant(spv_type, cols);
+        }
+        case Type::Tag::ARRAY: {
+            auto elem_type = type->element();
+            auto dim = type->dimension();
+            auto elem_stride = elem_type->size();
+            std::vector<spv::Id> elems;
+            elems.reserve(dim);
+            for (auto i = 0u; i < dim; ++i) {
+                auto elem_data = static_cast<const std::byte *>(data) + i * elem_stride;
+                elems.emplace_back(_emit_literal(elem_type, elem_data));
+            }
+            return _builder.makeCompositeConstant(spv_type, elems);
+        }
+        case Type::Tag::STRUCTURE: {
+            auto members = type->members();
+            std::vector<spv::Id> member_values;
+            member_values.reserve(members.size());
+            auto offset = 0u;
+            for (auto i = 0u; i < members.size(); ++i) {
+                auto member = members[i];
+                offset = luisa::align(offset, member->alignment());
+                auto member_data = static_cast<const std::byte *>(data) + offset;
+                member_values.emplace_back(_emit_literal(member, member_data));
+                offset += member->size();
+            }
+            return _builder.makeCompositeConstant(spv_type, member_values);
         }
         default:
             LUISA_NOT_IMPLEMENTED("SPIR-V constant emission for type {}.", type->description());
     }
+}
+
+spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
+    if (auto it = _value_map.find(c); it != _value_map.end()) { return it->second; }
+    auto id = _emit_literal(c->type(), c->data());
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit constant.");
     _value_map.emplace(c, id);
     return id;
@@ -183,13 +239,27 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
             break;
         case xir::DerivedValueTag::SPECIAL_REGISTER: {
             auto reg = static_cast<const xir::SpecialRegister *>(value);
+            auto tag = reg->derived_special_register_tag();
+            if (tag == xir::DerivedSpecialRegisterTag::DISPATCH_SIZE) {
+                // Load dispatch size from push constant (dsp_c.v.xyz)
+                auto push_const = _property_ids[0];
+                auto uint_type = _builder.makeUintType(32);
+                auto ptr = _create_access_chain(spv::StorageClass::PushConstant, push_const,
+                                                {_builder.makeUintConstant(0u)});
+                auto loaded = _builder.createLoad(ptr, spv::NoPrecision);
+                auto x = _builder.createCompositeExtract(loaded, uint_type, 0);
+                auto y = _builder.createCompositeExtract(loaded, uint_type, 1);
+                auto z = _builder.createCompositeExtract(loaded, uint_type, 2);
+                auto uint3_type = _builder.makeVectorType(uint_type, 3);
+                id = _builder.createCompositeConstruct(uint3_type, {x, y, z});
+                break;
+            }
             spv::BuiltIn builtin;
-            switch (reg->derived_special_register_tag()) {
+            switch (tag) {
                 case xir::DerivedSpecialRegisterTag::THREAD_ID: builtin = spv::BuiltIn::LocalInvocationId; break;
                 case xir::DerivedSpecialRegisterTag::BLOCK_ID: builtin = spv::BuiltIn::WorkgroupId; break;
                 case xir::DerivedSpecialRegisterTag::DISPATCH_ID: builtin = spv::BuiltIn::GlobalInvocationId; break;
                 case xir::DerivedSpecialRegisterTag::BLOCK_SIZE: builtin = spv::BuiltIn::WorkgroupSize; break;
-                case xir::DerivedSpecialRegisterTag::DISPATCH_SIZE: builtin = spv::BuiltIn::NumWorkgroups; break;
                 case xir::DerivedSpecialRegisterTag::WARP_SIZE: builtin = spv::BuiltIn::SubgroupSize; break;
                 case xir::DerivedSpecialRegisterTag::WARP_LANE_ID: builtin = spv::BuiltIn::SubgroupLocalInvocationId; break;
                 default:
@@ -198,6 +268,9 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
             auto var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Input,
                                                _convert_type(reg->type(), Usage::READ), "sr");
             _builder.addDecoration(var, spv::Decoration::BuiltIn, (int)builtin);
+            if (_entry_point_inst != nullptr) {
+                _entry_point_inst->addIdOperand(var);
+            }
             id = _builder.createLoad(var, spv::NoPrecision);
             break;
         }
@@ -220,10 +293,29 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
     return id;
 }
 
+spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::Id base, const std::vector<spv::Id> &indices) noexcept {
+    auto old_access_chain = _builder.getAccessChain();
+    auto new_access_chain = old_access_chain;
+    new_access_chain.base = base;
+    new_access_chain.indexChain = indices;
+    new_access_chain.descHeapInfo.descHeapBaseTy = spv::NoResult;
+    new_access_chain.descHeapInfo.descHeapStorageClass = spv::StorageClass::Max;
+    new_access_chain.descHeapInfo.descHeapBaseArrayStride = 0;
+    new_access_chain.descHeapInfo.descHeapInstId.clear();
+    new_access_chain.descHeapInfo.structRsrcTyOffsetCount = 0;
+    new_access_chain.descHeapInfo.structRsrcTyFirstArrIndex = 0;
+    new_access_chain.descHeapInfo.structRemappedBase = spv::NoResult;
+    _builder.setAccessChain(new_access_chain);
+    auto id = _builder.createAccessChain(storage, base, indices);
+    _builder.setAccessChain(old_access_chain);
+    return id;
+}
+
 spv::Block *SpirvCodegenEntry::_get_or_create_block(const xir::BasicBlock *bb) noexcept {
     if (bb == nullptr) { return nullptr; }
     if (auto it = _block_map.find(bb); it != _block_map.end()) { return it->second; }
     auto block = &_builder.makeNewBlock();
+    // makeNewBlock already adds the block to the function, no need to add again
     _block_map.emplace(bb, block);
     return block;
 }
@@ -233,11 +325,9 @@ void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb) noexcept {
     if (!_emitted_blocks.emplace(bb).second) { return; }
     auto spv_block = _get_or_create_block(bb);
     _builder.setBuildPoint(spv_block);
-    if (auto it = _loop_header_info.find(bb); it != _loop_header_info.end()) {
-        _builder.createLoopMerge(it->second.first, it->second.second,
-                                 spv::LoopControlMask::MaskNone, {});
-    }
+    { size_t n = 0; for (auto &&_ : bb->instructions()) { ++n; } std::cerr << "[SPIR-V] emit_block: " << n << " instructions\n"; }
     for (auto inst : bb->instructions()) {
+        std::cerr << "[SPIR-V]   inst: " << xir::to_string(inst->derived_instruction_tag()) << "\n";
         _emit_instruction(inst);
     }
 }
@@ -252,18 +342,55 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
         value_args.push_back(arg);
     }
     spv::Block *entry = nullptr;
+    // Entry point must have no parameters in SPIR-V
     auto func = _builder.makeFunctionEntry(spv::NoPrecision, ret_type, "main",
-                                           spv::LinkageType::Max, param_types, {}, &entry);
+                                           spv::LinkageType::Max, {}, {}, &entry);
     _value_map.emplace(kernel, func->getId());
     _function_map.emplace(kernel, func);
+    _block_map.emplace(kernel->body_block(), entry);
 
-    auto i = 0u;
-    for (auto arg : value_args) {
-        _value_map.emplace(arg, func->getParamId(i));
-        ++i;
+    // Load non-resource arguments from the cbuffer (StructuredBuffer at property index 2)
+    if (!value_args.empty()) {
+        bool cbuffer_non_empty = false;
+        for (auto arg : kernel->arguments()) {
+            if (!arg->is_resource()) {
+                cbuffer_non_empty = true;
+                break;
+            }
+        }
+        if (cbuffer_non_empty && _property_ids.size() > 2) {
+            auto cbuffer_id = _property_ids[2];
+            auto uint_type = _builder.makeUintType(32);
+            size_t offset = 0;
+            for (auto arg : value_args) {
+                auto align = arg->type()->alignment();
+                offset = (offset + align - 1) & ~(align - 1);
+                auto word_offset = _builder.makeUintConstant(static_cast<uint32_t>(offset / 4));
+                auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, cbuffer_id,
+                                                {_builder.makeUintConstant(0u), word_offset});
+                auto loaded = _builder.createLoad(ptr, spv::NoPrecision);
+                auto spv_type = _convert_type(arg->type(), Usage::READ);
+                if (spv_type != uint_type) {
+                    loaded = _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, loaded);
+                }
+                _value_map.emplace(arg, loaded);
+                offset += arg->type()->size();
+            }
+        } else {
+            // Fallback: create undefined values if cbuffer is not available
+            for (auto arg : value_args) {
+                auto type = _convert_type(arg->type(), Usage::READ);
+                _value_map.emplace(arg, _builder.createUndefined(type));
+            }
+        }
     }
 
-    _builder.addEntryPoint(spv::ExecutionModel::GLCompute, func, "main");
+    _entry_point_inst = _builder.addEntryPoint(spv::ExecutionModel::GLCompute, func, "main");
+    for (auto id : _property_ids) {
+        if (id != spv::NoResult) {
+            _entry_point_inst->addIdOperand(id);
+        }
+    }
     auto bs = kernel->block_size();
     _builder.addExecutionMode(func, spv::ExecutionMode::LocalSize,
                               static_cast<int>(bs.x),
@@ -272,6 +399,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 
     _builder.enterFunction(func);
     _builder.setBuildPoint(entry);
+    { size_t n = 0; for (auto &&_ : kernel->body_block()->instructions()) { ++n; } std::cerr << "[SPIR-V] kernel body block has " << n << " instructions\n"; }
     _emit_block(kernel->body_block());
 
     if (!_builder.getBuildPoint()->isTerminated()) {
@@ -305,11 +433,9 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable) no
 
     _builder.enterFunction(func);
     _builder.setBuildPoint(entry);
+    _block_map.emplace(callable->body_block(), entry);
+    std::cerr << "[SPIR-V] emitting callable: " << callable->name().value_or("?") << " func_id=" << func->getId() << " entry_id=" << entry->getId() << "\n";
     _emit_block(callable->body_block());
-
-    if (!_builder.getBuildPoint()->isTerminated()) {
-        _builder.makeReturn(false);
-    }
     _builder.leaveFunction();
 }
 
@@ -359,6 +485,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
                     _emit_kernel(static_cast<const xir::KernelFunction *>(f));
                     break;
                 case xir::DerivedFunctionTag::CALLABLE:
+                    std::cerr << "[SPIR-V] will emit callable: " << f->name().value_or("?") << "\n";
                     _emit_callable(static_cast<const xir::CallableFunction *>(f));
                     break;
                 default:
@@ -376,6 +503,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     std::ostringstream oss;
     spv::Disassemble(oss, spirv);
     _scratch << oss.str();
+    std::cerr << "[SPIR-V DISASM]\n" << oss.str() << "\n";
 }
 
 }// namespace lc::spirv

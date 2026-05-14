@@ -550,6 +550,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     bool enable_atomic64_bit = false;
     bool enable_barycentric = false;
     bool enable_motion_blur = false;
+    bool enable_float_atomic_add = false;
     if (supported_ext.find(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) != supported_ext.end()) {
         _enable_device_exts.emplace_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
         enable_barycentric = true;
@@ -565,6 +566,21 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (supported_ext.find(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
         _enable_device_exts.emplace_back(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME);
         enable_16bit = true;
+    }
+    if (supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
+        VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
+            nullptr,
+            VK_FALSE, VK_FALSE, VK_FALSE, VK_FALSE,
+            VK_FALSE, VK_FALSE, VK_FALSE, VK_FALSE,
+            VK_FALSE, VK_FALSE, VK_FALSE, VK_FALSE};
+        VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        features2.pNext = &float_atomic_features;
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        if (float_atomic_features.shaderBufferFloat32AtomicAdd == VK_TRUE) {
+            _enable_device_exts.emplace_back(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
+            enable_float_atomic_add = true;
+        }
     }
     _enable_device_exts.emplace_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
     _enable_device_exts.emplace_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
@@ -671,6 +687,24 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         } else {
             feature_next = &enabled_acceleration_structure_features;
         }
+    }
+    VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_feature{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
+        feature_next,
+        VK_FALSE,
+        enable_float_atomic_add ? VK_TRUE : VK_FALSE,
+        VK_FALSE,
+        VK_FALSE,
+        VK_FALSE,
+        VK_FALSE,
+        VK_FALSE,
+        VK_FALSE,
+        VK_FALSE,
+        VK_FALSE,
+        VK_FALSE,
+        VK_FALSE};
+    if (enable_float_atomic_add) {
+        feature_next = &float_atomic_feature;
     }
     VkPhysicalDeviceSynchronization2Features barrier_feature{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
@@ -1125,33 +1159,41 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
     } else {
-// Clock clk;
-#undef LUISA_XIR_TO_SPIRV
 #ifdef LUISA_XIR_TO_SPIRV
         auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option);
-        if (print_code()) {
-            std::ofstream file("spv_output.spvasm", std::ios::out);
+        LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds", spv_result.spv_bin.size(), spv_result.properties.size());
+        for (size_t i = 0; i < spv_result.properties.size(); ++i) {
+            auto &p = spv_result.properties[i];
+            LUISA_INFO("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
+        }
+        {
+            std::ofstream file("C:/dev/compute/bin/debug/spirv_output.spvasm", std::ios::out);
             if (file) {
                 file << "; ==SPIRV==\n";
                 spv::Disassemble(file, spv_result.spv_bin);
             }
         }
-        info.invalidate();
-        // TODO: the spirv codegen is not ready yet
-        // auto shader = new ComputeShader(
-        //     this,
-        //     kernel.block_size(),
-        //     vstd::span<hlsl::Property const>{spv_result.properties.data(), spv_result.properties.size()},
-        //     ShaderSerializer::serialize_saved_args(kernel),
-        //     vstd::span<uint const>{reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() / sizeof(uint)},
-        //     hlsl::binding_to_arg(kernel.bound_arguments()),
-        //     {},
-        //     spv_result.useTex2DBindless,
-        //     spv_result.useTex3DBindless,
-        //     spv_result.useBufferBindless,
-        //     std::move(spv_result.printers));
-        // info.handle = reinterpret_cast<uint64_t>(shader);
-        // info.native_handle = shader->pipeline();
+        {
+            std::ofstream file("C:/dev/compute/bin/debug/spirv_output.bin", std::ios::out | std::ios::binary);
+            if (file) {
+                file.write(reinterpret_cast<const char *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() * sizeof(uint32_t));
+            }
+        }
+        auto shader = new ComputeShader(
+            this,
+            kernel.block_size(),
+            spv_result.properties,
+            ShaderSerializer::serialize_saved_args(kernel),
+            {reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size()},
+            hlsl::binding_to_arg(kernel.bound_arguments()),
+            {},
+            spv_result.useTex2DBindless,
+            spv_result.useTex3DBindless,
+            spv_result.useBufferBindless,
+            std::move(spv_result.printers));
+        LUISA_INFO("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
+        info.handle = reinterpret_cast<uint64_t>(shader);
+        info.native_handle = shader->pipeline();
 
 #else
         auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
@@ -1223,8 +1265,11 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             info.native_handle = shader->pipeline();
         }
 #endif
+    { auto f = fopen("C:/dev/compute/bin/debug/vk_debug.txt", "a"); fprintf(f, "[VK] after endif\n"); fflush(f); fclose(f); }
     }// end else (non-motion-blur path)
+    { auto f = fopen("C:/dev/compute/bin/debug/vk_debug.txt", "a"); fprintf(f, "[VK] before return info\n"); fflush(f); fclose(f); }
     info.block_size = kernel.block_size();
+    { auto f = fopen("C:/dev/compute/bin/debug/vk_debug.txt", "a"); fprintf(f, "[VK] before return\n"); fflush(f); fclose(f); }
     return info;
 }
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }

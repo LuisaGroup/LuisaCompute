@@ -36,14 +36,16 @@ public:
 
 private:
     StringScratch &_scratch;
-    spv::Builder _builder;
+    std::unique_ptr<spv::Builder> _builder_ptr;
     spv::SpvBuildLogger _logger;
+    spv::Builder &_builder; // reference to *_builder_ptr
 
     luisa::unordered_map<const Type *, spv::Id> _type_map;
     luisa::unordered_map<const xir::Value *, spv::Id> _value_map;
     luisa::unordered_map<const xir::Function *, spv::Function *> _function_map;
     luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _block_map;
     luisa::unordered_map<const xir::BasicBlock *, std::pair<spv::Block *, spv::Block *>> _loop_header_info;
+    luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _loop_header_redirect;
     luisa::unordered_set<const xir::BasicBlock *> _emitted_blocks;
 
     luisa::unordered_map<const xir::PrintInst *, PrintInfo> _print_info;
@@ -56,7 +58,11 @@ private:
     bool _use_tex2d_bindless{false};
     bool _use_tex3d_bindless{false};
     bool _use_buffer_bindless{false};
+    spv::Id _buffer_heap_id{spv::NoResult};
+    spv::Id _tex2d_heap_id{spv::NoResult};
+    spv::Id _tex3d_heap_id{spv::NoResult};
     spv::Id _glsl450{spv::NoResult};
+    spv::Instruction *_entry_point_inst{nullptr};
     luisa::unordered_map<spv::Id, bool> _is_storage_image_map;
 
 private:
@@ -69,6 +75,7 @@ private:
                                     luisa::unordered_set<const xir::Function *> &visited) noexcept;
 
     spv::Id _convert_type(const Type *type, Usage usage) noexcept;
+    spv::Id _emit_literal(const Type *type, const void *data) noexcept;
     spv::Id _emit_constant(const xir::Constant *c) noexcept;
     spv::Id _emit_value(const xir::Value *value) noexcept;
     spv::Block *_get_or_create_block(const xir::BasicBlock *bb) noexcept;
@@ -89,8 +96,14 @@ private:
     void _emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept;
     void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
     void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
+    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type) noexcept;
+    spv::Id _emit_buffer_read_impl(spv::Id buffer, spv::Id word_offset, const Type *elem_type) noexcept;
+    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type) noexcept;
+    void _emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type) noexcept;
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
     spv::Id _resolve_resource_argument(const xir::Argument *arg) noexcept;
+    spv::Id _create_access_chain(spv::StorageClass storage, spv::Id base, const std::vector<spv::Id> &indices) noexcept;
+    spv::Id _ensure_type(spv::Id value, spv::Id target_type) noexcept;
 
 public:
     SpirvCodegenEntry(StringScratch &scratch, bool allow_indirect) noexcept;

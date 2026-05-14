@@ -39,7 +39,12 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     auto body = _get_or_create_block(inst->body_block());
     auto update = _get_or_create_block(inst->update_block());
     auto merge = _get_or_create_block(inst->merge_block());
-    _loop_header_info.emplace(inst->prepare_block(), std::make_pair(merge, update));
+    // Create a dedicated loop header block to avoid OpLoopMerge in the same block as other control flow.
+    auto header = &_builder.makeNewBlock();
+    _loop_header_redirect.emplace(inst->prepare_block(), header);
+    _builder.createBranch(false, header);
+    _builder.setBuildPoint(header);
+    _builder.createLoopMerge(merge, update, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, prepare);
     _emit_block(inst->prepare_block());
     _emit_block(inst->body_block());
@@ -50,9 +55,23 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
 void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) noexcept {
     auto body = _get_or_create_block(inst->body_block());
     auto merge = _get_or_create_block(inst->merge_block());
-    _loop_header_info.emplace(inst->body_block(), std::make_pair(merge, body));
+    // Create a dedicated loop header block and a separate continue block.
+    // The body block cannot be the continue target if it contains breaks.
+    auto header = &_builder.makeNewBlock();
+    auto continue_block = &_builder.makeNewBlock();
+    // Redirect branches to body_block to continue_block so that continues/breaks
+    // inside the body don't create multiple back-edges to the header.
+    _loop_header_redirect.emplace(inst->body_block(), continue_block);
+    _builder.createBranch(false, header);
+    _builder.setBuildPoint(header);
+    _builder.createLoopMerge(merge, continue_block, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, body);
     _emit_block(inst->body_block());
+    if (!_builder.getBuildPoint()->isTerminated()) {
+        _builder.createBranch(false, continue_block);
+    }
+    _builder.setBuildPoint(continue_block);
+    _builder.createBranch(false, header);
     _emit_block(inst->merge_block());
 }
 
@@ -107,14 +126,27 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
 }
 
 void SpirvCodegenEntry::_emit_branch_inst(const xir::BranchInst *inst) noexcept {
-    _builder.createBranch(false, _get_or_create_block(inst->target_block()));
-    _emit_block(inst->target_block());
+    auto target = inst->target_block();
+    spv::Block *spv_target = nullptr;
+    if (auto it = _loop_header_redirect.find(target); it != _loop_header_redirect.end()) {
+        spv_target = it->second;
+    } else {
+        spv_target = _get_or_create_block(target);
+    }
+    _builder.createBranch(false, spv_target);
+    _emit_block(target);
 }
 
 void SpirvCodegenEntry::_emit_conditional_branch_inst(const xir::ConditionalBranchInst *inst) noexcept {
     auto cond = _emit_value(inst->condition());
-    auto true_block = _get_or_create_block(inst->true_block());
-    auto false_block = _get_or_create_block(inst->false_block());
+    auto get_target = [&](const xir::BasicBlock *target) -> spv::Block * {
+        if (auto it = _loop_header_redirect.find(target); it != _loop_header_redirect.end()) {
+            return it->second;
+        }
+        return _get_or_create_block(target);
+    };
+    auto true_block = get_target(inst->true_block());
+    auto false_block = get_target(inst->false_block());
     _builder.createConditionalBranch(cond, true_block, false_block);
     _emit_block(inst->true_block());
     _emit_block(inst->false_block());

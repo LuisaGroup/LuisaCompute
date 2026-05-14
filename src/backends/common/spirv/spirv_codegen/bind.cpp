@@ -153,6 +153,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
 
     uint bind_count = 2;
     uint register_count = 0;
+    vstd::vector<const Type *> buffer_elem_types;
 
     // SPIR-V: push-constant / constant value at space=0, reg=0
     _properties.emplace_back(
@@ -161,6 +162,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             0,
             0,
             1});
+    buffer_elem_types.push_back(nullptr);
 
     // Sampler heap at space=1, reg=0, size=16
     _properties.emplace_back(
@@ -169,6 +171,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             1u,
             0u,
             16u});
+    buffer_elem_types.push_back(nullptr);
 
     // CBuffer (global argument buffer)
     if (cbuffer_non_empty) {
@@ -179,6 +182,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 0,
                 0u,
                 1});
+        buffer_elem_types.push_back(nullptr);
         bind_count += 2;
     }
 
@@ -191,6 +195,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 space_idx++,
                 0u,
                 std::numeric_limits<uint>::max()});
+        buffer_elem_types.push_back(nullptr);
         bind_count += 1;
     }
     if (_use_tex2d_bindless) {
@@ -200,6 +205,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 space_idx++,
                 0u,
                 std::numeric_limits<uint>::max()});
+        buffer_elem_types.push_back(nullptr);
         bind_count += 1;
     }
     if (_use_tex3d_bindless) {
@@ -209,6 +215,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 space_idx++,
                 0u,
                 std::numeric_limits<uint>::max()});
+        buffer_elem_types.push_back(nullptr);
         bind_count += 1;
     }
 
@@ -223,7 +230,6 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             0,
                             register_count++,
                             1});
-                    bind_count += 1;
                 } else {
                     _properties.emplace_back(
                         Property{
@@ -231,8 +237,9 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             0,
                             register_count++,
                             1});
-                    bind_count += 1;
                 }
+                buffer_elem_types.push_back(nullptr);
+                bind_count += 1;
                 break;
             case Type::Tag::BUFFER:
                 if (is_writable(arg)) {
@@ -242,7 +249,6 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             0,
                             register_count++,
                             1});
-                    bind_count += 2;
                 } else {
                     _properties.emplace_back(
                         Property{
@@ -250,8 +256,9 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             0,
                             register_count++,
                             1});
-                    bind_count += 2;
                 }
+                buffer_elem_types.push_back(arg.type()->element());
+                bind_count += 2;
                 break;
             case Type::Tag::BINDLESS_ARRAY:
                 _properties.emplace_back(
@@ -260,6 +267,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                         0,
                         register_count++,
                         1});
+                buffer_elem_types.push_back(nullptr);
                 bind_count += 2;
                 break;
             case Type::Tag::ACCEL:
@@ -270,6 +278,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             0,
                             register_count++,
                             1});
+                    buffer_elem_types.push_back(nullptr);
                     bind_count += 2;
                 } else {
                     _properties.emplace_back(
@@ -284,6 +293,8 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             0,
                             register_count++,
                             1});
+                    buffer_elem_types.push_back(nullptr);
+                    buffer_elem_types.push_back(nullptr);
                     bind_count += 3;
                 }
                 break;
@@ -295,6 +306,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             0,
                             register_count++,
                             1});
+                    buffer_elem_types.push_back(nullptr);
                     bind_count += 2;
                 }
                 break;
@@ -311,27 +323,53 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 0,
                 register_count++,
                 1});
+        buffer_elem_types.push_back(nullptr);
         _properties.emplace_back(
             Property{
                 ShaderVariableType::RWStructuredBuffer,
                 0,
                 register_count++,
                 1});
+        buffer_elem_types.push_back(nullptr);
         bind_count += 4;
     }
     // Create SPIR-V global variables and add OpDecorate for property bindings
     _property_ids.clear();
     _property_ids.reserve(_properties.size());
 
+    auto make_typed_buffer_struct_type = [&](const Type *elem_type, bool writable, const char *name) -> spv::Id {
+        bool use_typed = elem_type != nullptr && elem_type->is_scalar();
+        auto spv_elem_type = use_typed ? _convert_type(elem_type, Usage::READ) : _builder.makeUintType(32);
+        auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
+        _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, use_typed ? elem_type->size() : 4u);
+        auto struct_type = _builder.makeStructType({runtime_array}, {}, name, false);
+        _builder.addDecoration(struct_type, spv::Decoration::Block);
+        _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
+        if (!writable) {
+            _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
+        }
+        return struct_type;
+    };
     auto make_buffer_struct_type = [&](const char *name) -> spv::Id {
         auto uint_type = _builder.makeUintType(32);
         auto runtime_array = _builder.makeRuntimeArray(uint_type);
+        _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, 4);
         auto struct_type = _builder.makeStructType({runtime_array}, {}, name, false);
         _builder.addDecoration(struct_type, spv::Decoration::Block);
+        _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
+        return struct_type;
+    };
+    auto make_buffer_element_type = [&](const char *name) -> spv::Id {
+        auto uint_type = _builder.makeUintType(32);
+        auto runtime_array = _builder.makeRuntimeArray(uint_type);
+        auto struct_type = _builder.makeStructType({runtime_array}, {}, name, false);
+        // No Block decoration - this is used inside another Block-decorated struct
         return struct_type;
     };
 
-    for (auto &&prop : _properties) {
+    for (size_t i = 0; i < _properties.size(); ++i) {
+        auto &&prop = _properties[i];
+        auto elem_type = buffer_elem_types[i];
         spv::Id var = spv::NoResult;
         switch (prop.type) {
             case ShaderVariableType::ConstantValue: {
@@ -339,6 +377,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 auto uint4_type = _builder.makeVectorType(uint_type, 4);
                 auto struct_type = _builder.makeStructType({uint4_type}, {}, "_PushConstant", false);
                 _builder.addDecoration(struct_type, spv::Decoration::Block);
+                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
                 var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::PushConstant, struct_type, "dsp_c");
                 break;
             }
@@ -353,7 +392,8 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             }
             case ShaderVariableType::StructuredBuffer:
             case ShaderVariableType::RWStructuredBuffer: {
-                auto struct_type = make_buffer_struct_type("_Buffer");
+                bool writable = (prop.type == ShaderVariableType::RWStructuredBuffer);
+                auto struct_type = make_typed_buffer_struct_type(elem_type, writable, "_Buffer");
                 var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, struct_type, "buffer");
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
@@ -372,6 +412,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 }
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
+                _tex2d_heap_id = var;
                 break;
             }
             case ShaderVariableType::UAVTextureHeap: {
@@ -387,14 +428,23 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 }
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
+                _tex3d_heap_id = var;
                 break;
             }
             case ShaderVariableType::SRVBufferHeap:
             case ShaderVariableType::UAVBufferHeap: {
                 auto struct_type = make_buffer_struct_type("_BindlessBuffer");
-                var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, struct_type, "bdls");
+                // Vulkan StorageBuffer variables must be Block struct or array of Block struct.
+                // OpTypeRuntimeArray cannot be directly instantiated via OpVariable in StorageBuffer.
+                // Use a fixed-size array with a large maximum for bindless.
+                constexpr uint max_bindless_buffers = 65536u;
+                auto array_size = prop.array_size == std::numeric_limits<uint>::max() ? max_bindless_buffers : prop.array_size;
+                auto array_size_id = _builder.makeUintConstant(array_size);
+                auto array_type = _builder.makeArrayType(struct_type, array_size_id, 0);
+                var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, array_type, "bdls");
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
+                _buffer_heap_id = var;
                 break;
             }
             case ShaderVariableType::SPIRVAccel: {

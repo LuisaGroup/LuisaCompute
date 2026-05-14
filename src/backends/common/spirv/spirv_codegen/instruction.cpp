@@ -7,9 +7,10 @@ namespace lc::spirv {
 void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) noexcept {
     auto type = _convert_type(inst->type(), Usage::READ);
     auto t = inst->type();
-    auto is_float = t->is_float();
-    auto is_signed_int = t->is_int();
-    auto is_bool = t->is_bool();
+    auto elem = t->is_vector() || t->is_matrix() ? t->element() : t;
+    auto is_float = elem->is_float();
+    auto is_signed_int = elem->is_int();
+    auto is_bool = elem->is_bool();
     auto is_scalar = t->is_scalar();
 
     auto operand = [&](size_t i) noexcept { return _emit_value(inst->operand(i)); };
@@ -25,7 +26,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         int builtin = f_builtin;
         if (is_signed_int)
             builtin = s_builtin;
-        else if (t->is_uint())
+        else if (is_bool || elem->is_uint())
             builtin = u_builtin;
         return _builder.createBuiltinCall(type, _glsl450, builtin, ops);
     };
@@ -135,53 +136,96 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = _builder.createBinOp(spv::Op::OpBitwiseOr, type, left, right);
             break;
         }
-        case xir::ArithmeticOp::BINARY_LESS:
-            if (is_float)
+        case xir::ArithmeticOp::BINARY_LESS: {
+            auto op_elem = inst->operand(0)->type();
+            op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
+            if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdLessThan);
-            else if (is_signed_int)
+            else if (op_elem->is_int())
                 id = binary(spv::Op::OpSLessThan);
             else
                 id = binary(spv::Op::OpULessThan);
             break;
-        case xir::ArithmeticOp::BINARY_GREATER:
-            if (is_float)
+        }
+        case xir::ArithmeticOp::BINARY_GREATER: {
+            auto op_elem = inst->operand(0)->type();
+            op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
+            if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdGreaterThan);
-            else if (is_signed_int)
+            else if (op_elem->is_int())
                 id = binary(spv::Op::OpSGreaterThan);
             else
                 id = binary(spv::Op::OpUGreaterThan);
             break;
-        case xir::ArithmeticOp::BINARY_LESS_EQUAL:
-            if (is_float)
+        }
+        case xir::ArithmeticOp::BINARY_LESS_EQUAL: {
+            auto op_elem = inst->operand(0)->type();
+            op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
+            if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdLessThanEqual);
-            else if (is_signed_int)
+            else if (op_elem->is_int())
                 id = binary(spv::Op::OpSLessThanEqual);
             else
                 id = binary(spv::Op::OpULessThanEqual);
             break;
-        case xir::ArithmeticOp::BINARY_GREATER_EQUAL:
-            if (is_float)
+        }
+        case xir::ArithmeticOp::BINARY_GREATER_EQUAL: {
+            auto op_elem = inst->operand(0)->type();
+            op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
+            if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdGreaterThanEqual);
-            else if (is_signed_int)
+            else if (op_elem->is_int())
                 id = binary(spv::Op::OpSGreaterThanEqual);
             else
                 id = binary(spv::Op::OpUGreaterThanEqual);
             break;
-        case xir::ArithmeticOp::BINARY_EQUAL:
-            if (is_float)
+        }
+        case xir::ArithmeticOp::BINARY_EQUAL: {
+            auto op_elem = inst->operand(0)->type();
+            op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
+            if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdEqual);
             else
                 id = binary(spv::Op::OpIEqual);
             break;
-        case xir::ArithmeticOp::BINARY_NOT_EQUAL:
-            if (is_float)
+        }
+        case xir::ArithmeticOp::BINARY_NOT_EQUAL: {
+            auto op_elem = inst->operand(0)->type();
+            op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
+            if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdNotEqual);
             else
                 id = binary(spv::Op::OpINotEqual);
             break;
-        case xir::ArithmeticOp::SELECT:
-            id = _builder.createTriOp(spv::Op::OpSelect, type, operand(0), operand(1), operand(2));
+        }
+        case xir::ArithmeticOp::SELECT: {
+            // XIR SELECT operands are (false_value, true_value, condition)
+            auto cond = operand(2);
+            auto cond_type = _builder.getTypeId(cond);
+            bool is_bool_cond = _builder.isBoolType(cond_type);
+            if (_builder.isVectorType(cond_type) && _builder.isBoolType(_builder.getContainedTypeId(cond_type))) {
+                is_bool_cond = true;
+            }
+            if (!is_bool_cond) {
+                spv::Id zero = spv::NoResult;
+                spv::Id bool_type = _builder.makeBoolType();
+                if (_builder.isIntType(cond_type) || _builder.isUintType(cond_type)) {
+                    zero = _builder.makeIntConstant(0);
+                } else if (_builder.isFloatType(cond_type)) {
+                    zero = _builder.makeFloatConstant(0.0f);
+                }
+                if (zero != spv::NoResult) {
+                    if (_builder.isVectorType(cond_type)) {
+                        auto dim = static_cast<int>(_builder.getNumTypeComponents(cond_type));
+                        zero = _builder.smearScalar(spv::NoPrecision, zero, cond_type);
+                        bool_type = _builder.makeVectorType(bool_type, dim);
+                    }
+                    cond = _builder.createBinOp(spv::Op::OpINotEqual, bool_type, cond, zero);
+                }
+            }
+            id = _builder.createTriOp(spv::Op::OpSelect, type, cond, operand(1), operand(0));
             break;
+        }
 
         // Boolean reductions
         case xir::ArithmeticOp::ALL:
@@ -238,23 +282,23 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::CLZ: {
             auto find_msb = glsl_typed(GLSLstd450FindSMsb, GLSLstd450FindSMsb, GLSLstd450FindUMsb, operand(0));
             auto bit_width = static_cast<int>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
-            auto bit_width_id = _builder.makeIntConstant(bit_width);
-            auto minus_one = _builder.makeIntConstant(-1);
-            auto int_type = _builder.makeIntType(32);
+            auto bit_width_id = elem->is_uint() ? _builder.makeUintConstant(bit_width) : _builder.makeIntConstant(bit_width);
+            auto minus_one = elem->is_uint() ? _builder.makeUintConstant(0xFFFFFFFFu) : _builder.makeIntConstant(-1);
             if (!is_scalar) {
                 bit_width_id = _builder.smearScalar(spv::NoPrecision, bit_width_id, type);
                 minus_one = _builder.smearScalar(spv::NoPrecision, minus_one, type);
             }
             auto is_zero = _builder.createBinOp(spv::Op::OpIEqual, _builder.makeBoolType(), find_msb, minus_one);
-            auto clz_val = _builder.createBinOp(spv::Op::OpISub, type, _builder.createBinOp(spv::Op::OpISub, type, bit_width_id, _builder.makeIntConstant(1)), find_msb);
+            auto one = elem->is_uint() ? _builder.makeUintConstant(1u) : _builder.makeIntConstant(1);
+            auto clz_val = _builder.createBinOp(spv::Op::OpISub, type, _builder.createBinOp(spv::Op::OpISub, type, bit_width_id, one), find_msb);
             id = _builder.createTriOp(spv::Op::OpSelect, type, is_zero, bit_width_id, clz_val);
             break;
         }
         case xir::ArithmeticOp::CTZ: {
             auto find_lsb = glsl(GLSLstd450FindILsb, operand(0));
             auto bit_width = static_cast<int>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
-            auto bit_width_id = _builder.makeIntConstant(bit_width);
-            auto minus_one = _builder.makeIntConstant(-1);
+            auto bit_width_id = elem->is_uint() ? _builder.makeUintConstant(bit_width) : _builder.makeIntConstant(bit_width);
+            auto minus_one = elem->is_uint() ? _builder.makeUintConstant(0xFFFFFFFFu) : _builder.makeIntConstant(-1);
             if (!is_scalar) {
                 bit_width_id = _builder.smearScalar(spv::NoPrecision, bit_width_id, type);
                 minus_one = _builder.smearScalar(spv::NoPrecision, minus_one, type);
@@ -383,9 +427,28 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = _builder.createBinOp(spv::Op::OpFMul, type, abs_a, sign_b);
             break;
         }
-        case xir::ArithmeticOp::CROSS:
-            id = glsl(GLSLstd450Cross, operand(0), operand(1));
+        case xir::ArithmeticOp::CROSS: {
+            auto u = operand(0);
+            auto v = operand(1);
+            auto elem_type = _convert_type(t->element(), Usage::READ);
+            auto ux = _builder.createCompositeExtract(u, elem_type, 0);
+            auto uy = _builder.createCompositeExtract(u, elem_type, 1);
+            auto uz = _builder.createCompositeExtract(u, elem_type, 2);
+            auto vx = _builder.createCompositeExtract(v, elem_type, 0);
+            auto vy = _builder.createCompositeExtract(v, elem_type, 1);
+            auto vz = _builder.createCompositeExtract(v, elem_type, 2);
+            auto rx = _builder.createBinOp(spv::Op::OpFMul, elem_type, uy, vz);
+            auto ry = _builder.createBinOp(spv::Op::OpFMul, elem_type, uz, vx);
+            auto rz = _builder.createBinOp(spv::Op::OpFMul, elem_type, ux, vy);
+            auto lx = _builder.createBinOp(spv::Op::OpFMul, elem_type, vy, uz);
+            auto ly = _builder.createBinOp(spv::Op::OpFMul, elem_type, vz, ux);
+            auto lz = _builder.createBinOp(spv::Op::OpFMul, elem_type, vx, uy);
+            auto cx = _builder.createBinOp(spv::Op::OpFSub, elem_type, rx, lx);
+            auto cy = _builder.createBinOp(spv::Op::OpFSub, elem_type, ry, ly);
+            auto cz = _builder.createBinOp(spv::Op::OpFSub, elem_type, rz, lz);
+            id = _builder.createCompositeConstruct(type, {cx, cy, cz});
             break;
+        }
         case xir::ArithmeticOp::DOT:
             id = binary(spv::Op::OpDot);
             break;
@@ -413,9 +476,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::REDUCE_MIN:
         case xir::ArithmeticOp::REDUCE_MAX: {
             auto v = operand(0);
-            auto elem_type = t->element();
+            auto operand_type = inst->operand(0)->type();
+            auto elem_type = operand_type->element();
             auto elem_spv_type = _convert_type(elem_type, Usage::READ);
-            auto dim = t->dimension();
+            auto dim = operand_type->dimension();
             auto extract = [&](unsigned i) {
                 return _builder.createCompositeExtract(v, elem_spv_type, i);
             };
@@ -497,24 +561,42 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto a = operand(0);
             auto b = operand(1);
             auto b_type = inst->operand(1)->type();
-            if (b_type->is_scalar()) {
-                auto smeared = _builder.smearScalar(spv::NoPrecision, b, type);
-                id = _builder.createBinOp(spv::Op::OpFAdd, type, a, smeared);
-            } else {
-                id = _builder.createBinOp(spv::Op::OpFAdd, type, a, b);
+            auto rows = t->dimension();
+            auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int>(rows));
+            std::vector<spv::Id> new_rows;
+            new_rows.reserve(rows);
+            for (auto i = 0u; i < rows; ++i) {
+                auto row_a = _builder.createCompositeExtract(a, row_type, i);
+                if (b_type->is_scalar()) {
+                    auto smeared = _builder.smearScalar(spv::NoPrecision, b, row_type);
+                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFAdd, row_type, row_a, smeared));
+                } else {
+                    auto row_b = _builder.createCompositeExtract(b, row_type, i);
+                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFAdd, row_type, row_a, row_b));
+                }
             }
+            id = _builder.createCompositeConstruct(type, new_rows);
             break;
         }
         case xir::ArithmeticOp::MATRIX_COMP_SUB: {
             auto a = operand(0);
             auto b = operand(1);
             auto b_type = inst->operand(1)->type();
-            if (b_type->is_scalar()) {
-                auto smeared = _builder.smearScalar(spv::NoPrecision, b, type);
-                id = _builder.createBinOp(spv::Op::OpFSub, type, a, smeared);
-            } else {
-                id = _builder.createBinOp(spv::Op::OpFSub, type, a, b);
+            auto rows = t->dimension();
+            auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int>(rows));
+            std::vector<spv::Id> new_rows;
+            new_rows.reserve(rows);
+            for (auto i = 0u; i < rows; ++i) {
+                auto row_a = _builder.createCompositeExtract(a, row_type, i);
+                if (b_type->is_scalar()) {
+                    auto smeared = _builder.smearScalar(spv::NoPrecision, b, row_type);
+                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFSub, row_type, row_a, smeared));
+                } else {
+                    auto row_b = _builder.createCompositeExtract(b, row_type, i);
+                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFSub, row_type, row_a, row_b));
+                }
             }
+            id = _builder.createCompositeConstruct(type, new_rows);
             break;
         }
         case xir::ArithmeticOp::MATRIX_COMP_MUL: {
@@ -602,8 +684,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         case xir::ArithmeticOp::SHUFFLE: {
             auto v = operand(0);
-            auto src_type = inst->operand(0)->type();
-            auto dim = src_type->dimension();
+            auto dim = t->dimension();
             std::vector<spv::Id> comps;
             comps.reserve(dim);
             for (auto i = 1u; i <= dim; ++i) {
@@ -630,16 +711,34 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         case xir::ArithmeticOp::EXTRACT: {
             auto v = operand(0);
-            std::vector<unsigned> indices;
+            auto base_type = inst->operand(0)->type();
+            bool all_constant = true;
+            std::vector<unsigned> const_indices;
+            std::vector<spv::Id> dynamic_indices;
             for (auto i = 1u; i < inst->operand_count(); ++i) {
                 if (auto c = dynamic_cast<const xir::Constant *>(inst->operand(i))) {
                     auto idx = *static_cast<const uint32_t *>(c->data());
-                    indices.push_back(idx);
+                    const_indices.push_back(idx);
+                    dynamic_indices.push_back(_builder.makeUintConstant(idx));
                 } else {
-                    LUISA_ERROR_WITH_LOCATION("SPIR-V extract requires constant indices.");
+                    all_constant = false;
+                    dynamic_indices.push_back(_emit_value(inst->operand(i)));
                 }
             }
-            id = _builder.createCompositeExtract(v, type, indices);
+            if (all_constant) {
+                id = _builder.createCompositeExtract(v, type, const_indices);
+            } else if (base_type->is_vector()) {
+                LUISA_ASSERT(dynamic_indices.size() == 1u, "SPIR-V vector extract should have only one index.");
+                id = _builder.createVectorExtractDynamic(v, type, dynamic_indices[0]);
+            } else if (base_type->is_array() || base_type->is_matrix()) {
+                auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
+                                                        _convert_type(base_type, Usage::READ), "extract_tmp");
+                _builder.createStore(v, temp_var);
+                auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
+                id = _builder.createLoad(ptr, spv::NoPrecision);
+            } else {
+                LUISA_NOT_IMPLEMENTED("SPIR-V dynamic extract for type {}.", base_type->description());
+            }
             break;
         }
 
@@ -706,11 +805,18 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
     auto indices = inst->index_uses();
     if (!indices.empty()) {
         std::vector<spv::Id> idx_ids;
+        // Buffer variables are pointers to structs containing a runtime array.
+        // Prepend 0 to access the first (and only) struct member.
+        auto base_type = _builder.getTypeId(base);
+        auto pointee_type = _builder.getContainedTypeId(base_type);
+        if (_builder.isStructType(pointee_type)) {
+            idx_ids.push_back(_builder.makeUintConstant(0u));
+        }
         for (auto index_use : indices) {
             idx_ids.emplace_back(_emit_value(index_use->value()));
         }
         auto storage = _builder.getStorageClass(base);
-        ptr = _builder.createAccessChain(storage, base, idx_ids);
+        ptr = _create_access_chain(storage, base, idx_ids);
     }
 
     auto scope = _builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Device));
@@ -734,12 +840,41 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         }
         case xir::AtomicOp::FETCH_ADD: {
             auto val = _emit_value(values[0]->value());
-            id = _builder.createOp(spv::Op::OpAtomicIAdd, type, {ptr, scope, semantics, val});
+            if (t->is_float()) {
+                if (t->is_float16()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float16_add);
+                    _builder.addCapability(spv::Capability::AtomicFloat16AddEXT);
+                } else if (t->is_float32()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
+                    _builder.addCapability(spv::Capability::AtomicFloat32AddEXT);
+                } else if (t->is_float64()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
+                    _builder.addCapability(spv::Capability::AtomicFloat64AddEXT);
+                }
+                id = _builder.createOp(spv::Op::OpAtomicFAddEXT, type, {ptr, scope, semantics, val});
+            } else {
+                id = _builder.createOp(spv::Op::OpAtomicIAdd, type, {ptr, scope, semantics, val});
+            }
             break;
         }
         case xir::AtomicOp::FETCH_SUB: {
             auto val = _emit_value(values[0]->value());
-            id = _builder.createOp(spv::Op::OpAtomicISub, type, {ptr, scope, semantics, val});
+            if (t->is_float()) {
+                auto neg_val = _builder.createUnaryOp(spv::Op::OpFNegate, type, val);
+                if (t->is_float16()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float16_add);
+                    _builder.addCapability(spv::Capability::AtomicFloat16AddEXT);
+                } else if (t->is_float32()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
+                    _builder.addCapability(spv::Capability::AtomicFloat32AddEXT);
+                } else if (t->is_float64()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
+                    _builder.addCapability(spv::Capability::AtomicFloat64AddEXT);
+                }
+                id = _builder.createOp(spv::Op::OpAtomicFAddEXT, type, {ptr, scope, semantics, neg_val});
+            } else {
+                id = _builder.createOp(spv::Op::OpAtomicISub, type, {ptr, scope, semantics, val});
+            }
             break;
         }
         case xir::AtomicOp::FETCH_AND: {
@@ -759,23 +894,47 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         }
         case xir::AtomicOp::FETCH_MIN: {
             auto val = _emit_value(values[0]->value());
-            if (t->is_int()) {
+            if (t->is_float()) {
+                if (t->is_float16()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                    _builder.addCapability(spv::Capability::AtomicFloat16MinMaxEXT);
+                } else if (t->is_float32()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                    _builder.addCapability(spv::Capability::AtomicFloat32MinMaxEXT);
+                } else if (t->is_float64()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                    _builder.addCapability(spv::Capability::AtomicFloat64MinMaxEXT);
+                }
+                id = _builder.createOp(spv::Op::OpAtomicFMinEXT, type, {ptr, scope, semantics, val});
+            } else if (t->is_int()) {
                 id = _builder.createOp(spv::Op::OpAtomicSMin, type, {ptr, scope, semantics, val});
             } else if (t->is_uint()) {
                 id = _builder.createOp(spv::Op::OpAtomicUMin, type, {ptr, scope, semantics, val});
             } else {
-                LUISA_NOT_IMPLEMENTED("SPIR-V atomic min for float.");
+                LUISA_NOT_IMPLEMENTED("SPIR-V atomic min for type {}.", t->description());
             }
             break;
         }
         case xir::AtomicOp::FETCH_MAX: {
             auto val = _emit_value(values[0]->value());
-            if (t->is_int()) {
+            if (t->is_float()) {
+                if (t->is_float16()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                    _builder.addCapability(spv::Capability::AtomicFloat16MinMaxEXT);
+                } else if (t->is_float32()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                    _builder.addCapability(spv::Capability::AtomicFloat32MinMaxEXT);
+                } else if (t->is_float64()) {
+                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                    _builder.addCapability(spv::Capability::AtomicFloat64MinMaxEXT);
+                }
+                id = _builder.createOp(spv::Op::OpAtomicFMaxEXT, type, {ptr, scope, semantics, val});
+            } else if (t->is_int()) {
                 id = _builder.createOp(spv::Op::OpAtomicSMax, type, {ptr, scope, semantics, val});
             } else if (t->is_uint()) {
                 id = _builder.createOp(spv::Op::OpAtomicUMax, type, {ptr, scope, semantics, val});
             } else {
-                LUISA_NOT_IMPLEMENTED("SPIR-V atomic max for float.");
+                LUISA_NOT_IMPLEMENTED("SPIR-V atomic max for type {}.", t->description());
             }
             break;
         }
@@ -813,7 +972,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
         case xir::ResourceQueryOp::TEXTURE2D_SIZE:
         case xir::ResourceQueryOp::TEXTURE3D_SIZE: {
             auto tex_array = _emit_value(inst->operand(0));
-            auto image_ptr = _builder.createAccessChain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
+            auto image_ptr = _create_access_chain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
             auto tex = _builder.createLoad(image_ptr, spv::NoPrecision);
             _builder.addCapability(spv::Capability::ImageQuery);
             if (_is_storage_image_map.at(tex_array)) {
@@ -830,6 +989,117 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
     _value_map.emplace(inst, id);
 }
 
+spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_offset, const Type *elem_type) noexcept {
+    auto uint_type = _builder.makeUintType(32);
+    auto spv_type = _convert_type(elem_type, Usage::READ);
+    auto word_count = elem_type->size() / 4u;
+    LUISA_ASSERT(word_count > 0u, "SPIR-V buffer read element size is zero.");
+    if (word_count == 1u) {
+        auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), word_offset});
+        auto raw = _builder.createLoad(ptr, spv::NoPrecision);
+        if (spv_type != uint_type) {
+            return _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, raw);
+        }
+        return raw;
+    }
+    if (elem_type->is_vector()) {
+        auto comp_type = _convert_type(elem_type->element(), Usage::READ);
+        auto dim = elem_type->dimension();
+        std::vector<spv::Id> comps;
+        comps.reserve(dim);
+        for (auto i = 0u; i < dim; ++i) {
+            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
+            comps.push_back(_emit_buffer_read_impl(buffer, idx, elem_type->element()));
+        }
+        return _builder.createCompositeConstruct(spv_type, comps);
+    }
+    if (elem_type->is_matrix()) {
+        auto elem = elem_type->element();
+        auto dim = elem_type->dimension();
+        auto col_type = Type::vector(elem, dim);
+        auto col_word_count = col_type->size() / 4u;
+        std::vector<spv::Id> cols;
+        cols.reserve(dim);
+        for (auto i = 0u; i < dim; ++i) {
+            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i * col_word_count));
+            cols.push_back(_emit_buffer_read_impl(buffer, idx, col_type));
+        }
+        return _builder.createCompositeConstruct(spv_type, cols);
+    }
+    LUISA_NOT_IMPLEMENTED("SPIR-V buffer read for type {}.", elem_type->description());
+}
+
+spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type) noexcept {
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && buffer_type->element()->is_scalar()) {
+        // Typed scalar buffer: direct element access
+        auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
+        return _builder.createLoad(ptr, spv::NoPrecision);
+    }
+    // Byte buffer or bindless: word-level access
+    auto uint_type = _builder.makeUintType(32);
+    auto word_count = read_type->size() / 4u;
+    LUISA_ASSERT(word_count > 0u, "SPIR-V buffer read element size is zero.");
+    auto word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
+    return _emit_buffer_read_impl(buffer, word_offset, read_type);
+}
+
+void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type) noexcept {
+    auto uint_type = _builder.makeUintType(32);
+    auto spv_type = _convert_type(elem_type, Usage::READ);
+    auto word_count = elem_type->size() / 4u;
+    LUISA_ASSERT(word_count > 0u, "SPIR-V buffer write element size is zero.");
+    if (word_count == 1u) {
+        auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), word_offset});
+        auto store_val = value;
+        if (spv_type != uint_type) {
+            store_val = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, value);
+        }
+        _builder.createStore(store_val, ptr);
+        return;
+    }
+    if (elem_type->is_vector()) {
+        auto comp_type = _convert_type(elem_type->element(), Usage::READ);
+        auto dim = elem_type->dimension();
+        for (auto i = 0u; i < dim; ++i) {
+            auto comp = _builder.createCompositeExtract(value, comp_type, i);
+            if (comp_type != uint_type) {
+                comp = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, comp);
+            }
+            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
+            _emit_buffer_write_impl(buffer, idx, comp, elem_type->element());
+        }
+        return;
+    }
+    if (elem_type->is_matrix()) {
+        auto elem = elem_type->element();
+        auto dim = elem_type->dimension();
+        auto col_type = Type::vector(elem, dim);
+        auto col_word_count = col_type->size() / 4u;
+        for (auto i = 0u; i < dim; ++i) {
+            auto col = _builder.createCompositeExtract(value, _convert_type(col_type, Usage::READ), i);
+            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i * col_word_count));
+            _emit_buffer_write_impl(buffer, idx, col, col_type);
+        }
+        return;
+    }
+    LUISA_NOT_IMPLEMENTED("SPIR-V buffer write for type {}.", elem_type->description());
+}
+
+void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type) noexcept {
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && buffer_type->element()->is_scalar()) {
+        // Typed scalar buffer: direct element access
+        auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
+        _builder.createStore(value, ptr);
+        return;
+    }
+    // Byte buffer or bindless: word-level access
+    auto uint_type = _builder.makeUintType(32);
+    auto word_count = value_type->size() / 4u;
+    LUISA_ASSERT(word_count > 0u, "SPIR-V buffer write element size is zero.");
+    auto word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
+    _emit_buffer_write_impl(buffer, word_offset, value, value_type);
+}
+
 void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept {
     auto type = _convert_type(inst->type(), Usage::READ);
     spv::Id id = spv::NoResult;
@@ -840,56 +1110,22 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
         case xir::ResourceReadOp::BUFFER_VOLATILE_READ: {
             auto buffer = _emit_value(inst->operand(0));
             auto index = _emit_value(inst->operand(1));
-            auto elem_type = inst->type();
-            auto word_count = elem_type->size() / 4u;
-            LUISA_ASSERT(word_count > 0u, "SPIR-V buffer read element size is zero.");
-            if (word_count == 1u) {
-                auto ptr = _builder.createAccessChain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
-                auto raw = _builder.createLoad(ptr, spv::NoPrecision);
-                if (type != uint_type) {
-                    id = _builder.createUnaryOp(spv::Op::OpBitcast, type, raw);
-                } else {
-                    id = raw;
-                }
-            } else if (elem_type->is_vector()) {
-                auto comp_type = _convert_type(elem_type->element(), Usage::READ);
-                auto dim = elem_type->dimension();
-                std::vector<spv::Id> comps;
-                comps.reserve(dim);
-                for (auto i = 0u; i < dim; ++i) {
-                    auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, index, _builder.makeUintConstant(i));
-                    auto ptr = _builder.createAccessChain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), idx});
-                    auto raw = _builder.createLoad(ptr, spv::NoPrecision);
-                    if (comp_type != uint_type) {
-                        raw = _builder.createUnaryOp(spv::Op::OpBitcast, comp_type, raw);
-                    }
-                    comps.push_back(raw);
-                }
-                id = _builder.createCompositeConstruct(type, comps);
-            } else {
-                LUISA_NOT_IMPLEMENTED("SPIR-V buffer read for type {}.", elem_type->description());
-            }
+            id = _emit_buffer_read(buffer, index, inst->type(), inst->operand(0)->type());
             break;
         }
         case xir::ResourceReadOp::BYTE_BUFFER_READ:
         case xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ: {
             auto buffer = _emit_value(inst->operand(0));
-            auto byte_index = _emit_value(inst->operand(1));
+            auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            auto ptr = _builder.createAccessChain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), word_index});
-            auto raw = _builder.createLoad(ptr, spv::NoPrecision);
-            if (type != uint_type) {
-                id = _builder.createUnaryOp(spv::Op::OpBitcast, type, raw);
-            } else {
-                id = raw;
-            }
+            id = _emit_buffer_read(buffer, word_index, inst->type(), inst->operand(0)->type());
             break;
         }
         case xir::ResourceReadOp::TEXTURE2D_READ:
         case xir::ResourceReadOp::TEXTURE3D_READ: {
             auto tex_array = _emit_value(inst->operand(0));
             auto coord = _emit_value(inst->operand(1));
-            auto image_ptr = _builder.createAccessChain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
+            auto image_ptr = _create_access_chain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
             auto tex = _builder.createLoad(image_ptr, spv::NoPrecision);
             if (_is_storage_image_map.at(tex_array)) {
                 _builder.addCapability(spv::Capability::StorageImageReadWithoutFormat);
@@ -897,6 +1133,24 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             } else {
                 id = _builder.createOp(spv::Op::OpImageFetch, type, {tex, coord});
             }
+            break;
+        }
+        case xir::ResourceReadOp::BINDLESS_BUFFER_READ: {
+            // TODO: properly implement bindless buffer read
+            id = _builder.makeFloatConstant(0.0f);
+            break;
+        }
+        case xir::ResourceReadOp::BINDLESS_BYTE_BUFFER_READ: {
+            auto bindless_array = _emit_value(inst->operand(0));
+            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto byte_index = _ensure_type(_emit_value(inst->operand(2)), uint_type);
+            auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset});
+            auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
+            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx});
+            auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
+            id = _emit_buffer_read(buffer_base, word_index, inst->type(), nullptr);
             break;
         }
         default:
@@ -915,46 +1169,16 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto buffer = _emit_value(inst->operand(0));
             auto index = _emit_value(inst->operand(1));
             auto value = _emit_value(inst->operand(2));
-            auto elem_type = inst->operand(2)->type();
-            auto word_count = elem_type->size() / 4u;
-            LUISA_ASSERT(word_count > 0u, "SPIR-V buffer write element size is zero.");
-            if (word_count == 1u) {
-                auto ptr = _builder.createAccessChain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
-                auto store_val = value;
-                if (_convert_type(elem_type, Usage::READ) != uint_type) {
-                    store_val = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, value);
-                }
-                _builder.createStore(store_val, ptr);
-            } else if (elem_type->is_vector()) {
-                auto comp_type = _convert_type(elem_type->element(), Usage::READ);
-                auto dim = elem_type->dimension();
-                for (auto i = 0u; i < dim; ++i) {
-                    auto comp = _builder.createCompositeExtract(value, comp_type, i);
-                    if (comp_type != uint_type) {
-                        comp = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, comp);
-                    }
-                    auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, index, _builder.makeUintConstant(i));
-                    auto ptr = _builder.createAccessChain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), idx});
-                    _builder.createStore(comp, ptr);
-                }
-            } else {
-                LUISA_NOT_IMPLEMENTED("SPIR-V buffer write for type {}.", elem_type->description());
-            }
+            _emit_buffer_write(buffer, index, value, inst->operand(2)->type(), inst->operand(0)->type());
             break;
         }
         case xir::ResourceWriteOp::BYTE_BUFFER_WRITE:
         case xir::ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE: {
             auto buffer = _emit_value(inst->operand(0));
-            auto byte_index = _emit_value(inst->operand(1));
+            auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto value = _emit_value(inst->operand(2));
             auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            auto ptr = _builder.createAccessChain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), word_index});
-            auto store_val = value;
-            auto val_type = inst->operand(2)->type();
-            if (_convert_type(val_type, Usage::READ) != uint_type) {
-                store_val = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, value);
-            }
-            _builder.createStore(store_val, ptr);
+            _emit_buffer_write(buffer, word_index, value, inst->operand(2)->type(), inst->operand(0)->type());
             break;
         }
         case xir::ResourceWriteOp::TEXTURE2D_WRITE:
@@ -962,10 +1186,38 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto tex_array = _emit_value(inst->operand(0));
             auto coord = _emit_value(inst->operand(1));
             auto value = _emit_value(inst->operand(2));
-            auto image_ptr = _builder.createAccessChain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
+            auto image_ptr = _create_access_chain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
             auto tex = _builder.createLoad(image_ptr, spv::NoPrecision);
             _builder.addCapability(spv::Capability::StorageImageWriteWithoutFormat);
             _builder.createNoResultOp(spv::Op::OpImageWrite, {tex, coord, value});
+            break;
+        }
+        case xir::ResourceWriteOp::BINDLESS_BUFFER_WRITE: {
+            auto bindless_array = _emit_value(inst->operand(0));
+            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto elem_index = _emit_value(inst->operand(2));
+            auto value = _emit_value(inst->operand(3));
+            auto elem_type = inst->operand(3)->type();
+            auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset});
+            auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
+            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx});
+            _emit_buffer_write(buffer_base, elem_index, value, elem_type, nullptr);
+            break;
+        }
+        case xir::ResourceWriteOp::BINDLESS_BYTE_BUFFER_WRITE: {
+            auto bindless_array = _emit_value(inst->operand(0));
+            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto byte_index = _ensure_type(_emit_value(inst->operand(2)), uint_type);
+            auto value = _emit_value(inst->operand(3));
+            auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset});
+            auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
+            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx});
+            auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
+            _emit_buffer_write(buffer_base, word_index, value, inst->operand(3)->type(), nullptr);
             break;
         }
         default:
@@ -1040,13 +1292,9 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
     switch (inst->derived_instruction_tag()) {
         case xir::DerivedInstructionTag::ALLOCA: {
             auto alloca = static_cast<const xir::AllocaInst *>(inst);
-            if (alloca->is_shared()) {
-                LUISA_NOT_IMPLEMENTED("SPIR-V shared alloca.");
-            }
             auto type = _convert_type(alloca->type(), Usage::READ);
-            auto var = _builder.createVariable(spv::NoPrecision,
-                                               spv::StorageClass::Function,
-                                               type, "alloca");
+            auto storage = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
+            auto var = _builder.createVariable(spv::NoPrecision, storage, type, "alloca");
             set_result(var);
             break;
         }
@@ -1061,6 +1309,17 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             auto store = static_cast<const xir::StoreInst *>(inst);
             auto ptr = _emit_value(store->variable());
             auto val = _emit_value(store->value());
+            auto ptr_type = _builder.getTypeId(ptr);
+            auto pointee_type = _builder.getContainedTypeId(ptr_type);
+            auto val_type = _builder.getTypeId(val);
+            if (pointee_type != val_type) {
+                if (_builder.isScalarType(val_type) && _builder.isVectorType(pointee_type)) {
+                    val = _builder.smearScalar(spv::NoPrecision, val, pointee_type);
+                } else if (_builder.getTypeClass(pointee_type) == _builder.getTypeClass(val_type) &&
+                           _builder.getNumTypeComponents(pointee_type) == _builder.getNumTypeComponents(val_type)) {
+                    val = _builder.createUnaryOp(spv::Op::OpBitcast, pointee_type, val);
+                }
+            }
             _builder.createStore(val, ptr);
             break;
         }
@@ -1072,7 +1331,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                 indices.emplace_back(_emit_value(index_use->value()));
             }
             auto storage = _builder.getStorageClass(base);
-            auto id = _builder.createAccessChain(storage, base, indices);
+            auto id = _create_access_chain(storage, base, indices);
             set_result(id);
             break;
         }
@@ -1157,7 +1416,10 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                     } else if (from->is_uint() && to->is_uint()) {
                         id = _builder.createUnaryOp(spv::Op::OpUConvert, spv_to, val);
                     } else {
-                        id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, val);
+                        // Cross-signedness with different sizes: convert first, then bitcast
+                        auto tmp_type = _builder.makeIntegerType(to->size() * 8, from->is_int());
+                        id = _builder.createUnaryOp(from->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, tmp_type, val);
+                        id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, id);
                     }
                 } else {
                     LUISA_NOT_IMPLEMENTED("SPIR-V static cast from {} to {}.", from->description(), to->description());
@@ -1208,6 +1470,8 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             LUISA_ERROR_WITH_LOCATION("Instruction {} should be eliminated before SPIR-V codegen.",
                                       xir::to_string(inst->derived_instruction_tag()));
         case xir::DerivedInstructionTag::PRINT:
+            // Print is not supported in SPIR-V; emit as no-op
+            break;
         case xir::DerivedInstructionTag::CLOCK:
         case xir::DerivedInstructionTag::ASSERT:
         case xir::DerivedInstructionTag::ASSUME:
@@ -1219,6 +1483,43 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE:
             LUISA_NOT_IMPLEMENTED("SPIR-V codegen for instruction {}.", xir::to_string(inst->derived_instruction_tag()));
     }
+}
+
+spv::Id SpirvCodegenEntry::_ensure_type(spv::Id value, spv::Id target_type) noexcept {
+    auto value_type = _builder.getTypeId(value);
+    if (value_type == target_type) { return value; }
+    auto val_scalar = _builder.getScalarTypeId(value_type);
+    auto tgt_scalar = _builder.getScalarTypeId(target_type);
+    auto val_class = _builder.getTypeClass(val_scalar);
+    auto tgt_class = _builder.getTypeClass(tgt_scalar);
+    if (val_class == tgt_class) {
+        if (val_class == spv::Op::OpTypeFloat) {
+            return _builder.createUnaryOp(spv::Op::OpFConvert, target_type, value);
+        }
+        if (val_class == spv::Op::OpTypeInt) {
+            auto val_signed = _builder.isIntType(val_scalar);
+            auto tgt_signed = _builder.isIntType(tgt_scalar);
+            auto val_width = _builder.getScalarTypeWidth(val_scalar);
+            auto tgt_width = _builder.getScalarTypeWidth(tgt_scalar);
+            if (val_signed == tgt_signed || val_width == tgt_width) {
+                if (val_width == tgt_width) {
+                    return _builder.createUnaryOp(spv::Op::OpBitcast, target_type, value);
+                }
+                return _builder.createUnaryOp(val_signed ? spv::Op::OpSConvert : spv::Op::OpUConvert, target_type, value);
+            }
+            // Cross-signedness with different sizes
+            auto tmp_type = _builder.makeIntegerType(tgt_width, val_signed);
+            value = _builder.createUnaryOp(val_signed ? spv::Op::OpSConvert : spv::Op::OpUConvert, tmp_type, value);
+            return _builder.createUnaryOp(spv::Op::OpBitcast, target_type, value);
+        }
+    }
+    if (val_class == spv::Op::OpTypeFloat && tgt_class == spv::Op::OpTypeInt) {
+        return _builder.createUnaryOp(_builder.isIntType(tgt_scalar) ? spv::Op::OpConvertFToS : spv::Op::OpConvertFToU, target_type, value);
+    }
+    if (val_class == spv::Op::OpTypeInt && tgt_class == spv::Op::OpTypeFloat) {
+        return _builder.createUnaryOp(_builder.isIntType(val_scalar) ? spv::Op::OpConvertSToF : spv::Op::OpConvertUToF, target_type, value);
+    }
+    return _builder.createUnaryOp(spv::Op::OpBitcast, target_type, value);
 }
 
 }// namespace lc::spirv

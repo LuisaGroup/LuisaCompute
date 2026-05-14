@@ -19,6 +19,7 @@ Shader::Shader(
     vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers)
     : Resource{device}, _captured{std::move(captured)}, _saved_arguments(std::move(saved_arguments)),
       _shader_tag(tag), _use_tex2d_bindless(use_tex2d_bindless), _use_tex3d_bindless(use_tex3d_bindless), _use_buffer_bindless(use_buffer_bindless), _printers(std::move(printers)) {
+    LUISA_INFO("Shader: base init done, binds count: {}", binds.size());
     if ((!device->enable_bindless()) && (use_tex2d_bindless || use_tex3d_bindless || use_buffer_bindless)) [[unlikely]] {
         LUISA_ERROR("Bindless not enabled, shader can not be load.");
     }

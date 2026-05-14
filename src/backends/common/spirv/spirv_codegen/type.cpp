@@ -44,17 +44,14 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             break;
         }
         case Type::Tag::BUFFER: {
-            spv::Id elem_spv_type;
-            auto elem = type->element();
-            if (elem != nullptr && !elem->is_buffer()) {
-                elem_spv_type = _convert_type(elem, usage);
-            } else {
-                elem_spv_type = _builder.makeUintType(32);
-            }
-            auto runtime_array = _builder.makeRuntimeArray(elem_spv_type);
+            auto elem_type = type->element();
+            // Use typed arrays for scalar buffers (enables direct atomic ops),
+            // uint arrays for composites (avoids SPIR-V composite op issues).
+            bool use_typed = elem_type != nullptr && elem_type->is_scalar();
+            auto spv_elem_type = use_typed ? _convert_type(elem_type, usage) : _builder.makeUintType(32);
+            auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
-            size_t stride = (elem != nullptr) ? elem->size() : 4u;
-            _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, static_cast<int>(stride));
+            _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, use_typed ? elem_type->size() : 4u);
             _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
             if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) == 0) {
                 _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
