@@ -699,7 +699,8 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto e = operand(1);
             std::vector<unsigned> indices;
             for (auto i = 2u; i < inst->operand_count(); ++i) {
-                if (auto c = static_cast<const xir::Constant *>(inst->operand(i))) {
+                if (auto op = inst->operand(i); op->isa<xir::Constant>()) {
+                    auto c = static_cast<const xir::Constant *>(op);
                     auto idx = *static_cast<const uint32_t *>(c->data());
                     indices.push_back(idx);
                 } else {
@@ -716,7 +717,8 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             std::vector<unsigned> const_indices;
             std::vector<spv::Id> dynamic_indices;
             for (auto i = 1u; i < inst->operand_count(); ++i) {
-                if (auto c = static_cast<const xir::Constant *>(inst->operand(i))) {
+                if (auto op = inst->operand(i); op->isa<xir::Constant>()) {
+                    auto c = static_cast<const xir::Constant *>(op);
                     auto idx = *static_cast<const uint32_t *>(c->data());
                     const_indices.push_back(idx);
                     dynamic_indices.push_back(_builder.makeUintConstant(idx));
