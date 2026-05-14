@@ -1167,14 +1167,39 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             LUISA_INFO("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
         }
         if (print_code()) {
-            std::ofstream file("spirv_output.spvasm", std::ios::out);
-            if (file) {
-                file << "; ==SPIRV==\n";
-                spv::Disassemble(file, spv_result.spv_bin);
+            {
+                std::ofstream file("spirv_output.spvasm", std::ios::out);
+                if (file) {
+                    file << "; ==SPIRV==\n";
+                    spv::Disassemble(file, spv_result.spv_bin);
+                }
+                LUISA_INFO("SPIRV printed to spirv_output.spvasm.");
             }
             // Test HLSL
             auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
-            // TODO, compile with ShaderCompiler
+            auto comp_result = Device::compiler()->compile_compute(
+                code.result.view(),
+                !option.enable_debug_info,
+                kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
+                option.enable_fast_math,
+                true,
+                option.enable_debug_info);
+            if (comp_result.is_type_of<vstd::string>()) [[unlikely]] {
+                LUISA_ERROR("HLSL test compilation error: {}", *comp_result.try_get<vstd::string>());
+            } else {
+                LUISA_INFO("HLSL test compilation successful.");
+                {
+                    std::ofstream file("spirv_output_hlsl.spvasm", std::ios::out);
+                    if (file) {
+                        file << "; ==SPIRV==\n";
+                        auto&& blob = comp_result.force_get<lc::hlsl::ComUniquePtr<IDxcBlob>>();
+                        std::vector<uint32_t> vec((blob->GetBufferSize() + sizeof(uint) - 1) / sizeof(uint));
+                        std::memcpy(vec.data(), blob->GetBufferPointer(), blob->GetBufferSize());
+                        spv::Disassemble(file, vec);
+                    }
+                }
+                LUISA_INFO("SPIRV-HLSL printed to spirv_output_hlsl.spvasm.");
+            }
         }
         auto shader = new ComputeShader(
             this,
