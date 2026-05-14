@@ -4,6 +4,26 @@
 #include "tlas.h"
 #include "stream.h"
 #include <luisa/runtime/rtx/aabb.h>
+#include <cstdio>
+#include <cstdarg>
+
+static void blas_debug_log(const char *fmt, ...) {
+    static FILE *f = nullptr;
+    static int count = 0;
+    if (count >= 10) return;
+    count++;
+    if (!f) {
+        f = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+        if (!f) return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fflush(f);
+}
+
 namespace lc::vk {
 Blas::Blas(Device *device, AccelOption const &option)
     : PrimitiveBase(device, PrimitiveBase::PrimTag::BLAS), _option(option), _acceleration_build_geometry_info(nullptr) {
@@ -16,6 +36,10 @@ void Blas::_pre_build(
     VkAccelerationStructureGeometryKHR *acceleration_structure_geometry,
     uint32_t primitive_count,
     AccelBuildRequest request) {
+
+    bool had_accel = (_accel != nullptr);
+    blas_debug_log("[BLAS::_pre_build] this=%p, primitive_count=%u, had_accel=%d, motion_enabled=%d, handles_count=%zu",
+                   (void*)this, primitive_count, (int)had_accel, (int)_option.motion.is_enabled(), _handles.size());
 
     _acceleration_build_geometry_info = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureBuildGeometryInfoKHR>();
     _acceleration_build_geometry_info->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
@@ -237,9 +261,11 @@ MeshHandle *Blas::_add_accel_ref(Tlas *accel, uint index) {
     return meshHandle;
 }
 void Blas::_sync_tlas() {
+    blas_debug_log("[BLAS::_sync_tlas] this=%p, _handles.size()=%zu", (void*)this, _handles.size());
     std::lock_guard lck(_handle_mtx);
     for (auto &&i : _handles) {
         LUISA_ASSUME(i->mesh == this);
+        blas_debug_log("[BLAS::_sync_tlas]   -> notifying TLAS=%p, accel_index=%llu", (void*)i->accel, (unsigned long long)i->accel_index);
         i->accel->_update_mesh(i);
     }
 }

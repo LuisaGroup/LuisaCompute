@@ -125,6 +125,7 @@ private:
     size_t printCount = 0;
     // size_t rayQuery = 0;
     bool literalBrace = false;
+    size_t _visit_depth = 0;
     struct VarHash {
         size_t operator()(Variable const &v) const {
             return v.hash();

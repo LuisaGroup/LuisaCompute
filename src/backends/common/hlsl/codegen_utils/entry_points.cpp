@@ -3,6 +3,7 @@
 #include "../hlsl_codegen.h"
 #include "../codegen_stack_data.h"
 #include "../register_indexer.h"
+#include <cstdio>
 #include "../constant_printer.h"
 #include "../register_indexer.h"
 
@@ -148,7 +149,11 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
-        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_MOTION_SRT)) {
         builder << CodegenUtility::ReadInternalHLSLFile("accel_header");
     }
     if (ops.test(CallOp::COPYSIGN)) {
@@ -176,6 +181,15 @@ bool IsCBuffer(Variable::Tag t);
 // Main compute kernel codegen
 CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister) {
     opt = CodegenStackData::Allocate(this);
+    // CodegenStackData objects are pooled and reused. Clear() is called on
+    // deallocation but does NOT reset every flag. RayTracingCodegen() sets
+    // `isRayTracing = true` and leaves it dirty, which causes a subsequent
+    // compute-shader Codegen() (running on the recycled object) to take the
+    // RT-pipeline branches inside CodegenFunction -> wrong HLSL -> compile
+    // crash. Explicitly initialize the flags we care about here so we don't
+    // depend on Clear() covering every field.
+    opt->isRayTracing = false;
+    opt->funcType = CodegenStackData::FuncType::Kernel;
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
     opt->atomicFloatToInt = isSpirV && kernel.propagated_builtin_callables().uses_atomic();
@@ -274,13 +288,26 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
     vstd::StringBuilder finalResult;
     opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
+    // Define _RT_PIPELINE_MODE so raytracing_header skips its _TraceClosest/_TraceAny.
+    // raytracing_motion_header provides RayQuery-based _TraceClosest/_TraceAny instead.
+    finalResult << "#define _RT_PIPELINE_MODE\n"sv;
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations());
     // Add motion blur ray tracing header (miss/closesthit entry points + _TraceClosestMotion)
     finalResult << ReadInternalHLSLFile("raytracing_motion_header");
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';
+    {
+        static FILE *_rtcg_log = nullptr;
+        if (!_rtcg_log) _rtcg_log = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+        if (_rtcg_log) { fprintf(_rtcg_log, "[RayTracingCodegen] step 1: headers done, calling CodegenFunction...\n"); fflush(_rtcg_log); }
+    }
     CodegenFunction(kernel, codegenData, nonEmptyCbuffer, true);
+    {
+        static FILE *_rtcg_log = nullptr;
+        if (!_rtcg_log) _rtcg_log = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+        if (_rtcg_log) { fprintf(_rtcg_log, "[RayTracingCodegen] step 2: CodegenFunction done, generating properties...\n"); fflush(_rtcg_log); }
+    }
 
     opt->funcType = CodegenStackData::FuncType::Callable;
     auto argRange = vstd::make_ite_range(kernel.arguments()).i_range();
@@ -322,6 +349,11 @@ uint4 v;
     CodegenProperties(properties, varData, kernel, 0, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, kernel.requires_autodiff());
     finalResult << varData << incrementalFunc << codegenData;
+    {
+        static FILE *_rtcg_log = nullptr;
+        if (!_rtcg_log) _rtcg_log = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+        if (_rtcg_log) { fprintf(_rtcg_log, "[RayTracingCodegen] step 3: all done, code size=%zu\n", finalResult.size()); fflush(_rtcg_log); }
+    }
 
     return {
         std::move(finalResult),
@@ -595,6 +627,11 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
                 opt->arguments.try_emplace(i.uid(), idx);
                 ++idx;
             }
+            if (opt->isRayTracing) {
+                static FILE *_rtcg_log = nullptr;
+                if (!_rtcg_log) _rtcg_log = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+                if (_rtcg_log) { fprintf(_rtcg_log, "[RayTracingCodegen] kernel entry point done, args=%zu, calling VisitFunction...\n", idx); fflush(_rtcg_log); }
+            }
         } else {
             opt->funcType = CodegenStackData::FuncType::Callable;
             GetFunctionDecl(func, result);
@@ -610,13 +647,29 @@ void main(uint3 thdId:SV_GroupThreadId,uint3 dspId:SV_DispatchThreadID,uint3 grp
 #endif
                 func);
         }
+        if (opt->isRayTracing && func.tag() == Function::Tag::KERNEL) {
+            static FILE *_rtcg_log = nullptr;
+            if (!_rtcg_log) _rtcg_log = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+            if (_rtcg_log) { fprintf(_rtcg_log, "[RayTracingCodegen] VisitFunction done for kernel\n"); fflush(_rtcg_log); }
+        }
         result << "}\n"sv;
     };
     vstd::unordered_set<uint64_t> callableMap;
+    int _callable_count = 0;
     auto callable = [&](auto &&callable, Function func) -> void {
         for (auto &&i : func.custom_callables()) {
             if (callableMap.emplace(i->hash()).second) {
                 callable(callable, i->function());
+            }
+        }
+        if (opt->isRayTracing) {
+            _callable_count++;
+            static FILE *_rtcg_log = nullptr;
+            if (!_rtcg_log) _rtcg_log = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+            if (_rtcg_log) {
+                fprintf(_rtcg_log, "[RayTracingCodegen] codegen callable #%d, tag=%d\n",
+                        _callable_count, (int)func.tag());
+                fflush(_rtcg_log);
             }
         }
         codegenOneFunc(func);

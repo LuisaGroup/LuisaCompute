@@ -1,6 +1,7 @@
 #include "hlsl_codegen.h"
 #include "struct_generator.h"
 #include "codegen_stack_data.h"
+#include <cstdio>
 namespace lc::hlsl {
 void StringStateVisitor::visit(const UnaryExpr *expr) {
     literalBrace = true;
@@ -344,16 +345,19 @@ void StringStateVisitor::visit(const ReturnStmt *state) {
     }
 }
 void StringStateVisitor::visit(const ScopeStmt *state) {
+    _visit_depth++;
     for (auto &&i : state->statements()) {
         i->accept(*this);
         switch (i->tag()) {
             case Statement::Tag::BREAK:
             case Statement::Tag::CONTINUE:
             case Statement::Tag::RETURN:
+                _visit_depth--;
                 return;
             default: break;
         }
     }
+    _visit_depth--;
 }
 void StringStateVisitor::visit(const AutoDiffStmt *stmt) {
     visit(stmt->body());
@@ -533,7 +537,8 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     auto is_rayquery = [&]() {
         if (state->rhs()->tag() != Expression::Tag::CALL) return false;
         auto s = static_cast<CallExpr const *>(state->rhs());
-        return (s->op() == CallOp::RAY_TRACING_QUERY_ANY || s->op() == CallOp::RAY_TRACING_QUERY_ALL);
+        return (s->op() == CallOp::RAY_TRACING_QUERY_ANY || s->op() == CallOp::RAY_TRACING_QUERY_ALL
+                || s->op() == CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR || s->op() == CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR);
     };
     if (is_custom(state->lhs(), rqVar)) {
         auto iter = lazyDeclVars.find(rqVar);
@@ -553,6 +558,7 @@ void StringStateVisitor::visit(const AssignStmt *state) {
             state->lhs()->accept(*this);
             str << ");\n";
             return;
+        } else {
         }
     }
     auto rhs_is_shared = is_shared(state->rhs());
@@ -616,6 +622,11 @@ void StringStateVisitor::VisitFunction(
 #endif
     Function func) {
     lazyDeclVars.clear();
+    if (util->opt->isRayTracing && func.tag() == Function::Tag::KERNEL) {
+        static FILE *_rtcg_log = nullptr;
+        if (!_rtcg_log) _rtcg_log = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+        if (_rtcg_log) { fprintf(_rtcg_log, "[VisitFunction] kernel: local_vars=%zu\n", func.local_variables().size()); fflush(_rtcg_log); }
+    }
     for (auto &&v : func.local_variables()) {
         Usage usage = func.variable_usage(v.uid());
         if (usage == Usage::NONE) [[unlikely]] {
@@ -665,7 +676,29 @@ void StringStateVisitor::VisitFunction(
         // SM 6.10 will increase to 64kb in the future
         LUISA_ASSERT(shared_size <= 32768, "Shared memory size must be less than 32kb.");
     }
+    if (util->opt->isRayTracing && func.tag() == Function::Tag::KERNEL) {
+        static FILE *_rtcg_log = nullptr;
+        if (!_rtcg_log) _rtcg_log = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+        if (_rtcg_log) {
+            volatile char stack_marker = 0;
+            auto *body_ptr = func.body();
+            fprintf(_rtcg_log, "[VisitFunction] local vars done, body_ptr=%p, statements_count=%zu, traversing body... (stack_marker_addr=%p)\n",
+                    (const void*)body_ptr, body_ptr ? body_ptr->statements().size() : 0u,
+                    (void*)&stack_marker);
+            fflush(_rtcg_log);
+        }
+    }
     func.body()->accept(*this);
+    if (util->opt->isRayTracing && func.tag() == Function::Tag::KERNEL) {
+        static FILE *_rtcg_log2 = nullptr;
+        if (!_rtcg_log2) _rtcg_log2 = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+        if (_rtcg_log2) {
+            volatile char stack_marker2 = 0;
+            fprintf(_rtcg_log2, "[VisitFunction] body traversal COMPLETED successfully (stack_marker_addr=%p)\n",
+                    (void*)&stack_marker2);
+            fflush(_rtcg_log2);
+        }
+    }
 }
 
 

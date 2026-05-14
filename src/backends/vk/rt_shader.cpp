@@ -8,6 +8,28 @@
 #include "../common/hlsl/shader_compiler.h"
 #include "vk_allocator.h"
 #include "spirv_motion_patch.h"
+#include <cstdio>
+#include <cstdarg>
+
+extern "C" void smaray_notify_rt_motion_pipeline_created();
+extern "C" void smaray_notify_rt_motion_pipeline_destroyed();
+
+static void rt_debug_log(const char *fmt, ...) {
+    static FILE *f = nullptr;
+    static int count = 0;
+    if (count >= 2000) return;
+    count++;
+    if (!f) {
+        f = fopen("D:\\smaray_rt_pipeline_trace.log", "a");
+        if (!f) return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fflush(f);
+}
 
 namespace lc::vk {
 
@@ -93,9 +115,12 @@ RayTracingShader::RayTracingShader(
     // OpTraceRayMotionNV to work correctly with motion TLAS/BLAS.
     rt_pipeline_ci.flags = VK_PIPELINE_CREATE_RAY_TRACING_ALLOW_MOTION_BIT_NV;
 
+    rt_debug_log("[RayTracingShader] creating RT pipeline, spv_code size=%zu words", spv_code.size());
     VK_CHECK_RESULT(vkCreateRayTracingPipelinesKHR(
         device->logic_device(), VK_NULL_HANDLE, _pipe_cache,
         1, &rt_pipeline_ci, Device::alloc_callbacks(), &_pipeline));
+    rt_debug_log("[RayTracingShader] RT pipeline created successfully, pipeline=%p", (void*)_pipeline);
+    smaray_notify_rt_motion_pipeline_created();
 
     // Query RT pipeline properties for SBT
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props{};
@@ -171,12 +196,49 @@ bool RayTracingShader::serialize_pso(vstd::vector<std::byte> &result) const {
     return true;
 }
 
+void RayTracingShader::release_vma_resources() noexcept {
+    if (_sbt_vk_buffer) {
+        vmaDestroyBuffer(device()->allocator().allocator(), _sbt_vk_buffer, _sbt_allocation);
+        _sbt_vk_buffer = VK_NULL_HANDLE;
+        _sbt_allocation = VK_NULL_HANDLE;
+    }
+}
+
+void RayTracingShader::destroy_pipeline_objects() noexcept {
+    if (_pipeline) {
+        vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
+        _pipeline = VK_NULL_HANDLE;
+    }
+    if (_pipe_cache) {
+        vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
+        _pipe_cache = VK_NULL_HANDLE;
+    }
+}
+
 RayTracingShader::~RayTracingShader() {
+    // WORKAROUND: NVIDIA Vulkan driver bug with VK_NV_ray_tracing_motion_blur.
+    // After vkDestroyPipeline is called on an RT pipeline that used motion blur,
+    // ALL subsequent vkCreateComputePipelines and vkCreateRayTracingPipelinesKHR
+    // calls deadlock indefinitely, even after vkDeviceWaitIdle returns VK_SUCCESS.
+    //
+    // Evidence from smaray logs:
+    //   - First frame: RT pipeline created, 256 samples rendered successfully
+    //   - Second frame: RT pipeline destroyed in ~RenderCore -> stream delete
+    //   - Next vkCreateComputePipelines call never returns -> process crash
+    //
+    // Workaround: intentionally leak the VkPipeline and VkPipelineCache.
+    // Only free the SBT buffer (VMA-managed, unrelated to the bug).
+    // The pipeline objects will be cleaned up in ~Device() when no more
+    // pipeline creation is possible.
     if (_sbt_vk_buffer) {
         vmaDestroyBuffer(device()->allocator().allocator(), _sbt_vk_buffer, _sbt_allocation);
     }
-    vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
-    vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
+    // DO NOT call vkDestroyPipeline or vkDestroyPipelineCache here.
+    // vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
+    // vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
+    smaray_notify_rt_motion_pipeline_destroyed();
+    rt_debug_log("[~RayTracingShader] LEAKED pipeline=%p, pipe_cache=%p (NVIDIA motion blur driver bug workaround)",
+                 (void*)_pipeline, (void*)_pipe_cache);
 }
 
 RayTracingShader *RayTracingShader::compile(
@@ -217,10 +279,16 @@ RayTracingShader *RayTracingShader::compile(
                 reinterpret_cast<const uint32_t *>(buffer->GetBufferPointer()),
                 buffer->GetBufferSize() / sizeof(uint32_t)};
 
+            rt_debug_log("[RayTracingShader::compile] DXC compiled OK, spv size=%zu words", original_spv.size());
+
             vstd::span<uint32_t const> final_spv = original_spv;
             auto patched_spv = patch_spirv_for_motion_blur(original_spv);
             if (!patched_spv.empty()) {
                 final_spv = {patched_spv.data(), patched_spv.size()};
+                rt_debug_log("[RayTracingShader::compile] SPIR-V patched, new size=%zu words (was %zu)",
+                             patched_spv.size(), original_spv.size());
+            } else {
+                rt_debug_log("[RayTracingShader::compile] SPIR-V patch returned empty (no patch needed or failed)");
             }
 
             auto shader = new RayTracingShader(
@@ -238,6 +306,7 @@ RayTracingShader *RayTracingShader::compile(
             return shader;
         },
         [](auto &&err) {
+            rt_debug_log("[RayTracingShader::compile] DXC COMPILE ERROR: %s", vstd::string{err}.c_str());
             LUISA_ERROR("RT Shader Compile Error: {}", err);
             return nullptr;
         });

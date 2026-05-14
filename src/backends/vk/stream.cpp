@@ -3,6 +3,25 @@
 #include "compute_shader.h"
 #include "bindless_array.h"
 #include <luisa/core/logging.h>
+#include <cstdio>
+#include <cstdarg>
+
+static void stream_debug_log(const char *fmt, ...) {
+    static FILE *f = nullptr;
+    static int count = 0;
+    if (count >= 2000) return;
+    count++;
+    if (!f) {
+        f = fopen("D:\\smaray_stream_trace.log", "a");
+        if (!f) return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fflush(f);
+}
 #include "log.h"
 #include "blas.h"
 #include "tlas.h"
@@ -187,6 +206,11 @@ struct ResourceBarrierVisitor {
             barrier->record(
                 BufferView(tlas->instance_buffer()),
                 ResourceBarrier::Usage::kComputeUAV);
+            if (auto mbuf = tlas->motion_instance_buffer()) {
+                barrier->record(
+                    BufferView(mbuf),
+                    ResourceBarrier::Usage::kComputeUAV);
+            }
         } else {
             if (!tlas->accel_buffer()) [[unlikely]] {
                 LUISA_ERROR("Accel not initialized.");
@@ -197,6 +221,14 @@ struct ResourceBarrierVisitor {
             barrier->record(
                 BufferView(tlas->accel_buffer()),
                 ResourceBarrier::Usage::kComputeAccelRead);
+            // Motion instance buffer: record read barrier when present. Shaders
+            // that use motion blur (via _MakeSRTFromMotionBuffer) need this
+            // buffer to be readable in the compute stage.
+            if (auto mbuf = tlas->motion_instance_buffer()) {
+                barrier->record(
+                    BufferView(mbuf),
+                    ResourceBarrier::Usage::kComputeRead);
+            }
         }
         ++arg;
     }
@@ -312,6 +344,38 @@ struct BindPropVisitor {
                 nullptr,
                 buffer_descs,
                 nullptr});
+            // Motion buffer binding for writable accel; match the
+            // extra 2nd binding emitted by property.cpp's ACCEL Writable case.
+            // When motion is enabled, bind the real motion instance buffer so
+            // _SetAccelMotionMatrix can write keyframes directly.
+            {
+                auto midx = desc_index++;
+                auto motion_descs = cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                auto motion_buffer = tlas->motion_instance_buffer();
+                if (motion_buffer) {
+                    *motion_descs = VkDescriptorBufferInfo{
+                        motion_buffer->vk_buffer(),
+                        0,
+                        motion_buffer->byte_size()};
+                } else {
+                    // No motion buffer yet; bind instance buffer as placeholder
+                    *motion_descs = VkDescriptorBufferInfo{
+                        tlas->instance_buffer()->vk_buffer(),
+                        0,
+                        tlas->instance_buffer()->byte_size()};
+                }
+                cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    desc_set,
+                    midx,
+                    0,
+                    1,
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    nullptr,
+                    motion_descs,
+                    nullptr});
+            }
         } else {
             // accel
             {
@@ -340,6 +404,41 @@ struct BindPropVisitor {
                     tlas->instance_buffer()->vk_buffer(),
                     0,
                     tlas->instance_buffer()->byte_size()};
+                cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    desc_set,
+                    idx,
+                    0,
+                    1,
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                    nullptr,
+                    buffer_descs,
+                    nullptr});
+            }
+            // motion instance buffer (3rd binding for ACCEL).
+            // When the TLAS has motion enabled, bind the real motion instance
+            // buffer (160-byte stride VkSRTDataNV keyframes). Otherwise bind the
+            // standard instance buffer as a dummy: shaders that don't use
+            // _MakeSRTFromMotionBuffer won't read from it, so binding the same
+            // buffer keeps the descriptor layout consistent without allocating
+            // extra memory.
+            {
+                auto idx = desc_index++;
+                auto motion_buffer = tlas->motion_instance_buffer();
+                auto fallback = !motion_buffer;
+                auto buffer_descs = cmdbuffer->temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                if (fallback) {
+                    *buffer_descs = VkDescriptorBufferInfo{
+                        tlas->instance_buffer()->vk_buffer(),
+                        0,
+                        tlas->instance_buffer()->byte_size()};
+                } else {
+                    *buffer_descs = VkDescriptorBufferInfo{
+                        motion_buffer->vk_buffer(),
+                        0,
+                        motion_buffer->byte_size()};
+                }
                 cmdbuffer->write_desc_sets->emplace_back(VkWriteDescriptorSet{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     nullptr,
@@ -1337,6 +1436,10 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                 } break;
                 case Command::Tag::EMeshBuildCommand: {
                     auto c = static_cast<MeshBuildCommand const *>(cmd);
+                    static int mesh_build_log_count = 0;
+                    if (mesh_build_log_count++ < 5) {
+                        stream_debug_log("[stream] EMeshBuildCommand: blas=%p", (void*)c->handle());
+                    }
                     reinterpret_cast<Blas *>(c->handle())->pre_build(*this, c);
                 } break;
                 case Command::Tag::ECurveBuildCommand: {
@@ -1660,7 +1763,7 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     }
                     auto bind_point = is_rt_shader ? VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR : VK_PIPELINE_BIND_POINT_COMPUTE;
                     auto push_stage = is_rt_shader ?
-                        static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_RAYGEN_BIT_KHR) :
+                        static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR) :
                         static_cast<VkShaderStageFlags>(VK_SHADER_STAGE_COMPUTE_BIT);
                     // Get pipeline and block_size from the correct shader type
                     VkPipeline vk_pipeline;
@@ -1715,6 +1818,13 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                             &value);
                         if (is_rt_shader) {
                             auto rt = static_cast<RayTracingShader const *>(shader);
+                            stream_debug_log("[stream] vkCmdTraceRaysKHR dispatch=(%u,%u,%u) raygen={addr=0x%llx,stride=%llu,size=%llu} miss={addr=0x%llx} hit={addr=0x%llx}",
+                                            disp_size.x, disp_size.y, disp_size.z,
+                                            (unsigned long long)rt->raygen_region().deviceAddress,
+                                            (unsigned long long)rt->raygen_region().stride,
+                                            (unsigned long long)rt->raygen_region().size,
+                                            (unsigned long long)rt->miss_region().deviceAddress,
+                                            (unsigned long long)rt->hit_region().deviceAddress);
                             vkCmdTraceRaysKHR(_cmdbuffer,
                                 &rt->raygen_region(), &rt->miss_region(),
                                 &rt->hit_region(), &rt->callable_region(),

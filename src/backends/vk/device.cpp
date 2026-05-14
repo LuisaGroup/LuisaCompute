@@ -3,6 +3,33 @@
 #include "log.h"
 #include <luisa/vstl/config.h>
 #include <luisa/core/binary_file_stream.h>
+#include <cstdio>
+#include <cstdarg>
+#include <chrono>
+#ifndef _WIN32
+#include <pthread.h>
+#endif
+
+// === MOTION BLUR DEBUG: do NOT set to 1, it crashes (compute shaders can't be compiled as RT pipeline) ===
+#define SMARAY_FORCE_MOTION_BLUR_PIPELINE 0
+
+static void device_debug_log(const char *fmt, ...) {
+    static FILE *f = nullptr;
+    if (!f) {
+        f = fopen("D:\\smaray_shader_compile_trace.log", "a");
+        if (!f) return;
+    }
+    static auto t0 = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
+    fprintf(f, "[%lld ms] ", (long long)ms);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fflush(f);
+}
 #include "compute_shader.h"
 #include "../common/hlsl/hlsl_codegen.h"
 #include "serde_type.h"
@@ -946,6 +973,15 @@ bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return std::memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
+    // Clean up RT shaders that were intentionally leaked during normal operation
+    // to work around an NVIDIA driver deadlock.  At this point no more pipeline
+    // creation can happen, so it is safe to destroy the VkPipeline / VkPipelineCache
+    // objects.
+    for (auto *rt : _leaked_rt_shaders) {
+        rt->destroy_pipeline_objects();
+        delete rt;
+    }
+    _leaked_rt_shaders.clear();
     if (_vk_device) {
         vkDestroyDescriptorSetLayout(logic_device(), _sampler_set_layout, alloc_callbacks());
         vkDestroyDescriptorSetLayout(logic_device(), _bdls_buffer_set_layout, alloc_callbacks());
@@ -1117,6 +1153,36 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     // Check if this shader uses motion blur trace operations
     bool requires_motion_blur = kernel.propagated_builtin_callables().uses_raytracing_motion_blur();
 
+    // Detailed ray tracing op diagnostics
+    auto ops = kernel.propagated_builtin_callables();
+    bool has_trace_closest = ops.test(CallOp::RAY_TRACING_TRACE_CLOSEST);
+    bool has_trace_any = ops.test(CallOp::RAY_TRACING_TRACE_ANY);
+    bool has_trace_closest_mb = ops.test(CallOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR);
+    bool has_trace_any_mb = ops.test(CallOp::RAY_TRACING_TRACE_ANY_MOTION_BLUR);
+    bool has_query_all = ops.test(CallOp::RAY_TRACING_QUERY_ALL);
+    bool has_query_any = ops.test(CallOp::RAY_TRACING_QUERY_ANY);
+    bool has_query_all_mb = ops.test(CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR);
+    bool has_query_any_mb = ops.test(CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR);
+    bool uses_rt = ops.uses_raytracing();
+
+    device_debug_log("[device::create_shader] requires_motion_blur=%d, motion_blur_enabled=%d, "
+                     "uses_rt=%d, trace_closest=%d, trace_any=%d, trace_closest_mb=%d, trace_any_mb=%d, "
+                     "query_all=%d, query_any=%d, query_all_mb=%d, query_any_mb=%d",
+                     (int)requires_motion_blur, (int)motion_blur_enabled,
+                     (int)uses_rt, (int)has_trace_closest, (int)has_trace_any,
+                     (int)has_trace_closest_mb, (int)has_trace_any_mb,
+                     (int)has_query_all, (int)has_query_any,
+                     (int)has_query_all_mb, (int)has_query_any_mb);
+
+#if SMARAY_FORCE_MOTION_BLUR_PIPELINE
+    // Force override: if the shader uses ANY ray tracing and device supports motion blur,
+    // compile it as RT pipeline shader. This is a diagnostic workaround.
+    if (!requires_motion_blur && uses_rt && motion_blur_enabled) {
+        device_debug_log("[device::create_shader] FORCE OVERRIDE: setting requires_motion_blur=1 (was 0, uses_rt=%d)", (int)uses_rt);
+        requires_motion_blur = true;
+    }
+#endif
+
     if (requires_motion_blur && !motion_blur_enabled) {
         LUISA_WARNING("Shader uses motion blur but device does not support it. "
                       "Falling back to non-motion compute shader.");
@@ -1128,7 +1194,137 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             LUISA_ERROR("compile_only is not yet supported for motion blur shaders.");
         }
         // Use ray tracing pipeline for motion blur shaders
-        auto code = hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true);
+        device_debug_log("[device::create_shader] entering RT pipeline path, generating HLSL...");
+
+        // Run RayTracingCodegen with a large stack (128MB) to avoid stack overflow
+        // when processing complex kernels. The AST visitor uses deep recursion
+        // that can exceed the default thread stack size for large kernels.
+        // Note: 16MB was insufficient for mega-kernels with motion blur enabled
+        // (6000+ local variables and deeply nested AST bodies).
+        hlsl::CodegenResult *code_ptr = nullptr;
+        volatile bool codegen_completed = false;
+        auto codegen_func = [&]() {
+#ifdef _WIN32
+            // Install a VEH to log crash info before process dies
+            auto veh_handler = AddVectoredExceptionHandler(1, [](PEXCEPTION_POINTERS ep) -> LONG {
+                if (ep && ep->ExceptionRecord) {
+                    DWORD code = ep->ExceptionRecord->ExceptionCode;
+                    // Only log fatal exceptions
+                    if (code == 0xC00000FD || code == 0xC0000005 || code == 0xC0000409) {
+                        static FILE *_veh = nullptr;
+                        if (!_veh) _veh = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+                        if (_veh) {
+                            volatile char sp = 0;
+                            fprintf(_veh, "[codegen_thread] VEH: exception code=0x%08lX (%s), addr=%p, sp_approx=%p\n",
+                                    code,
+                                    code == 0xC00000FD ? "STACK_OVERFLOW" :
+                                    code == 0xC0000005 ? "ACCESS_VIOLATION" :
+                                    code == 0xC0000409 ? "FAST_FAIL" : "OTHER",
+                                    ep->ExceptionRecord->ExceptionAddress,
+                                    (void*)&sp);
+                            if (code == 0xC0000005 && ep->ExceptionRecord->NumberParameters >= 2) {
+                                fprintf(_veh, "[codegen_thread] VEH: access type=%llu, target_addr=%p\n",
+                                        (unsigned long long)ep->ExceptionRecord->ExceptionInformation[0],
+                                        (void*)ep->ExceptionRecord->ExceptionInformation[1]);
+                            }
+                            fflush(_veh);
+                        }
+                    }
+                }
+                return EXCEPTION_CONTINUE_SEARCH;
+            });
+#endif
+            {
+                static FILE *_tlog = nullptr;
+                if (!_tlog) _tlog = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+                if (_tlog) {
+                    volatile char stack_base = 0;
+                    fprintf(_tlog, "[codegen_thread] started, stack_base_addr=%p\n", (void*)&stack_base);
+                    fflush(_tlog);
+                }
+            }
+            code_ptr = new hlsl::CodegenResult(hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true));
+            codegen_completed = true;
+            {
+                static FILE *_tlog = nullptr;
+                if (!_tlog) _tlog = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+                if (_tlog) {
+                    volatile char stack_end = 0;
+                    fprintf(_tlog, "[codegen_thread] completed successfully, stack_end_addr=%p, code_size=%zu\n",
+                            (void*)&stack_end, code_ptr->result.size());
+                    fflush(_tlog);
+                }
+            }
+#ifdef _WIN32
+            if (veh_handler) RemoveVectoredExceptionHandler(veh_handler);
+#endif
+        };
+#ifdef _WIN32
+        static constexpr size_t kStackSize = 128u * 1024u * 1024u;// 128MB
+        HANDLE thread = CreateThread(nullptr, kStackSize,
+            [](LPVOID param) -> DWORD {
+                (*static_cast<decltype(codegen_func)*>(param))();
+                return 0;
+            }, &codegen_func, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+        if (thread) {
+            {
+                static FILE *_tlog = nullptr;
+                if (!_tlog) _tlog = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+                if (_tlog) { fprintf(_tlog, "[device::create_shader] codegen thread created with 128MB stack, waiting...\n"); fflush(_tlog); }
+            }
+            WaitForSingleObject(thread, INFINITE);
+            DWORD exit_code = 0;
+            GetExitCodeThread(thread, &exit_code);
+            CloseHandle(thread);
+            {
+                static FILE *_tlog = nullptr;
+                if (!_tlog) _tlog = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+                if (_tlog) {
+                    fprintf(_tlog, "[device::create_shader] codegen thread finished, exit_code=%lu, codegen_completed=%d, code_ptr=%p\n",
+                            exit_code, (int)codegen_completed, (void*)code_ptr);
+                    fflush(_tlog);
+                }
+            }
+        } else {
+            {
+                static FILE *_tlog = nullptr;
+                if (!_tlog) _tlog = fopen("D:\\smaray_vk_motion_debug.txt", "a");
+                if (_tlog) { fprintf(_tlog, "[device::create_shader] CreateThread FAILED (err=%lu), running in current thread\n", GetLastError()); fflush(_tlog); }
+            }
+            codegen_func();// fallback: run in current thread
+        }
+#else
+        {
+            pthread_t tid;
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, 128u * 1024u * 1024u);// 128MB
+            int rc = pthread_create(&tid, &attr, [](void *param) -> void* {
+                (*static_cast<decltype(codegen_func)*>(param))();
+                return nullptr;
+            }, &codegen_func);
+            pthread_attr_destroy(&attr);
+            if (rc == 0) {
+                pthread_join(tid, nullptr);
+            } else {
+                codegen_func();// fallback
+            }
+        }
+#endif
+
+        device_debug_log("[device::create_shader] RayTracingCodegen done, code size=%zu", code_ptr->result.size());
+        auto &code = *code_ptr;
+        auto code_guard = vstd::scope_exit([&] { delete code_ptr; });
+
+        // Dump generated HLSL for debugging
+        {
+            auto f = fopen("D:\\smaray_rt_shader_dump.hlsl", "wb");
+            if (f) {
+                fwrite(code.result.data(), 1, code.result.size(), f);
+                fclose(f);
+            }
+        }
+
         vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
 
         vstd::string_view file_name;
@@ -1143,6 +1339,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 serde_type = SerdeType::kByteCode;
             }
         }
+        device_debug_log("[device::create_shader] calling RayTracingShader::compile...");
         auto shader = RayTracingShader::compile(
             _binary_io,
             this,
@@ -1154,8 +1351,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             file_name,
             serde_type,
             kShaderModel,
-            option.enable_fast_math,
-            option.enable_debug_info);
+            option.enable_fast_math);
+        device_debug_log("[device::create_shader] RayTracingShader::compile returned, shader=%p", (void*)shader);
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
     } else {
@@ -1314,7 +1511,31 @@ Usage Device::shader_argument_usage(uint64_t handle, size_t index) noexcept {
     return shader->saved_arguments()[index].var_usage;
 }
 void Device::destroy_shader(uint64_t handle) noexcept {
-    delete reinterpret_cast<ComputeShader *>(handle);
+    // Use base class Shader* for deletion to correctly handle both
+    // ComputeShader and RayTracingShader via virtual destructor.
+    auto shader = reinterpret_cast<Shader *>(handle);
+    if (shader) {
+        auto tag = shader->shader_tag();
+        device_debug_log("[destroy_shader] handle=%p, tag=%d (%s)",
+                         (void*)handle, (int)tag,
+                         tag == Shader::ShaderTag::kRayTracingShader ? "RT_PIPELINE" :
+                         tag == Shader::ShaderTag::kComputeShader ? "COMPUTE" : "OTHER");
+        // WORKAROUND: NVIDIA Vulkan driver bug with VK_NV_ray_tracing_motion_blur.
+        // Destroying ANY part of an RT motion blur shader (pipeline, pipeline layout,
+        // descriptor set layouts) causes all subsequent pipeline creation calls to deadlock.
+        // We intentionally leak the entire RayTracingShader object to avoid this.
+        if (tag == Shader::ShaderTag::kRayTracingShader) {
+            device_debug_log("[destroy_shader] LEAKING RT_PIPELINE shader %p (NVIDIA driver bug workaround)", (void*)handle);
+            // Free VMA-managed resources (SBT buffer) to avoid assertion in
+            // vmaDestroyAllocator() during device teardown.
+            auto rt = static_cast<RayTracingShader *>(shader);
+            rt->release_vma_resources();
+            _leaked_rt_shaders.emplace_back(rt);
+            return; // Do NOT delete now — deferred to ~Device()
+        }
+    }
+    delete shader;
+    device_debug_log("[destroy_shader] done, handle=%p", (void*)handle);
 }
 
 // event

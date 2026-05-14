@@ -6,6 +6,45 @@
 #include "shader_serializer.h"
 #include <luisa/core/logging.h>
 #include "../common/hlsl/shader_compiler.h"
+#include <cstdio>
+#include <chrono>
+#include <atomic>
+
+// Track whether an RT motion blur pipeline has ever been created and destroyed on this device.
+// This is used to prove the NVIDIA driver bug: vkCreateComputePipelines deadlocks
+// ONLY after an RT motion blur pipeline has been used and destroyed.
+static std::atomic<int> g_rt_motion_pipeline_created{0};
+static std::atomic<int> g_rt_motion_pipeline_destroyed{0};
+static std::atomic<int> g_compute_pipeline_create_count{0};
+
+static void cs_trace_log(const char *fmt, ...) {
+    static FILE *f = nullptr;
+    if (!f) f = fopen("D:\\smaray_vkpipeline_trace.log", "a");
+    if (!f) return;
+    static auto t0 = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
+    fprintf(f, "[%lld ms] ", (long long)ms);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fflush(f);
+}
+
+// Called from rt_shader.cpp when RT motion blur pipeline is created
+extern "C" void smaray_notify_rt_motion_pipeline_created() {
+    g_rt_motion_pipeline_created.fetch_add(1);
+    cs_trace_log("[RT_MOTION] pipeline CREATED (total created=%d, destroyed=%d)",
+                 g_rt_motion_pipeline_created.load(), g_rt_motion_pipeline_destroyed.load());
+}
+// Called from rt_shader.cpp when RT motion blur pipeline is destroyed
+extern "C" void smaray_notify_rt_motion_pipeline_destroyed() {
+    g_rt_motion_pipeline_destroyed.fetch_add(1);
+    cs_trace_log("[RT_MOTION] pipeline DESTROYED (total created=%d, destroyed=%d)",
+                 g_rt_motion_pipeline_created.load(), g_rt_motion_pipeline_destroyed.load());
+}
 
 namespace lc::vk {
 
@@ -52,7 +91,16 @@ ComputeShader::ComputeShader(
             .pName = "main"},
         .layout = _pipeline_layout};
 
+    int pipeline_id = g_compute_pipeline_create_count.fetch_add(1);
+    bool rt_was_used_and_destroyed = (g_rt_motion_pipeline_destroyed.load() > 0);
+    cs_trace_log("[vkCreateComputePipelines] ENTER #%d, rt_motion_created=%d, rt_motion_destroyed=%d, "
+                 "rt_was_used_and_destroyed=%d",
+                 pipeline_id,
+                 g_rt_motion_pipeline_created.load(),
+                 g_rt_motion_pipeline_destroyed.load(),
+                 (int)rt_was_used_and_destroyed);
     VK_CHECK_RESULT(vkCreateComputePipelines(device->logic_device(), _pipe_cache, 1, &pipe_ci, Device::alloc_callbacks(), &_pipeline));
+    cs_trace_log("[vkCreateComputePipelines] EXIT #%d, pipeline=%p", pipeline_id, (void*)_pipeline);
 }
 bool ComputeShader::serialize_pso(vstd::vector<std::byte> &result) const {
     auto last_size = result.size();

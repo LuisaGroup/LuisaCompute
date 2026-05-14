@@ -377,7 +377,7 @@ void DXOidnDenoiser::prepare() noexcept {
                 img.shared_buffer.handle,
                 img.img.offset,
                 0ull,
-                img.img.size_bytes)));
+                img.img.size_bytes));
         }
     }
 
@@ -392,7 +392,7 @@ void DXOidnDenoiser::post_sync() noexcept {
                 img.img.buffer_handle,
                 0ull,
                 img.img.offset,
-                img.img.size_bytes)));
+                img.img.size_bytes));
         }
     }
 
