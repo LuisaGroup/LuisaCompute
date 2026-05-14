@@ -47,3 +47,13 @@ All checks disabled by default (`-*`), then explicitly enabled by category:
 - **Performance**: faster string find (literal vs. single char), avoid implicit copies in range-for, avoid implicit conversions in loops, prefer efficient algorithms, pre-size vectors, move correctly, mark move constructors `noexcept`, use trivially destructible types, avoid type promotion in math functions, remove unnecessary copies/value params
 - **Portability**: avoid SIMD intrinsics without wrappers
 - **Readability**: avoid `const` in parameter declarations, avoid `const` return types for values, prefer `empty()` over `size() == 0`, make member functions `static`/`const` where possible, remove `delete nullptr`, remove deleted defaults, keep parameter names consistent across declarations, fix misleading indentation, remove redundant control flow/declarations/function-pointer dereferences/smartptr `get()`/string `c_str()`/string init, simplify subscript expressions, avoid static access through instances, avoid static definitions in anonymous namespaces, prefer `starts_with`/`contains` over `compare`, remove `unique_ptr` manual delete/release, use `any_of`/`all_of`
+
+## No RTTI Usage
+
+RTTI (Run-Time Type Information) is disabled. Do **not** use:
+
+- `dynamic_cast` — use `static_cast` instead when the type is known
+- `typeid`
+- `std::type_info`
+
+If type-safe downcasting is required, prefer virtual dispatch or maintain explicit type tags rather than relying on RTTI.

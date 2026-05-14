@@ -2,7 +2,6 @@
 #include <luisa/core/logging.h>
 
 namespace lc::spirv {
-    
 spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept {
     if (type == nullptr) { return _builder.makeVoidType(); }
     if (auto it = _type_map.find(type); it != _type_map.end()) { return it->second; }

@@ -13,7 +13,6 @@
 #include <luisa/ast/expression.h>
 #include <luisa/ast/statement.h>
 #include <SPIRV/SpvBuilder.h>
-#include <luisa/ast/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/basic_block.h>

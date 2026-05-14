@@ -1,16 +1,8 @@
 #include "entry.h"
 #include "utils.h"
-#include <iostream>
-#include <fstream>
 #include <SPIRV/disassemble.h>
 
 namespace lc::spirv {
-struct DebugFile {
-    const char *msg;
-    DebugFile(const char *m) : msg(m) {}
-    ~DebugFile() { auto f = fopen("C:/dev/compute/bin/debug/spirv_debug.txt", "a"); fprintf(f, "%s\n", msg); fflush(f); fclose(f); }
-};
-
 SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, ShaderOption const &opt) {
     auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
     StringScratch scratch;

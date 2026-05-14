@@ -5,7 +5,6 @@
 #include <luisa/vstl/common.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
-#include <luisa/ast/function.h>
 #include <luisa/core/string_scratch.h>
 #include <SPIRV/SpvBuilder.h>
 #include <luisa/runtime/rhi/resource.h>

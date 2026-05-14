@@ -1166,18 +1166,15 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             auto &p = spv_result.properties[i];
             LUISA_INFO("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
         }
-        {
-            std::ofstream file("C:/dev/compute/bin/debug/spirv_output.spvasm", std::ios::out);
+        if (print_code()) {
+            std::ofstream file("spirv_output.spvasm", std::ios::out);
             if (file) {
                 file << "; ==SPIRV==\n";
                 spv::Disassemble(file, spv_result.spv_bin);
             }
-        }
-        {
-            std::ofstream file("C:/dev/compute/bin/debug/spirv_output.bin", std::ios::out | std::ios::binary);
-            if (file) {
-                file.write(reinterpret_cast<const char *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() * sizeof(uint32_t));
-            }
+            // Test HLSL
+            auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
+            // TODO, compile with ShaderCompiler
         }
         auto shader = new ComputeShader(
             this,
@@ -1265,11 +1262,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             info.native_handle = shader->pipeline();
         }
 #endif
-    { auto f = fopen("C:/dev/compute/bin/debug/vk_debug.txt", "a"); fprintf(f, "[VK] after endif\n"); fflush(f); fclose(f); }
     }// end else (non-motion-blur path)
-    { auto f = fopen("C:/dev/compute/bin/debug/vk_debug.txt", "a"); fprintf(f, "[VK] before return info\n"); fflush(f); fclose(f); }
-    info.block_size = kernel.block_size();
-    { auto f = fopen("C:/dev/compute/bin/debug/vk_debug.txt", "a"); fprintf(f, "[VK] before return\n"); fflush(f); fclose(f); }
     return info;
 }
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }

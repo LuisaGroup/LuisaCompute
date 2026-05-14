@@ -325,9 +325,7 @@ void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb) noexcept {
     if (!_emitted_blocks.emplace(bb).second) { return; }
     auto spv_block = _get_or_create_block(bb);
     _builder.setBuildPoint(spv_block);
-    { size_t n = 0; for (auto &&_ : bb->instructions()) { ++n; } std::cerr << "[SPIR-V] emit_block: " << n << " instructions\n"; }
     for (auto inst : bb->instructions()) {
-        std::cerr << "[SPIR-V]   inst: " << xir::to_string(inst->derived_instruction_tag()) << "\n";
         _emit_instruction(inst);
     }
 }
@@ -399,7 +397,6 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 
     _builder.enterFunction(func);
     _builder.setBuildPoint(entry);
-    { size_t n = 0; for (auto &&_ : kernel->body_block()->instructions()) { ++n; } std::cerr << "[SPIR-V] kernel body block has " << n << " instructions\n"; }
     _emit_block(kernel->body_block());
 
     if (!_builder.getBuildPoint()->isTerminated()) {
@@ -434,7 +431,6 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable) no
     _builder.enterFunction(func);
     _builder.setBuildPoint(entry);
     _block_map.emplace(callable->body_block(), entry);
-    std::cerr << "[SPIR-V] emitting callable: " << callable->name().value_or("?") << " func_id=" << func->getId() << " entry_id=" << entry->getId() << "\n";
     _emit_block(callable->body_block());
     _builder.leaveFunction();
 }
@@ -485,7 +481,6 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
                     _emit_kernel(static_cast<const xir::KernelFunction *>(f));
                     break;
                 case xir::DerivedFunctionTag::CALLABLE:
-                    std::cerr << "[SPIR-V] will emit callable: " << f->name().value_or("?") << "\n";
                     _emit_callable(static_cast<const xir::CallableFunction *>(f));
                     break;
                 default:
@@ -503,7 +498,6 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     std::ostringstream oss;
     spv::Disassemble(oss, spirv);
     _scratch << oss.str();
-    std::cerr << "[SPIR-V DISASM]\n" << oss.str() << "\n";
 }
 
 }// namespace lc::spirv
