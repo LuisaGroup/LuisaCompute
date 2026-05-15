@@ -805,6 +805,135 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
     return id;
 }
 
+spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(spv::Id ptr, spv::Id val, spv::Id float_type, xir::AtomicOp op) noexcept {
+    auto &function = _builder.getBuildPoint()->getParent();
+    auto uint_type = _builder.makeUintType(32);
+    auto bool_type = _builder.makeBoolType();
+    LUISA_ASSERT(float_type == _builder.makeFloatType(32),
+                 "SPIR-V CAS loop only supports float32 for non-scalar buffer atomics.");
+
+    // Local variable to hold the result (old float value)
+    auto result_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, float_type, "atomic_result");
+
+    // Create blocks
+    auto loop_header = &_builder.makeNewBlock();
+    auto loop_body = &_builder.makeNewBlock();
+    auto loop_continue = &_builder.makeNewBlock();
+    auto merge = &_builder.makeNewBlock();
+
+    // Branch to loop header
+    _builder.createBranch(false, loop_header);
+
+    // Loop header
+    _builder.setBuildPoint(loop_header);
+    _builder.createLoopMerge(merge, loop_continue, spv::LoopControlMask::MaskNone, {});
+    _builder.createBranch(false, loop_body);
+
+    // Loop body
+    _builder.setBuildPoint(loop_body);
+    auto scope = _builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Device));
+    auto semantics = _builder.makeUintConstant(static_cast<unsigned>(spv::MemorySemanticsMask::MaskNone));
+
+    // old_uint = AtomicLoad(ptr)
+    auto old_uint = _builder.createOp(spv::Op::OpAtomicLoad, uint_type, {ptr, scope, semantics});
+    // old_float = Bitcast(old_uint, float)
+    auto old_float = _builder.createUnaryOp(spv::Op::OpBitcast, float_type, old_uint);
+    _builder.createStore(old_float, result_var);
+
+    // Compute new_float
+    spv::Id new_float;
+    switch (op) {
+        case xir::AtomicOp::FETCH_ADD:
+            new_float = _builder.createBinOp(spv::Op::OpFAdd, float_type, old_float, val);
+            break;
+        case xir::AtomicOp::FETCH_SUB:
+            new_float = _builder.createBinOp(spv::Op::OpFSub, float_type, old_float, val);
+            break;
+        case xir::AtomicOp::FETCH_MAX:
+            new_float = _builder.createBuiltinCall(float_type, _glsl450, GLSLstd450FMax, {old_float, val});
+            break;
+        case xir::AtomicOp::FETCH_MIN:
+            new_float = _builder.createBuiltinCall(float_type, _glsl450, GLSLstd450FMin, {old_float, val});
+            break;
+        default:
+            LUISA_NOT_IMPLEMENTED("SPIR-V CAS loop for atomic op {}.", xir::to_string(op));
+    }
+
+    // new_uint = Bitcast(new_float, uint)
+    auto new_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, new_float);
+
+    // result = AtomicCompareExchange(ptr, expected=old_uint, desired=new_uint)
+    auto result = _builder.createOp(spv::Op::OpAtomicCompareExchange, uint_type,
+                                    {ptr, scope, semantics, semantics, new_uint, old_uint});
+
+    // cmp = result == old_uint
+    auto cmp = _builder.createBinOp(spv::Op::OpIEqual, bool_type, result, old_uint);
+
+    // If CAS succeeded, break to merge; otherwise continue looping
+    _builder.createConditionalBranch(cmp, merge, loop_continue);
+
+    // Loop continue
+    _builder.setBuildPoint(loop_continue);
+    _builder.createBranch(false, loop_header);
+
+    // Merge
+    _builder.setBuildPoint(merge);
+
+    // Load and return the result
+    return _builder.createLoad(result_var, spv::NoPrecision);
+}
+
+spv::Id SpirvCodegenEntry::_emit_float_compare_exchange_cas_loop(spv::Id ptr, spv::Id expected, spv::Id desired, spv::Id float_type) noexcept {
+    auto &function = _builder.getBuildPoint()->getParent();
+    auto bool_type = _builder.makeBoolType();
+    auto uint_type = _builder.makeUintType(32);
+
+    // Local variable to hold the result (old float value)
+    auto result_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, float_type, "cas_result");
+
+    // Create blocks
+    auto loop_header = &_builder.makeNewBlock();
+    auto loop_body = &_builder.makeNewBlock();
+    auto loop_continue = &_builder.makeNewBlock();
+    auto loop_merge = &_builder.makeNewBlock();
+
+    // Branch to loop header
+    _builder.createBranch(false, loop_header);
+
+    // Loop header
+    _builder.setBuildPoint(loop_header);
+    _builder.createLoopMerge(loop_merge, loop_continue, spv::LoopControlMask::MaskNone, {});
+    _builder.createBranch(false, loop_body);
+
+    // Loop body
+    _builder.setBuildPoint(loop_body);
+    auto scope = _builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Device));
+    auto semantics = _builder.makeUintConstant(static_cast<unsigned>(spv::MemorySemanticsMask::MaskNone));
+
+    // old = AtomicLoad(ptr)
+    auto old_float = _builder.createOp(spv::Op::OpAtomicLoad, float_type, {ptr, scope, semantics});
+    _builder.createStore(old_float, result_var);
+
+    // Bitwise comparison via uint bitcast
+    auto old_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, old_float);
+    auto expected_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, expected);
+    auto cmp = _builder.createBinOp(spv::Op::OpIEqual, bool_type, old_uint, expected_uint);
+    _builder.createConditionalBranch(cmp, loop_continue, loop_merge);
+
+    // Loop continue (try exchange)
+    _builder.setBuildPoint(loop_continue);
+    auto swapped = _builder.createOp(spv::Op::OpAtomicExchange, float_type, {ptr, scope, semantics, desired});
+    auto swapped_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, swapped);
+    auto stored_old = _builder.createLoad(result_var, spv::NoPrecision);
+    auto stored_old_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, stored_old);
+    auto success = _builder.createBinOp(spv::Op::OpIEqual, bool_type, swapped_uint, stored_old_uint);
+    _builder.createConditionalBranch(success, loop_merge, loop_header);
+
+    // Merge
+    _builder.setBuildPoint(loop_merge);
+    return _builder.createLoad(result_var, spv::NoPrecision);
+}
+
 void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept {
     auto type = _convert_type(inst->type(), Usage::READ);
     auto t = inst->type();
@@ -812,6 +941,13 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
     auto base = _emit_value(inst->base());
     spv::Id ptr = base;
     auto indices = inst->index_uses();
+    auto base_xir_type = inst->base()->type();
+    size_t buffer_elem_word_count = 1;
+    bool is_non_scalar_buffer = false;
+    if (base_xir_type != nullptr && base_xir_type->is_buffer() && base_xir_type->element() != nullptr) {
+        buffer_elem_word_count = std::max(size_t{1}, base_xir_type->element()->size() / 4u);
+        is_non_scalar_buffer = buffer_elem_word_count > 1 && indices.size() > 1;
+    }
     if (!indices.empty()) {
         std::vector<spv::Id> idx_ids;
         // Buffer variables are pointers to structs containing a runtime array.
@@ -820,16 +956,6 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         auto pointee_type = _builder.getContainedTypeId(base_type);
         if (_builder.isStructType(pointee_type)) {
             idx_ids.push_back(_builder.makeUintConstant(0u));
-        }
-
-        // For non-scalar buffers, sub-element atomic indices must be flattened
-        // into a word offset because the SPIR-V runtime array uses uint32 words.
-        auto base_xir_type = inst->base()->type();
-        size_t buffer_elem_word_count = 1;
-        bool is_non_scalar_buffer = false;
-        if (base_xir_type != nullptr && base_xir_type->is_buffer() && base_xir_type->element() != nullptr) {
-            buffer_elem_word_count = std::max(size_t{1}, base_xir_type->element()->size() / 4u);
-            is_non_scalar_buffer = buffer_elem_word_count > 1 && indices.size() > 1;
         }
 
         if (is_non_scalar_buffer) {
@@ -920,12 +1046,34 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::COMPARE_EXCHANGE: {
             auto expected = _emit_value(values[0]->value());
             auto desired = _emit_value(values[1]->value());
-            id = _builder.createOp(spv::Op::OpAtomicCompareExchange, type, {ptr, scope, semantics_equal, semantics, desired, expected});
+            if (t->is_float()) {
+                if (is_non_scalar_buffer) {
+                    // Non-scalar buffer: ptr is uint32*, bitcast values to uint32
+                    auto uint_type = _builder.makeUintType(32);
+                    auto expected_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, expected);
+                    auto desired_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, desired);
+                    auto result = _builder.createOp(spv::Op::OpAtomicCompareExchange, uint_type,
+                                                    {ptr, scope, semantics_equal, semantics, desired_uint, expected_uint});
+                    id = _builder.createUnaryOp(spv::Op::OpBitcast, type, result);
+                } else {
+                    // Scalar buffer or shared memory: ptr is float*, use CAS loop
+                    // with OpAtomicLoad + OpAtomicExchange to avoid pointer bitcast
+                    // which crashes some Vulkan drivers (e.g., NVIDIA).
+                    id = _emit_float_compare_exchange_cas_loop(ptr, expected, desired, type);
+                }
+            } else {
+                id = _builder.createOp(spv::Op::OpAtomicCompareExchange, type,
+                                       {ptr, scope, semantics_equal, semantics, desired, expected});
+            }
             break;
         }
         case xir::AtomicOp::FETCH_ADD: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
+                if (is_non_scalar_buffer && t->is_float32()) {
+                    id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_ADD);
+                    break;
+                }
                 if (t->is_float16()) {
                     _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float16_add);
                     _builder.addCapability(spv::Capability::AtomicFloat16AddEXT);
@@ -945,6 +1093,10 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_SUB: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
+                if (is_non_scalar_buffer && t->is_float32()) {
+                    id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_SUB);
+                    break;
+                }
                 auto neg_val = _builder.createUnaryOp(spv::Op::OpFNegate, type, val);
                 if (t->is_float16()) {
                     _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float16_add);
@@ -980,6 +1132,10 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_MIN: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
+                if (is_non_scalar_buffer && t->is_float32()) {
+                    id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_MIN);
+                    break;
+                }
                 if (t->is_float16()) {
                     _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
                     _builder.addCapability(spv::Capability::AtomicFloat16MinMaxEXT);
@@ -1003,6 +1159,10 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_MAX: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
+                if (is_non_scalar_buffer && t->is_float32()) {
+                    id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_MAX);
+                    break;
+                }
                 if (t->is_float16()) {
                     _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
                     _builder.addCapability(spv::Capability::AtomicFloat16MinMaxEXT);
@@ -1026,6 +1186,16 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit atomic op.");
     _value_map.emplace(inst, id);
+}
+
+spv::Id SpirvCodegenEntry::_load_texture(spv::Id tex_var) noexcept {
+    auto tex_type = _builder.getTypeId(tex_var);
+    auto pointee_type = _builder.getContainedTypeId(tex_type);
+    if (_builder.isArrayType(pointee_type)) {
+        auto image_ptr = _create_access_chain(spv::StorageClass::UniformConstant, tex_var, {_builder.makeUintConstant(0u)});
+        return _builder.createLoad(image_ptr, spv::NoPrecision);
+    }
+    return _builder.createLoad(tex_var, spv::NoPrecision);
 }
 
 void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept {
@@ -1057,8 +1227,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
         case xir::ResourceQueryOp::TEXTURE2D_SIZE:
         case xir::ResourceQueryOp::TEXTURE3D_SIZE: {
             auto tex_array = _emit_value(inst->operand(0));
-            auto image_ptr = _create_access_chain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
-            auto tex = _builder.createLoad(image_ptr, spv::NoPrecision);
+            auto tex = _load_texture(tex_array);
             _builder.addCapability(spv::Capability::ImageQuery);
             if (_is_storage_image_map.at(tex_array)) {
                 id = _builder.createOp(spv::Op::OpImageQuerySize, type, {tex});
@@ -1164,8 +1333,8 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
             auto member_size = member->size();
             auto member_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset,
                                                             _builder.makeUintConstant(static_cast<uint32_t>(struct_offset / 4)));
-            if (member_size < 4u && !member->is_vector()) {
-                // Sub-word scalar member: read the containing word, shift and mask
+            if (member_size < 4u) {
+                // Sub-word member (scalar or vector): read the containing word, shift and mask
                 auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), member_word_offset});
                 auto raw = _builder.createLoad(ptr, spv::NoPrecision);
                 auto byte_shift = struct_offset % 4u;
@@ -1178,10 +1347,46 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                     raw = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, _builder.makeUintConstant(static_cast<uint32_t>(mask)));
                 }
                 auto spv_member_type = _convert_type(member, Usage::READ);
-                if (member->is_bool()) {
-                    fields.push_back(_builder.createBinOp(spv::Op::OpINotEqual, spv_member_type, raw, _builder.makeUintConstant(0u)));
+                if (member->is_vector()) {
+                    // Decompose sub-word vector from extracted raw value
+                    auto comp_type = member->element();
+                    auto dim = member->dimension();
+                    auto comp_size = member_size / dim;
+                    auto spv_comp_type = _convert_type(comp_type, Usage::READ);
+                    std::vector<spv::Id> comps;
+                    comps.reserve(dim);
+                    for (auto i = 0u; i < dim; ++i) {
+                        auto comp_byte_shift = i * comp_size;
+                        auto comp_bit_shift = comp_byte_shift * 8;
+                        spv::Id comp_raw = raw;
+                        if (comp_bit_shift > 0u) {
+                            comp_raw = _builder.createBinOp(spv::Op::OpShiftRightLogical, uint_type, comp_raw, _builder.makeUintConstant(comp_bit_shift));
+                        }
+                        auto comp_bit_width = static_cast<uint32_t>(comp_size * 8);
+                        if (comp_bit_width < 32u) {
+                            auto comp_mask = (1ull << comp_bit_width) - 1ull;
+                            comp_raw = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, comp_raw, _builder.makeUintConstant(static_cast<uint32_t>(comp_mask)));
+                        }
+                        if (comp_type->is_bool()) {
+                            comps.push_back(_builder.createBinOp(spv::Op::OpINotEqual, spv_comp_type, comp_raw, _builder.makeUintConstant(0u)));
+                        } else {
+                            auto trunc_type = _builder.makeIntegerType(comp_bit_width, comp_type->is_int());
+                            auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, comp_raw);
+                            if (trunc_type != spv_comp_type) {
+                                comps.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_comp_type, truncated));
+                            } else {
+                                comps.push_back(truncated);
+                            }
+                        }
+                    }
+                    fields.push_back(_builder.createCompositeConstruct(spv_member_type, comps));
                 } else {
-                    fields.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_member_type, raw));
+                    // Sub-word scalar
+                    if (member->is_bool()) {
+                        fields.push_back(_builder.createBinOp(spv::Op::OpINotEqual, spv_member_type, raw, _builder.makeUintConstant(0u)));
+                    } else {
+                        fields.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_member_type, raw));
+                    }
                 }
             } else {
                 fields.push_back(_emit_buffer_read_impl(buffer, member_word_offset, member));
@@ -1306,11 +1511,61 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
             auto member = members[j];
             auto align = member->alignment();
             struct_offset = (struct_offset + align - 1) & ~(align - 1);
+            auto member_size = member->size();
             auto member_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset,
                                                             _builder.makeUintConstant(static_cast<uint32_t>(struct_offset / 4)));
             auto field_val = _builder.createCompositeExtract(value, _convert_type(member, Usage::READ), j);
-            _emit_buffer_write_impl(buffer, member_word_offset, field_val, member);
-            struct_offset += member->size();
+            if (member_size < 4u) {
+                // Sub-word member: read-modify-write to avoid corrupting neighboring fields
+                auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), member_word_offset});
+                auto raw = _builder.createLoad(ptr, spv::NoPrecision);
+                auto byte_shift = struct_offset % 4u;
+                auto total_bit_shift = byte_shift * 8;
+                auto total_bit_width = static_cast<uint32_t>(member_size * 8);
+                // Convert field_val to a uint with the member's bytes in the low bits
+                spv::Id field_uint = spv::NoResult;
+                if (member->is_vector()) {
+                    auto comp_type = member->element();
+                    auto dim = member->dimension();
+                    auto comp_size = member_size / dim;
+                    field_uint = _builder.makeUintConstant(0u);
+                    for (auto i = 0u; i < dim; ++i) {
+                        auto comp = _builder.createCompositeExtract(field_val, _convert_type(comp_type, Usage::READ), i);
+                        spv::Id comp_uint = spv::NoResult;
+                        if (comp_type->is_bool()) {
+                            comp_uint = _builder.createOp(spv::Op::OpSelect, uint_type, {comp, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
+                        } else {
+                            comp_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, comp);
+                        }
+                        auto comp_bit_shift = i * comp_size * 8;
+                        if (comp_bit_shift > 0u) {
+                            comp_uint = _builder.createBinOp(spv::Op::OpShiftLeftLogical, uint_type, comp_uint, _builder.makeUintConstant(comp_bit_shift));
+                        }
+                        field_uint = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, field_uint, comp_uint);
+                    }
+                } else {
+                    if (member->is_bool()) {
+                        field_uint = _builder.createOp(spv::Op::OpSelect, uint_type, {field_val, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
+                    } else {
+                        field_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, field_val);
+                    }
+                }
+                // Shift to position
+                if (total_bit_shift > 0u) {
+                    field_uint = _builder.createBinOp(spv::Op::OpShiftLeftLogical, uint_type, field_uint, _builder.makeUintConstant(total_bit_shift));
+                }
+                // Clear old bits: mask keeps everything except the member's bits
+                uint64_t member_mask = total_bit_width < 64u ? ((uint64_t{1} << total_bit_width) - 1u) : ~0ull;
+                member_mask <<= total_bit_shift;
+                uint32_t clear_mask_val = static_cast<uint32_t>(~member_mask);
+                auto clear_mask = _builder.makeUintConstant(clear_mask_val);
+                raw = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, clear_mask);
+                raw = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, raw, field_uint);
+                _builder.createStore(raw, ptr);
+            } else {
+                _emit_buffer_write_impl(buffer, member_word_offset, field_val, member);
+            }
+            struct_offset += member_size;
         }
         return;
     }
@@ -1369,8 +1624,7 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
         case xir::ResourceReadOp::TEXTURE3D_READ: {
             auto tex_array = _emit_value(inst->operand(0));
             auto coord = _emit_value(inst->operand(1));
-            auto image_ptr = _create_access_chain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
-            auto tex = _builder.createLoad(image_ptr, spv::NoPrecision);
+            auto tex = _load_texture(tex_array);
             if (_is_storage_image_map.at(tex_array)) {
                 _builder.addCapability(spv::Capability::StorageImageReadWithoutFormat);
                 id = _builder.createOp(spv::Op::OpImageRead, type, {tex, coord});
@@ -1437,8 +1691,7 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto tex_array = _emit_value(inst->operand(0));
             auto coord = _emit_value(inst->operand(1));
             auto value = _emit_value(inst->operand(2));
-            auto image_ptr = _create_access_chain(spv::StorageClass::UniformConstant, tex_array, {_builder.makeUintConstant(0u)});
-            auto tex = _builder.createLoad(image_ptr, spv::NoPrecision);
+            auto tex = _load_texture(tex_array);
             _builder.addCapability(spv::Capability::StorageImageWriteWithoutFormat);
             _builder.createNoResultOp(spv::Op::OpImageWrite, {tex, coord, value});
             break;
@@ -1478,6 +1731,8 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
 
 void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept {
     spv::Id id = spv::NoResult;
+    auto subgroup_scope = _builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Subgroup));
+    auto group_op_reduce = static_cast<unsigned>(spv::GroupOperation::Reduce);
     switch (inst->op()) {
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK: {
             _builder.createControlBarrier(spv::Scope::Workgroup, spv::Scope::Workgroup,
@@ -1488,45 +1743,169 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
             id = _builder.createOp(spv::Op::OpGroupNonUniformElect, _convert_type(inst->type(), Usage::READ),
-                                   {_builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Subgroup))});
+                                   {subgroup_scope});
             break;
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_ALL: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformAll, _convert_type(inst->type(), Usage::READ),
-                                   {_builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Subgroup)), val});
+                                   {subgroup_scope, val});
             break;
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_ANY: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformAny, _convert_type(inst->type(), Usage::READ),
-                                   {_builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Subgroup)), val});
+                                   {subgroup_scope, val});
             break;
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_BIT_AND: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformBitwiseAnd, _convert_type(inst->type(), Usage::READ),
-                                   {_builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Subgroup)),
-                                    _builder.makeUintConstant(static_cast<unsigned>(spv::GroupOperation::Reduce)), val});
+                                   std::vector<spv::IdImmediate>{
+                                       {true, subgroup_scope},
+                                       {false, group_op_reduce},
+                                       {true, val}});
             break;
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_BIT_OR: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformBitwiseOr, _convert_type(inst->type(), Usage::READ),
-                                   {_builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Subgroup)),
-                                    _builder.makeUintConstant(static_cast<unsigned>(spv::GroupOperation::Reduce)), val});
+                                   std::vector<spv::IdImmediate>{
+                                       {true, subgroup_scope},
+                                       {false, group_op_reduce},
+                                       {true, val}});
             break;
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_BIT_XOR: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformBitwiseXor, _convert_type(inst->type(), Usage::READ),
-                                   {_builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Subgroup)),
-                                    _builder.makeUintConstant(static_cast<unsigned>(spv::GroupOperation::Reduce)), val});
+                                   std::vector<spv::IdImmediate>{
+                                       {true, subgroup_scope},
+                                       {false, group_op_reduce},
+                                       {true, val}});
+            break;
+        }
+        case xir::ThreadGroupOp::WARP_ACTIVE_SUM: {
+            _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformArithmetic);
+            auto val = _emit_value(inst->operand(0));
+            auto elem_type = inst->operand(0)->type();
+            spv::Op op;
+            if (elem_type->is_float()) {
+                op = spv::Op::OpGroupNonUniformFAdd;
+            } else if (elem_type->is_int()) {
+                op = spv::Op::OpGroupNonUniformIAdd;
+            } else {
+                op = spv::Op::OpGroupNonUniformIAdd;
+            }
+            id = _builder.createOp(op, _convert_type(inst->type(), Usage::READ),
+                                   std::vector<spv::IdImmediate>{
+                                       {true, subgroup_scope},
+                                       {false, group_op_reduce},
+                                       {true, val}});
+            break;
+        }
+        case xir::ThreadGroupOp::WARP_ACTIVE_PRODUCT: {
+            _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformArithmetic);
+            auto val = _emit_value(inst->operand(0));
+            auto elem_type = inst->operand(0)->type();
+            spv::Op op;
+            if (elem_type->is_float()) {
+                op = spv::Op::OpGroupNonUniformFMul;
+            } else if (elem_type->is_int()) {
+                op = spv::Op::OpGroupNonUniformIMul;
+            } else {
+                op = spv::Op::OpGroupNonUniformIMul;
+            }
+            id = _builder.createOp(op, _convert_type(inst->type(), Usage::READ),
+                                   std::vector<spv::IdImmediate>{
+                                       {true, subgroup_scope},
+                                       {false, group_op_reduce},
+                                       {true, val}});
+            break;
+        }
+        case xir::ThreadGroupOp::WARP_ACTIVE_MIN: {
+            _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformArithmetic);
+            auto val = _emit_value(inst->operand(0));
+            auto elem_type = inst->operand(0)->type();
+            spv::Op op;
+            if (elem_type->is_float()) {
+                op = spv::Op::OpGroupNonUniformFMin;
+            } else if (elem_type->is_int()) {
+                op = spv::Op::OpGroupNonUniformSMin;
+            } else if (elem_type->is_uint()) {
+                op = spv::Op::OpGroupNonUniformUMin;
+            } else {
+                op = spv::Op::OpGroupNonUniformSMin;
+            }
+            id = _builder.createOp(op, _convert_type(inst->type(), Usage::READ),
+                                   std::vector<spv::IdImmediate>{
+                                       {true, subgroup_scope},
+                                       {false, group_op_reduce},
+                                       {true, val}});
+            break;
+        }
+        case xir::ThreadGroupOp::WARP_ACTIVE_MAX: {
+            _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformArithmetic);
+            auto val = _emit_value(inst->operand(0));
+            auto elem_type = inst->operand(0)->type();
+            spv::Op op;
+            if (elem_type->is_float()) {
+                op = spv::Op::OpGroupNonUniformFMax;
+            } else if (elem_type->is_int()) {
+                op = spv::Op::OpGroupNonUniformSMax;
+            } else if (elem_type->is_uint()) {
+                op = spv::Op::OpGroupNonUniformUMax;
+            } else {
+                op = spv::Op::OpGroupNonUniformSMax;
+            }
+            id = _builder.createOp(op, _convert_type(inst->type(), Usage::READ),
+                                   std::vector<spv::IdImmediate>{
+                                       {true, subgroup_scope},
+                                       {false, group_op_reduce},
+                                       {true, val}});
+            break;
+        }
+        case xir::ThreadGroupOp::WARP_ACTIVE_ALL_EQUAL: {
+            _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformVote);
+            auto val = _emit_value(inst->operand(0));
+            id = _builder.createOp(spv::Op::OpGroupNonUniformAllEqual, _convert_type(inst->type(), Usage::READ),
+                                   {subgroup_scope, val});
+            break;
+        }
+        case xir::ThreadGroupOp::WARP_ACTIVE_COUNT_BITS: {
+            _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformBallot);
+            auto val = _emit_value(inst->operand(0));
+            auto uint_type = _builder.makeUintType(32);
+            // Ballot returns a uvec4 (4 x uint32) in SPIR-V
+            auto ballot_type = _builder.makeVectorType(uint_type, 4);
+            auto ballot = _builder.createOp(spv::Op::OpGroupNonUniformBallot, ballot_type,
+                                            {subgroup_scope, val});
+            id = _builder.createOp(spv::Op::OpGroupNonUniformBallotBitCount, uint_type,
+                                   std::vector<spv::IdImmediate>{
+                                       {true, subgroup_scope},
+                                       {false, group_op_reduce},
+                                       {true, ballot}});
+            break;
+        }
+        case xir::ThreadGroupOp::WARP_ACTIVE_BIT_MASK: {
+            _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformBallot);
+            auto val = _emit_value(inst->operand(0));
+            auto uint_type = _builder.makeUintType(32);
+            auto ballot_type = _builder.makeVectorType(uint_type, 4);
+            id = _builder.createOp(spv::Op::OpGroupNonUniformBallot, ballot_type,
+                                   {subgroup_scope, val});
             break;
         }
         default:
@@ -1548,6 +1927,9 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             auto type = _convert_type(alloca->type(), Usage::READ);
             auto storage = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
             auto var = _builder.createVariable(spv::NoPrecision, storage, type, "alloca");
+            if (storage == spv::StorageClass::Workgroup && _entry_point_inst != nullptr) {
+                _entry_point_inst->addIdOperand(var);
+            }
             set_result(var);
             break;
         }
@@ -1593,10 +1975,25 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             break;
         case xir::DerivedInstructionTag::CALL: {
             auto call = static_cast<const xir::CallInst *>(inst);
-            auto callee_func = _function_map.at(call->callee());
+            auto callee = static_cast<const xir::Function *>(call->callee());
+            auto callee_func = _function_map.at(callee);
             std::vector<spv::Id> args;
-            for (auto arg_use : call->argument_uses()) {
-                args.emplace_back(_emit_value(arg_use->value()));
+            auto arg_it = call->argument_uses().begin();
+            if (auto it = _callable_arg_used.find(callee); it != _callable_arg_used.end()) {
+                const auto &used_mask = it->second;
+                size_t idx = 0;
+                for (auto arg_use : call->argument_uses()) {
+                    if (idx < used_mask.size() && !used_mask[idx]) {
+                        ++idx;
+                        continue;
+                    }
+                    args.emplace_back(_emit_value(arg_use->value()));
+                    ++idx;
+                }
+            } else {
+                for (auto arg_use : call->argument_uses()) {
+                    args.emplace_back(_emit_value(arg_use->value()));
+                }
             }
             auto id = _builder.createFunctionCall(callee_func, args);
             set_result(id);

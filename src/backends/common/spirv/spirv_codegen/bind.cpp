@@ -1,4 +1,5 @@
 #include "entry.h"
+#include <luisa/core/logging.h>
 #include <limits>
 
 namespace lc::spirv {
@@ -362,22 +363,21 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
     _property_ids.reserve(_properties.size());
 
     auto make_typed_buffer_struct_type = [&](const Type *elem_type, bool writable, const char *name) -> spv::Id {
-        /*
-        bool use_typed = elem_type != nullptr && elem_type->is_scalar();
-        auto spv_elem_type = use_typed ? _convert_type(elem_type, Usage::READ) : _builder.makeUintType(32);
-        auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
-        _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, use_typed ? elem_type->size() : 4u);
-        auto struct_type = _builder.makeStructType({runtime_array}, {}, name, false);
-        _builder.addDecoration(struct_type, spv::Decoration::Block);
-        _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
-        if (!writable) {
-            _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
-        } else {
-            // Align with HLSL globallycoherent: mark writable buffer member as Coherent
-            _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Coherent);
+        if (elem_type == nullptr) {
+            // Untyped buffer (e.g., cbuffer / global argument buffer)
+            auto uint_type = _builder.makeUintType(32);
+            auto runtime_array = _builder.makeRuntimeArray(uint_type);
+            _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, 4);
+            auto struct_type = _builder.makeStructType({runtime_array}, {}, name, false);
+            _builder.addDecoration(struct_type, spv::Decoration::Block);
+            _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
+            if (!writable) {
+                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
+            } else {
+                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Coherent);
+            }
+            return struct_type;
         }
-        return struct_type;
-        */
         // Use _convert_type to ensure cached type consistency with callable parameters.
         auto buffer_type = Type::buffer(elem_type);
         return _convert_type(buffer_type, writable ? Usage::WRITE : Usage::READ);
@@ -442,6 +442,8 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
                     auto array_type = _builder.makeRuntimeArray(image_type);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, array_type, var_name);
+                } else if (prop.array_size == 1) {
+                    var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, image_type, var_name);
                 } else {
                     auto array_size_id = _builder.makeUintConstant(prop.array_size);
                     auto array_type = _builder.makeArrayType(image_type, array_size_id, 0);
@@ -449,7 +451,9 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 }
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
-                _tex2d_heap_id = var;
+                if (prop.array_size == std::numeric_limits<uint>::max()) {
+                    _tex2d_heap_id = var;
+                }
                 break;
             }
             case ShaderVariableType::UAVTextureHeap: {
@@ -458,6 +462,8 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
                     auto array_type = _builder.makeRuntimeArray(image_type);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, array_type, var_name);
+                } else if (prop.array_size == 1) {
+                    var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, image_type, var_name);
                 } else {
                     auto array_size_id = _builder.makeUintConstant(prop.array_size);
                     auto array_type = _builder.makeArrayType(image_type, array_size_id, 0);
@@ -465,7 +471,9 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 }
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
-                _tex3d_heap_id = var;
+                if (prop.array_size == std::numeric_limits<uint>::max()) {
+                    _tex3d_heap_id = var;
+                }
                 break;
             }
             case ShaderVariableType::SRVBufferHeap:

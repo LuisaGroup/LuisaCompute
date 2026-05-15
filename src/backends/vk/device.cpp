@@ -551,6 +551,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     bool enable_barycentric = false;
     bool enable_motion_blur = false;
     bool enable_float_atomic_add = false;
+    bool enable_float_shared_atomic = false;
     if (supported_ext.find(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) != supported_ext.end()) {
         _enable_device_exts.emplace_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
         enable_barycentric = true;
@@ -577,9 +578,18 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
         features2.pNext = &float_atomic_features;
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        bool needs_float_atomic_ext = false;
         if (float_atomic_features.shaderBufferFloat32AtomicAdd == VK_TRUE) {
-            _enable_device_exts.emplace_back(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
+            needs_float_atomic_ext = true;
             enable_float_atomic_add = true;
+        }
+        if (float_atomic_features.shaderSharedFloat32Atomics == VK_TRUE ||
+            float_atomic_features.shaderSharedFloat32AtomicAdd == VK_TRUE) {
+            needs_float_atomic_ext = true;
+            enable_float_shared_atomic = true;
+        }
+        if (needs_float_atomic_ext) {
+            _enable_device_exts.emplace_back(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
         }
     }
     _enable_device_exts.emplace_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
@@ -688,15 +698,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         enable_float_atomic_add ? VK_TRUE : VK_FALSE,
         VK_FALSE,
         VK_FALSE,
-        VK_FALSE,
-        VK_FALSE,
+        enable_float_shared_atomic ? VK_TRUE : VK_FALSE,
+        enable_float_shared_atomic ? VK_TRUE : VK_FALSE,
         VK_FALSE,
         VK_FALSE,
         VK_FALSE,
         VK_FALSE,
         VK_FALSE,
         VK_FALSE};
-    if (enable_float_atomic_add) {
+    if (enable_float_atomic_add || enable_float_shared_atomic) {
         feature_next = &float_atomic_feature;
     }
     VkPhysicalDeviceSynchronization2Features barrier_feature{
@@ -1167,12 +1177,13 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         }
         if (print_code()) {
             {
-                std::ofstream file("spirv_output.spvasm", std::ios::out);
+                auto filename = luisa::format("spirv_output_{}.spvasm", kernel.name().empty() ? "unnamed" : kernel.name());
+                std::ofstream file(filename.c_str(), std::ios::app);
                 if (file) {
-                    file << "; ==SPIRV==\n";
+                    file << "\n; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
                     spv::Disassemble(file, spv_result.spv_bin);
                 }
-                LUISA_VERBOSE("SPIRV printed to spirv_output.spvasm.");
+                LUISA_VERBOSE("SPIRV printed to {}.", filename);
             }
             // Test HLSL
             auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
@@ -1193,16 +1204,17 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             } else {
                 LUISA_VERBOSE("HLSL test compilation successful.");
                 {
-                    std::ofstream file("spirv_output_hlsl.spvasm", std::ios::out);
+                    auto filename = luisa::format("spirv_output_hlsl_{}.spvasm", kernel.name().empty() ? "unnamed" : kernel.name());
+                    std::ofstream file(filename.c_str(), std::ios::app);
                     if (file) {
-                        file << "; ==SPIRV==\n";
+                        file << "\n; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
                         auto &&blob = comp_result.force_get<lc::hlsl::ComUniquePtr<IDxcBlob>>();
                         std::vector<uint32_t> vec((blob->GetBufferSize() + sizeof(uint) - 1) / sizeof(uint));
                         std::memcpy(vec.data(), blob->GetBufferPointer(), blob->GetBufferSize());
                         spv::Disassemble(file, vec);
                     }
+                    LUISA_VERBOSE("SPIRV-HLSL printed to {}.", filename);
                 }
-                LUISA_VERBOSE("SPIRV-HLSL printed to spirv_output_hlsl.spvasm.");
             }
         }
         auto shader = new ComputeShader(

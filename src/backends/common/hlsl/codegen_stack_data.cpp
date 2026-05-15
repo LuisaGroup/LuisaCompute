@@ -223,37 +223,37 @@ static vstd::string_view _atomic_min =
 static vstd::string_view _atomic_min_float =
     R"(while(true){
 # old=$;
-if(old<=@){
+if(old<=@) return old;
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
-}})"sv;
+})"sv;
 static vstd::string_view _atomic_min_float_spirv =
     R"(while(true){
 # old=asint($);
-if(asfloat(old)<=@){
+if(asfloat(old)<=@) return asfloat(old);
 # r;
 InterlockedCompareExchange($,old,asint(@),r);
 if(r==old) return asfloat(old);
-}})"sv;
+})"sv;
 static vstd::string_view _atomic_max =
     R"(# r;InterlockedMax($,@,r);return r;)"sv;
 static vstd::string_view _atomic_max_float =
     R"(while(true){
 # old=$;
-if(old>=@){
+if(old>=@) return old;
 # r;
 InterlockedCompareExchangeFloatBitwise($,old,@,r);
 if(r==old) return old;
-}})"sv;
+})"sv;
 static vstd::string_view _atomic_max_float_spirv =
     R"(while(true){
 # old=asint($);
-if(asfloat(old)>=@){
+if(asfloat(old)>=@) return asfloat(old);
 # r;
 InterlockedCompareExchange($,old,asint(@),r);
 if(r==old) return asfloat(old);
-}})"sv;
+})"sv;
 AccessChain const &CodegenStackData::GetAtomicFunc(
     Function func,
     CallOp op,

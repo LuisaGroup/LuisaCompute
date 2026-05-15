@@ -67,7 +67,9 @@ void test_callable(Device &device) {
         UInt index = dispatch_id().x;
         // Chain callables: load -> add -> store
         auto xx = load(buffer, index);
-        store(result, index, add(load(source, index), x) + xx);
+        // store(result, index, xx + x);
+        // result.write(index, xx + x);
+        store(result, index, add(load(source, index), x));
     };
     auto kernel = device.compile(kernel_def);
 

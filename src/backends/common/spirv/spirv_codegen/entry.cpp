@@ -1,6 +1,8 @@
 #include "entry.h"
 #include "utils.h"
 #include <SPIRV/disassemble.h>
+#include <luisa/core/logging.h>
+#include <sstream>
 
 namespace lc::spirv {
 SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, ShaderOption const &opt) {
@@ -11,6 +13,9 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, ShaderOption const
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<unsigned int> words;
     codegen._builder.dump(words);
+    std::ostringstream disasm;
+    spv::Disassemble(disasm, words);
+    LUISA_INFO("=== Kernel: {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
     auto printers = std::move(codegen).move_print_formats();
     auto props = std::move(codegen._properties);
     auto use_tex2d = codegen._use_tex2d_bindless;

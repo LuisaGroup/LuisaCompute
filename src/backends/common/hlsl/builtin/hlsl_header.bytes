@@ -210,6 +210,12 @@ return b.template Load<BufferElem>(idx).xyz;
 #define _SmptxGrad3DLevel(tex,uv,dx,dy,minMip,filter,address) (tex.SampleGrad(_GETSMP((address)*4+(filter)),uv,dx,dy,int3(0),minMip))
 #define _clz(T,arg,size) (((T)size)-firstbithigh(arg))
 template<typename T>
+T _round(T x){return sign(x)*floor(abs(x)+T(0.5));}
+template<typename T>
+T _atan2(T y,T x){return (x==T(0)&&y==T(0))?T(0):atan2(y,x);}
+template<typename T>
+T _ctz(T x){return x==T(0)?T(32):firstbitlow(x);}
+template<typename T>
 T _fract(T x){return x-floor(x);}
 struct _Hit0{uint v0;uint v1;float2 v2;uint v3;float v4;};
 struct _Hit1{uint v0;uint v1;float2 v2;float v3;uint _a0;};

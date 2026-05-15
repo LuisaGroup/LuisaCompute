@@ -62,7 +62,10 @@ private:
     spv::Id _tex3d_heap_id{spv::NoResult};
     spv::Id _glsl450{spv::NoResult};
     spv::Instruction *_entry_point_inst{nullptr};
+    spv::Id _global_invocation_id_var{spv::NoResult};
+    luisa::unordered_map<spv::BuiltIn, spv::Id> _builtin_var_map;
     luisa::unordered_map<spv::Id, bool> _is_storage_image_map;
+    luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
 
 private:
     struct InstructionUsageAnalysis {
@@ -92,6 +95,8 @@ private:
     void _emit_conditional_branch_inst(const xir::ConditionalBranchInst *inst) noexcept;
     void _emit_arithmetic_inst(const xir::ArithmeticInst *inst) noexcept;
     void _emit_atomic_inst(const xir::AtomicInst *inst) noexcept;
+    spv::Id _emit_float_atomic_cas_loop(spv::Id ptr, spv::Id val, spv::Id float_type, xir::AtomicOp op) noexcept;
+    spv::Id _emit_float_compare_exchange_cas_loop(spv::Id ptr, spv::Id expected, spv::Id desired, spv::Id float_type) noexcept;
     void _emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept;
     void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
     void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
@@ -101,6 +106,7 @@ private:
     void _emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type) noexcept;
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
     spv::Id _resolve_resource_argument(const xir::Argument *arg) noexcept;
+    spv::Id _load_texture(spv::Id tex_var) noexcept;
     spv::Id _create_access_chain(spv::StorageClass storage, spv::Id base, const std::vector<spv::Id> &indices) noexcept;
     spv::Id _ensure_type(spv::Id value, spv::Id target_type) noexcept;
 

@@ -68,6 +68,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _properties.clear();
     _property_ids.clear();
     _entry_point_inst = nullptr;
+    _global_invocation_id_var = spv::NoResult;
     _builder_ptr.release();
 }
 
@@ -265,11 +266,22 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
                 default:
                     LUISA_NOT_IMPLEMENTED("SPIR-V special register {}.", xir::to_string(reg->derived_special_register_tag()));
             }
-            auto var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Input,
-                                               _convert_type(reg->type(), Usage::READ), "sr");
-            _builder.addDecoration(var, spv::Decoration::BuiltIn, (int)builtin);
-            if (_entry_point_inst != nullptr) {
-                _entry_point_inst->addIdOperand(var);
+            spv::Id var;
+            if (builtin == spv::BuiltIn::GlobalInvocationId && _global_invocation_id_var != spv::NoResult) {
+                var = _global_invocation_id_var;
+            } else if (auto it = _builtin_var_map.find(builtin); it != _builtin_var_map.end()) {
+                var = it->second;
+            } else {
+                var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Input,
+                                              _convert_type(reg->type(), Usage::READ), "sr");
+                _builder.addDecoration(var, spv::Decoration::BuiltIn, (int)builtin);
+                if (_entry_point_inst != nullptr) {
+                    _entry_point_inst->addIdOperand(var);
+                }
+                if (builtin == spv::BuiltIn::GlobalInvocationId) {
+                    _global_invocation_id_var = var;
+                }
+                _builtin_var_map.emplace(builtin, var);
             }
             id = _builder.createLoad(var, spv::NoPrecision);
             break;
@@ -293,7 +305,12 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
             break;
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit value.");
-    _value_map.emplace(value, id);
+    // Do not cache special registers (builtins) because their load instructions
+    // must dominate all uses. Caching could place the load inside a loop body
+    // and reuse it after the loop, violating SPIR-V dominance rules.
+    if (value->derived_value_tag() != xir::DerivedValueTag::SPECIAL_REGISTER) {
+        _value_map.emplace(value, id);
+    }
     return id;
 }
 
@@ -365,14 +382,45 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
         if (cbuffer_non_empty && _property_ids.size() > 2) {
             auto cbuffer_id = _property_ids[2];
             auto uint_type = _builder.makeUintType(32);
+            auto bool_type = _builder.makeBoolType();
             size_t offset = 0;
             for (auto arg : value_args) {
                 auto align = arg->type()->alignment();
                 offset = (offset + align - 1) & ~(align - 1);
                 auto word_offset = _builder.makeUintConstant(static_cast<uint32_t>(offset / 4));
-                auto loaded = _emit_buffer_read_impl(cbuffer_id, word_offset, arg->type());
+                spv::Id loaded;
+                auto byte_in_word = offset % 4;
+                auto type_size = arg->type()->size();
+                if (byte_in_word != 0 || type_size < 4) {
+                    // Sub-word type: read the whole word and extract the relevant byte(s)
+                    auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, cbuffer_id,
+                                                    {_builder.makeUintConstant(0u), word_offset});
+                    auto raw = _builder.createLoad(ptr, spv::NoPrecision);
+                    if (byte_in_word != 0) {
+                        raw = _builder.createBinOp(spv::Op::OpShiftRightLogical, uint_type, raw,
+                                                   _builder.makeUintConstant(static_cast<uint32_t>(byte_in_word * 8)));
+                    }
+                    if (arg->type()->is_bool()) {
+                        auto masked = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, _builder.makeUintConstant(0xFFu));
+                        loaded = _builder.createBinOp(spv::Op::OpINotEqual, bool_type, masked, _builder.makeUintConstant(0u));
+                    } else {
+                        auto bit_width = static_cast<int>(type_size * 8);
+                        auto mask = (1u << bit_width) - 1u;
+                        auto masked = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, _builder.makeUintConstant(mask));
+                        auto trunc_type = _builder.makeIntegerType(bit_width, arg->type()->is_int());
+                        auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, masked);
+                        auto spv_type = _convert_type(arg->type(), Usage::READ);
+                        if (trunc_type != spv_type) {
+                            loaded = _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, truncated);
+                        } else {
+                            loaded = truncated;
+                        }
+                    }
+                } else {
+                    loaded = _emit_buffer_read_impl(cbuffer_id, word_offset, arg->type());
+                }
                 _value_map.emplace(arg, loaded);
-                offset += arg->type()->size();
+                offset += type_size;
             }
         } else {
             // Fallback: create undefined values if cbuffer is not available
@@ -397,6 +445,72 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 
     _builder.enterFunction(func);
     _builder.setBuildPoint(entry);
+
+    // Add dispatch bounds check to prevent extra threads in the last workgroup
+    // from executing the kernel body.
+    {
+        auto &function = *func;
+        auto uint_type = _builder.makeUintType(32);
+        auto bool_type = _builder.makeBoolType();
+
+        // Load dispatch size from push constant
+        auto push_const = _property_ids[0];
+        auto dsp_size_ptr = _create_access_chain(spv::StorageClass::PushConstant, push_const,
+                                                 {_builder.makeUintConstant(0u)});
+        auto dsp_size_loaded = _builder.createLoad(dsp_size_ptr, spv::NoPrecision);
+
+        // Load dispatch_id (GlobalInvocationId) - reuse cached builtin if available
+        if (_global_invocation_id_var == spv::NoResult) {
+            auto uint3_type = _builder.makeVectorType(uint_type, 3);
+            _global_invocation_id_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Input,
+                                                                uint3_type, "dispatch_id");
+            _builder.addDecoration(_global_invocation_id_var, spv::Decoration::BuiltIn, (int)spv::BuiltIn::GlobalInvocationId);
+            if (_entry_point_inst != nullptr) {
+                _entry_point_inst->addIdOperand(_global_invocation_id_var);
+            }
+        }
+        auto dispatch_id = _builder.createLoad(_global_invocation_id_var, spv::NoPrecision);
+
+        // Compare all three components of dispatch_id against dispatch_size
+        auto dsp_x = _builder.createCompositeExtract(dsp_size_loaded, uint_type, 0);
+        auto dsp_y = _builder.createCompositeExtract(dsp_size_loaded, uint_type, 1);
+        auto dsp_z = _builder.createCompositeExtract(dsp_size_loaded, uint_type, 2);
+        auto id_x = _builder.createCompositeExtract(dispatch_id, uint_type, 0);
+        auto id_y = _builder.createCompositeExtract(dispatch_id, uint_type, 1);
+        auto id_z = _builder.createCompositeExtract(dispatch_id, uint_type, 2);
+        auto cmp_x = _builder.createBinOp(spv::Op::OpUGreaterThanEqual, bool_type, id_x, dsp_x);
+        auto cmp_y = _builder.createBinOp(spv::Op::OpUGreaterThanEqual, bool_type, id_y, dsp_y);
+        auto cmp_z = _builder.createBinOp(spv::Op::OpUGreaterThanEqual, bool_type, id_z, dsp_z);
+        auto cmp = _builder.createBinOp(spv::Op::OpLogicalOr, bool_type, cmp_x, cmp_y);
+        cmp = _builder.createBinOp(spv::Op::OpLogicalOr, bool_type, cmp, cmp_z);
+
+        // Create return block and body block
+        auto return_block = new spv::Block(_builder.getUniqueId(), function);
+        auto body_block = new spv::Block(_builder.getUniqueId(), function);
+
+        // Selection merge
+        auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
+        selection_merge->reserveOperands(2);
+        selection_merge->addIdOperand(body_block->getId());
+        selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+        entry->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
+
+        // Branch conditional
+        _builder.createConditionalBranch(cmp, return_block, body_block);
+
+        // Return block
+        function.addBlock(return_block);
+        _builder.setBuildPoint(return_block);
+        _builder.makeReturn(false);
+
+        // Body block
+        function.addBlock(body_block);
+        _builder.setBuildPoint(body_block);
+
+        // Update block map so XIR body block maps to body_block instead of entry
+        _block_map[kernel->body_block()] = body_block;
+    }
+
     _emit_block(kernel->body_block());
 
     if (!_builder.getBuildPoint()->isTerminated()) {
@@ -408,8 +522,17 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept {
     auto ret_type = _convert_type(callable->type(), Usage::READ);
     std::vector<spv::Id> param_types;
-    luisa::vector<const xir::Argument *> all_args;
+    luisa::vector<const xir::Argument *> emitted_args;
+    luisa::vector<bool> arg_used;
     for (auto arg : callable->arguments()) {
+        bool used = !arg->use_list().empty();
+        arg_used.push_back(used);
+        if (!used && arg->is_resource()) {
+            // Skip unused resource arguments to avoid type mismatches
+            // between kernel globals (which may be arrays or have different
+            // sampled/storage qualifiers) and callable parameters.
+            continue;
+        }
         if (arg->is_resource()) {
             auto type = arg->type();
             spv::Id pointee_type = spv::NoResult;
@@ -443,8 +566,9 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
         } else {
             param_types.emplace_back(_convert_type(arg->type(), Usage::READ));
         }
-        all_args.push_back(arg);
+        emitted_args.push_back(arg);
     }
+    _callable_arg_used.emplace(callable, std::move(arg_used));
     spv::Block *entry = nullptr;
     auto func = _builder.makeFunctionEntry(spv::NoPrecision, ret_type,
                                            luisa::string{callable->name().value_or("callable")}.c_str(),
@@ -454,7 +578,7 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
     _function_map.emplace(callable, func);
 
     auto i = 0u;
-    for (auto arg : all_args) {
+    for (auto arg : emitted_args) {
         _value_map.emplace(arg, func->getParamId(i));
         ++i;
     }

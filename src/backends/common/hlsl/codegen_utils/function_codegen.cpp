@@ -275,7 +275,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ')';
             return;
         case CallOp::CTZ:
-            str << "firstbitlow"sv;
+            str << "_ctz"sv;
             break;
         case CallOp::POPCOUNT:
             str << "countbits"sv;
@@ -305,7 +305,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "atan"sv;
             break;
         case CallOp::ATAN2:
-            str << "atan2"sv;
+            str << "_atan2"sv;
             break;
         case CallOp::ATANH:
             str << "_atanh"sv;
@@ -365,7 +365,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << "trunc"sv;
             break;
         case CallOp::ROUND:
-            str << "round"sv;
+            str << "_round"sv;
             break;
         case CallOp::FMA:
             str << "_fma"sv;
