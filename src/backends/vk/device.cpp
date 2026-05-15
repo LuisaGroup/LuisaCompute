@@ -656,14 +656,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         feature_next = &raster_bary;
     }
 
-    VkPhysicalDevice16BitStorageFeatures bit16_feature{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
-        .pNext = feature_next,
-        .storageBuffer16BitAccess = VK_TRUE,
-        .uniformAndStorageBuffer16BitAccess = VK_TRUE};
-    if (enable_16bit) {
-        feature_next = &bit16_feature;
-    }
+    // 16-bit storage features are set in VkPhysicalDeviceVulkan11Features below
     VkPhysicalDeviceRayQueryFeaturesKHR enable_rayquery_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
         .pNext = feature_next,
@@ -710,9 +703,15 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
         feature_next,
         true};
+    VkPhysicalDeviceVulkan11Features vk11_feature{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &barrier_feature,
+        .storageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
+        .uniformAndStorageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
+        .variablePointersStorageBuffer = VK_TRUE};
     VkPhysicalDeviceVulkan12Features vk12_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-        .pNext = &barrier_feature,
+        .pNext = &vk11_feature,
         .shaderBufferInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderSharedInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderFloat16 = enable_16bit ? VK_TRUE : VK_FALSE,
@@ -1164,7 +1163,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds", spv_result.spv_bin.size(), spv_result.properties.size());
         for (size_t i = 0; i < spv_result.properties.size(); ++i) {
             auto &p = spv_result.properties[i];
-            LUISA_INFO("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
+            LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
         }
         if (print_code()) {
             {
@@ -1173,7 +1172,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                     file << "; ==SPIRV==\n";
                     spv::Disassemble(file, spv_result.spv_bin);
                 }
-                LUISA_INFO("SPIRV printed to spirv_output.spvasm.");
+                LUISA_VERBOSE("SPIRV printed to spirv_output.spvasm.");
             }
             // Test HLSL
             auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
@@ -1192,7 +1191,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             if (comp_result.is_type_of<vstd::string>()) [[unlikely]] {
                 LUISA_ERROR("HLSL test compilation error: {}", *comp_result.try_get<vstd::string>());
             } else {
-                LUISA_INFO("HLSL test compilation successful.");
+                LUISA_VERBOSE("HLSL test compilation successful.");
                 {
                     std::ofstream file("spirv_output_hlsl.spvasm", std::ios::out);
                     if (file) {
@@ -1203,7 +1202,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                         spv::Disassemble(file, vec);
                     }
                 }
-                LUISA_INFO("SPIRV-HLSL printed to spirv_output_hlsl.spvasm.");
+                LUISA_VERBOSE("SPIRV-HLSL printed to spirv_output_hlsl.spvasm.");
             }
         }
         auto shader = new ComputeShader(
@@ -1218,7 +1217,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             spv_result.useTex3DBindless,
             spv_result.useBufferBindless,
             std::move(spv_result.printers));
-        LUISA_INFO("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
+        LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
 

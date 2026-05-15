@@ -52,9 +52,6 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
             _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, use_typed ? elem_type->size() : 4u);
             _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
-            if ((static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) == 0) {
-                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::NonWritable);
-            }
             _builder.addDecoration(struct_type, spv::Decoration::Block);
             id = struct_type;
             break;

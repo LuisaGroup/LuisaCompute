@@ -362,6 +362,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
     _property_ids.reserve(_properties.size());
 
     auto make_typed_buffer_struct_type = [&](const Type *elem_type, bool writable, const char *name) -> spv::Id {
+        /*
         bool use_typed = elem_type != nullptr && elem_type->is_scalar();
         auto spv_elem_type = use_typed ? _convert_type(elem_type, Usage::READ) : _builder.makeUintType(32);
         auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
@@ -376,6 +377,10 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Coherent);
         }
         return struct_type;
+        */
+        // Use _convert_type to ensure cached type consistency with callable parameters.
+        auto buffer_type = Type::buffer(elem_type);
+        return _convert_type(buffer_type, writable ? Usage::WRITE : Usage::READ);
     };
     auto make_buffer_struct_type = [&](const char *name) -> spv::Id {
         auto uint_type = _builder.makeUintType(32);

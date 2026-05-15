@@ -276,6 +276,10 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
         }
         case xir::DerivedValueTag::ARGUMENT: {
             auto arg = static_cast<const xir::Argument *>(value);
+            if (auto it = _value_map.find(arg); it != _value_map.end()) {
+                id = it->second;
+                break;
+            }
             if (arg->is_resource()) {
                 id = _resolve_resource_argument(arg);
                 break;
@@ -298,6 +302,8 @@ spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::
     auto new_access_chain = old_access_chain;
     new_access_chain.base = base;
     new_access_chain.indexChain = indices;
+    new_access_chain.swizzle.clear();
+    new_access_chain.component = spv::NoResult;
     new_access_chain.descHeapInfo.descHeapBaseTy = spv::NoResult;
     new_access_chain.descHeapInfo.descHeapStorageClass = spv::StorageClass::Max;
     new_access_chain.descHeapInfo.descHeapBaseArrayStride = 0;
@@ -364,13 +370,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
                 auto align = arg->type()->alignment();
                 offset = (offset + align - 1) & ~(align - 1);
                 auto word_offset = _builder.makeUintConstant(static_cast<uint32_t>(offset / 4));
-                auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, cbuffer_id,
-                                                {_builder.makeUintConstant(0u), word_offset});
-                auto loaded = _builder.createLoad(ptr, spv::NoPrecision);
-                auto spv_type = _convert_type(arg->type(), Usage::READ);
-                if (spv_type != uint_type) {
-                    loaded = _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, loaded);
-                }
+                auto loaded = _emit_buffer_read_impl(cbuffer_id, word_offset, arg->type());
                 _value_map.emplace(arg, loaded);
                 offset += arg->type()->size();
             }
@@ -405,14 +405,45 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
     _builder.leaveFunction();
 }
 
-void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable) noexcept {
+void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept {
     auto ret_type = _convert_type(callable->type(), Usage::READ);
     std::vector<spv::Id> param_types;
-    luisa::vector<const xir::Argument *> value_args;
+    luisa::vector<const xir::Argument *> all_args;
     for (auto arg : callable->arguments()) {
-        if (arg->is_resource()) { continue; }
-        param_types.emplace_back(_convert_type(arg->type(), Usage::READ));
-        value_args.push_back(arg);
+        if (arg->is_resource()) {
+            auto type = arg->type();
+            spv::Id pointee_type = spv::NoResult;
+            spv::StorageClass storage = spv::StorageClass::Max;
+            switch (type->tag()) {
+                case Type::Tag::BUFFER:
+                    pointee_type = _convert_type(type, Usage::READ);
+                    storage = spv::StorageClass::StorageBuffer;
+                    _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
+                    break;
+                case Type::Tag::BINDLESS_ARRAY:
+                    pointee_type = _convert_type(type, Usage::READ);
+                    storage = spv::StorageClass::StorageBuffer;
+                    _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
+                    break;
+                case Type::Tag::ACCEL:
+                    pointee_type = _convert_type(type, Usage::READ);
+                    storage = spv::StorageClass::UniformConstant;
+                    break;
+                case Type::Tag::TEXTURE:
+                    pointee_type = _convert_type(type, Usage::READ);
+                    storage = spv::StorageClass::UniformConstant;
+                    break;
+                default:
+                    LUISA_NOT_IMPLEMENTED("SPIR-V callable resource argument type {}", type->description());
+            }
+            param_types.emplace_back(_builder.makePointer(storage, pointee_type));
+        } else if (arg->is_reference()) {
+            auto type = _convert_type(arg->type(), Usage::READ);
+            param_types.emplace_back(_builder.makePointer(spv::StorageClass::Function, type));
+        } else {
+            param_types.emplace_back(_convert_type(arg->type(), Usage::READ));
+        }
+        all_args.push_back(arg);
     }
     spv::Block *entry = nullptr;
     auto func = _builder.makeFunctionEntry(spv::NoPrecision, ret_type,
@@ -423,7 +454,7 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable) no
     _function_map.emplace(callable, func);
 
     auto i = 0u;
-    for (auto arg : value_args) {
+    for (auto arg : all_args) {
         _value_map.emplace(arg, func->getParamId(i));
         ++i;
     }
@@ -481,7 +512,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
                     _emit_kernel(static_cast<const xir::KernelFunction *>(f));
                     break;
                 case xir::DerivedFunctionTag::CALLABLE:
-                    _emit_callable(static_cast<const xir::CallableFunction *>(f));
+                    _emit_callable(static_cast<const xir::CallableFunction *>(f), module);
                     break;
                 default:
                     LUISA_NOT_IMPLEMENTED("External function in SPIR-V codegen.");

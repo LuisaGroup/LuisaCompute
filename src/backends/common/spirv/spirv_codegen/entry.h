@@ -80,7 +80,7 @@ private:
     spv::Block *_get_or_create_block(const xir::BasicBlock *bb) noexcept;
 
     void _emit_kernel(const xir::KernelFunction *kernel) noexcept;
-    void _emit_callable(const xir::CallableFunction *callable) noexcept;
+    void _emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept;
     void _emit_block(const xir::BasicBlock *bb) noexcept;
     void _emit_instruction(const xir::Instruction *inst) noexcept;
 
