@@ -1412,7 +1412,11 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                     id = _builder.createUnaryOp(spv::Op::OpFConvert, spv_to, val);
                 } else if ((from->is_int() || from->is_uint()) && (to->is_int() || to->is_uint())) {
                     if (from->size() == to->size()) {
-                        id = val;
+                        if (from->is_int() != to->is_int()) {
+                            id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, val);
+                        } else {
+                            id = val;
+                        }
                     } else if (from->is_int() && to->is_int()) {
                         id = _builder.createUnaryOp(spv::Op::OpSConvert, spv_to, val);
                     } else if (from->is_uint() && to->is_uint()) {

@@ -19,7 +19,7 @@ namespace luisa::compute::spirv {
 namespace {
 
 const bool LUISA_SPIRV_SHOULD_DUMP_XIR = [] {
-    if (auto env = getenv("LUISA_DUMP_XIR")) {
+    if (auto env = getenv("LUISA_DUMP_SOURCE")) {
         return luisa::string_view{env} == "1";
     }
     return false;
@@ -35,48 +35,52 @@ const bool LUISA_SPIRV_SHOULD_DUMP_XIR = [] {
     // LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
     // // dump for debugging
-    // if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-    //     auto filename = luisa::format("kernel.{:016x}.xir", kernel.hash());
-    //     std::ofstream f{filename.c_str()};
-    //     f << xir::xir_to_text_translate(xir_module.get(), true);
-    // }
 
-    // // run some simple optimization passes on XIR
-    // Clock opt_clk;
-    // auto dce1_info = xir::dce_pass_run_on_module(xir_module.get());
-    // auto store_forward_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
-    // auto load_elim_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
-    // auto dce2_info = xir::dce_pass_run_on_module(xir_module.get());
-    // auto promote_arg_info = xir::promote_ref_arg_pass_run_on_module(xir_module.get());
-    // auto mem2reg_info = xir::mem2reg_pass_run_on_module(xir_module.get());
-    // auto dce3_info = xir::dce_pass_run_on_module(xir_module.get());
-    // if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-    //     auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
-    //     std::ofstream f{filename.c_str()};
-    //     f << xir::xir_to_text_translate(xir_module.get(), true);
-    // }
-    // LUISA_VERBOSE("XIR optimization done in {} ms:\n"
-    //               "    forwarded {} store instruction(s),\n"
-    //               "    eliminated {} load instruction(s),\n"
-    //               "    promoted {} alloca instruction(s) with {} load and {} store instruction(s) removed and {} phi node(s) inserted,\n"
-    //               "    removed {} + {} + {} = {} dead instruction(s) and {} + {} + {} = {} dead block(s),\n"
-    //               "    promoted {} reference argument(s).",
-    //               opt_clk.toc(),
-    //               store_forward_info.removed_load_count,
-    //               load_elim_info.removed_load_count,
-    //               mem2reg_info.promoted_alloca_count, mem2reg_info.removed_load_count, mem2reg_info.removed_store_count, mem2reg_info.inserted_phi_count,
-    //               dce1_info.removed_inst_count, dce2_info.removed_inst_count, dce3_info.removed_inst_count,
-    //               dce1_info.removed_inst_count + dce2_info.removed_inst_count + dce3_info.removed_inst_count,
-    //               dce1_info.removed_block_count, dce2_info.removed_block_count, dce3_info.removed_block_count,
-    //               dce1_info.removed_block_count + dce2_info.removed_block_count + dce3_info.removed_block_count,
-    //               promote_arg_info.promoted_ref_arg_count);
+    ////////// Start: Crash happened in this area.
+    if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
+        auto filename = luisa::format("kernel.{:016x}.xir", kernel.hash());
+        std::ofstream f{filename.c_str()};
+        f << xir::xir_to_text_translate(xir_module.get(), true);
+    }
 
-    // // dump for debugging
-    // if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-    //     auto filename = luisa::format("kernel.{:016x}.opt.rq.xir", kernel.hash());
-    //     std::ofstream f{filename.c_str()};
-    //     f << xir::xir_to_text_translate(xir_module.get(), true);
-    // }
+    // run some simple optimization passes on XIR
+    Clock opt_clk;
+    auto dce1_info = xir::dce_pass_run_on_module(xir_module.get());
+    auto store_forward_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
+    auto load_elim_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
+    auto dce2_info = xir::dce_pass_run_on_module(xir_module.get());
+    auto promote_arg_info = xir::promote_ref_arg_pass_run_on_module(xir_module.get());
+    auto mem2reg_info = xir::mem2reg_pass_run_on_module(xir_module.get());
+    auto reg2mem_info = xir::reg2mem_pass_run_on_module(xir_module.get());
+    auto dce3_info = xir::dce_pass_run_on_module(xir_module.get());
+    if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
+        auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
+        std::ofstream f{filename.c_str()};
+        f << xir::xir_to_text_translate(xir_module.get(), true);
+    }
+    ////////// End: Crash happened in this area.
+    LUISA_VERBOSE("XIR optimization done in {} ms:\n"
+                  "    forwarded {} store instruction(s),\n"
+                  "    eliminated {} load instruction(s),\n"
+                  "    promoted {} alloca instruction(s) with {} load and {} store instruction(s) removed and {} phi node(s) inserted,\n"
+                  "    removed {} + {} + {} = {} dead instruction(s) and {} + {} + {} = {} dead block(s),\n"
+                  "    promoted {} reference argument(s).",
+                  opt_clk.toc(),
+                  store_forward_info.removed_load_count,
+                  load_elim_info.removed_load_count,
+                  mem2reg_info.promoted_alloca_count, mem2reg_info.removed_load_count, mem2reg_info.removed_store_count, mem2reg_info.inserted_phi_count,
+                  dce1_info.removed_inst_count, dce2_info.removed_inst_count, dce3_info.removed_inst_count,
+                  dce1_info.removed_inst_count + dce2_info.removed_inst_count + dce3_info.removed_inst_count,
+                  dce1_info.removed_block_count, dce2_info.removed_block_count, dce3_info.removed_block_count,
+                  dce1_info.removed_block_count + dce2_info.removed_block_count + dce3_info.removed_block_count,
+                  promote_arg_info.promoted_ref_arg_count);
+
+    // dump for debugging
+    if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
+        auto filename = luisa::format("kernel.{:016x}.opt.rq.xir", kernel.hash());
+        std::ofstream f{filename.c_str()};
+        f << xir::xir_to_text_translate(xir_module.get(), true);
+    }
     return xir_module;
 }
 

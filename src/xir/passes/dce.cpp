@@ -215,7 +215,7 @@ void propagate_unreachable_marks_in_function(Function *function, DCEInfo &info) 
     }();
 }
 
-void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info) noexcept {
+void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info, luisa::vector<ManagedPtr<BasicBlock>> &removed_blocks) noexcept {
     if (auto definition = function->definition()) {
         luisa::unordered_set<BasicBlock *> reachable;
         luisa::unordered_set<BasicBlock *> visited;
@@ -295,7 +295,7 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info)
                 }
             }
             for (auto block : work_list) {
-                block->remove_self();
+                removed_blocks.emplace_back(block->remove_self());
                 info.removed_block_count++;
             }
         }
@@ -356,10 +356,11 @@ static void eliminate_redundant_phi_nodes(luisa::vector<PhiInst *> &phi_nodes, D
 }
 
 void run_dce_pass_on_function(Function *function, DCEInfo &info) noexcept {
+    luisa::vector<ManagedPtr<BasicBlock>> removed_blocks;
     for (;;) {
         auto prev_count = info.removed_inst_count + info.removed_block_count;
         propagate_unreachable_marks_in_function(function, info);
-        eliminate_unreachable_blocks_in_function(function, info);
+        eliminate_unreachable_blocks_in_function(function, info, removed_blocks);
         fix_control_flow_merges_in_function(function);
         {
             luisa::vector<PhiInst *> phi_nodes;
