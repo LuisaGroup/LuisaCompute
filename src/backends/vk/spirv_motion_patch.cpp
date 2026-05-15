@@ -9,6 +9,7 @@ static constexpr uint32_t SpvMagicNumber = 0x07230203u;
 static constexpr uint32_t SpvOpCapability = 17u;
 static constexpr uint32_t SpvOpExtension = 10u;
 static constexpr uint32_t SpvOpTypeStruct = 30u;
+static constexpr uint32_t SpvOpConstant = 43u;
 static constexpr uint32_t SpvOpCompositeConstruct = 80u;
 static constexpr uint32_t SpvOpStore = 62u;
 static constexpr uint32_t SpvOpTraceRayKHR = 4445u;
@@ -66,6 +67,9 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
     // Phase 2: Build maps for analysis
     // Map from result ID -> instruction offset (for OpCompositeConstruct lookups)
     vstd::unordered_map<uint32_t, size_t> result_id_to_offset;
+    // Set of IDs that are the sentinel constant -1.0f (0xBF800000)
+    // Used by _TraceClosest/_TraceAny to mark "do not patch to OpTraceRayMotionNV"
+    vstd::unordered_set<uint32_t> sentinel_constant_ids;
 
     {
         size_t i = 5;
@@ -76,6 +80,15 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
 
             if (op == SpvOpCompositeConstruct && wc >= 3) {
                 result_id_to_offset[spirv[i + 2]] = i;
+            }
+
+            // OpConstant: word[0]=header, word[1]=type_id, word[2]=result_id, word[3..]=value
+            // Detect -1.0f (IEEE 754: 0xBF800000) as sentinel
+            if (op == SpvOpConstant && wc == 4) {
+                uint32_t value = spirv[i + 3];
+                if (value == 0xBF800000u) {  // -1.0f
+                    sentinel_constant_ids.emplace(spirv[i + 2]);
+                }
             }
 
             i += wc;
@@ -145,13 +158,27 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
         return {spirv.begin(), spirv.end()};
     }
 
-    // Check if all patches have valid time values
+    // Count how many patches have valid time values that are NOT the sentinel (-1.0f).
+    // Only those OpTraceRayKHR with a non-sentinel time value will be patched
+    // to OpTraceRayMotionNV. Those with time=-1.0f are from _TraceClosest/_TraceAny
+    // which trace non-motion TLAS — using OpTraceRayMotionNV on them causes GPU hang.
+    uint32_t patchable_count = 0;
+    uint32_t skipped_sentinel = 0;
+    uint32_t skipped_no_time = 0;
     for (auto &p : patches) {
-        if (p.time_value_id == 0) {
-            LUISA_WARNING("Some OpTraceRayKHR instructions could not be patched. "
-                          "Returning unpatched SPIR-V.");
-            return {spirv.begin(), spirv.end()};
+        if (p.time_value_id != 0 && sentinel_constant_ids.find(p.time_value_id) == sentinel_constant_ids.end()) {
+            patchable_count++;
+        } else {
+            if (p.time_value_id != 0) skipped_sentinel++;
+            else skipped_no_time++;
+            // Mark as non-patchable by clearing time_value_id
+            p.time_value_id = 0;
         }
+    }
+
+    if (patchable_count == 0) {
+        LUISA_WARNING("No OpTraceRayKHR instructions could be patched for motion blur.");
+        return {spirv.begin(), spirv.end()};
     }
 
     // Phase 4: Build the patched SPIR-V
@@ -165,7 +192,11 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
 
     vstd::unordered_map<size_t, uint32_t> trace_ray_time_map;
     for (auto &p : patches) {
-        trace_ray_time_map[p.offset] = p.time_value_id;
+        // Only patch OpTraceRayKHR that have a valid time value.
+        // Those without (e.g., _TraceClosest with constant time) stay as OpTraceRayKHR.
+        if (p.time_value_id != 0) {
+            trace_ray_time_map[p.offset] = p.time_value_id;
+        }
     }
 
     enum class Section { CAPABILITY, EXTENSION, REST };
@@ -220,8 +251,6 @@ vstd::vector<uint32_t> patch_spirv_for_motion_blur(vstd::span<uint32_t const> sp
         i += wc;
     }
 
-    LUISA_INFO("SPIR-V motion blur patch: replaced {} OpTraceRayKHR -> OpTraceRayMotionNV",
-               trace_ray_count);
     return result;
 }
 

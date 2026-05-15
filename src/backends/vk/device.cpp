@@ -3,6 +3,10 @@
 #include "log.h"
 #include <luisa/vstl/config.h>
 #include <luisa/core/binary_file_stream.h>
+#ifndef _WIN32
+#include <pthread.h>
+#endif
+
 #include "compute_shader.h"
 #include "../common/hlsl/hlsl_codegen.h"
 #include "serde_type.h"
@@ -946,6 +950,15 @@ bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return std::memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
+    // Clean up RT shaders that were intentionally leaked during normal operation
+    // to work around an NVIDIA driver deadlock.  At this point no more pipeline
+    // creation can happen, so it is safe to destroy the VkPipeline / VkPipelineCache
+    // objects.
+    for (auto *rt : _leaked_rt_shaders) {
+        rt->destroy_pipeline_objects();
+        delete rt;
+    }
+    _leaked_rt_shaders.clear();
     if (_vk_device) {
         vkDestroyDescriptorSetLayout(logic_device(), _sampler_set_layout, alloc_callbacks());
         vkDestroyDescriptorSetLayout(logic_device(), _bdls_buffer_set_layout, alloc_callbacks());
@@ -1127,8 +1140,53 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         if (option.compile_only) {
             LUISA_ERROR("compile_only is not yet supported for motion blur shaders.");
         }
-        // Use ray tracing pipeline for motion blur shaders
-        auto code = hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true);
+        // Run RayTracingCodegen with a large stack (128MB) to avoid stack overflow
+        // when processing complex kernels. The AST visitor uses deep recursion
+        // that can exceed the default thread stack size for large kernels.
+        // Note: 16MB was insufficient for mega-kernels with motion blur enabled
+        // (6000+ local variables and deeply nested AST bodies).
+        hlsl::CodegenResult *code_ptr = nullptr;
+        volatile bool codegen_completed = false;
+        auto codegen_func = [&]() {
+            code_ptr = new hlsl::CodegenResult(hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true));
+            codegen_completed = true;
+        };
+#ifdef _WIN32
+        static constexpr size_t kStackSize = 128u * 1024u * 1024u;// 128MB
+        HANDLE thread = CreateThread(nullptr, kStackSize,
+            [](LPVOID param) -> DWORD {
+                (*static_cast<decltype(codegen_func)*>(param))();
+                return 0;
+            }, &codegen_func, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+        if (thread) {
+            WaitForSingleObject(thread, INFINITE);
+            DWORD exit_code = 0;
+            GetExitCodeThread(thread, &exit_code);
+            CloseHandle(thread);
+        } else {
+            codegen_func();// fallback: run in current thread
+        }
+#else
+        {
+            pthread_t tid;
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, 128u * 1024u * 1024u);// 128MB
+            int rc = pthread_create(&tid, &attr, [](void *param) -> void* {
+                (*static_cast<decltype(codegen_func)*>(param))();
+                return nullptr;
+            }, &codegen_func);
+            pthread_attr_destroy(&attr);
+            if (rc == 0) {
+                pthread_join(tid, nullptr);
+            } else {
+                codegen_func();// fallback
+            }
+        }
+#endif
+
+        auto &code = *code_ptr;
+        auto code_guard = vstd::scope_exit([&] { delete code_ptr; });
         vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
 
         vstd::string_view file_name;
@@ -1155,7 +1213,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             serde_type,
             kShaderModel,
             option.enable_fast_math,
-            option.enable_debug_info);
+            option.enable_debug_info
+        );
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
     } else {
@@ -1319,7 +1378,25 @@ Usage Device::shader_argument_usage(uint64_t handle, size_t index) noexcept {
     return shader->saved_arguments()[index].var_usage;
 }
 void Device::destroy_shader(uint64_t handle) noexcept {
-    delete reinterpret_cast<ComputeShader *>(handle);
+    // Use base class Shader* for deletion to correctly handle both
+    // ComputeShader and RayTracingShader via virtual destructor.
+    auto shader = reinterpret_cast<Shader *>(handle);
+    if (shader) {
+        auto tag = shader->shader_tag();
+        // WORKAROUND: NVIDIA Vulkan driver bug with VK_NV_ray_tracing_motion_blur.
+        // Destroying ANY part of an RT motion blur shader (pipeline, pipeline layout,
+        // descriptor set layouts) causes all subsequent pipeline creation calls to deadlock.
+        // We intentionally leak the entire RayTracingShader object to avoid this.
+        if (tag == Shader::ShaderTag::kRayTracingShader) {
+            // Free VMA-managed resources (SBT buffer) to avoid assertion in
+            // vmaDestroyAllocator() during device teardown.
+            auto rt = static_cast<RayTracingShader *>(shader);
+            rt->release_vma_resources();
+            _leaked_rt_shaders.emplace_back(rt);
+            return; // Do NOT delete now — deferred to ~Device()
+        }
+    }
+    delete shader;
 }
 
 // event
