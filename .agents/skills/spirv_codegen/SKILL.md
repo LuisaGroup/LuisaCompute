@@ -200,7 +200,7 @@ struct SpirvResult {
 ### `LUISA_DUMP_SOURCE=1`
 Set env var to dump codegen results. In `Device::create_shader()`:
 
-- **XIR→SPIRV path** (`LUISA_XIR_TO_SPIRV`): logs binary size + property bindings. If `print_code()`: writes `spirv_output.spvasm` (XIR→SPIRV disassembly) + `spirv_output_hlsl.spvasm` (HLSL→DXC→SPIRV for comparison). HLSL code writes to `hlsl_output.hlsl`
+- **XIR→SPIRV path** (`LUISA_XIR_TO_SPIRV`): logs binary size + property bindings. If `print_code()`: writes `spirv_output.spvasm` (XIR→SPIRV disassembly) + `spirv_output_hlsl.spvasm` (HLSL→DXC→SPIRV for comparison). HLSL code writes to `hlsl_output.hlsl`. all file writes to binary path.
 - **HLSL-only path**: if `compile_only` + `print_code()`: writes `hlsl_output.hlsl`.
 
 ```bash
