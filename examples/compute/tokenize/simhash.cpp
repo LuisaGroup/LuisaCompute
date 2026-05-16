@@ -104,7 +104,7 @@ uint64_t SimHash::gpu_compute_from_hashes(Device &device, Stream &stream, const 
         return result;
     }
 
-    Kernel1D simhash_compute_kernel = [](BufferVar<ulong> token_hashes,
+    Kernel1D simhash_compute_kernel = [](BufferVar<uint64_t> token_hashes,
                                           BufferVar<int> v_out,
                                           Var<int> num_tokens,
                                           Var<int> hashbits) noexcept {
@@ -112,7 +112,7 @@ uint64_t SimHash::gpu_compute_from_hashes(Device &device, Stream &stream, const 
         $if (idx >= num_tokens) {
             return;
         };
-        Var<ulong> h = token_hashes.read(idx);
+        Var<uint64_t> h = token_hashes.read(idx);
         for (auto i : dynamic_range(hashbits)) {
             $if (((h >> i) & 1ull) != 0ull) {
                 v_out.atomic(i).fetch_add(1);
@@ -125,7 +125,7 @@ uint64_t SimHash::gpu_compute_from_hashes(Device &device, Stream &stream, const 
     auto compute_shader = device.compile(simhash_compute_kernel);
 
     int n = static_cast<int>(token_hashes.size());
-    auto gpu_hashes = device.create_buffer<ulong>(token_hashes.size());
+    auto gpu_hashes = device.create_buffer<uint64_t>(token_hashes.size());
     auto gpu_v = device.create_buffer<int>(hashbits);
     luisa::vector<int> zero_v(static_cast<size_t>(hashbits), 0);
 
@@ -161,25 +161,25 @@ luisa::vector<int> SimHash::gpu_batch_distance(Device &device, Stream &stream, u
         return dists;
     }
 
-    Kernel1D simhash_distance_kernel = [](BufferVar<ulong> hashes,
+    Kernel1D simhash_distance_kernel = [](BufferVar<uint64_t> hashes,
                                           BufferVar<int> out_distances,
-                                          Var<ulong> query,
+                                          Var<uint64_t> query,
                                           Var<int> num_hashes,
                                           Var<int> hashbits) noexcept {
         $ idx = dispatch_x();
         $if (idx >= num_hashes) {
             return;
         };
-        Var<ulong> h = hashes.read(idx);
-        Var<ulong> x = query ^ h;
-        Var<uint> dist = popcount(x);
+        Var<uint64_t> h = hashes.read(idx);
+        Var<uint64_t> x = query ^ h;
+        Var<uint32_t> dist = popcount(x);
         out_distances.write(idx, cast<int>(dist));
     };
 
     auto distance_shader = device.compile(simhash_distance_kernel);
 
     int n = static_cast<int>(hashes.size());
-    auto gpu_hashes = device.create_buffer<ulong>(hashes.size());
+    auto gpu_hashes = device.create_buffer<uint64_t>(hashes.size());
     auto gpu_dists = device.create_buffer<int>(hashes.size());
 
     CommandList cmdlist = CommandList::create();

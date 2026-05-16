@@ -377,7 +377,7 @@ int main(int argc, char *argv[]) {
         auto result = luisa::ref::compare_with_reference(
             reinterpret_cast<const uint8_t *>(host_image.data()),
             resolution.x, resolution.y, 4,
-            "test_path_tracing",
+            "test_path_tracing_ray_masks",
             ref_dir, update_reference);
         LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
         if (!result.passed) { return 1; }

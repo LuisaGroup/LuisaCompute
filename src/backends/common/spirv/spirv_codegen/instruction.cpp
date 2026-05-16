@@ -435,28 +435,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = _builder.createBinOp(spv::Op::OpFMul, type, abs_a, sign_b);
             break;
         }
-        case xir::ArithmeticOp::CROSS: {
-            auto u = operand(0);
-            auto v = operand(1);
-            auto elem_type = _convert_type(t->element(), Usage::READ);
-            auto ux = _builder.createCompositeExtract(u, elem_type, 0);
-            auto uy = _builder.createCompositeExtract(u, elem_type, 1);
-            auto uz = _builder.createCompositeExtract(u, elem_type, 2);
-            auto vx = _builder.createCompositeExtract(v, elem_type, 0);
-            auto vy = _builder.createCompositeExtract(v, elem_type, 1);
-            auto vz = _builder.createCompositeExtract(v, elem_type, 2);
-            auto rx = _builder.createBinOp(spv::Op::OpFMul, elem_type, uy, vz);
-            auto ry = _builder.createBinOp(spv::Op::OpFMul, elem_type, uz, vx);
-            auto rz = _builder.createBinOp(spv::Op::OpFMul, elem_type, ux, vy);
-            auto lx = _builder.createBinOp(spv::Op::OpFMul, elem_type, vy, uz);
-            auto ly = _builder.createBinOp(spv::Op::OpFMul, elem_type, vz, ux);
-            auto lz = _builder.createBinOp(spv::Op::OpFMul, elem_type, vx, uy);
-            auto cx = _builder.createBinOp(spv::Op::OpFSub, elem_type, rx, lx);
-            auto cy = _builder.createBinOp(spv::Op::OpFSub, elem_type, ry, ly);
-            auto cz = _builder.createBinOp(spv::Op::OpFSub, elem_type, rz, lz);
-            id = _builder.createCompositeConstruct(type, {cx, cy, cz});
+        case xir::ArithmeticOp::CROSS:
+            id = glsl(GLSLstd450Cross, operand(0), operand(1));
             break;
-        }
         case xir::ArithmeticOp::DOT:
             id = binary(spv::Op::OpDot);
             break;
@@ -811,8 +792,40 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
             _is_storage_image_map[id] = false;
         }
     }
+    if (arg->type()->tag() == Type::Tag::ACCEL && prop_index + 1 < _property_ids.size()) {
+        _accel_instance_buffer_map.emplace(id, _property_ids[prop_index + 1]);
+    }
     _value_map.emplace(arg, id);
     return id;
+}
+
+spv::Id SpirvCodegenEntry::_resolve_accel_instance_buffer(const xir::Argument *arg) noexcept {
+    auto func = arg->parent_function();
+    LUISA_ASSERT(func != nullptr, "Resource argument has no parent function.");
+    size_t base = 2;// ConstantValue + SamplerHeap
+    bool cbuffer_non_empty = false;
+    for (auto a : func->arguments()) {
+        if (!a->is_resource()) {
+            cbuffer_non_empty = true;
+            break;
+        }
+    }
+    if (cbuffer_non_empty) { ++base; }
+    if (_use_buffer_bindless) { ++base; }
+    if (_use_tex2d_bindless) { ++base; }
+    if (_use_tex3d_bindless) { ++base; }
+    auto prop_index = base;
+    for (auto a : func->arguments()) {
+        if (a == arg) { break; }
+        if (a->is_resource()) {
+            ++prop_index;
+            if (a->type()->tag() == Type::Tag::ACCEL) {
+                ++prop_index;
+            }
+        }
+    }
+    LUISA_ASSERT(prop_index + 1 < _property_ids.size(), "Resource argument property out of range.");
+    return _property_ids[prop_index + 1];
 }
 
 spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(spv::Id ptr, spv::Id val, spv::Id float_type, xir::AtomicOp op) noexcept {
@@ -1246,6 +1259,127 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             }
             break;
         }
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: {
+            auto is_2d = inst->op() == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE ||
+                         inst->op() == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL;
+            auto has_level = inst->op() == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL ||
+                             inst->op() == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL;
+            auto uint_type = _builder.makeUintType(32);
+            auto bindless_array = _emit_value(inst->operand(0));
+            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto base_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
+            auto field_offset = _builder.makeUintConstant(is_2d ? 1u : 2u);
+            auto slot_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, field_offset);
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_word_offset});
+            auto packed = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            auto tex_idx = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, packed, _builder.makeUintConstant(0x0FFFFFFFu));
+            auto heap_id = is_2d ? _tex2d_heap_id : _tex3d_heap_id;
+            LUISA_ASSERT(heap_id != spv::NoResult, "SPIR-V {} texture heap not bound.", is_2d ? "2D" : "3D");
+            auto tex_ptr = _create_access_chain(spv::StorageClass::UniformConstant, heap_id, {tex_idx});
+            auto tex = _builder.createLoad(tex_ptr, spv::NoPrecision);
+            _builder.addCapability(spv::Capability::ImageQuery);
+            spv::Id lod = has_level ? _ensure_type(_emit_value(inst->operand(2)), uint_type) : _builder.makeUintConstant(0u);
+            id = _builder.createOp(spv::Op::OpImageQuerySizeLod, type, {tex, lod});
+            break;
+        }
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER:
+        case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER: {
+            auto op = inst->op();
+            auto is_2d = op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE ||
+                         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL ||
+                         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD ||
+                         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL ||
+                         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER ||
+                         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER ||
+                         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER ||
+                         op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER;
+            auto has_level = op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL ||
+                             op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL ||
+                             op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER ||
+                             op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER;
+            auto has_grad = op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD ||
+                            op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD ||
+                            op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER ||
+                            op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER;
+            auto has_grad_level = op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL ||
+                                  op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL ||
+                                  op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER ||
+                                  op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER;
+            auto is_sampler_variant = op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_SAMPLER ||
+                                      op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER ||
+                                      op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER ||
+                                      op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER ||
+                                      op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_SAMPLER ||
+                                      op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER ||
+                                      op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER ||
+                                      op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER;
+            auto uint_type = _builder.makeUintType(32);
+            auto bindless_array = _emit_value(inst->operand(0));
+            auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto base_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
+            auto field_offset = _builder.makeUintConstant(is_2d ? 1u : 2u);
+            auto slot_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, field_offset);
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_word_offset});
+            auto packed = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            auto tex_idx = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, packed, _builder.makeUintConstant(0x0FFFFFFFu));
+            spv::Id samp_idx;
+            if (is_sampler_variant) {
+                auto filter = _emit_value(inst->operand(inst->operand_count() - 2));
+                auto address = _emit_value(inst->operand(inst->operand_count() - 1));
+                auto addr_mul = _builder.createBinOp(spv::Op::OpIMul, uint_type, address, _builder.makeUintConstant(4u));
+                samp_idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, addr_mul, filter);
+            } else {
+                samp_idx = _builder.createBinOp(spv::Op::OpShiftRightLogical, uint_type, packed, _builder.makeUintConstant(28u));
+            }
+            auto heap_id = is_2d ? _tex2d_heap_id : _tex3d_heap_id;
+            LUISA_ASSERT(heap_id != spv::NoResult, "SPIR-V {} texture heap not bound.", is_2d ? "2D" : "3D");
+            auto tex_ptr = _create_access_chain(spv::StorageClass::UniformConstant, heap_id, {tex_idx});
+            auto image = _builder.createLoad(tex_ptr, spv::NoPrecision);
+            LUISA_ASSERT(_properties.size() >= 2 && _properties[1].type == ShaderVariableType::SamplerHeap,
+                         "SPIR-V sampler heap not bound.");
+            auto sampler_heap = _property_ids[1];
+            auto samp_ptr = _create_access_chain(spv::StorageClass::UniformConstant, sampler_heap, {samp_idx});
+            auto sampler = _builder.createLoad(samp_ptr, spv::NoPrecision);
+            auto image_type = _builder.getTypeId(image);
+            auto sampled_image_type = _builder.makeSampledImageType(image_type, "sampled_image");
+            auto sampled_image = _builder.createOp(spv::Op::OpSampledImage, sampled_image_type, {image, sampler});
+            spv::Builder::TextureParameters params{};
+            params.sampler = sampled_image;
+            size_t uv_op_idx = 2;
+            params.coords = _emit_value(inst->operand(uv_op_idx));
+            if (has_level) {
+                params.lod = _emit_value(inst->operand(uv_op_idx + 1));
+            } else if (has_grad) {
+                params.gradX = _emit_value(inst->operand(uv_op_idx + 1));
+                params.gradY = _emit_value(inst->operand(uv_op_idx + 2));
+            } else if (has_grad_level) {
+                params.gradX = _emit_value(inst->operand(uv_op_idx + 1));
+                params.gradY = _emit_value(inst->operand(uv_op_idx + 2));
+                params.lodClamp = _emit_value(inst->operand(uv_op_idx + 3));
+            }
+            // SPIR-V compute shaders cannot use implicit LOD; always use explicit LOD.
+            // For non-level variants, createTextureCall will automatically add Lod=0 when noImplicitLod is true.
+            auto no_implicit = true;
+            id = _builder.createTextureCall(spv::NoPrecision, type, false, false, false, false, no_implicit, params, spv::ImageOperandsMask::MaskNone);
+            break;
+        }
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL:
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY:
         case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
@@ -1380,6 +1514,43 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
                 id = _builder.createBinOp(spv::Op::OpINotEqual, _builder.makeBoolType(),
                     committed_type, _builder.makeUintConstant(0u));
             }
+            break;
+        }
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM: {
+            auto accel_ptr = _emit_value(inst->operand(0));
+            auto it = _accel_instance_buffer_map.find(accel_ptr);
+            LUISA_ASSERT(it != _accel_instance_buffer_map.end(), "SPIR-V ray_tracing_instance_transform: accel instance buffer not found.");
+            auto instance_buffer = it->second;
+            auto instance_index = _emit_value(inst->operand(1));
+            auto uint_type = _builder.makeUintType(32);
+            auto float_type = _builder.makeFloatType(32);
+            auto float4_type = _builder.makeVectorType(float_type, 4);
+            auto word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, instance_index, _builder.makeUintConstant(16u));
+            auto p0 = _emit_buffer_read_impl(instance_buffer, word_offset, Type::vector(Type::of<float>(), 4));
+            auto p1_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(4u));
+            auto p1 = _emit_buffer_read_impl(instance_buffer, p1_word_offset, Type::vector(Type::of<float>(), 4));
+            auto p2_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(8u));
+            auto p2 = _emit_buffer_read_impl(instance_buffer, p2_word_offset, Type::vector(Type::of<float>(), 4));
+            auto p0_x = _builder.createCompositeExtract(p0, float_type, 0);
+            auto p0_y = _builder.createCompositeExtract(p0, float_type, 1);
+            auto p0_z = _builder.createCompositeExtract(p0, float_type, 2);
+            auto p0_w = _builder.createCompositeExtract(p0, float_type, 3);
+            auto p1_x = _builder.createCompositeExtract(p1, float_type, 0);
+            auto p1_y = _builder.createCompositeExtract(p1, float_type, 1);
+            auto p1_z = _builder.createCompositeExtract(p1, float_type, 2);
+            auto p1_w = _builder.createCompositeExtract(p1, float_type, 3);
+            auto p2_x = _builder.createCompositeExtract(p2, float_type, 0);
+            auto p2_y = _builder.createCompositeExtract(p2, float_type, 1);
+            auto p2_z = _builder.createCompositeExtract(p2, float_type, 2);
+            auto p2_w = _builder.createCompositeExtract(p2, float_type, 3);
+            auto zero = _builder.makeFloatConstant(0.0f);
+            auto one = _builder.makeFloatConstant(1.0f);
+            auto col0 = _builder.createCompositeConstruct(float4_type, {p0_x, p1_x, p2_x, zero});
+            auto col1 = _builder.createCompositeConstruct(float4_type, {p0_y, p1_y, p2_y, zero});
+            auto col2 = _builder.createCompositeConstruct(float4_type, {p0_z, p1_z, p2_z, zero});
+            auto col3 = _builder.createCompositeConstruct(float4_type, {p0_w, p1_w, p2_w, one});
+            auto mat_type = _convert_type(inst->type(), Usage::READ);
+            id = _builder.createCompositeConstruct(mat_type, {col0, col1, col2, col3});
             break;
         }
         default:
@@ -2107,6 +2278,10 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
                                    {subgroup_scope, val});
             break;
         }
+        // ignored 
+        case xir::ThreadGroupOp::SHADER_EXECUTION_REORDER:{
+
+        } break;
         default:
             LUISA_NOT_IMPLEMENTED("SPIR-V thread group op {}.", xir::to_string(inst->op()));
     }
@@ -2187,24 +2362,68 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             auto callee = static_cast<const xir::Function *>(call->callee());
             auto callee_func = _function_map.at(callee);
             std::vector<spv::Id> args;
-            auto arg_it = call->argument_uses().begin();
+            luisa::vector<std::pair<spv::Id, spv::Id>> temp_copies;
+            luisa::vector<const xir::Argument *> callable_arg_list;
+            for (auto arg : callee->arguments()) {
+                callable_arg_list.emplace_back(arg);
+            }
             if (auto it = _callable_arg_used.find(callee); it != _callable_arg_used.end()) {
                 const auto &used_mask = it->second;
                 size_t idx = 0;
                 for (auto arg_use : call->argument_uses()) {
-                    if (idx < used_mask.size() && !used_mask[idx]) {
+                    if (idx < used_mask.size() && !used_mask[idx] && callable_arg_list[idx]->is_resource()) {
                         ++idx;
                         continue;
                     }
-                    args.emplace_back(_emit_value(arg_use->value()));
+                    auto arg_val = _emit_value(arg_use->value());
+                    if (idx < callable_arg_list.size() && callable_arg_list[idx]->is_reference()) {
+                        auto opcode = _builder.getOpCode(arg_val);
+                        if (opcode != spv::Op::OpVariable && opcode != spv::Op::OpFunctionParameter) {
+                            auto pointee_type = _builder.getContainedTypeId(_builder.getTypeId(arg_val));
+                            auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, pointee_type, "call_tmp");
+                            auto loaded = _builder.createLoad(arg_val, spv::NoPrecision);
+                            _builder.createStore(loaded, temp_var);
+                            auto storage = _builder.getStorageClass(arg_val);
+                            if (storage != spv::StorageClass::UniformConstant &&
+                                storage != spv::StorageClass::Input &&
+                                storage != spv::StorageClass::PushConstant) {
+                                temp_copies.emplace_back(temp_var, arg_val);
+                            }
+                            arg_val = temp_var;
+                        }
+                    }
+                    args.emplace_back(arg_val);
                     ++idx;
                 }
             } else {
+                size_t idx = 0;
                 for (auto arg_use : call->argument_uses()) {
-                    args.emplace_back(_emit_value(arg_use->value()));
+                    auto arg_val = _emit_value(arg_use->value());
+                    if (idx < callable_arg_list.size() && callable_arg_list[idx]->is_reference()) {
+                        auto opcode = _builder.getOpCode(arg_val);
+                        if (opcode != spv::Op::OpVariable && opcode != spv::Op::OpFunctionParameter) {
+                            auto pointee_type = _builder.getContainedTypeId(_builder.getTypeId(arg_val));
+                            auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, pointee_type, "call_tmp");
+                            auto loaded = _builder.createLoad(arg_val, spv::NoPrecision);
+                            _builder.createStore(loaded, temp_var);
+                            auto storage = _builder.getStorageClass(arg_val);
+                            if (storage != spv::StorageClass::UniformConstant &&
+                                storage != spv::StorageClass::Input &&
+                                storage != spv::StorageClass::PushConstant) {
+                                temp_copies.emplace_back(temp_var, arg_val);
+                            }
+                            arg_val = temp_var;
+                        }
+                    }
+                    args.emplace_back(arg_val);
+                    ++idx;
                 }
             }
             auto id = _builder.createFunctionCall(callee_func, args);
+            for (auto [temp_var, original_ptr] : temp_copies) {
+                auto loaded = _builder.createLoad(temp_var, spv::NoPrecision);
+                _builder.createStore(loaded, original_ptr);
+            }
             set_result(id);
             break;
         }

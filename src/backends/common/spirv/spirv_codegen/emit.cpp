@@ -308,7 +308,10 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
     // Do not cache special registers (builtins) because their load instructions
     // must dominate all uses. Caching could place the load inside a loop body
     // and reuse it after the loop, violating SPIR-V dominance rules.
-    if (value->derived_value_tag() != xir::DerivedValueTag::SPECIAL_REGISTER) {
+    // Also do not cache Undefined values because OpUndef is added to the
+    // current block and must dominate all uses within the same function.
+    if (value->derived_value_tag() != xir::DerivedValueTag::SPECIAL_REGISTER &&
+        value->derived_value_tag() != xir::DerivedValueTag::UNDEFINED) {
         _value_map.emplace(value, id);
     }
     return id;
@@ -579,7 +582,13 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
 
     auto i = 0u;
     for (auto arg : emitted_args) {
-        _value_map.emplace(arg, func->getParamId(i));
+        auto param_id = func->getParamId(i);
+        _value_map.emplace(arg, param_id);
+        if (arg->type()->tag() == Type::Tag::TEXTURE) {
+            // Callable texture parameters are always created as sampled images
+            // (Usage::READ in _convert_type), so they are not storage images.
+            _is_storage_image_map.emplace(param_id, false);
+        }
         ++i;
     }
 

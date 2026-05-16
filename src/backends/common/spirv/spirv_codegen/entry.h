@@ -65,6 +65,7 @@ private:
     spv::Id _global_invocation_id_var{spv::NoResult};
     luisa::unordered_map<spv::BuiltIn, spv::Id> _builtin_var_map;
     luisa::unordered_map<spv::Id, bool> _is_storage_image_map;
+    luisa::unordered_map<spv::Id, spv::Id> _accel_instance_buffer_map;
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
 
 private:
@@ -110,6 +111,7 @@ private:
     void _emit_ray_query_loop_inst(const xir::RayQueryLoopInst *inst) noexcept;
     void _emit_ray_query_dispatch_inst(const xir::RayQueryDispatchInst *inst) noexcept;
     spv::Id _resolve_resource_argument(const xir::Argument *arg) noexcept;
+    spv::Id _resolve_accel_instance_buffer(const xir::Argument *arg) noexcept;
     spv::Id _load_texture(spv::Id tex_var) noexcept;
     spv::Id _create_access_chain(spv::StorageClass storage, spv::Id base, const std::vector<spv::Id> &indices) noexcept;
     spv::Id _ensure_type(spv::Id value, spv::Id target_type) noexcept;

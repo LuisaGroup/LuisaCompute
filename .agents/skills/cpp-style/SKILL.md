@@ -56,3 +56,11 @@ RTTI is disabled. Do **not** use:
 - `std::type_info`
 
 Prefer virtual dispatch or explicit type tags for type-safe downcasting.
+
+## Integer Types
+
+Never use platform-specific type aliases. Always use fixed-width types:
+- Forbidden: `unsigned int`, `long long`, `unsigned long`, `short`, `char` (for arithmetic)
+- Required: `int32_t`, `uint32_t`, `int64_t`, `uint64_t`, `int16_t`, `uint16_t`, `int8_t`, `uint8_t`
+- `size_t` is acceptable for sizes/indices per STL convention.
+- prefer `std::byte`

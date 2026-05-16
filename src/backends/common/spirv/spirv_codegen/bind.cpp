@@ -253,7 +253,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             next_reg(RegType::SRV),
                             1});
                 }
-                buffer_elem_types.push_back(nullptr);
+                buffer_elem_types.push_back(arg.type());
                 buffer_names.emplace_back(luisa::string("_tx_") + vstd::to_string(arg.uid()));
                 bind_count += 1;
                 break;
@@ -426,7 +426,13 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             case ShaderVariableType::StructuredBuffer:
             case ShaderVariableType::RWStructuredBuffer: {
                 bool writable = (prop.type == ShaderVariableType::RWStructuredBuffer);
-                auto struct_type = make_typed_buffer_struct_type(elem_type, writable, "_Buffer");
+                spv::Id struct_type;
+                if (elem_type == nullptr && luisa::string_view{var_name}.starts_with("_bdarr_")) {
+                    // Bindless array: use _convert_type to ensure type consistency with callable parameters
+                    struct_type = _convert_type(Type::from("bindless_array"), Usage::READ);
+                } else {
+                    struct_type = make_typed_buffer_struct_type(elem_type, writable, "_Buffer");
+                }
                 var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, struct_type, var_name);
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
@@ -437,9 +443,32 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 break;
             }
             case ShaderVariableType::SRVTextureHeap: {
+                spv::Id sampled_type = _builder.makeFloatType(32);
+                spv::Dim dim = spv::Dim::Dim2D;
+                if (elem_type != nullptr && elem_type->tag() == Type::Tag::TEXTURE) {
+                    auto tex_elem = elem_type->element();
+                    if (tex_elem != nullptr && tex_elem->is_vector()) { tex_elem = tex_elem->element(); }
+                    if (tex_elem != nullptr) {
+                        if (tex_elem->is_float32()) {
+                            sampled_type = _builder.makeFloatType(32);
+                        } else if (tex_elem->is_int32()) {
+                            sampled_type = _builder.makeIntType(32);
+                        } else if (tex_elem->is_uint32()) {
+                            sampled_type = _builder.makeUintType(32);
+                        }
+                    }
+                    dim = (elem_type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
+                } else if (elem_type == nullptr) {
+                    // Bindless heap: infer dimension from the variable name
+                    if (buffer_names[i] == "tex3d_heap") {
+                        dim = spv::Dim::Dim3D;
+                    }
+                }
                 auto image_type = _builder.makeImageType(
-                    _builder.makeFloatType(32), spv::Dim::Dim2D, false, false, false, 1, spv::ImageFormat::Unknown, "image");
+                    sampled_type, dim, false, false, false, 1, spv::ImageFormat::Unknown, "image");
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
+                    _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
+                    _builder.addCapability(spv::Capability::RuntimeDescriptorArray);
                     auto array_type = _builder.makeRuntimeArray(image_type);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, array_type, var_name);
                 } else if (prop.array_size == 1) {
@@ -452,14 +481,41 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
-                    _tex2d_heap_id = var;
+                    if (buffer_names[i] == "tex2d_heap") {
+                        _tex2d_heap_id = var;
+                    } else if (buffer_names[i] == "tex3d_heap") {
+                        _tex3d_heap_id = var;
+                    }
                 }
                 break;
             }
             case ShaderVariableType::UAVTextureHeap: {
+                spv::Id sampled_type = _builder.makeFloatType(32);
+                spv::Dim dim = spv::Dim::Dim2D;
+                if (elem_type != nullptr && elem_type->tag() == Type::Tag::TEXTURE) {
+                    auto tex_elem = elem_type->element();
+                    if (tex_elem != nullptr && tex_elem->is_vector()) { tex_elem = tex_elem->element(); }
+                    if (tex_elem != nullptr) {
+                        if (tex_elem->is_float32()) {
+                            sampled_type = _builder.makeFloatType(32);
+                        } else if (tex_elem->is_int32()) {
+                            sampled_type = _builder.makeIntType(32);
+                        } else if (tex_elem->is_uint32()) {
+                            sampled_type = _builder.makeUintType(32);
+                        }
+                    }
+                    dim = (elem_type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
+                } else if (elem_type == nullptr) {
+                    // Bindless heap: infer dimension from the variable name
+                    if (buffer_names[i] == "tex3d_heap") {
+                        dim = spv::Dim::Dim3D;
+                    }
+                }
                 auto image_type = _builder.makeImageType(
-                    _builder.makeFloatType(32), spv::Dim::Dim2D, false, false, false, 2, spv::ImageFormat::Unknown, "image");
+                    sampled_type, dim, false, false, false, 2, spv::ImageFormat::Unknown, "image");
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
+                    _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
+                    _builder.addCapability(spv::Capability::RuntimeDescriptorArray);
                     auto array_type = _builder.makeRuntimeArray(image_type);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, array_type, var_name);
                 } else if (prop.array_size == 1) {
@@ -479,14 +535,16 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             case ShaderVariableType::SRVBufferHeap:
             case ShaderVariableType::UAVBufferHeap: {
                 auto struct_type = make_buffer_struct_type("_BindlessBuffer");
-                // Vulkan StorageBuffer variables must be Block struct or array of Block struct.
-                // OpTypeRuntimeArray cannot be directly instantiated via OpVariable in StorageBuffer.
-                // Use a fixed-size array with a large maximum for bindless.
-                constexpr uint max_bindless_buffers = 65536u;
-                auto array_size = prop.array_size == std::numeric_limits<uint>::max() ? max_bindless_buffers : prop.array_size;
-                auto array_size_id = _builder.makeUintConstant(array_size);
-                auto array_type = _builder.makeArrayType(struct_type, array_size_id, 0);
-                var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, array_type, var_name);
+                if (prop.array_size == std::numeric_limits<uint>::max()) {
+                    _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
+                    _builder.addCapability(spv::Capability::RuntimeDescriptorArray);
+                    auto array_type = _builder.makeRuntimeArray(struct_type);
+                    var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, array_type, var_name);
+                } else {
+                    auto array_size_id = _builder.makeUintConstant(prop.array_size);
+                    auto array_type = _builder.makeArrayType(struct_type, array_size_id, 0);
+                    var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, array_type, var_name);
+                }
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
                 _buffer_heap_id = var;
