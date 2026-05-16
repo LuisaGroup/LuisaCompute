@@ -1,5 +1,4 @@
 #include "entry.h"
-#include <luisa/core/logging.h>
 
 namespace lc::spirv {
 void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
@@ -81,11 +80,11 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     auto &function = _builder.getBuildPoint()->getParent();
     std::vector<spv::Block *> segment_blocks;
     segment_blocks.reserve(case_count + 1);
-    for (auto i = 0u; i <= case_count; ++i) {
+    for (uint i = 0u; i <= case_count; ++i) {
         segment_blocks.push_back(new spv::Block(_builder.getUniqueId(), function));
     }
     auto merge_block = new spv::Block(_builder.getUniqueId(), function);
-    for (auto i = 0u; i < case_count; ++i) {
+    for (uint i = 0u; i < case_count; ++i) {
         _block_map[inst->case_block(i)] = segment_blocks[i];
     }
     _block_map[inst->default_block()] = segment_blocks[case_count];
@@ -100,13 +99,13 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     switch_inst->addIdOperand(selector);
     switch_inst->addIdOperand(segment_blocks[case_count]->getId());
     segment_blocks[case_count]->addPredecessor(_builder.getBuildPoint());
-    for (auto i = 0u; i < case_count; ++i) {
+    for (uint i = 0u; i < case_count; ++i) {
         switch_inst->addImmediateOperand(inst->case_value(i));
         switch_inst->addIdOperand(segment_blocks[i]->getId());
         segment_blocks[i]->addPredecessor(_builder.getBuildPoint());
     }
     _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(switch_inst));
-    for (auto i = 0u; i < case_count; ++i) {
+    for (uint i = 0u; i < case_count; ++i) {
         function.addBlock(segment_blocks[i]);
         _builder.setBuildPoint(segment_blocks[i]);
         _emit_block(inst->case_block(i));

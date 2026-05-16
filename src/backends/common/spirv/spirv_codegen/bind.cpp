@@ -1,4 +1,5 @@
 #include "entry.h"
+#include <algorithm>
 #include <luisa/core/logging.h>
 #include <limits>
 
@@ -10,7 +11,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
     _use_tex3d_bindless = false;
     _use_buffer_bindless = false;
 
-    auto is_writable = [&](Variable const &v) {
+    auto is_writable = [&](const Variable &v) {
         return (static_cast<uint>(kernel.variable_usage(v.uid())) & static_cast<uint>(Usage::WRITE)) != 0;
     };
 
@@ -40,7 +41,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
     }
 
     // Detect bindless usage from propagated builtin callables
-    auto const &builtins = kernel.propagated_builtin_callables();
+    const auto &builtins = kernel.propagated_builtin_callables();
     auto uses_buffer_bindless = [&]() noexcept -> bool {
         static constexpr CallOp ops[] = {
             CallOp::BINDLESS_BUFFER_SIZE,
@@ -62,10 +63,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_READ,
             CallOp::TYPED_UNIFORM_BINDLESS_BUFFER_WRITE,
         };
-        for (auto op : ops) {
-            if (builtins.test(op)) return true;
-        }
-        return false;
+        return std::ranges::any_of(ops, [&](auto op) { return builtins.test(op); });
     };
     auto uses_tex2d_bindless = [&]() noexcept -> bool {
         static constexpr CallOp ops[] = {
@@ -102,10 +100,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER,
             CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER,
         };
-        for (auto op : ops) {
-            if (builtins.test(op)) return true;
-        }
-        return false;
+        return std::ranges::any_of(ops, [&](auto op) { return builtins.test(op); });
     };
     auto uses_tex3d_bindless = [&]() noexcept -> bool {
         static constexpr CallOp ops[] = {
@@ -142,10 +137,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER,
             CallOp::TYPED_UNIFORM_BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER,
         };
-        for (auto op : ops) {
-            if (builtins.test(op)) return true;
-        }
-        return false;
+        return std::ranges::any_of(ops, [&](auto op) { return builtins.test(op); });
     };
 
     _use_buffer_bindless = uses_buffer_bindless();

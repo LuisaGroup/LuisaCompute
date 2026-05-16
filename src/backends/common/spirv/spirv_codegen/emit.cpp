@@ -69,7 +69,6 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _property_ids.clear();
     _entry_point_inst = nullptr;
     _global_invocation_id_var = spv::NoResult;
-    _builder_ptr.release();
 }
 
 void SpirvCodegenEntry::_analyze_instruction_usage(
@@ -170,7 +169,7 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
             auto elem_stride = elem_type->size();
             std::vector<spv::Id> comps;
             comps.reserve(dim);
-            for (auto i = 0u; i < dim; ++i) {
+            for (uint i = 0u; i < dim; ++i) {
                 auto elem_data = static_cast<const std::byte *>(data) + i * elem_stride;
                 comps.emplace_back(_emit_literal(elem_type, elem_data));
             }
@@ -183,7 +182,7 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
             auto col_stride = col_type->size();
             std::vector<spv::Id> cols;
             cols.reserve(dim);
-            for (auto i = 0u; i < dim; ++i) {
+            for (uint i = 0u; i < dim; ++i) {
                 auto col_data = static_cast<const std::byte *>(data) + i * col_stride;
                 cols.emplace_back(_emit_literal(col_type, col_data));
             }
@@ -195,7 +194,7 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
             auto elem_stride = elem_type->size();
             std::vector<spv::Id> elems;
             elems.reserve(dim);
-            for (auto i = 0u; i < dim; ++i) {
+            for (uint i = 0u; i < dim; ++i) {
                 auto elem_data = static_cast<const std::byte *>(data) + i * elem_stride;
                 elems.emplace_back(_emit_literal(elem_type, elem_data));
             }
@@ -206,8 +205,7 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
             std::vector<spv::Id> member_values;
             member_values.reserve(members.size());
             auto offset = 0u;
-            for (auto i = 0u; i < members.size(); ++i) {
-                auto member = members[i];
+            for (auto member : members) {
                 offset = luisa::align(offset, member->alignment());
                 auto member_data = static_cast<const std::byte *>(data) + offset;
                 member_values.emplace_back(_emit_literal(member, member_data));
@@ -274,7 +272,7 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
             } else {
                 var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Input,
                                               _convert_type(reg->type(), Usage::READ), "sr");
-                _builder.addDecoration(var, spv::Decoration::BuiltIn, (int)builtin);
+                _builder.addDecoration(var, spv::Decoration::BuiltIn, static_cast<int32_t>(builtin));
                 if (_entry_point_inst != nullptr) {
                     _entry_point_inst->addIdOperand(var);
                 }
@@ -407,7 +405,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
                         auto masked = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, _builder.makeUintConstant(0xFFu));
                         loaded = _builder.createBinOp(spv::Op::OpINotEqual, bool_type, masked, _builder.makeUintConstant(0u));
                     } else {
-                        auto bit_width = static_cast<int>(type_size * 8);
+                        auto bit_width = static_cast<int32_t>(type_size * 8);
                         auto mask = (1u << bit_width) - 1u;
                         auto masked = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, _builder.makeUintConstant(mask));
                         auto trunc_type = _builder.makeIntegerType(bit_width, arg->type()->is_int());
@@ -442,9 +440,9 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
     }
     auto bs = kernel->block_size();
     _builder.addExecutionMode(func, spv::ExecutionMode::LocalSize,
-                              static_cast<int>(bs.x),
-                              static_cast<int>(bs.y),
-                              static_cast<int>(bs.z));
+                              static_cast<int32_t>(bs.x),
+                              static_cast<int32_t>(bs.y),
+                              static_cast<int32_t>(bs.z));
 
     _builder.enterFunction(func);
     _builder.setBuildPoint(entry);
@@ -467,7 +465,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
             auto uint3_type = _builder.makeVectorType(uint_type, 3);
             _global_invocation_id_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Input,
                                                                 uint3_type, "dispatch_id");
-            _builder.addDecoration(_global_invocation_id_var, spv::Decoration::BuiltIn, (int)spv::BuiltIn::GlobalInvocationId);
+            _builder.addDecoration(_global_invocation_id_var, spv::Decoration::BuiltIn, static_cast<int32_t>(spv::BuiltIn::GlobalInvocationId));
             if (_entry_point_inst != nullptr) {
                 _entry_point_inst->addIdOperand(_global_invocation_id_var);
             }
@@ -542,19 +540,12 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
             spv::StorageClass storage = spv::StorageClass::Max;
             switch (type->tag()) {
                 case Type::Tag::BUFFER:
-                    pointee_type = _convert_type(type, Usage::READ);
-                    storage = spv::StorageClass::StorageBuffer;
-                    _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
-                    break;
                 case Type::Tag::BINDLESS_ARRAY:
                     pointee_type = _convert_type(type, Usage::READ);
                     storage = spv::StorageClass::StorageBuffer;
                     _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
                     break;
                 case Type::Tag::ACCEL:
-                    pointee_type = _convert_type(type, Usage::READ);
-                    storage = spv::StorageClass::UniformConstant;
-                    break;
                 case Type::Tag::TEXTURE:
                     pointee_type = _convert_type(type, Usage::READ);
                     storage = spv::StorageClass::UniformConstant;
@@ -580,7 +571,7 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
     _value_map.emplace(callable, func->getId());
     _function_map.emplace(callable, func);
 
-    auto i = 0u;
+    int32_t i = 0;
     for (auto arg : emitted_args) {
         auto param_id = func->getParamId(i);
         _value_map.emplace(arg, param_id);

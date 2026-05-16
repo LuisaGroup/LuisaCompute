@@ -116,7 +116,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto a = operand(0);
             auto b = operand(1);
             auto width = t->is_scalar() ? t->size() * 8 : t->element()->size() * 8;
-            auto width_id = _builder.makeUintConstant(static_cast<unsigned>(width));
+            auto width_id = _builder.makeUintConstant(static_cast<uint32_t>(width));
             auto b_mod = _builder.createBinOp(spv::Op::OpUMod, _builder.makeUintType(32), b, width_id);
             auto left = _builder.createBinOp(spv::Op::OpShiftLeftLogical, type, a, b_mod);
             auto right = _builder.createBinOp(spv::Op::OpShiftRightLogical, type, a,
@@ -128,7 +128,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto a = operand(0);
             auto b = operand(1);
             auto width = t->is_scalar() ? t->size() * 8 : t->element()->size() * 8;
-            auto width_id = _builder.makeUintConstant(static_cast<unsigned>(width));
+            auto width_id = _builder.makeUintConstant(static_cast<uint32_t>(width));
             auto b_mod = _builder.createBinOp(spv::Op::OpUMod, _builder.makeUintType(32), b, width_id);
             auto right = _builder.createBinOp(spv::Op::OpShiftRightLogical, type, a, b_mod);
             auto left = _builder.createBinOp(spv::Op::OpShiftLeftLogical, type, a,
@@ -216,7 +216,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 }
                 if (zero != spv::NoResult) {
                     if (_builder.isVectorType(cond_type)) {
-                        auto dim = static_cast<int>(_builder.getNumTypeComponents(cond_type));
+                        auto dim = static_cast<int32_t>(_builder.getNumTypeComponents(cond_type));
                         zero = _builder.smearScalar(spv::NoPrecision, zero, cond_type);
                         bool_type = _builder.makeVectorType(bool_type, dim);
                     }
@@ -281,7 +281,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         case xir::ArithmeticOp::CLZ: {
             auto find_msb = glsl_typed(GLSLstd450FindSMsb, GLSLstd450FindSMsb, GLSLstd450FindUMsb, operand(0));
-            auto bit_width = static_cast<int>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
+            auto bit_width = static_cast<int32_t>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
             auto bit_width_id = elem->is_uint() ? _builder.makeUintConstant(bit_width) : _builder.makeIntConstant(bit_width);
             auto minus_one = elem->is_uint() ? _builder.makeUintConstant(0xFFFFFFFFu) : _builder.makeIntConstant(-1);
             if (!is_scalar) {
@@ -296,7 +296,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         case xir::ArithmeticOp::CTZ: {
             auto find_lsb = glsl(GLSLstd450FindILsb, operand(0));
-            auto bit_width = static_cast<int>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
+            auto bit_width = static_cast<int32_t>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
             auto bit_width_id = elem->is_uint() ? _builder.makeUintConstant(bit_width) : _builder.makeIntConstant(bit_width);
             auto minus_one = elem->is_uint() ? _builder.makeUintConstant(0xFFFFFFFFu) : _builder.makeIntConstant(-1);
             if (!is_scalar) {
@@ -519,10 +519,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto b_dim = b_type->dimension();
             auto elem_type = a_type->element();
             auto elem_spv_type = _convert_type(elem_type, Usage::READ);
-            auto vec_type = _builder.makeVectorType(elem_spv_type, static_cast<int>(b_dim));
+            auto vec_type = _builder.makeVectorType(elem_spv_type, static_cast<int32_t>(b_dim));
             std::vector<spv::Id> rows;
             rows.reserve(a_dim);
-            for (auto i = 0u; i < a_dim; ++i) {
+            for (uint i = 0u; i < a_dim; ++i) {
                 auto ai = _builder.createCompositeExtract(a, elem_spv_type, i);
                 auto smeared = _builder.smearScalar(spv::NoPrecision, ai, vec_type);
                 auto row = _builder.createBinOp(spv::Op::OpFMul, vec_type, smeared, b);
@@ -536,10 +536,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::MATRIX_COMP_NEG: {
             auto mat = operand(0);
             auto rows = t->dimension();
-            auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int>(rows));
+            auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
             std::vector<spv::Id> new_rows;
             new_rows.reserve(rows);
-            for (auto i = 0u; i < rows; ++i) {
+            for (uint i = 0u; i < rows; ++i) {
                 auto row = _builder.createCompositeExtract(mat, row_type, i);
                 new_rows.push_back(_builder.createUnaryOp(spv::Op::OpFNegate, row_type, row));
             }
@@ -551,10 +551,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto b = operand(1);
             auto b_type = inst->operand(1)->type();
             auto rows = t->dimension();
-            auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int>(rows));
+            auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
             std::vector<spv::Id> new_rows;
             new_rows.reserve(rows);
-            for (auto i = 0u; i < rows; ++i) {
+            for (uint i = 0u; i < rows; ++i) {
                 auto row_a = _builder.createCompositeExtract(a, row_type, i);
                 if (b_type->is_scalar()) {
                     auto smeared = _builder.smearScalar(spv::NoPrecision, b, row_type);
@@ -572,10 +572,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto b = operand(1);
             auto b_type = inst->operand(1)->type();
             auto rows = t->dimension();
-            auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int>(rows));
+            auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
             std::vector<spv::Id> new_rows;
             new_rows.reserve(rows);
-            for (auto i = 0u; i < rows; ++i) {
+            for (uint i = 0u; i < rows; ++i) {
                 auto row_a = _builder.createCompositeExtract(a, row_type, i);
                 if (b_type->is_scalar()) {
                     auto smeared = _builder.smearScalar(spv::NoPrecision, b, row_type);
@@ -596,10 +596,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 id = _builder.createBinOp(spv::Op::OpMatrixTimesScalar, type, a, b);
             } else {
                 auto rows = t->dimension();
-                auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int>(rows));
+                auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
                 std::vector<spv::Id> new_rows;
                 new_rows.reserve(rows);
-                for (auto i = 0u; i < rows; ++i) {
+                for (uint i = 0u; i < rows; ++i) {
                     auto row_a = _builder.createCompositeExtract(a, row_type, i);
                     auto row_b = _builder.createCompositeExtract(b, row_type, i);
                     new_rows.push_back(_builder.createBinOp(spv::Op::OpFMul, row_type, row_a, row_b));
@@ -614,10 +614,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto b_type = inst->operand(1)->type();
             if (b_type->is_scalar()) {
                 auto rows = t->dimension();
-                auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int>(rows));
+                auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
                 std::vector<spv::Id> new_rows;
                 new_rows.reserve(rows);
-                for (auto i = 0u; i < rows; ++i) {
+                for (uint i = 0u; i < rows; ++i) {
                     auto row = _builder.createCompositeExtract(a, row_type, i);
                     auto smeared = _builder.smearScalar(spv::NoPrecision, b, row_type);
                     new_rows.push_back(_builder.createBinOp(spv::Op::OpFDiv, row_type, row, smeared));
@@ -625,10 +625,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 id = _builder.createCompositeConstruct(type, new_rows);
             } else {
                 auto rows = t->dimension();
-                auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int>(rows));
+                auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
                 std::vector<spv::Id> new_rows;
                 new_rows.reserve(rows);
-                for (auto i = 0u; i < rows; ++i) {
+                for (uint i = 0u; i < rows; ++i) {
                     auto row_a = _builder.createCompositeExtract(a, row_type, i);
                     auto row_b = _builder.createCompositeExtract(b, row_type, i);
                     new_rows.push_back(_builder.createBinOp(spv::Op::OpFDiv, row_type, row_a, row_b));
@@ -665,7 +665,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::AGGREGATE: {
             std::vector<spv::Id> comps;
             comps.reserve(inst->operand_count());
-            for (auto i = 0u; i < inst->operand_count(); ++i) {
+            for (uint i = 0u; i < inst->operand_count(); ++i) {
                 comps.push_back(operand(i));
             }
             id = _builder.createCompositeConstruct(type, comps);
@@ -854,8 +854,8 @@ spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(spv::Id ptr, spv::Id val,
 
     // Loop body
     _builder.setBuildPoint(loop_body);
-    auto scope = _builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Device));
-    auto semantics = _builder.makeUintConstant(static_cast<unsigned>(spv::MemorySemanticsMask::MaskNone));
+    auto scope = _builder.makeUintConstant(static_cast<uint32_t>(spv::Scope::Device));
+    auto semantics = _builder.makeUintConstant(static_cast<uint32_t>(spv::MemorySemanticsMask::MaskNone));
 
     // old_uint = AtomicLoad(ptr)
     auto old_uint = _builder.createOp(spv::Op::OpAtomicLoad, uint_type, {ptr, scope, semantics});
@@ -930,8 +930,8 @@ spv::Id SpirvCodegenEntry::_emit_float_compare_exchange_cas_loop(spv::Id ptr, sp
 
     // Loop body
     _builder.setBuildPoint(loop_body);
-    auto scope = _builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Device));
-    auto semantics = _builder.makeUintConstant(static_cast<unsigned>(spv::MemorySemanticsMask::MaskNone));
+    auto scope = _builder.makeUintConstant(static_cast<uint32_t>(spv::Scope::Device));
+    auto semantics = _builder.makeUintConstant(static_cast<uint32_t>(spv::MemorySemanticsMask::MaskNone));
 
     // old = AtomicLoad(ptr)
     auto old_float = _builder.createOp(spv::Op::OpAtomicLoad, float_type, {ptr, scope, semantics});
@@ -1053,9 +1053,9 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         ptr = _create_access_chain(storage, base, idx_ids);
     }
 
-    auto scope = _builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Device));
-    auto semantics = _builder.makeUintConstant(static_cast<unsigned>(spv::MemorySemanticsMask::MaskNone));
-    auto semantics_equal = _builder.makeUintConstant(static_cast<unsigned>(spv::MemorySemanticsMask::MaskNone));
+    auto scope = _builder.makeUintConstant(static_cast<uint32_t>(spv::Scope::Device));
+    auto semantics = _builder.makeUintConstant(static_cast<uint32_t>(spv::MemorySemanticsMask::MaskNone));
+    auto semantics_equal = _builder.makeUintConstant(static_cast<uint32_t>(spv::MemorySemanticsMask::MaskNone));
 
     spv::Id id = spv::NoResult;
     auto values = inst->value_uses();
@@ -1572,7 +1572,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
             auto dim = elem_type->dimension();
             std::vector<spv::Id> comps;
             comps.reserve(dim);
-            for (auto i = 0u; i < dim; ++i) {
+            for (uint i = 0u; i < dim; ++i) {
                 auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
                 comps.push_back(_emit_buffer_read_impl(buffer, idx, elem_type->element()));
             }
@@ -1585,7 +1585,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
             return _builder.createBinOp(spv::Op::OpINotEqual, spv_type, raw, _builder.makeUintConstant(0u));
         }
         // Other sub-word integer types: truncate
-        auto bit_width = static_cast<int>(elem_type->size() * 8);
+        auto bit_width = static_cast<int32_t>(elem_type->size() * 8);
         auto trunc_type = _builder.makeIntegerType(bit_width, elem_type->is_int());
         auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, raw);
         if (trunc_type != spv_type) {
@@ -1606,7 +1606,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                 auto dim = _builder.getNumTypeComponents(spv_type);
                 std::vector<spv::Id> comps;
                 comps.reserve(dim);
-                for (auto i = 0u; i < dim; ++i) {
+                for (uint i = 0u; i < dim; ++i) {
                     auto bit = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, _builder.makeUintConstant(1u << i));
                     auto cmp = _builder.createBinOp(spv::Op::OpINotEqual, _builder.makeBoolType(), bit, _builder.makeUintConstant(0u));
                     comps.push_back(cmp);
@@ -1622,7 +1622,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
         auto dim = elem_type->dimension();
         std::vector<spv::Id> comps;
         comps.reserve(dim);
-        for (auto i = 0u; i < dim; ++i) {
+        for (uint i = 0u; i < dim; ++i) {
             auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
             comps.push_back(_emit_buffer_read_impl(buffer, idx, elem_type->element()));
         }
@@ -1635,7 +1635,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
         auto col_word_count = col_type->size() / 4u;
         std::vector<spv::Id> cols;
         cols.reserve(dim);
-        for (auto i = 0u; i < dim; ++i) {
+        for (uint i = 0u; i < dim; ++i) {
             auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i * col_word_count));
             cols.push_back(_emit_buffer_read_impl(buffer, idx, col_type));
         }
@@ -1672,7 +1672,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                     auto spv_comp_type = _convert_type(comp_type, Usage::READ);
                     std::vector<spv::Id> comps;
                     comps.reserve(dim);
-                    for (auto i = 0u; i < dim; ++i) {
+                    for (uint i = 0u; i < dim; ++i) {
                         auto comp_byte_shift = i * comp_size;
                         auto comp_bit_shift = comp_byte_shift * 8;
                         spv::Id comp_raw = raw;
@@ -1687,7 +1687,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                         if (comp_type->is_bool()) {
                             comps.push_back(_builder.createBinOp(spv::Op::OpINotEqual, spv_comp_type, comp_raw, _builder.makeUintConstant(0u)));
                         } else {
-                            auto trunc_type = _builder.makeIntegerType(comp_bit_width, comp_type->is_int());
+                            auto trunc_type = _builder.makeIntegerType(static_cast<int32_t>(comp_bit_width), comp_type->is_int());
                             auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, comp_raw);
                             if (trunc_type != spv_comp_type) {
                                 comps.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_comp_type, truncated));
@@ -1718,7 +1718,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
         auto elem_word_count = elem->size() / 4u;
         std::vector<spv::Id> elems;
         elems.reserve(dim);
-        for (auto i = 0u; i < dim; ++i) {
+        for (uint i = 0u; i < dim; ++i) {
             auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset,
                                             _builder.makeUintConstant(i * elem_word_count));
             elems.push_back(_emit_buffer_read_impl(buffer, idx, elem));
@@ -1752,7 +1752,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
         if (elem_type->is_vector()) {
             auto comp_type = _convert_type(elem_type->element(), Usage::READ);
             auto dim = elem_type->dimension();
-            for (auto i = 0u; i < dim; ++i) {
+            for (uint i = 0u; i < dim; ++i) {
                 auto comp = _builder.createCompositeExtract(value, comp_type, i);
                 auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
                 _emit_buffer_write_impl(buffer, idx, comp, elem_type->element());
@@ -1783,7 +1783,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
                     // Bool vector: convert each component to a bit and pack
                     auto dim = _builder.getNumTypeComponents(spv_type);
                     store_val = _builder.makeUintConstant(0u);
-                    for (auto i = 0u; i < dim; ++i) {
+                    for (uint i = 0u; i < dim; ++i) {
                         auto comp = _builder.createCompositeExtract(value, _builder.makeBoolType(), i);
                         auto bit = _builder.createOp(spv::Op::OpSelect, uint_type, {comp, _builder.makeUintConstant(1u << i), _builder.makeUintConstant(0u)});
                         store_val = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, store_val, bit);
@@ -1799,7 +1799,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
     if (elem_type->is_vector()) {
         auto comp_type = _convert_type(elem_type->element(), Usage::READ);
         auto dim = elem_type->dimension();
-        for (auto i = 0u; i < dim; ++i) {
+        for (uint i = 0u; i < dim; ++i) {
             auto comp = _builder.createCompositeExtract(value, comp_type, i);
             if (comp_type != uint_type) {
                 comp = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, comp);
@@ -1814,7 +1814,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
         auto dim = elem_type->dimension();
         auto col_type = Type::vector(elem, dim);
         auto col_word_count = col_type->size() / 4u;
-        for (auto i = 0u; i < dim; ++i) {
+        for (uint i = 0u; i < dim; ++i) {
             auto col = _builder.createCompositeExtract(value, _convert_type(col_type, Usage::READ), i);
             auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i * col_word_count));
             _emit_buffer_write_impl(buffer, idx, col, col_type);
@@ -1846,7 +1846,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
                     auto dim = member->dimension();
                     auto comp_size = member_size / dim;
                     field_uint = _builder.makeUintConstant(0u);
-                    for (auto i = 0u; i < dim; ++i) {
+                    for (uint i = 0u; i < dim; ++i) {
                         auto comp = _builder.createCompositeExtract(field_val, _convert_type(comp_type, Usage::READ), i);
                         spv::Id comp_uint = spv::NoResult;
                         if (comp_type->is_bool()) {
@@ -1874,7 +1874,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
                 // Clear old bits: mask keeps everything except the member's bits
                 uint64_t member_mask = total_bit_width < 64u ? ((uint64_t{1} << total_bit_width) - 1u) : ~0ull;
                 member_mask <<= total_bit_shift;
-                uint32_t clear_mask_val = static_cast<uint32_t>(~member_mask);
+                auto clear_mask_val = static_cast<uint32_t>(~member_mask);
                 auto clear_mask = _builder.makeUintConstant(clear_mask_val);
                 raw = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, clear_mask);
                 raw = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, raw, field_uint);
@@ -1890,7 +1890,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
         auto elem = elem_type->element();
         auto dim = elem_type->dimension();
         auto elem_word_count = elem->size() / 4u;
-        for (auto i = 0u; i < dim; ++i) {
+        for (uint i = 0u; i < dim; ++i) {
             auto elem_val = _builder.createCompositeExtract(value, _convert_type(elem, Usage::READ), i);
             auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset,
                                             _builder.makeUintConstant(i * elem_word_count));
@@ -2101,8 +2101,8 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
 
 void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept {
     spv::Id id = spv::NoResult;
-    auto subgroup_scope = _builder.makeUintConstant(static_cast<unsigned>(spv::Scope::Subgroup));
-    auto group_op_reduce = static_cast<unsigned>(spv::GroupOperation::Reduce);
+    auto subgroup_scope = _builder.makeUintConstant(static_cast<uint32_t>(spv::Scope::Subgroup));
+    auto group_op_reduce = static_cast<uint32_t>(spv::GroupOperation::Reduce);
     switch (inst->op()) {
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK: {
             _builder.createControlBarrier(spv::Scope::Workgroup, spv::Scope::Workgroup,
@@ -2168,8 +2168,6 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
             spv::Op op;
             if (elem_type->is_float()) {
                 op = spv::Op::OpGroupNonUniformFAdd;
-            } else if (elem_type->is_int()) {
-                op = spv::Op::OpGroupNonUniformIAdd;
             } else {
                 op = spv::Op::OpGroupNonUniformIAdd;
             }
@@ -2188,8 +2186,6 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
             spv::Op op;
             if (elem_type->is_float()) {
                 op = spv::Op::OpGroupNonUniformFMul;
-            } else if (elem_type->is_int()) {
-                op = spv::Op::OpGroupNonUniformIMul;
             } else {
                 op = spv::Op::OpGroupNonUniformIMul;
             }
@@ -2208,8 +2204,6 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
             spv::Op op;
             if (elem_type->is_float()) {
                 op = spv::Op::OpGroupNonUniformFMin;
-            } else if (elem_type->is_int()) {
-                op = spv::Op::OpGroupNonUniformSMin;
             } else if (elem_type->is_uint()) {
                 op = spv::Op::OpGroupNonUniformUMin;
             } else {
@@ -2230,8 +2224,6 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
             spv::Op op;
             if (elem_type->is_float()) {
                 op = spv::Op::OpGroupNonUniformFMax;
-            } else if (elem_type->is_int()) {
-                op = spv::Op::OpGroupNonUniformSMax;
             } else if (elem_type->is_uint()) {
                 op = spv::Op::OpGroupNonUniformUMax;
             } else {
@@ -2451,7 +2443,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                             // Bool vector: decompose and pack
                             auto dim = _builder.getNumTypeComponents(bool_type);
                             uint_val = _builder.makeUintConstant(0u);
-                            for (auto i = 0u; i < dim; ++i) {
+                            for (uint i = 0u; i < dim; ++i) {
                                 auto comp = _builder.createCompositeExtract(val, _builder.makeBoolType(), i);
                                 auto bit = _builder.createOp(spv::Op::OpSelect, uint_type, {comp, _builder.makeUintConstant(1u << i), _builder.makeUintConstant(0u)});
                                 uint_val = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, uint_val, bit);
@@ -2468,7 +2460,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                             auto dim = _builder.getNumTypeComponents(spv_to);
                             std::vector<spv::Id> comps;
                             comps.reserve(dim);
-                            for (auto i = 0u; i < dim; ++i) {
+                            for (uint i = 0u; i < dim; ++i) {
                                 auto bit = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, uint_val, _builder.makeUintConstant(1u << i));
                                 comps.push_back(_builder.createBinOp(spv::Op::OpINotEqual, _builder.makeBoolType(), bit, _builder.makeUintConstant(0u)));
                             }
@@ -2539,7 +2531,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                         id = _builder.createUnaryOp(spv::Op::OpUConvert, spv_to, val);
                     } else {
                         // Cross-signedness with different sizes: convert first, then bitcast
-                        auto tmp_type = _builder.makeIntegerType(to->size() * 8, from->is_int());
+                        auto tmp_type = _builder.makeIntegerType(static_cast<int32_t>(to->size() * 8), from->is_int());
                         id = _builder.createUnaryOp(from->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, tmp_type, val);
                         id = _builder.createUnaryOp(spv::Op::OpBitcast, spv_to, id);
                     }

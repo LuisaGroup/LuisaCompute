@@ -20,16 +20,16 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
         case Type::Tag::INT64: id = _builder.makeIntType(64); break;
         case Type::Tag::UINT64: id = _builder.makeUintType(64); break;
         case Type::Tag::VECTOR:
-            id = _builder.makeVectorType(_convert_type(type->element(), usage), static_cast<int>(type->dimension()));
+            id = _builder.makeVectorType(_convert_type(type->element(), usage), static_cast<int32_t>(type->dimension()));
             break;
         case Type::Tag::MATRIX:
             id = _builder.makeMatrixType(_convert_type(type->element(), usage),
-                                         static_cast<int>(type->dimension()),
-                                         static_cast<int>(type->dimension()));
+                                         static_cast<int32_t>(type->dimension()),
+                                         static_cast<int32_t>(type->dimension()));
             break;
         case Type::Tag::ARRAY: {
             auto elem_type = _convert_type(type->element(), usage);
-            auto size_id = _builder.makeUintConstant(static_cast<unsigned>(type->dimension()));
+            auto size_id = _builder.makeUintConstant(static_cast<uint32_t>(type->dimension()));
             id = _builder.makeArrayType(elem_type, size_id, 0);
             break;
         }
@@ -50,7 +50,7 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             auto spv_elem_type = use_typed ? _convert_type(elem_type, usage) : _builder.makeUintType(32);
             auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
-            _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, use_typed ? elem_type->size() : 4u);
+            _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, use_typed ? static_cast<int32_t>(elem_type->size()) : 4);
             _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
             _builder.addDecoration(struct_type, spv::Decoration::Block);
             id = struct_type;
@@ -76,7 +76,7 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             }
             spv::Dim dim = (type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
             bool is_writable = (static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0;
-            unsigned sampled = is_writable ? 2 : 1;
+            uint32_t sampled = is_writable ? 2 : 1;
             spv::ImageFormat fmt = is_writable ? storage_format : spv::ImageFormat::Unknown;
             id = _builder.makeImageType(sampled_type, dim, false, false, false,
                                         sampled, fmt, "image");

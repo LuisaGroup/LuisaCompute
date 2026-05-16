@@ -5,7 +5,7 @@
 #include <sstream>
 
 namespace lc::spirv {
-SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, ShaderOption const &opt) {
+SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption &opt) {
     auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
     StringScratch scratch;
     SpirvCodegenEntry codegen{scratch, true};
@@ -22,7 +22,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, ShaderOption const
     auto use_tex3d = codegen._use_tex3d_bindless;
     auto use_buffer = codegen._use_buffer_bindless;
     // Leak builder to avoid destructor crash
-    codegen._builder_ptr.release();
+    codegen._builder_ptr.release();  // NOLINT: intentional leak to avoid destructor crash
     return SpirvResult{
         std::move(words),
         std::move(props),
