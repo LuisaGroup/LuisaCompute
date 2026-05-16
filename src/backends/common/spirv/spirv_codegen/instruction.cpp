@@ -414,6 +414,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             // round-away-from-zero: trunc(x + copysign(0.5, x))
             auto x = operand(0);
             auto half = _builder.makeFloatConstant(0.5f);
+            if (!is_scalar) half = _builder.smearScalar(spv::NoPrecision, half, type);
             auto sign = glsl(GLSLstd450FSign, x);
             auto signed_half = _builder.createBinOp(spv::Op::OpFMul, type, half, sign);
             auto sum = _builder.createBinOp(spv::Op::OpFAdd, type, x, signed_half);
@@ -1245,6 +1246,49 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             }
             break;
         }
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL:
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY:
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR:
+        case xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR: {
+            _builder.addExtension(spv::E_SPV_KHR_ray_query);
+            _builder.addCapability(spv::Capability::RayQueryKHR);
+            auto accel_ptr = _emit_value(inst->operand(0));
+            auto accel = _builder.createLoad(accel_ptr, spv::NoPrecision);
+            auto ray = _emit_value(inst->operand(1));
+            spv::Id mask;
+            size_t ray_operand_idx;
+            if (inst->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR ||
+                inst->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR) {
+                ray_operand_idx = 3;// operands: accel, ray, time, mask
+            } else {
+                ray_operand_idx = 2;// operands: accel, ray, mask
+            }
+            mask = _emit_value(inst->operand(ray_operand_idx));
+            auto float_type = _builder.makeFloatType(32);
+            auto uint_type = _builder.makeUintType(32);
+            auto vec3_type = _builder.makeVectorType(float_type, 3);
+            auto extract_vec3_from_array_member = [&](unsigned member_idx) {
+                std::vector<spv::Id> comps;
+                comps.reserve(3);
+                for (unsigned i = 0; i < 3; ++i) {
+                    comps.push_back(_builder.createCompositeExtract(ray, float_type, std::vector<unsigned>{member_idx, i}));
+                }
+                return _builder.createCompositeConstruct(vec3_type, comps);
+            };
+            auto ray_origin = extract_vec3_from_array_member(0);
+            auto ray_t_min = _builder.createCompositeExtract(ray, float_type, 1);
+            auto ray_dir = extract_vec3_from_array_member(2);
+            auto ray_t_max = _builder.createCompositeExtract(ray, float_type, 3);
+            auto rq_type = _builder.makeRayQueryType();
+            auto rq_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, rq_type, "rq");
+            auto is_query_all = inst->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL || inst->op() == xir::ResourceQueryOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR;
+            auto ray_flags = _builder.makeUintConstant(is_query_all ? 0u : 0x4u);
+            _builder.createNoResultOp(spv::Op::OpRayQueryInitializeKHR, std::vector<spv::Id>{
+                rq_var, accel, ray_flags, mask, ray_origin, ray_t_min, ray_dir, ray_t_max
+            });
+            id = rq_var;
+            break;
+        }
         case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST:
         case xir::ResourceQueryOp::RAY_TRACING_TRACE_ANY:
         case xir::ResourceQueryOp::RAY_TRACING_TRACE_CLOSEST_MOTION_BLUR:
@@ -1826,6 +1870,59 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             _emit_buffer_write(buffer_base, word_index, value, inst->operand(3)->type(), nullptr);
             break;
         }
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK:
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY:
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID: {
+            auto buffer = _emit_value(inst->operand(0));
+            auto index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto base_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(16u));
+            switch (inst->op()) {
+                case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM: {
+                    auto mat = _emit_value(inst->operand(2));
+                    auto float_type = _builder.makeFloatType(32);
+                    auto vec4_type = _builder.makeVectorType(float_type, 4);
+                    auto f32v4 = Type::vector(Type::of<float>(), 4);
+                    for (auto row = 0u; row < 3u; ++row) {
+                        std::vector<spv::Id> comps;
+                        comps.reserve(4);
+                        for (auto col = 0u; col < 4u; ++col) {
+                            auto col_vec = _builder.createCompositeExtract(mat, vec4_type, col);
+                            auto comp = _builder.createCompositeExtract(col_vec, float_type, row);
+                            comps.push_back(comp);
+                        }
+                        auto row_vec = _builder.createCompositeConstruct(vec4_type, comps);
+                        auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset,
+                                                                _builder.makeUintConstant(row * 4u));
+                        _emit_buffer_write_impl(buffer, word_offset, row_vec, f32v4);
+                    }
+                    break;
+                }
+                case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_VISIBILITY_MASK: {
+                    auto value = _emit_value(inst->operand(2));
+                    auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, _builder.makeUintConstant(13u));
+                    _emit_buffer_write_impl(buffer, word_offset, value, Type::of<uint>());
+                    break;
+                }
+                case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_USER_ID: {
+                    auto value = _emit_value(inst->operand(2));
+                    auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, _builder.makeUintConstant(12u));
+                    _emit_buffer_write_impl(buffer, word_offset, value, Type::of<uint>());
+                    break;
+                }
+                case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_OPACITY: {
+                    auto opaque = _emit_value(inst->operand(2));
+                    auto value = _builder.createOp(spv::Op::OpSelect, uint_type, {
+                        opaque, _builder.makeUintConstant(4u), _builder.makeUintConstant(8u)
+                    });
+                    auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, _builder.makeUintConstant(14u));
+                    _emit_buffer_write_impl(buffer, word_offset, value, Type::of<uint>());
+                    break;
+                }
+                default: break;
+            }
+            break;
+        }
         default:
             LUISA_NOT_IMPLEMENTED("SPIR-V resource write op {}.", xir::to_string(inst->op()));
     }
@@ -2038,8 +2135,14 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::LOAD: {
             auto load = static_cast<const xir::LoadInst *>(inst);
             auto ptr = _emit_value(load->variable());
-            auto id = _builder.createLoad(ptr, spv::NoPrecision);
-            set_result(id);
+            auto ptr_type = _builder.getTypeId(ptr);
+            auto pointee_type = _builder.getContainedTypeId(ptr_type);
+            if (_builder.getTypeClass(pointee_type) == spv::Op::OpTypeRayQueryKHR) {
+                set_result(ptr);
+            } else {
+                auto id = _builder.createLoad(ptr, spv::NoPrecision);
+                set_result(id);
+            }
             break;
         }
         case xir::DerivedInstructionTag::STORE: {
@@ -2049,15 +2152,19 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             auto ptr_type = _builder.getTypeId(ptr);
             auto pointee_type = _builder.getContainedTypeId(ptr_type);
             auto val_type = _builder.getTypeId(val);
-            if (pointee_type != val_type) {
-                if (_builder.isScalarType(val_type) && _builder.isVectorType(pointee_type)) {
-                    val = _builder.smearScalar(spv::NoPrecision, val, pointee_type);
-                } else if (_builder.getTypeClass(pointee_type) == _builder.getTypeClass(val_type) &&
-                           _builder.getNumTypeComponents(pointee_type) == _builder.getNumTypeComponents(val_type)) {
-                    val = _builder.createUnaryOp(spv::Op::OpBitcast, pointee_type, val);
+            if (_builder.getTypeClass(pointee_type) == spv::Op::OpTypeRayQueryKHR) {
+                _builder.createNoResultOp(spv::Op::OpCopyMemory, std::vector<spv::Id>{ptr, val});
+            } else {
+                if (pointee_type != val_type) {
+                    if (_builder.isScalarType(val_type) && _builder.isVectorType(pointee_type)) {
+                        val = _builder.smearScalar(spv::NoPrecision, val, pointee_type);
+                    } else if (_builder.getTypeClass(pointee_type) == _builder.getTypeClass(val_type) &&
+                               _builder.getNumTypeComponents(pointee_type) == _builder.getNumTypeComponents(val_type)) {
+                        val = _builder.createUnaryOp(spv::Op::OpBitcast, pointee_type, val);
+                    }
                 }
+                _builder.createStore(val, ptr);
             }
-            _builder.createStore(val, ptr);
             break;
         }
         case xir::DerivedInstructionTag::GEP: {
@@ -2260,7 +2367,11 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::PHI:
             LUISA_ERROR_WITH_LOCATION("Phi instructions should be eliminated before SPIR-V codegen.");
         case xir::DerivedInstructionTag::RAY_QUERY_LOOP:
+            _emit_ray_query_loop_inst(static_cast<const xir::RayQueryLoopInst *>(inst));
+            break;
         case xir::DerivedInstructionTag::RAY_QUERY_DISPATCH:
+            _emit_ray_query_dispatch_inst(static_cast<const xir::RayQueryDispatchInst *>(inst));
+            break;
         case xir::DerivedInstructionTag::AUTODIFF_SCOPE:
         case xir::DerivedInstructionTag::AUTODIFF_INTRINSIC:
             LUISA_ERROR_WITH_LOCATION("Instruction {} should be eliminated before SPIR-V codegen.",
@@ -2274,10 +2385,256 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::DEBUG_BREAK:
         case xir::DerivedInstructionTag::OUTLINE:
         case xir::DerivedInstructionTag::RASTER_DISCARD:
+            LUISA_NOT_IMPLEMENTED("SPIR-V codegen for instruction {}.", xir::to_string(inst->derived_instruction_tag()));
         case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+            _emit_ray_query_object_read_inst(static_cast<const xir::RayQueryObjectReadInst *>(inst));
+            break;
         case xir::DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
+            _emit_ray_query_object_write_inst(static_cast<const xir::RayQueryObjectWriteInst *>(inst));
+            break;
         case xir::DerivedInstructionTag::RAY_QUERY_PIPELINE:
             LUISA_NOT_IMPLEMENTED("SPIR-V codegen for instruction {}.", xir::to_string(inst->derived_instruction_tag()));
+    }
+}
+
+void SpirvCodegenEntry::_emit_ray_query_loop_inst(const xir::RayQueryLoopInst *inst) noexcept {
+    auto &function = _builder.getBuildPoint()->getParent();
+    auto dispatch_spv = _get_or_create_block(inst->dispatch_block());
+    auto merge_spv = _get_or_create_block(inst->merge_block());
+    auto header = &_builder.makeNewBlock();
+    auto continue_block = &_builder.makeNewBlock();
+    _loop_header_redirect.emplace(inst->dispatch_block(), continue_block);
+    _loop_header_info.emplace(inst->dispatch_block(), std::make_pair(header, continue_block));
+    _builder.createBranch(false, header);
+    _builder.setBuildPoint(header);
+    _builder.createLoopMerge(merge_spv, continue_block, spv::LoopControlMask::MaskNone, {});
+    _builder.createBranch(false, dispatch_spv);
+    _emit_block(inst->dispatch_block());
+    _builder.setBuildPoint(continue_block);
+    _builder.createBranch(false, header);
+    _emit_block(inst->merge_block());
+}
+
+void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatchInst *inst) noexcept {
+    auto rq_obj = _emit_value(inst->query_object());
+    auto bool_type = _builder.makeBoolType();
+    auto proceed = _builder.createOp(spv::Op::OpRayQueryProceedKHR, bool_type, {rq_obj});
+    auto &function = _builder.getBuildPoint()->getParent();
+    auto exit_block = _get_or_create_block(inst->exit_block());
+    auto check_block = new spv::Block(_builder.getUniqueId(), function);
+    _builder.createConditionalBranch(proceed, check_block, exit_block);
+    function.addBlock(check_block);
+    _builder.setBuildPoint(check_block);
+    auto uint_type = _builder.makeUintType(32);
+    auto candidate_const = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
+    auto candidate_type = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
+                                            std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate_const}});
+    auto surface_block = new spv::Block(_builder.getUniqueId(), function);
+    auto procedural_block = new spv::Block(_builder.getUniqueId(), function);
+    auto dispatch_merge_block = new spv::Block(_builder.getUniqueId(), function);
+    _block_map[inst->on_surface_candidate_block()] = surface_block;
+    _block_map[inst->on_procedural_candidate_block()] = procedural_block;
+    auto dispatch_xir_block = inst->parent_block();
+    spv::Block *continue_block = nullptr;
+    if (auto it = _loop_header_info.find(dispatch_xir_block); it != _loop_header_info.end()) {
+        continue_block = it->second.second;
+    } else {
+        LUISA_ERROR_WITH_LOCATION("RayQueryDispatchInst not inside a RayQueryLoop.");
+    }
+    auto is_triangle = _builder.createBinOp(spv::Op::OpIEqual, bool_type, candidate_type, _builder.makeUintConstant(0u));
+    auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
+    selection_merge->reserveOperands(2);
+    selection_merge->addIdOperand(dispatch_merge_block->getId());
+    selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+    _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
+    _builder.createConditionalBranch(is_triangle, surface_block, procedural_block);
+    // Temporarily redirect branches to the dispatch block so they target the dispatch merge block
+    // instead of the continue block, satisfying SPIR-V structured control flow rules.
+    auto saved_redirect = _loop_header_redirect[dispatch_xir_block];
+    _loop_header_redirect[dispatch_xir_block] = dispatch_merge_block;
+    function.addBlock(surface_block);
+    _builder.setBuildPoint(surface_block);
+    _emit_block(inst->on_surface_candidate_block());
+    if (!_builder.getBuildPoint()->isTerminated()) {
+        _builder.createBranch(false, dispatch_merge_block);
+    }
+    function.addBlock(procedural_block);
+    _builder.setBuildPoint(procedural_block);
+    _emit_block(inst->on_procedural_candidate_block());
+    if (!_builder.getBuildPoint()->isTerminated()) {
+        _builder.createBranch(false, dispatch_merge_block);
+    }
+    _loop_header_redirect[dispatch_xir_block] = saved_redirect;
+    function.addBlock(dispatch_merge_block);
+    _builder.setBuildPoint(dispatch_merge_block);
+    _builder.createBranch(false, continue_block);
+}
+
+void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept {
+    auto rq_obj = _emit_value(inst->operand(0));
+    auto type = _convert_type(inst->type(), Usage::READ);
+    auto float_type = _builder.makeFloatType(32);
+    auto uint_type = _builder.makeUintType(32);
+    auto int_type = _builder.makeIntType(32);
+    auto bool_type = _builder.makeBoolType();
+    auto vec2_type = _builder.makeVectorType(float_type, 2);
+    auto vec3_type = _builder.makeVectorType(float_type, 3);
+    spv::Id id = spv::NoResult;
+    switch (inst->op()) {
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: {
+            auto origin = _builder.createOp(spv::Op::OpRayQueryGetWorldRayOriginKHR, vec3_type, {rq_obj});
+            auto dir = _builder.createOp(spv::Op::OpRayQueryGetWorldRayDirectionKHR, vec3_type, {rq_obj});
+            auto t_min = _builder.createOp(spv::Op::OpRayQueryGetRayTMinKHR, float_type, {rq_obj});
+            auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
+            auto t_max = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                                           std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+            auto ray_type = inst->type();
+            auto origin_array_type = _convert_type(ray_type->members()[0], Usage::READ);
+            auto dir_array_type = _convert_type(ray_type->members()[2], Usage::READ);
+            auto origin_arr = _builder.createCompositeConstruct(origin_array_type, {
+                _builder.createCompositeExtract(origin, float_type, 0),
+                _builder.createCompositeExtract(origin, float_type, 1),
+                _builder.createCompositeExtract(origin, float_type, 2)});
+            auto dir_arr = _builder.createCompositeConstruct(dir_array_type, {
+                _builder.createCompositeExtract(dir, float_type, 0),
+                _builder.createCompositeExtract(dir, float_type, 1),
+                _builder.createCompositeExtract(dir, float_type, 2)});
+            id = _builder.createCompositeConstruct(type, {origin_arr, t_min, dir_arr, t_max});
+            break;
+        }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_TRIANGLE_CANDIDATE_HIT: {
+            auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
+            auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, int_type,
+                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            auto prim_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, int_type,
+                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            auto bary = _builder.createOp(spv::Op::OpRayQueryGetIntersectionBarycentricsKHR, vec2_type,
+                                          std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            auto ray_t = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                                           std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            inst_idx = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, inst_idx);
+            prim_idx = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, prim_idx);
+            id = _builder.createCompositeConstruct(type, {inst_idx, prim_idx, bary, ray_t});
+            break;
+        }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_PROCEDURAL_CANDIDATE_HIT: {
+            auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
+            auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, int_type,
+                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            auto prim_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, int_type,
+                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            inst_idx = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, inst_idx);
+            prim_idx = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, prim_idx);
+            id = _builder.createCompositeConstruct(type, {inst_idx, prim_idx});
+            break;
+        }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_COMMITTED_HIT: {
+            auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
+            auto committed_type = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
+                                                    std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+            auto &function = _builder.getBuildPoint()->getParent();
+            auto tri_block = new spv::Block(_builder.getUniqueId(), function);
+            auto proc_block = new spv::Block(_builder.getUniqueId(), function);
+            auto merge_block = new spv::Block(_builder.getUniqueId(), function);
+            auto result_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "committed_hit");
+            auto zero_result = _builder.makeNullConstant(type);
+            _builder.createStore(zero_result, result_var);
+            auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
+            selection_merge->reserveOperands(2);
+            selection_merge->addIdOperand(merge_block->getId());
+            selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+            _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
+            auto switch_inst = new spv::Instruction(spv::Op::OpSwitch);
+            switch_inst->reserveOperands(6);
+            switch_inst->addIdOperand(committed_type);
+            switch_inst->addIdOperand(merge_block->getId());// default (none) -> merge
+            switch_inst->addImmediateOperand(1u);            // triangle
+            switch_inst->addIdOperand(tri_block->getId());
+            switch_inst->addImmediateOperand(2u);            // procedural
+            switch_inst->addIdOperand(proc_block->getId());
+            _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(switch_inst));
+            merge_block->addPredecessor(_builder.getBuildPoint());
+            tri_block->addPredecessor(_builder.getBuildPoint());
+            proc_block->addPredecessor(_builder.getBuildPoint());
+            function.addBlock(tri_block);
+            _builder.setBuildPoint(tri_block);
+            {
+                auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, int_type,
+                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                auto prim_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, int_type,
+                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                auto bary = _builder.createOp(spv::Op::OpRayQueryGetIntersectionBarycentricsKHR, vec2_type,
+                                              std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                auto ray_t = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                                               std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                inst_idx = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, inst_idx);
+                prim_idx = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, prim_idx);
+                auto hit = _builder.createCompositeConstruct(type, {inst_idx, prim_idx, bary, _builder.makeUintConstant(1u), ray_t});
+                _builder.createStore(hit, result_var);
+            }
+            _builder.createBranch(false, merge_block);
+            function.addBlock(proc_block);
+            _builder.setBuildPoint(proc_block);
+            {
+                auto inst_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionInstanceIdKHR, int_type,
+                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                auto prim_idx = _builder.createOp(spv::Op::OpRayQueryGetIntersectionPrimitiveIndexKHR, int_type,
+                                                  std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                auto ray_t = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
+                                               std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
+                inst_idx = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, inst_idx);
+                prim_idx = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, prim_idx);
+                auto zero_bary = _builder.createCompositeConstruct(vec2_type, {_builder.makeFloatConstant(0.0f), _builder.makeFloatConstant(0.0f)});
+                auto hit = _builder.createCompositeConstruct(type, {inst_idx, prim_idx, zero_bary, _builder.makeUintConstant(2u), ray_t});
+                _builder.createStore(hit, result_var);
+            }
+            _builder.createBranch(false, merge_block);
+            function.addBlock(merge_block);
+            _builder.setBuildPoint(merge_block);
+            id = _builder.createLoad(result_var, spv::NoPrecision);
+            break;
+        }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TRIANGLE_CANDIDATE: {
+            auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
+            auto candidate_type = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
+                                                    std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            id = _builder.createBinOp(spv::Op::OpIEqual, bool_type, candidate_type, _builder.makeUintConstant(0u));
+            break;
+        }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_PROCEDURAL_CANDIDATE: {
+            auto candidate = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
+            auto candidate_type = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
+                                                    std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate}});
+            id = _builder.createBinOp(spv::Op::OpIEqual, bool_type, candidate_type, _builder.makeUintConstant(1u));
+            break;
+        }
+        case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED: {
+            id = _builder.makeBoolConstant(false);
+            break;
+        }
+    }
+    LUISA_ASSERT(id != spv::NoResult, "Failed to emit ray query object read.");
+    _value_map.emplace(inst, id);
+}
+
+void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObjectWriteInst *inst) noexcept {
+    auto rq_obj = _emit_value(inst->operand(0));
+    switch (inst->op()) {
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_TRIANGLE:
+            _builder.createNoResultOp(spv::Op::OpRayQueryConfirmIntersectionKHR, {rq_obj});
+            break;
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_COMMIT_PROCEDURAL: {
+            LUISA_DEBUG_ASSERT(inst->operand_count() == 2);
+            auto dist = _emit_value(inst->operand(1));
+            _builder.createNoResultOp(spv::Op::OpRayQueryGenerateIntersectionKHR, {rq_obj, dist});
+            break;
+        }
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE:
+            _builder.createNoResultOp(spv::Op::OpRayQueryTerminateKHR, {rq_obj});
+            break;
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED:
+            _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), {rq_obj});
+            break;
     }
 }
 

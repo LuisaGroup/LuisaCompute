@@ -94,10 +94,21 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             break;
         }
         case Type::Tag::ACCEL:
+            _builder.addExtension(spv::E_SPV_KHR_ray_query);
+            _builder.addCapability(spv::Capability::RayQueryKHR);
             id = _builder.makeAccelerationStructureType();
             break;
-        case Type::Tag::CUSTOM:
-            LUISA_NOT_IMPLEMENTED("SPIR-V type conversion for resource/custom type {}.", type->description());
+        case Type::Tag::CUSTOM: {
+            auto desc = type->description();
+            if (desc == "LC_RayQueryAll" || desc == "LC_RayQueryAny") {
+                _builder.addExtension(spv::E_SPV_KHR_ray_query);
+                _builder.addCapability(spv::Capability::RayQueryKHR);
+                id = _builder.makeRayQueryType();
+            } else {
+                LUISA_NOT_IMPLEMENTED("SPIR-V type conversion for resource/custom type {}.", desc);
+            }
+            break;
+        }
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to convert type {}.", type->description());
     _type_map.emplace(type, id);

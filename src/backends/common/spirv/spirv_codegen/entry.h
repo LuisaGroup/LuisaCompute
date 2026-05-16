@@ -105,6 +105,10 @@ private:
     void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type) noexcept;
     void _emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type) noexcept;
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
+    void _emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept;
+    void _emit_ray_query_object_write_inst(const xir::RayQueryObjectWriteInst *inst) noexcept;
+    void _emit_ray_query_loop_inst(const xir::RayQueryLoopInst *inst) noexcept;
+    void _emit_ray_query_dispatch_inst(const xir::RayQueryDispatchInst *inst) noexcept;
     spv::Id _resolve_resource_argument(const xir::Argument *arg) noexcept;
     spv::Id _load_texture(spv::Id tex_var) noexcept;
     spv::Id _create_access_chain(spv::StorageClass storage, spv::Id base, const std::vector<spv::Id> &indices) noexcept;
