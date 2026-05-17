@@ -5,7 +5,7 @@ description: LuisaCompute core library — basic traits/types, binary I/O, clock
 
 # LuisaCompute Core Library (lc_core)
 
-Based on test cases in `src/tests/for_agent/*.cpp`.
+Based on test cases in `src/tests/unit/core/*.cpp`.
 
 ## Basic Traits
 

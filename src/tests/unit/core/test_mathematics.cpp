@@ -1,8 +1,3 @@
-/**
- * @file tests/for_agent/mathematics.cpp
- * @brief Test cases for luisa/core/mathematics.h
- */
-
 #include <luisa/core/mathematics.h>
 #include <luisa/core/logging.h>
 #include "ut/ut.hpp"

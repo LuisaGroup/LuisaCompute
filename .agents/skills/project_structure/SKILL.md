@@ -135,9 +135,9 @@ High-level tensor ops, expression DAG, graph passes. `fallback/` — CPU kernels
 - **ext**: git submodules: EASTL, glfw, imgui, pybind11, spdlog, reproc, stb, volk, yyjson, xxhash, marl, half, HIPRT, liblmdb, magic_enum
 
 ### `src/tests/`
-- `for_agent/` — core library unit tests
-- `next/test/feat/` — feature tests by layer
-- `next/example/` — gallery apps
+- `unit/{core,ast,dsl,runtime,ext,xir}/` — unit tests by layer
+- `integration/{runtime,ir}/` — cross-cutting integration tests
+- `common/` — shared headers (`test_device.h`, `ut/`, asset loaders)
 - `python/` — Python frontend tests
 - Root: integration tests (`test_path_tracing`, `test_dsl`, `test_rtx`, `test_raster`, `test_tensor`, `test_autodiff`, etc.)
 
