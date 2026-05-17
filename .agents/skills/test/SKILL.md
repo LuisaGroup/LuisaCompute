@@ -44,6 +44,25 @@ test_proj("test_my_feature", "unit/runtime/test_my_feature.cpp")
 -- 3rd arg = gui_dep: if true, only built when lc_enable_gui=true, and defines LUISA_ENABLE_GUI
 ```
 
+## Example ↔ Test Mirror Targets
+
+Auto-checkable examples in `examples/` (rendering w/ reference image, deterministic sims, headless compute) are built as **two executables sharing one source file**: `example_<name>` and `test_<name>`. Opt in with the `MIRROR_AS_TEST` flag on `luisa_compute_add_example` in `examples/CMakeLists.txt`:
+
+```cmake
+luisa_compute_add_example(example_path_tracing rendering/path_tracing.cpp MIRROR_AS_TEST)
+# Produces both bin/example_path_tracing and bin/test_path_tracing.
+```
+
+When extra `target_link_libraries` are needed, use `luisa_example_pair_link` so both targets get the libs:
+```cmake
+luisa_compute_add_example(example_cuda_lcub extension/cuda_lcub.cpp MIRROR_AS_TEST)
+luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver)
+```
+
+**Do NOT mirror**: GUI toolkit demos (`swapchain*`, `imgui`, `mnist`, Qt, wxWidgets, `win_hdr`) and extension/interop demos. Correctness can't be auto-checked for interactive windows.
+
+**Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*`, `example_sdf_renderer[_ir]`, `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`.
+
 ## Test File Template
 
 ```cpp

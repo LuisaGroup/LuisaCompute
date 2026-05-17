@@ -105,10 +105,25 @@ Creates executable linked to `luisa::compute`.
 luisa_compute_add_executable(my_app)
 ```
 
-### `luisa_compute_test_suite(name)` / `luisa_compute_add_test(name)`
+### `luisa_compute_add_test(name source [LABELS ...] [ARGS ...])`
+**File**: `src/tests/CMakeLists.txt`. Builds one standalone executable per source. With `LABELS`, registers a CTest entry (CPU-only tests). Without `LABELS`, just builds the binary (GPU-using tests are invoked manually with a backend arg).
 ```cmake
-luisa_compute_test_suite(feat)   # globs next/test/feat/**.cpp
-luisa_compute_add_test(my_test)  # adds to test_main executable
+luisa_compute_add_test(test_basic_traits unit/core/test_basic_traits.cpp LABELS "unit;unit_core")
+luisa_compute_add_test(test_my_gpu unit/runtime/test_my_gpu.cpp)  # no CTest
+```
+
+### `luisa_compute_add_example(name source... [MIRROR_AS_TEST])`
+**File**: `examples/CMakeLists.txt`. Builds `example_<name>` and, when `MIRROR_AS_TEST` is set, additionally builds a `test_<name>` mirror executable from the same sources. Reserved for auto-checkable examples (reference-image comparison, deterministic sims, headless compute). GUI/interop demos must omit the flag.
+```cmake
+luisa_compute_add_example(example_path_tracing rendering/path_tracing.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_swapchain_qt gui/swapchain_qt.cpp)  # no mirror
+```
+
+### `luisa_example_pair_link(name <link-args>)`
+Companion to `luisa_compute_add_example`. Calls `target_link_libraries` on both `example_<name>` and its `test_<name>` mirror (if any). Use whenever an example needs extra libs.
+```cmake
+luisa_compute_add_example(example_cuda_lcub extension/cuda_lcub.cpp MIRROR_AS_TEST)
+luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver)
 ```
 
 ## Backend Plugin Build
