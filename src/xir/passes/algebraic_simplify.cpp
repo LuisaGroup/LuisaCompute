@@ -35,12 +35,6 @@ namespace detail {
 [[nodiscard]] static bool is_const_zero(const Value *v) noexcept { return is_const_value(v, 0); }
 [[nodiscard]] static bool is_const_one(const Value *v) noexcept { return is_const_value(v, 1); }
 
-[[nodiscard]] static bool is_float_type(const Type *t) noexcept {
-    if (t->is_float32() || t->is_float64()) return true;
-    if (t->is_vector()) return t->element()->is_float32() || t->element()->is_float64();
-    return false;
-}
-
 // Try to simplify an arithmetic instruction. Returns replacement Value or nullptr.
 [[nodiscard]] static Value *try_simplify(ArithmeticInst *inst, Module *module) noexcept {
     auto op = inst->op();
@@ -50,7 +44,7 @@ namespace detail {
     switch (op) {
         case ArithmeticOp::BINARY_ADD: {
             // x + 0 → x  (integer only; float: +0 may change sign)
-            if (!is_float_type(type)) {
+            if (!type->is_float_or_float_vector()) {
                 if (is_const_zero(inst->operand(1))) return inst->operand(0);
                 if (is_const_zero(inst->operand(0))) return inst->operand(1);
             }
@@ -58,7 +52,7 @@ namespace detail {
         }
         case ArithmeticOp::BINARY_SUB: {
             // x - 0 → x  (integer only)
-            if (!is_float_type(type)) {
+            if (!type->is_float_or_float_vector()) {
                 if (is_const_zero(inst->operand(1))) return inst->operand(0);
                 // x - x → 0  (integer only)
                 if (inst->operand(0) == inst->operand(1)) {
@@ -72,7 +66,7 @@ namespace detail {
             if (is_const_one(inst->operand(1))) return inst->operand(0);
             if (is_const_one(inst->operand(0))) return inst->operand(1);
             // x * 0 → 0  (integer only; float: NaN * 0 = NaN)
-            if (!is_float_type(type)) {
+            if (!type->is_float_or_float_vector()) {
                 if (is_const_zero(inst->operand(0)) || is_const_zero(inst->operand(1))) {
                     return module->create_constant_zero(type);
                 }
@@ -83,7 +77,7 @@ namespace detail {
             // x / 1 → x  (safe for all types)
             if (is_const_one(inst->operand(1))) return inst->operand(0);
             // 0 / x → 0  (integer only; float: 0/0 = NaN)
-            if (!is_float_type(type)) {
+            if (!type->is_float_or_float_vector()) {
                 if (is_const_zero(inst->operand(0))) return module->create_constant_zero(type);
             }
             break;
