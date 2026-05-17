@@ -51,30 +51,104 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             else
                 id = unary(spv::Op::OpNot);
             break;
-        case xir::ArithmeticOp::BINARY_ADD:
-            if (is_float)
+        case xir::ArithmeticOp::BINARY_ADD: {
+            if (is_float) {
                 id = binary(spv::Op::OpFAdd);
-            else
+            } else {
+                auto a = operand(0);
+                auto b = operand(1);
+                // Constant-fold at emission time
+                auto op_a = _builder.getOpCode(a);
+                auto op_b = _builder.getOpCode(b);
+                if ((op_a == spv::Op::OpConstant || op_a == spv::Op::OpSpecConstant) &&
+                    (op_b == spv::Op::OpConstant || op_b == spv::Op::OpSpecConstant)) {
+                    auto type_a = _builder.getTypeId(a);
+                    if (_builder.isIntType(type_a) || _builder.isUintType(type_a)) {
+                        // Attempt to compute folded constant
+                        std::vector<spv::Id> ops = {a, b};
+                        id = _builder.createSpecConstantOp(spv::Op::OpIAdd, type, ops, {});
+                        break;
+                    }
+                }
                 id = binary(spv::Op::OpIAdd);
+            }
             break;
+        }
         case xir::ArithmeticOp::BINARY_SUB:
             if (is_float)
                 id = binary(spv::Op::OpFSub);
             else
                 id = binary(spv::Op::OpISub);
             break;
-        case xir::ArithmeticOp::BINARY_MUL:
-            if (is_float)
+        case xir::ArithmeticOp::BINARY_MUL: {
+            if (is_float) {
                 id = binary(spv::Op::OpFMul);
-            else
+            } else {
+                auto a = operand(0);
+                auto b = operand(1);
+                // Strength reduction: IMul(x, 2^n) → ShiftLeftLogical(x, n)
+                if (inst->operand(1)->isa<xir::Constant>()) {
+                    auto c = static_cast<const xir::Constant *>(inst->operand(1));
+                    uint32_t val = 0;
+                    bool is_pow2 = false;
+                    if (c->type()->is_uint32()) {
+                        val = c->as<uint32_t>();
+                        is_pow2 = (val & (val - 1u)) == 0u && val != 0u;
+                    } else if (c->type()->is_int32()) {
+                        int32_t sval = c->as<int32_t>();
+                        if (sval > 0) {
+                            val = static_cast<uint32_t>(sval);
+                            is_pow2 = (val & (val - 1u)) == 0u;
+                        }
+                    }
+                    if (is_pow2) {
+                        uint32_t shift = 0;
+                        while (val >>= 1u) ++shift;
+                        auto shift_id = _builder.makeUintConstant(shift);
+                        id = _builder.createBinOp(spv::Op::OpShiftLeftLogical, type, a, shift_id);
+                        break;
+                    }
+                }
+                // Constant-fold at emission time
+                auto op_a = _builder.getOpCode(a);
+                auto op_b = _builder.getOpCode(b);
+                if ((op_a == spv::Op::OpConstant || op_a == spv::Op::OpSpecConstant) &&
+                    (op_b == spv::Op::OpConstant || op_b == spv::Op::OpSpecConstant)) {
+                    auto type_a = _builder.getTypeId(a);
+                    if (_builder.isIntType(type_a) || _builder.isUintType(type_a)) {
+                        std::vector<spv::Id> ops = {a, b};
+                        id = _builder.createSpecConstantOp(spv::Op::OpIMul, type, ops, {});
+                        break;
+                    }
+                }
                 id = binary(spv::Op::OpIMul);
+            }
             break;
+        }
         case xir::ArithmeticOp::BINARY_DIV:
-            if (is_float)
+            if (is_float) {
                 id = binary(spv::Op::OpFDiv);
-            else if (is_signed_int)
+            } else if (is_signed_int) {
+                auto a = operand(0);
+                auto b = operand(1);
+                // Strength reduction: IDiv(x, 2^n) → ShiftRightArithmetic(x, n)
+                if (inst->operand(1)->isa<xir::Constant>()) {
+                    auto c = static_cast<const xir::Constant *>(inst->operand(1));
+                    int32_t sval = 0;
+                    if (c->type()->is_int32()) {
+                        sval = c->as<int32_t>();
+                    }
+                    if (sval > 0 && (static_cast<uint32_t>(sval) & (static_cast<uint32_t>(sval) - 1u)) == 0u) {
+                        uint32_t shift = 0;
+                        uint32_t v = static_cast<uint32_t>(sval);
+                        while (v >>= 1u) ++shift;
+                        auto shift_id = _builder.makeUintConstant(shift);
+                        id = _builder.createBinOp(spv::Op::OpShiftRightArithmetic, type, a, shift_id);
+                        break;
+                    }
+                }
                 id = binary(spv::Op::OpSDiv);
-            else
+            } else
                 id = binary(spv::Op::OpUDiv);
             break;
         case xir::ArithmeticOp::BINARY_MOD:
@@ -183,6 +257,20 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::BINARY_EQUAL: {
             auto op_elem = inst->operand(0)->type();
             op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
+            // Constant-fold at emission time
+            if (inst->operand(0)->isa<xir::Constant>() && inst->operand(1)->isa<xir::Constant>()) {
+                auto a = operand(0);
+                auto b = operand(1);
+                auto op_a = _builder.getOpCode(a);
+                auto op_b = _builder.getOpCode(b);
+                if ((op_a == spv::Op::OpConstant || op_a == spv::Op::OpSpecConstant) &&
+                    (op_b == spv::Op::OpConstant || op_b == spv::Op::OpSpecConstant)) {
+                    if (_builder.isIntType(_builder.getTypeId(a)) || _builder.isUintType(_builder.getTypeId(a))) {
+                        id = _builder.createSpecConstantOp(spv::Op::OpIEqual, type, {a, b}, {});
+                        break;
+                    }
+                }
+            }
             if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdEqual);
             else
@@ -192,6 +280,20 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::BINARY_NOT_EQUAL: {
             auto op_elem = inst->operand(0)->type();
             op_elem = op_elem->is_vector() ? op_elem->element() : op_elem;
+            // Constant-fold at emission time
+            if (inst->operand(0)->isa<xir::Constant>() && inst->operand(1)->isa<xir::Constant>()) {
+                auto a = operand(0);
+                auto b = operand(1);
+                auto op_a = _builder.getOpCode(a);
+                auto op_b = _builder.getOpCode(b);
+                if ((op_a == spv::Op::OpConstant || op_a == spv::Op::OpSpecConstant) &&
+                    (op_b == spv::Op::OpConstant || op_b == spv::Op::OpSpecConstant)) {
+                    if (_builder.isIntType(_builder.getTypeId(a)) || _builder.isUintType(_builder.getTypeId(a))) {
+                        id = _builder.createSpecConstantOp(spv::Op::OpINotEqual, type, {a, b}, {});
+                        break;
+                    }
+                }
+            }
             if (op_elem->is_float())
                 id = binary(spv::Op::OpFOrdNotEqual);
             else
@@ -200,6 +302,15 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         }
         case xir::ArithmeticOp::SELECT: {
             // XIR SELECT operands are (false_value, true_value, condition)
+            // Constant-fold: if condition is a constant bool, pick the correct operand
+            if (inst->operand(2)->isa<xir::Constant>()) {
+                auto cond_const = static_cast<const xir::Constant *>(inst->operand(2));
+                if (cond_const->type()->is_bool()) {
+                    bool cond_val = cond_const->as<bool>();
+                    id = cond_val ? operand(1) : operand(0);
+                    break;
+                }
+            }
             auto cond = operand(2);
             auto cond_type = _builder.getTypeId(cond);
             bool is_bool_cond = _builder.isBoolType(cond_type);
@@ -663,24 +774,79 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
 
         // Composite operations
         case xir::ArithmeticOp::AGGREGATE: {
-            std::vector<spv::Id> comps;
-            comps.reserve(inst->operand_count());
-            for (uint i = 0u; i < inst->operand_count(); ++i) {
-                comps.push_back(operand(i));
+            // Peephole: detect Extract-from-same-vector pattern and emit OpVectorShuffle
+            if (t->is_vector() && inst->operand_count() >= 2u) {
+                const xir::Value *common_base = nullptr;
+                bool all_extract = true;
+                luisa::vector<unsigned> indices;
+                indices.reserve(inst->operand_count());
+                for (uint i = 0u; i < inst->operand_count(); ++i) {
+                    auto op = inst->operand(i);
+                    if (!op->isa<xir::ArithmeticInst>()) { all_extract = false; break; }
+                    auto ari = static_cast<const xir::ArithmeticInst *>(op);
+                    if (ari->op() != xir::ArithmeticOp::EXTRACT) { all_extract = false; break; }
+                    auto base = ari->operand(0);
+                    if (!base->type()->is_vector()) { all_extract = false; break; }
+                    if (common_base == nullptr) {
+                        common_base = base;
+                    } else if (common_base != base) {
+                        all_extract = false;
+                        break;
+                    }
+                    // Index must be constant
+                    if (ari->operand_count() < 2u || !ari->operand(1)->isa<xir::Constant>()) {
+                        all_extract = false;
+                        break;
+                    }
+                    auto idx_val = static_cast<const xir::Constant *>(ari->operand(1))->as<uint32_t>();
+                    indices.push_back(static_cast<unsigned>(idx_val));
+                }
+                if (all_extract && common_base != nullptr) {
+                    auto base_spv = _emit_value(const_cast<xir::Value *>(common_base));
+                    std::vector<unsigned> std_indices(indices.begin(), indices.end());
+                    id = _builder.createRvalueSwizzle(spv::NoPrecision, type, base_spv, std_indices);
+                    break;
+                }
             }
-            id = _builder.createCompositeConstruct(type, comps);
+            // Fallthrough: normal CompositeConstruct
+            {
+                std::vector<spv::Id> comps;
+                comps.reserve(inst->operand_count());
+                for (uint i = 0u; i < inst->operand_count(); ++i) {
+                    comps.push_back(operand(i));
+                }
+                id = _builder.createCompositeConstruct(type, comps);
+            }
             break;
         }
         case xir::ArithmeticOp::SHUFFLE: {
             auto v = operand(0);
             auto dim = t->dimension();
-            std::vector<spv::Id> comps;
-            comps.reserve(dim);
+            // Peephole: if all indices are constants, emit OpVectorShuffle directly
+            bool all_const = true;
+            luisa::vector<unsigned> shuffle_indices;
+            shuffle_indices.reserve(dim);
             for (auto i = 1u; i <= dim; ++i) {
-                auto idx = _emit_value(inst->operand(i));
-                comps.push_back(_builder.createVectorExtractDynamic(v, _convert_type(t->element(), Usage::READ), idx));
+                if (inst->operand(i)->isa<xir::Constant>()) {
+                    auto idx = static_cast<const xir::Constant *>(inst->operand(i))->as<uint32_t>();
+                    shuffle_indices.push_back(static_cast<unsigned>(idx));
+                } else {
+                    all_const = false;
+                    break;
+                }
             }
-            id = _builder.createCompositeConstruct(type, comps);
+            if (all_const) {
+                std::vector<unsigned> std_indices(shuffle_indices.begin(), shuffle_indices.end());
+                id = _builder.createRvalueSwizzle(spv::NoPrecision, type, v, std_indices);
+            } else {
+                std::vector<spv::Id> comps;
+                comps.reserve(dim);
+                for (auto i = 1u; i <= dim; ++i) {
+                    auto idx = _emit_value(inst->operand(i));
+                    comps.push_back(_builder.createVectorExtractDynamic(v, _convert_type(t->element(), Usage::READ), idx));
+                }
+                id = _builder.createCompositeConstruct(type, comps);
+            }
             break;
         }
         case xir::ArithmeticOp::INSERT: {
@@ -1729,8 +1895,9 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
 }
 
 spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type) noexcept {
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && buffer_type->element()->is_scalar()) {
-        // Typed scalar buffer: direct element access
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr) {
+        // Typed buffer: direct element access via SPIR-V type system.
+        // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
         return _builder.createLoad(ptr, spv::NoPrecision);
     }
@@ -1902,8 +2069,9 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
 }
 
 void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type) noexcept {
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && buffer_type->element()->is_scalar()) {
-        // Typed scalar buffer: direct element access
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr) {
+        // Typed buffer: direct element access via SPIR-V type system.
+        // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
         _builder.createStore(value, ptr);
         return;

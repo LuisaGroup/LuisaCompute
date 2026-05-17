@@ -543,6 +543,7 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
                 case Type::Tag::BINDLESS_ARRAY:
                     pointee_type = _convert_type(type, Usage::READ);
                     storage = spv::StorageClass::StorageBuffer;
+                    _builder.addIncorporatedExtension("SPV_KHR_variable_pointers", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
                     break;
                 case Type::Tag::ACCEL:
@@ -620,6 +621,23 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
                      "SPIR-V codegen: kernel function not found in post-order traversal.");
         return analysis;
     }();
+
+    // Detect buffers that need atomic access (must stay as uint32 arrays)
+    {
+        for (auto f : analysis.used_functions_post_order) {
+            if (auto def = f->definition()) {
+                def->traverse_instructions([&](const xir::Instruction *inst) noexcept {
+                    if (inst->isa<xir::AtomicInst>()) {
+                        auto atomic = static_cast<const xir::AtomicInst *>(inst);
+                        auto base = atomic->operand(0);
+                        if (base != nullptr && base->type() != nullptr && base->type()->is_buffer()) {
+                            _needs_atomic_buffer_types.emplace(base->type());
+                        }
+                    }
+                });
+            }
+        }
+    }
 
     for (auto type : analysis.used_types) {
         if (type != nullptr) { _convert_type(type, Usage::READ); }

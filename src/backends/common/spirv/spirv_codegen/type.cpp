@@ -44,14 +44,22 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
         }
         case Type::Tag::BUFFER: {
             auto elem_type = type->element();
-            // Use typed arrays for scalar buffers (enables direct atomic ops),
-            // uint arrays for composites (avoids SPIR-V composite op issues).
-            bool use_typed = elem_type != nullptr && elem_type->is_scalar();
+            // Use typed arrays for all buffer element types.
+            // Fall back to uint32 only for buffers that need atomic access
+            // (since SPIR-V atomic ops require scalar integer types).
+            bool needs_atomic = _needs_atomic_buffer_types.contains(type);
+            bool use_typed = elem_type != nullptr && !needs_atomic;
             auto spv_elem_type = use_typed ? _convert_type(elem_type, usage) : _builder.makeUintType(32);
             auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
             _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, use_typed ? static_cast<int32_t>(elem_type->size()) : 4);
             _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
+            // Matrix elements in Block-decorated structs require ColMajor and MatrixStride decorations.
+            if (use_typed && elem_type->is_matrix()) {
+                auto col_type = Type::vector(elem_type->element(), elem_type->dimension());
+                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::ColMajor);
+                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::MatrixStride, static_cast<int32_t>(col_type->size()));
+            }
             _builder.addDecoration(struct_type, spv::Decoration::Block);
             id = struct_type;
             break;

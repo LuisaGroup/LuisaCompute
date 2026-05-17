@@ -15,12 +15,37 @@ namespace detail {
 [[nodiscard]] static bool is_alloca_promotable(AllocaInst *inst) noexcept {
     // check if it's a local variable
     if (inst->op() != AllocaOp::LOCAL) { return false; }
-    // check if it's used as reference in other instructions than load/store
+    // check if it's used as reference in other instructions than load/store/gep
     for (auto &&use : inst->use_list()) {
         LUISA_DEBUG_ASSERT(use->user() != nullptr && use->user()->isa<Instruction>(), "Invalid user.");
         if (auto user_inst = static_cast<Instruction *>(use->user());
-            !user_inst->isa<LoadInst>() && !user_inst->isa<StoreInst>()) {
+            !user_inst->isa<LoadInst>() && !user_inst->isa<StoreInst>() && !user_inst->isa<GEPInst>()) {
             return false;
+        }
+    }
+    // Also check that GEP users are only used by load/store
+    // (trace through GEP chain to ensure the alloca is only loaded/stored)
+    luisa::vector<const Instruction *> work_list;
+    luisa::unordered_set<const Instruction *> visited;
+    for (auto &&use : inst->use_list()) {
+        if (auto user = use->user(); user != nullptr && user->isa<Instruction>()) {
+            work_list.push_back(static_cast<const Instruction *>(user));
+        }
+    }
+    while (!work_list.empty()) {
+        auto u = work_list.back();
+        work_list.pop_back();
+        if (!visited.emplace(u).second) { continue; }
+        if (u->isa<LoadInst>() || u->isa<StoreInst>()) { continue; }
+        if (u->isa<GEPInst>()) {
+            // GEP is fine, trace its users
+            for (auto &&gep_use : u->use_list()) {
+                if (auto gep_user = gep_use->user(); gep_user != nullptr && gep_user->isa<Instruction>()) {
+                    work_list.push_back(static_cast<const Instruction *>(gep_user));
+                }
+            }
+        } else {
+            return false;// non-load/store/gep user found through GEP chain
         }
     }
     return true;
