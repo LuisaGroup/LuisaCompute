@@ -4,7 +4,7 @@
 
 function(luisa_compute_add_tutorial name)
     luisa_compute_add_executable(${name} ${ARGN})
-    target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/src/tests/ ${CMAKE_SOURCE_DIR}/examples/)
+    target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/src/tests/ ${CMAKE_SOURCE_DIR}/src/tests/common/ ${CMAKE_SOURCE_DIR}/examples/)
 endfunction()
 
 # Helper: register a CTest target for a tutorial executable (offline mode).
