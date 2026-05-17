@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
         auto p = dispatch_id().xy();
         auto i = make_float2(p) + .5f;
         auto o = main_image(iChannel0, iTime, i);
-        output.write(p, o);
+        output.write(p, make_float4(o.xyz(), 1.f));
     });
 
     auto resolution = make_uint2(1280u, 720u);

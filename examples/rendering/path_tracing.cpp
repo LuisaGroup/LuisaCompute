@@ -363,7 +363,7 @@ int main(int argc, char *argv[]) {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
         Float3 ldr = linear_to_srgb(clamp(hdr.xyz() / hdr.w * scale, 0.f, 1.f));
-        ldr_image.write(coord, make_float4(ldr, 0.2f));
+        ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
     // Compile shaders

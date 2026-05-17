@@ -99,7 +99,13 @@ int main(int argc, char *argv[]) {
         Var final_val = pattern * 0.5f + 0.5f;
         final_val = final_val + eye1 * 0.3f + eye2 * 0.3f + mouth * 0.2f;
 
-        image.write(dispatch_id().xy(), make_float4(make_float3(final_val), 1.0f));
+        Var tint = make_float3(
+            0.5f + 0.5f * sin(uv.x * 6.2831853f + 0.0f),
+            0.5f + 0.5f * sin(uv.y * 6.2831853f + 2.0943951f),
+            0.5f + 0.5f * sin((uv.x + uv.y) * 6.2831853f + 4.1887902f));
+        Var color = final_val * tint;
+
+        image.write(dispatch_id().xy(), make_float4(color, 1.0f));
     };
 
     auto pattern_shader = device.compile(generate_pattern);
