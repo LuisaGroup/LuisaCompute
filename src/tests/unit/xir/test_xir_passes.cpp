@@ -743,10 +743,152 @@ void reg_loop_unroll() {
     };
 }
 
+// Regression tests for the stripe-bug class: passes must produce correct
+// VALUE and TYPE, not just the right count. See history of algebraic_simplify
+// returning scalar zero for vector x-x (caused PT pixel-coord corruption).
+
+void reg_regression() {
+
+    // Stripe-bug regression: x - x on a vector type MUST produce a vector-typed zero.
+    "regression_vec3_sub_self_produces_vector_zero"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto vec_t = Type::of<int3>();
+        auto *x = m.create_constant_zero(vec_t);
+        auto *sub = b.call(vec_t, ArithmeticOp::BINARY_SUB, {x, x});
+        b.return_void();
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        expect(info.simplified_inst_count == 1u);
+        expect(sub->use_list().empty());
+    };
+
+    "regression_int3_add_zero_preserves_vector_type"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto vec_t = Type::of<int3>();
+        auto *zero = m.create_constant_zero(vec_t);
+        int x_data[3] = {1, 2, 3};
+        auto *x = m.create_constant(vec_t, x_data);
+        auto *add = b.call(vec_t, ArithmeticOp::BINARY_ADD, {x, zero});
+        b.return_void();
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        expect(info.simplified_inst_count == 1u);
+        expect(add->use_list().empty());
+    };
+
+    "regression_float3_mul_one_preserves_vector_type"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto vec_t = Type::of<float3>();
+        float one_data[3] = {1.0f, 1.0f, 1.0f};
+        float x_data[3] = {2.0f, 3.0f, 4.0f};
+        auto *one = m.create_constant(vec_t, one_data);
+        auto *x = m.create_constant(vec_t, x_data);
+        auto *mul = b.call(vec_t, ArithmeticOp::BINARY_MUL, {x, one});
+        b.return_void();
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        expect(info.simplified_inst_count == 1u);
+        expect(mul->use_list().empty());
+    };
+
+    // === FP-identity safety: NaN/Inf must NOT be simplified ===
+    "regression_float_add_zero_skipped_for_nan_safety"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float zero_v = 0.0f, x_v = 1.0f;
+        auto *zero = m.create_constant(Type::of<float>(), &zero_v);
+        auto *x = m.create_constant(Type::of<float>(), &x_v);
+        b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {x, zero});
+        b.return_void();
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        // FP x + 0 must NOT be simplified (x could be -0, NaN, etc.)
+        expect(info.simplified_inst_count == 0u);
+    };
+
+    "regression_float_mul_zero_skipped_for_nan_safety"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float zero_v = 0.0f, x_v = 2.0f;
+        auto *zero = m.create_constant(Type::of<float>(), &zero_v);
+        auto *x = m.create_constant(Type::of<float>(), &x_v);
+        b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {x, zero});
+        b.return_void();
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        // FP x * 0 must NOT be simplified (x could be NaN, Inf)
+        expect(info.simplified_inst_count == 0u);
+    };
+
+    // === const_fold: verify produced VALUE, not just count ===
+    "regression_constfold_int_add_value_correct"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        int32_t a_v = 3, b_v = 4;
+        auto *a = m.create_constant(Type::of<int>(), &a_v);
+        auto *bv = m.create_constant(Type::of<int>(), &b_v);
+        auto *add = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {a, bv});
+        b.return_void();
+        auto info = const_fold_pass_run_on_function(k);
+        expect(info.folded_inst_count == 1u);
+        expect(add->use_list().empty());
+        // Walk module constants for an int constant == 7
+        bool found_7 = false;
+        for (auto c : m.constant_list()) {
+                    if (c->type() == Type::of<int>()) {
+                        int32_t v = *static_cast<const int32_t *>(c->data());
+                        if (v == 7) found_7 = true;
+                    }
+                }
+        expect(found_7);
+    };
+
+    "regression_constfold_int_unary_minus_int_min_value_correct"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        int32_t x_v = std::numeric_limits<int32_t>::min();
+        auto *x = m.create_constant(Type::of<int>(), &x_v);
+        auto *neg = b.call(Type::of<int>(), ArithmeticOp::UNARY_MINUS, {x});
+        b.return_void();
+        auto info = const_fold_pass_run_on_function(k);
+        expect(info.folded_inst_count == 1u);
+        expect(neg->use_list().empty());
+        // -INT32_MIN via 0u - x must wrap to INT32_MIN (or 0x80000000 reinterpreted).
+        bool found = false;
+        for (auto c : m.constant_list()) {
+                    if (c->type() == Type::of<int>()) {
+                        int32_t v = *static_cast<const int32_t *>(c->data());
+                        if (v == std::numeric_limits<int32_t>::min()) found = true;
+                    }
+                }
+        expect(found);
+    };
+}
+
 int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_algebraic_simplify();
     reg_const_fold();
     reg_loop_unroll();
+    reg_regression();
     return 0;
 }

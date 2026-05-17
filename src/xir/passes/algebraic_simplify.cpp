@@ -12,9 +12,23 @@ namespace detail {
 [[nodiscard]] static bool is_const_value(const Value *v, int32_t expected) noexcept {
     if (!v->isa<Constant>()) return false;
     auto c = static_cast<const Constant *>(v);
-    if (c->type()->is_int32()) return c->as<int32_t>() == expected;
-    if (c->type()->is_uint32()) return static_cast<int32_t>(c->as<uint32_t>()) == expected;
-    if (c->type()->is_float32()) return c->as<float>() == static_cast<float>(expected);
+    auto t = c->type();
+    auto check_scalar = [expected](const Type *st, const void *data) noexcept {
+        if (st->is_int32()) return *static_cast<const int32_t *>(data) == expected;
+        if (st->is_uint32()) return static_cast<int32_t>(*static_cast<const uint32_t *>(data)) == expected;
+        if (st->is_float32()) return *static_cast<const float *>(data) == static_cast<float>(expected);
+        return false;
+    };
+    if (t->is_scalar()) return check_scalar(t, c->data());
+    if (t->is_vector()) {
+        auto elem = t->element();
+        auto stride = elem->size();
+        auto base = static_cast<const std::byte *>(c->data());
+        for (size_t i = 0; i < t->dimension(); ++i) {
+            if (!check_scalar(elem, base + i * stride)) return false;
+        }
+        return true;
+    }
     return false;
 }
 
