@@ -3046,7 +3046,10 @@ private:
                 llvm_condition = b.CreateICmpNE(llvm_condition, llvm_false);
                 auto llvm_true_block = _find_or_create_basic_block(current, cond_br_inst->true_block());
                 auto llvm_false_block = _find_or_create_basic_block(current, cond_br_inst->false_block());
-                return b.CreateCondBr(llvm_condition, llvm_true_block, llvm_false_block);
+                auto llvm_inst = b.CreateCondBr(llvm_condition, llvm_true_block, llvm_false_block);
+                _translate_instructions_in_basic_block(current, llvm_true_block, cond_br_inst->true_block());
+                _translate_instructions_in_basic_block(current, llvm_false_block, cond_br_inst->false_block());
+                return llvm_inst;
             }
             case xir::DerivedInstructionTag::UNREACHABLE: {
                 LUISA_ASSERT(inst->type() == nullptr, "Unreachable instruction should not have a type.");
@@ -3057,7 +3060,9 @@ private:
             case xir::DerivedInstructionTag::CONTINUE: {
                 auto br_inst = static_cast<const xir::BranchTerminatorInstruction *>(inst);
                 auto llvm_target_block = _find_or_create_basic_block(current, br_inst->target_block());
-                return b.CreateBr(llvm_target_block);
+                auto llvm_inst = b.CreateBr(llvm_target_block);
+                _translate_instructions_in_basic_block(current, llvm_target_block, br_inst->target_block());
+                return llvm_inst;
             }
             case xir::DerivedInstructionTag::RETURN: {
                 auto return_inst = static_cast<const xir::ReturnInst *>(inst);
