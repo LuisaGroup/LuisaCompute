@@ -1419,7 +1419,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto tex = _load_texture(tex_array);
             _builder.addCapability(spv::Capability::ImageQuery);
             if (_is_storage_image_map.at(tex_array)) {
-                id = _builder.createOp(spv::Op::OpImageQuerySize, type, {tex});
+                id = _builder.createOp(spv::Op::OpImageQuerySize, type, std::vector<spv::Id>{tex});
             } else {
                 id = _builder.createOp(spv::Op::OpImageQuerySizeLod, type, {tex, _builder.makeUintConstant(0u)});
             }
@@ -1621,7 +1621,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             _builder.createNoResultOp(spv::Op::OpRayQueryInitializeKHR, std::vector<spv::Id>{
                 rq_var, accel, ray_flags, mask, ray_origin, ray_t_min, ray_dir, ray_t_max
             });
-            _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), {rq_var});
+            _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), std::vector<spv::Id>{rq_var});
             auto committed_intersection = _builder.makeIntConstant(1);
             auto committed_type = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
                 std::vector<spv::IdImmediate>{
@@ -2281,7 +2281,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         case xir::ThreadGroupOp::WARP_IS_FIRST_ACTIVE_LANE: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
             id = _builder.createOp(spv::Op::OpGroupNonUniformElect, _convert_type(inst->type(), Usage::READ),
-                                   {subgroup_scope});
+                                   std::vector<spv::Id>{subgroup_scope});
             break;
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_ALL: {
@@ -2797,7 +2797,7 @@ void SpirvCodegenEntry::_emit_ray_query_loop_inst(const xir::RayQueryLoopInst *i
 void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatchInst *inst) noexcept {
     auto rq_obj = _emit_value(inst->query_object());
     auto bool_type = _builder.makeBoolType();
-    auto proceed = _builder.createOp(spv::Op::OpRayQueryProceedKHR, bool_type, {rq_obj});
+    auto proceed = _builder.createOp(spv::Op::OpRayQueryProceedKHR, bool_type, std::vector<spv::Id>{rq_obj});
     auto &function = _builder.getBuildPoint()->getParent();
     auto exit_block = _get_or_create_block(inst->exit_block());
     auto check_block = new spv::Block(_builder.getUniqueId(), function);
@@ -2861,9 +2861,9 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
     spv::Id id = spv::NoResult;
     switch (inst->op()) {
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_WORLD_SPACE_RAY: {
-            auto origin = _builder.createOp(spv::Op::OpRayQueryGetWorldRayOriginKHR, vec3_type, {rq_obj});
-            auto dir = _builder.createOp(spv::Op::OpRayQueryGetWorldRayDirectionKHR, vec3_type, {rq_obj});
-            auto t_min = _builder.createOp(spv::Op::OpRayQueryGetRayTMinKHR, float_type, {rq_obj});
+            auto origin = _builder.createOp(spv::Op::OpRayQueryGetWorldRayOriginKHR, vec3_type, std::vector<spv::Id>{rq_obj});
+            auto dir = _builder.createOp(spv::Op::OpRayQueryGetWorldRayDirectionKHR, vec3_type, std::vector<spv::Id>{rq_obj});
+            auto t_min = _builder.createOp(spv::Op::OpRayQueryGetRayTMinKHR, float_type, std::vector<spv::Id>{rq_obj});
             auto committed = _builder.makeIntConstant(1);// RayQueryCommittedIntersectionKHR
             auto t_max = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTKHR, float_type,
                                            std::vector<spv::IdImmediate>{{true, rq_obj}, {true, committed}});
@@ -3012,7 +3012,7 @@ void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObj
             _builder.createNoResultOp(spv::Op::OpRayQueryTerminateKHR, {rq_obj});
             break;
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED:
-            _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), {rq_obj});
+            _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), std::vector<spv::Id>{rq_obj});
             break;
     }
 }

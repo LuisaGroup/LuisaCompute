@@ -1,5 +1,7 @@
 add_library(luisa-compute-backends INTERFACE)
 
+option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR-to-SPIRV codegen path for the Vulkan backend" OFF)
+
 set(FETCHCONTENT_QUIET OFF)
 function(luisa_compute_add_backend name)
     cmake_parse_arguments(BACKEND "" "SUPPORT_DIR;BUILTIN_DIR" "SOURCES" ${ARGN})

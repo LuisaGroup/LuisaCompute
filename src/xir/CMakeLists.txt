@@ -77,6 +77,10 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/unused_callable_removal.cpp
         passes/reg2mem.cpp
         passes/promote_ref_arg.cpp
+        passes/algebraic_simplify.cpp
+        passes/const_fold.cpp
+        passes/inline.cpp
+        passes/loop_unroll.cpp
 )
 
 add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})

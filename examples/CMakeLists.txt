@@ -124,13 +124,15 @@ if (LUISA_COMPUTE_ENABLE_GUI AND LUISA_COMPUTE_EXAMPLE_WX_INTEROP)
         endif ()
 
         if (NOT LUISA_REQUIRED_GTK_LIB OR GTK_FOUND)
-            add_library(luisa-compute-gui-wx INTERFACE)
-            target_include_directories(luisa-compute-gui-wx INTERFACE
-                    ${GTK_INCLUDE_DIRS}
-                    ${wxWidgets_INCLUDE_DIRS})
-            target_link_libraries(luisa-compute-gui-wx INTERFACE
-                    ${GTK_LIBRARIES}
-                    ${wxWidgets_LIBRARIES})
+            if (NOT TARGET luisa-compute-gui-wx)
+                add_library(luisa-compute-gui-wx INTERFACE)
+                target_include_directories(luisa-compute-gui-wx INTERFACE
+                        ${GTK_INCLUDE_DIRS}
+                        ${wxWidgets_INCLUDE_DIRS})
+                target_link_libraries(luisa-compute-gui-wx INTERFACE
+                        ${GTK_LIBRARIES}
+                        ${wxWidgets_LIBRARIES})
+            endif ()
             luisa_compute_add_example(example_swapchain_wx gui/swapchain_wx.cpp)
             target_link_libraries(example_swapchain_wx PRIVATE luisa-compute-gui-wx)
         endif ()
