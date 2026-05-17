@@ -21,10 +21,21 @@
 
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
 #include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/simplify_cfg.h>
 #include "llvm_codegen/hip_codegen_llvm.h"
 #endif
 
 namespace luisa::compute::hip {
+
+#ifdef LUISA_COMPUTE_ENABLE_LLVM
+static const bool LUISA_XIR_NORMALIZE_CFG = [] {
+    if (auto env = std::getenv("LUISA_XIR_NORMALIZE_CFG")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+#endif
 
 void luisa_initialize_hip() noexcept {
     static std::once_flag flag;
@@ -398,6 +409,19 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     auto xir_module = xir::ast_to_xir_translate(kernel, {});
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
+
+    if (LUISA_XIR_NORMALIZE_CFG) {
+        auto destructure_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
+        auto simplify_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE("XIR CFG normalization: destructured {} if(s), {} loop(s), {} simple loop(s); "
+                      "simplified: folded {} cond_br(s), threaded {} block(s), removed {} unreachable block(s).",
+                      destructure_info.destructured_if_count,
+                      destructure_info.destructured_loop_count,
+                      destructure_info.destructured_simple_loop_count,
+                      simplify_info.folded_constant_cond_br_count,
+                      simplify_info.threaded_empty_block_count,
+                      simplify_info.removed_unreachable_block_count);
+    }
 
     auto wave_size = 32u;
     if (auto env = std::getenv("LUISA_HIP_WAVE64"); env && std::string_view{env} == "1") {

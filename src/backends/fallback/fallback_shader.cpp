@@ -31,6 +31,8 @@
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/simplify_cfg.h>
 
 #include "../common/shader_print_formatter.h"
 
@@ -61,6 +63,13 @@ static const bool LUISA_SHOULD_DUMP_LLVM_IR = [] {
 
 static const bool LUISA_SHOULD_DUMP_ASM = [] {
     if (auto env = getenv("LUISA_DUMP_ASM")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+static const bool LUISA_XIR_NORMALIZE_CFG = [] {
+    if (auto env = getenv("LUISA_XIR_NORMALIZE_CFG")) {
         return std::string_view{env} == "1";
     }
     return false;
@@ -170,6 +179,24 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
     auto rq_lower_info = xir::lower_ray_query_loop_pass_run_on_module(xir_module.get());
+    xir::DestructureCFGInfo destructure_cfg_info{};
+    xir::SimplifyCFGInfo simplify_cfg_info{};
+    if (LUISA_XIR_NORMALIZE_CFG) {
+        destructure_cfg_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
+        simplify_cfg_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE("XIR CFG normalization done:\n"
+                      "    destructured {} if(s), {} loop(s), {} simple loop(s), {} break(s), {} continue(s), {} ray query loop(s),\n"
+                      "    simplified: folded {} constant cond_br(s), threaded {} empty block(s), removed {} unreachable block(s).",
+                      destructure_cfg_info.destructured_if_count,
+                      destructure_cfg_info.destructured_loop_count,
+                      destructure_cfg_info.destructured_simple_loop_count,
+                      destructure_cfg_info.destructured_break_count,
+                      destructure_cfg_info.destructured_continue_count,
+                      destructure_cfg_info.destructured_ray_query_loop_count,
+                      simplify_cfg_info.folded_constant_cond_br_count,
+                      simplify_cfg_info.threaded_empty_block_count,
+                      simplify_cfg_info.removed_unreachable_block_count);
+    }
     LUISA_VERBOSE("XIR optimization done in {} ms:\n"
                   "    forwarded {} store instruction(s),\n"
                   "    eliminated {} load instruction(s),\n"
