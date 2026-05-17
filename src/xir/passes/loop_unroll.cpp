@@ -2,9 +2,6 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/branch.h>
-#include <luisa/xir/instructions/alloca.h>
-#include <luisa/xir/instructions/load.h>
-#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/constant.h>
@@ -16,15 +13,28 @@ namespace detail {
 
 static constexpr size_t MAX_UNROLL_COUNT = 16;
 
-// Analyze a counted loop to determine trip count. Returns 0 if not analyzable.
-[[nodiscard]] static size_t analyze_trip_count(LoopInst *loop) noexcept {
-    auto body = loop->body_block();
-    auto update = loop->update_block();
-    if (!body || !update) return 0;
+class LoopUnrollResolver final : public InstructionCloneValueResolver {
+    luisa::unordered_map<const Value *, Value *> _map;
 
-    // Find the conditional branch in the body
+public:
+    void insert_or_assign(const Value *from, Value *to) noexcept {
+        _map.insert_or_assign(from, to);
+    }
+    [[nodiscard]] Value *resolve(const Value *value) noexcept override {
+        if (value == nullptr) return nullptr;
+        auto it = _map.find(value);
+        if (it != _map.end()) return it->second;
+        return const_cast<Value *>(value);
+    }
+};
+
+[[nodiscard]] static size_t analyze_trip_count(LoopInst *loop) noexcept {
+    auto prepare = loop->prepare_block();
+    auto update = loop->update_block();
+    if (!prepare || !update) return 0;
+
     ConditionalBranchInst *cond_br = nullptr;
-    for (auto inst : body->instructions()) {
+    for (auto inst : prepare->instructions()) {
         if (inst->isa<ConditionalBranchInst>()) {
             cond_br = static_cast<ConditionalBranchInst *>(inst);
             break;
@@ -38,7 +48,6 @@ static constexpr size_t MAX_UNROLL_COUNT = 16;
     auto op = cmp->op();
     if (op != ArithmeticOp::BINARY_LESS && op != ArithmeticOp::BINARY_LESS_EQUAL) return 0;
 
-    // Find constant bound and induction variable
     Value *induction = nullptr;
     Value *bound = nullptr;
     if (cmp->operand(1)->isa<Constant>()) {
@@ -56,29 +65,29 @@ static constexpr size_t MAX_UNROLL_COUNT = 16;
     else if (bc->type()->is_uint32()) bound_val = static_cast<int64_t>(bc->as<uint32_t>());
     else return 0;
 
-    // Find initial value and step from Phi
+    if (!induction->isa<PhiInst>()) return 0;
+    auto phi = static_cast<PhiInst *>(induction);
+    if (phi->parent_block() != prepare) return 0;
+
     int64_t start = 0;
     int64_t step = 1;
-    if (induction->isa<PhiInst>()) {
-        auto phi = static_cast<PhiInst *>(induction);
-        for (size_t i = 0; i < phi->incoming_count(); ++i) {
-            auto inc = phi->incoming(i);
-            if (inc.block == update) {
-                if (inc.value->isa<ArithmeticInst>()) {
-                    auto add = static_cast<ArithmeticInst *>(inc.value);
-                    if (add->op() == ArithmeticOp::BINARY_ADD &&
-                        add->operand(0) == phi && add->operand(1)->isa<Constant>()) {
-                        auto sc = static_cast<Constant *>(add->operand(1));
-                        if (sc->type()->is_int32()) step = sc->as<int32_t>();
-                        else if (sc->type()->is_uint32()) step = static_cast<int64_t>(sc->as<uint32_t>());
-                    }
+    for (size_t i = 0; i < phi->incoming_count(); ++i) {
+        auto inc = phi->incoming(i);
+        if (inc.block == update) {
+            if (inc.value->isa<ArithmeticInst>()) {
+                auto add = static_cast<ArithmeticInst *>(inc.value);
+                if (add->op() == ArithmeticOp::BINARY_ADD &&
+                    add->operand(0) == phi && add->operand(1)->isa<Constant>()) {
+                    auto sc = static_cast<Constant *>(add->operand(1));
+                    if (sc->type()->is_int32()) step = sc->as<int32_t>();
+                    else if (sc->type()->is_uint32()) step = static_cast<int64_t>(sc->as<uint32_t>());
                 }
-            } else if (inc.block != body) {
-                if (inc.value->isa<Constant>()) {
-                    auto sc = static_cast<Constant *>(inc.value);
-                    if (sc->type()->is_int32()) start = sc->as<int32_t>();
-                    else if (sc->type()->is_uint32()) start = static_cast<int64_t>(sc->as<uint32_t>());
-                }
+            }
+        } else {
+            if (inc.value->isa<Constant>()) {
+                auto sc = static_cast<Constant *>(inc.value);
+                if (sc->type()->is_int32()) start = sc->as<int32_t>();
+                else if (sc->type()->is_uint32()) start = static_cast<int64_t>(sc->as<uint32_t>());
             }
         }
     }
@@ -93,80 +102,84 @@ static void unroll(LoopInst *loop, size_t trips, LoopUnrollInfo &info) noexcept 
     auto func = loop->parent_function();
     if (!func) return;
 
+    auto prepare = loop->prepare_block();
     auto body = loop->body_block();
     auto update = loop->update_block();
     auto merge = loop->merge_block();
-    auto prepare = loop->prepare_block();
-    if (!body || !merge) return;
+    if (!prepare || !body || !merge) return;
 
-    // Simple unrolling: clone body blocks for each iteration
-    // This is a simplified approach that creates a linear chain
+    auto loop_parent_block = loop->parent_block();
+
     XIRBuilder builder;
+    LoopUnrollResolver resolver;
 
-    // Create a chain of cloned body blocks
-    BasicBlock *prev = prepare;
-    for (size_t i = 0; i < trips; ++i) {
-        auto clone_bb = func->create_basic_block();
-
-        // Branch from previous block
-        if (prev && !prev->is_terminated()) {
-            builder.set_insertion_point(prev);
-            builder.br(clone_bb);
+    luisa::vector<PhiInst *> phis;
+    for (auto inst : prepare->instructions()) {
+        if (inst->isa<PhiInst>()) {
+            phis.push_back(static_cast<PhiInst *>(inst));
         }
+    }
 
-        // Clone body instructions (non-terminators only)
-        builder.set_insertion_point(clone_bb);
-        luisa::unordered_map<Value *, Value *> vmap;
+    for (auto phi : phis) {
+        for (size_t i = 0; i < phi->incoming_count(); ++i) {
+            auto inc = phi->incoming(i);
+            if (inc.block != update) {
+                resolver.insert_or_assign(phi, inc.value);
+                break;
+            }
+        }
+    }
+
+    luisa::vector<BasicBlock *> iter_blocks;
+    iter_blocks.reserve(trips);
+    for (size_t i = 0; i < trips; ++i) {
+        iter_blocks.push_back(func->create_basic_block());
+    }
+
+    for (size_t iter = 0; iter < trips; ++iter) {
+        auto iter_block = iter_blocks[iter];
+        builder.set_insertion_point(iter_block);
+
         for (auto inst : body->instructions()) {
             if (inst->is_terminator()) continue;
+            if (inst->isa<PhiInst>()) continue;
+            auto cloned = inst->clone_with_metadata(builder, resolver);
+            resolver.insert_or_assign(inst, cloned);
+        }
 
-            if (inst->isa<AllocaInst>()) {
-                auto a = static_cast<AllocaInst *>(inst);
-                auto na = builder.alloca_(a->type(), a->op());
-                vmap[inst] = na;
-            } else if (inst->isa<LoadInst>()) {
-                auto l = static_cast<LoadInst *>(inst);
-                auto var = vmap.count(l->variable()) ? vmap[l->variable()] : l->variable();
-                auto nl = builder.load(l->type(), var);
-                vmap[inst] = nl;
-            } else if (inst->isa<StoreInst>()) {
-                auto s = static_cast<StoreInst *>(inst);
-                auto var = vmap.count(s->variable()) ? vmap[s->variable()] : s->variable();
-                auto val = vmap.count(s->value()) ? vmap[s->value()] : s->value();
-                builder.store(var, val);
-            } else if (inst->isa<ArithmeticInst>()) {
-                auto a = static_cast<ArithmeticInst *>(inst);
-                luisa::vector<Value *> ops;
-                for (size_t j = 0; j < a->operand_count(); ++j) {
-                    auto op = a->operand(j);
-                    ops.push_back(vmap.count(op) ? vmap[op] : op);
-                }
-                auto na = builder.call(a->type(), a->op(), ops);
-                vmap[inst] = na;
-            } else if (inst->isa<PhiInst>()) {
-                // Phi handled by value map from previous iteration
-                continue;
+        if (update) {
+            for (auto inst : update->instructions()) {
+                if (inst->is_terminator()) continue;
+                auto cloned = inst->clone_with_metadata(builder, resolver);
+                resolver.insert_or_assign(inst, cloned);
             }
         }
 
-        prev = clone_bb;
-    }
+        for (auto phi : phis) {
+            for (size_t i = 0; i < phi->incoming_count(); ++i) {
+                auto inc = phi->incoming(i);
+                if (inc.block == update) {
+                    resolver.insert_or_assign(phi, resolver.resolve(inc.value));
+                    break;
+                }
+            }
+        }
 
-    // Branch last cloned block to merge
-    if (prev && !prev->is_terminated()) {
-        builder.set_insertion_point(prev);
-        builder.br(merge);
-    }
-
-    // Clean up: remove the loop and its update block
-    if (update) {
-        luisa::vector<Instruction *> to_remove;
-        for (auto inst : update->instructions())
-            if (!inst->is_terminator()) to_remove.push_back(inst);
-        for (auto inst : to_remove) inst->remove_self();
+        if (iter + 1 < trips) {
+            builder.br(iter_blocks[iter + 1]);
+        } else {
+            builder.br(merge);
+        }
     }
 
     loop->remove_self();
+    builder.set_insertion_point(loop_parent_block);
+    if (trips > 0) {
+        builder.br(iter_blocks[0]);
+    } else {
+        builder.br(merge);
+    }
+
     info.unrolled_loop_count++;
 }
 

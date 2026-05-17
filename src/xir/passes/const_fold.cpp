@@ -31,10 +31,10 @@ namespace detail {
                     *static_cast<double *>(data) = -*static_cast<const double *>(op0_data);
                     return true;
                 case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = -(*static_cast<const int32_t *>(op0_data));
+                    *static_cast<int32_t *>(data) = static_cast<int32_t>(0u - static_cast<uint32_t>(*static_cast<const int32_t *>(op0_data)));
                     return true;
                 case Type::Tag::UINT32:
-                    *static_cast<uint32_t *>(data) = static_cast<uint32_t>(-static_cast<int32_t>(*static_cast<const uint32_t *>(op0_data)));
+                    *static_cast<uint32_t *>(data) = 0u - *static_cast<const uint32_t *>(op0_data);
                     return true;
                 default: return false;
             }
@@ -115,12 +115,18 @@ namespace detail {
                 case Type::Tag::FLOAT64:
                     *static_cast<double *>(data) = *static_cast<const double *>(op0_data) / *static_cast<const double *>(op1_data);
                     return true;
-                case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) / *static_cast<const int32_t *>(op1_data);
+                case Type::Tag::INT32: {
+                    auto divisor = *static_cast<const int32_t *>(op1_data);
+                    if (divisor == 0) return false;
+                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) / divisor;
                     return true;
-                case Type::Tag::UINT32:
-                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) / *static_cast<const uint32_t *>(op1_data);
+                }
+                case Type::Tag::UINT32: {
+                    auto divisor = *static_cast<const uint32_t *>(op1_data);
+                    if (divisor == 0u) return false;
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) / divisor;
                     return true;
+                }
                 default: return false;
             }
         }
@@ -132,12 +138,18 @@ namespace detail {
                 case Type::Tag::FLOAT64:
                     *static_cast<double *>(data) = std::fmod(*static_cast<const double *>(op0_data), *static_cast<const double *>(op1_data));
                     return true;
-                case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) % *static_cast<const int32_t *>(op1_data);
+                case Type::Tag::INT32: {
+                    auto divisor = *static_cast<const int32_t *>(op1_data);
+                    if (divisor == 0) return false;
+                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) % divisor;
                     return true;
-                case Type::Tag::UINT32:
-                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) % *static_cast<const uint32_t *>(op1_data);
+                }
+                case Type::Tag::UINT32: {
+                    auto divisor = *static_cast<const uint32_t *>(op1_data);
+                    if (divisor == 0u) return false;
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) % divisor;
                     return true;
+                }
                 default: return false;
             }
         }
@@ -185,51 +197,38 @@ namespace detail {
         }
         case ArithmeticOp::BINARY_SHIFT_LEFT: {
             switch (tag) {
-                case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) << *static_cast<const int32_t *>(op1_data);
+                case Type::Tag::INT32: {
+                    auto shift = *static_cast<const int32_t *>(op1_data);
+                    if (shift < 0 || shift >= 32) return false;
+                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) << shift;
                     return true;
-                case Type::Tag::UINT32:
-                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) << *static_cast<const uint32_t *>(op1_data);
+                }
+                case Type::Tag::UINT32: {
+                    auto shift = *static_cast<const uint32_t *>(op1_data);
+                    if (shift >= 32u) return false;
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) << shift;
                     return true;
+                }
                 default: return false;
             }
         }
         case ArithmeticOp::BINARY_SHIFT_RIGHT: {
             switch (tag) {
-                case Type::Tag::INT32:
-                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) >> *static_cast<const int32_t *>(op1_data);
+                case Type::Tag::INT32: {
+                    auto shift = *static_cast<const int32_t *>(op1_data);
+                    if (shift < 0 || shift >= 32) return false;
+                    *static_cast<int32_t *>(data) = *static_cast<const int32_t *>(op0_data) >> shift;
                     return true;
-                case Type::Tag::UINT32:
-                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) >> *static_cast<const uint32_t *>(op1_data);
+                }
+                case Type::Tag::UINT32: {
+                    auto shift = *static_cast<const uint32_t *>(op1_data);
+                    if (shift >= 32u) return false;
+                    *static_cast<uint32_t *>(data) = *static_cast<const uint32_t *>(op0_data) >> shift;
                     return true;
-                default: return false;
-            }
-        }
-        case ArithmeticOp::BINARY_LESS: {
-            switch (tag) {
-                case Type::Tag::BOOL: {
-                    auto op_elem_type = type->element();// not used for scalar - check operand type
-                    // Result is bool, operand is int or float. Check op0's scalar tag.
-                    // For simplicity, we handle float and int32 cases
                 }
                 default: return false;
             }
-            return false;
         }
-        case ArithmeticOp::BINARY_GREATER: {
-            return false;// handled in caller
-        }
-        case ArithmeticOp::BINARY_LESS_EQUAL: {
-            return false;// handled in caller
-        }
-        case ArithmeticOp::BINARY_GREATER_EQUAL: {
-            return false;// handled in caller
-        }
-        case ArithmeticOp::BINARY_EQUAL:
-        case ArithmeticOp::BINARY_NOT_EQUAL: {
-            return false;// handled in caller
-        }
-
         case ArithmeticOp::ABS: {
             switch (tag) {
                 case Type::Tag::FLOAT32:
