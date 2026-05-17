@@ -11,6 +11,7 @@
 #include "property.h"
 #include <luisa/xir/op.h>
 #include <luisa/ast/usage.h>
+#include <luisa/xir/passes/uniformity_analysis.h>
 
 namespace lc::spirv {
 using namespace luisa;
@@ -68,6 +69,7 @@ private:
     luisa::unordered_map<spv::Id, spv::Id> _accel_instance_buffer_map;
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
+    luisa::compute::xir::UniformityAnalysis _uniformity;
 
 private:
     struct InstructionUsageAnalysis {

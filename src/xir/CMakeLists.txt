@@ -59,6 +59,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         # passes
         passes/helpers.cpp
         passes/dce.cpp
+        passes/uniformity_analysis.cpp
         passes/dom_tree.cpp
         passes/call_graph.cpp
         passes/outline.cpp

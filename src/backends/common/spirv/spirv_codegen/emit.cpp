@@ -364,6 +364,7 @@ void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb) noexcept {
 }
 
 void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept {
+    _uniformity.analyze(kernel);
     auto ret_type = _builder.makeVoidType();
     std::vector<spv::Id> param_types;
     luisa::vector<const xir::Argument *> value_args;
@@ -530,6 +531,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 }
 
 void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept {
+    _uniformity.analyze(callable);
     auto ret_type = _convert_type(callable->type(), Usage::READ);
     std::vector<spv::Id> param_types;
     luisa::vector<const xir::Argument *> emitted_args;
