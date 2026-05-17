@@ -34,8 +34,24 @@
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/early_return_elimination.h>
 
 #include "cuda_codegen_xir.h"
+
+namespace luisa::compute::cuda {
+namespace {
+[[nodiscard]] bool _xir_pass_enabled(const char *name) noexcept {
+    if (auto env = getenv(name)) { return std::string_view{env} == "1"; }
+    return false;
+}
+const bool LUISA_XIR_NORMALIZE_CFG = _xir_pass_enabled("LUISA_XIR_NORMALIZE_CFG");
+const bool LUISA_XIR_RESTRUCTURE_CFG = _xir_pass_enabled("LUISA_XIR_RESTRUCTURE_CFG");
+const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = _xir_pass_enabled("LUISA_XIR_ELIMINATE_EARLY_RETURN");
+}// namespace
+}// namespace luisa::compute::cuda
 
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
 #include "llvm_codegen/cuda_codegen_llvm.h"
@@ -99,6 +115,27 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     }
     auto rq_lower_info = lower_rq ? xir::lower_ray_query_loop_pass_run_on_module(xir_module.get()) : xir::RayQueryLoopLowerInfo{};
     auto reg2mem_info = lower_rq ? xir::reg2mem_pass_run_on_module(xir_module.get()) : xir::Reg2MemInfo{};
+    if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
+        auto early_return_info = xir::early_return_elimination_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE("Eliminated {} early return(s).", early_return_info.removed_return_count);
+    }
+    if (LUISA_XIR_NORMALIZE_CFG) {
+        auto destructure_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
+        auto simplify_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE("Destructured CFG (if={}, loop={}, simple_loop={}); simplified CFG (folded={}, threaded={}, merged={}).",
+                      destructure_info.destructured_if_count,
+                      destructure_info.destructured_loop_count,
+                      destructure_info.destructured_simple_loop_count,
+                      simplify_info.folded_constant_cond_br_count,
+                      simplify_info.threaded_empty_block_count,
+                      simplify_info.merged_straight_line_count);
+        if (LUISA_XIR_RESTRUCTURE_CFG) {
+            auto restructure_info = xir::restructure_cfg_pass_run_on_module(xir_module.get());
+            LUISA_VERBOSE("Restructured CFG: {} if(s), {} loop(s).",
+                          restructure_info.restructured_if_count,
+                          restructure_info.restructured_loop_count);
+        }
+    }
     LUISA_VERBOSE("XIR optimization done in {} ms:\n"
                   "    forwarded {} store instruction(s),\n"
                   "    eliminated {} load instruction(s),\n"
