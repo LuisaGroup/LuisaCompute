@@ -13,7 +13,7 @@
 
 #include <numeric>
 
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 

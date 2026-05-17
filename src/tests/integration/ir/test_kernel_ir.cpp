@@ -4,16 +4,8 @@
 // from kernel definition to GPU execution and display.
 // Credit: https://github.com/taichi-dev/taichi/blob/master/examples/rendering/sdf_renderer.py
 
-#if __has_include("ut/ut.hpp")
 #include "ut/ut.hpp"
-#else
-#include "../../ut/ut.hpp"
-#endif
-#if __has_include("test_device.h")
 #include "test_device.h"
-#else
-#include "../../test_device.h"
-#endif
 
 #include <atomic>
 #include <numbers>
@@ -21,7 +13,7 @@
 #include <algorithm>
 #include <filesystem>
 
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>

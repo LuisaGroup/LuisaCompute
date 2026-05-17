@@ -3,7 +3,7 @@
 
 #include <iostream>
 
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 

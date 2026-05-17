@@ -13,7 +13,7 @@
 #include "test_device.h"
 
 #include <fstream>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <filesystem>
 #include <luisa/luisa-compute.h>
 

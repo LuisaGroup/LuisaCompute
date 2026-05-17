@@ -11,16 +11,8 @@
 // Autodiff uses reverse-mode automatic differentiation to compute gradients
 // efficiently in a single forward and backward pass.
 
-#if __has_include("ut/ut.hpp")
 #include "ut/ut.hpp"
-#else
-#include "../../ut/ut.hpp"
-#endif
-#if __has_include("test_device.h")
 #include "test_device.h"
-#else
-#include "../../test_device.h"
-#endif
 
 #include <fstream>
 #include <luisa/luisa-compute.h>

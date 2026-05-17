@@ -163,17 +163,19 @@ if has_config("lc_enable_ir") then
     test_proj("test_kernel_ir", "integration/ir/test_kernel_ir.cpp", true)
 end
 
--- root-only tests: no GUI required
-test_proj("test_dsl_mathematic", "test_dsl_mathematic.cpp")
-test_proj("test_fp4", "test_fp4.cpp")
-test_proj("test_fp4_quantization", "test_fp4_quantization.cpp")
-test_proj("test_fp8", "test_fp8.cpp")
-test_proj("test_fp8_quantization", "test_fp8_quantization.cpp")
+-- unit/dsl: standalone GPU tests
+test_proj("test_dsl_mathematic", "unit/dsl/test_dsl_mathematic.cpp")
 
--- root-only tests: GUI required
+-- unit/runtime: FP4/FP8 quantization tests
+test_proj("test_fp4", "unit/runtime/test_fp4.cpp")
+test_proj("test_fp4_quantization", "unit/runtime/test_fp4_quantization.cpp")
+test_proj("test_fp8", "unit/runtime/test_fp8.cpp")
+test_proj("test_fp8_quantization", "unit/runtime/test_fp8_quantization.cpp")
+
+-- integration/gui: GUI-required tests (require external SDKs)
 if lc_enable_gui then
-    -- test_proj("test_dx_supersampling", "test_dx_supersampling.cpp", true) -- requires XeSS SDK
-    -- test_proj("test_fsr3", "test_fsr3.cpp", true) -- requires FidelityFX SDK
-    -- test_proj("test_swapchain_qt", "test_swapchain_qt.cpp", true) -- requires Qt
-    -- test_proj("test_swapchain_wx", "test_swapchain_wx.cpp", true) -- requires wxWidgets
+    -- test_proj("test_dx_supersampling", "integration/gui/test_dx_supersampling.cpp", true) -- requires XeSS SDK
+    -- test_proj("test_fsr3", "integration/gui/test_fsr3.cpp", true) -- requires FidelityFX SDK
+    -- test_proj("test_swapchain_qt", "integration/gui/test_swapchain_qt.cpp", true) -- requires Qt
+    -- test_proj("test_swapchain_wx", "integration/gui/test_swapchain_wx.cpp", true) -- requires wxWidgets
 end

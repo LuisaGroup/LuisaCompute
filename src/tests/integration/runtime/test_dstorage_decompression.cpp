@@ -11,7 +11,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/runtime/event.h>
 #include <luisa/backends/ext/dstorage_ext.hpp>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <luisa/core/clock.h>
 
 #include <filesystem>

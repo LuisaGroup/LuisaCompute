@@ -13,7 +13,10 @@ enable_testing()
 function(luisa_compute_add_test name source)
     cmake_parse_arguments(PARSE_ARGV 2 CT "" "" "LABELS;ARGS")
     luisa_compute_add_executable(${name} ${source})
-    target_include_directories(${name} PRIVATE ./)
+    # Expose `./` so includes like "test_device.h" (now in common/) resolve via the search path
+    # below, and "common/foo.h" continues to work. Add common/ explicitly so plain
+    # #include "test_device.h" / "reference_image.h" / "cornell_box.h" all resolve.
+    target_include_directories(${name} PRIVATE ./ ./common)
     if (CT_LABELS)
         add_test(NAME ${name} COMMAND ${name} ${CT_ARGS})
         set_tests_properties(${name} PROPERTIES LABELS "${CT_LABELS}")
@@ -152,7 +155,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
             integration/runtime/transient_resource_device/managed_first_fit.h
             integration/runtime/transient_resource_device/transient_resource_device.cpp
             integration/runtime/transient_resource_device/transient_resource_device.h)
-    target_include_directories(test_transient_resource PRIVATE ./)
+    target_include_directories(test_transient_resource PRIVATE ./ ./common)
 endif ()
 
 # --- integration/runtime: DX-only tests ---
@@ -181,17 +184,19 @@ if (LUISA_COMPUTE_ENABLE_RUST)
     endif ()
 endif ()
 
-# --- root-only tests: no GUI required ---
-luisa_compute_add_test(test_dsl_mathematic       test_dsl_mathematic.cpp)
-luisa_compute_add_test(test_fp4                  test_fp4.cpp)
-luisa_compute_add_test(test_fp4_quantization     test_fp4_quantization.cpp)
-luisa_compute_add_test(test_fp8                  test_fp8.cpp)
-luisa_compute_add_test(test_fp8_quantization     test_fp8_quantization.cpp)
+# --- unit/dsl: standalone GPU tests ---
+luisa_compute_add_test(test_dsl_mathematic       unit/dsl/test_dsl_mathematic.cpp)
 
-# --- root-only tests: GUI required ---
+# --- unit/runtime: FP4/FP8 quantization tests ---
+luisa_compute_add_test(test_fp4                  unit/runtime/test_fp4.cpp)
+luisa_compute_add_test(test_fp4_quantization     unit/runtime/test_fp4_quantization.cpp)
+luisa_compute_add_test(test_fp8                  unit/runtime/test_fp8.cpp)
+luisa_compute_add_test(test_fp8_quantization     unit/runtime/test_fp8_quantization.cpp)
+
+# --- integration/gui: GUI-required tests (require external SDKs) ---
 if (LUISA_COMPUTE_ENABLE_GUI)
-    # luisa_compute_add_test(test_dx_supersampling     test_dx_supersampling.cpp) # requires XeSS SDK
-    # luisa_compute_add_test(test_fsr3                 test_fsr3.cpp) # requires FidelityFX SDK
+    # luisa_compute_add_test(test_dx_supersampling     integration/gui/test_dx_supersampling.cpp) # requires XeSS SDK
+    # luisa_compute_add_test(test_fsr3                 integration/gui/test_fsr3.cpp) # requires FidelityFX SDK
 endif ()
 
 # GUI interaction with wxWidgets
@@ -238,7 +243,7 @@ if (LUISA_COMPUTE_TEST_WX_INTEROP)
             endif ()
 
             # demos using wxWidgets
-            luisa_compute_add_executable(test_swapchain_wx test_swapchain_wx.cpp)
+            luisa_compute_add_executable(test_swapchain_wx integration/gui/test_swapchain_wx.cpp)
             target_link_libraries(test_swapchain_wx PRIVATE luisa-compute-gui-wx)
         endif ()
     endif ()
@@ -262,7 +267,7 @@ if (LUISA_COMPUTE_TEST_QT_INTEROP)
             endif ()
         endif ()
         if (Qt6_FOUND AND TARGET Qt::Widgets AND TARGET Qt::Core AND TARGET Qt::Gui AND TARGET Qt::GuiPrivate)
-            luisa_compute_add_executable(test_swapchain_qt test_swapchain_qt.cpp)
+            luisa_compute_add_executable(test_swapchain_qt integration/gui/test_swapchain_qt.cpp)
             target_link_libraries(test_swapchain_qt PRIVATE Qt::Widgets Qt::Core Qt::Gui Qt::GuiPrivate)
         endif ()
 

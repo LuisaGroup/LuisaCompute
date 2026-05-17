@@ -20,7 +20,7 @@
 #include <luisa/runtime/event.h>
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <luisa/gui/window.h>
 #include <luisa/ast/ast2json.h>
 using namespace luisa;

@@ -6,7 +6,7 @@
 
 #include <cstdlib>
 #include <cstring>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <luisa/core/logging.h>
 #include <luisa/core/clock.h>
 #include <luisa/runtime/context.h>

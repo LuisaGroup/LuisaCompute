@@ -10,7 +10,7 @@
 #include <luisa/runtime/shader.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/syntax.h>
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 

@@ -4,7 +4,7 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/gui/window.h>
-#include "../../reference_image.h"
+#include "reference_image.h"
 
 #include <filesystem>
 

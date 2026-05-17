@@ -2,7 +2,7 @@
 #include "test_device.h"
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <iostream>
 
 using namespace luisa;

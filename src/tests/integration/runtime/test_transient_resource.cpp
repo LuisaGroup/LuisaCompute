@@ -2,7 +2,7 @@
 #include "test_device.h"
 
 #include "transient_resource_device/transient_resource_device.h"
-#include "../../reference_image.h"
+#include "reference_image.h"
 #include <filesystem>
 #include <luisa/dsl/sugar.h>
 #include <luisa/runtime/context.h>
