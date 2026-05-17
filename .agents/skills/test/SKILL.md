@@ -21,7 +21,6 @@ All test source files live in `src/tests/` under one of the directories below. N
 | `unit/xir/` | XIR builder, translators, passes | No (CTest-registered) |
 | `integration/runtime/` | bindless, curves, rtx, motion blur, swapchain, denoiser, dstorage | Yes |
 | `integration/ir/` | autodiff, AST↔IR roundtrip, kernel-IR (gated `LUISA_COMPUTE_ENABLE_RUST`) | Yes |
-| `integration/gui/` | window-system swapchain interop (Qt, wxWidgets), upscaling SDK demos (XeSS, FSR3) | Yes (GUI) |
 | `common/` | shared headers: `test_device.h`, `ut/` (Boost.UT), `cornell_box.h`, `tinyexr.h`, `tiny_obj_loader.h`, `projection.hpp`, `spectrum_data.h`, `reference_image.h` | — |
 | `python/` | Python frontend tests (run via `pytest` or directly with `python`) | — |
 | `cxx_shaders/` | `clangcxx` source shaders consumed by tests | — |

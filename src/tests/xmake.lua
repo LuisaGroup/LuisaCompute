@@ -171,11 +171,3 @@ test_proj("test_fp4", "unit/runtime/test_fp4.cpp")
 test_proj("test_fp4_quantization", "unit/runtime/test_fp4_quantization.cpp")
 test_proj("test_fp8", "unit/runtime/test_fp8.cpp")
 test_proj("test_fp8_quantization", "unit/runtime/test_fp8_quantization.cpp")
-
--- integration/gui: GUI-required tests (require external SDKs)
-if lc_enable_gui then
-    -- test_proj("test_dx_supersampling", "integration/gui/test_dx_supersampling.cpp", true) -- requires XeSS SDK
-    -- test_proj("test_fsr3", "integration/gui/test_fsr3.cpp", true) -- requires FidelityFX SDK
-    -- test_proj("test_swapchain_qt", "integration/gui/test_swapchain_qt.cpp", true) -- requires Qt
-    -- test_proj("test_swapchain_wx", "integration/gui/test_swapchain_wx.cpp", true) -- requires wxWidgets
-end
