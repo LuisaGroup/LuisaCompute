@@ -97,6 +97,7 @@ using is_signed = std::disjunction<
     std::is_same<std::remove_cvref_t<T>, byte>,
     std::is_same<std::remove_cvref_t<T>, short>,
     std::is_same<std::remove_cvref_t<T>, int>,
+    std::is_same<std::remove_cvref_t<T>, long>,
     std::is_same<std::remove_cvref_t<T>, slong>>;
 
 template<typename T>
@@ -108,6 +109,7 @@ using is_unsigned = std::disjunction<
     std::is_same<std::remove_cvref_t<T>, ubyte>,
     std::is_same<std::remove_cvref_t<T>, ushort>,
     std::is_same<std::remove_cvref_t<T>, uint>,
+    std::is_same<std::remove_cvref_t<T>, unsigned long>,
     std::is_same<std::remove_cvref_t<T>, ulong>>;
 
 template<typename T>
