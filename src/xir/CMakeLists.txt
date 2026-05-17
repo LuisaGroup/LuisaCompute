@@ -82,6 +82,9 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/const_fold.cpp
         passes/inline.cpp
         passes/loop_unroll.cpp
+        passes/lower_break_continue.cpp
+        passes/destructure_cfg.cpp
+        passes/simplify_cfg.cpp
 )
 
 add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})
