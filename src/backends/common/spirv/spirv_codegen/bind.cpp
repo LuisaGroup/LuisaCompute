@@ -461,6 +461,8 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
                     _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::RuntimeDescriptorArray);
+                    _builder.addCapability(spv::Capability::ShaderNonUniformEXT);
+                    _builder.addCapability(spv::Capability::SampledImageArrayNonUniformIndexingEXT);
                     auto array_type = _builder.makeRuntimeArray(image_type);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, array_type, var_name);
                 } else if (prop.array_size == 1) {
@@ -508,6 +510,8 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
                     _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::RuntimeDescriptorArray);
+                    _builder.addCapability(spv::Capability::ShaderNonUniformEXT);
+                    _builder.addCapability(spv::Capability::StorageImageArrayNonUniformIndexingEXT);
                     auto array_type = _builder.makeRuntimeArray(image_type);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, array_type, var_name);
                 } else if (prop.array_size == 1) {
@@ -530,6 +534,8 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
                     _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::RuntimeDescriptorArray);
+                    _builder.addCapability(spv::Capability::ShaderNonUniformEXT);
+                    _builder.addCapability(spv::Capability::StorageBufferArrayNonUniformIndexingEXT);
                     auto array_type = _builder.makeRuntimeArray(struct_type);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, array_type, var_name);
                 } else {

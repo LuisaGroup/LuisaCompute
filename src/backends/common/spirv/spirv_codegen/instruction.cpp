@@ -1439,13 +1439,15 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto base_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
             auto field_offset = _builder.makeUintConstant(is_2d ? 1u : 2u);
             auto slot_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, field_offset);
-            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_word_offset});
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_word_offset}, true);
             auto packed = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            _builder.addDecoration(packed, spv::Decoration::NonUniformEXT);
             auto tex_idx = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, packed, _builder.makeUintConstant(0x0FFFFFFFu));
             auto heap_id = is_2d ? _tex2d_heap_id : _tex3d_heap_id;
             LUISA_ASSERT(heap_id != spv::NoResult, "SPIR-V {} texture heap not bound.", is_2d ? "2D" : "3D");
-            auto tex_ptr = _create_access_chain(spv::StorageClass::UniformConstant, heap_id, {tex_idx});
+            auto tex_ptr = _create_access_chain(spv::StorageClass::UniformConstant, heap_id, {tex_idx}, true);
             auto tex = _builder.createLoad(tex_ptr, spv::NoPrecision);
+            _builder.addDecoration(tex, spv::Decoration::NonUniformEXT);
             _builder.addCapability(spv::Capability::ImageQuery);
             spv::Id lod = has_level ? _ensure_type(_emit_value(inst->operand(2)), uint_type) : _builder.makeUintConstant(0u);
             id = _builder.createOp(spv::Op::OpImageQuerySizeLod, type, {tex, lod});
@@ -1502,8 +1504,9 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto base_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
             auto field_offset = _builder.makeUintConstant(is_2d ? 1u : 2u);
             auto slot_word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_offset, field_offset);
-            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_word_offset});
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_word_offset}, true);
             auto packed = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            _builder.addDecoration(packed, spv::Decoration::NonUniformEXT);
             auto tex_idx = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, packed, _builder.makeUintConstant(0x0FFFFFFFu));
             spv::Id samp_idx;
             if (is_sampler_variant) {
@@ -1516,16 +1519,19 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             }
             auto heap_id = is_2d ? _tex2d_heap_id : _tex3d_heap_id;
             LUISA_ASSERT(heap_id != spv::NoResult, "SPIR-V {} texture heap not bound.", is_2d ? "2D" : "3D");
-            auto tex_ptr = _create_access_chain(spv::StorageClass::UniformConstant, heap_id, {tex_idx});
+            auto tex_ptr = _create_access_chain(spv::StorageClass::UniformConstant, heap_id, {tex_idx}, true);
             auto image = _builder.createLoad(tex_ptr, spv::NoPrecision);
+            _builder.addDecoration(image, spv::Decoration::NonUniformEXT);
             LUISA_ASSERT(_properties.size() >= 2 && _properties[1].type == ShaderVariableType::SamplerHeap,
                          "SPIR-V sampler heap not bound.");
             auto sampler_heap = _property_ids[1];
-            auto samp_ptr = _create_access_chain(spv::StorageClass::UniformConstant, sampler_heap, {samp_idx});
+            auto samp_ptr = _create_access_chain(spv::StorageClass::UniformConstant, sampler_heap, {samp_idx}, true);
             auto sampler = _builder.createLoad(samp_ptr, spv::NoPrecision);
+            _builder.addDecoration(sampler, spv::Decoration::NonUniformEXT);
             auto image_type = _builder.getTypeId(image);
             auto sampled_image_type = _builder.makeSampledImageType(image_type, "sampled_image");
             auto sampled_image = _builder.createOp(spv::Op::OpSampledImage, sampled_image_type, {image, sampler});
+            _builder.addDecoration(sampled_image, spv::Decoration::NonUniformEXT);
             spv::Builder::TextureParameters params{};
             params.sampler = sampled_image;
             size_t uv_op_idx = 2;
@@ -1688,6 +1694,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             LUISA_ASSERT(it != _accel_instance_buffer_map.end(), "SPIR-V ray_tracing_instance_transform: accel instance buffer not found.");
             auto instance_buffer = it->second;
             auto instance_index = _emit_value(inst->operand(1));
+            _builder.addDecoration(instance_index, spv::Decoration::NonUniformEXT);
             auto uint_type = _builder.makeUintType(32);
             auto float_type = _builder.makeFloatType(32);
             auto float4_type = _builder.makeVectorType(float_type, 4);
@@ -2123,10 +2130,11 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto elem_index = _ensure_type(_emit_value(inst->operand(2)), uint_type);
             auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset});
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset}, true);
             auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT);
             LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
-            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx});
+            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx}, true);
             id = _emit_buffer_read(buffer_base, elem_index, inst->type(), nullptr);
             break;
         }
@@ -2135,10 +2143,11 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto byte_index = _ensure_type(_emit_value(inst->operand(2)), uint_type);
             auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset});
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset}, true);
             auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT);
             LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
-            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx});
+            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx}, true);
             auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
             id = _emit_buffer_read(buffer_base, word_index, inst->type(), nullptr);
             break;
@@ -2188,10 +2197,11 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto value = _emit_value(inst->operand(3));
             auto elem_type = inst->operand(3)->type();
             auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset});
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset}, true);
             auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT);
             LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
-            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx});
+            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx}, true);
             _emit_buffer_write(buffer_base, elem_index, value, elem_type, nullptr);
             break;
         }
@@ -2201,10 +2211,11 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto byte_index = _ensure_type(_emit_value(inst->operand(2)), uint_type);
             auto value = _emit_value(inst->operand(3));
             auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
-            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset});
+            auto bdls_ptr = _create_access_chain(spv::StorageClass::StorageBuffer, bindless_array, {_builder.makeUintConstant(0u), slot_offset}, true);
             auto buffer_idx = _builder.createLoad(bdls_ptr, spv::NoPrecision);
+            _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT);
             LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
-            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx});
+            auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx}, true);
             auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
             _emit_buffer_write(buffer_base, word_index, value, inst->operand(3)->type(), nullptr);
             break;

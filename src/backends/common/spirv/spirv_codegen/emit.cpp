@@ -315,7 +315,7 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
     return id;
 }
 
-spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::Id base, const std::vector<spv::Id> &indices) noexcept {
+spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::Id base, const std::vector<spv::Id> &indices, bool nonuniform) noexcept {
     auto old_access_chain = _builder.getAccessChain();
     auto new_access_chain = old_access_chain;
     new_access_chain.base = base;
@@ -329,9 +329,18 @@ spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::
     new_access_chain.descHeapInfo.structRsrcTyOffsetCount = 0;
     new_access_chain.descHeapInfo.structRsrcTyFirstArrIndex = 0;
     new_access_chain.descHeapInfo.structRemappedBase = spv::NoResult;
+    if (nonuniform) {
+        new_access_chain.coherentFlags.nonUniform = 1;
+        for (auto idx : indices) {
+            _builder.addDecoration(idx, spv::Decoration::NonUniformEXT);
+        }
+    }
     _builder.setAccessChain(new_access_chain);
     auto id = _builder.createAccessChain(storage, base, indices);
     _builder.setAccessChain(old_access_chain);
+    if (nonuniform) {
+        _builder.addDecoration(id, spv::Decoration::NonUniformEXT);
+    }
     return id;
 }
 
