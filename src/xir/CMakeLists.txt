@@ -85,6 +85,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/lower_break_continue.cpp
         passes/destructure_cfg.cpp
         passes/simplify_cfg.cpp
+        passes/restructure_cfg.cpp
 )
 
 add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})
