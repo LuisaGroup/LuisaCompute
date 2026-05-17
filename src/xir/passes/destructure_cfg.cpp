@@ -1,14 +1,19 @@
+#include <luisa/ast/type_registry.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/break.h>
 #include <luisa/xir/instructions/continue.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/ray_query.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/destructure_cfg.h>
@@ -93,6 +98,90 @@ static void destructure_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     rewrite_candidate_back_edge(on_procedural_block);
     dispatch_inst->remove_self();
     info.destructured_ray_query_loop_count += 1u;
+}
+
+static void spill_early_returns(Function *function, DestructureCFGInfo &info) noexcept {
+    if (function == nullptr) { return; }
+    auto def = function->definition();
+    if (def == nullptr) { return; }
+    auto body = def->body_block();
+    if (body == nullptr) { return; }
+    luisa::vector<ReturnInst *> returns;
+    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        if (block == nullptr || !block->is_terminated()) { return; }
+        auto term = block->terminator();
+        if (term != nullptr && term->isa<ReturnInst>()) {
+            returns.emplace_back(static_cast<ReturnInst *>(term));
+        }
+    });
+    if (returns.size() <= 1u) { return; }
+    auto ret_type = function->type();
+    XIRBuilder b;
+    AllocaInst *spill_slot = nullptr;
+    if (ret_type != nullptr) {
+        b.set_insertion_point(body->instructions().head_sentinel());
+        spill_slot = b.alloca_local(ret_type);
+        spill_slot->add_comment("early-return spill slot");
+    }
+    auto exit_block = def->create_basic_block();
+    b.set_insertion_point(exit_block);
+    if (ret_type == nullptr) {
+        b.return_void();
+    } else {
+        auto loaded = b.load(ret_type, spill_slot);
+        b.return_(loaded);
+    }
+    for (auto r : returns) {
+        if (r == nullptr) { continue; }
+        auto parent = r->parent_block();
+        if (parent == nullptr) {
+            LUISA_WARNING_WITH_LOCATION("spill_early_returns: ReturnInst with null parent block.");
+            continue;
+        }
+        auto value = r->return_value();
+        if (ret_type != nullptr && value == nullptr) {
+            LUISA_WARNING_WITH_LOCATION("spill_early_returns: non-void function has ReturnInst with null value.");
+        }
+        b.set_insertion_point(parent);
+        if (ret_type != nullptr && value != nullptr) { b.store(spill_slot, value); }
+        b.br(exit_block);
+        r->remove_self();
+        info.destructured_early_return_count += 1u;
+    }
+}
+
+static void verify_terminators(Function *function) noexcept {
+    if (function == nullptr) { return; }
+    auto def = function->definition();
+    if (def == nullptr) { return; }
+    size_t return_count = 0u;
+    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        if (block == nullptr) { return; }
+        auto term = block->terminator();
+        if (term == nullptr) { return; }
+        switch (term->derived_instruction_tag()) {
+            case DerivedInstructionTag::BRANCH:
+            case DerivedInstructionTag::CONDITIONAL_BRANCH:
+            case DerivedInstructionTag::SWITCH:
+            case DerivedInstructionTag::UNREACHABLE:
+            case DerivedInstructionTag::RASTER_DISCARD:
+            case DerivedInstructionTag::RAY_QUERY_DISPATCH:
+                break;
+            case DerivedInstructionTag::RETURN:
+                return_count += 1u;
+                break;
+            default:
+                LUISA_WARNING_WITH_LOCATION(
+                    "destructure_cfg: unexpected terminator tag {} survived destructuring.",
+                    static_cast<int>(term->derived_instruction_tag()));
+                break;
+        }
+    });
+    if (return_count > 1u) {
+        LUISA_WARNING_WITH_LOCATION(
+            "destructure_cfg: function still has {} ReturnInsts after early-return spill.",
+            return_count);
+    }
 }
 
 static void destructure_in_function(Function *function, DestructureCFGInfo &info) noexcept {
@@ -208,6 +297,8 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
         info.destructured_break_count += break_insts.size();
         info.destructured_continue_count += continue_insts.size();
     }
+    spill_early_returns(function, info);
+    verify_terminators(function);
 }
 
 }// namespace detail

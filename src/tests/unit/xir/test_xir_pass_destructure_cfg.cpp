@@ -324,6 +324,66 @@ void reg_destructure_cfg() {
         expect(cbr->true_block() == t);
         expect(cbr->false_block() == f);
     };
+
+    "spill_early_return_single_return_noop"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+        auto info = destructure_cfg_pass_run_on_function(k);
+        expect(info.destructured_early_return_count == 0u);
+        expect(count_terminator_kind(k->definition(), DerivedInstructionTag::RETURN) == 1u);
+    };
+
+    "spill_early_return_void_two_returns"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *if_inst = b.if_(cond);
+        auto *t = if_inst->create_true_block();
+        auto *f = if_inst->create_false_block();
+        auto *merge = if_inst->create_merge_block();
+        b.set_insertion_point(t);
+        b.return_void();
+        b.set_insertion_point(f);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = destructure_cfg_pass_run_on_function(k);
+        expect(info.destructured_early_return_count == 2u);
+        auto *def = k->definition();
+        expect(count_terminator_kind(def, DerivedInstructionTag::RETURN) == 1u);
+    };
+
+    "spill_early_return_non_void_two_returns"_test = [] {
+        Module m;
+        auto *c = m.create_callable(Type::of<int>());
+        auto *body = c->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *v0 = m.create_constant_zero(Type::of<int>());
+        auto *v1 = m.create_constant_one(Type::of<int>());
+        auto *if_inst = b.if_(cond);
+        auto *t = if_inst->create_true_block();
+        auto *f = if_inst->create_false_block();
+        auto *merge = if_inst->create_merge_block();
+        b.set_insertion_point(t);
+        b.return_(v0);
+        b.set_insertion_point(f);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_(v1);
+        auto info = destructure_cfg_pass_run_on_function(c);
+        expect(info.destructured_early_return_count == 2u);
+        auto *def = c->definition();
+        expect(count_terminator_kind(def, DerivedInstructionTag::RETURN) == 1u);
+    };
 }
 
 int main(int argc, char *argv[]) {
