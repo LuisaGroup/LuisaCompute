@@ -8,7 +8,7 @@ local function test_proj(name, source, gui_dep, callable, kind)
     add_deps("lc-backends-dummy", {inherit = false, links = false})
     _config_project({project_kind = kind or "binary"})
     add_files(source)
-    add_includedirs("./")
+    add_includedirs("./", "./common")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image")
     if lc_enable_gui then
         add_deps("lc-gui")

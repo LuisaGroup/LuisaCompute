@@ -6,7 +6,7 @@ local function example_proj(name, source, gui_dep, callable, project_kind)
     add_deps("lc-backends-dummy", {inherit = false, links = false})
     _config_project({project_kind = project_kind or "binary"})
     add_files(source)
-    add_includedirs("$(projectdir)/src/tests/", "$(projectdir)/examples/")
+    add_includedirs("$(projectdir)/src/tests/", "$(projectdir)/src/tests/common/", "$(projectdir)/examples/")
     add_deps("lc-runtime", "lc-dsl", "lc-vstl", "stb-image")
     if lc_enable_gui then add_deps("lc-gui") end
     if gui_dep then add_defines("LUISA_ENABLE_GUI") end
