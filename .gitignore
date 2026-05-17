@@ -4,6 +4,12 @@ test_*.png
 result.png
 sdf-renderer.png
 
+# Benchmark / profiling artifacts
+/archlinux-desktop/
+/results.db
+/results.json
+/results.sysinfo.txt
+
 # Allow reference images in gallery
 !docs/gallery/*.png
 
