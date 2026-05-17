@@ -102,6 +102,9 @@ if has_config("lc_enable_xir") then
     test_proj("test_ast_to_xir", "unit/xir/test_ast_to_xir.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
+    test_proj("test_xir_passes", "unit/xir/test_xir_passes.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
 end
 
 -- integration/runtime

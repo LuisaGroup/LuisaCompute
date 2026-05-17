@@ -759,10 +759,11 @@ void reg_regression() {
         auto vec_t = Type::of<int3>();
         auto *x = m.create_constant_zero(vec_t);
         auto *sub = b.call(vec_t, ArithmeticOp::BINARY_SUB, {x, x});
+        auto sub_locked = sub->lock();
         b.return_void();
         auto info = algebraic_simplify_pass_run_on_function(k);
         expect(info.simplified_inst_count == 1u);
-        expect(sub->use_list().empty());
+        expect(sub_locked->use_list().empty());
     };
 
     "regression_int3_add_zero_preserves_vector_type"_test = [] {
@@ -776,10 +777,11 @@ void reg_regression() {
         int x_data[3] = {1, 2, 3};
         auto *x = m.create_constant(vec_t, x_data);
         auto *add = b.call(vec_t, ArithmeticOp::BINARY_ADD, {x, zero});
+        auto add_locked = add->lock();
         b.return_void();
         auto info = algebraic_simplify_pass_run_on_function(k);
         expect(info.simplified_inst_count == 1u);
-        expect(add->use_list().empty());
+        expect(add_locked->use_list().empty());
     };
 
     "regression_float3_mul_one_preserves_vector_type"_test = [] {
@@ -794,10 +796,11 @@ void reg_regression() {
         auto *one = m.create_constant(vec_t, one_data);
         auto *x = m.create_constant(vec_t, x_data);
         auto *mul = b.call(vec_t, ArithmeticOp::BINARY_MUL, {x, one});
+        auto mul_locked = mul->lock();
         b.return_void();
         auto info = algebraic_simplify_pass_run_on_function(k);
         expect(info.simplified_inst_count == 1u);
-        expect(mul->use_list().empty());
+        expect(mul_locked->use_list().empty());
     };
 
     // === FP-identity safety: NaN/Inf must NOT be simplified ===
@@ -844,10 +847,11 @@ void reg_regression() {
         auto *a = m.create_constant(Type::of<int>(), &a_v);
         auto *bv = m.create_constant(Type::of<int>(), &b_v);
         auto *add = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {a, bv});
+        auto add_locked = add->lock();
         b.return_void();
         auto info = const_fold_pass_run_on_function(k);
         expect(info.folded_inst_count == 1u);
-        expect(add->use_list().empty());
+        expect(add_locked->use_list().empty());
         // Walk module constants for an int constant == 7
         bool found_7 = false;
         for (auto c : m.constant_list()) {
@@ -868,10 +872,11 @@ void reg_regression() {
         int32_t x_v = std::numeric_limits<int32_t>::min();
         auto *x = m.create_constant(Type::of<int>(), &x_v);
         auto *neg = b.call(Type::of<int>(), ArithmeticOp::UNARY_MINUS, {x});
+        auto neg_locked = neg->lock();
         b.return_void();
         auto info = const_fold_pass_run_on_function(k);
         expect(info.folded_inst_count == 1u);
-        expect(neg->use_list().empty());
+        expect(neg_locked->use_list().empty());
         // -INT32_MIN via 0u - x must wrap to INT32_MIN (or 0x80000000 reinterpreted).
         bool found = false;
         for (auto c : m.constant_list()) {
