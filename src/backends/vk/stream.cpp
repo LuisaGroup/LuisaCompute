@@ -428,13 +428,15 @@ void CommandBufferState::init(Device &device, StreamTag tag) {
     upload_alloc.visitor.device = &device;
     readback_alloc.visitor.device = &device;
     {
-        VkDescriptorPoolSize pool_sizes[3];
+        VkDescriptorPoolSize pool_sizes[4];
         pool_sizes[0].descriptorCount = 65536;
         pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         pool_sizes[1].descriptorCount = 65536;
         pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         pool_sizes[2].descriptorCount = 65536;
         pool_sizes[2].type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        pool_sizes[3].descriptorCount = 65536;
+        pool_sizes[3].type = VK_DESCRIPTOR_TYPE_SAMPLER;
         VkDescriptorPoolCreateInfo createInfo{
             .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             .flags = 0,
@@ -635,15 +637,37 @@ void Stream::present(
         }
 
         {
+            auto producer_wait_value = _evt.last_fence();
+            auto producer_semaphore = _evt.semaphore();
+            luisa::fixed_vector<VkSemaphore, 2> wait_semaphores;
+            luisa::fixed_vector<VkPipelineStageFlags, 2> wait_stages_all;
+            luisa::fixed_vector<uint64_t, 2> wait_values;
+            for (size_t i = 0; i < present_cmd.submit_wait_semaphores.size(); ++i) {
+                wait_semaphores.emplace_back(present_cmd.submit_wait_semaphores[i]);
+                wait_stages_all.emplace_back(present_cmd.wait_stages[i]);
+                wait_values.emplace_back(0u);
+            }
+            if (producer_wait_value > 0u && producer_semaphore != VK_NULL_HANDLE) {
+                wait_semaphores.emplace_back(producer_semaphore);
+                wait_stages_all.emplace_back(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+                wait_values.emplace_back(producer_wait_value);
+            }
+            VkTimelineSemaphoreSubmitInfo timeline_info{};
+            timeline_info.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+            timeline_info.waitSemaphoreValueCount = static_cast<uint32_t>(wait_values.size());
+            timeline_info.pWaitSemaphoreValues = wait_values.data();
+            timeline_info.signalSemaphoreValueCount = static_cast<uint32_t>(present_cmd.signal_semaphores.size());
+            static const uint64_t zero_signal_values[1] = {0u};
+            timeline_info.pSignalSemaphoreValues = zero_signal_values;
             VkSubmitInfo submit_info{};
             submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submit_info.waitSemaphoreCount = present_cmd.submit_wait_semaphores.size();
-            submit_info.pWaitSemaphores = present_cmd.submit_wait_semaphores.data();
-            submit_info.pWaitDstStageMask = present_cmd.wait_stages.data();
+            submit_info.pNext = &timeline_info;
+            submit_info.waitSemaphoreCount = static_cast<uint32_t>(wait_semaphores.size());
+            submit_info.pWaitSemaphores = wait_semaphores.data();
+            submit_info.pWaitDstStageMask = wait_stages_all.data();
             submit_info.signalSemaphoreCount = present_cmd.signal_semaphores.size();
             submit_info.pSignalSemaphores = present_cmd.signal_semaphores.data();
             auto _cmdbuffer = cmdbuffer.cmdbuffer();
-            // Check for external command buffer execution
             if (device()->config_ext() && device()->config_ext()->execute_command_buffer(_cmdbuffer)) {
                 submit_info.commandBufferCount = 0;
                 submit_info.pCommandBuffers = nullptr;
