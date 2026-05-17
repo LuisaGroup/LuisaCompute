@@ -23,6 +23,8 @@
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/early_return_elimination.h>
 #include "llvm_codegen/hip_codegen_llvm.h"
 #endif
 
@@ -31,6 +33,20 @@ namespace luisa::compute::hip {
 #ifdef LUISA_COMPUTE_ENABLE_LLVM
 static const bool LUISA_XIR_NORMALIZE_CFG = [] {
     if (auto env = std::getenv("LUISA_XIR_NORMALIZE_CFG")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+static const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
+    if (auto env = std::getenv("LUISA_XIR_RESTRUCTURE_CFG")) {
+        return std::string_view{env} == "1";
+    }
+    return false;
+}();
+
+static const bool LUISA_XIR_ELIMINATE_EARLY_RETURN = [] {
+    if (auto env = std::getenv("LUISA_XIR_ELIMINATE_EARLY_RETURN")) {
         return std::string_view{env} == "1";
     }
     return false;
@@ -410,6 +426,11 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
     LUISA_VERBOSE("AST to XIR translation done in {} ms.", translate_clk.toc());
 
+    if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
+        auto early_return_info = xir::early_return_elimination_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE("XIR early-return elimination: removed {} early return(s).",
+                      early_return_info.removed_return_count);
+    }
     if (LUISA_XIR_NORMALIZE_CFG) {
         auto destructure_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
         auto simplify_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
@@ -421,6 +442,13 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
                       simplify_info.folded_constant_cond_br_count,
                       simplify_info.threaded_empty_block_count,
                       simplify_info.removed_unreachable_block_count);
+        if (LUISA_XIR_RESTRUCTURE_CFG) {
+            auto restructure_info = xir::restructure_cfg_pass_run_on_module(xir_module.get());
+            LUISA_VERBOSE("XIR CFG restructuring: restructured {} loop(s), {} if(s); {} irreducible region(s) remained.",
+                          restructure_info.restructured_loop_count,
+                          restructure_info.restructured_if_count,
+                          restructure_info.irreducible_region_count);
+        }
     }
 
     auto wave_size = 32u;
