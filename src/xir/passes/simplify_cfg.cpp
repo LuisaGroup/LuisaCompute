@@ -5,6 +5,7 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -47,7 +48,9 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
         if (t != nullptr && t->isa<ConditionalBranchInst>()) {
             auto cb = static_cast<ConditionalBranchInst *>(t);
             auto cond = cb->condition();
-            if (cond != nullptr && cond->isa<Constant>()) {
+            if (cb->true_block() != nullptr && cb->true_block() == cb->false_block()) {
+                targets.push_back(cb);
+            } else if (cond != nullptr && cond->isa<Constant>()) {
                 auto cc = static_cast<Constant *>(cond);
                 if (cc->type() != nullptr && cc->type()->is_bool()) {
                     targets.push_back(cb);
@@ -59,8 +62,13 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
     for (auto cb : targets) {
         auto bb = cb->parent_block();
         if (bb == nullptr) { continue; }
-        auto c = static_cast<Constant *>(cb->condition());
-        auto taken = c->as<bool>() ? cb->true_block() : cb->false_block();
+        BasicBlock *taken = nullptr;
+        if (cb->true_block() != nullptr && cb->true_block() == cb->false_block()) {
+            taken = cb->true_block();
+        } else {
+            auto c = static_cast<Constant *>(cb->condition());
+            taken = c->as<bool>() ? cb->true_block() : cb->false_block();
+        }
         if (taken == nullptr) { continue; }
         cb->remove_self();
         XIRBuilder b;
@@ -91,6 +99,11 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         if (bb->terminator() == nullptr) continue;
         auto br = static_cast<BranchInst *>(bb->terminator());
         auto target = br->target_block();
+        bool target_has_phi = false;
+        for (auto inst : target->instructions()) {
+            if (inst->isa<PhiInst>()) { target_has_phi = true; break; }
+        }
+        if (target_has_phi) continue;
         luisa::vector<BasicBlock *> preds;
         bb->traverse_predecessors(true, [&](BasicBlock *p) noexcept {
             preds.push_back(p);
@@ -122,6 +135,19 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
         if (!reachable.contains(bb)) dead.push_back(bb);
     }
     if (dead.empty()) return false;
+    luisa::unordered_set<BasicBlock *> dead_set{dead.begin(), dead.end()};
+    for (auto bb : def->basic_blocks()) {
+        if (dead_set.contains(bb)) continue;
+        for (auto inst : bb->instructions()) {
+            if (!inst->isa<PhiInst>()) continue;
+            auto phi = static_cast<PhiInst *>(inst);
+            for (size_t i = phi->incoming_count(); i-- > 0;) {
+                if (dead_set.contains(phi->incoming(i).block)) {
+                    phi->remove_incoming(i);
+                }
+            }
+        }
+    }
     for (auto bb : dead) {
         bb->remove_self();
         ++info.removed_unreachable_block_count;

@@ -7,6 +7,7 @@
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/loop.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -240,6 +241,10 @@ struct PostDomTree {
 
     auto *pre_header = def->create_basic_block();
 
+    if (def->body_block() == found_header) {
+        def->set_body_block(pre_header);
+    }
+
     for (auto *pred : entry_preds) {
         if (!pred->is_terminated()) { continue; }
         auto *t = pred->terminator();
@@ -249,6 +254,23 @@ struct PostDomTree {
             auto *cbr = static_cast<ConditionalBranchInst *>(t);
             if (cbr->true_block() == found_header) { cbr->set_true_target(pre_header); }
             if (cbr->false_block() == found_header) { cbr->set_false_target(pre_header); }
+        }
+    }
+
+    luisa::unordered_set<BasicBlock *> entry_pred_set{entry_preds.begin(), entry_preds.end()};
+    for (auto inst : found_header->instructions()) {
+        if (!inst->isa<PhiInst>()) continue;
+        auto *phi = static_cast<PhiInst *>(inst);
+        Value *merged_value = nullptr;
+        for (size_t i = phi->incoming_count(); i-- > 0;) {
+            auto inc = phi->incoming(i);
+            if (entry_pred_set.contains(inc.block)) {
+                merged_value = inc.value;
+                phi->remove_incoming(i);
+            }
+        }
+        if (merged_value != nullptr) {
+            phi->add_incoming(merged_value, pre_header);
         }
     }
 
