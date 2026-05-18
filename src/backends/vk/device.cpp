@@ -216,7 +216,7 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
 #endif
         VkInstanceCreateInfo instance_create_info = {};
         instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        instance_create_info.pNext = NULL;
+        instance_create_info.pNext = nullptr;
         instance_create_info.pApplicationInfo = &app_info;
 
         // The VK_LAYER_KHRONOS_validation contains all current validation functionality.
@@ -1176,7 +1176,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             auto &p = spv_result.properties[i];
             LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
         }
-        if (print_code()) {
+        if (print_code()) [[unlikely]] {
             {
                 auto filename = luisa::format("spirv_output_{}.spvasm", kernel.name().empty() ? "unnamed" : kernel.name());
                 std::ofstream file(filename.c_str(), std::ios::app);
@@ -1218,21 +1218,40 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 }
             }
         }
-        auto shader = new ComputeShader(
-            this,
-            kernel.block_size(),
-            spv_result.properties,
-            ShaderSerializer::serialize_saved_args(kernel),
-            {reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size()},
-            hlsl::binding_to_arg(kernel.bound_arguments()),
-            {},
-            spv_result.useTex2DBindless,
-            spv_result.useTex3DBindless,
-            spv_result.useBufferBindless,
-            std::move(spv_result.printers));
-        LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
-        info.handle = reinterpret_cast<uint64_t>(shader);
-        info.native_handle = shader->pipeline();
+        if (option.compile_only) {
+            assert(!option.name.empty());
+            info.invalidate();
+            ShaderSerializer::serialize_bytecode(
+                spv_result.properties,
+                ShaderSerializer::serialize_saved_args(kernel),
+                vstd::MD5{vstd::span<const uint8_t>(reinterpret_cast<const uint8_t *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() * sizeof(uint32_t))},
+                hlsl::CodegenUtility::GetTypeMD5(kernel),
+                kernel.block_size(),
+                option.name,
+                spv_result.spv_bin,
+                SerdeType::kByteCode,
+                _binary_io,
+                spv_result.useTex2DBindless,
+                spv_result.useTex3DBindless,
+                spv_result.useBufferBindless,
+                spv_result.printers);
+        } else {
+            auto shader = new ComputeShader(
+                this,
+                kernel.block_size(),
+                spv_result.properties,
+                ShaderSerializer::serialize_saved_args(kernel),
+                {reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size()},
+                hlsl::binding_to_arg(kernel.bound_arguments()),
+                {},
+                spv_result.useTex2DBindless,
+                spv_result.useTex3DBindless,
+                spv_result.useBufferBindless,
+                std::move(spv_result.printers));
+            LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
+            info.handle = reinterpret_cast<uint64_t>(shader);
+            info.native_handle = shader->pipeline();
+        }
 
 #else
         auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
@@ -1446,7 +1465,7 @@ void Device::HeapAlloc::dealloc(uint idx) {
 Device::HeapAlloc::HeapAlloc() : sub_allocator(std::numeric_limits<uint32_t>::max(), 1) {}
 Device::HeapAlloc::~HeapAlloc() = default;
 Device::LazyLoadShader::LazyLoadShader(LoadFunc load_func) : _load_func(load_func) {}
-Device::LazyLoadShader::~LazyLoadShader() {}
+Device::LazyLoadShader::~LazyLoadShader() = default;
 ComputeShader *Device::LazyLoadShader::get(Device *self) {
     if (!_shader) {
         _shader = vstd::create_unique(_load_func(self));
