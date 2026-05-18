@@ -115,6 +115,7 @@ private:
     void _emit_ray_query_dispatch_inst(const xir::RayQueryDispatchInst *inst) noexcept;
     spv::Id _resolve_resource_argument(const xir::Argument *arg) noexcept;
     spv::Id _resolve_accel_instance_buffer(const xir::Argument *arg) noexcept;
+    size_t _get_resource_property_base(const xir::Function *func) const noexcept;
     spv::Id _load_texture(spv::Id tex_var) noexcept;
     spv::Id _create_access_chain(spv::StorageClass storage, spv::Id base, const std::vector<spv::Id> &indices, bool nonuniform = false) noexcept;
     spv::Id _ensure_type(spv::Id value, spv::Id target_type) noexcept;

@@ -383,12 +383,28 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
         _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
         return struct_type;
     };
-    auto make_buffer_element_type = [&](const char *name) -> spv::Id {
-        auto uint_type = _builder.makeUintType(32);
-        auto runtime_array = _builder.makeRuntimeArray(uint_type);
-        auto struct_type = _builder.makeStructType({runtime_array}, {}, name, false);
-        // No Block decoration - this is used inside another Block-decorated struct
-        return struct_type;
+    auto get_image_sampled_type_and_dim = [&](const Type *elem_type, size_t name_idx) -> std::pair<spv::Id, spv::Dim> {
+        spv::Id sampled_type = _builder.makeFloatType(32);
+        spv::Dim dim = spv::Dim::Dim2D;
+        if (elem_type != nullptr && elem_type->tag() == Type::Tag::TEXTURE) {
+            auto tex_elem = elem_type->element();
+            if (tex_elem != nullptr && tex_elem->is_vector()) { tex_elem = tex_elem->element(); }
+            if (tex_elem != nullptr) {
+                if (tex_elem->is_float32()) {
+                    sampled_type = _builder.makeFloatType(32);
+                } else if (tex_elem->is_int32()) {
+                    sampled_type = _builder.makeIntType(32);
+                } else if (tex_elem->is_uint32()) {
+                    sampled_type = _builder.makeUintType(32);
+                }
+            }
+            dim = (elem_type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
+        } else if (elem_type == nullptr) {
+            if (buffer_names[name_idx] == "tex3d_heap") {
+                dim = spv::Dim::Dim3D;
+            }
+        }
+        return {sampled_type, dim};
     };
 
     for (size_t i = 0; i < _properties.size(); ++i) {
@@ -435,27 +451,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 break;
             }
             case ShaderVariableType::SRVTextureHeap: {
-                spv::Id sampled_type = _builder.makeFloatType(32);
-                spv::Dim dim = spv::Dim::Dim2D;
-                if (elem_type != nullptr && elem_type->tag() == Type::Tag::TEXTURE) {
-                    auto tex_elem = elem_type->element();
-                    if (tex_elem != nullptr && tex_elem->is_vector()) { tex_elem = tex_elem->element(); }
-                    if (tex_elem != nullptr) {
-                        if (tex_elem->is_float32()) {
-                            sampled_type = _builder.makeFloatType(32);
-                        } else if (tex_elem->is_int32()) {
-                            sampled_type = _builder.makeIntType(32);
-                        } else if (tex_elem->is_uint32()) {
-                            sampled_type = _builder.makeUintType(32);
-                        }
-                    }
-                    dim = (elem_type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
-                } else if (elem_type == nullptr) {
-                    // Bindless heap: infer dimension from the variable name
-                    if (buffer_names[i] == "tex3d_heap") {
-                        dim = spv::Dim::Dim3D;
-                    }
-                }
+                auto [sampled_type, dim] = get_image_sampled_type_and_dim(elem_type, i);
                 auto image_type = _builder.makeImageType(
                     sampled_type, dim, false, false, false, 1, spv::ImageFormat::Unknown, "image");
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
@@ -484,27 +480,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 break;
             }
             case ShaderVariableType::UAVTextureHeap: {
-                spv::Id sampled_type = _builder.makeFloatType(32);
-                spv::Dim dim = spv::Dim::Dim2D;
-                if (elem_type != nullptr && elem_type->tag() == Type::Tag::TEXTURE) {
-                    auto tex_elem = elem_type->element();
-                    if (tex_elem != nullptr && tex_elem->is_vector()) { tex_elem = tex_elem->element(); }
-                    if (tex_elem != nullptr) {
-                        if (tex_elem->is_float32()) {
-                            sampled_type = _builder.makeFloatType(32);
-                        } else if (tex_elem->is_int32()) {
-                            sampled_type = _builder.makeIntType(32);
-                        } else if (tex_elem->is_uint32()) {
-                            sampled_type = _builder.makeUintType(32);
-                        }
-                    }
-                    dim = (elem_type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
-                } else if (elem_type == nullptr) {
-                    // Bindless heap: infer dimension from the variable name
-                    if (buffer_names[i] == "tex3d_heap") {
-                        dim = spv::Dim::Dim3D;
-                    }
-                }
+                auto [sampled_type, dim] = get_image_sampled_type_and_dim(elem_type, i);
                 auto image_type = _builder.makeImageType(
                     sampled_type, dim, false, false, false, 2, spv::ImageFormat::Unknown, "image");
                 if (prop.array_size == std::numeric_limits<uint>::max()) {

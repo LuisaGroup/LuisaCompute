@@ -720,19 +720,23 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         .storageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
         .uniformAndStorageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
         .variablePointersStorageBuffer = VK_TRUE};
+    auto vk_bindless_enabled = bindless_enabled ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceVulkan12Features vk12_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &vk11_feature,
         .shaderBufferInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderSharedInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderFloat16 = enable_16bit ? VK_TRUE : VK_FALSE,
-        .descriptorIndexing = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .shaderSampledImageArrayNonUniformIndexing = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .shaderStorageImageArrayNonUniformIndexing = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .descriptorBindingSampledImageUpdateAfterBind = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .descriptorBindingStorageImageUpdateAfterBind = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .descriptorBindingStorageBufferUpdateAfterBind = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .runtimeDescriptorArray = bindless_enabled ? VK_TRUE : VK_FALSE,
+        .descriptorIndexing = vk_bindless_enabled,
+        .shaderUniformBufferArrayNonUniformIndexing = vk_bindless_enabled,
+        .shaderSampledImageArrayNonUniformIndexing = vk_bindless_enabled,
+        .shaderStorageBufferArrayNonUniformIndexing = vk_bindless_enabled,
+        .shaderStorageImageArrayNonUniformIndexing = vk_bindless_enabled,
+        .descriptorBindingUniformBufferUpdateAfterBind = vk_bindless_enabled,
+        .descriptorBindingSampledImageUpdateAfterBind = vk_bindless_enabled,
+        .descriptorBindingStorageImageUpdateAfterBind = vk_bindless_enabled,
+        .descriptorBindingStorageBufferUpdateAfterBind = vk_bindless_enabled,
+        .runtimeDescriptorArray = vk_bindless_enabled,
 
         .shaderSubgroupExtendedTypes = (enable_atomic64_bit || enable_16bit) ? VK_TRUE : VK_FALSE,
 

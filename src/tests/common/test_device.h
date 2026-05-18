@@ -44,7 +44,7 @@ inline const char *safe_argv0() noexcept {
     const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
     compute::Context context{exe};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", exe);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal, vk", exe);
         exit(1);
     }
     compute::Device device = context.create_device(argv[1]);
@@ -59,7 +59,7 @@ inline const char *safe_argv0() noexcept {
     auto argv = boost::ut::detail::cfg::largv;
     const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", exe);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal, vk", exe);
         return std::nullopt;
     }
     compute::Context context{exe};
@@ -69,7 +69,7 @@ inline const char *safe_argv0() noexcept {
 [[nodiscard]] inline std::optional<DeviceContext> create_device_from_ut(int argc, char *argv[]) {
     const char *exe = (argc > 0 && argv && argv[0]) ? argv[0] : safe_argv0();
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", exe);
+        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal, vk", exe);
         return std::nullopt;
     }
     compute::Context context{exe};

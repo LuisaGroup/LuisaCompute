@@ -908,6 +908,22 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     }
 }
 
+size_t SpirvCodegenEntry::_get_resource_property_base(const xir::Function *func) const noexcept {
+    size_t base = 2;// ConstantValue + SamplerHeap
+    bool cbuffer_non_empty = false;
+    for (auto a : func->arguments()) {
+        if (!a->is_resource()) {
+            cbuffer_non_empty = true;
+            break;
+        }
+    }
+    if (cbuffer_non_empty) { ++base; }
+    if (_use_buffer_bindless) { ++base; }
+    if (_use_tex2d_bindless) { ++base; }
+    if (_use_tex3d_bindless) { ++base; }
+    return base;
+}
+
 spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) noexcept {
     if (auto it = _value_map.find(arg); it != _value_map.end()) {
         return it->second;
@@ -926,18 +942,7 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
         }
     }
     LUISA_ASSERT(found, "Resource argument not found in parent function.");
-    size_t base = 2;// ConstantValue + SamplerHeap
-    bool cbuffer_non_empty = false;
-    for (auto a : func->arguments()) {
-        if (!a->is_resource()) {
-            cbuffer_non_empty = true;
-            break;
-        }
-    }
-    if (cbuffer_non_empty) { ++base; }
-    if (_use_buffer_bindless) { ++base; }
-    if (_use_tex2d_bindless) { ++base; }
-    if (_use_tex3d_bindless) { ++base; }
+    size_t base = _get_resource_property_base(func);
     auto prop_index = base;
     for (auto a : func->arguments()) {
         if (a == arg) { break; }
@@ -968,18 +973,7 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
 spv::Id SpirvCodegenEntry::_resolve_accel_instance_buffer(const xir::Argument *arg) noexcept {
     auto func = arg->parent_function();
     LUISA_ASSERT(func != nullptr, "Resource argument has no parent function.");
-    size_t base = 2;// ConstantValue + SamplerHeap
-    bool cbuffer_non_empty = false;
-    for (auto a : func->arguments()) {
-        if (!a->is_resource()) {
-            cbuffer_non_empty = true;
-            break;
-        }
-    }
-    if (cbuffer_non_empty) { ++base; }
-    if (_use_buffer_bindless) { ++base; }
-    if (_use_tex2d_bindless) { ++base; }
-    if (_use_tex3d_bindless) { ++base; }
+    size_t base = _get_resource_property_base(func);
     auto prop_index = base;
     for (auto a : func->arguments()) {
         if (a == arg) { break; }

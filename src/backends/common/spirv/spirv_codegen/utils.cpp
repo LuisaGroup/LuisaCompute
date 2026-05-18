@@ -18,6 +18,7 @@
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
 #include <luisa/xir/passes/loop_unroll.h>
+#include <luisa/xir/passes/unused_callable_removal.h>
 
 namespace luisa::compute::spirv {
 
@@ -54,7 +55,7 @@ const bool LUISA_SPIRV_DUMP_OPT_STATS = [] {
     // XIR optimization pipeline:
     //   DCE → algebraic-simplify → const-fold → DCE → store-forward → load-elim → DCE →
     //   [inline → const-fold → DCE] → promote-ref-arg →
-    //   sroa → loop-unroll → mem2reg → reg2mem → DCE
+    //   sroa → loop-unroll → mem2reg → reg2mem → DCE → unused-callable-removal
     //
     // Note: inline pass currently disabled due to edge cases with
     // block wiring and callee removal. Implementation is complete
@@ -126,6 +127,11 @@ const bool LUISA_SPIRV_DUMP_OPT_STATS = [] {
     auto dce4_info = xir::dce_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  dce4: {} ms", pass_clk.toc());
 
+    // Phase 5: module-level cleanup
+    pass_clk.tic();
+    auto unused_callable_info = xir::unused_callable_removal_pass_run_on_module(xir_module.get());
+    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  unused-callable-removal: {} ms (removed {})", pass_clk.toc(), unused_callable_info.removed_callable_count);
+
     if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
         std::ofstream f{filename.c_str()};
@@ -140,7 +146,8 @@ const bool LUISA_SPIRV_DUMP_OPT_STATS = [] {
                   "    sroa decomposed {} alloca(s) into {} scalar alloca(s),\n"
                   "    promoted {} alloca instruction(s) with {} load and {} store instruction(s) removed and {} phi node(s) inserted,\n"
                   "    removed {} + {} + {} + {} + {} = {} dead instruction(s) and {} + {} + {} + {} + {} = {} dead block(s),\n"
-                  "    promoted {} reference argument(s).",
+                  "    promoted {} reference argument(s).\n"
+                  "    removed {} unused callable(s).",
                   opt_clk.toc(),
                   const_fold1_info.folded_inst_count + const_fold2_info.folded_inst_count,
                   store_forward_info.removed_load_count,
@@ -152,7 +159,8 @@ const bool LUISA_SPIRV_DUMP_OPT_STATS = [] {
                   dce1_info.removed_inst_count + dce2_info.removed_inst_count + dce3_info.removed_inst_count + dce_inline_info.removed_inst_count + dce4_info.removed_inst_count,
                   dce1_info.removed_block_count, dce2_info.removed_block_count, dce3_info.removed_block_count, dce_inline_info.removed_block_count, dce4_info.removed_block_count,
                   dce1_info.removed_block_count + dce2_info.removed_block_count + dce3_info.removed_block_count + dce_inline_info.removed_block_count + dce4_info.removed_block_count,
-                  promote_arg_info.promoted_ref_arg_count);
+                  promote_arg_info.promoted_ref_arg_count,
+                  unused_callable_info.removed_callable_count);
 
     if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.opt.rq.xir", kernel.hash());
