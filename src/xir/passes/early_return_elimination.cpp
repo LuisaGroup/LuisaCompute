@@ -9,6 +9,7 @@
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/builder.h>
@@ -96,9 +97,18 @@ static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_retur
     auto head = insts.head_sentinel();
     auto term = block->terminator();
 
+    auto cfm = term->control_flow_merge();
+    auto next_merge = cfm ? cfm->merge_block() : nullptr;
+
     luisa::vector<ManagedPtr<Instruction>> non_terms;
+    Instruction *insert_after_phi = head;
     for (auto inst = head->next(); inst != term;) {
         auto next = inst->next();
+        if (inst->isa<PhiInst>()) {
+            insert_after_phi = inst;
+            inst = next;
+            continue;
+        }
         non_terms.emplace_back(inst->remove_self());
         inst = next;
     }
@@ -106,7 +116,6 @@ static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_retur
 
     auto t_new = def->create_basic_block();
     auto f_new = def->create_basic_block();
-    auto merge_new = def->create_basic_block();
 
     auto t_new_tail = t_new->instructions().tail_sentinel();
     for (auto &inst : non_terms) {
@@ -114,15 +123,27 @@ static BasicBlock *conditionalize_block(BasicBlock *block, AllocaInst *not_retur
     }
 
     XIRBuilder b;
-    b.set_insertion_point(t_new);
-    b.br(merge_new);
+    BasicBlock *merge_new = nullptr;
+    if (next_merge != nullptr) {
+        t_new->instructions().tail_sentinel()->insert_before_self(std::move(managed_term));
 
-    b.set_insertion_point(f_new);
-    b.br(merge_new);
+        b.set_insertion_point(f_new);
+        b.br(next_merge);
 
-    merge_new->instructions().tail_sentinel()->insert_before_self(std::move(managed_term));
+        merge_new = next_merge;
+    } else {
+        merge_new = def->create_basic_block();
 
-    b.set_insertion_point(head);
+        b.set_insertion_point(t_new);
+        b.br(merge_new);
+
+        b.set_insertion_point(f_new);
+        b.br(merge_new);
+
+        merge_new->instructions().tail_sentinel()->insert_before_self(std::move(managed_term));
+    }
+
+    b.set_insertion_point(insert_after_phi);
     auto load_flag = b.load(Type::of<bool>(), not_returned_flag);
     auto if_inst = b.if_(load_flag);
     if_inst->set_true_target(t_new);

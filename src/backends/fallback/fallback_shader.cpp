@@ -187,6 +187,12 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
     auto load_elim_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
     auto dce2_info = xir::dce_pass_run_on_module(xir_module.get());
     auto promote_arg_info = xir::promote_ref_arg_pass_run_on_module(xir_module.get());
+    xir::EarlyReturnEliminationInfo early_return_info{};
+    if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
+        early_return_info = xir::early_return_elimination_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE("XIR early-return elimination done: removed {} early return(s).",
+                      early_return_info.removed_return_count);
+    }
     auto mem2reg_info = xir::mem2reg_pass_run_on_module(xir_module.get());
     auto dce3_info = xir::dce_pass_run_on_module(xir_module.get());
     if (LUISA_SHOULD_DUMP_XIR) {
@@ -195,12 +201,6 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         f << xir::xir_to_text_translate(xir_module.get(), true);
     }
     auto rq_lower_info = xir::lower_ray_query_loop_pass_run_on_module(xir_module.get());
-    xir::EarlyReturnEliminationInfo early_return_info{};
-    if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
-        early_return_info = xir::early_return_elimination_pass_run_on_module(xir_module.get());
-        LUISA_VERBOSE("XIR early-return elimination done: removed {} early return(s).",
-                      early_return_info.removed_return_count);
-    }
     xir::DestructureCFGInfo destructure_cfg_info{};
     xir::SimplifyCFGInfo simplify_cfg_info{};
     xir::RestructureCFGInfo restructure_cfg_info{};

@@ -106,6 +106,10 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     auto load_elim_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
     auto dce2_info = xir::dce_pass_run_on_module(xir_module.get());
     auto promote_arg_info = xir::promote_ref_arg_pass_run_on_module(xir_module.get());
+    if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
+        auto early_return_info = xir::early_return_elimination_pass_run_on_module(xir_module.get());
+        LUISA_VERBOSE("Eliminated {} early return(s).", early_return_info.removed_return_count);
+    }
     auto mem2reg_info = xir::mem2reg_pass_run_on_module(xir_module.get());
     auto dce3_info = xir::dce_pass_run_on_module(xir_module.get());
     if (LUISA_SHOULD_DUMP_XIR) {
@@ -115,10 +119,6 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     }
     auto rq_lower_info = lower_rq ? xir::lower_ray_query_loop_pass_run_on_module(xir_module.get()) : xir::RayQueryLoopLowerInfo{};
     auto reg2mem_info = lower_rq ? xir::reg2mem_pass_run_on_module(xir_module.get()) : xir::Reg2MemInfo{};
-    if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
-        auto early_return_info = xir::early_return_elimination_pass_run_on_module(xir_module.get());
-        LUISA_VERBOSE("Eliminated {} early return(s).", early_return_info.removed_return_count);
-    }
     if (LUISA_XIR_NORMALIZE_CFG) {
         auto destructure_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
         auto simplify_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
