@@ -19,6 +19,9 @@
 #include <luisa/xir/passes/algebraic_simplify.h>
 #include <luisa/xir/passes/loop_unroll.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/restructure_cfg.h>
 
 namespace luisa::compute::spirv {
 
@@ -33,6 +36,20 @@ const bool LUISA_SPIRV_SHOULD_DUMP_XIR = [] {
 
 const bool LUISA_SPIRV_DUMP_OPT_STATS = [] {
     if (auto env = getenv("LUISA_SPIRV_DUMP_OPT_STATS")) {
+        return luisa::string_view{env} == "1";
+    }
+    return false;
+}();
+
+const bool LUISA_XIR_NORMALIZE_CFG = [] {
+    if (auto env = getenv("LUISA_XIR_NORMALIZE_CFG")) {
+        return luisa::string_view{env} == "1";
+    }
+    return false;
+}();
+
+const bool LUISA_XIR_RESTRUCTURE_CFG = [] {
+    if (auto env = getenv("LUISA_XIR_RESTRUCTURE_CFG")) {
         return luisa::string_view{env} == "1";
     }
     return false;
@@ -131,6 +148,44 @@ const bool LUISA_SPIRV_DUMP_OPT_STATS = [] {
     pass_clk.tic();
     auto unused_callable_info = xir::unused_callable_removal_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  unused-callable-removal: {} ms (removed {})", pass_clk.toc(), unused_callable_info.removed_callable_count);
+
+    xir::DestructureCFGInfo destructure_cfg_info{};
+    xir::SimplifyCFGInfo simplify_cfg_info{};
+    xir::RestructureCFGInfo restructure_cfg_info{};
+    if (LUISA_XIR_NORMALIZE_CFG) {
+        pass_clk.tic();
+        destructure_cfg_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  destructure-cfg: {} ms", pass_clk.toc());
+        pass_clk.tic();
+        simplify_cfg_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  simplify-cfg: {} ms", pass_clk.toc());
+        LUISA_VERBOSE("XIR CFG normalization done:\n"
+                      "    destructured {} if(s), {} loop(s), {} simple loop(s), {} break(s), {} continue(s), {} ray query loop(s),\n"
+                      "    simplified: folded {} constant cond_br(s), threaded {} empty block(s), removed {} unreachable block(s).",
+                      destructure_cfg_info.destructured_if_count,
+                      destructure_cfg_info.destructured_loop_count,
+                      destructure_cfg_info.destructured_simple_loop_count,
+                      destructure_cfg_info.destructured_break_count,
+                      destructure_cfg_info.destructured_continue_count,
+                      destructure_cfg_info.destructured_ray_query_loop_count,
+                      simplify_cfg_info.folded_constant_cond_br_count,
+                      simplify_cfg_info.threaded_empty_block_count,
+                      simplify_cfg_info.removed_unreachable_block_count);
+        if (LUISA_XIR_RESTRUCTURE_CFG) {
+            pass_clk.tic();
+            restructure_cfg_info = xir::restructure_cfg_pass_run_on_module(xir_module.get());
+            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  restructure-cfg: {} ms", pass_clk.toc());
+            LUISA_VERBOSE("XIR CFG restructuring done: restructured {} loop(s), {} if(s); {} irreducible region(s) remained.",
+                          restructure_cfg_info.restructured_loop_count,
+                          restructure_cfg_info.restructured_if_count,
+                          restructure_cfg_info.irreducible_region_count);
+        }
+        if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
+            auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());
+            std::ofstream f{filename.c_str()};
+            f << xir::xir_to_text_translate(xir_module.get(), true);
+        }
+    }
 
     if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
         auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());

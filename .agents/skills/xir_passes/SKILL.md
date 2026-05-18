@@ -96,7 +96,7 @@ For instruction-tag switch: `inst->derived_instruction_tag()` returns `DerivedIn
 | `UnreachableInst` | `instructions/unreachable.h` | none |
 | `RasterDiscardInst` | `instructions/raster_discard.h` | none |
 | `IfInst` (structured) | `instructions/if.h` | `condition()`, `true_block()`, `false_block()`, `merge_block()` |
-| `LoopInst` (structured) | `instructions/loop.h` | `prepare_block()`, `condition()`, `body_block()`, `update_block()`, `merge_block()` |
+| `LoopInst` (structured) | `instructions/loop.h` | `prepare_block()`, `body_block()`, `update_block()`, `merge_block()`. **No `condition()` getter** — the loop condition lives as the terminating `cond_br(cond, body_block, merge_block)` of `prepare_block()`. Canonical shape from `ast2xir.cpp:970-1004`: `prepare: cond_br(cond, body, merge)`, `body → br(update)`, `update → br(prepare)`. Setters: `set_prepare_block`, `set_body_block`, `set_update_block`. Creators: `create_prepare_block(overwrite=false)`, `create_body_block(...)`, `create_update_block(...)`. |
 | `SimpleLoopInst` (structured) | `instructions/loop.h` | `body_block()`, `merge_block()` |
 | `BreakInst` (structured) | `instructions/break.h` | `target_block()` |
 | `ContinueInst` (structured) | `instructions/continue.h` | `target_block()` |
@@ -279,6 +279,9 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 - ❌ Forgetting fixed-point loop when transformation creates new candidates (RayQueryLoop → new LoopInst).
 - ❌ Touching `SwitchInst` case-block contents structurally — Pipeline B preserves switches; only fold/thread within cases.
 - ❌ Writing memo comments — project hook will flag and force you to apologize.
+- ❌ Calling `LoopInst::condition()` — **does not exist**. The loop condition is the terminating `cond_br(cond, body, merge)` of `prepare_block()`. To read the condition: `static_cast<ConditionalBranchInst*>(loop->prepare_block()->terminator())->condition()`. Likewise no `set_condition`; rewrite the prepare-block terminator instead.
+- ❌ Restructuring CFG with live `PhiInst` nodes — splitting/inserting blocks (preheaders, latches, exit stubs) invalidates phi `incoming_blocks`. Run `reg2mem_pass_run_on_module` before `restructure_cfg_pass_run_on_module` so the input is phi-free; assert this as a precondition.
+- ❌ Computing post-dominators without a virtual exit — multi-sink CFGs (`ReturnInst`, `UnreachableInst`, `RasterDiscardInst` in different blocks) yield wrong/null ipostdoms for blocks whose successors reach different sinks. Add a synthetic virtual exit that all sinks point to before running the iterative ipostdom algorithm.
 
 ## Build & Test Commands
 
