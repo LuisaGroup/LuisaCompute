@@ -887,29 +887,6 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_insert(IB &b, FunctionContext &func_
 }
 
 llvm::Value *HIPCodegenLLVMImpl::_translate_extract(IB &b, FunctionContext &func_ctx, const xir::ArithmeticInst *inst) noexcept {
-    auto llvm_src = _get_llvm_value(b, func_ctx, inst->operand(0));
-    auto index_uses = inst->operand_uses().subspan(1);
-    LUISA_DEBUG_ASSERT(index_uses.size() == 1 && index_uses.front()->value()->isa<xir::Constant>());
-    if (llvm_src->getType()->isVectorTy()) {
-        auto index = static_cast<const xir::Constant *>(index_uses.front()->value());
-        auto evaluate_constant = [](const xir::Constant *c) noexcept -> uint64_t {
-            switch (c->type()->tag()) {
-                case Type::Tag::INT8: return c->as<int8_t>();
-                case Type::Tag::UINT8: return c->as<uint8_t>();
-                case Type::Tag::INT16: return c->as<int16_t>();
-                case Type::Tag::UINT16: return c->as<uint16_t>();
-                case Type::Tag::INT32: return c->as<int32_t>();
-                case Type::Tag::UINT32: return c->as<uint32_t>();
-                case Type::Tag::INT64: return c->as<int64_t>();
-                case Type::Tag::UINT64: return c->as<uint64_t>();
-                default: LUISA_ERROR_WITH_LOCATION("Unsupported constant type for extract evaluation.");
-            }
-        };
-        auto static_index = static_cast<unsigned>(evaluate_constant(index));
-        return b.CreateExtractElement(llvm_src, static_index);
-    }
-    LUISA_DEBUG_ASSERT(llvm_src->getType()->isAggregateType());
-    auto index = static_cast<const xir::Constant *>(index_uses.front()->value());
     auto evaluate_constant = [](const xir::Constant *c) noexcept -> uint64_t {
         switch (c->type()->tag()) {
             case Type::Tag::INT8: return c->as<int8_t>();
@@ -923,8 +900,33 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_extract(IB &b, FunctionContext &func
             default: LUISA_ERROR_WITH_LOCATION("Unsupported constant type for extract evaluation.");
         }
     };
-    auto static_index = static_cast<unsigned>(evaluate_constant(index));
-    return b.CreateExtractValue(llvm_src, static_index);
+    if (auto src = inst->operand(0); src->isa<xir::Constant>() && src->type()->is_array()) {
+        auto llvm_global = _get_llvm_constant(b, static_cast<const xir::Constant *>(src), false);
+        LUISA_DEBUG_ASSERT(llvm_global->getType()->isPointerTy());
+        auto index_uses = inst->operand_uses().subspan(1);
+        auto [llvm_ptr, elem_type] = _lower_access_chain_address(b, func_ctx, llvm_global, src->type(), index_uses);
+        LUISA_DEBUG_ASSERT(elem_type == inst->type());
+        return _load_llvm_value(b, llvm_ptr, elem_type);
+    }
+    auto llvm_src = _get_llvm_value(b, func_ctx, inst->operand(0));
+    auto index_uses = inst->operand_uses().subspan(1);
+    if (llvm_src->getType()->isVectorTy()) {
+        LUISA_DEBUG_ASSERT(index_uses.size() == 1);
+        auto llvm_index = _get_llvm_value(b, func_ctx, index_uses.front()->value());
+        return b.CreateExtractElement(llvm_src, llvm_index);
+    }
+    LUISA_DEBUG_ASSERT(llvm_src->getType()->isAggregateType());
+    if (index_uses.size() == 1 && index_uses.front()->value()->isa<xir::Constant>()) {
+        auto index = static_cast<const xir::Constant *>(index_uses.front()->value());
+        auto static_index = static_cast<unsigned>(evaluate_constant(index));
+        return b.CreateExtractValue(llvm_src, static_index);
+    }
+    auto llvm_src_mem = _convert_llvm_reg_value_to_mem(b, llvm_src, inst->operand(0)->type());
+    auto llvm_temp = _create_temp_in_alloca_block(func_ctx, llvm_src_mem->getType(), inst->operand(0)->type()->alignment());
+    b.CreateStore(llvm_src_mem, llvm_temp);
+    auto [llvm_ptr, elem_type] = _lower_access_chain_address(b, func_ctx, llvm_temp, inst->operand(0)->type(), index_uses);
+    LUISA_DEBUG_ASSERT(elem_type == inst->type());
+    return _load_llvm_value(b, llvm_ptr, elem_type);
 }
 
 namespace detail {
