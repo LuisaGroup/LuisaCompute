@@ -25,12 +25,13 @@ if sys.platform == "win32":
 class ClangdLSPClient:
     """Minimal LSP client for clangd to get diagnostics."""
 
-    def __init__(self, clangd_path: str, compile_commands_dir: str):
+    def __init__(self, clangd_path: str, compile_commands_dir: str, verbose: bool = False):
         self.clangd_path = clangd_path
         self.compile_commands_dir = compile_commands_dir
         self.process = None
         self.request_id = 0
         self.diagnostics = []
+        self.verbose = verbose
 
     def start(self):
         """Start clangd process."""
@@ -43,6 +44,9 @@ class ClangdLSPClient:
             "--pch-storage=memory",
             "--cross-file-rename=false",
         ]
+
+        if self.verbose:
+            print(f"[verbose] Starting clangd: {' '.join(cmd)}")
 
         self.process = subprocess.Popen(
             cmd,
@@ -66,6 +70,8 @@ class ClangdLSPClient:
     def _send_message(self, message: bytes):
         """Send a message to clangd."""
         header = f"Content-Length: {len(message)}\r\n\r\n".encode()
+        if self.verbose:
+            print(f"[verbose] LSP --> {message.decode()}")
         self.process.stdin.write(header + message)
         self.process.stdin.flush()
 
@@ -114,11 +120,16 @@ class ClangdLSPClient:
 
         # Read body
         body = self.process.stdout.read(content_length)
-        return orjson.loads(body)
+        msg = orjson.loads(body)
+        if self.verbose:
+            print(f"[verbose] LSP <-- {orjson.dumps(msg).decode()}")
+        return msg
 
     def initialize(self):
         """Initialize the LSP connection."""
         root_uri = Path(self.compile_commands_dir).resolve().as_uri()
+        if self.verbose:
+            print(f"[verbose] Initializing LSP with rootUri: {root_uri}")
         self._send_request(
             "initialize",
             {
@@ -142,6 +153,8 @@ class ClangdLSPClient:
     def open_document(self, file_path: str, content: str):
         """Open a document in clangd."""
         uri = Path(file_path).resolve().as_uri()
+        if self.verbose:
+            print(f"[verbose] Opening document: {uri}")
         self._send_notification(
             "textDocument/didOpen",
             {
@@ -166,6 +179,8 @@ class ClangdLSPClient:
         )
 
         start_time = time.time()
+        if self.verbose:
+            print(f"[verbose] Waiting for diagnostics (timeout={timeout}s)...")
         while time.time() - start_time < timeout:
             msg = self._read_message()
             if msg is None:
@@ -187,18 +202,22 @@ class ClangdLSPClient:
         return []
 
 
-def load_compile_commands(project_root: str = ".") -> str:
+def load_compile_commands(project_root: str = ".", verbose: bool = False) -> str:
     """Find and validate compile_commands.json location."""
     vscode_dir = Path(project_root) / ".vscode"
     compile_commands = vscode_dir / "compile_commands.json"
 
     if compile_commands.exists():
+        if verbose:
+            print(f"[verbose] Found compile_commands.json in: {vscode_dir}")
         return str(vscode_dir)
 
     # Try build directory
     build_dir = Path(project_root) / "build"
     compile_commands = build_dir / "compile_commands.json"
     if compile_commands.exists():
+        if verbose:
+            print(f"[verbose] Found compile_commands.json in: {build_dir}")
         return str(build_dir)
 
     raise FileNotFoundError(
@@ -230,7 +249,7 @@ def format_diagnostic(diag: dict) -> str:
     return result
 
 
-def check_syntax(file_path: str, project_root: str = ".", clangd_path: str = "clangd") -> int:
+def check_syntax(file_path: str, project_root: str = ".", clangd_path: str = "clangd", verbose: bool = False) -> int:
     """Check syntax of a C++ file using clangd.
 
     Returns:
@@ -242,10 +261,15 @@ def check_syntax(file_path: str, project_root: str = ".", clangd_path: str = "cl
         print(f"Error: File not found: {file_path}", file=sys.stderr)
         return 2
 
+    if verbose:
+        print(f"[verbose] Checking file: {file_path}")
+
     # Find compile_commands.json
     try:
-        compile_commands_dir = load_compile_commands(project_root)
+        compile_commands_dir = load_compile_commands(project_root, verbose=verbose)
     except FileNotFoundError as e:
+        if verbose:
+            print(f"[verbose] {e}")
         compile_commands_dir = project_root
 
     # Read file content
@@ -256,7 +280,7 @@ def check_syntax(file_path: str, project_root: str = ".", clangd_path: str = "cl
         return 2
 
     # Create and use clangd client
-    client = ClangdLSPClient(clangd_path, compile_commands_dir)
+    client = ClangdLSPClient(clangd_path, compile_commands_dir, verbose=verbose)
 
     try:
         client.start()
@@ -325,6 +349,12 @@ Examples:
         default=".vscode/compile_commands.json",
         help="Directory containing compile_commands.json (overrides auto-detection)",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        default=False,
+        help="Enable verbose output (show LSP messages and debug info)",
+    )
 
     args = parser.parse_args()
 
@@ -377,6 +407,7 @@ Examples:
         args.file,
         project_root=args.project_root,
         clangd_path=clangd_path,
+        verbose=args.verbose,
     )
     sys.exit(exit_code)
 

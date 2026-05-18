@@ -83,8 +83,8 @@ void test_dsl_sugar(Device &device) {
         $ v_float_copy = v_float;
 
         // Arithmetic operations
-        $ z = -1 + v_int * v_float + 1.0f;
-        z += 1;
+        $ z = -1.0f + v_int * v_float + 1.0f;
+        z += 1.0f;
 
         // Vector operations
         $ v_vec = make_float3(1.0f);
@@ -95,9 +95,9 @@ void test_dsl_sugar(Device &device) {
         w *= float2{1.2f};
 
         // $if/$elif/$else sugar syntax
-        $if (w.x < 5) {
+        $if (w.x < 5.0f) {
         }
-        $elif (w.x > 0) {
+        $elif (w.x > 0.0f) {
         }
         $else {
         };

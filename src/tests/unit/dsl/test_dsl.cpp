@@ -226,8 +226,8 @@ void test_dsl(Device &device) {
         Var v_float_copy = v_float;
 
         // Arithmetic operations with automatic type promotion
-        Var z = -1 + v_int * v_float + 1.0f;
-        z += 1;
+        Var z = -1.0f + v_int * v_float + 1.0f;
+        z += 1.0f;
         Var v_vec = float3{1.0f};
         Var v2 = float3{2.0f} - v_vec * 2.0f;
         v2 *= 5.0f + v_float;

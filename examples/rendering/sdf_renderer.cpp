@@ -173,7 +173,7 @@ int main(int argc, char *argv[]) {
         UInt seed = seed_image.read(coord).x;
         Float ux = rand(seed);
         Float uy = rand(seed);
-        Float2 uv = make_float2(dispatch_id().x + ux, dispatch_size().y - 1u - dispatch_id().y + uy);
+        Float2 uv = make_float2(cast<float>(dispatch_id().x) + ux, cast<float>(dispatch_size().y - 1u - dispatch_id().y) + uy);
         Float3 d = make_float3(
             2.0f * fov * uv / resolution.y - fov * make_float2(aspect_ratio, 1.0f) - 1e-5f, -1.0f);
         d = normalize(d);

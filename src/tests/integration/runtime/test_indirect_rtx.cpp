@@ -58,11 +58,11 @@ void test_indirect_rtx(Device &device) {
     // Halton sequence for quasi-random sampling
     Callable halton = [](UInt i, UInt b) noexcept {
         Float f = def(1.0f);
-        Float invB = 1.0f / b;
+        Float invB = 1.0f / cast<float>(b);
         Float r = def(0.0f);
         $while (i > 0u) {
             f = f * invB;
-            r = r + f * (i % b);
+            r = r + f * cast<float>(i % b);
             i = i / b;
         };
         return r;
@@ -115,7 +115,7 @@ void test_indirect_rtx(Device &device) {
         };
         // Progressive accumulation
         Float3 old = image.read(coord.y * dispatch_size_x() + coord.x).xyz();
-        Float t = 1.0f / (frame_index + 1.0f);
+        Float t = 1.0f / (cast<float>(frame_index) + 1.0f);
         image.write(coord.y * dispatch_size_x() + coord.x, make_float4(lerp(old, color, t), 1.0f));
     };
 

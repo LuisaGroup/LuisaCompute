@@ -423,7 +423,7 @@ int main(int argc, char *argv[]) {
 
                 $if (cos_wi > 1e-4f) {
                     radiance = density_estimation_radius(coord, p, -ray->direction(), radius, material);
-                    radiance *= inv_pi / (radius * radius * photon_number);
+                    radiance *= inv_pi / (radius * radius * cast<float>(photon_number));
 
                     // $if(dot(radiance, radiance) > 10000) {
                     //     printer.info_with_location("p : ({}, {}, {}) o ({}, {}, {}) dir ({}, {}, {}) inst {} prim {}",

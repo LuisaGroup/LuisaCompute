@@ -78,8 +78,8 @@ int test_dsl_multithread(Device &device) {
                 Var v_float_copy = v_float;
 
                 // Arithmetic operations
-                Var z = -1 + v_int * v_float + 1.0f;
-                z += 1;
+                Var z = -1.0f + v_int * v_float + 1.0f;
+                z += 1.0f;
                 static_assert(std::is_same_v<decltype(z), Var<float>>);
 
                 // Loop with various DSL constructs
