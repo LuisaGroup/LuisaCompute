@@ -385,50 +385,51 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         _default_file_io = vstd::make_unique<DefaultBinaryIO>(context(), headless, use_lmdb);
         _binary_io = _default_file_io.get();
     }
-    if (!headless) {
-        // init instance
-        {
-            std::lock_guard lck{detail::instance_mtx};
-            if (!detail::vk_instance || external_instance) {
-#ifdef NDEBUG
-                constexpr bool enable_validation = false;
-#else
-                constexpr bool enable_validation = true;
-#endif
-                luisa::vector<luisa::string> extra_exts = [&]() {
-                    if (_config_ext) {
-                        return _config_ext->extra_instance_exts();
-                    } else {
-                        return luisa::vector<luisa::string>{};
-                    }
-                }();
-                bool enable_surface = surface_enabled;
-                detail::create_instance(enable_validation, enable_surface, detail::vk_instance, custom_path, lib_name, extra_exts);
-                surface_enabled = enable_surface;
-            }
-        }
-#ifndef LUISA_VULKAN_ENABLE_CUDA_INTEROP
-        interop_enabled = false;
-#endif
-        _init_device(ext_phy_device, ext_device, device_idx);
-
-        if (_config_ext) {
-            _config_ext->init_volk(vkGetInstanceProcAddr);
-            _config_ext->readback_vulkan_device(instance(), physical_device(), logic_device(), alloc_callbacks(), _pso_header, _graphics_queue, _compute_queue, _copy_queue, graphics_queue_index(), compute_queue_index(), copy_queue_index(), g_dxc_compiler->compiler(), g_dxc_compiler->library(), g_dxc_compiler->utils());
-        }
-        _exts.try_emplace(
-#ifdef LUISA_USE_SYSTEM_STL
-            luisa::string{PinnedMemoryExt::name},
-#else
-            PinnedMemoryExt::name,
-#endif
-            [](Device *device) -> DeviceExtension * {
-                return new VkPinnedMemoryExt(device);
-            },
-            [](DeviceExtension *ext) {
-                delete static_cast<VkPinnedMemoryExt *>(ext);
-            });
+    if (headless) {
+        surface_enabled = false;
     }
+    // init instance
+    {
+        std::lock_guard lck{detail::instance_mtx};
+        if (!detail::vk_instance || external_instance) {
+#ifdef NDEBUG
+            constexpr bool enable_validation = false;
+#else
+            constexpr bool enable_validation = true;
+#endif
+            luisa::vector<luisa::string> extra_exts = [&]() {
+                if (_config_ext) {
+                    return _config_ext->extra_instance_exts();
+                } else {
+                    return luisa::vector<luisa::string>{};
+                }
+            }();
+            bool enable_surface = surface_enabled;
+            detail::create_instance(enable_validation, enable_surface, detail::vk_instance, custom_path, lib_name, extra_exts);
+            surface_enabled = enable_surface;
+        }
+    }
+#ifndef LUISA_VULKAN_ENABLE_CUDA_INTEROP
+    interop_enabled = false;
+#endif
+    _init_device(ext_phy_device, ext_device, device_idx);
+
+    if (_config_ext) {
+        _config_ext->init_volk(vkGetInstanceProcAddr);
+        _config_ext->readback_vulkan_device(instance(), physical_device(), logic_device(), alloc_callbacks(), _pso_header, _graphics_queue, _compute_queue, _copy_queue, graphics_queue_index(), compute_queue_index(), copy_queue_index(), g_dxc_compiler->compiler(), g_dxc_compiler->library(), g_dxc_compiler->utils());
+    }
+    _exts.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{PinnedMemoryExt::name},
+#else
+        PinnedMemoryExt::name,
+#endif
+        [](Device *device) -> DeviceExtension * {
+            return new VkPinnedMemoryExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<VkPinnedMemoryExt *>(ext);
+        });
     _exts.try_emplace(
 #ifdef LUISA_USE_SYSTEM_STL
         luisa::string{RasterExt::name},
