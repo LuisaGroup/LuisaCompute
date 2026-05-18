@@ -1305,7 +1305,7 @@ private:
                            "Unexpected intrinsic operation.");
         auto llvm_cmp = op == xir::ArithmeticOp::ISINF ?
                             b.CreateICmpEQ(llvm_and, llvm_test) :
-                            b.CreateICmpUGE(llvm_and, llvm_test);
+                            b.CreateICmpUGT(llvm_and, llvm_test);
         return _zext_i1_to_i8(b, llvm_cmp);
     }
 
@@ -2272,7 +2272,7 @@ private:
                 // step(edge, x) = x < edge ? 0 : 1 = uitofp(x >= edge)
                 auto llvm_edge = _lookup_value(current, b, inst->operand(0u));
                 auto llvm_x = _lookup_value(current, b, inst->operand(1u));
-                auto llvm_cmp = b.CreateFCmpOGT(llvm_x, llvm_edge);
+                auto llvm_cmp = b.CreateFCmpOGE(llvm_x, llvm_edge);
                 return b.CreateUIToFP(llvm_cmp, llvm_x->getType());
             }
             case xir::ArithmeticOp::ABS: {
