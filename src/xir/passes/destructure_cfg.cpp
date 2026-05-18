@@ -100,6 +100,24 @@ static void destructure_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     info.destructured_ray_query_loop_count += 1u;
 }
 
+static void terminate_leaked_blocks(Function *function, DestructureCFGInfo &info) noexcept {
+    if (function == nullptr) { return; }
+    auto def = function->definition();
+    if (def == nullptr) { return; }
+    luisa::vector<BasicBlock *> leaked;
+    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        if (block == nullptr) { return; }
+        if (!block->is_terminated()) { leaked.emplace_back(block); }
+    });
+    if (leaked.empty()) { return; }
+    XIRBuilder b;
+    for (auto block : leaked) {
+        b.set_insertion_point(block);
+        b.unreachable_("destructure_cfg: unterminated block patched with unreachable");
+        info.leaked_block_count += 1u;
+    }
+}
+
 static void spill_early_returns(Function *function, DestructureCFGInfo &info) noexcept {
     if (function == nullptr) { return; }
     auto def = function->definition();
@@ -157,6 +175,13 @@ static void verify_terminators(Function *function) noexcept {
     size_t return_count = 0u;
     def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
         if (block == nullptr) { return; }
+        if (!block->is_terminated()) {
+            LUISA_WARNING_WITH_LOCATION(
+                "destructure_cfg: unterminated basic block survived destructuring "
+                "(function={}, block={}).",
+                static_cast<void *>(function), static_cast<void *>(block));
+            return;
+        }
         auto term = block->terminator();
         if (term == nullptr) { return; }
         switch (term->derived_instruction_tag()) {
@@ -297,6 +322,7 @@ static void destructure_in_function(Function *function, DestructureCFGInfo &info
         info.destructured_break_count += break_insts.size();
         info.destructured_continue_count += continue_insts.size();
     }
+    terminate_leaked_blocks(function, info);
     spill_early_returns(function, info);
     verify_terminators(function);
 }

@@ -16,6 +16,7 @@ struct DestructureCFGInfo {
     size_t destructured_continue_count{0u};
     size_t destructured_early_return_count{0u};
     size_t destructured_ray_query_loop_count{0u};
+    size_t leaked_block_count{0u};
 };
 
 [[nodiscard]] LUISA_XIR_API DestructureCFGInfo destructure_cfg_pass_run_on_function(Function *function) noexcept;

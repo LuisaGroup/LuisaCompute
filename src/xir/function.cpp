@@ -68,6 +68,7 @@ void traverse_basic_block_pre_order(luisa::unordered_set<BasicBlock *> &visited,
                                     void *visit_ctx, void (*visit)(void *, BasicBlock *)) noexcept {
     if (visited.emplace(block).second) {
         visit(visit_ctx, block);
+        if (!block->is_terminated()) { return; }
         auto terminator = block->terminator();
         for (auto use : terminator->operand_uses()) {
             if (auto v = use->value(); v != nullptr && v->isa<BasicBlock>()) {
@@ -80,10 +81,12 @@ void traverse_basic_block_pre_order(luisa::unordered_set<BasicBlock *> &visited,
 void traverse_basic_block_post_order(luisa::unordered_set<BasicBlock *> &visited, BasicBlock *block,
                                      void *visit_ctx, void (*visit)(void *, BasicBlock *)) noexcept {
     if (visited.emplace(block).second) {
-        auto terminator = block->terminator();
-        for (auto use : terminator->operand_uses()) {
-            if (auto v = use->value(); v != nullptr && v->isa<BasicBlock>()) {
-                traverse_basic_block_post_order(visited, static_cast<BasicBlock *>(v), visit_ctx, visit);
+        if (block->is_terminated()) {
+            auto terminator = block->terminator();
+            for (auto use : terminator->operand_uses()) {
+                if (auto v = use->value(); v != nullptr && v->isa<BasicBlock>()) {
+                    traverse_basic_block_post_order(visited, static_cast<BasicBlock *>(v), visit_ctx, visit);
+                }
             }
         }
         visit(visit_ctx, block);
