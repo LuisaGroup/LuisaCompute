@@ -50,6 +50,7 @@ private:
     StringScratch _main;
     luisa::unordered_map<const Value *, uint> _value_uid_map;
     luisa::unordered_map<const Type *, uint> _struct_uid_map;
+    luisa::unordered_set<const BasicBlock *> _emitted_blocks;
     bool _debug_info{false};
 
 private:
@@ -595,6 +596,10 @@ private:
     void _emit_basic_block(const BasicBlock *b, int indent) noexcept {
         if (b == nullptr) {
             _main << "null";
+        } else if (!_emitted_blocks.insert(b).second) {
+            // already emitted (e.g., shared merge target referenced by a flat branch);
+            // print just the label reference so the dump stays compact.
+            _main << _value_ident(b);
         } else {
             if (!b->metadata_list().empty()) {
                 _emit_metadata_list(_main, b->metadata_list());
@@ -642,7 +647,16 @@ private:
         _main << ")";
         if (auto definition = f->definition()) {
             _main << " = define ";
+            _emitted_blocks.clear();
             _emit_basic_block(definition->body_block(), 0);
+            // sweep unstructured blocks (post-destructure_cfg) that the structured
+            // walk above never reached via if/switch/loop/ray_query terminators.
+            const_cast<FunctionDefinition *>(definition)
+                ->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+                    if (_emitted_blocks.contains(block)) { return; }
+                    _main << "\n";
+                    _emit_basic_block(block, 0);
+                });
         }
         _main << ";";
         _emit_use_debug_info(_main, f->use_list());
