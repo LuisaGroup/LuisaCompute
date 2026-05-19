@@ -61,7 +61,6 @@ void test_kernel_ir(Device &device) {
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
     auto image = device.create_image<float>(PixelStorage::BYTE4, width, height);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{boost::ut::detail::cfg::largv[0]}.parent_path());
 
     // Create graphics stream and window
     Stream stream = device.create_stream(StreamTag::GRAPHICS);
@@ -92,14 +91,15 @@ void test_kernel_ir(Device &device) {
         stream << render(image).dispatch(width, height)
                << image.copy_to(luisa::span{pixels})
                << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
-            "test_kernel_ir", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        expect(static_cast<bool>(result.passed)) << result.message;
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_kernel_ir: {}", result.message);
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_kernel_ir]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
             return;
+        }
         }
         return;
     }

@@ -402,15 +402,16 @@ void test_texture3d(Device &device) {
             LUISA_ERROR("Failed to save output to {}", output_filename);
         }
 
-        auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
-        auto result = luisa::test::compare_with_reference(
-            image_data.data(), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_texture3d", ref_dir, false);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_texture3d: {}", result.message);
-            return;
+        if (auto compare_path = luisa::test::parse_compare_arg(argc, argv)) {
+            auto result = luisa::test::compare_with_reference_file(
+                image_data.data(), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *compare_path);
+            LUISA_INFO("Reference comparison [test_texture3d]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            if (!result.passed) {
+                LUISA_ERROR("Reference comparison failed for test_texture3d: {}", result.message);
+                return;
+            }
         }
 
         return;

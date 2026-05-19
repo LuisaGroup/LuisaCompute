@@ -128,6 +128,30 @@ xmake run test_dsl_mathematic cuda
 
 Tests link `lc-runtime`, `lc-dsl`, `lc-vstl`, `stb-image`, and optionally `lc-gui`. The dummy backend `lc-backends-dummy` is added as a non-linking build dependency so all backends get rebuilt before tests run.
 
+## Reference Image Comparison (Opt-In)
+
+Tests and mirrored examples that produce images compare against reference PNGs using PSNR. Comparison is **opt-in via an explicit CLI arg** — there is no auto-discovery of a reference directory and no implicit reference creation. A missing reference file FAILS the comparison; it is never silently created.
+
+CLI: pass `--compare <path.png>` or `-c <path.png>`. Without it, the test/example renders normally and skips comparison.
+
+Examples-side header: `examples/common/reference_compare.h` (namespace `luisa::ref`).
+- `luisa::ref::parse_compare_arg(argc, argv) -> std::optional<std::filesystem::path>`
+- `luisa::ref::compare_with_reference_file(pixels, w, h, channels, ref_path, threshold=30.0) -> CompareResult`
+
+Tests-side header: `src/tests/common/reference_image.h` (namespace `luisa::test`) follows the same opt-in contract.
+
+Typical usage:
+```cpp
+if (auto ref = luisa::ref::parse_compare_arg(argc, argv)) {
+    auto r = luisa::ref::compare_with_reference_file(
+        host_image.data(), w, h, 4, *ref);
+    LUISA_INFO("Reference: {} ({})", r.passed ? "PASSED" : "FAILED", r.message);
+    if (!r.passed) return 1;
+}
+```
+
+Reference PNGs live under `docs/gallery/<test_name>.png` in the repo. Always pass the absolute or repo-relative path explicitly — never rely on cwd or executable-relative walking. Updating a reference is a deliberate manual action: re-render, eyeball the result, then `cp` over the gallery file in a dedicated commit.
+
 ## What Not to Do
 
 - Do not put new test sources directly under `src/tests/`. Pick the right subfolder.

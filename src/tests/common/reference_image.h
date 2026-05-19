@@ -6,7 +6,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <string_view>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -17,7 +19,6 @@ namespace luisa::test {
 
 static constexpr double DEFAULT_PSNR_THRESHOLD = 30.0;
 
-// PSNR = 10 * log10(MAX^2 / MSE), where MAX = 255 for 8-bit images
 inline double compute_psnr(const uint8_t *img_a, const uint8_t *img_b,
                            int width, int height, int channels) {
     if (width <= 0 || height <= 0 || channels <= 0) { return 0.0; }
@@ -38,42 +39,20 @@ struct ReferenceCompareResult {
     std::string message;
 };
 
-inline std::filesystem::path find_reference_dir(const std::filesystem::path &exe_dir) {
-    auto candidate = exe_dir;
-    for (int i = 0; i < 10; ++i) {
-        auto ref = candidate / "docs" / "gallery";
-        if (std::filesystem::is_directory(ref)) { return ref; }
-        if (!candidate.has_parent_path() || candidate == candidate.parent_path()) break;
-        candidate = candidate.parent_path();
-    }
-    return exe_dir / "docs" / "gallery";
-}
-
-inline ReferenceCompareResult compare_with_reference(
+inline ReferenceCompareResult compare_with_reference_file(
     const uint8_t *rendered, int width, int height, int channels,
-    const std::string &test_name,
-    const std::filesystem::path &reference_dir,
-    bool update_reference = false,
+    const std::filesystem::path &ref_path,
     double threshold = DEFAULT_PSNR_THRESHOLD) {
 
-    auto ref_path = reference_dir / (test_name + ".png");
-
-    if (update_reference || !std::filesystem::exists(ref_path)) {
-        std::filesystem::create_directories(reference_dir);
-        stbi_write_png(ref_path.string().c_str(), width, height, channels,
-                       rendered, width * channels);
-        return {true, 100.0,
-                update_reference ? "reference image updated: " + ref_path.string() : "reference image created: " + ref_path.string()};
+    if (!std::filesystem::exists(ref_path)) {
+        return {false, 0.0, "reference file does not exist: " + ref_path.string()};
     }
-
     int ref_w = 0, ref_h = 0, ref_c = 0;
     auto *ref_data = stbi_load(ref_path.string().c_str(), &ref_w, &ref_h, &ref_c, channels);
     if (!ref_data) {
         return {false, 0.0, "failed to load reference: " + ref_path.string()};
     }
-
     ReferenceCompareResult result;
-
     if (ref_w != width || ref_h != height) {
         result = {false, 0.0,
                   "resolution mismatch: rendered " + std::to_string(width) + "x" +
@@ -83,35 +62,28 @@ inline ReferenceCompareResult compare_with_reference(
         result.psnr = compute_psnr(rendered, ref_data, width, height, channels);
         result.passed = result.psnr >= threshold;
         result.message = "PSNR=" + std::to_string(result.psnr) +
-                         "dB (threshold=" + std::to_string(threshold) + "dB)";
+                         "dB (threshold=" + std::to_string(threshold) + "dB) vs " +
+                         ref_path.string();
     }
-
     stbi_image_free(ref_data);
     return result;
 }
 
-inline ReferenceCompareResult save_and_compare(
-    const uint8_t *rendered, int width, int height, int channels,
-    const std::string &test_name,
-    const std::filesystem::path &output_dir,
-    const std::filesystem::path &reference_dir,
-    bool update_reference = false,
-    double threshold = DEFAULT_PSNR_THRESHOLD) {
-
-    std::filesystem::create_directories(output_dir);
-    auto out_path = output_dir / (test_name + ".png");
-    stbi_write_png(out_path.string().c_str(), width, height, channels,
-                   rendered, width * channels);
-
-    return compare_with_reference(rendered, width, height, channels,
-                                  test_name, reference_dir,
-                                  update_reference, threshold);
+inline std::optional<std::filesystem::path> parse_compare_arg(int argc, const char *const *argv) {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (!argv[i] || !argv[i + 1]) break;
+        std::string_view a{argv[i]};
+        if (a == "--compare" || a == "-c") {
+            return std::filesystem::path{argv[i + 1]};
+        }
+    }
+    return std::nullopt;
 }
 
 struct ImageTestOptions {
     bool offline{false};
-    bool update_reference{false};
     std::string output_dir{"."};
+    std::optional<std::filesystem::path> compare_path;
 
     static ImageTestOptions parse(int argc, const char *const *argv) {
         ImageTestOptions opts;
@@ -120,11 +92,11 @@ struct ImageTestOptions {
             std::string arg{argv[i]};
             if (arg == "--offline") {
                 opts.offline = true;
-            } else if (arg == "--update-reference") {
-                opts.update_reference = true;
-                opts.offline = true;
             } else if (arg == "--output-dir" && i + 1 < argc) {
                 opts.output_dir = argv[++i];
+            } else if ((arg == "--compare" || arg == "-c") && i + 1 < argc) {
+                opts.compare_path = std::filesystem::path{argv[++i]};
+                opts.offline = true;
             }
         }
         return opts;

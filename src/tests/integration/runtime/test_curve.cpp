@@ -213,7 +213,6 @@ void test_curve(Device &device) {
         };
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     });
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{boost::ut::detail::cfg::largv[0]}.parent_path());
 
     // Setup window
     if (!opts.offline) {
@@ -249,14 +248,15 @@ void test_curve(Device &device) {
         stream << hdr2ldr(hdr_image, ldr_image, false).dispatch(resolution)
                << ldr_image.copy_to(luisa::span{pixels})
                << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_curve", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_curve: {}", result.message);
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_curve]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
             boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
             return;
+        }
         }
         return;
     }

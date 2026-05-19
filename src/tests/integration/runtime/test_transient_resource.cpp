@@ -31,7 +31,6 @@ void test_transient_resource(Device &device) {
         buffer1.write(dispatch_id().x, dispatch_id().x.cast<float>());
     });
     static constexpr uint2 resolution = make_uint2(1024u);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
     if (!opts.offline) {
         Window window{"path tracing", resolution};
         Swapchain swap_chain = device.create_swapchain(
@@ -120,14 +119,15 @@ void test_transient_resource(Device &device) {
         }
         luisa::vector<std::byte> pixels(dst_tex.view().size_bytes());
         stream << dst_tex.copy_to(luisa::span{pixels}) << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_transient_resource", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_transient_resource: {}", result.message);
-            boost::ut::expect(false) << result.message;
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_transient_resource]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
             return;
+        }
         }
         return;
     }

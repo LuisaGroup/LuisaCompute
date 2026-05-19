@@ -73,15 +73,15 @@ float2 get_uv(float2 coord, float2 size){
            << image.copy_to(luisa::span{host_image})
            << synchronize();
     stbi_write_png("test_native_code.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
-    auto result = luisa::test::save_and_compare(
-        reinterpret_cast<const uint8_t *>(host_image.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-        "test_native_code", opts.output_dir, ref_dir, opts.update_reference);
-    LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-    if (!result.passed) {
-        LUISA_ERROR("Reference comparison failed for test_native_code: {}", result.message);
-        boost::ut::expect(false) << result.message;
-        return;
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            reinterpret_cast<const uint8_t *>(host_image.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_native_code]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+        if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            return;
+        }
     }
 }
 

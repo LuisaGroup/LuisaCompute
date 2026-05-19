@@ -40,15 +40,16 @@ void test_dstorage_decompression(Device &device) {
     compute_stream << image.copy_to(luisa::span{pixels}) << synchronize();
 
     stbi_write_png("test_dstorage_decompression.png", 4096, 4096, 4, pixels.data(), 0);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
-    auto result = luisa::test::save_and_compare(
-        pixels.data(), 4096, 4096, 4,
-        "test_dstorage_decompression", opts.output_dir, ref_dir, opts.update_reference);
-    LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-    if (!result.passed) {
-        LUISA_ERROR("Reference comparison failed for test_dstorage_decompression: {}", result.message);
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            pixels.data(), 4096, 4096, 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_dstorage_decompression]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+        if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            return;
+        }
     }
-    expect(result.passed) << result.message;
 }
 
 int main(int argc, char *argv[]) {

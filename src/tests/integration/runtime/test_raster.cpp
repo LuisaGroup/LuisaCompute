@@ -80,7 +80,6 @@ void test_raster(Device &device) {
         {VertexAttributeType::Color, PixelFormat::RG32F},
     };
     mesh_format.emplace_vertex_stream(attributes);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
 
     Vertex vertices[6];
     vertices[0].pos = {-0.5f, 0.5f, 0.5f};
@@ -150,14 +149,15 @@ void test_raster(Device &device) {
             << shader(0.0f, 0.0f).draw(std::move(meshes), mesh_format, Viewport{0, 0, width, height}, state, &depth_buffer, out_img)
             << out_img.copy_to(luisa::span{pixels})
             << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
-            "test_raster", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_raster: {}", result.message);
-            boost::ut::expect(false) << result.message;
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(width), static_cast<int>(height), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_raster]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
             return;
+        }
         }
         return;
     }

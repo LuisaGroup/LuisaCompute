@@ -24,19 +24,14 @@ using namespace luisa::compute;
 
 namespace luisa::test {
 
-int procedural(Device &device, bool force_offline = false, bool update_reference = false, const char *executable_path = nullptr) {
+int procedural(Device &device, bool force_offline = false, std::optional<std::filesystem::path> compare_path = std::nullopt) {
     (void)device;
     std::array<uint8_t, 4u> host_image{0u, 0u, 0u, 255u};
     stbi_write_png("procedural.png", 1, 1, 4, host_image.data(), 0);
-    if (force_offline) {
-        auto exe_dir = std::filesystem::path{executable_path}.parent_path();
-        auto ref_dir = luisa::ref::find_reference_dir(exe_dir);
-        auto result = luisa::ref::compare_with_reference(
-            host_image.data(),
-            1, 1, 4,
-            "procedural",
-            ref_dir, update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+    if (force_offline && compare_path) {
+        auto result = luisa::ref::compare_with_reference_file(
+            host_image.data(), 1, 1, 4, *compare_path);
+        LUISA_INFO("Reference comparison [procedural]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
         if (!result.passed) { return 1; }
     }
     return 0;
@@ -46,16 +41,14 @@ int procedural(Device &device, bool force_offline = false, bool update_reference
 
 int main(int argc, char *argv[]) {
     bool force_offline = false;
-    bool update_reference = false;
+    auto compare_path = luisa::ref::parse_compare_arg(argc, argv);
+    if (compare_path) { force_offline = true; }
     for (int i = 2; i < argc; i++) {
         if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if (std::string_view{argv[i]} == "--update-reference") {
-            update_reference = true;
             force_offline = true;
         }
     }
     Context context{argv[0]};
     Device device = context.create_device(argv[1]);
-    return luisa::test::procedural(device, force_offline, update_reference, argv[0]);
+    return luisa::test::procedural(device, force_offline, compare_path);
 }

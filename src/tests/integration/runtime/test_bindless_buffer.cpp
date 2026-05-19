@@ -45,7 +45,6 @@ void test_bindless_buffer(Device &device) {
         device_image1->write(coord, make_float4(p));
     };
     auto s = device.compile(kernel);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{argv[0]}.parent_path());
     if (!opts.offline) {
         Window window{"Display", resolution};
 
@@ -71,14 +70,16 @@ void test_bindless_buffer(Device &device) {
         stream << s(0.0f).dispatch(resolution.x, resolution.y)
                << device_image1.copy_to(luisa::span{pixels})
                << synchronize();
-        auto result = luisa::test::save_and_compare(
-            reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
-            "test_bindless_buffer", opts.output_dir, ref_dir, opts.update_reference);
-        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-        if (!result.passed) {
-            LUISA_ERROR("Reference comparison failed for test_bindless_buffer: {}", result.message);
+        if (opts.compare_path) {
+            auto result = luisa::test::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(pixels.data()), static_cast<int>(resolution.x), static_cast<int>(resolution.y), 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison [test_bindless_buffer]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            return;
         }
-        expect(result.passed) << result.message;
+        }
     }
 }
 

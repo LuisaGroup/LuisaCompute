@@ -196,15 +196,15 @@ void test_indirect_rtx(Device &device) {
     double time = clock.toc();
     LUISA_INFO("Time: {} ms", time);
     stbi_write_png("test_indirect_rtx.png", width, height, 4, pixels.data(), 0);
-    auto ref_dir = luisa::test::find_reference_dir(std::filesystem::path{boost::ut::detail::cfg::largv[0]}.parent_path());
-    auto result = luisa::test::save_and_compare(
-        pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
-        "test_indirect_rtx", opts.output_dir, ref_dir, opts.update_reference);
-    LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
-    if (!result.passed) {
-        LUISA_ERROR("Reference comparison failed for test_indirect_rtx: {}", result.message);
-        boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
-        return;
+    if (opts.compare_path) {
+        auto result = luisa::test::compare_with_reference_file(
+            pixels.data(), static_cast<int>(width), static_cast<int>(height), 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison [test_indirect_rtx]: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+        if (!result.passed) {
+            boost::ut::expect(static_cast<bool>(result.passed)) << result.message;
+            return;
+        }
     }
 }
 
