@@ -3013,7 +3013,12 @@ void SpirvCodegenEntry::_emit_ray_query_object_read_inst(const xir::RayQueryObje
             break;
         }
         case xir::RayQueryObjectReadOp::RAY_QUERY_OBJECT_IS_TERMINATED: {
-            id = _builder.makeBoolConstant(false);
+            auto iter = _rq_proceed_result.find(rq_obj);
+            if (iter == _rq_proceed_result.end()) {
+                id = _builder.makeBoolConstant(true);
+            } else {
+                id = _builder.createUnaryOp(spv::Op::OpLogicalNot, bool_type, iter->second);
+            }
             break;
         }
     }
@@ -3036,9 +3041,11 @@ void SpirvCodegenEntry::_emit_ray_query_object_write_inst(const xir::RayQueryObj
         case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_TERMINATE:
             _builder.createNoResultOp(spv::Op::OpRayQueryTerminateKHR, {rq_obj});
             break;
-        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED:
-            _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), std::vector<spv::Id>{rq_obj});
+        case xir::RayQueryObjectWriteOp::RAY_QUERY_OBJECT_PROCEED: {
+            auto proceed_result = _builder.createOp(spv::Op::OpRayQueryProceedKHR, _builder.makeBoolType(), std::vector<spv::Id>{rq_obj});
+            _rq_proceed_result[rq_obj] = proceed_result;
             break;
+        }
     }
 }
 
