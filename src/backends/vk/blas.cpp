@@ -112,7 +112,8 @@ void Blas::pre_build(
     auto acceleration_structure_geometry = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureGeometryKHR>();
     acceleration_structure_geometry->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
     acceleration_structure_geometry->geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-    acceleration_structure_geometry->flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+    // Leave flags=0: per-instance FORCE_OPAQUE/FORCE_NO_OPAQUE in TLAS drives any-hit; forcing OPAQUE here breaks RayQuery alpha-mask on RADV.
+    acceleration_structure_geometry->flags = 0;
     auto &triangles = acceleration_structure_geometry->geometry.triangles;
     triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
     triangles.pNext = nullptr;
