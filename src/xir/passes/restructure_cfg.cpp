@@ -602,6 +602,244 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     return true;
 }
 
+// Collect the entry blocks of a structured construct C whose header is `header_bb`.
+// "Entry blocks" are blocks that should only be reachable from the header (or from
+// authorized internal back-edges, e.g. the update block of a loop), and NEVER from
+// sibling arms. Returns nullptr-free, possibly-duplicate-free list.
+static void collect_construct_entries(BasicBlock *header_bb,
+                                      luisa::vector<BasicBlock *> &entries) noexcept {
+    entries.clear();
+    auto *term = header_bb->terminator();
+    if (term == nullptr) { return; }
+    switch (term->derived_instruction_tag()) {
+        case DerivedInstructionTag::IF: {
+            auto *ii = static_cast<IfInst *>(term);
+            if (ii->true_block() != nullptr) { entries.emplace_back(ii->true_block()); }
+            if (ii->false_block() != nullptr) { entries.emplace_back(ii->false_block()); }
+            break;
+        }
+        case DerivedInstructionTag::SWITCH: {
+            auto *sw = static_cast<SwitchInst *>(term);
+            for (size_t i = 0u; i < sw->case_count(); i++) {
+                if (auto *cb = sw->case_block(i); cb != nullptr) { entries.emplace_back(cb); }
+            }
+            if (sw->default_block() != nullptr) { entries.emplace_back(sw->default_block()); }
+            break;
+        }
+        case DerivedInstructionTag::LOOP: {
+            auto *lp = static_cast<LoopInst *>(term);
+            if (lp->prepare_block() != nullptr) { entries.emplace_back(lp->prepare_block()); }
+            // body/update are loop-internal; they may legitimately have multiple preds.
+            break;
+        }
+        case DerivedInstructionTag::SIMPLE_LOOP: {
+            auto *sl = static_cast<SimpleLoopInst *>(term);
+            if (sl->body_block() != nullptr) { entries.emplace_back(sl->body_block()); }
+            break;
+        }
+        default: break;
+    }
+}
+
+// Resolver for Instruction::clone: maps any value in our remap table to the cloned
+// version; otherwise returns the original value (constants, args, globals, allocas,
+// instructions defined outside the cloned region, frontier BBs).
+struct CloneRemap final : public InstructionCloneValueResolver {
+    luisa::unordered_map<const Value *, Value *> map;
+    Value *resolve(const Value *v) noexcept override {
+        if (auto it = map.find(v); it != map.end()) { return it->second; }
+        return const_cast<Value *>(v);
+    }
+};
+
+// For a construct C with header H and one of its entries E, decide whether predecessor
+// P of E is "authorized" per the XIR invariant.
+[[nodiscard]] static bool is_authorized_construct_pred(Instruction *header_term,
+                                                       BasicBlock * /*entry*/,
+                                                       BasicBlock *header_bb,
+                                                       BasicBlock *pred) noexcept {
+    if (pred == header_bb) { return true; }
+    if (header_term == nullptr) { return false; }
+    switch (header_term->derived_instruction_tag()) {
+        case DerivedInstructionTag::LOOP: {
+            auto *lp = static_cast<LoopInst *>(header_term);
+            if (pred == lp->update_block()) { return true; }
+            if (pred == lp->body_block()) { return true; }
+            return false;
+        }
+        case DerivedInstructionTag::SIMPLE_LOOP: {
+            auto *sl = static_cast<SimpleLoopInst *>(header_term);
+            if (pred == sl->body_block()) { return true; }
+            return false;
+        }
+        default: break;
+    }
+    return false;
+}
+
+// Decide if a block S is on the "frontier" of the clone region rooted at E within
+// construct C (with header H). Frontier blocks are NOT cloned; edges into them from
+// cloned blocks remain pointing at the original block.
+[[nodiscard]] static bool is_clone_boundary(BasicBlock *S, BasicBlock *E,
+                                            BasicBlock *header_bb,
+                                            luisa::span<BasicBlock *const> entries,
+                                            BasicBlock *merge_bb,
+                                            const DomTree &dom) noexcept {
+    if (S == nullptr) { return true; }
+    if (S == header_bb) { return true; }
+    if (S == merge_bb) { return true; }
+    for (auto *en : entries) {
+        if (en == S && en != E) { return true; }
+    }
+    // S must be dominated by E to belong to E's owned subgraph.
+    if (!dom.dominates(E, S)) { return true; }
+    return false;
+}
+
+// Walk forward from E, collecting all blocks owned by E that are not boundary.
+static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
+                                 luisa::span<BasicBlock *const> entries,
+                                 BasicBlock *merge_bb, const DomTree &dom,
+                                 luisa::unordered_set<BasicBlock *> &region) noexcept {
+    region.clear();
+    luisa::vector<BasicBlock *> work;
+    work.emplace_back(E);
+    while (!work.empty()) {
+        auto *B = work.back();
+        work.pop_back();
+        if (region.contains(B)) { continue; }
+        if (is_clone_boundary(B, E, header_bb, entries, merge_bb, dom)) { continue; }
+        region.emplace(B);
+        B->traverse_successors(false, [&](BasicBlock *S) noexcept {
+            if (!is_clone_boundary(S, E, header_bb, entries, merge_bb, dom) &&
+                !region.contains(S)) {
+                work.emplace_back(S);
+            }
+        });
+    }
+}
+
+// Clone the owned subgraph rooted at E. P (with its terminator) is rerouted via a
+// fresh relay block to the clone of E. Returns true on success.
+[[nodiscard]] static bool clone_owned_subgraph_for_edge(FunctionDefinition *def,
+                                                       BasicBlock *header_bb,
+                                                       BasicBlock *E, BasicBlock *P,
+                                                       luisa::span<BasicBlock *const> entries,
+                                                       BasicBlock *merge_bb,
+                                                       const DomTree &dom) noexcept {
+    luisa::unordered_set<BasicBlock *> region;
+    collect_owned_region(E, header_bb, entries, merge_bb, dom, region);
+    if (region.empty()) { return false; }
+
+    // Pre-create cloned BBs.
+    CloneRemap remap;
+    luisa::vector<BasicBlock *> ordered;
+    ordered.reserve(region.size());
+    for (auto *B : region) {
+        auto *NB = def->create_basic_block();
+        remap.map[B] = NB;
+        ordered.emplace_back(B);
+    }
+
+    // Clone instructions of each region block into its counterpart.
+    XIRBuilder builder;
+    for (auto *old_bb : ordered) {
+        auto *new_bb = static_cast<BasicBlock *>(remap.map[old_bb]);
+        builder.set_insertion_point(new_bb);
+        for (auto *old_inst : old_bb->instructions()) {
+            auto *new_inst = old_inst->clone(builder, remap);
+            if (old_inst->type() != nullptr) {
+                remap.map[old_inst] = new_inst;
+            }
+        }
+    }
+
+    // Create a relay block: P -> relay -> clone(E). Branching through a relay (rather
+    // than redirecting P directly to clone(E)) guarantees the clone's entry has a
+    // single predecessor regardless of how many bad edges from P there are.
+    auto *clone_E = static_cast<BasicBlock *>(remap.map[E]);
+    auto *relay = def->create_basic_block();
+    {
+        XIRBuilder rb;
+        rb.set_insertion_point(relay);
+        rb.br(clone_E);
+    }
+    // Reroute every edge in P's terminator that targeted E to instead target relay.
+    retarget_terminator(P->terminator(), E, relay);
+    return true;
+}
+
+// Per-construct entry-uniqueness fix. Returns true if any edges were rewritten.
+[[nodiscard]] static bool enforce_construct_entries(FunctionDefinition *def,
+                                                   BasicBlock *header_bb,
+                                                   BasicBlock *merge_bb) noexcept {
+    luisa::vector<BasicBlock *> entries;
+    collect_construct_entries(header_bb, entries);
+    if (entries.size() <= 1u) { return false; }
+    bool changed_any = false;
+    // Iterate entries in their natural order; per Oracle's design, if the sibling-entry
+    // graph is acyclic, fixing earlier entries does not create new bad edges into them.
+    // We bound the inner loop to defend against malformed CFGs.
+    for (auto *E : entries) {
+        size_t guard = 64u;
+        while (guard-- > 0u) {
+            auto dom = compute_dom_tree(def);
+            luisa::vector<BasicBlock *> offenders;
+            E->traverse_predecessors(false, [&](BasicBlock *P) noexcept {
+                if (!is_authorized_construct_pred(header_bb->terminator(), E, header_bb, P)) {
+                    offenders.emplace_back(P);
+                }
+            });
+            if (offenders.empty()) { break; }
+            bool local_change = false;
+            for (auto *P : offenders) {
+                if (clone_owned_subgraph_for_edge(def, header_bb, E, P,
+                                                  luisa::span<BasicBlock *const>{entries},
+                                                  merge_bb, dom)) {
+                    local_change = true;
+                }
+            }
+            if (!local_change) { break; }
+            changed_any = true;
+        }
+    }
+    return changed_any;
+}
+
+// Visit each structured construct (If/Switch/Loop/SimpleLoop) and enforce the
+// invariant. We rescan after each change because the BB list has grown.
+static void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
+    size_t outer_guard = 64u;
+    while (outer_guard-- > 0u) {
+        bool changed = false;
+        luisa::vector<std::pair<BasicBlock *, BasicBlock *>> construct_sites;// header_bb, merge_bb
+        def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+            auto *t = bb->terminator();
+            if (t == nullptr) { return; }
+            BasicBlock *merge_bb = nullptr;
+            if (auto *cm = t->control_flow_merge(); cm != nullptr) {
+                merge_bb = cm->merge_block();
+            }
+            switch (t->derived_instruction_tag()) {
+                case DerivedInstructionTag::IF:
+                case DerivedInstructionTag::SWITCH:
+                case DerivedInstructionTag::LOOP:
+                case DerivedInstructionTag::SIMPLE_LOOP:
+                    construct_sites.emplace_back(bb, merge_bb);
+                    break;
+                default: break;
+            }
+        });
+        for (auto &[hbb, mbb] : construct_sites) {
+            if (enforce_construct_entries(def, hbb, mbb)) {
+                changed = true;
+                break;// restart outer loop: BB list and dominance changed
+            }
+        }
+        if (!changed) { break; }
+    }
+}
+
 [[nodiscard]] static RestructureCFGInfo restructure_cfg_on_definition(FunctionDefinition *def) noexcept {
     check_phi_free(def);
     RestructureCFGInfo info{};
@@ -613,6 +851,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         if (try_restructure_if(def, dom, pdom, info)) { continue; }
         break;
     }
+    enforce_unique_construct_entries(def);
     return info;
 }
 
