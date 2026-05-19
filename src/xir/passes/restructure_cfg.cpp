@@ -283,18 +283,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     return changed;
 }
 
-// Retarget branch edges AND the merge_block field. Use only when the caller
-// explicitly wants to rewrite merge annotations (e.g., loop exit retargeting).
-static bool retarget_terminator_and_merge(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
-    auto changed = retarget_terminator(term, from, to);
-    if (auto *cfm = term->control_flow_merge(); cfm != nullptr) {
-        if (cfm->merge_block() == from) {
-            cfm->set_merge_block(to);
-            changed = true;
-        }
-    }
-    return changed;
-}
+
 
 [[nodiscard]] static bool try_restructure_loop(FunctionDefinition *def,
                                                const DomTree &dom,
