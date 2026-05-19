@@ -79,8 +79,33 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
     return true;
 }
 
+// Detect blocks that already have a back-edge predecessor (i.e., loop headers under any reasonable
+// dominance-aware analysis). A back-edge is a CFG edge p -> bb where bb dominates p; without a full
+// dominator computation here, we approximate using reverse-postorder index: any predecessor that
+// appears AFTER bb in RPO is a back-edge source. This is sufficient for guarding jump-threading of
+// blocks whose only successor is a loop header, where threading would collapse a structured if-merge
+// onto the loop's continue role (illegal in SPIR-V structured control flow).
+static luisa::unordered_set<BasicBlock *> collect_loop_headers(FunctionDefinition *def) noexcept {
+    luisa::unordered_map<BasicBlock *, size_t> rpo_index;
+    size_t idx = 0;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        rpo_index.emplace(bb, idx++);
+    });
+    luisa::unordered_set<BasicBlock *> headers;
+    for (auto &[bb, i] : rpo_index) {
+        bb->traverse_predecessors(true, [&](BasicBlock *p) noexcept {
+            auto it = rpo_index.find(p);
+            if (it != rpo_index.end() && it->second >= i && p != bb) {
+                headers.insert(bb);
+            }
+        });
+    }
+    return headers;
+}
+
 static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
+    auto loop_headers = collect_loop_headers(def);
     luisa::vector<BasicBlock *> candidates;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (bb == entry) return;
@@ -91,6 +116,10 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         if (t == nullptr || !t->isa<BranchInst>()) return;
         auto br = static_cast<BranchInst *>(t);
         if (br->target_block() == bb) return;
+        // Preserve trampoline blocks that sit immediately before a loop header.
+        // Threading them out would force a structured merge block (the predecessor of bb)
+        // to serve as the loop's continue target, which violates SPIR-V structured CF.
+        if (br->target_block() != nullptr && loop_headers.contains(br->target_block())) return;
         candidates.push_back(bb);
     });
     if (candidates.empty()) return false;
