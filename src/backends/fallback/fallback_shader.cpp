@@ -208,14 +208,13 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         destructure_cfg_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
         simplify_cfg_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
         LUISA_VERBOSE("XIR CFG normalization done:\n"
-                      "    destructured {} if(s), {} loop(s), {} simple loop(s), {} break(s), {} continue(s), {} ray query loop(s),\n"
+                      "    destructured {} if(s), {} loop(s), {} simple loop(s), {} break(s), {} continue(s),\n"
                       "    simplified: folded {} constant cond_br(s), threaded {} empty block(s), removed {} unreachable block(s).",
                       destructure_cfg_info.destructured_if_count,
                       destructure_cfg_info.destructured_loop_count,
                       destructure_cfg_info.destructured_simple_loop_count,
                       destructure_cfg_info.destructured_break_count,
                       destructure_cfg_info.destructured_continue_count,
-                      destructure_cfg_info.destructured_ray_query_loop_count,
                       simplify_cfg_info.folded_constant_cond_br_count,
                       simplify_cfg_info.threaded_empty_block_count,
                       simplify_cfg_info.removed_unreachable_block_count);

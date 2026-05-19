@@ -13,6 +13,7 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -73,7 +74,6 @@ void reg_destructure_cfg() {
         expect(info.destructured_simple_loop_count == 0u);
         expect(info.destructured_break_count == 0u);
         expect(info.destructured_continue_count == 0u);
-        expect(info.destructured_ray_query_loop_count == 0u);
     };
 
     "destructure_single_if"_test = [] {
@@ -228,8 +228,10 @@ void reg_destructure_cfg() {
         b.br(disp);
         b.set_insertion_point(merge);
         b.return_void();
+        auto lower_info = lower_ray_query_loop_to_loop_pass_run_on_function(k);
+        expect(lower_info.lowered_ray_query_loop_count == 1u);
         auto info = destructure_cfg_pass_run_on_function(k);
-        expect(info.destructured_ray_query_loop_count == 1u);
+        (void)info;
         auto *def = k->definition();
         expect(count_terminator_kind(def, DerivedInstructionTag::RAY_QUERY_LOOP) == 0u);
         expect(count_terminator_kind(def, DerivedInstructionTag::RAY_QUERY_DISPATCH) == 0u);

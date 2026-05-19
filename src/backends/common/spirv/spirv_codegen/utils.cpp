@@ -13,6 +13,7 @@
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 #include <luisa/xir/passes/const_fold.h>
 #include <luisa/xir/passes/inline.h>
 #include <luisa/xir/passes/sroa.h>
@@ -119,8 +120,13 @@ const bool LUISA_XIR_DISABLE_RESTRUCTURE_CFG = [] {
     xir::Mem2RegInfo mem2regB_info{};
     xir::Reg2MemInfo reg2mem_pre_info{};
     xir::UnusedCallableRemovalInfo unused_callable_info{};
+    xir::LowerRayQueryLoopToLoopInfo rq_to_loop_info{};
 
     if (!LUISA_XIR_DISABLE_NORMALIZE_CFG) {
+        pass_clk.tic();
+        rq_to_loop_info = xir::lower_ray_query_loop_to_loop_pass_run_on_module(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  lower-ray-query-loop-to-loop: {} ms (lowered {})", pass_clk.toc(), rq_to_loop_info.lowered_ray_query_loop_count);
+
         pass_clk.tic();
         destructure_cfg_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  destructure-cfg: {} ms", pass_clk.toc());
@@ -163,14 +169,14 @@ const bool LUISA_XIR_DISABLE_RESTRUCTURE_CFG = [] {
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  simplify-cfg: {} ms", pass_clk.toc());
 
         LUISA_VERBOSE("XIR CFG normalization done:\n"
-                      "    destructured {} if(s), {} loop(s), {} simple loop(s), {} break(s), {} continue(s), {} ray query loop(s),\n"
+                      "    destructured {} if(s), {} loop(s), {} simple loop(s), {} break(s), {} continue(s), {} ray query loop(s)->loop(s),\n"
                       "    simplified: folded {} constant cond_br(s), threaded {} empty block(s), removed {} unreachable block(s).",
                       destructure_cfg_info.destructured_if_count,
                       destructure_cfg_info.destructured_loop_count,
                       destructure_cfg_info.destructured_simple_loop_count,
                       destructure_cfg_info.destructured_break_count,
                       destructure_cfg_info.destructured_continue_count,
-                      destructure_cfg_info.destructured_ray_query_loop_count,
+                      rq_to_loop_info.lowered_ray_query_loop_count,
                       simplify_cfg_info.folded_constant_cond_br_count,
                       simplify_cfg_info.threaded_empty_block_count,
                       simplify_cfg_info.removed_unreachable_block_count);
