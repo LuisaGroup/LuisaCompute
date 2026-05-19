@@ -70,6 +70,7 @@ private:
     luisa::unordered_map<spv::Id, spv::Id> _accel_instance_buffer_map;
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
+    luisa::unordered_set<spv::Id> _laid_out_struct_ids;
     luisa::compute::xir::UniformityAnalysis _uniformity;
 
 private:
@@ -82,6 +83,8 @@ private:
                                     luisa::unordered_set<const xir::Function *> &visited) noexcept;
 
     spv::Id _convert_type(const Type *type, Usage usage) noexcept;
+    void _apply_explicit_layout(spv::Id spv_struct, const Type *type) noexcept;
+    void _apply_array_stride(spv::Id spv_array, const Type *elem_type) noexcept;
     spv::Id _emit_literal(const Type *type, const void *data) noexcept;
     spv::Id _emit_constant(const xir::Constant *c) noexcept;
     spv::Id _emit_value(const xir::Value *value) noexcept;
