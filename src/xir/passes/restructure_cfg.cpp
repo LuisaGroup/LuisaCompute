@@ -559,7 +559,6 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     BasicBlock *found_merge = nullptr;
 
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (found_header != nullptr) { return; }
         if (!bb->is_terminated()) { return; }
         auto *term = bb->terminator();
         if (!term->isa<ConditionalBranchInst>()) { return; }
@@ -578,9 +577,16 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         if (!dom.strictly_dominates(bb, true_bb)) { return; }
         if (!dom.strictly_dominates(bb, false_bb)) { return; }
 
-        found_header = bb;
-        found_cbr = cbr;
-        found_merge = merge;
+        // Prefer innermost: choose the candidate dominated by all other candidates,
+        // i.e., the deepest in the dominator tree. Picking innermost first ensures
+        // that when we synthesize the structural merge and retarget in-construct
+        // edges, no still-unstructured nested cbr is left with edges to the
+        // newly-created merge (which would later force it to skip its own merge).
+        if (found_header == nullptr || dom.strictly_dominates(found_header, bb)) {
+            found_header = bb;
+            found_cbr = cbr;
+            found_merge = merge;
+        }
     });
 
     if (found_header == nullptr) { return false; }
@@ -589,6 +595,29 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     auto *false_bb = found_cbr->false_block();
     auto *cond = found_cbr->condition();
 
+    // Conservatively synthesize a fresh structural merge block for this if-construct.
+    // This guarantees:
+    //   1. Merge uniqueness across all constructs (each construct owns its merge).
+    //   2. No collision with reserved loop blocks (continue/update/header).
+    //   3. The original postdom (`found_merge`) keeps its semantics (phi-loads from
+    //      reg2mem, etc.) and gets a single predecessor (the fresh merge).
+    auto *structural_merge = def->create_basic_block();
+    {
+        XIRBuilder mb;
+        mb.set_insertion_point(structural_merge);
+        mb.br(found_merge);
+    }
+    // Retarget every in-construct edge that targets `found_merge` to the fresh merge.
+    // "In-construct" = blocks dominated by `found_header` (the if's header).
+    // Edges from outside the construct are left untouched, preserving the semantics
+    // of other constructs that may also flow into `found_merge`.
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (bb == structural_merge) { return; }
+        if (!bb->is_terminated()) { return; }
+        if (!dom.dominates(found_header, bb)) { return; }
+        retarget_terminator(bb->terminator(), found_merge, structural_merge);
+    });
+
     found_cbr->remove_self();
 
     XIRBuilder b;
@@ -596,7 +625,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     auto *if_inst = b.if_(cond);
     if_inst->set_true_target(true_bb);
     if_inst->set_false_target(false_bb);
-    if_inst->set_merge_block(found_merge);
+    if_inst->set_merge_block(structural_merge);
 
     info.restructured_if_count++;
     return true;
