@@ -1,5 +1,6 @@
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
@@ -7,6 +8,7 @@
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/ray_query.h>
+#include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 
@@ -71,23 +73,10 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     b.cond_br(is_triangle, on_surface_block, after_triangle_block);
     b.set_insertion_point(after_triangle_block);
     b.cond_br(is_procedural, on_procedural_block, update_block);
-    auto rewrite_candidate_back_edge = [&](BasicBlock *block) noexcept {
-        if (block == nullptr || !block->is_terminated()) { return; }
-        auto term = block->terminator();
-        if (term == nullptr) { return; }
-        if (term->isa<BranchInst>()) {
-            auto br = static_cast<BranchInst *>(term);
-            if (br->target_block() == dispatch_block) {
-                br->set_target_block(update_block);
-            }
-        } else if (term->isa<ConditionalBranchInst>()) {
-            auto cbr = static_cast<ConditionalBranchInst *>(term);
-            if (cbr->true_block() == dispatch_block) { cbr->set_true_target(update_block); }
-            if (cbr->false_block() == dispatch_block) { cbr->set_false_target(update_block); }
-        }
-    };
-    rewrite_candidate_back_edge(on_surface_block);
-    rewrite_candidate_back_edge(on_procedural_block);
+    auto candidate_continue_block = def->create_basic_block();
+    b.set_insertion_point(candidate_continue_block);
+    b.br(update_block);
+    dispatch_block->replace_all_uses_with(candidate_continue_block);
     dispatch_inst->remove_self();
     info.lowered_ray_query_loop_count += 1u;
     return true;
