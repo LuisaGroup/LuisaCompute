@@ -242,7 +242,56 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
             }
             break;
         }
+        case DerivedInstructionTag::IF: {
+            auto *ii = static_cast<IfInst *>(term);
+            if (ii->true_block() == from) {
+                ii->set_true_target(to);
+                changed = true;
+            }
+            if (ii->false_block() == from) {
+                ii->set_false_target(to);
+                changed = true;
+            }
+            break;
+        }
+        case DerivedInstructionTag::LOOP: {
+            auto *lp = static_cast<LoopInst *>(term);
+            if (lp->prepare_block() == from) {
+                lp->set_prepare_block(to);
+                changed = true;
+            }
+            if (lp->body_block() == from) {
+                lp->set_body_block(to);
+                changed = true;
+            }
+            if (lp->update_block() == from) {
+                lp->set_update_block(to);
+                changed = true;
+            }
+            break;
+        }
+        case DerivedInstructionTag::SIMPLE_LOOP: {
+            auto *sl = static_cast<SimpleLoopInst *>(term);
+            if (sl->body_block() == from) {
+                sl->set_body_block(to);
+                changed = true;
+            }
+            break;
+        }
         default: break;
+    }
+    return changed;
+}
+
+// Retarget branch edges AND the merge_block field. Use only when the caller
+// explicitly wants to rewrite merge annotations (e.g., loop exit retargeting).
+static bool retarget_terminator_and_merge(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
+    auto changed = retarget_terminator(term, from, to);
+    if (auto *cfm = term->control_flow_merge(); cfm != nullptr) {
+        if (cfm->merge_block() == from) {
+            cfm->set_merge_block(to);
+            changed = true;
+        }
     }
     return changed;
 }
@@ -554,9 +603,27 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
                                              const DomTree &dom,
                                              const PostDomInfo &pdom,
                                              RestructureCFGInfo &info) noexcept {
+    // Collect merge blocks of already-structured loops. A cbr whose postdom is
+    // a loop merge must NOT be restructured as an if-construct: doing so would
+    // make the loop body flow to the if's structural_merge (which exits the
+    // loop) instead of the loop's continue block.
+    luisa::unordered_map<BasicBlock *, BasicBlock *> loop_merge_to_header;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (!bb->is_terminated()) { return; }
+        auto *term = bb->terminator();
+        BasicBlock *merge = nullptr;
+        if (term->isa<LoopInst>()) {
+            merge = static_cast<LoopInst *>(term)->merge_block();
+        } else if (term->isa<SimpleLoopInst>()) {
+            merge = static_cast<SimpleLoopInst *>(term)->merge_block();
+        }
+        if (merge != nullptr) { loop_merge_to_header.emplace(merge, bb); }
+    });
+
     BasicBlock *found_header = nullptr;
     ConditionalBranchInst *found_cbr = nullptr;
     BasicBlock *found_merge = nullptr;
+    BasicBlock *enclosing_loop_continue = nullptr;// non-null when postdom is a loop merge
 
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (!bb->is_terminated()) { return; }
@@ -586,6 +653,21 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
             found_header = bb;
             found_cbr = cbr;
             found_merge = merge;
+            // Detect if this cbr's postdom is an enclosing loop's merge.
+            enclosing_loop_continue = nullptr;
+            if (auto it = loop_merge_to_header.find(merge); it != loop_merge_to_header.end()) {
+                if (dom.dominates(it->second, bb)) {
+                    auto *loop_term = it->second->terminator();
+                    if (loop_term->isa<LoopInst>()) {
+                        auto *li = static_cast<LoopInst *>(loop_term);
+                        enclosing_loop_continue = li->update_block();
+                        if (enclosing_loop_continue == nullptr) { enclosing_loop_continue = li->prepare_block(); }
+                    } else if (loop_term->isa<SimpleLoopInst>()) {
+                        auto *sl = static_cast<SimpleLoopInst *>(loop_term);
+                        enclosing_loop_continue = sl->body_block();
+                    }
+                }
+            }
         }
     });
 
@@ -601,22 +683,35 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     //   2. No collision with reserved loop blocks (continue/update/header).
     //   3. The original postdom (`found_merge`) keeps its semantics (phi-loads from
     //      reg2mem, etc.) and gets a single predecessor (the fresh merge).
-    auto *structural_merge = def->create_basic_block();
-    {
-        XIRBuilder mb;
-        mb.set_insertion_point(structural_merge);
-        mb.br(found_merge);
+    //
+    // When the postdom is an enclosing loop's merge AND one arm directly targets
+    // the loop merge (loop condition check), use the loop merge directly as the
+    // if's merge. The body arm flows to continue naturally without reaching the
+    // if merge, which is valid in SPIR-V (selection inside loop).
+    // For other cbrs inside the loop (if-else with break), also use the loop merge
+    // directly — the break arm reaches the merge, the non-break arm flows to continue.
+    auto *structural_merge = found_merge;
+    if (enclosing_loop_continue == nullptr) {
+        structural_merge = def->create_basic_block();
+        {
+            XIRBuilder mb;
+            mb.set_insertion_point(structural_merge);
+            mb.br(found_merge);
+        }
+        // Retarget every in-construct edge that targets `found_merge` to the fresh merge.
+        def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+            if (bb == structural_merge) { return; }
+            if (!bb->is_terminated()) { return; }
+            if (!dom.dominates(found_header, bb)) { return; }
+            retarget_terminator(bb->terminator(), found_merge, structural_merge);
+        });
     }
-    // Retarget every in-construct edge that targets `found_merge` to the fresh merge.
-    // "In-construct" = blocks dominated by `found_header` (the if's header).
-    // Edges from outside the construct are left untouched, preserving the semantics
-    // of other constructs that may also flow into `found_merge`.
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (bb == structural_merge) { return; }
-        if (!bb->is_terminated()) { return; }
-        if (!dom.dominates(found_header, bb)) { return; }
-        retarget_terminator(bb->terminator(), found_merge, structural_merge);
-    });
+
+    // If an if-arm directly targeted found_merge (empty arm), it must now target
+    // structural_merge instead. The retarget loop above already handled the cbr's
+    // successors, but we captured true_bb/false_bb before retargeting.
+    if (true_bb == found_merge) { true_bb = structural_merge; }
+    if (false_bb == found_merge) { false_bb = structural_merge; }
 
     found_cbr->remove_self();
 
