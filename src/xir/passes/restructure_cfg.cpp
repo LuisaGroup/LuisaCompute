@@ -63,8 +63,8 @@ struct PostDomInfo {
         });
     }
 
-    static BasicBlock virtual_exit_sentinel{nullptr};
-    BasicBlock *virt = &virtual_exit_sentinel;
+    static int virtual_exit_sentinel = 0;
+    BasicBlock *virt = reinterpret_cast<BasicBlock *>(&virtual_exit_sentinel);
 
     luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> aug_pred_map = pred_map;
     for (auto *s : sinks) {
@@ -450,7 +450,8 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         auto *sw = b.switch_(loaded_sel);
         sw->set_merge_block(dispatch_merge);
         sw->set_default_block(exit_targets[0]);
-        for (auto *tgt : exit_targets) {
+        for (size_t i = 1u; i < exit_targets.size(); i++) {
+            auto *tgt = exit_targets[i];
             auto id = static_cast<SwitchInst::case_value_type>(exit_target_id[tgt]);
             sw->add_case(id, tgt);
         }
