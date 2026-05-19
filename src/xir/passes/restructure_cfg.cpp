@@ -204,22 +204,47 @@ struct PostDomInfo {
     return nullptr;
 }
 
-static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
-    if (term == nullptr) { return; }
+static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
+    if (term == nullptr) { return false; }
+    auto changed = false;
     switch (term->derived_instruction_tag()) {
         case DerivedInstructionTag::BRANCH: {
             auto *br = static_cast<BranchInst *>(term);
-            if (br->target_block() == from) { br->set_target_block(to); }
+            if (br->target_block() == from) {
+                br->set_target_block(to);
+                changed = true;
+            }
             break;
         }
         case DerivedInstructionTag::CONDITIONAL_BRANCH: {
             auto *cb = static_cast<ConditionalBranchInst *>(term);
-            if (cb->true_block() == from) { cb->set_true_target(to); }
-            if (cb->false_block() == from) { cb->set_false_target(to); }
+            if (cb->true_block() == from) {
+                cb->set_true_target(to);
+                changed = true;
+            }
+            if (cb->false_block() == from) {
+                cb->set_false_target(to);
+                changed = true;
+            }
+            break;
+        }
+        case DerivedInstructionTag::SWITCH: {
+            auto *sw = static_cast<SwitchInst *>(term);
+            if (sw->default_block() == from) {
+                sw->set_default_block(to);
+                changed = true;
+            }
+            for (size_t i = 0u; i < sw->case_count(); i++) {
+                if (sw->case_block(i) == from) {
+                    sw->set_case_block(i, to);
+                    changed = true;
+                }
+            }
             break;
         }
         default: break;
     }
+    return changed;
 }
 
 [[nodiscard]] static bool try_restructure_loop(FunctionDefinition *def,
@@ -427,13 +452,25 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
 
         uint32_t sel_id = 0u;
         luisa::unordered_map<BasicBlock *, uint32_t> exit_target_id;
-        for (auto *tgt : exit_targets) { exit_target_id[tgt] = sel_id++; }
+        luisa::vector<BasicBlock *> used_exit_targets;
 
         for (auto &[src, tgt] : exit_edges) {
             auto *stub = def->create_basic_block();
-            retarget_terminator(src->terminator(), tgt, stub);
+            auto changed = retarget_terminator(src->terminator(), tgt, stub);
+            if (!changed) {
+                stub->remove_self();
+                continue;
+            }
+            auto id_it = exit_target_id.find(tgt);
+            uint32_t id;
+            if (id_it == exit_target_id.end()) {
+                id = sel_id++;
+                exit_target_id.emplace(tgt, id);
+                used_exit_targets.emplace_back(tgt);
+            } else {
+                id = id_it->second;
+            }
             auto *false_const = mod->create_constant_zero(Type::of<bool>());
-            uint32_t id = exit_target_id[tgt];
             auto *id_const = mod->create_constant(Type::of<uint32_t>(), &id);
             b.set_insertion_point(stub);
             b.store(keep_going, false_const);
@@ -442,18 +479,24 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         }
 
         b.set_insertion_point(loop_merge);
-        auto *loaded_sel = b.load(Type::of<uint32_t>(), exit_sel);
-        auto *dispatch_bb = def->create_basic_block();
-        b.br(dispatch_bb);
+        if (used_exit_targets.empty()) {
+            b.unreachable_();
+        } else if (used_exit_targets.size() == 1u) {
+            b.br(used_exit_targets[0]);
+        } else {
+            auto *loaded_sel = b.load(Type::of<uint32_t>(), exit_sel);
+            auto *dispatch_bb = def->create_basic_block();
+            b.br(dispatch_bb);
 
-        b.set_insertion_point(dispatch_bb);
-        auto *sw = b.switch_(loaded_sel);
-        sw->set_merge_block(dispatch_merge);
-        sw->set_default_block(exit_targets[0]);
-        for (size_t i = 1u; i < exit_targets.size(); i++) {
-            auto *tgt = exit_targets[i];
-            auto id = static_cast<SwitchInst::case_value_type>(exit_target_id[tgt]);
-            sw->add_case(id, tgt);
+            b.set_insertion_point(dispatch_bb);
+            auto *sw = b.switch_(loaded_sel);
+            sw->set_merge_block(dispatch_merge);
+            sw->set_default_block(used_exit_targets[0]);
+            for (size_t i = 1u; i < used_exit_targets.size(); i++) {
+                auto *tgt = used_exit_targets[i];
+                auto id = static_cast<SwitchInst::case_value_type>(exit_target_id[tgt]);
+                sw->add_case(id, tgt);
+            }
         }
     }
 
