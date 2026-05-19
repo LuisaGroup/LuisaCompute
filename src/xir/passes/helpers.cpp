@@ -1,6 +1,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
 
 #include "helpers.h"
@@ -79,6 +80,10 @@ void lower_phi_node_to_local_variable(PhiInst *phi) noexcept {
         b.set_insertion_point(f->definition()->body_block()->instructions().head_sentinel());
         auto phi_alloca = b.alloca_local(phi->type());
         phi_alloca->add_comment("alloca to lower phi node");
+        if (auto m = f->parent_module()) {
+            auto undef = m->create_undefined(phi->type());
+            b.store(phi_alloca, undef);
+        }
         // store incoming values at the end of their respective blocks
         for (auto i = 0u; i < phi->incoming_count(); i++) {
             if (auto incoming = phi->incoming(i); incoming.value != nullptr && !incoming.value->isa<Undefined>()) {

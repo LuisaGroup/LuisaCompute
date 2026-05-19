@@ -2,7 +2,11 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/use.h>
+#include <luisa/xir/user.h>
 #include <luisa/xir/passes/reg2mem.h>
 
 #include "helpers.h"
@@ -22,6 +26,59 @@ static void lower_phi_nodes_in_function(FunctionDefinition *def, Reg2MemInfo &in
     info.lowered_phi_count += phi_nodes.size();
 }
 
+static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemInfo &info) noexcept {
+    luisa::vector<Instruction *> candidates;
+    def->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->is_terminator()) { return; }
+        if (inst->type() == nullptr) { return; }
+        if (inst->isa<AllocaInst>()) { return; }
+        if (inst->isa<PhiInst>()) { return; }
+        auto def_block = inst->parent_block();
+        if (def_block == nullptr) { return; }
+        for (auto use : inst->use_list()) {
+            auto u = use->user();
+            if (u == nullptr) { continue; }
+            auto u_val = static_cast<Value *>(u);
+            if (!u_val->isa<Instruction>()) { continue; }
+            auto user_inst = static_cast<Instruction *>(u_val);
+            if (user_inst->parent_block() != def_block) {
+                candidates.emplace_back(inst);
+                break;
+            }
+        }
+    });
+    if (candidates.empty()) { return; }
+    XIRBuilder b;
+    auto entry_head = def->body_block()->instructions().head_sentinel();
+    for (auto inst : candidates) {
+        auto def_block = inst->parent_block();
+        b.set_insertion_point(entry_head);
+        auto slot = b.alloca_local(inst->type());
+        slot->add_comment("alloca to lower cross-block value");
+        b.set_insertion_point(inst);
+        b.store(slot, inst);
+        luisa::vector<Use *> cross_block_uses;
+        for (auto use : inst->use_list()) {
+            auto u = use->user();
+            if (u == nullptr) { continue; }
+            auto u_val = static_cast<Value *>(u);
+            if (!u_val->isa<Instruction>()) { continue; }
+            auto user_inst = static_cast<Instruction *>(u_val);
+            if (user_inst->parent_block() != def_block) {
+                cross_block_uses.emplace_back(use);
+            }
+        }
+        for (auto use : cross_block_uses) {
+            auto user_inst = static_cast<Instruction *>(static_cast<Value *>(use->user()));
+            b.set_insertion_point(user_inst->prev());
+            auto reload = b.load(inst->type(), slot);
+            reload->add_comment("load from cross-block alloca");
+            User::set_operand_use_value(use, reload);
+        }
+        info.lowered_cross_block_value_count += 1u;
+    }
+}
+
 static void hoist_allocas_to_top_of_funtion(FunctionDefinition *def) noexcept {
     luisa::vector<AllocaInst *> allocas;
     def->traverse_instructions([&](Instruction *inst) noexcept {
@@ -37,6 +94,7 @@ static void hoist_allocas_to_top_of_funtion(FunctionDefinition *def) noexcept {
 static void run_reg2mem_pass_on_function(Function *function, Reg2MemInfo &info) noexcept {
     if (auto definition = function->definition()) {
         lower_phi_nodes_in_function(definition, info);
+        lower_cross_block_uses_in_function(definition, info);
         hoist_allocas_to_top_of_funtion(definition);
     }
 }

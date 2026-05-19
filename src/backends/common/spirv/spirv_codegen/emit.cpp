@@ -62,6 +62,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _loop_header_info.clear();
     _loop_header_redirect.clear();
     _emitted_blocks.clear();
+    _used_merge_blocks.clear();
     _print_info.clear();
     _print_formats.clear();
     _control_flow_stack.clear();
@@ -298,9 +299,10 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
         }
         case xir::DerivedValueTag::FUNCTION:
         case xir::DerivedValueTag::BASIC_BLOCK:
-        case xir::DerivedValueTag::INSTRUCTION:
+        case xir::DerivedValueTag::INSTRUCTION: {
             LUISA_ERROR_WITH_LOCATION("SPIR-V value {} should have been pre-mapped.", xir::to_string(value->derived_value_tag()));
             break;
+        }
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit value.");
     // Do not cache special registers (builtins) because their load instructions

@@ -1009,7 +1009,8 @@ spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(spv::Id ptr, spv::Id val,
 
     // Loop header
     _builder.setBuildPoint(loop_header);
-    _builder.createLoopMerge(merge, loop_continue, spv::LoopControlMask::MaskNone, {});
+    _used_merge_blocks.emplace((merge)->getId());
+        _builder.createLoopMerge(merge, loop_continue, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, loop_body);
 
     // Loop body
@@ -1085,7 +1086,8 @@ spv::Id SpirvCodegenEntry::_emit_float_compare_exchange_cas_loop(spv::Id ptr, sp
 
     // Loop header
     _builder.setBuildPoint(loop_header);
-    _builder.createLoopMerge(loop_merge, loop_continue, spv::LoopControlMask::MaskNone, {});
+    _used_merge_blocks.emplace((loop_merge)->getId());
+        _builder.createLoopMerge(loop_merge, loop_continue, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, loop_body);
 
     // Loop body
@@ -2798,7 +2800,8 @@ void SpirvCodegenEntry::_emit_ray_query_loop_inst(const xir::RayQueryLoopInst *i
     _loop_header_info.emplace(inst->dispatch_block(), std::make_pair(header, continue_block));
     _builder.createBranch(false, header);
     _builder.setBuildPoint(header);
-    _builder.createLoopMerge(merge_spv, continue_block, spv::LoopControlMask::MaskNone, {});
+    _used_merge_blocks.emplace((merge_spv)->getId());
+        _builder.createLoopMerge(merge_spv, continue_block, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, dispatch_spv);
     _emit_block(inst->dispatch_block());
     _builder.setBuildPoint(continue_block);
@@ -2820,11 +2823,20 @@ void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatc
     auto candidate_const = _builder.makeIntConstant(0);// RayQueryCandidateIntersectionKHR
     auto candidate_type = _builder.createOp(spv::Op::OpRayQueryGetIntersectionTypeKHR, uint_type,
                                             std::vector<spv::IdImmediate>{{true, rq_obj}, {true, candidate_const}});
-    auto surface_block = new spv::Block(_builder.getUniqueId(), function);
-    auto procedural_block = new spv::Block(_builder.getUniqueId(), function);
+    auto bind_or_get = [&](const xir::BasicBlock *xb, bool &is_fresh) -> spv::Block * {
+        if (auto it = _block_map.find(xb); it != _block_map.end()) {
+            is_fresh = false;
+            return it->second;
+        }
+        is_fresh = true;
+        auto blk = new spv::Block(_builder.getUniqueId(), function);
+        _block_map.emplace(xb, blk);
+        return blk;
+    };
+    bool surface_fresh = false, procedural_fresh = false;
+    auto surface_block = bind_or_get(inst->on_surface_candidate_block(), surface_fresh);
+    auto procedural_block = bind_or_get(inst->on_procedural_candidate_block(), procedural_fresh);
     auto dispatch_merge_block = new spv::Block(_builder.getUniqueId(), function);
-    _block_map[inst->on_surface_candidate_block()] = surface_block;
-    _block_map[inst->on_procedural_candidate_block()] = procedural_block;
     auto dispatch_xir_block = inst->parent_block();
     spv::Block *continue_block = nullptr;
     if (auto it = _loop_header_info.find(dispatch_xir_block); it != _loop_header_info.end()) {
@@ -2833,6 +2845,7 @@ void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatc
         LUISA_ERROR_WITH_LOCATION("RayQueryDispatchInst not inside a RayQueryLoop.");
     }
     auto is_triangle = _builder.createBinOp(spv::Op::OpIEqual, bool_type, candidate_type, _builder.makeUintConstant(0u));
+    _used_merge_blocks.emplace(dispatch_merge_block->getId());
     auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
     selection_merge->reserveOperands(2);
     selection_merge->addIdOperand(dispatch_merge_block->getId());
@@ -2843,13 +2856,13 @@ void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatc
     // instead of the continue block, satisfying SPIR-V structured control flow rules.
     auto saved_redirect = _loop_header_redirect[dispatch_xir_block];
     _loop_header_redirect[dispatch_xir_block] = dispatch_merge_block;
-    function.addBlock(surface_block);
+    if (surface_fresh) { function.addBlock(surface_block); }
     _builder.setBuildPoint(surface_block);
     _emit_block(inst->on_surface_candidate_block());
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, dispatch_merge_block);
     }
-    function.addBlock(procedural_block);
+    if (procedural_fresh) { function.addBlock(procedural_block); }
     _builder.setBuildPoint(procedural_block);
     _emit_block(inst->on_procedural_candidate_block());
     if (!_builder.getBuildPoint()->isTerminated()) {

@@ -288,9 +288,19 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
         eliminate_instructions_in_unreachable_blocks(unreachable, info);
         // now we can remove non-entry blocks without users from the function
         {
+            // Collect blocks referenced as structural merge targets; these must survive
+            // for backends that require structured control flow (e.g., SPIR-V OpLoopMerge / OpSelectionMerge),
+            // even though merge pointers don't participate in the use-list.
+            luisa::unordered_set<BasicBlock *> structural_merges;
+            definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+                if (auto merge = block->terminator()->control_flow_merge()) {
+                    if (auto mb = merge->merge_block()) { structural_merges.emplace(mb); }
+                }
+            });
             work_list.clear();
             for (auto block : definition->basic_blocks()) {
-                if (block != definition->body_block() && block->use_list().empty()) {
+                if (block != definition->body_block() && block->use_list().empty() &&
+                    !structural_merges.contains(block)) {
                     work_list.emplace_back(block);
                 }
             }
@@ -334,7 +344,11 @@ void fix_phi_nodes_in_function(Function *function, luisa::vector<PhiInst *> &phi
 void fix_control_flow_merges_in_function(Function *function) noexcept {
     if (auto definition = function->definition()) {
         definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-            if (auto merge = block->terminator()->control_flow_merge()) {
+            auto term = block->terminator();
+            if (auto merge = term->control_flow_merge()) {
+                // Loop terminators require a merge block for structured codegen (e.g., SPIR-V OpLoopMerge),
+                // even when the merge is only reachable via an `unreachable` terminator (infinite loops).
+                if (term->isa<LoopInst>() || term->isa<SimpleLoopInst>()) { return; }
                 if (auto merge_block = merge->merge_block();
                     merge_block != nullptr && is_block_terminated_by_unreachable(merge_block)) {
                     merge->set_merge_block(nullptr);

@@ -149,6 +149,9 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
         }
     }
     for (auto bb : dead) {
+        while (!bb->instructions().empty()) {
+            bb->instructions().front()->remove_self();
+        }
         bb->remove_self();
         ++info.removed_unreachable_block_count;
     }

@@ -10,6 +10,7 @@
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/instructions/unreachable.h>
 #include <luisa/xir/instructions/raster_discard.h>
 #include <luisa/xir/module.h>
@@ -169,6 +170,40 @@ struct PostDomInfo {
     return d;
 }
 
+[[nodiscard]] static BasicBlock *common_postdom(const PostDomInfo &pdom, luisa::span<BasicBlock *const> blocks) noexcept {
+    if (blocks.empty()) { return nullptr; }
+    auto ancestors_of = [&](BasicBlock *bb) noexcept {
+        luisa::unordered_set<BasicBlock *> chain;
+        auto *cur = bb;
+        while (cur != nullptr && cur != pdom.virtual_exit) {
+            if (!chain.emplace(cur).second) { return chain; }
+            auto it = pdom.ipostdom.find(cur);
+            if (it == pdom.ipostdom.end()) { return chain; }
+            cur = it->second;
+        }
+        if (cur == pdom.virtual_exit) { chain.emplace(pdom.virtual_exit); }
+        return chain;
+    };
+    auto common = ancestors_of(blocks[0]);
+    for (size_t i = 1u; i < blocks.size(); i++) {
+        auto other = ancestors_of(blocks[i]);
+        luisa::unordered_set<BasicBlock *> next;
+        for (auto *bb : common) {
+            if (other.contains(bb)) { next.emplace(bb); }
+        }
+        common = std::move(next);
+        if (common.empty()) { return nullptr; }
+    }
+    auto *cur = blocks[0];
+    while (cur != nullptr && cur != pdom.virtual_exit) {
+        if (common.contains(cur)) { return cur == pdom.virtual_exit ? nullptr : cur; }
+        auto it = pdom.ipostdom.find(cur);
+        if (it == pdom.ipostdom.end()) { return nullptr; }
+        cur = it->second;
+    }
+    return nullptr;
+}
+
 static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
     if (term == nullptr) { return; }
     switch (term->derived_instruction_tag()) {
@@ -274,11 +309,33 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
             auto *cur = worklist.back();
             worklist.pop_back();
             cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                if (!dom.contains(pred)) { return; }
                 if (!loop_blocks.contains(pred) && dom.dominates(header, pred)) {
                     loop_blocks.emplace(pred);
                     worklist.emplace_back(pred);
                 }
             });
+        }
+    }
+
+    luisa::vector<std::pair<BasicBlock *, BasicBlock *>> pre_exit_edges;
+    for (auto *lb : loop_blocks) {
+        if (!lb->is_terminated()) { continue; }
+        lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+            if (!loop_blocks.contains(succ)) {
+                pre_exit_edges.emplace_back(lb, succ);
+            }
+        });
+    }
+    luisa::unordered_set<BasicBlock *> pre_exit_targets_set;
+    for (auto &[src, tgt] : pre_exit_edges) { pre_exit_targets_set.emplace(tgt); }
+    luisa::vector<BasicBlock *> pre_exit_targets{pre_exit_targets_set.begin(), pre_exit_targets_set.end()};
+
+    BasicBlock *dispatch_merge_or_null = nullptr;
+    if (pre_exit_targets.size() > 1u) {
+        dispatch_merge_or_null = common_postdom(pdom, luisa::span<BasicBlock *const>{pre_exit_targets});
+        if (dispatch_merge_or_null == pdom.virtual_exit) {
+            dispatch_merge_or_null = nullptr;
         }
     }
 
@@ -299,6 +356,7 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
 
     luisa::vector<BasicBlock *> entry_preds;
     header->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+        if (!dom.contains(pred)) { return; }
         if (!loop_blocks.contains(pred)) { entry_preds.emplace_back(pred); }
     });
 
@@ -336,12 +394,24 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         for (auto &[src, tgt] : exit_edges) {
             retarget_terminator(src->terminator(), tgt, loop_merge);
         }
-        if (!exit_targets.empty()) {
+        {
             XIRBuilder b;
             b.set_insertion_point(loop_merge);
-            b.br(exit_targets[0]);
+            if (!exit_targets.empty()) {
+                b.br(exit_targets[0]);
+            } else {
+                b.unreachable_();
+            }
         }
     } else {
+        auto *dispatch_merge = dispatch_merge_or_null;
+        if (dispatch_merge == nullptr) {
+            dispatch_merge = def->create_basic_block();
+            XIRBuilder mb;
+            mb.set_insertion_point(dispatch_merge);
+            mb.unreachable_();
+        }
+
         XIRBuilder b;
         auto *entry_bb = def->body_block();
         b.set_insertion_point(entry_bb->instructions().front());
@@ -373,20 +443,16 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
 
         b.set_insertion_point(loop_merge);
         auto *loaded_sel = b.load(Type::of<uint32_t>(), exit_sel);
-        for (size_t i = 0u; i < exit_targets.size(); i++) {
-            auto *tgt = exit_targets[i];
-            uint32_t id = exit_target_id[tgt];
-            auto *id_const = mod->create_constant(Type::of<uint32_t>(), &id);
-            auto *cmp = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {loaded_sel, id_const});
-            auto *if_inst = b.if_(cmp);
-            auto *true_bb = if_inst->create_true_block();
-            auto *false_bb = if_inst->create_false_block();
-            auto *merge_bb = if_inst->create_merge_block();
-            b.set_insertion_point(true_bb);
-            b.br(tgt);
-            b.set_insertion_point(false_bb);
-            b.br(merge_bb);
-            b.set_insertion_point(merge_bb);
+        auto *dispatch_bb = def->create_basic_block();
+        b.br(dispatch_bb);
+
+        b.set_insertion_point(dispatch_bb);
+        auto *sw = b.switch_(loaded_sel);
+        sw->set_merge_block(dispatch_merge);
+        sw->set_default_block(exit_targets[0]);
+        for (auto *tgt : exit_targets) {
+            auto id = static_cast<SwitchInst::case_value_type>(exit_target_id[tgt]);
+            sw->add_case(id, tgt);
         }
     }
 

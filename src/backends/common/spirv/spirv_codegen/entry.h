@@ -47,6 +47,7 @@ private:
     luisa::unordered_map<const xir::BasicBlock *, std::pair<spv::Block *, spv::Block *>> _loop_header_info;
     luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _loop_header_redirect;
     luisa::unordered_set<const xir::BasicBlock *> _emitted_blocks;
+    luisa::unordered_set<spv::Id> _used_merge_blocks;
 
     luisa::unordered_map<const xir::PrintInst *, PrintInfo> _print_info;
     PrintFormatVector _print_formats;
