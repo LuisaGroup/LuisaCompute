@@ -23,7 +23,7 @@ src/backends/common/spirv/spirv_codegen/
 └── utils.h/cpp          # AST→XIR translation + optimization pipeline
 ```
 
-Build: xmake target `lc-spirv` (static lib `luisa-spirv.lib`), deps `lc-vstl`, `lc-runtime`, `lc-glslang`.
+Build: xmake target `lc-spirv` (static lib `luisa-spirv.lib`), deps `lc-vstl`, `lc-runtime`, `lc-glslang`, `SPIRV-Tools-opt`.
 
 ## Architecture
 
@@ -164,7 +164,7 @@ Ensures value matches target_type. Handles: same-class float (FConvert), int (SC
 ```cpp
 ALLOCA → createVariable(Function/Workgroup). Workgroup alloca added to entry point.
 LOAD   → createLoad (RayQueryKHR: pass-through; spec forbids OpLoad on OpTypeRayQueryKHR).
-STORE  → createStore (RayQueryKHR: OpCopyMemory; spec also forbids OpCopyMemory on OpTypeRayQueryKHR since Rev 15, but this is the codegen workaround). Handles type mismatch (scalar→vector smear, bitcast).
+STORE  → createStore (RayQueryKHR: remap `_value_map[variable] = val` so subsequent loads resolve to the source variable; OpCopyMemory is forbidden on OpTypeRayQueryKHR since Rev 15). Handles type mismatch (scalar→vector smear, bitcast).
 GEP    → _create_access_chain with builder storage class.
 ARITHMETIC → _emit_arithmetic_inst
 CALL    → createFunctionCall; skips unused resource args; creates temp vars for reference args (non-alloca/non-param).
@@ -393,9 +393,10 @@ If `kernel.requires_printing()`: adds 2x RWStructuredBuffer (`_printCounter`, `_
 
 1. `reg2mem` (phi→alloca+load/store)
 2. **`restructure_cfg`**: unstructured → structured
-3. `reg2mem` (mid)
-4. **Phase C**: `dce` → `local_store_forward` → `local_load_elimination` → `const_fold` → `dce`
-5. `reg2mem` (post, final phi elimination before SPIR-V emission)
+3. `dce` (post-restructure: removes orphan blocks left by restructure_cfg)
+4. `reg2mem` (mid)
+5. **Phase C**: `dce` → `local_store_forward` → `local_load_elimination` → `const_fold` → `dce`
+6. `reg2mem` (post, final phi elimination before SPIR-V emission)
 
 ### Environment variables
 
@@ -404,7 +405,13 @@ If `kernel.requires_printing()`: adds 2x RWStructuredBuffer (`_printCounter`, `_
 | `LUISA_DUMP_SOURCE=1` | Dump XIR at each stage + final SPIR-V disasm |
 | `LUISA_SPIRV_DUMP_OPT_STATS=1` | Log per-pass timing and counts |
 | `LUISA_XIR_DISABLE_NORMALIZE_CFG=1` | Skip destructure/mem2reg/restructure (debug) |
-| `LUISA_XIR_DISABLE_RESTRUCTURE_CFG=1` | Skip restructure_cfg only (debug) |
+| `LUISA_XIR_DISABLE_RESTRUCTURE_CFG=1` | Skip destructure+restructure, keep lower_ray_query_loop_to_loop (debug) |
+
+## SPIR-V Optimization (spv-opt)
+
+After emission, `compile_spirv()` runs `spvtools::Optimizer` with `RegisterPerformancePasses()` (inline, DCE, scalar replacement, dead branch elimination, local access chain conversion, etc.). This catches SPIR-V-specific patterns that emerge after restructure_cfg and emission. Typical size reduction: 60-90%.
+
+The optimizer links via `SPIRV-Tools-opt` (static lib from `src/ext/SPIRV-Tools`).
 
 ## Result & Debugging
 

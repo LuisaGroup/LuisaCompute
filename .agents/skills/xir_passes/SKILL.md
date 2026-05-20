@@ -244,11 +244,12 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 |---|---|---|
 | Pipeline A `lower_break_continue` | ✅ done (12 tests) | `lower_break_continue.{h,cpp}` |
 | Pipeline A `lower_ray_query_loop` | ✅ existing (lowers to `RayQueryPipelineInst` — **NOT** reusable for Pipeline B) | `lower_ray_query_loop.cpp` |
+| Pipeline A `lower_ray_query_loop_to_loop` | ✅ done (lowers to structured `LoopInst` + nested `IfInst` dispatch) | `lower_ray_query_loop_to_loop.{h,cpp}` |
 | Pipeline A `early_return_elimination` | ⏳ stub (low pri) | `early_return_elimination.cpp` |
 | Pipeline B Pass 1 `destructure_cfg` | ✅ done (12 tests, 46 asserts) | `destructure_cfg.{h,cpp}` |
 | Pipeline B Pass 2 `simplify_cfg` | ✅ done (8 tests, 22 asserts) | `simplify_cfg.{h,cpp}` |
-| Pipeline B Pass 3 `restructure_cfg` | ⏳ pending | not yet |
-| Round-trip Pipeline B test | ⏳ pending | not yet |
+| Pipeline B Pass 3 `restructure_cfg` | ✅ done | `restructure_cfg.{h,cpp}` |
+| Round-trip Pipeline B test | ✅ verified (path_tracing_cutout PSNR>30) | via `test_path_tracing_cutout vk` |
 
 ### `destructure_cfg` lowerings (reference)
 
@@ -259,7 +260,7 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 - `RayQueryLoopInst` → emit `LoopInst{prepare→body, body: PROCEED + cond_br cascade on IS_TERMINATED→merge / IS_TRIANGLE_CANDIDATE→on_surface / IS_PROCEDURAL_CANDIDATE→on_procedural / else→update, update→prepare}`; rewrite child `br dispatch_block` → `br update_block`; remove orphaned `RayQueryDispatchInst`. New `LoopInst` destructured on next fixed-point iteration.
 - `SwitchInst` **preserved as-is**; recursion handled naturally by `traverse_basic_blocks`.
 
-### `simplify_cfg` planned ops
+### `simplify_cfg` ops
 
 1. Constant `cond_br` fold → `br`.
 2. Empty-block jump-threading (block with only a `br C` terminator; redirect all preds; never remove `body_block`).
@@ -282,6 +283,8 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 - ❌ Calling `LoopInst::condition()` — **does not exist**. The loop condition is the terminating `cond_br(cond, body, merge)` of `prepare_block()`. To read the condition: `static_cast<ConditionalBranchInst*>(loop->prepare_block()->terminator())->condition()`. Likewise no `set_condition`; rewrite the prepare-block terminator instead.
 - ❌ Restructuring CFG with live `PhiInst` nodes — splitting/inserting blocks (preheaders, latches, exit stubs) invalidates phi `incoming_blocks`. Run `reg2mem_pass_run_on_module` before `restructure_cfg_pass_run_on_module` so the input is phi-free; assert this as a precondition.
 - ❌ Computing post-dominators without a virtual exit — multi-sink CFGs (`ReturnInst`, `UnreachableInst`, `RasterDiscardInst` in different blocks) yield wrong/null ipostdoms for blocks whose successors reach different sinks. Add a synthetic virtual exit that all sinks point to before running the iterative ipostdom algorithm.
+- ❌ Running `reg2mem` immediately after `restructure_cfg` without DCE — restructure_cfg may leave orphan blocks not reachable from `body_block()`. These blocks are absent from the dom tree, causing assertion failures in reg2mem. Always run `dce_pass_run_on_module` between `restructure_cfg` and `reg2mem`.
+- ❌ Using `OpCopyMemory` on `OpTypeRayQueryKHR` in SPIR-V emission — forbidden since Rev 15. Instead, remap `_value_map[store->variable()] = val` so subsequent loads resolve to the source variable directly.
 
 ## Build & Test Commands
 
