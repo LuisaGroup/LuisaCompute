@@ -8,6 +8,7 @@ includes("ext/EASTL")
 if has_config('lc_vk_backend_use_xir_spirv') then
     includes("ext/glslang")
 end
+includes("ext/SPIRV-Tools")
 if not has_config("lc_spdlog_use_xrepo") then
     includes("ext/spdlog")
 end

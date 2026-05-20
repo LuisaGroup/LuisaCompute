@@ -38,3 +38,6 @@
 [submodule "src/ext/glslang"]
 	path = src/ext/glslang
 	url = https://github.com/LuisaGroup/glslang
+[submodule "src/ext/SPIRV-Tools"]
+	path = src/ext/SPIRV-Tools
+	url = https://github.com/LuisaGroup/SPIRV-Tools.git

@@ -4,7 +4,7 @@ _config_project({
     project_kind = "static",
     batch_size = 2
 })
-add_deps("lc-vstl", 'lc-runtime', 'lc-glslang')
+add_deps("lc-vstl", 'lc-runtime', 'lc-glslang', 'spirv-tools')
 on_load(function(target)
     if not target:is_plat("windows") then
         target:add("cxflags", "-fms-extensions", {
