@@ -59,6 +59,7 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     auto update = _get_or_create_block(inst->update_block());
     auto merge = _get_or_create_block(inst->merge_block());
     _used_merge_blocks.emplace(merge->getId());
+    _used_merge_blocks.emplace(update->getId());
     auto header = &_builder.makeNewBlock();
     _loop_header_redirect.emplace(inst->prepare_block(), header);
     _builder.createBranch(false, header);
@@ -77,8 +78,7 @@ void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) 
     _used_merge_blocks.emplace(merge->getId());
     auto header = &_builder.makeNewBlock();
     auto continue_block = &_builder.makeNewBlock();
-    // Redirect branches to body_block to continue_block so that continues/breaks
-    // inside the body don't create multiple back-edges to the header.
+    _used_merge_blocks.emplace(continue_block->getId());
     _loop_header_redirect.emplace(inst->body_block(), continue_block);
     _builder.createBranch(false, header);
     _builder.setBuildPoint(header);
@@ -138,12 +138,16 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     auto switch_inst = new spv::Instruction(spv::Op::OpSwitch);
     switch_inst->reserveOperands((case_count * 2) + 2);
     switch_inst->addIdOperand(selector);
-    switch_inst->addIdOperand(segment_blocks[case_count]->getId());
-    segment_blocks[case_count]->addPredecessor(_builder.getBuildPoint());
+    auto default_target = (segment_blocks[case_count] == merge_block && synthetic_merge != nullptr)
+                              ? selection_merge_target : segment_blocks[case_count];
+    switch_inst->addIdOperand(default_target->getId());
+    default_target->addPredecessor(_builder.getBuildPoint());
     for (uint i = 0u; i < case_count; ++i) {
+        auto case_target = (segment_blocks[i] == merge_block && synthetic_merge != nullptr)
+                               ? selection_merge_target : segment_blocks[i];
         switch_inst->addImmediateOperand(inst->case_value(i));
-        switch_inst->addIdOperand(segment_blocks[i]->getId());
-        segment_blocks[i]->addPredecessor(_builder.getBuildPoint());
+        switch_inst->addIdOperand(case_target->getId());
+        case_target->addPredecessor(_builder.getBuildPoint());
     }
     _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(switch_inst));
     for (uint i = 0u; i < case_count; ++i) {

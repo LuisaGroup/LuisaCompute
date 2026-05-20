@@ -679,22 +679,18 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     // if merge, which is valid in SPIR-V (selection inside loop).
     // For other cbrs inside the loop (if-else with break), also use the loop merge
     // directly — the break arm reaches the merge, the non-break arm flows to continue.
-    auto *structural_merge = found_merge;
-    if (enclosing_loop_continue == nullptr) {
-        structural_merge = def->create_basic_block();
-        {
-            XIRBuilder mb;
-            mb.set_insertion_point(structural_merge);
-            mb.br(found_merge);
-        }
-        // Retarget every in-construct edge that targets `found_merge` to the fresh merge.
-        def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-            if (bb == structural_merge) { return; }
-            if (!bb->is_terminated()) { return; }
-            if (!dom.dominates(found_header, bb)) { return; }
-            retarget_terminator(bb->terminator(), found_merge, structural_merge);
-        });
+    auto *structural_merge = def->create_basic_block();
+    {
+        XIRBuilder mb;
+        mb.set_insertion_point(structural_merge);
+        mb.br(found_merge);
     }
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (bb == structural_merge) { return; }
+        if (!bb->is_terminated()) { return; }
+        if (!dom.dominates(found_header, bb)) { return; }
+        retarget_terminator(bb->terminator(), found_merge, structural_merge);
+    });
 
     // If an if-arm directly targeted found_merge (empty arm), it must now target
     // structural_merge instead. The retarget loop above already handled the cbr's
