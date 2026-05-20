@@ -4,9 +4,40 @@
 #include <luisa/core/logging.h>
 #include <fstream>
 #include <sstream>
+#include <spirv-tools/libspirv.hpp>
 #include <spirv-tools/optimizer.hpp>
 
 namespace lc::spirv {
+
+static void luisa_spirv_validate(luisa::span<const uint32_t> words, luisa::string_view stage) {
+    spvtools::SpirvTools tools(SPV_ENV_VULKAN_1_2);
+    luisa::string message;
+    tools.SetMessageConsumer(
+        [&message](spv_message_level_t level, const char *source,
+                   const spv_position_t &position, const char *text) {
+            auto level_name = [level]() noexcept {
+                switch (level) {
+                    case SPV_MSG_FATAL: return "fatal";
+                    case SPV_MSG_INTERNAL_ERROR: return "internal";
+                    case SPV_MSG_ERROR: return "error";
+                    case SPV_MSG_WARNING: return "warning";
+                    case SPV_MSG_INFO: return "info";
+                    case SPV_MSG_DEBUG: return "debug";
+                }
+                return "unknown";
+            }();
+            message.append(luisa::format("{} [{}:{}:{}]: {}\n",
+                                         level_name,
+                                         source == nullptr ? "" : source,
+                                         position.line,
+                                         position.column,
+                                         text == nullptr ? "" : text));
+        });
+    spvtools::ValidatorOptions options;
+    if (!tools.Validate(words.data(), words.size(), options)) {
+        LUISA_ERROR("SPIR-V validation failed at {} stage:\n{}", stage, message);
+    }
+}
 
 static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
     spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_2);
@@ -51,16 +82,20 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     StringScratch scratch;
     SpirvCodegenEntry codegen{scratch, true};
     codegen._use_native_float_atomics = use_native_float_atomics;
+    auto analysis = codegen._analyze_module_usage(xir_module.get());
+    codegen._mark_atomic_buffer_types(analysis);
     codegen.generate_binding(kernel);
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
+    luisa_spirv_validate(words, "pre-optimization");
     if (std::getenv("LUISA_DUMP_SPV")) {
         auto filename = luisa::format("/tmp/opencode/kernel_{:016x}.spv", kernel.hash());
         std::ofstream file(filename.c_str(), std::ios::binary);
         file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));
     }
     luisa_spirv_optimize(words);
+    luisa_spirv_validate(words, "post-optimization");
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());
     if (std::getenv("LUISA_DUMP_SOURCE")) {

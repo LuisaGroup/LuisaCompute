@@ -27,6 +27,7 @@ target_link_libraries(luisa-compute-spirv PUBLIC
         luisa-compute-runtime
         luisa-compute-xir
         glslang
+        SPIRV-Tools
         SPIRV-Tools-opt)
 if (NOT WIN32)
     target_compile_options(luisa-compute-spirv PUBLIC
