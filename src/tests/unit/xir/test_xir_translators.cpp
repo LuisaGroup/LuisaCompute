@@ -106,6 +106,17 @@ void reg_xir2text() {
         expect(!text_debug.empty());
         expect(text_debug.size() >= text_no_debug.size()) << "debug info should add content";
     };
+
+    "xir_to_flat_text_basic"_test = [] {
+        Kernel1D kernel = [](BufferFloat buf) {
+            auto idx = dispatch_id().x;
+            buf->write(idx, 1.0f);
+        };
+        auto module = ast_to_xir_translate(kernel.function()->function(), {});
+        auto text = xir_to_flat_text_translate(module.get(), true);
+        expect(!text.empty());
+        expect(text.find("define {") != luisa::string::npos);
+    };
 }
 
 void reg_xir2json() {
@@ -156,6 +167,9 @@ void reg_direct_module() {
         builder.return_void();
         auto text = xir_to_text_translate(&module, true);
         expect(!text.empty());
+        auto flat_text = xir_to_flat_text_translate(&module, true);
+        expect(!flat_text.empty());
+        expect(flat_text.find("define {") != luisa::string::npos);
     };
 }
 
