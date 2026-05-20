@@ -30,6 +30,21 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_example(example_path_tracing_nested_callable rendering/path_tracing_nested_callable.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_ray_masks rendering/path_tracing_ray_masks.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_path_tracing_spectrum rendering/path_tracing_spectrum.cpp MIRROR_AS_TEST)
+    # embed SRGBToFourierEvenPacked.dat into the spectrum example/test
+    set(_spectrum_dat "${CMAKE_SOURCE_DIR}/src/tests/SRGBToFourierEvenPacked.dat")
+    set(_spectrum_embed_cpp "${CMAKE_CURRENT_LIST_DIR}/rendering/srgb_to_fourier_embedded.cpp")
+    set(_spectrum_embed_h "${CMAKE_CURRENT_LIST_DIR}/rendering/srgb_to_fourier_embedded.h")
+    add_custom_target(luisa-compute-example-spectrum-embed
+            COMMAND $<TARGET_FILE:luisa_embed_device_lib> ${_spectrum_dat} --unsigned --prefix luisa_compute_ -o ${_spectrum_embed_cpp} -h ${_spectrum_embed_h}
+            BYPRODUCTS ${_spectrum_embed_cpp} ${_spectrum_embed_h}
+            DEPENDS luisa_embed_device_lib ${_spectrum_dat})
+    add_dependencies(example_path_tracing_spectrum luisa-compute-example-spectrum-embed)
+    target_sources(example_path_tracing_spectrum PRIVATE ${_spectrum_embed_cpp} ${_spectrum_embed_h})
+    get_target_property(_spectrum_mirror example_path_tracing_spectrum LUISA_TEST_MIRROR)
+    if (_spectrum_mirror)
+        add_dependencies(${_spectrum_mirror} luisa-compute-example-spectrum-embed)
+        target_sources(${_spectrum_mirror} PRIVATE ${_spectrum_embed_cpp} ${_spectrum_embed_h})
+    endif ()
     luisa_compute_add_example(example_photon_mapping rendering/photon_mapping.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_sdf_renderer rendering/sdf_renderer.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_blackhole rendering/blackhole.cpp MIRROR_AS_TEST)

@@ -1,3 +1,4 @@
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -14,6 +15,8 @@
 #include "cornell_box.h"
 
 #include "spectrum_data.h"
+
+#include "srgb_to_fourier_embedded.hpp"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
@@ -331,18 +334,17 @@ int main(int argc, char *argv[]) {
     constexpr auto fourier_cmin = -inv_pi;
     constexpr auto fourier_cmax = inv_pi;
     {
-        std::ifstream lut_file{"SRGBToFourierEvenPacked.dat", std::ios_base::binary};
+        auto *lut_ptr = reinterpret_cast<const char *>(luisa_compute_SRGBToFourierEvenPacked);
         struct {
             size_t version, x, y, z;
         } header;
-        lut_file.read(reinterpret_cast<char *>(&header), sizeof(header));
+        std::memcpy(&header, lut_ptr, sizeof(header));
         assert(header.version == 0);
         auto lut_resolution = make_uint3(header.x, header.y, header.z);
         auto buffer_size = sizeof(uint) * lut_resolution.x * lut_resolution.y * lut_resolution.z;
-        auto lut_data = std::make_unique_for_overwrite<char[]>(buffer_size);
-        lut_file.read(reinterpret_cast<char *>(lut_data.get()), buffer_size);
+        auto lut_data = lut_ptr + sizeof(header);
         srgb_to_fourier_even = device.create_volume<float>(PixelStorage::R10G10B10A2, lut_resolution);
-        stream << lut_heap.emplace_on_update(SRGB_TO_FOURIER_EVEN, srgb_to_fourier_even, Sampler::linear_linear_mirror()).update() << srgb_to_fourier_even.copy_from(luisa::span{lut_data.get(), static_cast<size_t>(buffer_size)})
+        stream << lut_heap.emplace_on_update(SRGB_TO_FOURIER_EVEN, srgb_to_fourier_even, Sampler::linear_linear_mirror()).update() << srgb_to_fourier_even.copy_from(luisa::span{lut_data, static_cast<size_t>(buffer_size)})
                << synchronize();
     }
 
