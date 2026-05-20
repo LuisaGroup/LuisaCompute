@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -13,6 +14,29 @@
 namespace luisa::ref {
 
 static constexpr double DEFAULT_PSNR_THRESHOLD = 30.0;
+
+struct ExampleOptions {
+    bool offline{false};
+    uint32_t spp{0u};
+    std::optional<std::filesystem::path> compare_path;
+
+    static ExampleOptions parse(int argc, char *argv[]) {
+        ExampleOptions opts;
+        for (int i = 2; i < argc; i++) {
+            if (!argv[i]) break;
+            std::string_view a{argv[i]};
+            if (a == "--offline") {
+                opts.offline = true;
+            } else if ((a == "--compare" || a == "-c") && i + 1 < argc && argv[i + 1]) {
+                opts.compare_path = std::filesystem::path{argv[++i]};
+                opts.offline = true;
+            } else if (a == "--spp" && i + 1 < argc && argv[i + 1]) {
+                opts.spp = static_cast<uint32_t>(std::atoi(argv[++i]));
+            }
+        }
+        return opts;
+    }
+};
 
 inline double compute_psnr(const uint8_t *img_a, const uint8_t *img_b,
                            int width, int height, int channels) {

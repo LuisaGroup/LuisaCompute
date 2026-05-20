@@ -56,9 +56,17 @@ public:
     {
         size_t i = 0;
         for (auto arg : callee->arguments()) {
-            resolver.emplace(arg, i < call->argument_count()
-                                      ? call->argument(i)
-                                      : static_cast<Value *>(module->create_undefined(arg->type())));
+            auto call_arg = i < call->argument_count()
+                                ? call->argument(i)
+                                : static_cast<Value *>(module->create_undefined(arg->type()));
+            if (arg->is_lvalue() && !call_arg->is_lvalue()) {
+                builder.set_insertion_point(call);
+                auto tmp = builder.alloca_local(arg->type());
+                builder.store(tmp, call_arg);
+                resolver.emplace(arg, tmp);
+            } else {
+                resolver.emplace(arg, call_arg);
+            }
             ++i;
         }
     }
@@ -204,23 +212,35 @@ InlineInfo inline_all_pass_run_on_module(Module *module) noexcept {
     InlineInfo info;
     if (!module) return info;
     for (;;) {
-        bool has_callables = false;
-        for (auto f : module->function_list()) {
-            if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE) {
-                has_callables = true;
-                break;
-            }
-        }
-        if (!has_callables) break;
         auto cg = compute_call_graph(module);
         luisa::vector<Function *> callables;
         for (auto f : module->function_list())
             if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
                 callables.push_back(f);
-        bool progress = false;
+        if (callables.empty()) break;
+        luisa::unordered_set<Function *> callable_set{callables.begin(), callables.end()};
+        luisa::vector<Function *> leaves;
         for (auto callee : callables) {
             auto def = callee->definition();
             if (!def) continue;
+            bool is_leaf = true;
+            def->traverse_instructions([&](const Instruction *inst) noexcept {
+                if (!is_leaf) return;
+                if (inst->derived_instruction_tag() == DerivedInstructionTag::CALL) {
+                    auto call = static_cast<const CallInst *>(inst);
+                    if (callable_set.contains(const_cast<Function *>(static_cast<const Function *>(call->callee())))) {
+                        is_leaf = false;
+                    }
+                }
+            });
+            if (is_leaf) leaves.push_back(callee);
+        }
+        if (leaves.empty()) break;
+        bool progress = false;
+        for (auto callee : leaves) {
+            auto def = callee->definition();
+            if (!def) continue;
+            cg = compute_call_graph(module);
             auto edges = cg.call_edges(def);
             for (auto call : edges) {
                 if (detail::inline_call(call, callee)) {
