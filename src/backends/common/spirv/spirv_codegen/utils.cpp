@@ -114,6 +114,13 @@ const bool LUISA_XIR_DISABLE_RESTRUCTURE_CFG = [] {
     auto dceA4_info = xir::dce_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dce4: {} ms", pass_clk.toc());
 
+    pass_clk.tic();
+    auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
+    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  inline-all: {} ms (inlined {}, removed {})", pass_clk.toc(), inline_info.inlined_call_count, inline_info.removed_callable_count);
+    if (inline_info.inlined_call_count > 0) {
+        xir::dce_pass_run_on_module(xir_module.get());
+    }
+
     xir::DestructureCFGInfo destructure_cfg_info{};
     xir::SimplifyCFGInfo simplify_cfg_info{};
     xir::RestructureCFGInfo restructure_cfg_info{};

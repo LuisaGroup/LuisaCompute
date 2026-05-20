@@ -76,39 +76,30 @@ public:
         resolver.emplace(bb, nb);
     }
 
+    // Create single-exit merge block and return value alloca
+    auto merge_bb = caller_func->create_basic_block();
+    Instruction *ret_alloca = nullptr;
+    if (call->type()) {
+        builder.set_insertion_point(call);
+        ret_alloca = builder.alloca_local(call->type());
+    }
+
     // Clone instructions from callee into new blocks
-    Value *ret_val = nullptr;
     for (size_t i = 0; i < callee_blocks.size(); ++i) {
         builder.set_insertion_point(new_blocks[i]);
         for (auto inst : callee_blocks[i]->instructions()) {
             if (inst->isa<ReturnInst>()) {
                 auto r = static_cast<ReturnInst *>(inst);
-                if (call->type() && r->operand_count() > 0)
-                    ret_val = resolver.resolve(r->operand(0));
-                builder.unreachable_();
+                if (ret_alloca && r->operand_count() > 0) {
+                    auto val = resolver.resolve(r->operand(0));
+                    builder.store(ret_alloca, val);
+                }
+                builder.br(merge_bb);
             } else {
                 auto c = inst->clone_with_metadata(builder, resolver);
                 LUISA_ASSERT(c, "Inline: clone failed.");
                 resolver.emplace(inst, c);
             }
-        }
-    }
-
-    // Create merge/continuation block
-    auto merge_bb = caller_func->create_basic_block();
-
-    // Replace call uses with return value (or undef)
-    if (call->type()) {
-        call->replace_all_uses_with(ret_val ? ret_val
-                                             : static_cast<Value *>(module->create_undefined(call->type())));
-    }
-
-    // Fix cloned terminators: replace unreachable (from Return) with branch to merge
-    for (auto nb : new_blocks) {
-        if (nb->is_terminated() && nb->terminator()->isa<UnreachableInst>()) {
-            nb->terminator()->remove_self();
-            builder.set_insertion_point(nb);
-            builder.br(merge_bb);
         }
     }
 
@@ -124,10 +115,17 @@ public:
         if (past) to_move.push_back(inst);
     }
 
+    // Load return value in merge block
+    if (ret_alloca) {
+        builder.set_insertion_point(merge_bb);
+        auto loaded = builder.load(call->type(), ret_alloca);
+        call->replace_all_uses_with(loaded);
+    }
+
     // Remove the call
     call->remove_self();
 
-    // Move post-call non-terminator instructions to merge_bb using XIRBuilder
+    // Move post-call instructions to merge_bb
     builder.set_insertion_point(merge_bb);
     for (auto inst : to_move) {
         if (!inst->is_terminator()) {
@@ -140,7 +138,6 @@ public:
     if (call_block->is_terminated()) {
         auto m = call_block->terminator()->remove_self();
         builder.set_insertion_point(merge_bb);
-        // If merge_bb already has a terminator (shouldn't happen), remove it
         if (merge_bb->is_terminated()) merge_bb->terminator()->remove_self();
         builder.append(std::move(m));
     }
@@ -200,6 +197,40 @@ static void run(Module *module, InlineInfo &info) noexcept {
 InlineInfo inline_pass_run_on_module(Module *module) noexcept {
     InlineInfo info;
     detail::run(module, info);
+    return info;
+}
+
+InlineInfo inline_all_pass_run_on_module(Module *module) noexcept {
+    InlineInfo info;
+    if (!module) return info;
+    for (;;) {
+        bool has_callables = false;
+        for (auto f : module->function_list()) {
+            if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE) {
+                has_callables = true;
+                break;
+            }
+        }
+        if (!has_callables) break;
+        auto cg = compute_call_graph(module);
+        luisa::vector<Function *> callables;
+        for (auto f : module->function_list())
+            if (f->derived_function_tag() == DerivedFunctionTag::CALLABLE)
+                callables.push_back(f);
+        bool progress = false;
+        for (auto callee : callables) {
+            auto def = callee->definition();
+            if (!def) continue;
+            auto edges = cg.call_edges(def);
+            for (auto call : edges) {
+                if (detail::inline_call(call, callee)) {
+                    info.inlined_call_count++;
+                    progress = true;
+                }
+            }
+        }
+        if (!progress) break;
+    }
     return info;
 }
 
