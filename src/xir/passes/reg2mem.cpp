@@ -8,6 +8,7 @@
 #include <luisa/xir/use.h>
 #include <luisa/xir/user.h>
 #include <luisa/xir/passes/reg2mem.h>
+#include <luisa/xir/passes/dom_tree.h>
 
 #include "helpers.h"
 
@@ -27,6 +28,12 @@ static void lower_phi_nodes_in_function(FunctionDefinition *def, Reg2MemInfo &in
 }
 
 static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemInfo &info) noexcept {
+    // Compute dominator tree to avoid unnecessary alloca creation.
+    // We only need to lower values to allocas when the defining block
+    // does NOT dominate a cross-block use — otherwise SSA dominance
+    // guarantees the value is already available at the use site.
+    auto dom_tree = compute_dom_tree(static_cast<Function *>(def));
+
     luisa::vector<Instruction *> candidates;
     def->traverse_instructions([&](Instruction *inst) noexcept {
         if (inst->is_terminator()) { return; }
@@ -35,13 +42,16 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
         if (inst->isa<PhiInst>()) { return; }
         auto def_block = inst->parent_block();
         if (def_block == nullptr) { return; }
+        // Only consider this instruction as a candidate if it has at least
+        // one cross-block use that is NOT dominated by the defining block.
         for (auto use : inst->use_list()) {
             auto u = use->user();
             if (u == nullptr) { continue; }
             auto u_val = static_cast<Value *>(u);
             if (!u_val->isa<Instruction>()) { continue; }
             auto user_inst = static_cast<Instruction *>(u_val);
-            if (user_inst->parent_block() != def_block) {
+            auto use_block = user_inst->parent_block();
+            if (use_block != def_block && !dom_tree.dominates(def_block, use_block)) {
                 candidates.emplace_back(inst);
                 break;
             }
@@ -64,7 +74,8 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
             auto u_val = static_cast<Value *>(u);
             if (!u_val->isa<Instruction>()) { continue; }
             auto user_inst = static_cast<Instruction *>(u_val);
-            if (user_inst->parent_block() != def_block) {
+            auto use_block = user_inst->parent_block();
+            if (use_block != def_block && !dom_tree.dominates(def_block, use_block)) {
                 cross_block_uses.emplace_back(use);
             }
         }
