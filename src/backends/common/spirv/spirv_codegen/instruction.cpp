@@ -1025,33 +1025,28 @@ spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(spv::Id ptr, spv::Id val,
     LUISA_ASSERT(float_type == _builder.makeFloatType(32),
                  "SPIR-V CAS loop only supports float32 for non-scalar buffer atomics.");
 
-    // Local variable to hold the result (old float value)
     auto result_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, float_type, "atomic_result");
 
-    // Create blocks
     auto loop_header = &_builder.makeNewBlock();
     auto loop_body = &_builder.makeNewBlock();
     auto loop_continue = &_builder.makeNewBlock();
     auto merge = &_builder.makeNewBlock();
 
-    // Branch to loop header
     _builder.createBranch(false, loop_header);
 
-    // Loop header
     _builder.setBuildPoint(loop_header);
     _used_merge_blocks.emplace((merge)->getId());
         _builder.createLoopMerge(merge, loop_continue, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, loop_body);
 
-    // Loop body
     _builder.setBuildPoint(loop_body);
     auto scope = _builder.makeUintConstant(static_cast<uint32_t>(spv::Scope::Device));
     auto semantics = _builder.makeUintConstant(static_cast<uint32_t>(spv::MemorySemanticsMask::MaskNone));
 
-    // old_uint = AtomicLoad(ptr)
-    auto old_uint = _builder.createOp(spv::Op::OpAtomicLoad, uint_type, {ptr, scope, semantics});
-    // old_float = Bitcast(old_uint, float)
-    auto old_float = _builder.createUnaryOp(spv::Op::OpBitcast, float_type, old_uint);
+    spv::Id old_uint;
+    spv::Id old_float;
+    old_uint = _builder.createOp(spv::Op::OpAtomicLoad, uint_type, {ptr, scope, semantics});
+    old_float = _builder.createUnaryOp(spv::Op::OpBitcast, float_type, old_uint);
     _builder.createStore(old_float, result_var);
 
     // Compute new_float
@@ -1073,17 +1068,12 @@ spv::Id SpirvCodegenEntry::_emit_float_atomic_cas_loop(spv::Id ptr, spv::Id val,
             LUISA_NOT_IMPLEMENTED("SPIR-V CAS loop for atomic op {}.", xir::to_string(op));
     }
 
-    // new_uint = Bitcast(new_float, uint)
     auto new_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, new_float);
 
-    // result = AtomicCompareExchange(ptr, expected=old_uint, desired=new_uint)
     auto result = _builder.createOp(spv::Op::OpAtomicCompareExchange, uint_type,
                                     {ptr, scope, semantics, semantics, new_uint, old_uint});
-
-    // cmp = result == old_uint
     auto cmp = _builder.createBinOp(spv::Op::OpIEqual, bool_type, result, old_uint);
 
-    // If CAS succeeded, break to merge; otherwise continue looping
     _builder.createConditionalBranch(cmp, merge, loop_continue);
 
     // Loop continue
@@ -1891,11 +1881,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                         } else {
                             auto trunc_type = _builder.makeIntegerType(static_cast<int32_t>(comp_bit_width), comp_type->is_int());
                             auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, comp_raw);
-                            if (trunc_type != spv_comp_type) {
-                                comps.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_comp_type, truncated));
-                            } else {
-                                comps.push_back(truncated);
-                            }
+                            comps.push_back(trunc_type == spv_comp_type ? truncated : _builder.createUnaryOp(spv::Op::OpBitcast, spv_comp_type, truncated));
                         }
                     }
                     fields.push_back(_builder.createCompositeConstruct(spv_member_type, comps));
@@ -1904,7 +1890,10 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                     if (member->is_bool()) {
                         fields.push_back(_builder.createBinOp(spv::Op::OpINotEqual, spv_member_type, raw, _builder.makeUintConstant(0u)));
                     } else {
-                        fields.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_member_type, raw));
+                        auto bit_width = static_cast<int32_t>(member_size * 8u);
+                        auto trunc_type = _builder.makeIntegerType(bit_width, member->is_int());
+                        auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, raw);
+                        fields.push_back(trunc_type == spv_member_type ? truncated : _builder.createUnaryOp(spv::Op::OpBitcast, spv_member_type, truncated));
                     }
                 }
             } else {
@@ -1931,7 +1920,8 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
 }
 
 spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type) noexcept {
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr) {
+    auto uint_type = _builder.makeUintType(32);
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type)) {
         // Typed buffer: direct element access via SPIR-V type system.
         // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
@@ -1944,7 +1934,6 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
         return loaded;
     }
     // Byte buffer or bindless: word-level access
-    auto uint_type = _builder.makeUintType(32);
     auto word_count = read_type->size() / 4u;
     LUISA_ASSERT(word_count > 0u, "SPIR-V buffer read element size is zero.");
     auto word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
@@ -2060,8 +2049,13 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
                         spv::Id comp_uint = spv::NoResult;
                         if (comp_type->is_bool()) {
                             comp_uint = _builder.createOp(spv::Op::OpSelect, uint_type, {comp, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
+                        } else if (comp_type->is_float()) {
+                            auto bit_width = static_cast<int32_t>(comp_size * 8u);
+                            auto bit_type = _builder.makeIntegerType(bit_width, false);
+                            comp_uint = _builder.createUnaryOp(spv::Op::OpBitcast, bit_type, comp);
+                            comp_uint = _builder.createUnaryOp(spv::Op::OpUConvert, uint_type, comp_uint);
                         } else {
-                            comp_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, comp);
+                            comp_uint = _builder.createUnaryOp(comp_type->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, uint_type, comp);
                         }
                         auto comp_bit_shift = i * comp_size * 8;
                         if (comp_bit_shift > 0u) {
@@ -2072,8 +2066,13 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
                 } else {
                     if (member->is_bool()) {
                         field_uint = _builder.createOp(spv::Op::OpSelect, uint_type, {field_val, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
+                    } else if (member->is_float()) {
+                        auto bit_width = static_cast<int32_t>(member_size * 8u);
+                        auto bit_type = _builder.makeIntegerType(bit_width, false);
+                        field_uint = _builder.createUnaryOp(spv::Op::OpBitcast, bit_type, field_val);
+                        field_uint = _builder.createUnaryOp(spv::Op::OpUConvert, uint_type, field_uint);
                     } else {
-                        field_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, field_val);
+                        field_uint = _builder.createUnaryOp(member->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, uint_type, field_val);
                     }
                 }
                 // Shift to position
@@ -2111,7 +2110,8 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
 }
 
 void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type) noexcept {
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr) {
+    auto uint_type = _builder.makeUintType(32);
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type)) {
         // Typed buffer: direct element access via SPIR-V type system.
         // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
@@ -2125,7 +2125,6 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
         return;
     }
     // Byte buffer or bindless: word-level access
-    auto uint_type = _builder.makeUintType(32);
     auto word_count = value_type->size() / 4u;
     LUISA_ASSERT(word_count > 0u, "SPIR-V buffer write element size is zero.");
     auto word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
