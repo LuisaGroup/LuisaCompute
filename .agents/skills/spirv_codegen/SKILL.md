@@ -413,6 +413,18 @@ After emission, `compile_spirv()` runs `spvtools::Optimizer` with `RegisterPerfo
 
 The optimizer links via `SPIRV-Tools-opt` (static lib from `src/ext/SPIRV-Tools`).
 
+## Vendor-Specific Codegen
+
+`compile_spirv(kernel, option, use_native_float_atomics)` accepts a vendor hint:
+
+| Vendor | ID | `use_native_float_atomics` | Reason |
+|---|---|---|---|
+| NVIDIA | `0x10de` | `true` | Native `OpAtomicFAddEXT` is fast |
+| AMD | `0x1002` | `false` | CAS loop is 5x faster than hardware float atomics on RDNA |
+| Intel | `0x8086` | `false` | Conservative default |
+
+The vk backend passes this based on `_vk_device->properties.vendorID`.
+
 ## Result & Debugging
 
 ```cpp
