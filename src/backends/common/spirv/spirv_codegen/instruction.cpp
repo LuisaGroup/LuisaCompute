@@ -2514,7 +2514,9 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
             auto pointee_type = _builder.getContainedTypeId(ptr_type);
             auto val_type = _builder.getTypeId(val);
             if (_builder.getTypeClass(pointee_type) == spv::Op::OpTypeRayQueryKHR) {
-                _builder.createNoResultOp(spv::Op::OpCopyMemory, std::vector<spv::Id>{ptr, val});
+                // OpCopyMemory on OpTypeRayQueryKHR is forbidden since SPIR-V Rev 15.
+                // Remap the alloca so subsequent uses resolve to the source variable.
+                _value_map[store->variable()] = val;
             } else {
                 if (pointee_type != val_type) {
                     if (_builder.isScalarType(val_type) && _builder.isVectorType(pointee_type)) {

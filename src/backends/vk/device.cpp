@@ -195,6 +195,9 @@ void create_instance(bool enable_validation, bool &enable_surface, VkInstance &i
 #elif defined(VK_USE_PLATFORM_XCB_KHR)
             enable_surface &= emplace_instance_ext(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
 #endif
+#if LUISA_ENABLE_WAYLAND && !defined(VK_USE_PLATFORM_WAYLAND_KHR)
+            emplace_instance_ext("VK_KHR_wayland_surface");
+#endif
 #if defined(VK_USE_PLATFORM_XLIB_KHR)
             enable_surface &= emplace_instance_ext(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
 #elif defined(VK_USE_PLATFORM_IOS_MVK)

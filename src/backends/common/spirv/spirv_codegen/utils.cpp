@@ -127,6 +127,7 @@ const bool LUISA_XIR_DISABLE_RESTRUCTURE_CFG = [] {
         rq_to_loop_info = xir::lower_ray_query_loop_to_loop_pass_run_on_module(xir_module.get());
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  lower-ray-query-loop-to-loop: {} ms (lowered {})", pass_clk.toc(), rq_to_loop_info.lowered_ray_query_loop_count);
 
+        if (!LUISA_XIR_DISABLE_RESTRUCTURE_CFG) {
         pass_clk.tic();
         destructure_cfg_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  destructure-cfg: {} ms", pass_clk.toc());
@@ -212,6 +213,10 @@ const bool LUISA_XIR_DISABLE_RESTRUCTURE_CFG = [] {
             }
 
             pass_clk.tic();
+            xir::dce_pass_run_on_module(xir_module.get());
+            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  post-restructure-dce: {} ms", pass_clk.toc());
+
+            pass_clk.tic();
             auto reg2mem_mid_info = xir::reg2mem_pass_run_on_module(xir_module.get());
             if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  reg2mem-mid: {} ms (lowered {} phi(s), {} cross-block value(s))", pass_clk.toc(), reg2mem_mid_info.lowered_phi_count, reg2mem_mid_info.lowered_cross_block_value_count);
 
@@ -248,6 +253,7 @@ const bool LUISA_XIR_DISABLE_RESTRUCTURE_CFG = [] {
                 f << xir::xir_to_text_translate(xir_module.get(), true);
             }
         }
+        }// !LUISA_XIR_DISABLE_RESTRUCTURE_CFG
 
         if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
             auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());
