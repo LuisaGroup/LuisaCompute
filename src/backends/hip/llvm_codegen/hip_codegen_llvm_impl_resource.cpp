@@ -66,54 +66,70 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             LUISA_DEBUG_ASSERT(inst->type() == Type::of<luisa::int2>() || inst->type() == Type::of<luisa::uint2>());
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 2);
-            auto llvm_v8i32_type = llvm::FixedVectorType::get(b.getInt32Ty(), 8);
-            auto llvm_const_ptr = b.CreateIntToPtr(llvm_handle, llvm::PointerType::get(_llvm_context, amdgpu_address_space_constant), "tex.ptr");
-            auto llvm_rsrc = b.CreateLoad(llvm_v8i32_type, llvm_const_ptr, "tex.rsrc");
-            auto llvm_resinfo = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_getresinfo_2d,
-                                                  {llvm::FixedVectorType::get(b.getFloatTy(), 4), b.getInt32Ty(), llvm_v8i32_type},
-                                                  {b.getInt32(15), b.getInt32(0), llvm_rsrc, b.getInt32(0), b.getInt32(0)});
-            auto llvm_width_f = b.CreateExtractElement(llvm_resinfo, b.getInt64(0));
-            auto llvm_height_f = b.CreateExtractElement(llvm_resinfo, b.getInt64(1));
-            auto llvm_width = b.CreateFPToUI(llvm_width_f, b.getInt32Ty());
-            auto llvm_height = b.CreateFPToUI(llvm_height_f, b.getInt32Ty());
-            auto llvm_size = _create_llvm_vector(b, {llvm_width, llvm_height});
+            auto llvm_slot_ptr = _get_bindless_array_slot_pointer(b, llvm_bindless_array, llvm_index);
+            auto llvm_slot_type = _get_llvm_bindless_array_slot_type();
+            auto &dl = _llvm_module->getDataLayout();
+            auto slot_struct_type = llvm::cast<llvm::StructType>(llvm_slot_type);
+            auto levels_offset = dl.getStructLayout(slot_struct_type)->getElementOffset(llvm_bindless_array_slot_type_texture2d_levels_index);
+            auto size_offset = dl.getStructLayout(slot_struct_type)->getElementOffset(llvm_bindless_array_slot_type_texture2d_size_index);
+            auto llvm_level_count_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), llvm_slot_ptr, b.getInt64(levels_offset));
+            auto llvm_size_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), llvm_slot_ptr, b.getInt64(size_offset));
+            auto llvm_level_count = b.CreateLoad(b.getInt64Ty(), llvm_level_count_ptr);
+            auto llvm_size_xy = b.CreateLoad(b.getInt64Ty(), llvm_size_ptr);
+            _create_assertion_with_message(b, b.CreateICmpUGT(llvm_level_count, b.getInt64(0)), "Bindless texture slot has no mip levels.");
+            auto llvm_level = static_cast<llvm::Value *>(b.getInt64(0));
             if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SIZE_LEVEL) {
-                auto llvm_level = b.CreateVectorSplat(2, _get_llvm_value(b, func_ctx, inst->operand(2)));
-                llvm_size = b.CreateLShr(llvm_size, llvm_level);
-                // Clamp to minimum of 1 to handle small mips correctly
-                auto llvm_one = _create_llvm_vector(b, {b.getInt32(1), b.getInt32(1)});
-                llvm_size = b.CreateSelect(b.CreateICmpULT(llvm_size, llvm_one), llvm_one, llvm_size);
+                auto level = _get_llvm_value(b, func_ctx, inst->operand(2));
+                llvm_level = level->getType()->isFloatingPointTy() ? b.CreateFPToUI(level, b.getInt64Ty()) : b.CreateZExtOrTrunc(level, b.getInt64Ty());
             }
-            return llvm_size;
+            auto llvm_max_level = b.CreateSub(llvm_level_count, b.getInt64(1));
+            llvm_level = b.CreateSelect(b.CreateICmpUGT(llvm_level, llvm_max_level), llvm_max_level, llvm_level);
+            auto llvm_width = b.CreateTrunc(llvm_size_xy, b.getInt32Ty());
+            auto llvm_height = b.CreateTrunc(b.CreateLShr(llvm_size_xy, b.getInt64(32u)), b.getInt32Ty());
+            auto llvm_shift = b.CreateTrunc(llvm_level, b.getInt32Ty());
+            llvm_width = b.CreateLShr(llvm_width, llvm_shift);
+            llvm_height = b.CreateLShr(llvm_height, llvm_shift);
+            llvm_width = b.CreateSelect(b.CreateICmpUGT(llvm_width, b.getInt32(1u)), llvm_width, b.getInt32(1u));
+            llvm_height = b.CreateSelect(b.CreateICmpUGT(llvm_height, b.getInt32(1u)), llvm_height, b.getInt32(1u));
+            return _create_llvm_vector(b, {llvm_width, llvm_height});
         }
         case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE: [[fallthrough]];
         case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL: {
             LUISA_DEBUG_ASSERT(inst->type() == Type::of<luisa::int3>() || inst->type() == Type::of<luisa::uint3>());
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 3);
-            auto llvm_v8i32_type = llvm::FixedVectorType::get(b.getInt32Ty(), 8);
-            auto llvm_const_ptr = b.CreateIntToPtr(llvm_handle, llvm::PointerType::get(_llvm_context, amdgpu_address_space_constant), "tex.ptr");
-            auto llvm_rsrc = b.CreateLoad(llvm_v8i32_type, llvm_const_ptr, "tex.rsrc");
-            auto llvm_resinfo = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_getresinfo_3d,
-                                                  {llvm::FixedVectorType::get(b.getFloatTy(), 4), b.getInt32Ty(), llvm_v8i32_type},
-                                                  {b.getInt32(15), b.getInt32(0), llvm_rsrc, b.getInt32(0), b.getInt32(0)});
-            auto llvm_width_f = b.CreateExtractElement(llvm_resinfo, b.getInt64(0));
-            auto llvm_height_f = b.CreateExtractElement(llvm_resinfo, b.getInt64(1));
-            auto llvm_depth_f = b.CreateExtractElement(llvm_resinfo, b.getInt64(2));
-            auto llvm_width = b.CreateFPToUI(llvm_width_f, b.getInt32Ty());
-            auto llvm_height = b.CreateFPToUI(llvm_height_f, b.getInt32Ty());
-            auto llvm_depth = b.CreateFPToUI(llvm_depth_f, b.getInt32Ty());
-            auto llvm_size = _create_llvm_vector(b, {llvm_width, llvm_height, llvm_depth});
+            auto llvm_slot_ptr = _get_bindless_array_slot_pointer(b, llvm_bindless_array, llvm_index);
+            auto llvm_slot_type = _get_llvm_bindless_array_slot_type();
+            auto &dl = _llvm_module->getDataLayout();
+            auto slot_struct_type = llvm::cast<llvm::StructType>(llvm_slot_type);
+            auto levels_offset = dl.getStructLayout(slot_struct_type)->getElementOffset(llvm_bindless_array_slot_type_texture3d_levels_index);
+            auto size_xy_offset = dl.getStructLayout(slot_struct_type)->getElementOffset(llvm_bindless_array_slot_type_texture3d_size_xy_index);
+            auto size_z_offset = dl.getStructLayout(slot_struct_type)->getElementOffset(llvm_bindless_array_slot_type_texture3d_size_z_index);
+            auto llvm_level_count_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), llvm_slot_ptr, b.getInt64(levels_offset));
+            auto llvm_size_xy_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), llvm_slot_ptr, b.getInt64(size_xy_offset));
+            auto llvm_size_z_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), llvm_slot_ptr, b.getInt64(size_z_offset));
+            auto llvm_level_count = b.CreateLoad(b.getInt64Ty(), llvm_level_count_ptr);
+            auto llvm_size_xy = b.CreateLoad(b.getInt64Ty(), llvm_size_xy_ptr);
+            auto llvm_size_z = b.CreateLoad(b.getInt64Ty(), llvm_size_z_ptr);
+            _create_assertion_with_message(b, b.CreateICmpUGT(llvm_level_count, b.getInt64(0)), "Bindless texture slot has no mip levels.");
+            auto llvm_level = static_cast<llvm::Value *>(b.getInt64(0));
             if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SIZE_LEVEL) {
-                auto llvm_level = b.CreateVectorSplat(3, _get_llvm_value(b, func_ctx, inst->operand(2)));
-                llvm_size = b.CreateLShr(llvm_size, llvm_level);
-                // Clamp to minimum of 1 to handle small mips correctly
-                auto llvm_one = _create_llvm_vector(b, {b.getInt32(1), b.getInt32(1), b.getInt32(1)});
-                llvm_size = b.CreateSelect(b.CreateICmpULT(llvm_size, llvm_one), llvm_one, llvm_size);
+                auto level = _get_llvm_value(b, func_ctx, inst->operand(2));
+                llvm_level = level->getType()->isFloatingPointTy() ? b.CreateFPToUI(level, b.getInt64Ty()) : b.CreateZExtOrTrunc(level, b.getInt64Ty());
             }
-            return llvm_size;
+            auto llvm_max_level = b.CreateSub(llvm_level_count, b.getInt64(1));
+            llvm_level = b.CreateSelect(b.CreateICmpUGT(llvm_level, llvm_max_level), llvm_max_level, llvm_level);
+            auto llvm_width = b.CreateTrunc(llvm_size_xy, b.getInt32Ty());
+            auto llvm_height = b.CreateTrunc(b.CreateLShr(llvm_size_xy, b.getInt64(32u)), b.getInt32Ty());
+            auto llvm_depth = b.CreateTrunc(llvm_size_z, b.getInt32Ty());
+            auto llvm_shift = b.CreateTrunc(llvm_level, b.getInt32Ty());
+            llvm_width = b.CreateLShr(llvm_width, llvm_shift);
+            llvm_height = b.CreateLShr(llvm_height, llvm_shift);
+            llvm_depth = b.CreateLShr(llvm_depth, llvm_shift);
+            llvm_width = b.CreateSelect(b.CreateICmpUGT(llvm_width, b.getInt32(1u)), llvm_width, b.getInt32(1u));
+            llvm_height = b.CreateSelect(b.CreateICmpUGT(llvm_height, b.getInt32(1u)), llvm_height, b.getInt32(1u));
+            llvm_depth = b.CreateSelect(b.CreateICmpUGT(llvm_depth, b.getInt32(1u)), llvm_depth, b.getInt32(1u));
+            return _create_llvm_vector(b, {llvm_width, llvm_height, llvm_depth});
         }
         case xir::ResourceQueryOp::TEXTURE2D_SAMPLE: break;
         case xir::ResourceQueryOp::TEXTURE2D_SAMPLE_LEVEL: break;
@@ -129,7 +145,10 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
         case xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL: {
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 2);
+            auto llvm_level_operand = op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL ?
+                                          _get_llvm_value(b, func_ctx, inst->operand(3)) :
+                                          nullptr;
+            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 2, llvm_level_operand);
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_coord_x = b.CreateExtractElement(llvm_coord, b.getInt64(0));
             auto llvm_coord_y = b.CreateExtractElement(llvm_coord, b.getInt64(1));
@@ -147,10 +166,9 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
                                                 {llvm_f32x4_type, b.getFloatTy(), llvm_v8i32_type, llvm_v4i32_type},
                                                 {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
             } else if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL) {
-                auto llvm_level = _get_llvm_value(b, func_ctx, inst->operand(3));
-                llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_sample_l_2d,
+                llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_sample_2d,
                                                 {llvm_f32x4_type, b.getFloatTy(), llvm_v8i32_type, llvm_v4i32_type},
-                                                {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_level, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
+                                                {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
             } else if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD ||
                        op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL) {
                 if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL) {
@@ -179,7 +197,10 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
         case xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL: {
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 3);
+            auto llvm_level_operand = op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL ?
+                                          _get_llvm_value(b, func_ctx, inst->operand(3)) :
+                                          nullptr;
+            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 3, llvm_level_operand);
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_coord_x = b.CreateExtractElement(llvm_coord, b.getInt64(0));
             auto llvm_coord_y = b.CreateExtractElement(llvm_coord, b.getInt64(1));
@@ -197,10 +218,9 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
                                                 {llvm_f32x4_type, b.getFloatTy(), llvm_v8i32_type, llvm_v4i32_type},
                                                 {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
             } else if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL) {
-                auto llvm_level = _get_llvm_value(b, func_ctx, inst->operand(3));
-                llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_sample_l_3d,
+                llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_sample_3d,
                                                 {llvm_f32x4_type, b.getFloatTy(), llvm_v8i32_type, llvm_v4i32_type},
-                                                {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_level, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
+                                                {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
             } else if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD ||
                        op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL) {
                 if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL) {
@@ -233,7 +253,10 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             // Fall through to non-sampler implementation using stored sampler
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 2);
+            auto llvm_level_operand = op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER ?
+                                          _get_llvm_value(b, func_ctx, inst->operand(3)) :
+                                          nullptr;
+            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 2, llvm_level_operand);
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_coord_x = b.CreateExtractElement(llvm_coord, b.getInt64(0));
             auto llvm_coord_y = b.CreateExtractElement(llvm_coord, b.getInt64(1));
@@ -250,10 +273,9 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
                                                 {llvm_f32x4_type, b.getFloatTy(), llvm_v8i32_type, llvm_v4i32_type},
                                                 {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
             } else if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_LEVEL_SAMPLER) {
-                auto llvm_level = _get_llvm_value(b, func_ctx, inst->operand(3));
-                llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_sample_l_2d,
+                llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_sample_2d,
                                                 {llvm_f32x4_type, b.getFloatTy(), llvm_v8i32_type, llvm_v4i32_type},
-                                                {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_level, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
+                                                {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
             } else if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_SAMPLER ||
                        op == xir::ResourceQueryOp::BINDLESS_TEXTURE2D_SAMPLE_GRAD_LEVEL_SAMPLER) {
                 auto llvm_ddx = _get_llvm_value(b, func_ctx, inst->operand(3));
@@ -281,7 +303,10 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
             // Fall through to non-sampler implementation using stored sampler
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 3);
+            auto llvm_level_operand = op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER ?
+                                          _get_llvm_value(b, func_ctx, inst->operand(3)) :
+                                          nullptr;
+            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 3, llvm_level_operand);
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_coord_x = b.CreateExtractElement(llvm_coord, b.getInt64(0));
             auto llvm_coord_y = b.CreateExtractElement(llvm_coord, b.getInt64(1));
@@ -299,10 +324,9 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_query_inst(IB &b, FunctionC
                                                 {llvm_f32x4_type, b.getFloatTy(), llvm_v8i32_type, llvm_v4i32_type},
                                                 {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
             } else if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_LEVEL_SAMPLER) {
-                auto llvm_level = _get_llvm_value(b, func_ctx, inst->operand(3));
-                llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_sample_l_3d,
+                llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_sample_3d,
                                                 {llvm_f32x4_type, b.getFloatTy(), llvm_v8i32_type, llvm_v4i32_type},
-                                                {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_level, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
+                                                {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_rsrc, llvm_samp, b.getInt1(false), b.getInt32(0), b.getInt32(0)});
             } else if (op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_SAMPLER ||
                        op == xir::ResourceQueryOp::BINDLESS_TEXTURE3D_SAMPLE_GRAD_LEVEL_SAMPLER) {
                 auto llvm_ddx = _get_llvm_value(b, func_ctx, inst->operand(3));
@@ -495,7 +519,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Func
             auto llvm_const_ptr = b.CreateIntToPtr(llvm_handle, llvm::PointerType::get(_llvm_context, amdgpu_address_space_constant), "tex.ptr");
             auto llvm_rsrc = b.CreateLoad(llvm_v8i32_type, llvm_const_ptr, "tex.rsrc");
             auto llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_load_2d,
-                                                 {llvm_f32x4_type, b.getInt32Ty(), b.getInt32Ty(), llvm_v8i32_type},
+                                                 {llvm_f32x4_type, b.getInt32Ty(), llvm_v8i32_type},
                                                  {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_rsrc, b.getInt32(0), b.getInt32(0)});
             auto llvm_result_x = b.CreateExtractElement(llvm_result, b.getInt64(0));
             auto llvm_result_y = b.CreateExtractElement(llvm_result, b.getInt64(1));
@@ -507,18 +531,18 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Func
         case xir::ResourceReadOp::BINDLESS_TEXTURE2D_READ_LEVEL: {
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 2);
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_level = _get_llvm_value(b, func_ctx, inst->operand(3));
+            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 2, llvm_level);
             auto llvm_coord_x = b.CreateExtractElement(llvm_coord, b.getInt64(0));
             auto llvm_coord_y = b.CreateExtractElement(llvm_coord, b.getInt64(1));
             auto llvm_v8i32_type = llvm::FixedVectorType::get(b.getInt32Ty(), 8);
             auto llvm_f32x4_type = llvm::FixedVectorType::get(b.getFloatTy(), 4);
             auto llvm_const_ptr = b.CreateIntToPtr(llvm_handle, llvm::PointerType::get(_llvm_context, amdgpu_address_space_constant), "tex.ptr");
             auto llvm_rsrc = b.CreateLoad(llvm_v8i32_type, llvm_const_ptr, "tex.rsrc");
-            auto llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_load_mip_2d,
-                                                 {llvm_f32x4_type, b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(), llvm_v8i32_type},
-                                                 {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_level, llvm_rsrc, b.getInt32(0), b.getInt32(0)});
+            auto llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_load_2d,
+                                                 {llvm_f32x4_type, b.getInt32Ty(), llvm_v8i32_type},
+                                                 {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_rsrc, b.getInt32(0), b.getInt32(0)});
             auto llvm_result_x = b.CreateExtractElement(llvm_result, b.getInt64(0));
             auto llvm_result_y = b.CreateExtractElement(llvm_result, b.getInt64(1));
             auto llvm_result_z = b.CreateExtractElement(llvm_result, b.getInt64(2));
@@ -539,7 +563,7 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Func
             auto llvm_const_ptr = b.CreateIntToPtr(llvm_handle, llvm::PointerType::get(_llvm_context, amdgpu_address_space_constant), "tex.ptr");
             auto llvm_rsrc = b.CreateLoad(llvm_v8i32_type, llvm_const_ptr, "tex.rsrc");
             auto llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_load_3d,
-                                                 {llvm_f32x4_type, b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(), llvm_v8i32_type},
+                                                 {llvm_f32x4_type, b.getInt32Ty(), llvm_v8i32_type},
                                                  {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_rsrc, b.getInt32(0), b.getInt32(0)});
             auto llvm_result_x = b.CreateExtractElement(llvm_result, b.getInt64(0));
             auto llvm_result_y = b.CreateExtractElement(llvm_result, b.getInt64(1));
@@ -551,9 +575,9 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Func
         case xir::ResourceReadOp::BINDLESS_TEXTURE3D_READ_LEVEL: {
             auto llvm_bindless_array = _get_llvm_value(b, func_ctx, inst->operand(0));
             auto llvm_index = _get_llvm_value(b, func_ctx, inst->operand(1));
-            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 3);
             auto llvm_coord = _get_llvm_value(b, func_ctx, inst->operand(2));
             auto llvm_level = _get_llvm_value(b, func_ctx, inst->operand(3));
+            auto llvm_handle = _get_bindless_array_texture_handle(b, llvm_bindless_array, llvm_index, 3, llvm_level);
             auto llvm_coord_x = b.CreateExtractElement(llvm_coord, b.getInt64(0));
             auto llvm_coord_y = b.CreateExtractElement(llvm_coord, b.getInt64(1));
             auto llvm_coord_z = b.CreateExtractElement(llvm_coord, b.getInt64(2));
@@ -561,9 +585,9 @@ llvm::Value *HIPCodegenLLVMImpl::_translate_resource_read_inst(IB &b, const Func
             auto llvm_f32x4_type = llvm::FixedVectorType::get(b.getFloatTy(), 4);
             auto llvm_const_ptr = b.CreateIntToPtr(llvm_handle, llvm::PointerType::get(_llvm_context, amdgpu_address_space_constant), "tex.ptr");
             auto llvm_rsrc = b.CreateLoad(llvm_v8i32_type, llvm_const_ptr, "tex.rsrc");
-            auto llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_load_mip_3d,
-                                                 {llvm_f32x4_type, b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(), b.getInt32Ty(), llvm_v8i32_type},
-                                                 {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_level, llvm_rsrc, b.getInt32(0), b.getInt32(0)});
+            auto llvm_result = b.CreateIntrinsic(llvm::Intrinsic::amdgcn_image_load_3d,
+                                                 {llvm_f32x4_type, b.getInt32Ty(), llvm_v8i32_type},
+                                                 {b.getInt32(15), llvm_coord_x, llvm_coord_y, llvm_coord_z, llvm_rsrc, b.getInt32(0), b.getInt32(0)});
             auto llvm_result_x = b.CreateExtractElement(llvm_result, b.getInt64(0));
             auto llvm_result_y = b.CreateExtractElement(llvm_result, b.getInt64(1));
             auto llvm_result_z = b.CreateExtractElement(llvm_result, b.getInt64(2));
@@ -726,17 +750,35 @@ llvm::Value *HIPCodegenLLVMImpl::_get_bindless_array_slot_pointer(IB &b, llvm::V
     return b.CreateInBoundsGEP(b.getInt8Ty(), slots, offset_bytes);
 }
 
-llvm::Value *HIPCodegenLLVMImpl::_get_bindless_array_texture_handle(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index, int dim) noexcept {
+llvm::Value *HIPCodegenLLVMImpl::_get_bindless_array_texture_handle(IB &b, llvm::Value *bindless_array,
+                                                                     llvm::Value *slot_index, int dim,
+                                                                     llvm::Value *level) noexcept {
     auto slot_ptr = _get_bindless_array_slot_pointer(b, bindless_array, slot_index);
     auto slot_type = _get_llvm_bindless_array_slot_type();
-    auto i = dim == 2 ? llvm_bindless_array_slot_type_texture2d_handle_index :
-                        llvm_bindless_array_slot_type_texture3d_handle_index;
-    // Calculate byte offset to the texture handle field
+    auto handle_i = dim == 2 ? llvm_bindless_array_slot_type_texture2d_handle_index :
+                               llvm_bindless_array_slot_type_texture3d_handle_index;
+    auto levels_i = dim == 2 ? llvm_bindless_array_slot_type_texture2d_levels_index :
+                               llvm_bindless_array_slot_type_texture3d_levels_index;
     auto &dl = _llvm_module->getDataLayout();
     auto slot_struct_type = llvm::cast<llvm::StructType>(slot_type);
-    auto offset = dl.getStructLayout(slot_struct_type)->getElementOffset(i);
-    auto handle_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), slot_ptr, b.getInt64(offset));
-    // Return full 64-bit handle - it's a pointer to descriptors in constant address space
+    auto handle_offset = dl.getStructLayout(slot_struct_type)->getElementOffset(handle_i);
+    auto levels_offset = dl.getStructLayout(slot_struct_type)->getElementOffset(levels_i);
+    auto handle_table_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), slot_ptr, b.getInt64(handle_offset));
+    auto level_count_ptr = b.CreateInBoundsGEP(b.getInt8Ty(), slot_ptr, b.getInt64(levels_offset));
+    auto handle_table = b.CreateLoad(llvm::Type::getInt64Ty(_llvm_context), handle_table_ptr);
+    auto level_count = b.CreateLoad(llvm::Type::getInt64Ty(_llvm_context), level_count_ptr);
+    _create_assertion_with_message(b, b.CreateICmpNE(handle_table, b.getInt64(0)), "Bindless texture slot is empty.");
+    _create_assertion_with_message(b, b.CreateICmpUGT(level_count, b.getInt64(0)), "Bindless texture slot has no mip levels.");
+    auto selected_level = static_cast<llvm::Value *>(b.getInt64(0));
+    if (level != nullptr) {
+        selected_level = level->getType()->isFloatingPointTy() ?
+                             b.CreateFPToUI(level, b.getInt64Ty()) :
+                             b.CreateZExtOrTrunc(level, b.getInt64Ty());
+    }
+    auto max_level = b.CreateSub(level_count, b.getInt64(1));
+    selected_level = b.CreateSelect(b.CreateICmpUGT(selected_level, max_level), max_level, selected_level);
+    auto table_ptr = b.CreateIntToPtr(handle_table, llvm::PointerType::get(_llvm_context, amdgpu_address_space_global), "tex.handle.table");
+    auto handle_ptr = b.CreateInBoundsGEP(llvm::Type::getInt64Ty(_llvm_context), table_ptr, selected_level);
     return b.CreateLoad(llvm::Type::getInt64Ty(_llvm_context), handle_ptr);
 }
 

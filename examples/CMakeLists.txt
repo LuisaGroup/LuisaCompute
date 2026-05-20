@@ -85,6 +85,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
 endif ()
 
 # compute (headless)
+luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
 
 # --- GUI toolkit integration examples (wxWidgets, Qt) ---
