@@ -59,6 +59,7 @@ private:
     bool _use_tex2d_bindless{false};
     bool _use_tex3d_bindless{false};
     bool _use_buffer_bindless{false};
+    bool _use_native_float_atomics{true};
     spv::Id _buffer_heap_id{spv::NoResult};
     spv::Id _tex2d_heap_id{spv::NoResult};
     spv::Id _tex3d_heap_id{spv::NoResult};
@@ -132,7 +133,7 @@ public:
     [[nodiscard]] auto move_print_formats() && noexcept { return std::move(_print_formats); }
     void generate_binding(Function kernel);
 
-    static SpirvResult compile_spirv(Function kernel, const ShaderOption &option);
+    static SpirvResult compile_spirv(Function kernel, const ShaderOption &option, bool use_native_float_atomics = true);
 };
 
 }// namespace lc::spirv

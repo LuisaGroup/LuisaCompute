@@ -1285,21 +1285,21 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_ADD: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
-                if (is_non_scalar_buffer && t->is_float32()) {
+                if (!_use_native_float_atomics || (is_non_scalar_buffer && t->is_float32())) {
                     id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_ADD);
-                    break;
+                } else {
+                    if (t->is_float16()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float16_add);
+                        _builder.addCapability(spv::Capability::AtomicFloat16AddEXT);
+                    } else if (t->is_float32()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
+                        _builder.addCapability(spv::Capability::AtomicFloat32AddEXT);
+                    } else if (t->is_float64()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
+                        _builder.addCapability(spv::Capability::AtomicFloat64AddEXT);
+                    }
+                    id = _builder.createOp(spv::Op::OpAtomicFAddEXT, type, {ptr, scope, semantics, val});
                 }
-                if (t->is_float16()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float16_add);
-                    _builder.addCapability(spv::Capability::AtomicFloat16AddEXT);
-                } else if (t->is_float32()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
-                    _builder.addCapability(spv::Capability::AtomicFloat32AddEXT);
-                } else if (t->is_float64()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
-                    _builder.addCapability(spv::Capability::AtomicFloat64AddEXT);
-                }
-                id = _builder.createOp(spv::Op::OpAtomicFAddEXT, type, {ptr, scope, semantics, val});
             } else {
                 id = _builder.createOp(spv::Op::OpAtomicIAdd, type, {ptr, scope, semantics, val});
             }
@@ -1308,22 +1308,22 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_SUB: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
-                if (is_non_scalar_buffer && t->is_float32()) {
+                if (!_use_native_float_atomics || (is_non_scalar_buffer && t->is_float32())) {
                     id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_SUB);
-                    break;
+                } else {
+                    auto neg_val = _builder.createUnaryOp(spv::Op::OpFNegate, type, val);
+                    if (t->is_float16()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float16_add);
+                        _builder.addCapability(spv::Capability::AtomicFloat16AddEXT);
+                    } else if (t->is_float32()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
+                        _builder.addCapability(spv::Capability::AtomicFloat32AddEXT);
+                    } else if (t->is_float64()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
+                        _builder.addCapability(spv::Capability::AtomicFloat64AddEXT);
+                    }
+                    id = _builder.createOp(spv::Op::OpAtomicFAddEXT, type, {ptr, scope, semantics, neg_val});
                 }
-                auto neg_val = _builder.createUnaryOp(spv::Op::OpFNegate, type, val);
-                if (t->is_float16()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float16_add);
-                    _builder.addCapability(spv::Capability::AtomicFloat16AddEXT);
-                } else if (t->is_float32()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
-                    _builder.addCapability(spv::Capability::AtomicFloat32AddEXT);
-                } else if (t->is_float64()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_add);
-                    _builder.addCapability(spv::Capability::AtomicFloat64AddEXT);
-                }
-                id = _builder.createOp(spv::Op::OpAtomicFAddEXT, type, {ptr, scope, semantics, neg_val});
             } else {
                 id = _builder.createOp(spv::Op::OpAtomicISub, type, {ptr, scope, semantics, val});
             }
@@ -1347,21 +1347,21 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_MIN: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
-                if (is_non_scalar_buffer && t->is_float32()) {
+                if (!_use_native_float_atomics || (is_non_scalar_buffer && t->is_float32())) {
                     id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_MIN);
-                    break;
+                } else {
+                    if (t->is_float16()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                        _builder.addCapability(spv::Capability::AtomicFloat16MinMaxEXT);
+                    } else if (t->is_float32()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                        _builder.addCapability(spv::Capability::AtomicFloat32MinMaxEXT);
+                    } else if (t->is_float64()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                        _builder.addCapability(spv::Capability::AtomicFloat64MinMaxEXT);
+                    }
+                    id = _builder.createOp(spv::Op::OpAtomicFMinEXT, type, {ptr, scope, semantics, val});
                 }
-                if (t->is_float16()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
-                    _builder.addCapability(spv::Capability::AtomicFloat16MinMaxEXT);
-                } else if (t->is_float32()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
-                    _builder.addCapability(spv::Capability::AtomicFloat32MinMaxEXT);
-                } else if (t->is_float64()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
-                    _builder.addCapability(spv::Capability::AtomicFloat64MinMaxEXT);
-                }
-                id = _builder.createOp(spv::Op::OpAtomicFMinEXT, type, {ptr, scope, semantics, val});
             } else if (t->is_int()) {
                 id = _builder.createOp(spv::Op::OpAtomicSMin, type, {ptr, scope, semantics, val});
             } else if (t->is_uint()) {
@@ -1374,21 +1374,21 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_MAX: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
-                if (is_non_scalar_buffer && t->is_float32()) {
+                if (!_use_native_float_atomics || (is_non_scalar_buffer && t->is_float32())) {
                     id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_MAX);
-                    break;
+                } else {
+                    if (t->is_float16()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                        _builder.addCapability(spv::Capability::AtomicFloat16MinMaxEXT);
+                    } else if (t->is_float32()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                        _builder.addCapability(spv::Capability::AtomicFloat32MinMaxEXT);
+                    } else if (t->is_float64()) {
+                        _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
+                        _builder.addCapability(spv::Capability::AtomicFloat64MinMaxEXT);
+                    }
+                    id = _builder.createOp(spv::Op::OpAtomicFMaxEXT, type, {ptr, scope, semantics, val});
                 }
-                if (t->is_float16()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
-                    _builder.addCapability(spv::Capability::AtomicFloat16MinMaxEXT);
-                } else if (t->is_float32()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
-                    _builder.addCapability(spv::Capability::AtomicFloat32MinMaxEXT);
-                } else if (t->is_float64()) {
-                    _builder.addExtension(spv::E_SPV_EXT_shader_atomic_float_min_max);
-                    _builder.addCapability(spv::Capability::AtomicFloat64MinMaxEXT);
-                }
-                id = _builder.createOp(spv::Op::OpAtomicFMaxEXT, type, {ptr, scope, semantics, val});
             } else if (t->is_int()) {
                 id = _builder.createOp(spv::Op::OpAtomicSMax, type, {ptr, scope, semantics, val});
             } else if (t->is_uint()) {

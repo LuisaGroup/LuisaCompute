@@ -46,10 +46,11 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
     }
 }
 
-SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption &opt) {
+SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption &opt, bool use_native_float_atomics) {
     auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
     StringScratch scratch;
     SpirvCodegenEntry codegen{scratch, true};
+    codegen._use_native_float_atomics = use_native_float_atomics;
     codegen.generate_binding(kernel);
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;

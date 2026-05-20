@@ -1177,7 +1177,11 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         info.native_handle = shader->pipeline();
     } else {
 #ifdef LUISA_XIR_TO_SPIRV
-        auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option);
+        static constexpr uint32_t VK_VENDOR_ID_AMD = 0x1002u;
+        static constexpr uint32_t VK_VENDOR_ID_NVIDIA = 0x10deu;
+        static constexpr uint32_t VK_VENDOR_ID_INTEL = 0x8086u;
+        bool use_native_float_atomics = _vk_device->properties.vendorID == VK_VENDOR_ID_NVIDIA;
+        auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
         for (size_t i = 0; i < spv_result.properties.size(); ++i) {
             auto &p = spv_result.properties[i];
             LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
