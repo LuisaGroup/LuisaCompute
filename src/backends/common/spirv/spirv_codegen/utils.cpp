@@ -118,7 +118,17 @@ const bool LUISA_XIR_DISABLE_RESTRUCTURE_CFG = [] {
     auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  inline-all: {} ms (inlined {}, removed {})", pass_clk.toc(), inline_info.inlined_call_count, inline_info.removed_callable_count);
     if (inline_info.inlined_call_count > 0) {
+        pass_clk.tic();
         xir::dce_pass_run_on_module(xir_module.get());
+        xir::local_store_forward_pass_run_on_module(xir_module.get());
+        xir::local_load_elimination_pass_run_on_module(xir_module.get());
+        xir::dce_pass_run_on_module(xir_module.get());
+        xir::algebraic_simplify_pass_run_on_module(xir_module.get());
+        xir::const_fold_pass_run_on_module(xir_module.get());
+        xir::dce_pass_run_on_module(xir_module.get());
+        xir::sroa_pass_run_on_module(xir_module.get());
+        xir::dce_pass_run_on_module(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  post-inline-cleanup: {} ms", pass_clk.toc());
     }
 
     xir::DestructureCFGInfo destructure_cfg_info{};
