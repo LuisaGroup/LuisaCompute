@@ -580,7 +580,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto elem_type = operand_type->element();
             auto elem_spv_type = _convert_type(elem_type, Usage::READ);
             auto dim = operand_type->dimension();
-            auto extract = [&](unsigned i) {
+            auto extract = [&](uint32_t i) {
                 return _builder.createCompositeExtract(v, elem_spv_type, i);
             };
             id = extract(0);
@@ -778,7 +778,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             if (t->is_vector() && inst->operand_count() >= 2u) {
                 const xir::Value *common_base = nullptr;
                 bool all_extract = true;
-                luisa::vector<unsigned> indices;
+                luisa::vector<uint32_t> indices;
                 indices.reserve(inst->operand_count());
                 for (uint i = 0u; i < inst->operand_count(); ++i) {
                     auto op = inst->operand(i);
@@ -799,11 +799,11 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                         break;
                     }
                     auto idx_val = static_cast<const xir::Constant *>(ari->operand(1))->as<uint32_t>();
-                    indices.push_back(static_cast<unsigned>(idx_val));
+                    indices.push_back(static_cast<uint32_t>(idx_val));
                 }
                 if (all_extract && common_base != nullptr) {
                     auto base_spv = _emit_value(const_cast<xir::Value *>(common_base));
-                    std::vector<unsigned> std_indices(indices.begin(), indices.end());
+                    std::vector<uint32_t> std_indices(indices.begin(), indices.end());
                     id = _builder.createRvalueSwizzle(spv::NoPrecision, type, base_spv, std_indices);
                     break;
                 }
@@ -824,19 +824,19 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto dim = t->dimension();
             // Peephole: if all indices are constants, emit OpVectorShuffle directly
             bool all_const = true;
-            luisa::vector<unsigned> shuffle_indices;
+            luisa::vector<uint32_t> shuffle_indices;
             shuffle_indices.reserve(dim);
             for (auto i = 1u; i <= dim; ++i) {
                 if (inst->operand(i)->isa<xir::Constant>()) {
                     auto idx = static_cast<const xir::Constant *>(inst->operand(i))->as<uint32_t>();
-                    shuffle_indices.push_back(static_cast<unsigned>(idx));
+                    shuffle_indices.push_back(static_cast<uint32_t>(idx));
                 } else {
                     all_const = false;
                     break;
                 }
             }
             if (all_const) {
-                std::vector<unsigned> std_indices(shuffle_indices.begin(), shuffle_indices.end());
+                std::vector<uint32_t> std_indices(shuffle_indices.begin(), shuffle_indices.end());
                 id = _builder.createRvalueSwizzle(spv::NoPrecision, type, v, std_indices);
             } else {
                 std::vector<spv::Id> comps;
@@ -852,24 +852,41 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::INSERT: {
             auto v = operand(0);
             auto e = operand(1);
-            std::vector<unsigned> indices;
+            std::vector<uint32_t> const_indices;
+            std::vector<spv::Id> dynamic_indices;
+            bool all_constant = true;
             for (auto i = 2u; i < inst->operand_count(); ++i) {
                 if (auto op = inst->operand(i); op->isa<xir::Constant>()) {
                     auto c = static_cast<const xir::Constant *>(op);
                     auto idx = *static_cast<const uint32_t *>(c->data());
-                    indices.push_back(idx);
+                    const_indices.push_back(idx);
                 } else {
-                    LUISA_ERROR_WITH_LOCATION("SPIR-V insert requires constant indices.");
+                    all_constant = false;
+                    dynamic_indices.push_back(_emit_value(inst->operand(i)));
+                    const_indices.push_back(0u);// placeholder
                 }
             }
-            id = _builder.createCompositeInsert(e, v, type, indices);
+            if (all_constant) {
+                id = _builder.createCompositeInsert(e, v, type, const_indices);
+            } else {
+                // Fallback: use alloca + access chain + store + load
+                auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function, type, "insert_tmp");
+                _builder.createStore(v, temp_var);
+                std::vector<spv::Id> access_indices;
+                for (auto i = 2u; i < inst->operand_count(); ++i) {
+                    access_indices.push_back(_emit_value(inst->operand(i)));
+                }
+                auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, access_indices);
+                _builder.createStore(e, ptr);
+                id = _builder.createLoad(temp_var, spv::NoPrecision);
+            }
             break;
         }
         case xir::ArithmeticOp::EXTRACT: {
             auto v = operand(0);
             auto base_type = inst->operand(0)->type();
             bool all_constant = true;
-            std::vector<unsigned> const_indices;
+            std::vector<uint32_t> const_indices;
             std::vector<spv::Id> dynamic_indices;
             for (auto i = 1u; i < inst->operand_count(); ++i) {
                 if (auto op = inst->operand(i); op->isa<xir::Constant>()) {
@@ -1572,11 +1589,11 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto float_type = _builder.makeFloatType(32);
             auto uint_type = _builder.makeUintType(32);
             auto vec3_type = _builder.makeVectorType(float_type, 3);
-            auto extract_vec3_from_array_member = [&](unsigned member_idx) {
+            auto extract_vec3_from_array_member = [&](uint32_t member_idx) {
                 std::vector<spv::Id> comps;
                 comps.reserve(3);
-                for (unsigned i = 0; i < 3; ++i) {
-                    comps.push_back(_builder.createCompositeExtract(ray, float_type, std::vector<unsigned>{member_idx, i}));
+                for (uint32_t i = 0; i < 3; ++i) {
+                    comps.push_back(_builder.createCompositeExtract(ray, float_type, std::vector<uint32_t>{member_idx, i}));
                 }
                 return _builder.createCompositeConstruct(vec3_type, comps);
             };
@@ -1607,11 +1624,11 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto float_type = _builder.makeFloatType(32);
             auto uint_type = _builder.makeUintType(32);
             auto vec3_type = _builder.makeVectorType(float_type, 3);
-            auto extract_vec3_from_array_member = [&](unsigned member_idx) {
+            auto extract_vec3_from_array_member = [&](uint32_t member_idx) {
                 std::vector<spv::Id> comps;
                 comps.reserve(3);
-                for (unsigned i = 0; i < 3; ++i) {
-                    comps.push_back(_builder.createCompositeExtract(ray, float_type, std::vector<unsigned>{member_idx, i}));
+                for (uint32_t i = 0; i < 3; ++i) {
+                    comps.push_back(_builder.createCompositeExtract(ray, float_type, std::vector<uint32_t>{member_idx, i}));
                 }
                 return _builder.createCompositeConstruct(vec3_type, comps);
             };
