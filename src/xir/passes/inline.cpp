@@ -221,7 +221,9 @@ InlineInfo inline_all_pass_run_on_module(Module *module) noexcept {
         for (auto callee : callables) {
             auto def = callee->definition();
             if (!def) continue;
+            auto n = detail::count_instructions(def);
             auto edges = cg.call_edges(def);
+            if (n * edges.size() > 100000u) continue;
             for (auto call : edges) {
                 if (detail::inline_call(call, callee)) {
                     info.inlined_call_count++;
