@@ -660,20 +660,25 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::MATRIX_COMP_ADD: {
             auto a = operand(0);
             auto b = operand(1);
+            auto a_type = inst->operand(0)->type();
             auto b_type = inst->operand(1)->type();
             auto rows = t->dimension();
             auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
             std::vector<spv::Id> new_rows;
             new_rows.reserve(rows);
             for (uint i = 0u; i < rows; ++i) {
-                auto row_a = _builder.createCompositeExtract(a, row_type, i);
-                if (b_type->is_scalar()) {
-                    auto smeared = _builder.smearScalar(spv::NoPrecision, b, row_type);
-                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFAdd, row_type, row_a, smeared));
+                spv::Id lhs, rhs;
+                if (a_type->is_scalar()) {
+                    lhs = _builder.smearScalar(spv::NoPrecision, a, row_type);
                 } else {
-                    auto row_b = _builder.createCompositeExtract(b, row_type, i);
-                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFAdd, row_type, row_a, row_b));
+                    lhs = _builder.createCompositeExtract(a, row_type, i);
                 }
+                if (b_type->is_scalar()) {
+                    rhs = _builder.smearScalar(spv::NoPrecision, b, row_type);
+                } else {
+                    rhs = _builder.createCompositeExtract(b, row_type, i);
+                }
+                new_rows.push_back(_builder.createBinOp(spv::Op::OpFAdd, row_type, lhs, rhs));
             }
             id = _builder.createCompositeConstruct(type, new_rows);
             break;
@@ -681,20 +686,25 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::MATRIX_COMP_SUB: {
             auto a = operand(0);
             auto b = operand(1);
+            auto a_type = inst->operand(0)->type();
             auto b_type = inst->operand(1)->type();
             auto rows = t->dimension();
             auto row_type = _builder.makeVectorType(_convert_type(t->element(), Usage::READ), static_cast<int32_t>(rows));
             std::vector<spv::Id> new_rows;
             new_rows.reserve(rows);
             for (uint i = 0u; i < rows; ++i) {
-                auto row_a = _builder.createCompositeExtract(a, row_type, i);
-                if (b_type->is_scalar()) {
-                    auto smeared = _builder.smearScalar(spv::NoPrecision, b, row_type);
-                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFSub, row_type, row_a, smeared));
+                spv::Id lhs, rhs;
+                if (a_type->is_scalar()) {
+                    lhs = _builder.smearScalar(spv::NoPrecision, a, row_type);
                 } else {
-                    auto row_b = _builder.createCompositeExtract(b, row_type, i);
-                    new_rows.push_back(_builder.createBinOp(spv::Op::OpFSub, row_type, row_a, row_b));
+                    lhs = _builder.createCompositeExtract(a, row_type, i);
                 }
+                if (b_type->is_scalar()) {
+                    rhs = _builder.smearScalar(spv::NoPrecision, b, row_type);
+                } else {
+                    rhs = _builder.createCompositeExtract(b, row_type, i);
+                }
+                new_rows.push_back(_builder.createBinOp(spv::Op::OpFSub, row_type, lhs, rhs));
             }
             id = _builder.createCompositeConstruct(type, new_rows);
             break;
@@ -702,8 +712,11 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::MATRIX_COMP_MUL: {
             auto a = operand(0);
             auto b = operand(1);
+            auto a_type = inst->operand(0)->type();
             auto b_type = inst->operand(1)->type();
-            if (b_type->is_scalar()) {
+            if (a_type->is_scalar()) {
+                id = _builder.createBinOp(spv::Op::OpMatrixTimesScalar, type, b, a);
+            } else if (b_type->is_scalar()) {
                 id = _builder.createBinOp(spv::Op::OpMatrixTimesScalar, type, a, b);
             } else {
                 auto rows = t->dimension();

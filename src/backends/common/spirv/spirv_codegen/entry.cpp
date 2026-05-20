@@ -2,6 +2,7 @@
 #include "utils.h"
 #include <SPIRV/disassemble.h>
 #include <luisa/core/logging.h>
+#include <fstream>
 #include <sstream>
 #include <spirv-tools/optimizer.hpp>
 
@@ -53,6 +54,11 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
+    if (std::getenv("LUISA_DUMP_SPV")) {
+        auto filename = luisa::format("/tmp/opencode/kernel_{:016x}.spv", kernel.hash());
+        std::ofstream file(filename.c_str(), std::ios::binary);
+        file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));
+    }
     luisa_spirv_optimize(words);
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());
