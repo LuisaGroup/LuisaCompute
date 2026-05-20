@@ -1178,7 +1178,6 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
     } else {
 #ifdef LUISA_XIR_TO_SPIRV
         auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option);
-        LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds", spv_result.spv_bin.size(), spv_result.properties.size());
         for (size_t i = 0; i < spv_result.properties.size(); ++i) {
             auto &p = spv_result.properties[i];
             LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);

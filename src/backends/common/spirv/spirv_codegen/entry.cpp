@@ -54,9 +54,13 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
     luisa_spirv_optimize(words);
-    std::ostringstream disasm;
-    spv::Disassemble(disasm, words);
-    LUISA_INFO("=== Kernel: {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
+    LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
+               words.size(), codegen._properties.size());
+    if (std::getenv("LUISA_DUMP_SOURCE")) {
+        std::ostringstream disasm;
+        spv::Disassemble(disasm, words);
+        LUISA_INFO("=== Kernel: {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
+    }
     auto printers = std::move(codegen).move_print_formats();
     auto props = std::move(codegen._properties);
     auto use_tex2d = codegen._use_tex2d_bindless;
