@@ -342,7 +342,7 @@ int main(int argc, char *argv[]) {
     double last_time = 0.0;
     uint frame_count = 0u;
     Clock clock;
-    static constexpr uint offline_total_spp = 1024u;
+    uint offline_total_spp = opts.spp == 0u ? 1024u : opts.spp;
     while (opts.offline ? (frame_count < offline_total_spp) : !window->should_close()) {
         cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
                         .dispatch(resolution)

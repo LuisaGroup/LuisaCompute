@@ -80,7 +80,8 @@ void reg_simplify_cfg() {
         auto info = simplify_cfg_pass_run_on_function(k);
         expect(info.folded_constant_cond_br_count == 1u);
         expect(count_isa_cond_branch(def) == 0u);
-        expect(count_isa_branch(def) == 1u);
+        expect(info.merged_straight_line_count == 1u);
+        expect(count_blocks(def) == 1u);
         expect(info.removed_unreachable_block_count == 1u);
     };
 
@@ -121,7 +122,7 @@ void reg_simplify_cfg() {
         b.return_void();
         auto info = simplify_cfg_pass_run_on_function(k);
         expect(info.threaded_empty_block_count >= 1u);
-        expect(count_blocks(def) == 2u);
+        expect(count_blocks(def) == 1u);
     };
 
     "remove_unreachable_block"_test = [] {
@@ -147,7 +148,7 @@ void reg_simplify_cfg() {
         auto *def = k->definition();
         XIRBuilder b;
         b.set_insertion_point(body);
-        auto *val = m.create_constant_zero(Type::of<int>());
+        auto *val = m.create_undefined(Type::of<int>());
         auto *sw = b.switch_(val);
         auto *def_bb = sw->create_default_block();
         auto *case_bb = sw->create_case_block(0);
@@ -199,6 +200,85 @@ void reg_simplify_cfg() {
         b.return_void();
         auto info = simplify_cfg_pass_run_on_module(&m);
         expect(info.folded_constant_cond_br_count == 1u);
+    };
+
+    "fold_constant_switch"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        int32_t selector_v = 7;
+        auto *selector = m.create_constant(Type::of<int>(), &selector_v);
+        auto *sw = b.switch_(selector);
+        auto *default_bb = sw->create_default_block();
+        auto *case_bb = sw->create_case_block(7);
+        b.set_insertion_point(default_bb);
+        b.return_void();
+        b.set_insertion_point(case_bb);
+        b.return_void();
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.folded_switch_count == 1u);
+        expect(info.removed_unreachable_block_count == 1u);
+        expect(count_blocks(def) == 1u);
+    };
+
+    "fold_degenerate_switch"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *selector = m.create_undefined(Type::of<int>());
+        auto *sw = b.switch_(selector);
+        auto *target = sw->create_default_block();
+        sw->add_case(1, target);
+        sw->add_case(2, target);
+        b.set_insertion_point(target);
+        b.return_void();
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.folded_switch_count == 1u);
+    };
+
+    "merge_straight_line_blocks"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *tail = def->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.br(tail);
+        b.set_insertion_point(tail);
+        auto *undef = m.create_undefined(Type::of<int>());
+        b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {undef, undef});
+        b.return_void();
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.merged_straight_line_count == 1u);
+        expect(count_blocks(def) == 1u);
+    };
+
+    "merge_straight_line_chain"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *mid = def->create_basic_block();
+        auto *tail = def->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.br(mid);
+        b.set_insertion_point(mid);
+        auto *undef = m.create_undefined(Type::of<int>());
+        b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {undef, undef});
+        b.br(tail);
+        b.set_insertion_point(tail);
+        b.call(Type::of<int>(), ArithmeticOp::BINARY_SUB, {undef, undef});
+        b.return_void();
+        auto info = simplify_cfg_pass_run_on_function(k);
+        expect(info.merged_straight_line_count == 2u);
+        expect(count_blocks(def) == 1u);
     };
 }
 

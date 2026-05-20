@@ -8,6 +8,7 @@ class Function;
 
 struct SimplifyCFGInfo {
     size_t folded_constant_cond_br_count = 0u;
+    size_t folded_switch_count = 0u;
     size_t threaded_empty_block_count = 0u;
     size_t merged_straight_line_count = 0u;
     size_t removed_unreachable_block_count = 0u;

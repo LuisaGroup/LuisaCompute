@@ -87,6 +87,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
 
     Clock opt_clk;
     Clock pass_clk;
+    auto algebraic_options = xir::AlgebraicSimplifyOptions{.enable_fast_math = option.enable_fast_math};
 
     // Phase A
     auto dceA1_info = xir::dce_pass_run_on_module(xir_module.get());
@@ -100,7 +101,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     auto dceA2_info = xir::dce_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dce2: {} ms", pass_clk.toc());
     pass_clk.tic();
-    auto algA_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get());
+    auto algA_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get(), algebraic_options);
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.algebraic-simplify: {} ms (simplified {})", pass_clk.toc(), algA_info.simplified_inst_count);
     pass_clk.tic();
     auto cfA_info = xir::const_fold_pass_run_on_module(xir_module.get());
@@ -126,15 +127,15 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  inline-all: {} ms (inlined {}, removed {})", pass_clk.toc(), inline_info.inlined_call_count, inline_info.removed_callable_count);
     if (inline_info.inlined_call_count > 0) {
         pass_clk.tic();
-        xir::dce_pass_run_on_module(xir_module.get());
-        xir::local_store_forward_pass_run_on_module(xir_module.get());
-        xir::local_load_elimination_pass_run_on_module(xir_module.get());
-        xir::dce_pass_run_on_module(xir_module.get());
-        xir::algebraic_simplify_pass_run_on_module(xir_module.get());
-        xir::const_fold_pass_run_on_module(xir_module.get());
-        xir::dce_pass_run_on_module(xir_module.get());
-        xir::sroa_pass_run_on_module(xir_module.get());
-        xir::dce_pass_run_on_module(xir_module.get());
+        [[maybe_unused]] auto post_inline_dce1_info = xir::dce_pass_run_on_module(xir_module.get());
+        [[maybe_unused]] auto post_inline_store_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
+        [[maybe_unused]] auto post_inline_load_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
+        [[maybe_unused]] auto post_inline_dce2_info = xir::dce_pass_run_on_module(xir_module.get());
+        [[maybe_unused]] auto post_inline_alg_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get(), algebraic_options);
+        [[maybe_unused]] auto post_inline_cf_info = xir::const_fold_pass_run_on_module(xir_module.get());
+        [[maybe_unused]] auto post_inline_dce3_info = xir::dce_pass_run_on_module(xir_module.get());
+        [[maybe_unused]] auto post_inline_sroa_info = xir::sroa_pass_run_on_module(xir_module.get());
+        [[maybe_unused]] auto post_inline_dce4_info = xir::dce_pass_run_on_module(xir_module.get());
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  post-inline-cleanup: {} ms", pass_clk.toc());
     }
 
@@ -166,7 +167,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         mem2regB_info = xir::mem2reg_pass_run_on_module(xir_module.get());
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.mem2reg: {} ms (promoted {} alloca(s), {} phi(s))", pass_clk.toc(), mem2regB_info.promoted_alloca_count, mem2regB_info.inserted_phi_count);
         pass_clk.tic();
-        auto algB_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get());
+        auto algB_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get(), algebraic_options);
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.algebraic-simplify: {} ms (simplified {})", pass_clk.toc(), algB_info.simplified_inst_count);
         pass_clk.tic();
         auto cfB_info = xir::const_fold_pass_run_on_module(xir_module.get());
@@ -194,7 +195,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
 
         LUISA_VERBOSE("XIR CFG normalization done:\n"
                       "    destructured {} if(s), {} loop(s), {} simple loop(s), {} break(s), {} continue(s), {} ray query loop(s)->loop(s),\n"
-                      "    simplified: folded {} constant cond_br(s), threaded {} empty block(s), removed {} unreachable block(s).",
+                      "    simplified: folded {} constant cond_br(s), folded {} switch(es), threaded {} empty block(s), merged {} straight-line block(s), removed {} unreachable block(s).",
                       destructure_cfg_info.destructured_if_count,
                       destructure_cfg_info.destructured_loop_count,
                       destructure_cfg_info.destructured_simple_loop_count,
@@ -202,7 +203,9 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                       destructure_cfg_info.destructured_continue_count,
                       rq_to_loop_info.lowered_ray_query_loop_count,
                       simplify_cfg_info.folded_constant_cond_br_count,
+                      simplify_cfg_info.folded_switch_count,
                       simplify_cfg_info.threaded_empty_block_count,
+                      simplify_cfg_info.merged_straight_line_count,
                       simplify_cfg_info.removed_unreachable_block_count);
 
         if (!LUISA_XIR_DISABLE_RESTRUCTURE_CFG) {
@@ -233,7 +236,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             }
 
             pass_clk.tic();
-            xir::dce_pass_run_on_module(xir_module.get());
+            [[maybe_unused]] auto post_restructure_dce_info = xir::dce_pass_run_on_module(xir_module.get());
             if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  post-restructure-dce: {} ms", pass_clk.toc());
 
             pass_clk.tic();
@@ -255,6 +258,9 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             pass_clk.tic();
             auto loadC_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
             if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.load-elim: {} ms (eliminated {})", pass_clk.toc(), loadC_info.removed_load_count);
+            pass_clk.tic();
+            auto algC_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get(), algebraic_options);
+            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.algebraic-simplify: {} ms (simplified {})", pass_clk.toc(), algC_info.simplified_inst_count);
             pass_clk.tic();
             auto cfC_info = xir::const_fold_pass_run_on_module(xir_module.get());
             if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.const-fold: {} ms (folded {})", pass_clk.toc(), cfC_info.folded_inst_count);

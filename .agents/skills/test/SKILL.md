@@ -132,7 +132,25 @@ Tests link `lc-runtime`, `lc-dsl`, `lc-vstl`, `stb-image`, and optionally `lc-gu
 
 Tests and mirrored examples that produce images compare against reference PNGs using PSNR. Comparison is **opt-in via an explicit CLI arg** — there is no auto-discovery of a reference directory and no implicit reference creation. A missing reference file FAILS the comparison; it is never silently created.
 
-CLI: pass `--compare <path.png>` or `-c <path.png>`. Without it, the test/example renders normally and skips comparison.
+CLI: pass the backend first, then offline/comparison flags: `<test_binary> <backend> --offline --compare <path.png>` or `<test_binary> <backend> --offline -c <path.png>`. Without `--compare`/`-c`, the test/example only renders and **does not validate against the reference image**.
+
+For mirrored rendering examples that accept `--spp`, offline reference validation must use at least `--spp 1024` unless a test-specific instruction says otherwise. The expected command shape is:
+```bash
+cmake-build-release/bin/test_path_tracing vk --offline --spp 1024 --compare docs/gallery/test_path_tracing.png
+```
+Lower default offline sample counts may produce PSNR failures from sampling noise rather than code regressions. Do not report an offline rendering test as passing image validation unless the log contains `Reference comparison: PASSED` and exit code `0`.
+
+For path-tracing gallery validation, run the mirrored executable with its matching reference, for example:
+```bash
+cmake-build-release/bin/test_path_tracing vk --offline --spp 1024 --compare docs/gallery/test_path_tracing.png
+cmake-build-release/bin/test_path_tracing_cutout vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_cutout.png
+cmake-build-release/bin/test_path_tracing_nested_callable vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_nested_callable.png
+cmake-build-release/bin/test_path_tracing_hdr vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_hdr.png
+cmake-build-release/bin/test_path_tracing_camera vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_camera.png
+cmake-build-release/bin/test_path_tracing_spectrum vk --offline --spp 1024 --compare docs/gallery/test_path_tracing_spectrum.png
+cmake-build-release/bin/test_path_tracing_ir vk --offline --spp 1024 --compare docs/gallery/test_path_tracing.png
+```
+If a reference PNG is missing, the comparison is a real failure and should be reported as `reference not found`; do not count a render-only run as a validation pass.
 
 Examples-side header: `examples/common/reference_compare.h` (namespace `luisa::ref`).
 - `luisa::ref::parse_compare_arg(argc, argv) -> std::optional<std::filesystem::path>`

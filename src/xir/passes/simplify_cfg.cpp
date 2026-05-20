@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/optional.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
@@ -75,6 +76,67 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
         b.set_insertion_point(bb);
         b.br(taken);
         ++info.folded_constant_cond_br_count;
+    }
+    return true;
+}
+
+[[nodiscard]] static luisa::optional<SwitchInst::case_value_type> try_evaluate_static_switch_condition(Value *value) noexcept {
+    if (value == nullptr || !value->isa<Constant>()) return luisa::nullopt;
+    auto c = static_cast<Constant *>(value);
+    switch (c->type()->tag()) {
+        case Type::Tag::BOOL: return c->as<bool>() ? 1 : 0;
+        case Type::Tag::INT8: return c->as<int8_t>();
+        case Type::Tag::UINT8: return c->as<uint8_t>();
+        case Type::Tag::INT16: return c->as<int16_t>();
+        case Type::Tag::UINT16: return c->as<uint16_t>();
+        case Type::Tag::INT32: return c->as<int32_t>();
+        case Type::Tag::UINT32: return static_cast<SwitchInst::case_value_type>(c->as<uint32_t>());
+        case Type::Tag::INT64: return static_cast<SwitchInst::case_value_type>(c->as<int64_t>());
+        case Type::Tag::UINT64: return static_cast<SwitchInst::case_value_type>(c->as<uint64_t>());
+        default: break;
+    }
+    return luisa::nullopt;
+}
+
+static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
+    luisa::vector<SwitchInst *> targets;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (auto t = bb->terminator(); t != nullptr && t->isa<SwitchInst>()) {
+            auto sw = static_cast<SwitchInst *>(t);
+            auto default_block = sw->default_block();
+            if (default_block == nullptr) return;
+            auto common = default_block;
+            auto all_same = true;
+            for (size_t i = 0u; i < sw->case_count(); ++i) {
+                if (sw->case_block(i) != common) {
+                    all_same = false;
+                    break;
+                }
+            }
+            if (all_same || try_evaluate_static_switch_condition(sw->value())) {
+                targets.emplace_back(sw);
+            }
+        }
+    });
+    if (targets.empty()) return false;
+    for (auto sw : targets) {
+        auto bb = sw->parent_block();
+        if (bb == nullptr) continue;
+        auto target = sw->default_block();
+        if (auto static_value = try_evaluate_static_switch_condition(sw->value())) {
+            for (size_t i = 0u; i < sw->case_count(); ++i) {
+                if (sw->case_value(i) == *static_value) {
+                    target = sw->case_block(i);
+                    break;
+                }
+            }
+        }
+        if (target == nullptr) continue;
+        sw->remove_self();
+        XIRBuilder b;
+        b.set_insertion_point(bb);
+        b.br(target);
+        ++info.folded_switch_count;
     }
     return true;
 }
@@ -187,6 +249,86 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
     return true;
 }
 
+[[nodiscard]] static bool block_has_phi(BasicBlock *bb) noexcept {
+    auto has_phi = false;
+    bb->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->isa<PhiInst>()) has_phi = true;
+    });
+    return has_phi;
+}
+
+[[nodiscard]] static bool has_phi_sensitive_successor(BasicBlock *bb, BasicBlock *succ) noexcept {
+    auto sensitive = false;
+    succ->traverse_successors(false, [&](BasicBlock *target) noexcept {
+        if (target == bb || target == succ || block_has_phi(target)) sensitive = true;
+    });
+    return sensitive;
+}
+
+static luisa::unordered_set<BasicBlock *> collect_structural_targets(FunctionDefinition *def) noexcept {
+    luisa::unordered_set<BasicBlock *> targets;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        auto term = bb->terminator();
+        if (term == nullptr) return;
+        if (auto merge = term->control_flow_merge()) {
+            if (auto merge_block = merge->merge_block()) targets.emplace(merge_block);
+        }
+    });
+    return targets;
+}
+
+static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
+    auto entry = def->body_block();
+    auto structural_targets = collect_structural_targets(def);
+    BasicBlock *candidate_block = nullptr;
+    BasicBlock *candidate_successor = nullptr;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (candidate_block != nullptr) return;
+        auto term = bb->terminator();
+        if (term == nullptr || !term->isa<BranchInst>()) return;
+        auto br = static_cast<BranchInst *>(term);
+        auto succ = br->target_block();
+        if (succ == nullptr || succ == bb || succ == entry) return;
+        if (structural_targets.contains(bb) || structural_targets.contains(succ)) return;
+        if (block_has_phi(succ)) return;
+        if (has_phi_sensitive_successor(bb, succ)) return;
+        size_t pred_count = 0u;
+        BasicBlock *pred = nullptr;
+        succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
+            ++pred_count;
+            pred = p;
+        });
+        if (pred_count == 1u && pred == bb) {
+            candidate_block = bb;
+            candidate_successor = succ;
+        }
+    });
+    if (candidate_block == nullptr || candidate_successor == nullptr) return false;
+    auto bb = candidate_block;
+    auto succ = candidate_successor;
+    if (bb->terminator() == nullptr || !bb->terminator()->isa<BranchInst>()) return false;
+    auto br = static_cast<BranchInst *>(bb->terminator());
+    if (br->target_block() != succ || block_has_phi(succ)) return false;
+    if (has_phi_sensitive_successor(bb, succ)) return false;
+    size_t pred_count = 0u;
+    BasicBlock *pred = nullptr;
+    succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
+        ++pred_count;
+        pred = p;
+    });
+    if (pred_count != 1u || pred != bb) return false;
+    br->remove_self();
+    XIRBuilder b;
+    b.set_insertion_point(bb);
+    while (!succ->instructions().empty()) {
+        auto inst = succ->instructions().front()->remove_self();
+        b.append(std::move(inst));
+    }
+    succ->remove_self();
+    ++info.merged_straight_line_count;
+    return true;
+}
+
 }// namespace detail
 
 SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
@@ -198,7 +340,9 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
     while (changed) {
         changed = false;
         if (detail::fold_constant_cond_br(def, info)) changed = true;
+        if (detail::fold_switches(def, info)) changed = true;
         if (detail::thread_empty_blocks(def, info)) changed = true;
+        if (detail::merge_straight_line_blocks(def, info)) changed = true;
         if (detail::remove_unreachable_blocks(def, info)) changed = true;
     }
     return info;
@@ -210,6 +354,7 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module) noexcept {
     for (auto f : module->function_list()) {
         auto sub = simplify_cfg_pass_run_on_function(f);
         info.folded_constant_cond_br_count += sub.folded_constant_cond_br_count;
+        info.folded_switch_count += sub.folded_switch_count;
         info.threaded_empty_block_count += sub.threaded_empty_block_count;
         info.merged_straight_line_count += sub.merged_straight_line_count;
         info.removed_unreachable_block_count += sub.removed_unreachable_block_count;
