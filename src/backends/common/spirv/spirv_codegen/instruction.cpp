@@ -1905,7 +1905,13 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
         // Typed buffer: direct element access via SPIR-V type system.
         // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
-        return _builder.createLoad(ptr, spv::NoPrecision);
+        auto loaded = _builder.createLoad(ptr, spv::NoPrecision);
+        auto plain_type = _convert_type(read_type, Usage::READ);
+        auto loaded_type = _builder.getTypeId(loaded);
+        if (loaded_type != plain_type) {
+            loaded = _builder.createUnaryOp(spv::Op::OpCopyLogical, plain_type, loaded);
+        }
+        return loaded;
     }
     // Byte buffer or bindless: word-level access
     auto uint_type = _builder.makeUintType(32);
@@ -2079,6 +2085,12 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
         // Typed buffer: direct element access via SPIR-V type system.
         // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
+        auto ptr_type = _builder.getTypeId(ptr);
+        auto pointee_type = _builder.getContainedTypeId(ptr_type);
+        auto val_type = _builder.getTypeId(value);
+        if (pointee_type != val_type) {
+            value = _builder.createUnaryOp(spv::Op::OpCopyLogical, pointee_type, value);
+        }
         _builder.createStore(value, ptr);
         return;
     }
@@ -2507,7 +2519,8 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                 if (pointee_type != val_type) {
                     if (_builder.isScalarType(val_type) && _builder.isVectorType(pointee_type)) {
                         val = _builder.smearScalar(spv::NoPrecision, val, pointee_type);
-                    } else if (_builder.getTypeClass(pointee_type) == _builder.getTypeClass(val_type) &&
+                    } else if (!_builder.isStructType(pointee_type) && !_builder.isStructType(val_type) &&
+                               _builder.getTypeClass(pointee_type) == _builder.getTypeClass(val_type) &&
                                _builder.getNumTypeComponents(pointee_type) == _builder.getNumTypeComponents(val_type)) {
                         val = _builder.createUnaryOp(spv::Op::OpBitcast, pointee_type, val);
                     }

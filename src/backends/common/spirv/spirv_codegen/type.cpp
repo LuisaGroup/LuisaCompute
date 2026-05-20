@@ -49,7 +49,12 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             // (since SPIR-V atomic ops require scalar integer types).
             bool needs_atomic = _needs_atomic_buffer_types.contains(type);
             bool use_typed = elem_type != nullptr && !needs_atomic;
-            auto spv_elem_type = use_typed ? _convert_type(elem_type, usage) : _builder.makeUintType(32);
+            spv::Id spv_elem_type;
+            if (use_typed && (elem_type->is_structure() || elem_type->is_array())) {
+                spv_elem_type = _convert_laid_out_type(elem_type);
+            } else {
+                spv_elem_type = use_typed ? _convert_type(elem_type, usage) : _builder.makeUintType(32);
+            }
             auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
             _builder.addDecoration(runtime_array, spv::Decoration::ArrayStride, use_typed ? static_cast<int32_t>(elem_type->size()) : 4);
@@ -62,13 +67,6 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             }
             _builder.addDecoration(struct_type, spv::Decoration::Block);
             id = struct_type;
-            if (use_typed) {
-                if (elem_type->is_structure()) {
-                    _apply_explicit_layout(spv_elem_type, elem_type);
-                } else if (elem_type->is_array()) {
-                    _apply_array_stride(spv_elem_type, elem_type->element());
-                }
-            }
             break;
         }
         case Type::Tag::TEXTURE: {
@@ -130,37 +128,53 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
     return id;
 }
 
-void SpirvCodegenEntry::_apply_array_stride(spv::Id spv_array, const Type *elem_type) noexcept {
-    if (elem_type == nullptr) { return; }
-    _builder.addDecoration(spv_array, spv::Decoration::ArrayStride,
-                           static_cast<int32_t>(elem_type->size()));
-    if (elem_type->is_structure()) {
-        _apply_explicit_layout(_convert_type(elem_type, Usage::READ_WRITE), elem_type);
-    } else if (elem_type->is_array()) {
-        _apply_array_stride(_convert_type(elem_type, Usage::READ_WRITE), elem_type->element());
+spv::Id SpirvCodegenEntry::_convert_laid_out_type(const Type *type) noexcept {
+    if (type == nullptr) { return _builder.makeVoidType(); }
+    if (auto it = _laid_out_type_map.find(type); it != _laid_out_type_map.end()) { return it->second; }
+    spv::Id id = spv::NoResult;
+    switch (type->tag()) {
+        case Type::Tag::ARRAY: {
+            auto elem_layout = _convert_laid_out_type(type->element());
+            auto size_id = _builder.makeUintConstant(static_cast<uint32_t>(type->dimension()));
+            id = _builder.makeArrayType(elem_layout, size_id, 0);
+            _builder.addDecoration(id, spv::Decoration::ArrayStride, static_cast<int32_t>(type->element()->size()));
+            break;
+        }
+        case Type::Tag::STRUCTURE: {
+            auto members = type->members();
+            std::vector<spv::Id> member_types;
+            member_types.reserve(members.size());
+            for (auto m : members) {
+                if (m->is_structure() || m->is_array()) {
+                    member_types.emplace_back(_convert_laid_out_type(m));
+                } else {
+                    member_types.emplace_back(_convert_type(m, Usage::READ_WRITE));
+                }
+            }
+            std::vector<spv::StructMemberDebugInfo> member_debug;
+            id = _builder.makeStructType(member_types, member_debug, "Struct", false);
+            size_t offset = 0u;
+            for (uint32_t i = 0; i < members.size(); ++i) {
+                auto m = members[i];
+                offset = luisa::align(offset, m->alignment());
+                _builder.addMemberDecoration(id, i, spv::Decoration::Offset, static_cast<int32_t>(offset));
+                if (m->is_matrix()) {
+                    auto col_type = Type::vector(m->element(), m->dimension());
+                    _builder.addMemberDecoration(id, i, spv::Decoration::ColMajor);
+                    _builder.addMemberDecoration(id, i, spv::Decoration::MatrixStride,
+                                                 static_cast<int32_t>(col_type->size()));
+                }
+                offset += m->size();
+            }
+            break;
+        }
+        default:
+            id = _convert_type(type, Usage::READ_WRITE);
+            break;
     }
+    LUISA_ASSERT(id != spv::NoResult, "Failed to convert laid-out type {}.", type->description());
+    _laid_out_type_map.emplace(type, id);
+    return id;
 }
 
-void SpirvCodegenEntry::_apply_explicit_layout(spv::Id spv_struct, const Type *type) noexcept {
-    if (type == nullptr || !type->is_structure()) { return; }
-    if (!_laid_out_struct_ids.insert(spv_struct).second) { return; }
-    auto members = type->members();
-    size_t offset = 0u;
-    for (uint32_t i = 0; i < members.size(); ++i) {
-        auto m = members[i];
-        offset = luisa::align(offset, m->alignment());
-        _builder.addMemberDecoration(spv_struct, i, spv::Decoration::Offset, static_cast<int32_t>(offset));
-        if (m->is_matrix()) {
-            auto col_type = Type::vector(m->element(), m->dimension());
-            _builder.addMemberDecoration(spv_struct, i, spv::Decoration::ColMajor);
-            _builder.addMemberDecoration(spv_struct, i, spv::Decoration::MatrixStride,
-                                         static_cast<int32_t>(col_type->size()));
-        } else if (m->is_structure()) {
-            _apply_explicit_layout(_convert_type(m, Usage::READ_WRITE), m);
-        } else if (m->is_array()) {
-            _apply_array_stride(_convert_type(m, Usage::READ_WRITE), m->element());
-        }
-        offset += m->size();
-    }
-}
-}
+}// namespace lc::spirv
