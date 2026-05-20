@@ -150,7 +150,9 @@ if (auto ref = luisa::ref::parse_compare_arg(argc, argv)) {
 }
 ```
 
-Reference PNGs live under `docs/gallery/<test_name>.png` in the repo. Always pass the absolute or repo-relative path explicitly — never rely on cwd or executable-relative walking. Updating a reference is a deliberate manual action: re-render, eyeball the result, then `cp` over the gallery file in a dedicated commit.
+Reference PNGs live under `docs/gallery/<test_name>.png` in the repo. Always pass the absolute or repo-relative path explicitly — never rely on cwd or executable-relative walking.
+
+**NEVER regenerate or overwrite reference images unless the user explicitly asks you to.** Reference images are ground truth — if a test fails against the reference, the code is wrong, not the reference. When regeneration IS requested, always use the `fallback` (CPU) backend for determinism across GPU vendors. Regenerating from a broken GPU backend will bake bugs into the reference.
 
 ## What Not to Do
 
