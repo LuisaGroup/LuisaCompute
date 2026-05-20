@@ -27,11 +27,6 @@
 using namespace luisa;
 using namespace luisa::compute;
 
-struct Material {
-    float3 albedo;
-    float3 emission;
-};
-
 struct Onb {
     float3 tangent;
     float3 binormal;
@@ -39,8 +34,6 @@ struct Onb {
 };
 
 // clang-format off
-LUISA_STRUCT(Material, albedo, emission) {};
-
 LUISA_STRUCT(Onb, tangent, binormal, normal) {
     [[nodiscard]] auto to_world(Expr<float3> v) const noexcept {
         return v.x * tangent + v.y * binormal + v.z * normal;
@@ -128,18 +121,18 @@ int main(int argc, char *argv[]) {
            << accel.build()
            << synchronize();
 
-    std::vector<Material> materials;
-    materials.reserve(accel.size());
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// floor
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// ceiling
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// back wall
-    materials.emplace_back(Material{make_float3(0.14f, 0.45f, 0.091f), make_float3(0.0f)});// right wall
-    materials.emplace_back(Material{make_float3(0.63f, 0.065f, 0.05f), make_float3(0.0f)});// left wall
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// short box
-    materials.emplace_back(Material{make_float3(0.725f, 0.71f, 0.68f), make_float3(0.0f)});// tall box
-    materials.emplace_back(Material{make_float3(0.0f), make_float3(17.0f, 12.0f, 4.0f)});  // light
-    auto material_buffer = device.create_buffer<Material>(materials.size());
-    stream << material_buffer.copy_from(luisa::span{materials});
+    float3 materials_array[] = {
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.14f, 0.45f, 0.091f),
+        make_float3(0.63f, 0.065f, 0.05f),
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.725f, 0.71f, 0.68f),
+        make_float3(0.0f),
+    };
+    auto materials = device.create_buffer<float3>(8);
+    stream << materials.copy_from(luisa::span{materials_array, std::size(materials_array)});
 
     auto linear_to_srgb = [](Var<float3> x) noexcept {
         return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -199,10 +192,10 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    static constexpr auto spp_per_dispatch = 64u;
+    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
-        set_block_size(8u, 8u, 1u);
+        set_block_size(16u, 16u, 1u);
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
         auto state = seed_image.read(coord).x;
@@ -224,6 +217,7 @@ int main(int argc, char *argv[]) {
 
                 // trace
                 auto hit = accel.intersect(ray, {});
+                reorder_shader_execution();
                 $if (hit->miss()) { $break; };
                 auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 auto p0 = vertex_buffer->read(triangle.i0);
@@ -233,7 +227,7 @@ int main(int argc, char *argv[]) {
                 auto n = normalize(cross(p1 - p0, p2 - p0));
                 auto cos_wo = dot(-ray->direction(), n);
                 $if (cos_wo < 1e-4f) { $break; };
-                auto material = material_buffer->read(hit.inst);
+                auto albedo = materials->read(hit.inst);
 
                 // hit light
                 $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -264,7 +258,7 @@ int main(int argc, char *argv[]) {
                     auto pdf_light = (d_light * d_light) / (light_area * cos_light);
                     auto pdf_bsdf = cos_wi_light * inv_pi;
                     auto mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                    auto bsdf = material.albedo * inv_pi * cos_wi_light;
+                    auto bsdf = albedo * inv_pi * cos_wi_light;
                     radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
                 };
 
@@ -277,7 +271,7 @@ int main(int argc, char *argv[]) {
                 Float3 new_direction = onb->to_world(wi_local);
                 ray = make_ray(pp, new_direction);
                 pdf_bsdf = cos_wi * inv_pi;
-                beta *= material.albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
+                beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
 
                 // rr
                 auto l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
@@ -314,17 +308,14 @@ int main(int argc, char *argv[]) {
         image.write(dispatch_id().xy(), make_float4(0.0f));
     };
 
-    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
+    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale) noexcept {
         //        Shared<float> s1{13u};
         //        Shared<float> s2{1024u};
         //        s2[thread_x()] = 1.f;
         //        sync_block();
         auto coord = dispatch_id().xy();
         auto hdr = hdr_image.read(coord);
-        auto ldr = hdr.xyz() / hdr.w * scale;
-        $if (!is_hdr) {
-            ldr = linear_to_srgb(ldr);
-        };
+        auto ldr = linear_to_srgb(clamp(hdr.xyz() / hdr.w * scale, 0.0f, 1.0f));
         ldr_image.write(coord, make_float4(ldr, 1.0f));
     };
 
@@ -367,7 +358,7 @@ int main(int argc, char *argv[]) {
     auto frame_count = 0u;
     Clock clock;
     bool infinite_render = !force_offline;
-    uint total_spp = force_offline ? 256u : 0u;
+    uint total_spp = force_offline ? 1024u : 0u;
 
     while (infinite_render || frame_count < total_spp) {
         cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
@@ -375,7 +366,7 @@ int main(int argc, char *argv[]) {
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
         if (!force_offline && swap_chain.has_value()) {
-            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain->backend_storage() != PixelStorage::BYTE4).dispatch(resolution);
+            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 2.0f).dispatch(resolution);
             stream << cmd_list.commit()
                    << swap_chain->present(ldr_image);
             if (window->should_close()) { break; }
@@ -388,9 +379,9 @@ int main(int argc, char *argv[]) {
         frame_count += spp_per_dispatch;
         LUISA_INFO("time: {} ms", dt);
     }
-    stream << hdr2ldr_shader(accum_image, ldr_image, 1.0f, false).dispatch(resolution)
-           << ldr_image.copy_to(luisa::span{host_image})
-           << synchronize();
+    stream << hdr2ldr_shader(accum_image, ldr_image, 2.0f).dispatch(resolution)
+            << ldr_image.copy_to(luisa::span{host_image})
+            << synchronize();
 
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
