@@ -26,12 +26,11 @@ struct MyHit {
 
 LUISA_STRUCT(MyHit, hit_type, triangle_bary, sphere_normal) {};
 
-void test_procedural_callable(Device &device) {
+void test_procedural_callable(Device &device, int argc, char *argv[]) {
     constexpr uint32_t width = 1280;
     constexpr uint32_t height = 720;
     auto opts = luisa::test::ImageTestOptions::parse(
-        boost::ut::detail::cfg::largc,
-        boost::ut::detail::cfg::largv);
+        argc, const_cast<const char *const *>(argv));
     Stream stream = device.create_stream();
     auto device_image1 = device.create_image<float>(PixelStorage::FLOAT4, width, height);
 
@@ -201,5 +200,5 @@ int main(int argc, char *argv[]) {
     }
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
     auto &device = dc->device;
-    test_procedural_callable(device);
+    test_procedural_callable(device, argc, argv);
 }
