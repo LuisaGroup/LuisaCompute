@@ -272,6 +272,14 @@ inline void float4_to_r11g11b10(std::byte *p, float4 v) noexcept {
     *reinterpret_cast<uint32_t *>(p) = r | (g << 11u) | (b << 22u);
 }
 
+[[nodiscard]] inline float srgb_to_linear(float x) noexcept {
+    return x <= 0.04045f ? x / 12.92f : std::pow((x + 0.055f) / 1.055f, 2.4f);
+}
+
+[[nodiscard]] inline float linear_to_srgb(float x) noexcept {
+    return x <= 0.0031308f ? 12.92f * x : 1.055f * std::pow(x, 1.f / 2.4f) - 0.055f;
+}
+
 template<typename Dst, typename Src, uint dim>
 [[nodiscard]] inline auto read_pixel(const std::byte *p) noexcept {
     if constexpr (std::is_same_v<Dst, float>) {
@@ -305,6 +313,14 @@ template<typename T>
         case PixelStorage::BYTE1: return detail::read_pixel<T, uint8_t, 1u>(p);
         case PixelStorage::BYTE2: return detail::read_pixel<T, uint8_t, 2u>(p);
         case PixelStorage::BYTE4: return detail::read_pixel<T, uint8_t, 4u>(p);
+        case PixelStorage::BYTE4_SRGB: {
+            if constexpr (std::is_same_v<T, float>) {
+                auto v = detail::pixel_to_float4<uint8_t, 4u>(p);
+                return {srgb_to_linear(v.x), srgb_to_linear(v.y), srgb_to_linear(v.z), v.w};
+            } else {
+                return detail::read_pixel<T, uint8_t, 4u>(p);
+            }
+        }
         case PixelStorage::SHORT1: return detail::read_pixel<T, uint16_t, 1u>(p);
         case PixelStorage::SHORT2: return detail::read_pixel<T, uint16_t, 2u>(p);
         case PixelStorage::SHORT4: return detail::read_pixel<T, uint16_t, 4u>(p);
@@ -357,6 +373,14 @@ inline void write_pixel(PixelStorage storage, std::byte *p, Vector<T, 4u> v) noe
             break;
         case PixelStorage::BYTE4:
             detail::write_pixel<T, uint8_t, 4u>(p, v);
+            break;
+        case PixelStorage::BYTE4_SRGB:
+            if constexpr (std::is_same_v<T, float>) {
+                auto srgb = make_float4(linear_to_srgb(v.x), linear_to_srgb(v.y), linear_to_srgb(v.z), v.w);
+                detail::float4_to_pixel<uint8_t, 4u>(p, srgb);
+            } else {
+                detail::write_pixel<T, uint8_t, 4u>(p, v);
+            }
             break;
         case PixelStorage::SHORT1:
             detail::write_pixel<T, uint16_t, 1u>(p, v);
