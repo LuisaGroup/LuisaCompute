@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <span>
+
 #include <hip/hip_runtime.h>
 #include <luisa/runtime/rhi/pixel.h>
 #include <luisa/runtime/rhi/sampler.h>
@@ -13,6 +15,11 @@ namespace luisa::compute::hip {
 struct alignas(16) HIPSurface {
     hipSurfaceObject_t handle;
     uint64_t storage;
+};
+
+struct alignas(16) HIPTextureObject {
+    hipDeviceptr_t handles;
+    uint64_t level_count;
 };
 
 class HIPTexture {
@@ -43,7 +50,7 @@ public:
     [[nodiscard]] auto dimension() const noexcept { return static_cast<uint>(_dimension); }
     [[nodiscard]] auto is_mipmapped() const noexcept { return _levels > 1u; }
     [[nodiscard]] auto binding(uint32_t level) const noexcept { return surface(level); }
-    [[nodiscard]] hipTextureObject_t create_texture_object(Sampler s) const noexcept;
+    void create_texture_objects(std::span<hipTextureObject_t> objects, Sampler s) const noexcept;
 
 public:
     [[nodiscard]] static HIPTexture *create_device_texture(PixelFormat format, uint dim, uint3 size, uint32_t mip_levels) noexcept;

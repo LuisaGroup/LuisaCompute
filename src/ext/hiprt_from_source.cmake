@@ -229,8 +229,7 @@ target_compile_definitions(hiprt_from_source PRIVATE
     __USE_HIP__
     HIPRT_PUBLIC_REPO
     HIPRT_BITCODE_LINKING
-    ORO_PRECOMPILED
-    HIPRT_BAKE_KERNEL_GENERATED)
+    ORO_PRECOMPILED)
 
 if(UNIX)
     target_link_libraries(hiprt_from_source PRIVATE pthread dl)

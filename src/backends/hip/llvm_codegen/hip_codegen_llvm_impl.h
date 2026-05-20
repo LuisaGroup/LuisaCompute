@@ -98,7 +98,12 @@ public:
     static constexpr auto llvm_bindless_array_slot_type_buffer_ptr_index = 0;
     static constexpr auto llvm_bindless_array_slot_type_buffer_size_index = 1;
     static constexpr auto llvm_bindless_array_slot_type_texture2d_handle_index = 2;
-    static constexpr auto llvm_bindless_array_slot_type_texture3d_handle_index = 3;
+    static constexpr auto llvm_bindless_array_slot_type_texture2d_levels_index = 3;
+    static constexpr auto llvm_bindless_array_slot_type_texture2d_size_index = 4;
+    static constexpr auto llvm_bindless_array_slot_type_texture3d_handle_index = 5;
+    static constexpr auto llvm_bindless_array_slot_type_texture3d_levels_index = 6;
+    static constexpr auto llvm_bindless_array_slot_type_texture3d_size_xy_index = 7;
+    static constexpr auto llvm_bindless_array_slot_type_texture3d_size_z_index = 8;
 
     static constexpr auto llvm_texture_object_sampler_offset = 48u;
 
@@ -349,7 +354,9 @@ private:
     void _translate_resource_write_inst(IB &b, FunctionContext &func_ctx, const xir::ResourceWriteInst *inst) noexcept;
     [[nodiscard]] llvm::Value *_get_buffer_element_pointer(IB &b, llvm::Value *buffer, llvm::Value *index, size_t index_stride, size_t element_size) noexcept;
     [[nodiscard]] llvm::Value *_get_bindless_array_slot_pointer(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index) noexcept;
-    [[nodiscard]] llvm::Value *_get_bindless_array_texture_handle(IB &b, llvm::Value *bindless_array, llvm::Value *slot_index, int dim) noexcept;
+    [[nodiscard]] llvm::Value *_get_bindless_array_texture_handle(IB &b, llvm::Value *bindless_array,
+                                                                   llvm::Value *slot_index, int dim,
+                                                                   llvm::Value *level = nullptr) noexcept;
     [[nodiscard]] llvm::Value *_get_accel_instance_pointer(IB &b, llvm::Value *accel, llvm::Value *instance_index) noexcept;
     [[nodiscard]] llvm::Value *_load_accel_affine_matrix(IB &b, llvm::Value *affine_ptr) noexcept;
     static void _store_accel_affine_matrix(IB &b, llvm::Value *affine_ptr, llvm::Value *matrix) noexcept;
