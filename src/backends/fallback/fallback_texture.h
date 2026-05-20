@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstring>
 #include <luisa/core/basic_types.h>
 #include <luisa/core/mathematics.h>
 #include <luisa/core/stl.h>
@@ -182,6 +183,95 @@ inline void int4_to_pixel(std::byte *pixel, uint4 v) noexcept {
     }
 }
 
+// R10G10B10A2 packed format helpers
+[[nodiscard]] inline float4 r10g10b10a2_to_float4(const std::byte *p) noexcept {
+    auto packed = *reinterpret_cast<const uint32_t *>(p);
+    auto r = static_cast<float>(packed & 0x3ffu) / 1023.f;
+    auto g = static_cast<float>((packed >> 10u) & 0x3ffu) / 1023.f;
+    auto b = static_cast<float>((packed >> 20u) & 0x3ffu) / 1023.f;
+    auto a = static_cast<float>((packed >> 30u) & 0x3u) / 3.f;
+    return make_float4(r, g, b, a);
+}
+
+[[nodiscard]] inline uint4 r10g10b10a2_to_uint4(const std::byte *p) noexcept {
+    auto packed = *reinterpret_cast<const uint32_t *>(p);
+    return make_uint4(packed & 0x3ffu, (packed >> 10u) & 0x3ffu,
+                      (packed >> 20u) & 0x3ffu, (packed >> 30u) & 0x3u);
+}
+
+inline void float4_to_r10g10b10a2(std::byte *p, float4 v) noexcept {
+    auto r = static_cast<uint32_t>(std::clamp(std::round(v.x * 1023.f), 0.f, 1023.f));
+    auto g = static_cast<uint32_t>(std::clamp(std::round(v.y * 1023.f), 0.f, 1023.f));
+    auto b = static_cast<uint32_t>(std::clamp(std::round(v.z * 1023.f), 0.f, 1023.f));
+    auto a = static_cast<uint32_t>(std::clamp(std::round(v.w * 3.f), 0.f, 3.f));
+    *reinterpret_cast<uint32_t *>(p) = r | (g << 10u) | (b << 20u) | (a << 30u);
+}
+
+inline void uint4_to_r10g10b10a2(std::byte *p, uint4 v) noexcept {
+    *reinterpret_cast<uint32_t *>(p) = (v.x & 0x3ffu) | ((v.y & 0x3ffu) << 10u) |
+                                       ((v.z & 0x3ffu) << 20u) | ((v.w & 0x3u) << 30u);
+}
+
+// R11G11B10 packed float format helpers (11-bit float: 5e6, 10-bit float: 5e5)
+[[nodiscard]] inline float r11_to_float(uint32_t bits) noexcept {
+    // 11-bit float: 5-bit exponent, 6-bit mantissa, no sign
+    auto exp = (bits >> 6u) & 0x1fu;
+    auto man = bits & 0x3fu;
+    if (exp == 0u) {
+        return man == 0u ? 0.f : std::ldexp(static_cast<float>(man) / 64.f, -14);
+    } else if (exp == 31u) {
+        return man == 0u ? std::numeric_limits<float>::infinity() : std::numeric_limits<float>::quiet_NaN();
+    }
+    return std::ldexp(1.f + static_cast<float>(man) / 64.f, static_cast<int>(exp) - 15);
+}
+
+[[nodiscard]] inline float r10_to_float(uint32_t bits) noexcept {
+    // 10-bit float: 5-bit exponent, 5-bit mantissa, no sign
+    auto exp = (bits >> 5u) & 0x1fu;
+    auto man = bits & 0x1fu;
+    if (exp == 0u) {
+        return man == 0u ? 0.f : std::ldexp(static_cast<float>(man) / 32.f, -14);
+    } else if (exp == 31u) {
+        return man == 0u ? std::numeric_limits<float>::infinity() : std::numeric_limits<float>::quiet_NaN();
+    }
+    return std::ldexp(1.f + static_cast<float>(man) / 32.f, static_cast<int>(exp) - 15);
+}
+
+[[nodiscard]] inline uint32_t float_to_r11(float v) noexcept {
+    v = std::max(v, 0.f);// unsigned format
+    auto bits = luisa::bit_cast<uint32_t>(v);
+    auto exp = static_cast<int>((bits >> 23u) & 0xffu) - 127 + 15;
+    auto man = (bits >> 17u) & 0x3fu;// top 6 mantissa bits
+    if (exp <= 0) return 0u;
+    if (exp >= 31) return (31u << 6u);// infinity
+    return (static_cast<uint32_t>(exp) << 6u) | man;
+}
+
+[[nodiscard]] inline uint32_t float_to_r10(float v) noexcept {
+    v = std::max(v, 0.f);// unsigned format
+    auto bits = luisa::bit_cast<uint32_t>(v);
+    auto exp = static_cast<int>((bits >> 23u) & 0xffu) - 127 + 15;
+    auto man = (bits >> 18u) & 0x1fu;// top 5 mantissa bits
+    if (exp <= 0) return 0u;
+    if (exp >= 31) return (31u << 5u);// infinity
+    return (static_cast<uint32_t>(exp) << 5u) | man;
+}
+
+[[nodiscard]] inline float4 r11g11b10_to_float4(const std::byte *p) noexcept {
+    auto packed = *reinterpret_cast<const uint32_t *>(p);
+    auto r = r11_to_float(packed & 0x7ffu);
+    auto g = r11_to_float((packed >> 11u) & 0x7ffu);
+    auto b = r10_to_float((packed >> 22u) & 0x3ffu);
+    return make_float4(r, g, b, 0.f);
+}
+
+inline void float4_to_r11g11b10(std::byte *p, float4 v) noexcept {
+    auto r = float_to_r11(v.x);
+    auto g = float_to_r11(v.y);
+    auto b = float_to_r10(v.z);
+    *reinterpret_cast<uint32_t *>(p) = r | (g << 11u) | (b << 22u);
+}
+
 template<typename Dst, typename Src, uint dim>
 [[nodiscard]] inline auto read_pixel(const std::byte *p) noexcept {
     if constexpr (std::is_same_v<Dst, float>) {
@@ -227,6 +317,30 @@ template<typename T>
         case PixelStorage::FLOAT1: return detail::read_pixel<T, float, 1u>(p);
         case PixelStorage::FLOAT2: return detail::read_pixel<T, float, 2u>(p);
         case PixelStorage::FLOAT4: return detail::read_pixel<T, float, 4u>(p);
+        case PixelStorage::R10G10B10A2: {
+            if constexpr (std::is_same_v<T, float>) {
+                auto f = r10g10b10a2_to_float4(p);
+                return {f.x, f.y, f.z, f.w};
+            } else {
+                auto u = r10g10b10a2_to_uint4(p);
+                return {static_cast<T>(u.x), static_cast<T>(u.y),
+                        static_cast<T>(u.z), static_cast<T>(u.w)};
+            }
+        }
+        case PixelStorage::R11G11B10: {
+            if constexpr (std::is_same_v<T, float>) {
+                auto f = r11g11b10_to_float4(p);
+                return {f.x, f.y, f.z, f.w};
+            } else {
+                auto f = r11g11b10_to_float4(p);
+                uint u0, u1, u2;
+                std::memcpy(&u0, &f.x, sizeof(uint));
+                std::memcpy(&u1, &f.y, sizeof(uint));
+                std::memcpy(&u2, &f.z, sizeof(uint));
+                return {static_cast<T>(u0), static_cast<T>(u1),
+                        static_cast<T>(u2), static_cast<T>(0)};
+            }
+        }
         default: break;
     }
     return {};
@@ -279,6 +393,29 @@ inline void write_pixel(PixelStorage storage, std::byte *p, Vector<T, 4u> v) noe
             break;
         case PixelStorage::FLOAT4:
             detail::write_pixel<T, float, 4u>(p, v);
+            break;
+        case PixelStorage::R10G10B10A2:
+            if constexpr (std::is_same_v<T, float>) {
+                float4_to_r10g10b10a2(p, make_float4(v.x, v.y, v.z, v.w));
+            } else {
+                uint4_to_r10g10b10a2(p, make_uint4(
+                    static_cast<uint>(v.x), static_cast<uint>(v.y),
+                    static_cast<uint>(v.z), static_cast<uint>(v.w)));
+            }
+            break;
+        case PixelStorage::R11G11B10:
+            if constexpr (std::is_same_v<T, float>) {
+                float4_to_r11g11b10(p, make_float4(v.x, v.y, v.z, v.w));
+            } else {
+                auto u0 = static_cast<uint>(v.x);
+                auto u1 = static_cast<uint>(v.y);
+                auto u2 = static_cast<uint>(v.z);
+                float f0, f1, f2;
+                std::memcpy(&f0, &u0, sizeof(float));
+                std::memcpy(&f1, &u1, sizeof(float));
+                std::memcpy(&f2, &u2, sizeof(float));
+                float4_to_r11g11b10(p, make_float4(f0, f1, f2, 0.f));
+            }
             break;
         default: break;
     }
