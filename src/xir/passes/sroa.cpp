@@ -16,7 +16,7 @@ namespace detail {
 [[nodiscard]] static bool is_sroa_candidate(AllocaInst *alloca) noexcept {
     if (alloca->op() != AllocaOp::LOCAL) return false;
     auto type = alloca->type();
-    if (!type->is_structure() && !type->is_array()) return false;
+    if (!type->is_structure() && !type->is_array() && !type->is_vector() && !type->is_matrix()) return false;
 
     luisa::vector<const Instruction *> work_list;
     luisa::unordered_set<const Instruction *> visited;
@@ -60,6 +60,16 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
         auto elem = type->element();
         for (size_t i = 0; i < type->dimension(); ++i) {
             elem_types.push_back(elem);
+        }
+    } else if (type->is_vector()) {
+        auto elem = type->element();
+        for (size_t i = 0; i < type->dimension(); ++i) {
+            elem_types.push_back(elem);
+        }
+    } else if (type->is_matrix()) {
+        auto col_type = Type::vector(type->element(), type->dimension());
+        for (size_t i = 0; i < type->dimension(); ++i) {
+            elem_types.push_back(col_type);
         }
     } else {
         return;
