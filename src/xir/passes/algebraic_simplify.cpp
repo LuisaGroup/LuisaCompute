@@ -113,6 +113,33 @@ namespace detail {
                 return inst->operand(0);
             break;
         }
+        case ArithmeticOp::EXTRACT: {
+            auto src = inst->operand(0);
+            auto idx = inst->operand(1);
+            if (!idx->isa<Constant>()) break;
+            auto idx_val = static_cast<const Constant *>(idx)->as<uint32_t>();
+            if (src->isa<Instruction>()) {
+                auto src_inst = static_cast<Instruction *>(src);
+                if (src_inst->isa<ArithmeticInst>()) {
+                    auto src_arith = static_cast<ArithmeticInst *>(src_inst);
+                    if (src_arith->op() == ArithmeticOp::AGGREGATE) {
+                        if (idx_val < src_arith->operand_count()) {
+                            return src_arith->operand(idx_val);
+                        }
+                    }
+                    if (src_arith->op() == ArithmeticOp::INSERT) {
+                        auto insert_idx = src_arith->operand(2);
+                        if (insert_idx->isa<Constant>()) {
+                            auto insert_idx_val = static_cast<const Constant *>(insert_idx)->as<uint32_t>();
+                            if (insert_idx_val == idx_val) {
+                                return src_arith->operand(1);
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        }
         default:
             break;
     }

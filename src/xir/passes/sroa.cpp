@@ -13,10 +13,15 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-[[nodiscard]] static bool is_sroa_candidate(AllocaInst *alloca) noexcept {
+[[nodiscard]] static bool is_sroa_candidate(AllocaInst *alloca, const SROAOptions &options) noexcept {
     if (alloca->op() != AllocaOp::LOCAL) return false;
     auto type = alloca->type();
-    if (!type->is_structure() && !type->is_array() && !type->is_vector() && !type->is_matrix()) return false;
+    if (type->is_structure() || type->is_array()) {
+    } else if (type->is_vector() && options.decompose_vectors) {
+    } else if (type->is_matrix() && options.decompose_matrices) {
+    } else {
+        return false;
+    }
 
     luisa::vector<const Instruction *> work_list;
     luisa::unordered_set<const Instruction *> visited;
@@ -49,7 +54,8 @@ namespace detail {
 }
 
 static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &builder,
-                             luisa::unordered_map<const Instruction *, Instruction *> &replacement_map) noexcept {
+                             luisa::unordered_map<const Instruction *, Instruction *> &replacement_map,
+                             const SROAOptions &options) noexcept {
     auto type = alloca->type();
     luisa::vector<const Type *> elem_types;
 
@@ -61,12 +67,12 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
         for (size_t i = 0; i < type->dimension(); ++i) {
             elem_types.push_back(elem);
         }
-    } else if (type->is_vector()) {
+    } else if (type->is_vector() && options.decompose_vectors) {
         auto elem = type->element();
         for (size_t i = 0; i < type->dimension(); ++i) {
             elem_types.push_back(elem);
         }
-    } else if (type->is_matrix()) {
+    } else if (type->is_matrix() && options.decompose_matrices) {
         auto col_type = Type::vector(type->element(), type->dimension());
         for (size_t i = 0; i < type->dimension(); ++i) {
             elem_types.push_back(col_type);
@@ -155,7 +161,7 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
     info.decomposed_alloca_count++;
 }
 
-static void sroa_pass_on_function(Function *function, SROAInfo &info) noexcept {
+static void sroa_pass_on_function(Function *function, SROAInfo &info, const SROAOptions &options) noexcept {
     auto def = function->definition();
     if (!def) return;
 
@@ -163,7 +169,7 @@ static void sroa_pass_on_function(Function *function, SROAInfo &info) noexcept {
     def->traverse_instructions([&](Instruction *inst) noexcept {
         if (inst->isa<AllocaInst>()) {
             auto alloca = static_cast<AllocaInst *>(inst);
-            if (is_sroa_candidate(alloca)) {
+            if (is_sroa_candidate(alloca, options)) {
                 candidates.push_back(alloca);
             }
         }
@@ -174,22 +180,22 @@ static void sroa_pass_on_function(Function *function, SROAInfo &info) noexcept {
     XIRBuilder builder;
     luisa::unordered_map<const Instruction *, Instruction *> replacement_map;
     for (auto alloca : candidates) {
-        decompose_alloca(alloca, info, builder, replacement_map);
+        decompose_alloca(alloca, info, builder, replacement_map, options);
     }
 }
 
 }// namespace detail
 
-SROAInfo sroa_pass_run_on_function(Function *function) noexcept {
+SROAInfo sroa_pass_run_on_function(Function *function, SROAOptions options) noexcept {
     SROAInfo info;
-    detail::sroa_pass_on_function(function, info);
+    detail::sroa_pass_on_function(function, info, options);
     return info;
 }
 
-SROAInfo sroa_pass_run_on_module(Module *module) noexcept {
+SROAInfo sroa_pass_run_on_module(Module *module, SROAOptions options) noexcept {
     SROAInfo info;
     for (auto f : module->function_list()) {
-        detail::sroa_pass_on_function(f, info);
+        detail::sroa_pass_on_function(f, info, options);
     }
     return info;
 }
