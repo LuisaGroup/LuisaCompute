@@ -473,7 +473,7 @@ void Tlas::pre_build(
     auto acceleration_structure_geometry = cmdbuffer.temp_desc->allocate_memory<VkAccelerationStructureGeometryKHR>();
     acceleration_structure_geometry->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
     acceleration_structure_geometry->geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-    acceleration_structure_geometry->flags = 0;
+    acceleration_structure_geometry->flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
     acceleration_structure_geometry->geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
     acceleration_structure_geometry->geometry.instances.arrayOfPointers = VK_FALSE;
     acceleration_structure_geometry->geometry.instances.data = instance_data_device_address;
