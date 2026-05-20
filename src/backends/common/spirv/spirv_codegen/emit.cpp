@@ -679,7 +679,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
 
     _builder.postProcess(false);
 
-    std::vector<unsigned int> spirv;
+    std::vector<uint32_t> spirv;
     _builder.dump(spirv);
     std::ostringstream oss;
     spv::Disassemble(oss, spirv);

@@ -38,6 +38,28 @@ import bootstrap
 bootstrap.prepare_msvc_environment()
 ```
 
+### `scripts/agent_windows_cmake.py`
+
+One-shot configure + build + verify on Windows. CI-matching flags (`LUISA_COMPUTE_ENABLE_RUST=OFF`, `LUISA_COMPUTE_ENABLE_REMOTE=OFF`, `LUISA_COMPUTE_ENABLE_CPU=OFF`).
+
+```bash
+# Full pipeline: configure → build → verify
+python scripts/agent_windows_cmake.py
+
+# Individual steps
+python scripts/agent_windows_cmake.py --config          # configure only
+python scripts/agent_windows_cmake.py --build           # build only
+python scripts/agent_windows_cmake.py --verify          # check key .lib/.dll outputs
+python scripts/agent_windows_cmake.py --clean           # clear CMake cache
+
+# Options
+python scripts/agent_windows_cmake.py --type Debug      # Debug build
+python scripts/agent_windows_cmake.py -j 8              # limit parallel jobs
+python scripts/agent_windows_cmake.py --clean --config  # clean re-configure
+```
+
+Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC environment via `vswhere`. Verifies: `SPIRV-Tools-opt.lib`, `SPIRV-Tools.lib`, `luisa-ast.dll`, `luisa-core.dll`.
+
 ## Build Options
 
 | Option | Default | Description |

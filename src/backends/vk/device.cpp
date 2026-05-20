@@ -110,7 +110,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debug_utils_messenger_callback(
     if (message_severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
         vstd::string debug_message;
         debug_message << prefix << "[" << vstd::to_string(p_callback_data->messageIdNumber) << "][" << p_callback_data->pMessageIdName << "] : " << p_callback_data->pMessage;
-        LUISA_ERROR("{}", debug_message);
+        LUISA_WARNING("{}", debug_message);
     }
     // The return value of this callback controls whether the Vulkan call that caused the validation message will be aborted or not
     // We return VK_FALSE as we DON'T want Vulkan calls that cause a validation message to abort
