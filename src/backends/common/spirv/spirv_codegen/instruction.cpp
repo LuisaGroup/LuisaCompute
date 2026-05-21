@@ -116,7 +116,36 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         case xir::ArithmeticOp::BINARY_MUL: {
             if (is_float) {
-                id = binary(spv::Op::OpFMul);
+                // Peephole: if one operand is a smeared scalar, use VectorTimesScalar
+                if (!is_scalar) {
+                    auto op0 = inst->operand(0);
+                    auto op1 = inst->operand(1);
+                    auto try_vts = [&](const xir::Value *vec, const xir::Value *smeared) -> spv::Id {
+                        if (smeared->isa<xir::Instruction>()) {
+                            auto *smear_inst = static_cast<const xir::Instruction *>(smeared);
+                            if (smear_inst->derived_instruction_tag() == xir::DerivedInstructionTag::ARITHMETIC) {
+                                auto *arith = static_cast<const xir::ArithmeticInst *>(smear_inst);
+                                if (arith->op() == xir::ArithmeticOp::AGGREGATE) {
+                                    bool all_same = arith->operand_count() > 1;
+                                    for (size_t j = 1; j < arith->operand_count(); ++j) {
+                                        if (arith->operand(j) != arith->operand(0)) {
+                                            all_same = false;
+                                            break;
+                                        }
+                                    }
+                                    if (all_same) {
+                                        auto scalar = _emit_value(arith->operand(0));
+                                        return _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, _emit_value(vec), scalar);
+                                    }
+                                }
+                            }
+                        }
+                        return spv::NoResult;
+                    };
+                    id = try_vts(op0, op1);
+                    if (id == spv::NoResult) id = try_vts(op1, op0);
+                }
+                if (id == spv::NoResult) id = binary(spv::Op::OpFMul);
             } else {
                 auto a = operand(0);
                 auto b = operand(1);
@@ -539,8 +568,11 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         case xir::ArithmeticOp::EXP10: {
             auto log2_10 = _builder.makeFloatConstant(3.321928094887362f);
-            if (!is_scalar) log2_10 = _builder.smearScalar(spv::NoPrecision, log2_10, type);
-            auto scaled = _builder.createBinOp(spv::Op::OpFMul, type, operand(0), log2_10);
+            spv::Id scaled;
+            if (!is_scalar)
+                scaled = _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, operand(0), log2_10);
+            else
+                scaled = _builder.createBinOp(spv::Op::OpFMul, type, operand(0), log2_10);
             id = glsl(GLSLstd450Exp2, scaled);
             break;
         }
@@ -552,9 +584,11 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         case xir::ArithmeticOp::LOG10: {
             auto inv_log2_10 = _builder.makeFloatConstant(0.3010299956639812f);
-            if (!is_scalar) inv_log2_10 = _builder.smearScalar(spv::NoPrecision, inv_log2_10, type);
             auto log2_val = glsl(GLSLstd450Log2, operand(0));
-            id = _builder.createBinOp(spv::Op::OpFMul, type, log2_val, inv_log2_10);
+            if (!is_scalar)
+                id = _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, log2_val, inv_log2_10);
+            else
+                id = _builder.createBinOp(spv::Op::OpFMul, type, log2_val, inv_log2_10);
             break;
         }
         case xir::ArithmeticOp::POW:
@@ -584,12 +618,14 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = glsl(GLSLstd450Trunc, operand(0));
             break;
         case xir::ArithmeticOp::ROUND: {
-            // round-away-from-zero: trunc(x + copysign(0.5, x))
             auto x = operand(0);
             auto half = _builder.makeFloatConstant(0.5f);
-            if (!is_scalar) half = _builder.smearScalar(spv::NoPrecision, half, type);
             auto sign = glsl(GLSLstd450FSign, x);
-            auto signed_half = _builder.createBinOp(spv::Op::OpFMul, type, half, sign);
+            spv::Id signed_half;
+            if (!is_scalar)
+                signed_half = _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, sign, half);
+            else
+                signed_half = _builder.createBinOp(spv::Op::OpFMul, type, half, sign);
             auto sum = _builder.createBinOp(spv::Op::OpFAdd, type, x, signed_half);
             id = glsl(GLSLstd450Trunc, sum);
             break;
@@ -697,8 +733,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             rows.reserve(a_dim);
             for (uint i = 0u; i < a_dim; ++i) {
                 auto ai = _builder.createCompositeExtract(a, elem_spv_type, i);
-                auto smeared = _builder.smearScalar(spv::NoPrecision, ai, vec_type);
-                auto row = _builder.createBinOp(spv::Op::OpFMul, vec_type, smeared, b);
+                auto row = _builder.createBinOp(spv::Op::OpVectorTimesScalar, vec_type, b, ai);
                 rows.push_back(row);
             }
             id = _builder.createCompositeConstruct(type, rows);
