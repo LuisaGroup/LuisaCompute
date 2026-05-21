@@ -43,6 +43,10 @@ inline bool approx_eq(float a, float b, float eps = float_eps) noexcept {
     return diff <= eps || diff <= eps * scale;
 }
 
+inline bool approx_eq(float2 a, float2 b, float eps = float_eps) noexcept {
+    return approx_eq(a.x, b.x, eps) && approx_eq(a.y, b.y, eps);
+}
+
 inline bool approx_eq(float3 a, float3 b, float eps = float_eps) noexcept {
     return approx_eq(a.x, b.x, eps) && approx_eq(a.y, b.y, eps) && approx_eq(a.z, b.z, eps);
 }
@@ -50,6 +54,36 @@ inline bool approx_eq(float3 a, float3 b, float eps = float_eps) noexcept {
 inline bool approx_eq(float4 a, float4 b, float eps = float_eps) noexcept {
     return approx_eq(a.x, b.x, eps) && approx_eq(a.y, b.y, eps) && approx_eq(a.z, b.z, eps) && approx_eq(a.w, b.w, eps);
 }
+
+// Complex struct for testing scalar, vector, and matrix types
+struct ComplexStruct {
+    bool b;
+    int8_t i8;
+    uint8_t u8;
+    int16_t i16;
+    uint16_t u16;
+    int i32;
+    uint u32;
+    slong i64;
+    ulong u64;
+    half h;
+    float f;
+    double d;
+    float2 f2;
+    float3 f3;
+    float4 f4;
+    half3 h3;
+    half4 h4;
+    int4 i4;
+    double2 d2;
+    double3 d3;
+    double4 d4;
+    half2x2 h2x2;
+    float2x2 f2x2;
+    float3x3 f3x3;
+    float4x4 f4x4;
+};
+LUISA_STRUCT(ComplexStruct, b, i8, u8, i16, u16, i32, u32, i64, u64, h, f, d, f2, f3, f4, h3, h4, i4, d2, d3, d4, h2x2, f2x2, f3x3, f4x4) {};
 
 int main(int argc, char *argv[]) {
     log_level_verbose();
@@ -589,6 +623,423 @@ int main(int argc, char *argv[]) {
         LUISA_ASSERT(approx_eq(out[2], 2.0f), "copysign failed");
         LUISA_ASSERT(approx_eq(out[3], -2.0f), "copysign failed");
         LUISA_INFO("FMA and copysign passed.");
+    }
+
+    // ============================================================
+    // Test 14: Complex struct with scalar, vector, and matrix types
+    // ============================================================
+    {
+        // Log host-side struct layout for debugging SPIR-V byte-buffer alignment
+        LUISA_INFO("ComplexStruct host layout: size={}", sizeof(ComplexStruct));
+        LUISA_INFO("  b    offset={}, size={}", offsetof(ComplexStruct, b), sizeof(bool));
+        LUISA_INFO("  i8   offset={}, size={}", offsetof(ComplexStruct, i8), sizeof(int8_t));
+        LUISA_INFO("  u8   offset={}, size={}", offsetof(ComplexStruct, u8), sizeof(uint8_t));
+        LUISA_INFO("  i16  offset={}, size={}", offsetof(ComplexStruct, i16), sizeof(int16_t));
+        LUISA_INFO("  u16  offset={}, size={}", offsetof(ComplexStruct, u16), sizeof(uint16_t));
+        LUISA_INFO("  i32  offset={}, size={}", offsetof(ComplexStruct, i32), sizeof(int));
+        LUISA_INFO("  u32  offset={}, size={}", offsetof(ComplexStruct, u32), sizeof(uint));
+        LUISA_INFO("  i64  offset={}, size={}", offsetof(ComplexStruct, i64), sizeof(slong));
+        LUISA_INFO("  u64  offset={}, size={}", offsetof(ComplexStruct, u64), sizeof(ulong));
+        LUISA_INFO("  h    offset={}, size={}", offsetof(ComplexStruct, h), sizeof(half));
+        LUISA_INFO("  f    offset={}, size={}", offsetof(ComplexStruct, f), sizeof(float));
+        LUISA_INFO("  d    offset={}, size={}", offsetof(ComplexStruct, d), sizeof(double));
+        LUISA_INFO("  f2   offset={}, size={}", offsetof(ComplexStruct, f2), sizeof(float2));
+        LUISA_INFO("  f3   offset={}, size={}", offsetof(ComplexStruct, f3), sizeof(float3));
+        LUISA_INFO("  f4   offset={}, size={}", offsetof(ComplexStruct, f4), sizeof(float4));
+        LUISA_INFO("  h3   offset={}, size={}", offsetof(ComplexStruct, h3), sizeof(half3));
+        LUISA_INFO("  h4   offset={}, size={}", offsetof(ComplexStruct, h4), sizeof(half4));
+        LUISA_INFO("  i4   offset={}, size={}", offsetof(ComplexStruct, i4), sizeof(int4));
+        LUISA_INFO("  d2   offset={}, size={}", offsetof(ComplexStruct, d2), sizeof(double2));
+        LUISA_INFO("  d3   offset={}, size={}", offsetof(ComplexStruct, d3), sizeof(double3));
+        LUISA_INFO("  d4   offset={}, size={}", offsetof(ComplexStruct, d4), sizeof(double4));
+        LUISA_INFO("  h2x2 offset={}, size={}", offsetof(ComplexStruct, h2x2), sizeof(half2x2));
+        LUISA_INFO("  f2x2 offset={}, size={}", offsetof(ComplexStruct, f2x2), sizeof(float2x2));
+        LUISA_INFO("  f3x3 offset={}, size={}", offsetof(ComplexStruct, f3x3), sizeof(float3x3));
+        LUISA_INFO("  f4x4 offset={}, size={}", offsetof(ComplexStruct, f4x4), sizeof(float4x4));
+
+        // Prepare 4 instances with diverse initial values
+        ComplexStruct host_in[4] = {
+            {true, 1, 2, 10, 20, 100, 200u, 1000ll, 2000ull, half(1.0f), 1.0f, 1.0,
+             make_float2(1.0f, 2.0f),
+             make_float3(1.0f, 2.0f, 3.0f),
+             make_float4(1.0f, 2.0f, 3.0f, 4.0f),
+             make_half3(half(1.0f), half(2.0f), half(3.0f)),
+             make_half4(half(1.0f), half(2.0f), half(3.0f), half(4.0f)),
+             make_int4(1, 2, 3, 4),
+             make_double2(1.0, 2.0),
+             make_double3(1.0, 2.0, 3.0),
+             make_double4(1.0, 2.0, 3.0, 4.0),
+             make_half2x2(half(1.0f), half(2.0f), half(3.0f), half(4.0f)),
+             make_float2x2(1.0f, 2.0f, 3.0f, 4.0f),
+             make_float3x3(make_float3(1.0f, 2.0f, 3.0f),
+                           make_float3(4.0f, 5.0f, 6.0f),
+                           make_float3(7.0f, 8.0f, 9.0f)),
+             make_float4x4(1.0f, 0.0f, 0.0f, 0.0f,
+                           0.0f, 2.0f, 0.0f, 0.0f,
+                           0.0f, 0.0f, 3.0f, 0.0f,
+                           0.0f, 0.0f, 0.0f, 4.0f)},
+            {false, -1, 200, -5, 100, -50, 500u, -1000ll, 5000ull, half(0.5f), 2.5f, 2.0,
+             make_float2(3.0f, 4.0f),
+             make_float3(4.0f, 5.0f, 6.0f),
+             make_float4(5.0f, 6.0f, 7.0f, 8.0f),
+             make_half3(half(4.0f), half(5.0f), half(6.0f)),
+             make_half4(half(5.0f), half(6.0f), half(7.0f), half(8.0f)),
+             make_int4(5, 6, 7, 8),
+             make_double2(3.0, 4.0),
+             make_double3(4.0, 5.0, 6.0),
+             make_double4(5.0, 6.0, 7.0, 8.0),
+             make_half2x2(half(0.5f), half(1.5f), half(2.5f), half(3.5f)),
+             make_float2x2(5.0f, 6.0f, 7.0f, 8.0f),
+             make_float3x3(make_float3(9.0f, 8.0f, 7.0f),
+                           make_float3(6.0f, 5.0f, 4.0f),
+                           make_float3(3.0f, 2.0f, 1.0f)),
+             make_float4x4(0.0f, 1.0f, 0.0f, 0.0f,
+                           0.0f, 0.0f, 1.0f, 0.0f,
+                           0.0f, 0.0f, 0.0f, 1.0f,
+                           1.0f, 0.0f, 0.0f, 0.0f)},
+            {true, 127, 255, 32767, 65535, 1000000, 3000000u, 9223372036854775807ll, 10000ull, half(2.0f), -1.0f, 0.5,
+             make_float2(-1.0f, -2.0f),
+             make_float3(-1.0f, -2.0f, -3.0f),
+             make_float4(-1.0f, -2.0f, -3.0f, -4.0f),
+             make_half3(half(0.5f), half(1.0f), half(1.5f)),
+             make_half4(half(0.5f), half(1.0f), half(1.5f), half(2.0f)),
+             make_int4(-1, -2, -3, -4),
+             make_double2(-1.0, -2.0),
+             make_double3(-1.0, -2.0, -3.0),
+             make_double4(-1.0, -2.0, -3.0, -4.0),
+             make_half2x2(half(10.0f), half(20.0f), half(30.0f), half(40.0f)),
+             make_float2x2(-1.0f, -2.0f, -3.0f, -4.0f),
+             make_float3x3(make_float3(0.5f, 0.0f, 0.0f),
+                           make_float3(0.0f, 2.0f, 0.0f),
+                           make_float3(0.0f, 0.0f, 3.0f)),
+             make_float4x4(2.0f, 0.0f, 0.0f, 1.0f,
+                           0.0f, 2.0f, 0.0f, 1.0f,
+                           0.0f, 0.0f, 2.0f, 1.0f,
+                           0.0f, 0.0f, 0.0f, 2.0f)},
+            {false, -128, 0, -32768, 0, -1000000, 0u, -9223372036854775807ll - 1ll, 0ull, half(10.0f), 100.0f, 10.0,
+             make_float2(0.0f, 0.0f),
+             make_float3(0.0f, 0.0f, 1.0f),
+             make_float4(0.0f, 0.0f, 0.0f, 1.0f),
+             make_half3(half(10.0f), half(20.0f), half(30.0f)),
+             make_half4(half(10.0f), half(20.0f), half(30.0f), half(40.0f)),
+             make_int4(100, 200, 300, 400),
+             make_double2(10.0, 20.0),
+             make_double3(10.0, 20.0, 30.0),
+             make_double4(10.0, 20.0, 30.0, 40.0),
+             make_half2x2(half(-1.0f), half(-2.0f), half(-3.0f), half(-4.0f)),
+             make_float2x2(0.0f, 1.0f, 1.0f, 0.0f),
+             make_float3x3(make_float3(1.0f, 0.0f, 0.0f),
+                           make_float3(0.0f, 1.0f, 0.0f),
+                           make_float3(0.0f, 0.0f, 1.0f)),
+             make_float4x4(1.0f, 0.0f, 0.0f, 0.0f,
+                           0.0f, 1.0f, 0.0f, 0.0f,
+                           0.0f, 0.0f, 1.0f, 0.0f,
+                           0.0f, 0.0f, 0.0f, 1.0f)},
+        };
+
+        auto in_buf = device.create_buffer<ComplexStruct>(4);
+        auto out_buf = device.create_buffer<ComplexStruct>(4);
+        stream << in_buf.copy_from(luisa::span{host_in, 4}) << synchronize();
+
+        Kernel1D kernel = [&](BufferVar<ComplexStruct> input, BufferVar<ComplexStruct> output) noexcept {
+            $uint i = dispatch_x();
+            Var<ComplexStruct> s = input.read(i);
+
+            // Scalar transformations
+            Var<bool> b_out = !s.b;
+            Var<int8_t> i8_out = cast<int8_t>(s.i8 + cast<int8_t>(7));
+            Var<uint8_t> u8_out = cast<uint8_t>(s.u8 * cast<uint8_t>(3u));
+            Var<int16_t> i16_out = -s.i16;
+            Var<uint16_t> u16_out = cast<uint16_t>(s.u16 + cast<uint16_t>(42u));
+            Var<int> i32_out = s.i32 * 2;
+            Var<uint> u32_out = s.u32 + 100u;
+            Var<slong> i64_out = s.i64 + 1ll;
+            Var<ulong> u64_out = s.u64 * 2ull;
+            Var<half> h_out = s.h * cast<half>(2.0f);
+            Var<float> f_out = s.f * 3.0f + 1.0f;
+            Var<double> d_out = s.d * 2.0;
+
+            // Vector transformations
+            Var<float2> f2_out = make_float2(s.f2.y, s.f2.x);
+            Var<float3> f3_out = normalize(s.f3) + make_float3(0.1f, 0.2f, 0.3f);
+            Var<float4> f4_out = make_float4(s.f4.w, s.f4.z, s.f4.y, s.f4.x);
+            Var<half3> h3_out = make_half3(s.h3.z, s.h3.x, s.h3.y);
+            Var<half4> h4_out = make_half4(s.h4.w, s.h4.z, s.h4.y, s.h4.x);
+            Var<int4> i4_out = s.i4 + make_int4(1, 2, 3, 4);
+            Var<double2> d2_out = make_double2(s.d2.y, s.d2.x);
+            Var<double3> d3_out = make_double3(s.d3.z, s.d3.x, s.d3.y);
+            Var<double4> d4_out = make_double4(s.d4.w, s.d4.z, s.d4.y, s.d4.x);
+
+            // Matrix transformations
+            Var<half2x2> h2x2_out = transpose(s.h2x2);
+            Var<float2x2> f2x2_out = transpose(s.f2x2);
+            Var<float3x3> f3x3_out = transpose(s.f3x3);
+            Var<float4x4> f4x4_out = transpose(s.f4x4);
+
+            // Build output struct
+            Var<ComplexStruct> result;
+            result.b = b_out;
+            result.i8 = i8_out;
+            result.u8 = u8_out;
+            result.i16 = i16_out;
+            result.u16 = u16_out;
+            result.i32 = i32_out;
+            result.u32 = u32_out;
+            result.i64 = i64_out;
+            result.u64 = u64_out;
+            result.h = h_out;
+            result.f = f_out;
+            result.d = d_out;
+            result.f2 = f2_out;
+            result.f3 = f3_out;
+            result.f4 = f4_out;
+            result.h3 = h3_out;
+            result.h4 = h4_out;
+            result.i4 = i4_out;
+            result.d2 = d2_out;
+            result.d3 = d3_out;
+            result.d4 = d4_out;
+            result.h2x2 = h2x2_out;
+            result.f2x2 = f2x2_out;
+            result.f3x3 = f3x3_out;
+            result.f4x4 = f4x4_out;
+
+            output.write(i, result);
+        };
+        auto shader = device.compile(kernel);
+        stream << shader(in_buf, out_buf).dispatch(4) << synchronize();
+
+        luisa::vector<ComplexStruct> out(4);
+        stream << out_buf.copy_to(luisa::span{out.data(), out.size()}) << synchronize();
+
+        // Host-side expected computation and verification
+        for (int i = 0; i < 4; ++i) {
+            const auto &in = host_in[i];
+            const auto &res = out[i];
+
+            // bool: flip
+            LUISA_ASSERT(res.b == !in.b,
+                         "[{}] bool flip failed: got {}, expected {}", i, res.b, !in.b);
+            LUISA_INFO("[{}] bool: {} -> {} OK", i, in.b, res.b);
+
+            // int8_t: add 7 (wrapping)
+            auto exp_i8 = static_cast<int8_t>(in.i8 + 7);
+            LUISA_ASSERT(res.i8 == exp_i8,
+                         "[{}] int8 add7 failed: got {}, expected {}", i, res.i8, exp_i8);
+            LUISA_INFO("[{}] int8: {} -> {} OK", i, in.i8, res.i8);
+
+            // uint8_t: mul 3 (wrapping)
+            auto exp_u8 = static_cast<uint8_t>(in.u8 * 3u);
+            LUISA_ASSERT(res.u8 == exp_u8,
+                         "[{}] uint8 mul3 failed: got {}, expected {}", i, res.u8, exp_u8);
+            LUISA_INFO("[{}] uint8: {} -> {} OK", i, in.u8, res.u8);
+
+            // int16_t: negate
+            auto exp_i16 = static_cast<int16_t>(-in.i16);
+            LUISA_ASSERT(res.i16 == exp_i16,
+                         "[{}] int16 neg failed: got {}, expected {}", i, res.i16, exp_i16);
+            LUISA_INFO("[{}] int16: {} -> {} OK", i, in.i16, res.i16);
+
+            // uint16_t: add 42
+            auto exp_u16 = static_cast<uint16_t>(in.u16 + 42u);
+            LUISA_ASSERT(res.u16 == exp_u16,
+                         "[{}] uint16 add42 failed: got {}, expected {}", i, res.u16, exp_u16);
+            LUISA_INFO("[{}] uint16: {} -> {} OK", i, in.u16, res.u16);
+
+            // int32: mul 2
+            auto exp_i32 = in.i32 * 2;
+            LUISA_ASSERT(res.i32 == exp_i32,
+                         "[{}] int32 mul2 failed: got {}, expected {}", i, res.i32, exp_i32);
+            LUISA_INFO("[{}] int32: {} -> {} OK", i, in.i32, res.i32);
+
+            // uint32: add 100
+            auto exp_u32 = in.u32 + 100u;
+            LUISA_ASSERT(res.u32 == exp_u32,
+                         "[{}] uint32 add100 failed: got {}, expected {}", i, res.u32, exp_u32);
+            LUISA_INFO("[{}] uint32: {} -> {} OK", i, in.u32, res.u32);
+
+            // int64: add 1
+            auto exp_i64 = in.i64 + 1;
+            LUISA_ASSERT(res.i64 == exp_i64,
+                         "[{}] int64 add1 failed: got {}, expected {}", i, res.i64, exp_i64);
+            LUISA_INFO("[{}] int64: {} -> {} OK", i, in.i64, res.i64);
+
+            // uint64: mul 2
+            auto exp_u64 = in.u64 * 2ull;
+            LUISA_ASSERT(res.u64 == exp_u64,
+                         "[{}] uint64 mul2 failed: got {}, expected {}", i, res.u64, exp_u64);
+            LUISA_INFO("[{}] uint64: {} -> {} OK", i, in.u64, res.u64);
+
+            // half: multiply by 2
+            half exp_h = in.h * half(2.0f);
+            float h_got = static_cast<float>(res.h);
+            float h_exp = static_cast<float>(exp_h);
+            LUISA_ASSERT(approx_eq(h_got, h_exp, 1e-2f),
+                         "[{}] half mul2 failed: got {}, expected {}", i, h_got, h_exp);
+            LUISA_INFO("[{}] half: {} -> {} OK", i, static_cast<float>(in.h), h_got);
+
+            // float: f * 3 + 1
+            float exp_f = in.f * 3.0f + 1.0f;
+            LUISA_ASSERT(approx_eq(res.f, exp_f),
+                         "[{}] float fmul3add1 failed: got {}, expected {}", i, res.f, exp_f);
+            LUISA_INFO("[{}] float: {} -> {} OK", i, in.f, res.f);
+
+            // double: multiply by 2
+            double exp_d = in.d * 2.0;
+            LUISA_ASSERT(std::abs(res.d - exp_d) < 1e-9 ||
+                             std::abs(res.d - exp_d) < 1e-9 * std::max(std::abs(res.d), std::abs(exp_d)),
+                         "[{}] double mul2 failed: got {}, expected {}", i, res.d, exp_d);
+            LUISA_INFO("[{}] double: {} -> {} OK", i, in.d, res.d);
+
+            // float2: swap components
+            float2 exp_f2 = make_float2(in.f2.y, in.f2.x);
+            LUISA_ASSERT(approx_eq(res.f2, exp_f2),
+                         "[{}] float2 swap failed: got ({},{}), expected ({},{})",
+                         i, res.f2.x, res.f2.y, exp_f2.x, exp_f2.y);
+            LUISA_INFO("[{}] float2: ({},{}) -> ({},{}) OK",
+                       i, in.f2.x, in.f2.y, res.f2.x, res.f2.y);
+
+            // float3: normalize + offset
+            float len3 = std::sqrt(in.f3.x * in.f3.x + in.f3.y * in.f3.y + in.f3.z * in.f3.z);
+            float3 exp_f3 = make_float3(in.f3.x / len3 + 0.1f, in.f3.y / len3 + 0.2f, in.f3.z / len3 + 0.3f);
+            LUISA_ASSERT(approx_eq(res.f3, exp_f3),
+                         "[{}] float3 norm+off failed: got ({},{},{}), expected ({},{},{})",
+                         i, res.f3.x, res.f3.y, res.f3.z, exp_f3.x, exp_f3.y, exp_f3.z);
+            LUISA_INFO("[{}] float3: ({},{},{}) -> ({},{},{}) OK",
+                       i, in.f3.x, in.f3.y, in.f3.z, res.f3.x, res.f3.y, res.f3.z);
+
+            // float4: reverse components
+            float4 exp_f4 = make_float4(in.f4.w, in.f4.z, in.f4.y, in.f4.x);
+            LUISA_ASSERT(approx_eq(res.f4, exp_f4),
+                         "[{}] float4 reverse failed: got ({},{},{},{}), expected ({},{},{},{})",
+                         i, res.f4.x, res.f4.y, res.f4.z, res.f4.w,
+                         exp_f4.x, exp_f4.y, exp_f4.z, exp_f4.w);
+            LUISA_INFO("[{}] float4: ({},{},{},{}) -> ({},{},{},{}) OK",
+                       i, in.f4.x, in.f4.y, in.f4.z, in.f4.w,
+                       res.f4.x, res.f4.y, res.f4.z, res.f4.w);
+
+            // half3: rotate (z,x,y)
+            half3 exp_h3 = make_half3(in.h3.z, in.h3.x, in.h3.y);
+            for (int c = 0; c < 3; ++c) {
+                float got_c = static_cast<float>(res.h3[c]);
+                float exp_c = static_cast<float>(exp_h3[c]);
+                LUISA_ASSERT(approx_eq(got_c, exp_c, 1e-2f),
+                             "[{}] half3 rotate[{}] failed: got {}, expected {}", i, c, got_c, exp_c);
+            }
+            LUISA_INFO("[{}] half3: ({:.2f},{:.2f},{:.2f}) -> ({:.2f},{:.2f},{:.2f}) OK",
+                       i, static_cast<float>(in.h3.x), static_cast<float>(in.h3.y), static_cast<float>(in.h3.z),
+                       static_cast<float>(res.h3.x), static_cast<float>(res.h3.y), static_cast<float>(res.h3.z));
+
+            // half4: reverse components
+            half4 exp_h4 = make_half4(in.h4.w, in.h4.z, in.h4.y, in.h4.x);
+            for (int c = 0; c < 4; ++c) {
+                float got_c = static_cast<float>(res.h4[c]);
+                float exp_c = static_cast<float>(exp_h4[c]);
+                LUISA_ASSERT(approx_eq(got_c, exp_c, 1e-2f),
+                             "[{}] half4 reverse[{}] failed: got {}, expected {}", i, c, got_c, exp_c);
+            }
+            LUISA_INFO("[{}] half4 reverse OK", i);
+
+            // int4: add (1,2,3,4)
+            int4 exp_i4 = in.i4 + make_int4(1, 2, 3, 4);
+            LUISA_ASSERT(all(res.i4 == exp_i4),
+                         "[{}] int4 add failed: got ({},{},{},{}), expected ({},{},{},{})",
+                         i, res.i4.x, res.i4.y, res.i4.z, res.i4.w,
+                         exp_i4.x, exp_i4.y, exp_i4.z, exp_i4.w);
+            LUISA_INFO("[{}] int4: ({},{},{},{}) -> ({},{},{},{}) OK",
+                       i, in.i4.x, in.i4.y, in.i4.z, in.i4.w,
+                       res.i4.x, res.i4.y, res.i4.z, res.i4.w);
+
+            // double2: swap components
+            double2 exp_d2 = make_double2(in.d2.y, in.d2.x);
+            LUISA_ASSERT(std::abs(res.d2.x - exp_d2.x) < 1e-9 &&
+                             std::abs(res.d2.y - exp_d2.y) < 1e-9,
+                         "[{}] double2 swap failed: got ({},{}), expected ({},{})",
+                         i, res.d2.x, res.d2.y, exp_d2.x, exp_d2.y);
+            LUISA_INFO("[{}] double2: ({},{}) -> ({},{}) OK",
+                       i, in.d2.x, in.d2.y, res.d2.x, res.d2.y);
+
+            // double3: rotate (z,x,y)
+            double3 exp_d3 = make_double3(in.d3.z, in.d3.x, in.d3.y);
+            LUISA_ASSERT(std::abs(res.d3.x - exp_d3.x) < 1e-9 &&
+                             std::abs(res.d3.y - exp_d3.y) < 1e-9 &&
+                             std::abs(res.d3.z - exp_d3.z) < 1e-9,
+                         "[{}] double3 rotate failed: got ({},{},{}), expected ({},{},{})",
+                         i, res.d3.x, res.d3.y, res.d3.z, exp_d3.x, exp_d3.y, exp_d3.z);
+            LUISA_INFO("[{}] double3: ({},{},{}) -> ({},{},{}) OK",
+                       i, in.d3.x, in.d3.y, in.d3.z, res.d3.x, res.d3.y, res.d3.z);
+
+            // double4: reverse components
+            double4 exp_d4 = make_double4(in.d4.w, in.d4.z, in.d4.y, in.d4.x);
+            LUISA_ASSERT(std::abs(res.d4.x - exp_d4.x) < 1e-9 &&
+                             std::abs(res.d4.y - exp_d4.y) < 1e-9 &&
+                             std::abs(res.d4.z - exp_d4.z) < 1e-9 &&
+                             std::abs(res.d4.w - exp_d4.w) < 1e-9,
+                         "[{}] double4 reverse failed: got ({},{},{},{}), expected ({},{},{},{})",
+                         i, res.d4.x, res.d4.y, res.d4.z, res.d4.w,
+                         exp_d4.x, exp_d4.y, exp_d4.z, exp_d4.w);
+            LUISA_INFO("[{}] double4 reverse OK", i);
+
+            // half2x2: transpose
+            half2x2 exp_h2x2 = make_half2x2(
+                in.h2x2[0][0], in.h2x2[1][0],
+                in.h2x2[0][1], in.h2x2[1][1]
+            );
+            for (int c = 0; c < 2; ++c) {
+                for (int r = 0; r < 2; ++r) {
+                    float got = static_cast<float>(res.h2x2[c][r]);
+                    float exp = static_cast<float>(exp_h2x2[c][r]);
+                    LUISA_ASSERT(approx_eq(got, exp, 1e-2f),
+                                 "[{}] half2x2 transpose[{}][{}] failed: got {}, expected {}",
+                                 i, c, r, got, exp);
+                }
+            }
+            LUISA_INFO("[{}] half2x2 transpose OK", i);
+
+            // float2x2: transpose
+            float2x2 exp_f2x2 = make_float2x2(
+                in.f2x2[0][0], in.f2x2[1][0],
+                in.f2x2[0][1], in.f2x2[1][1]
+            );
+            for (int c = 0; c < 2; ++c) {
+                for (int r = 0; r < 2; ++r) {
+                    LUISA_ASSERT(approx_eq(res.f2x2[c][r], exp_f2x2[c][r]),
+                                 "[{}] float2x2 transpose[{}][{}] failed: got {}, expected {}",
+                                 i, c, r, res.f2x2[c][r], exp_f2x2[c][r]);
+                }
+            }
+            LUISA_INFO("[{}] float2x2 transpose OK", i);
+
+            // float3x3: transpose
+            float3x3 exp_f3x3 = make_float3x3(
+                in.f3x3[0][0], in.f3x3[1][0], in.f3x3[2][0],
+                in.f3x3[0][1], in.f3x3[1][1], in.f3x3[2][1],
+                in.f3x3[0][2], in.f3x3[1][2], in.f3x3[2][2]);
+            for (int c = 0; c < 3; ++c) {
+                LUISA_ASSERT(approx_eq(res.f3x3[c], exp_f3x3[c]),
+                             "[{}] float3x3 transpose col[{}] failed: got ({},{},{}), expected ({},{},{})",
+                             i, c,
+                             res.f3x3[c].x, res.f3x3[c].y, res.f3x3[c].z,
+                             exp_f3x3[c].x, exp_f3x3[c].y, exp_f3x3[c].z);
+            }
+            LUISA_INFO("[{}] float3x3 transpose OK", i);
+
+            // float4x4: transpose
+            float4x4 exp_f4x4 = make_float4x4(
+                in.f4x4[0][0], in.f4x4[1][0], in.f4x4[2][0], in.f4x4[3][0],
+                in.f4x4[0][1], in.f4x4[1][1], in.f4x4[2][1], in.f4x4[3][1],
+                in.f4x4[0][2], in.f4x4[1][2], in.f4x4[2][2], in.f4x4[3][2],
+                in.f4x4[0][3], in.f4x4[1][3], in.f4x4[2][3], in.f4x4[3][3]);
+            for (int c = 0; c < 4; ++c) {
+                LUISA_ASSERT(approx_eq(res.f4x4[c], exp_f4x4[c]),
+                             "[{}] float4x4 transpose col[{}] failed: got ({},{},{},{}), expected ({},{},{},{})",
+                             i, c,
+                             res.f4x4[c].x, res.f4x4[c].y, res.f4x4[c].z, res.f4x4[c].w,
+                             exp_f4x4[c].x, exp_f4x4[c].y, exp_f4x4[c].z, exp_f4x4[c].w);
+            }
+            LUISA_INFO("[{}] float4x4 transpose OK", i);
+        }
+        LUISA_INFO("Complex struct test passed ({} instances).", 4);
     }
 
     LUISA_INFO("All mathematical DSL tests passed!");

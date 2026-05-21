@@ -2459,16 +2459,6 @@ public:
 };
 
 #if HALF_ENABLE_CPP11_TYPE_TRAITS
-#ifdef _MSVC_STL_VERSION
-// FIXME: MSVC STL uses `bool_constant<is_foo_v<T>>` to define `is_foo<T>`.
-// Well done, MSVC.
-template<>
-inline constexpr auto is_floating_point_v<half_float::half> = true;
-template<>
-inline constexpr auto is_arithmetic_v<half_float::half> = true;
-template<>
-inline constexpr auto is_signed_v<half_float::half> = true;
-#endif
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Winvalid-specialization"

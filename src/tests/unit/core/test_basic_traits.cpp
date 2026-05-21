@@ -24,7 +24,8 @@ static_assert(luisa::to_underlying(TestEnum::B) == 2, "to_underlying should retu
 // Test half type properties
 static_assert(sizeof(luisa::half) == 2u, "half should be 2 bytes");
 static_assert(alignof(luisa::half) == 2u, "half should be 2-byte aligned");
-static_assert(std::is_arithmetic_v<luisa::half>, "half should be arithmetic");
+// NOTE: half_float::half is a class type and cannot satisfy std::is_arithmetic.
+// static_assert(std::is_arithmetic_v<luisa::half>, "half should be arithmetic");
 
 // Test type aliases
 static_assert(sizeof(luisa::byte) == 1, "byte should be 1 byte");

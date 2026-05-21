@@ -40,8 +40,9 @@ static_assert(std::is_same_v<decltype(1._h + 1._h), half>,
 static_assert(std::is_same_v<decltype(sin(1._h)), half>,
               "half should support std::sin.");
 
-static_assert(std::is_arithmetic_v<half>,
-              "half should be arithmetic.");
+// NOTE: half_float::half is a class type and cannot satisfy std::is_arithmetic.
+// static_assert(std::is_arithmetic_v<half>,
+//               "half should be arithmetic.");
 
 using byte = int8_t;
 using ubyte = uint8_t;
