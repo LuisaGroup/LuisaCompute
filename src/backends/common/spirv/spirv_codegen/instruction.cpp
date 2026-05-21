@@ -21,19 +21,48 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     auto operand = [&](size_t i) noexcept { return _emit_value(inst->operand(i)); };
     spv::Id id = spv::NoResult;
 
+    auto make_glsl_call = [&](int builtin, spv::Id result_type, std::vector<spv::Id> ops) noexcept -> spv::Id {
+        auto needs_8bit_promote = [&](spv::Id ty) noexcept -> bool {
+            auto scalar = _builder.getScalarTypeId(ty);
+            return _builder.getTypeClass(scalar) == spv::Op::OpTypeInt && _builder.getScalarTypeWidth(scalar) == 8;
+        };
+        bool promote = needs_8bit_promote(result_type);
+        for (auto op : ops) promote = promote || needs_8bit_promote(_builder.getTypeId(op));
+        if (promote) {
+            spv::Id target_scalar;
+            if (needs_8bit_promote(result_type)) {
+                auto result_scalar = _builder.getScalarTypeId(result_type);
+                target_scalar = _builder.isIntType(result_scalar) ? _builder.makeIntType(32) : _builder.makeUintType(32);
+            } else {
+                target_scalar = _builder.getScalarTypeId(result_type);
+            }
+            spv::Id target_type = result_type;
+            if (_builder.isVectorType(result_type)) {
+                target_type = _builder.makeVectorType(target_scalar, _builder.getNumTypeComponents(result_type));
+            } else {
+                target_type = target_scalar;
+            }
+            std::vector<spv::Id> wide_ops;
+            for (auto op : ops) {
+                wide_ops.push_back(_ensure_type(op, target_type));
+            }
+            spv::Id wide_result = _builder.createBuiltinCall(target_type, _glsl450, builtin, wide_ops);
+            return _ensure_type(wide_result, result_type);
+        }
+        return _builder.createBuiltinCall(result_type, _glsl450, builtin, ops);
+    };
+
     auto glsl = [&](int builtin, auto... args) noexcept -> spv::Id {
-        std::vector<spv::Id> ops = {args...};
-        return _builder.createBuiltinCall(type, _glsl450, builtin, ops);
+        return make_glsl_call(builtin, type, {args...});
     };
 
     auto glsl_typed = [&](int f_builtin, int s_builtin, int u_builtin, auto... args) noexcept -> spv::Id {
-        std::vector<spv::Id> ops = {args...};
         int builtin = f_builtin;
         if (is_signed_int)
             builtin = s_builtin;
         else if (is_bool || elem->is_uint())
             builtin = u_builtin;
-        return _builder.createBuiltinCall(type, _glsl450, builtin, ops);
+        return make_glsl_call(builtin, type, {args...});
     };
 
     auto unary = [&](spv::Op op) noexcept -> spv::Id {
@@ -439,12 +468,24 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             id = _builder.createTriOp(spv::Op::OpSelect, type, is_zero, bit_width_id, find_lsb);
             break;
         }
-        case xir::ArithmeticOp::POPCOUNT:
-            id = unary(spv::Op::OpBitCount);
+        case xir::ArithmeticOp::POPCOUNT: {
+            auto op = operand(0);
+            auto op_scalar = _builder.getScalarTypeId(_builder.getTypeId(op));
+            if (_builder.getTypeClass(op_scalar) == spv::Op::OpTypeInt && _builder.getScalarTypeWidth(op_scalar) == 8) {
+                op = _ensure_type(op, type);
+            }
+            id = _builder.createUnaryOp(spv::Op::OpBitCount, type, op);
             break;
-        case xir::ArithmeticOp::REVERSE:
-            id = unary(spv::Op::OpBitReverse);
+        }
+        case xir::ArithmeticOp::REVERSE: {
+            auto op = operand(0);
+            auto op_scalar = _builder.getScalarTypeId(_builder.getTypeId(op));
+            if (_builder.getTypeClass(op_scalar) == spv::Op::OpTypeInt && _builder.getScalarTypeWidth(op_scalar) == 8) {
+                op = _ensure_type(op, type);
+            }
+            id = _builder.createUnaryOp(spv::Op::OpBitReverse, type, op);
             break;
+        }
         case xir::ArithmeticOp::ISINF:
             id = unary(spv::Op::OpIsInf);
             break;
@@ -622,19 +663,19 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                         break;
                     case xir::ArithmeticOp::REDUCE_MIN:
                         if (elem_type->is_float())
-                            id = _builder.createBuiltinCall(elem_spv_type, _glsl450, GLSLstd450FMin, {id, comp});
+                            id = make_glsl_call(GLSLstd450FMin, elem_spv_type, {id, comp});
                         else if (elem_type->is_int())
-                            id = _builder.createBuiltinCall(elem_spv_type, _glsl450, GLSLstd450SMin, {id, comp});
+                            id = make_glsl_call(GLSLstd450SMin, elem_spv_type, {id, comp});
                         else
-                            id = _builder.createBuiltinCall(elem_spv_type, _glsl450, GLSLstd450UMin, {id, comp});
+                            id = make_glsl_call(GLSLstd450UMin, elem_spv_type, {id, comp});
                         break;
                     case xir::ArithmeticOp::REDUCE_MAX:
                         if (elem_type->is_float())
-                            id = _builder.createBuiltinCall(elem_spv_type, _glsl450, GLSLstd450FMax, {id, comp});
+                            id = make_glsl_call(GLSLstd450FMax, elem_spv_type, {id, comp});
                         else if (elem_type->is_int())
-                            id = _builder.createBuiltinCall(elem_spv_type, _glsl450, GLSLstd450SMax, {id, comp});
+                            id = make_glsl_call(GLSLstd450SMax, elem_spv_type, {id, comp});
                         else
-                            id = _builder.createBuiltinCall(elem_spv_type, _glsl450, GLSLstd450UMax, {id, comp});
+                            id = make_glsl_call(GLSLstd450UMax, elem_spv_type, {id, comp});
                         break;
                     default: break;
                 }
