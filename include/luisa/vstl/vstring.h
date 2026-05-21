@@ -1,5 +1,6 @@
 #pragma once
 #include <luisa/vstl/config.h>
+#include <luisa/core/basic_traits.h>
 #include <cstdint>
 #include <string>
 #include <luisa/vstl/hash.h>
@@ -106,7 +107,7 @@ struct make_integer<8u, is_signed> {
 }// namespace detail
 
 template<typename T>
-using canonical_integer_t = typename detail::make_integer<sizeof(T), std::is_signed_v<T>>::type;
+using canonical_integer_t = typename detail::make_integer<sizeof(T), luisa::is_signed_v<T>>::type;
 
 template<typename T>
     requires std::is_integral_v<T>

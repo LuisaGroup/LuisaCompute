@@ -92,6 +92,15 @@ template<typename T>
 constexpr auto is_floating_point_v = is_floating_point<T>::value;
 
 template<typename T>
+using is_arithmetic = std::disjunction<
+    is_boolean<T>,
+    is_integral<T>,
+    is_floating_point<T>>;
+
+template<typename T>
+constexpr auto is_arithmetic_v = is_arithmetic<T>::value;
+
+template<typename T>
 using is_signed = std::disjunction<
     is_floating_point<T>,
     std::is_same<std::remove_cvref_t<T>, char>,
