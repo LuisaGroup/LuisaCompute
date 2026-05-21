@@ -299,6 +299,36 @@ int test_nested_callable(Device &device) {
     }
 
     // ================================================================
+    // Test 9b: luisa::optional<Var<T>> emplace in one $lambda,
+    //          deref in a SIBLING $lambda. This is the exact pattern
+    //          historically used by test_path_tracing_nested_callable
+    //          (emplace in outer lambda, deref in sibling lambda) which
+    //          rendered all-black on cuda. Expected: out[i] = in[i]*2+1
+    // ================================================================
+    {
+        Kernel1D kernel = [&](BufferVar<float> in, BufferVar<float> out) noexcept {
+            UInt idx = dispatch_id().x;
+            Float v = in.read(idx);
+            luisa::optional<Float> doubled;
+            $lambda({
+                doubled.emplace(v * 2.0f);
+            })();
+            Float result = def(0.0f);
+            $lambda({
+                result = *doubled + 1.0f;
+            })();
+            out.write(idx, result);
+        };
+        auto shader = device.compile(kernel);
+        stream << buf_in.copy_from(luisa::span{host_in})
+               << shader(buf_in, buf_out).dispatch(N)
+               << buf_out.copy_to(luisa::span{host_out})
+               << synchronize();
+        for (uint i = 0; i < N; i++) host_expected[i] = host_in[i] * 2.0f + 1.0f;
+        check("test9b_optional_sibling_lambda_deref", host_out, host_expected);
+    }
+
+    // ================================================================
     // Test 10: Buffer read/write inside $lambda
     // ================================================================
     {

@@ -6,8 +6,6 @@
 #include <sstream>
 // #include <spirv-tools/optimizer.hpp>
 
-namespace lc::spirv {
-/*
 #include <spirv-tools/libspirv.hpp>
 #include <spirv-tools/optimizer.hpp>
 
@@ -80,7 +78,6 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
         LUISA_WARNING("SPIR-V optimization failed, using unoptimized binary.");
     }
 }
-*/
 SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption &opt, bool use_native_float_atomics) {
     auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
     StringScratch scratch;
@@ -92,13 +89,13 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
-    // luisa_spirv_validate(words, "pre-optimization");
+    luisa_spirv_validate(words, "pre-optimization");
     if (std::getenv("LUISA_DUMP_SPV")) {
         auto filename = luisa::format("/tmp/opencode/kernel_{:016x}.spv", kernel.hash());
         std::ofstream file(filename.c_str(), std::ios::binary);
         file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));
     }
-    // luisa_spirv_optimize(words);
+    luisa_spirv_optimize(words);
     // luisa_spirv_validate(words, "post-optimization");
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());

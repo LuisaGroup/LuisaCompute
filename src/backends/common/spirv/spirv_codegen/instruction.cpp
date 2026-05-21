@@ -1846,8 +1846,9 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
         }
         // Other sub-word integer types: truncate
         auto bit_width = static_cast<int32_t>(elem_type->size() * 8);
-        auto trunc_type = _builder.makeIntegerType(bit_width, elem_type->is_int());
-        auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, raw);
+        auto is_signed = elem_type->is_int();
+        auto trunc_type = _builder.makeIntegerType(bit_width, is_signed);
+        auto truncated = _builder.createUnaryOp(is_signed ? spv::Op::OpSConvert : spv::Op::OpUConvert, trunc_type, raw);
         if (trunc_type != spv_type) {
             return _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, truncated);
         }
@@ -1880,10 +1881,48 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
     if (elem_type->is_vector()) {
         auto comp_type = _convert_type(elem_type->element(), Usage::READ);
         auto dim = elem_type->dimension();
+        auto comp_size = elem_type->element()->size();
+        uint comp_word_count = std::max<uint>(static_cast<uint>(comp_size / 4u), 1u);
+        if (comp_word_count == 1u && comp_size < 4u) {
+            // Sub-word component vector (e.g., half3): load all words and extract via shift+mask
+            auto comp_bit_width = static_cast<uint32_t>(comp_size * 8);
+            auto total_bit_width = comp_bit_width * dim;
+            auto total_words = (total_bit_width + 31u) / 32u;
+            std::vector<spv::Id> words;
+            words.reserve(total_words);
+            for (uint w = 0u; w < total_words; ++w) {
+                auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(w));
+                auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), idx});
+                words.push_back(_builder.createLoad(ptr, spv::NoPrecision));
+            }
+            std::vector<spv::Id> comps;
+            comps.reserve(dim);
+            for (uint i = 0u; i < dim; ++i) {
+                auto bit_offset = i * comp_bit_width;
+                auto word_idx = bit_offset / 32u;
+                auto bit_in_word = bit_offset % 32u;
+                spv::Id comp_raw = words[word_idx];
+                if (bit_in_word > 0u) {
+                    comp_raw = _builder.createBinOp(spv::Op::OpShiftRightLogical, uint_type, comp_raw, _builder.makeUintConstant(bit_in_word));
+                }
+                auto comp_mask = (1ull << comp_bit_width) - 1ull;
+                comp_raw = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, comp_raw, _builder.makeUintConstant(static_cast<uint32_t>(comp_mask)));
+                // Convert raw uint to component type
+                auto comp_elem = elem_type->element();
+                if (comp_elem->is_bool()) {
+                    comps.push_back(_builder.createBinOp(spv::Op::OpINotEqual, comp_type, comp_raw, _builder.makeUintConstant(0u)));
+                } else {
+                    auto trunc_type = _builder.makeIntegerType(static_cast<int32_t>(comp_bit_width), comp_elem->is_int());
+                    auto truncated = _builder.createUnaryOp(comp_elem->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, trunc_type, comp_raw);
+                    comps.push_back(trunc_type == comp_type ? truncated : _builder.createUnaryOp(spv::Op::OpBitcast, comp_type, truncated));
+                }
+            }
+            return _builder.createCompositeConstruct(spv_type, comps);
+        }
         std::vector<spv::Id> comps;
         comps.reserve(dim);
         for (uint i = 0u; i < dim; ++i) {
-            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
+            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i * comp_word_count));
             comps.push_back(_emit_buffer_read_impl(buffer, idx, elem_type->element()));
         }
         return _builder.createCompositeConstruct(spv_type, comps);
@@ -1947,8 +1986,9 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                         if (comp_type->is_bool()) {
                             comps.push_back(_builder.createBinOp(spv::Op::OpINotEqual, spv_comp_type, comp_raw, _builder.makeUintConstant(0u)));
                         } else {
-                            auto trunc_type = _builder.makeIntegerType(static_cast<int32_t>(comp_bit_width), comp_type->is_int());
-                            auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, comp_raw);
+                            auto is_signed = comp_type->is_int();
+                            auto trunc_type = _builder.makeIntegerType(static_cast<int32_t>(comp_bit_width), is_signed);
+                            auto truncated = _builder.createUnaryOp(is_signed ? spv::Op::OpSConvert : spv::Op::OpUConvert, trunc_type, comp_raw);
                             comps.push_back(trunc_type == spv_comp_type ? truncated : _builder.createUnaryOp(spv::Op::OpBitcast, spv_comp_type, truncated));
                         }
                     }
@@ -1963,8 +2003,9 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                         fields.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_member_type, u8));
                     } else {
                         auto bit_width = static_cast<int32_t>(member_size * 8u);
-                        auto trunc_type = _builder.makeIntegerType(bit_width, member->is_int());
-                        auto truncated = _builder.createUnaryOp(spv::Op::OpUConvert, trunc_type, raw);
+                        auto is_signed = member->is_int();
+                        auto trunc_type = _builder.makeIntegerType(bit_width, is_signed);
+                        auto truncated = _builder.createUnaryOp(is_signed ? spv::Op::OpSConvert : spv::Op::OpUConvert, trunc_type, raw);
                         fields.push_back(trunc_type == spv_member_type ? truncated : _builder.createUnaryOp(spv::Op::OpBitcast, spv_member_type, truncated));
                     }
                 }
@@ -1988,12 +2029,25 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
         }
         return _builder.createCompositeConstruct(spv_type, elems);
     }
+    if (word_count > 1u) {
+        // Multi-word scalar (slong, ulong, double): load N uint32 words and bitcast
+        auto uvec_type = _builder.makeVectorType(uint_type, static_cast<int>(word_count));
+        std::vector<spv::Id> words;
+        words.reserve(word_count);
+        for (uint i = 0u; i < word_count; ++i) {
+            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
+            auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), idx});
+            words.push_back(_builder.createLoad(ptr, spv::NoPrecision));
+        }
+        auto vec = _builder.createCompositeConstruct(uvec_type, words);
+        return _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, vec);
+    }
     LUISA_NOT_IMPLEMENTED("SPIR-V buffer read for type {}.", elem_type->description());
 }
 
 spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type) noexcept {
     auto uint_type = _builder.makeUintType(32);
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type)) {
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type) && !_type_contains_bool(buffer_type->element())) {
         // Typed buffer: direct element access via SPIR-V type system.
         // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});
@@ -2039,6 +2093,12 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
             auto uint8_type = _builder.makeUintType(8);
             store_val = _builder.createUnaryOp(spv::Op::OpBitcast, uint8_type, value);
             store_val = _builder.createUnaryOp(spv::Op::OpUConvert, uint_type, store_val);
+        } else if (elem_type->is_float()) {
+            // Float16: bitcast to same-width uint, then extend to uint32
+            auto bit_width = static_cast<int32_t>(elem_type->size() * 8u);
+            auto bit_type = _builder.makeIntegerType(bit_width, false);
+            store_val = _builder.createUnaryOp(spv::Op::OpBitcast, bit_type, value);
+            store_val = _builder.createUnaryOp(spv::Op::OpUConvert, uint_type, store_val);
         } else {
             // Extend sub-word integer to 32 bits
             store_val = _builder.createUnaryOp(elem_type->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, uint_type, value);
@@ -2074,12 +2134,53 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
     if (elem_type->is_vector()) {
         auto comp_type = _convert_type(elem_type->element(), Usage::READ);
         auto dim = elem_type->dimension();
+        auto comp_size = elem_type->element()->size();
+        uint comp_word_count = std::max<uint>(static_cast<uint>(comp_size / 4u), 1u);
+        if (comp_word_count == 1u && comp_size < 4u) {
+            // Sub-word component vector (e.g., half3): read-modify-write each word
+            auto comp_bit_width = static_cast<uint32_t>(comp_size * 8);
+            auto total_bit_width = comp_bit_width * dim;
+            auto total_words = (total_bit_width + 31u) / 32u;
+            for (uint w = 0u; w < total_words; ++w) {
+                auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(w));
+                auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), idx});
+                auto raw = _builder.createLoad(ptr, spv::NoPrecision);
+                // Build the new value for this word by overlaying components
+                spv::Id word_val = raw;
+                for (uint i = 0u; i < dim; ++i) {
+                    auto bit_offset = i * comp_bit_width;
+                    auto word_idx = bit_offset / 32u;
+                    if (word_idx != w) continue;
+                    auto bit_in_word = bit_offset % 32u;
+                    auto comp = _builder.createCompositeExtract(value, comp_type, i);
+                    // Convert component to uint
+                    spv::Id comp_uint;
+                    auto comp_elem = elem_type->element();
+                    if (comp_elem->is_bool()) {
+                        comp_uint = _builder.createOp(spv::Op::OpSelect, uint_type, {comp, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
+                    } else if (comp_elem->is_float()) {
+                        auto bit_type = _builder.makeIntegerType(static_cast<int32_t>(comp_bit_width), false);
+                        comp_uint = _builder.createUnaryOp(spv::Op::OpBitcast, bit_type, comp);
+                        comp_uint = _builder.createUnaryOp(spv::Op::OpUConvert, uint_type, comp_uint);
+                    } else {
+                        comp_uint = _builder.createUnaryOp(comp_elem->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, uint_type, comp);
+                    }
+                    if (bit_in_word > 0u) {
+                        comp_uint = _builder.createBinOp(spv::Op::OpShiftLeftLogical, uint_type, comp_uint, _builder.makeUintConstant(bit_in_word));
+                    }
+                    // Clear old bits and OR in new bits
+                    auto comp_mask = ((1ull << comp_bit_width) - 1ull) << bit_in_word;
+                    auto clear_mask = _builder.makeUintConstant(static_cast<uint32_t>(~comp_mask));
+                    word_val = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, word_val, clear_mask);
+                    word_val = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, word_val, comp_uint);
+                }
+                _builder.createStore(word_val, ptr);
+            }
+            return;
+        }
         for (uint i = 0u; i < dim; ++i) {
             auto comp = _builder.createCompositeExtract(value, comp_type, i);
-            if (comp_type != uint_type) {
-                comp = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, comp);
-            }
-            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
+            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i * comp_word_count));
             _emit_buffer_write_impl(buffer, idx, comp, elem_type->element());
         }
         return;
@@ -2189,12 +2290,24 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
         }
         return;
     }
+    if (word_count > 1u) {
+        // Multi-word scalar (slong, ulong, double): bitcast to uvec and store each word
+        auto uvec_type = _builder.makeVectorType(uint_type, static_cast<int>(word_count));
+        auto vec = _builder.createUnaryOp(spv::Op::OpBitcast, uvec_type, value);
+        for (uint i = 0u; i < word_count; ++i) {
+            auto word = _builder.createCompositeExtract(vec, uint_type, i);
+            auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
+            auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), idx});
+            _builder.createStore(word, ptr);
+        }
+        return;
+    }
     LUISA_NOT_IMPLEMENTED("SPIR-V buffer write for type {}.", elem_type->description());
 }
 
 void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type) noexcept {
     auto uint_type = _builder.makeUintType(32);
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type)) {
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type) && !_type_contains_bool(buffer_type->element())) {
         // Typed buffer: direct element access via SPIR-V type system.
         // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, buffer, {_builder.makeUintConstant(0u), index});

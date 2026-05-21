@@ -10,10 +10,9 @@
 namespace luisa {
 
 template<typename T>
-    requires std::disjunction_v<std::is_arithmetic<T>,
+    requires std::disjunction_v<luisa::is_arithmetic<T>,
                                 std::is_pointer<T>,
-                                std::is_enum<T>,
-                                std::is_same<T, half>>
+                                std::is_enum<T>>
 struct hash<T> {
     using is_avalanching = void;
     [[nodiscard]] constexpr uint64_t operator()(T value, uint64_t seed = hash64_default_seed) const noexcept {

@@ -106,6 +106,9 @@ if has_config("lc_enable_xir") then
     test_proj("test_xir_passes", "unit/xir/test_xir_passes.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
+    test_proj("test_xir2ast_translators", "unit/xir/test_xir2ast_translators.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
 end
 
 -- integration/runtime
@@ -162,6 +165,12 @@ if has_config("lc_enable_ir") then
     test_proj("test_ast2ir_headless", "integration/ir/test_ast2ir_headless.cpp")
     test_proj("test_ast2ir_ir2ast", "integration/ir/test_ast2ir_ir2ast.cpp")
     test_proj("test_kernel_ir", "integration/ir/test_kernel_ir.cpp", true)
+end
+
+if has_config("lc_enable_xir") then
+    test_proj("test_xir2ast_roundtrip", "integration/ir/test_xir2ast_roundtrip.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
 end
 
 -- unit/dsl: standalone GPU tests

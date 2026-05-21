@@ -175,7 +175,7 @@ private:
                                          VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT |
                                          VK_ACCESS_2_OPTICAL_FLOW_WRITE_BIT_NV;
         if (state == 0) return Usage::READ_WRITE;
-        Usage usage;
+        Usage usage{};
         if ((state & read) != 0) {
             usage = static_cast<Usage>(static_cast<uint32_t>(usage) | static_cast<uint32_t>(Usage::READ));
         }

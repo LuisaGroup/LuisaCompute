@@ -320,7 +320,7 @@ private:
         return handle->view.write_layer + 1;
     }
     void add_command(Command const *cmd, int64_t layer) {
-        if (_cmd_lists.size() <= layer) {
+        if (static_cast<int64_t>(_cmd_lists.size()) <= layer) {
             _cmd_lists.resize(layer + 1);
         }
         auto &v = _cmd_lists[layer];
@@ -648,7 +648,7 @@ private:
         command->traverse_arguments(f);
         auto max_disp_size_vec = command->max_dispatch_size();
         auto max_disp_size = std::max<size_t>(max_disp_size_vec.x, std::max(max_disp_size_vec.y, max_disp_size_vec.z));
-        if (_dispatch_layer >= _max_dispatch_blocks.size()) {
+        if (_dispatch_layer >= static_cast<int64_t>(_max_dispatch_blocks.size())) {
             _max_dispatch_blocks.resize(_dispatch_layer + 1);
         }
         while (_max_dispatch_blocks[_dispatch_layer] > 0 && _max_dispatch_blocks[_dispatch_layer] + max_disp_size > max_allowed_dispatch_size) {
@@ -832,12 +832,12 @@ public:
                 auto i = command->indirect_dispatch().max_dispatch_size;
                 max_disp_size = i;
             }
-            if (_dispatch_layer >= _max_dispatch_blocks.size()) {
+            if (_dispatch_layer >= static_cast<int64_t>(_max_dispatch_blocks.size())) {
                 _max_dispatch_blocks.resize(_dispatch_layer + 1);
             }
             while (_max_dispatch_blocks[_dispatch_layer] + max_disp_size > max_allowed_dispatch_size) {
                 _dispatch_layer++;
-                if (_dispatch_layer == _max_dispatch_blocks.size()) {
+                if (_dispatch_layer == static_cast<int64_t>(_max_dispatch_blocks.size())) {
                     _max_dispatch_blocks.emplace_back(0);
                     break;
                 }

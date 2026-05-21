@@ -38,4 +38,16 @@ if not has_config("lc_yyjson_use_xrepo") then
     end)
     target_end()
 end
+if has_config('lc_vk_backend_use_xir_spirv') then
+    target('spirv-headers')
+    set_kind('headeronly')
+    add_includedirs("spirv-headers/include", "spirv-headers/include/spirv/unified1", {
+        public = true
+    })
+    target_end()
+
+    includes("SPIRV-Tools")
+end
+
 table.remove(_config_rules, rename_rule_idx)
+

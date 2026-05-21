@@ -21,9 +21,29 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/ir/ast2ir.h>
+#if LUISA_RENDERING_USE_XIR_TO_AST
+#include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
+#endif
 
 using namespace luisa;
 using namespace luisa::compute;
+
+#if LUISA_RENDERING_USE_XIR_TO_AST
+namespace {
+
+[[nodiscard]] auto build_xir_to_ast_kernel(const Function &function) noexcept {
+    auto module = xir::ast_to_xir_translate(function, {});
+    for (auto *f : module->function_list()) {
+        if (f->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
+            return xir::xir_to_ast_translate(*static_cast<xir::FunctionDefinition *>(f), {});
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION("XIR-to-AST translation did not produce a kernel definition.");
+}
+
+}// namespace
+#endif
 
 #ifndef ENABLE_DISPLAY
 #ifdef LUISA_ENABLE_GUI
@@ -194,6 +214,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     bool force_offline = false;
+    uint user_spp = 0u;
     std::optional<std::filesystem::path> compare_path;
     for (int i = 2; i < argc; i++) {
         if (std::string_view{argv[i]} == "--offline") {
@@ -202,9 +223,15 @@ int main(int argc, char *argv[]) {
             compare_path = std::filesystem::path{argv[++i]};
             force_offline = true;
             force_offline = true;
+        } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
+            user_spp = static_cast<uint>(std::atoi(argv[++i]));
         }
     }
     Device device = context.create_device(argv[1]);
+#if LUISA_RENDERING_USE_XIR_TO_AST
+    auto render_ast = build_xir_to_ast_kernel(render_kernel.function()->function());
+    auto render = device.compile(Kernel<2, Image<uint>, Image<float>, uint>{render_ast});
+#else
     //    auto render = device.compile(render_kernel);
     auto render_kernel_ir = AST2IR::build_kernel(render_kernel.function()->function());
     auto ppl = ir::luisa_compute_ir_transform_pipeline_new();
@@ -212,6 +239,7 @@ int main(int argc, char *argv[]) {
     auto m = ir::luisa_compute_ir_transform_pipeline_transform(ppl, render_kernel_ir->get()->module);
     render_kernel_ir->get()->module = m;
     auto render = device.compile<2, Image<uint>, Image<float>, uint>(render_kernel_ir->get());
+#endif
 
     static constexpr auto width = 1280u;
     static constexpr auto height = 720u;
@@ -235,14 +263,14 @@ int main(int argc, char *argv[]) {
             }));
     }
     static constexpr auto interval = 4u;
-    static constexpr auto total_spp = 16384u;
+    auto total_spp = user_spp == 0u ? 1024u : user_spp;
     auto ldr_image = device.create_image<float>(
         (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         width, height);
 #else
     Stream stream = device.create_stream(StreamTag::COMPUTE);
     static constexpr auto interval = 64u;
-    static constexpr auto total_spp = 16384u;
+    auto total_spp = user_spp == 0u ? 1024u : user_spp;
     auto ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
 #endif
     auto linear_to_srgb = [](Var<float3> x) noexcept {

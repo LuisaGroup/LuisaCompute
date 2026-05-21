@@ -189,7 +189,7 @@ int main(int argc, char *argv[]) {
             $for (depth, 10u) {
                 // trace
                 Var<TriangleHit> hit = accel.intersect(ray, {});
-                reorder_shader_execution();
+                // reorder_shader_execution();
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float3 p0 = vertex_buffer->read(triangle.i0);
@@ -214,19 +214,19 @@ int main(int argc, char *argv[]) {
                 };
 
                 // sample light
-                Float3 pp = def(make_float3(0.0f));
-                Float3 albedo = def(make_float3(0.0f));
+                luisa::optional<Float3> pp;
+                luisa::optional<Float3> albedo;
                 $lambda({
                     Float ux_light = lcg();
                     Float uy_light = lcg();
                     Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
                     Float3 pp_light = offset_ray_origin(p_light, light_normal);
-                    pp = offset_ray_origin(p, n);
-                    albedo = materials.read(hit.inst);
-                    Float d_light = distance(pp, pp_light);
-                    Float3 wi_light = normalize(pp_light - pp);
+                    pp.emplace(offset_ray_origin(p, n));
+                    albedo.emplace(materials.read(hit.inst));
+                    Float d_light = distance(*pp, pp_light);
+                    Float3 wi_light = normalize(pp_light - *pp);
                     $lambda({
-                        Var<Ray> shadow_ray = make_ray(offset_ray_origin(pp, n), wi_light, 0.f, d_light);
+                        Var<Ray> shadow_ray = make_ray(offset_ray_origin(*pp, n), wi_light, 0.f, d_light);
                         Bool occluded = accel.intersect_any(shadow_ray, {});
                         Float cos_wi_light = dot(wi_light, n);
                         Float cos_light = -dot(light_normal, wi_light);
@@ -234,7 +234,7 @@ int main(int argc, char *argv[]) {
                             Float pdf_light = (d_light * d_light) / (light_area * cos_light);
                             Float pdf_bsdf = cos_wi_light * inv_pi;
                             Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
-                            Float3 bsdf = albedo * inv_pi * cos_wi_light;
+                            Float3 bsdf = *albedo * inv_pi * cos_wi_light;
                             radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
                         };
                     })();
@@ -246,9 +246,9 @@ int main(int argc, char *argv[]) {
                     Float3 wi_local = cosine_sample_hemisphere(make_float2(u.x, u.y));
                     Float cos_wi = abs(wi_local.z);
                     Float3 new_direction = onb.to_world(wi_local);
-                    ray = make_ray(pp, new_direction);
+                    ray = make_ray(*pp, new_direction);
                     pdf_bsdf = cos_wi * inv_pi;
-                    beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
+                    beta *= *albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
                 });
 
                 $lambda({

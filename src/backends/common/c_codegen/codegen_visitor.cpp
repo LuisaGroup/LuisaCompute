@@ -114,7 +114,7 @@ void CodegenVisitor::visit(const AccessExpr *expr) {
         auto lit = static_cast<LiteralExpr const *>(expr->index());
         is_deref = luisa::visit(
             [&]<typename T>(T const &t) {
-                if constexpr (std::is_integral_v<T> || std::is_floating_point_v<T>) {
+                if constexpr (std::is_integral_v<T> || luisa::is_floating_point_v<T>) {
                     return t == 0;
                 }
                 return false;

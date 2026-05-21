@@ -23,10 +23,10 @@ target_include_directories(luisa-compute-spirv PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src/ext/glslang>)
 target_link_libraries(luisa-compute-spirv PUBLIC
-        luisa-compute-vstl
         luisa-compute-runtime
         luisa-compute-xir
-        glslang)
+        glslang
+        SPIRV-Tools-opt)
 if (NOT WIN32)
     target_compile_options(luisa-compute-spirv PUBLIC
             $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fms-extensions>)

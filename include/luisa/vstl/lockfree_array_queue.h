@@ -165,7 +165,7 @@ public:
         }
         auto value = &arr[GetIndex(t, capacity)];
         cons.tail.store(t + 1, std::memory_order_relaxed);
-        auto disp = scope_exit([value, this]() {
+        auto disp = scope_exit([value]() {
             std::destroy_at(value);
         });
         return optional<T>(std::move(*value));
