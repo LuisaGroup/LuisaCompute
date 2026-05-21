@@ -191,7 +191,8 @@ private:
         switch (expr->tag()) {
             case Expression::Tag::MEMBER: {
                 auto member_expr = static_cast<const MemberExpr *>(expr);
-                auto member_index = _translate_constant_access_index(member_expr->member_index());
+                if (member_expr->is_swizzle() && member_expr->swizzle_size() != 1u) { break; }
+                auto member_index = _translate_constant_access_index(member_expr->is_swizzle() ? member_expr->swizzle_index(0u) : member_expr->member_index());
                 rev_indices.emplace_back(member_index);
                 return _collect_access_indices(b, member_expr->self(), rev_indices);
             }
