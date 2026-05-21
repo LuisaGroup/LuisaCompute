@@ -48,10 +48,15 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             // Fall back to uint32 only for buffers that need atomic access
             // (since SPIR-V atomic ops require scalar integer types).
             bool needs_atomic = _needs_atomic_buffer_types.contains(type);
-            bool use_typed = elem_type != nullptr && !needs_atomic;
+            bool contains_bool = elem_type != nullptr && _type_contains_bool(elem_type);
+            bool use_typed = elem_type != nullptr && !needs_atomic && !contains_bool;
             spv::Id spv_elem_type;
             if (use_typed && (elem_type->is_structure() || elem_type->is_array())) {
                 spv_elem_type = _convert_laid_out_type(elem_type);
+            } else if (use_typed && elem_type != nullptr && elem_type->is_bool()) {
+                spv_elem_type = _builder.makeUintType(32);
+            } else if (use_typed && elem_type != nullptr && elem_type->is_vector() && elem_type->element()->is_bool()) {
+                spv_elem_type = _builder.makeVectorType(_builder.makeUintType(32), static_cast<int32_t>(elem_type->dimension()));
             } else {
                 spv_elem_type = use_typed ? _convert_type(elem_type, usage) : _builder.makeUintType(32);
             }
@@ -180,13 +185,39 @@ spv::Id SpirvCodegenEntry::_convert_laid_out_type(const Type *type) noexcept {
             }
             break;
         }
+        case Type::Tag::BOOL:
+            id = _builder.makeUintType(32);
+            break;
         default:
-            id = _convert_type(type, Usage::READ_WRITE);
+            if (type->is_vector() && type->element()->is_bool()) {
+                id = _builder.makeVectorType(_builder.makeUintType(32), static_cast<int32_t>(type->dimension()));
+            } else {
+                id = _convert_type(type, Usage::READ_WRITE);
+            }
             break;
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to convert laid-out type {}.", type->description());
     _laid_out_type_map.emplace(type, id);
     return id;
+}
+
+bool SpirvCodegenEntry::_type_contains_bool(const Type *type) noexcept {
+    if (type == nullptr) { return false; }
+    switch (type->tag()) {
+        case Type::Tag::BOOL: return true;
+        case Type::Tag::VECTOR:
+        case Type::Tag::MATRIX:
+            return _type_contains_bool(type->element());
+        case Type::Tag::ARRAY:
+            return _type_contains_bool(type->element());
+        case Type::Tag::STRUCTURE: {
+            for (auto m : type->members()) {
+                if (_type_contains_bool(m)) { return true; }
+            }
+            return false;
+        }
+        default: return false;
+    }
 }
 
 void SpirvCodegenEntry::_mark_8bit_storage_usage(const Type *type, spv::StorageClass storage) noexcept {
@@ -200,8 +231,10 @@ void SpirvCodegenEntry::_mark_8bit_storage_usage(const Type *type, spv::StorageC
         }
     } else if (type->tag() == Type::Tag::FLOAT8_E4M3 || type->tag() == Type::Tag::FLOAT8_E5M2) {
         _uses_float8 = true;
-    } else if (type->is_structure() || type->is_array()) {
+    } else if (type->is_structure()) {
         for (auto m : type->members()) { _mark_8bit_storage_usage(m, storage); }
+    } else if (type->is_array()) {
+        _mark_8bit_storage_usage(type->element(), storage);
     } else if (type->is_vector() || type->is_matrix()) {
         _mark_8bit_storage_usage(type->element(), storage);
     }

@@ -93,6 +93,7 @@ private:
 
     spv::Id _convert_type(const Type *type, Usage usage) noexcept;
     spv::Id _convert_laid_out_type(const Type *type) noexcept;
+    [[nodiscard]] bool _type_contains_bool(const Type *type) noexcept;
     void _mark_8bit_storage_usage(const Type *type, spv::StorageClass storage) noexcept;
     spv::Id _emit_literal(const Type *type, const void *data) noexcept;
     spv::Id _emit_constant(const xir::Constant *c) noexcept;
