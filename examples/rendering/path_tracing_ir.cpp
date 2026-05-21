@@ -16,6 +16,10 @@
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/ir/ast2ir.h>
+#if LUISA_RENDERING_USE_XIR_TO_AST
+#include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
+#endif
 #include <stb/stb_image_write.h>
 #include "common/reference_compare.h"
 #include <luisa/gui/window.h>
@@ -26,6 +30,23 @@
 
 using namespace luisa;
 using namespace luisa::compute;
+
+#if LUISA_RENDERING_USE_XIR_TO_AST
+namespace {
+
+[[nodiscard]] auto build_xir_to_ast_kernel(const Function &function) noexcept {
+    auto module = xir::ast_to_xir_translate(function, {});
+    auto config = xir::XIR2ASTConfig{.bound_arguments = function.bound_arguments()};
+    for (auto *f : module->function_list()) {
+        if (f->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
+            return xir::xir_to_ast_translate(*static_cast<xir::FunctionDefinition *>(f), config);
+        }
+    }
+    LUISA_ERROR_WITH_LOCATION("XIR-to-AST translation did not produce a kernel definition.");
+}
+
+}// namespace
+#endif
 
 struct Onb {
     float3 tangent;
@@ -186,6 +207,9 @@ int main(int argc, char *argv[]) {
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_block_size(16u, 16u, 1u);
+        auto &&heap_ref = heap;
+        auto &&vertex_buffer_ref = vertex_buffer;
+        auto &&materials_ref = materials;
         auto coord = dispatch_id().xy();
         auto frame_size = min(resolution.x, resolution.y).cast<float>();
         auto state = seed_image.read(coord).x;
@@ -209,15 +233,15 @@ int main(int argc, char *argv[]) {
                 auto hit = accel.intersect(ray, {});
                 reorder_shader_execution();
                 $if (hit->miss()) { $break; };
-                auto triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
-                auto p0 = vertex_buffer->read(triangle.i0);
-                auto p1 = vertex_buffer->read(triangle.i1);
-                auto p2 = vertex_buffer->read(triangle.i2);
+                auto triangle = heap_ref->buffer<Triangle>(hit.inst).read(hit.prim);
+                auto p0 = vertex_buffer_ref->read(triangle.i0);
+                auto p1 = vertex_buffer_ref->read(triangle.i1);
+                auto p2 = vertex_buffer_ref->read(triangle.i2);
                 auto p = triangle_interpolate(hit.bary, p0, p1, p2);
                 auto n = normalize(cross(p1 - p0, p2 - p0));
                 auto cos_wo = dot(-ray->direction(), n);
                 $if (cos_wo < 1e-4f) { $break; };
-                auto albedo = materials->read(hit.inst);
+                auto albedo = materials_ref->read(hit.inst);
 
                 // hit light
                 $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
@@ -312,10 +336,17 @@ int main(int argc, char *argv[]) {
     auto clear_shader = device.compile(clear_kernel);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
     auto accumulate_shader = device.compile(accumulate_kernel);
+#if LUISA_RENDERING_USE_XIR_TO_AST
+    auto raytracing_ast = build_xir_to_ast_kernel(raytracing_kernel.function()->function());
+    auto make_sampler_ast = build_xir_to_ast_kernel(make_sampler_kernel.function()->function());
+    auto raytracing_shader = device.compile(Kernel<2, Image<float>, Image<uint>, Accel, uint2>{raytracing_ast});
+    auto make_sampler_shader = device.compile(Kernel<2, Image<uint>>{make_sampler_ast});
+#else
     auto raytracing_ir = AST2IR::build_kernel(raytracing_kernel.function()->function());
     auto make_sampler_ir = AST2IR::build_kernel(make_sampler_kernel.function()->function());
     auto raytracing_shader = device.compile<2, Image<float>, Image<uint>, Accel, uint2>(raytracing_ir->get());
     auto make_sampler_shader = device.compile<2, Image<uint>>(make_sampler_ir->get());
+#endif
 
     static constexpr auto resolution = make_uint2(1024u);
     auto framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
