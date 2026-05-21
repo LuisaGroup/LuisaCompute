@@ -140,6 +140,8 @@ const Type *TypeRegistry::custom_type(luisa::string_view name) noexcept {
                      name != "float" &&
                      name != "half" &&
                      name != "double" &&
+                     name != "float8e4m3" &&
+                     name != "float8e5m2" &&
                      name != "bool" &&
                      !name.starts_with("vector<") &&
                      !name.starts_with("coopvec<") &&
@@ -280,6 +282,8 @@ const TypeImpl *TypeRegistry::_decode(luisa::string_view desc) noexcept {
     TRY_PARSE_SCALAR_TYPE(half, FLOAT16, 2u)
     TRY_PARSE_SCALAR_TYPE(float, FLOAT32, 4u)
     TRY_PARSE_SCALAR_TYPE(double, FLOAT64, 8u)
+    TRY_PARSE_SCALAR_TYPE(float8e4m3, FLOAT8_E4M3, 1u)
+    TRY_PARSE_SCALAR_TYPE(float8e5m2, FLOAT8_E5M2, 1u)
 #undef TRY_PARSE_SCALAR_TYPE
     if (type_identifier == "vector"sv) {
         info->tag = Type::Tag::VECTOR;
@@ -614,6 +618,8 @@ bool Type::is_scalar() const noexcept {
         case Tag::FLOAT16:
         case Tag::FLOAT32:
         case Tag::FLOAT64:
+        case Tag::FLOAT8_E4M3:
+        case Tag::FLOAT8_E5M2:
             return true;
         default:
             return false;
@@ -625,6 +631,8 @@ bool Type::is_arithmetic() const noexcept {
         case Tag::FLOAT16:
         case Tag::FLOAT32:
         case Tag::FLOAT64:
+        case Tag::FLOAT8_E4M3:
+        case Tag::FLOAT8_E5M2:
         case Tag::INT8:
         case Tag::UINT8:
         case Tag::INT16:
@@ -781,6 +789,9 @@ bool Type::is_uint32() const noexcept { return tag() == Tag::UINT32; }
 bool Type::is_float16() const noexcept { return tag() == Tag::FLOAT16; }
 bool Type::is_float32() const noexcept { return tag() == Tag::FLOAT32; }
 bool Type::is_float64() const noexcept { return tag() == Tag::FLOAT64; }
+bool Type::is_float8_e4m3() const noexcept { return tag() == Tag::FLOAT8_E4M3; }
+bool Type::is_float8_e5m2() const noexcept { return tag() == Tag::FLOAT8_E5M2; }
+bool Type::is_float8() const noexcept { return is_float8_e4m3() || is_float8_e5m2(); }
 bool Type::is_int8() const noexcept { return tag() == Tag::INT8; }
 bool Type::is_uint8() const noexcept { return tag() == Tag::UINT8; }
 bool Type::is_int16() const noexcept { return tag() == Tag::INT16; }
@@ -812,7 +823,7 @@ bool Type::is_uint16_vector() const noexcept { return is_vector() && element()->
 bool Type::is_int64_vector() const noexcept { return is_vector() && element()->is_int64(); }
 bool Type::is_uint64_vector() const noexcept { return is_vector() && element()->is_uint64(); }
 
-bool Type::is_float() const noexcept { return is_float16() || is_float32() || is_float64(); }
+bool Type::is_float() const noexcept { return is_float16() || is_float32() || is_float64() || is_float8(); }
 bool Type::is_int() const noexcept { return is_int8() || is_int16() || is_int32() || is_int64(); }
 bool Type::is_uint() const noexcept { return is_uint8() || is_uint16() || is_uint32() || is_uint64(); }
 

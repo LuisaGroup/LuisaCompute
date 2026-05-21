@@ -9,15 +9,6 @@ if has_config('lc_vk_backend_use_xir_spirv') then
     includes("glslang")
 end
 
-target('spirv-headers')
-    set_kind('headeronly')
-    add_includedirs("spirv-headers/include", "spirv-headers/include/spirv/unified1", {
-        public = true
-    })
-    
-target_end()
-
-includes("SPIRV-Tools")
 if not has_config("lc_spdlog_use_xrepo") then
     includes("spdlog")
 end

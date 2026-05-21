@@ -141,6 +141,8 @@ namespace {
         case Type::Tag::FLOAT16: return builder.makeFloat16Constant(*static_cast<const half *>(data));
         case Type::Tag::FLOAT32: return builder.makeFloatConstant(*static_cast<const float *>(data));
         case Type::Tag::FLOAT64: return builder.makeDoubleConstant(*static_cast<const double *>(data));
+        case Type::Tag::FLOAT8_E4M3: return builder.makeFloatE4M3Constant(*static_cast<const float *>(data));
+        case Type::Tag::FLOAT8_E5M2: return builder.makeFloatE5M2Constant(*static_cast<const float *>(data));
         default: break;
     }
     LUISA_ERROR_WITH_LOCATION("Invalid scalar constant type {}.", type->description());
@@ -163,6 +165,8 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
         case Type::Tag::FLOAT16:
         case Type::Tag::FLOAT32:
         case Type::Tag::FLOAT64:
+        case Type::Tag::FLOAT8_E4M3:
+        case Type::Tag::FLOAT8_E5M2:
             return spirv_codegen_emit_scalar_constant(_builder, type, data);
         case Type::Tag::VECTOR: {
             auto elem_type = type->element();
@@ -398,6 +402,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
             auto bool_type = _builder.makeBoolType();
             size_t offset = 0;
             for (auto arg : value_args) {
+                _mark_8bit_storage_usage(arg->type(), spv::StorageClass::StorageBuffer);
                 auto align = arg->type()->alignment();
                 offset = (offset + align - 1) & ~(align - 1);
                 auto word_offset = _builder.makeUintConstant(static_cast<uint32_t>(offset / 4));
@@ -617,6 +622,22 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
 
     for (auto c : analysis.used_constants) {
         _emit_constant(c);
+    }
+
+    if (_uses_int8) {
+        _builder.addCapability(spv::Capability::Int8);
+    }
+    if (_uses_8bit_storage_buffer || _uses_8bit_uniform_storage || _uses_8bit_push_constant) {
+        _builder.addExtension(spv::E_SPV_KHR_8bit_storage);
+    }
+    if (_uses_8bit_storage_buffer) {
+        _builder.addCapability(spv::Capability::StorageBuffer8BitAccess);
+    }
+    if (_uses_8bit_uniform_storage) {
+        _builder.addCapability(spv::Capability::UniformAndStorageBuffer8BitAccess);
+    }
+    if (_uses_8bit_push_constant) {
+        _builder.addCapability(spv::Capability::StoragePushConstant8);
     }
 
     for (auto f : analysis.used_functions_post_order) {

@@ -66,6 +66,7 @@ test_proj("test_nested_callable", "unit/dsl/test_nested_callable.cpp")
 test_proj("test_calc", "unit/dsl/test_calc.cpp")
 test_proj("test_dsl_matrix", "unit/dsl/test_matrix.cpp")
 test_proj("test_var", "unit/dsl/test_var.cpp")
+test_proj("test_8bit", "unit/dsl/test_8bit.cpp")
 
 -- unit/runtime
 test_proj("test_atomic", "unit/runtime/test_atomic.cpp")

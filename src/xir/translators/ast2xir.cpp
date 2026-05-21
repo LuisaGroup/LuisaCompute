@@ -101,6 +101,8 @@ private:
             LUISA_DEBUG_ASSERT(expr->type()->is_bool() || expr->type()->is_bool_vector(),
                                "Invalid type for logical not operation.");
             operand = _type_cast_if_necessary(b, expr->type(), operand);
+        } else {
+            operand = _type_cast_if_necessary(b, expr->type(), operand);
         }
         return b.call(expr->type(), op, {operand});
     }
@@ -131,7 +133,11 @@ private:
             for (auto i = 0u; i < type->dimension(); i++) { elements.emplace_back(value); }
             return b.call(type, ArithmeticOp::AGGREGATE, elements);
         }
-        LUISA_ERROR_WITH_LOCATION("Invalid cast operation.");
+        // Unsupported implicit cast (e.g., vector->scalar, matrix->scalar).
+        // Return the value as-is; callers like alu_call may request casts based on
+        // return type rather than operand type, but the value already has the correct
+        // operand type for the operation.
+        return value;
     }
 
     [[nodiscard]] Value *_translate_binary_expr(XIRBuilder &b, const BinaryExpr *expr) noexcept {

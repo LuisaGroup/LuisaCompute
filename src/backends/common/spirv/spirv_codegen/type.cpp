@@ -11,8 +11,8 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
         case Type::Tag::FLOAT16: id = _builder.makeFloatType(16); break;
         case Type::Tag::FLOAT32: id = _builder.makeFloatType(32); break;
         case Type::Tag::FLOAT64: id = _builder.makeFloatType(64); break;
-        case Type::Tag::INT8: id = _builder.makeIntType(8); break;
-        case Type::Tag::UINT8: id = _builder.makeUintType(8); break;
+        case Type::Tag::INT8: _uses_int8 = true; id = _builder.makeIntType(8); break;
+        case Type::Tag::UINT8: _uses_int8 = true; id = _builder.makeUintType(8); break;
         case Type::Tag::INT16: id = _builder.makeIntType(16); break;
         case Type::Tag::UINT16: id = _builder.makeUintType(16); break;
         case Type::Tag::INT32: id = _builder.makeIntType(32); break;
@@ -54,6 +54,9 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
                 spv_elem_type = _convert_laid_out_type(elem_type);
             } else {
                 spv_elem_type = use_typed ? _convert_type(elem_type, usage) : _builder.makeUintType(32);
+            }
+            if (use_typed && elem_type != nullptr) {
+                _mark_8bit_storage_usage(elem_type, spv::StorageClass::StorageBuffer);
             }
             auto runtime_array = _builder.makeRuntimeArray(spv_elem_type);
             auto struct_type = _builder.makeStructType({runtime_array}, {}, "Buffer", false);
@@ -110,6 +113,14 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             _builder.addExtension(spv::E_SPV_KHR_ray_query);
             _builder.addCapability(spv::Capability::RayQueryKHR);
             id = _builder.makeAccelerationStructureType();
+            break;
+        case Type::Tag::FLOAT8_E4M3:
+            _uses_float8 = true;
+            id = _builder.makeFloatE4M3Type();
+            break;
+        case Type::Tag::FLOAT8_E5M2:
+            _uses_float8 = true;
+            id = _builder.makeFloatE5M2Type();
             break;
         case Type::Tag::CUSTOM: {
             auto desc = type->description();
@@ -176,6 +187,24 @@ spv::Id SpirvCodegenEntry::_convert_laid_out_type(const Type *type) noexcept {
     LUISA_ASSERT(id != spv::NoResult, "Failed to convert laid-out type {}.", type->description());
     _laid_out_type_map.emplace(type, id);
     return id;
+}
+
+void SpirvCodegenEntry::_mark_8bit_storage_usage(const Type *type, spv::StorageClass storage) noexcept {
+    if (type->tag() == Type::Tag::INT8 || type->tag() == Type::Tag::UINT8) {
+        _uses_int8 = true;
+        switch (storage) {
+            case spv::StorageClass::StorageBuffer: _uses_8bit_storage_buffer = true; break;
+            case spv::StorageClass::Uniform: _uses_8bit_uniform_storage = true; break;
+            case spv::StorageClass::PushConstant: _uses_8bit_push_constant = true; break;
+            default: break;
+        }
+    } else if (type->tag() == Type::Tag::FLOAT8_E4M3 || type->tag() == Type::Tag::FLOAT8_E5M2) {
+        _uses_float8 = true;
+    } else if (type->is_structure() || type->is_array()) {
+        for (auto m : type->members()) { _mark_8bit_storage_usage(m, storage); }
+    } else if (type->is_vector() || type->is_matrix()) {
+        _mark_8bit_storage_usage(type->element(), storage);
+    }
 }
 
 }// namespace lc::spirv

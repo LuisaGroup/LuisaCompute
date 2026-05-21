@@ -551,6 +551,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         LUISA_ERROR("Necessary extension \"VK_KHR_synchronization2\" is unsupported.");
     }
     bool enable_16bit = false;
+    bool enable_8bit = false;
     bool enable_atomic64_bit = false;
     bool enable_barycentric = false;
     bool enable_motion_blur = false;
@@ -571,6 +572,10 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     if (supported_ext.find(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
         _enable_device_exts.emplace_back(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME);
         enable_16bit = true;
+    }
+    if (supported_ext.find(VK_KHR_8BIT_STORAGE_EXTENSION_NAME) != supported_ext.end()) {
+        _enable_device_exts.emplace_back(VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
+        enable_8bit = true;
     }
     if (supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
         VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{
@@ -727,9 +732,11 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     VkPhysicalDeviceVulkan12Features vk12_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &vk11_feature,
+        .storageBuffer8BitAccess = enable_8bit ? VK_TRUE : VK_FALSE,
         .shaderBufferInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderSharedInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderFloat16 = enable_16bit ? VK_TRUE : VK_FALSE,
+        .shaderInt8 = enable_8bit ? VK_TRUE : VK_FALSE,
         .descriptorIndexing = vk_bindless_enabled,
         .shaderUniformBufferArrayNonUniformIndexing = vk_bindless_enabled,
         .shaderSampledImageArrayNonUniformIndexing = vk_bindless_enabled,
