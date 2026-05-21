@@ -44,7 +44,7 @@ inline string IntegerToString(const Ty Val) noexcept {// convert Val to string
     IntegerToString<Ty>(Val, s);
     return s;
 }
-inline void _float_str_resize(size_t lastSize, string &str) noexcept {
+inline void _float_str_resize(int64_t lastSize, string &str) noexcept {
     for (int64_t i = str.size() - 1; i >= lastSize; --i) {
         if (str[i] == '.') [[unlikely]] {
             auto end = i + 2;
