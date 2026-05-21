@@ -23,7 +23,6 @@ target_include_directories(luisa-compute-spirv PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src/ext/glslang>)
 target_link_libraries(luisa-compute-spirv PUBLIC
-        luisa-compute-vstl
         luisa-compute-runtime
         luisa-compute-xir
         glslang
