@@ -64,6 +64,8 @@ else ()
     option(LUISA_COMPUTE_EMBREE_ZIP_PATH "Path to embree zip file. Use this if embree fails to download" "")
 endif ()
 
+option(LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV "Enable XIR to SPIR-V code generation for Vulkan backend" ON)
+
 option(LUISA_COMPUTE_USE_SYSTEM_LIBS "Prefer system libraries over bundled ones" OFF)
 
 option(LUISA_COMPUTE_USE_SYSTEM_STL "Use system STL instead of the bundled EASTL" ${LUISA_COMPUTE_USE_SYSTEM_LIBS})

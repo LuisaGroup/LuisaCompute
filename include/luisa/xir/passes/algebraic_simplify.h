@@ -15,7 +15,11 @@ struct AlgebraicSimplifyInfo {
     size_t simplified_inst_count{0u};
 };
 
-[[nodiscard]] LUISA_XIR_API AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_module(Module *module) noexcept;
+struct AlgebraicSimplifyOptions {
+    bool enable_fast_math{false};
+};
+
+[[nodiscard]] LUISA_XIR_API AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_function(Function *function, AlgebraicSimplifyOptions options = {}) noexcept;
+[[nodiscard]] LUISA_XIR_API AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_module(Module *module, AlgebraicSimplifyOptions options = {}) noexcept;
 
 }// namespace luisa::compute::xir

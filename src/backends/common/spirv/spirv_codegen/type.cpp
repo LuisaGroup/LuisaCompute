@@ -147,8 +147,9 @@ spv::Id SpirvCodegenEntry::_convert_laid_out_type(const Type *type) noexcept {
         case Type::Tag::ARRAY: {
             auto elem_layout = _convert_laid_out_type(type->element());
             auto size_id = _builder.makeUintConstant(static_cast<uint32_t>(type->dimension()));
-            id = _builder.makeArrayType(elem_layout, size_id, 0);
-            _builder.addDecoration(id, spv::Decoration::ArrayStride, static_cast<int32_t>(type->element()->size()));
+            auto stride = static_cast<int32_t>(type->element()->size());
+            id = _builder.makeArrayType(elem_layout, size_id, stride);
+            _builder.addDecoration(id, spv::Decoration::ArrayStride, stride);
             break;
         }
         case Type::Tag::STRUCTURE: {

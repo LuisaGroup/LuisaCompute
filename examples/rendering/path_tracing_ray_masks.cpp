@@ -40,16 +40,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
-    bool force_offline = false;
-    std::optional<std::filesystem::path> compare_path;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
-            compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
-        }
-    }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
     Device device = context.create_device(argv[1]);
 
     // load the Cornell Box scene
@@ -78,7 +69,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
     luisa::vector<Mesh> meshes;
@@ -193,8 +184,8 @@ int main(int argc, char *argv[]) {
     };
 
     auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" || device.backend_name() == "fallback" ? 1u : 64u;
-    bool infinite_render = !force_offline;
-    uint total_spp = force_offline ? 256u : 0u;
+    bool infinite_render = !opts.offline;
+    uint total_spp = opts.offline ? (opts.spp == 0u ? 1024u : opts.spp) : 0u;
 
     Kernel2D raytracing_kernel = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         set_name("raytracing_kernel");
@@ -329,7 +320,7 @@ int main(int argc, char *argv[]) {
 
     std::unique_ptr<Window> window;
     std::optional<Swapchain> swap_chain;
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("path tracing", resolution);
         swap_chain.emplace(device.create_swapchain(
             stream,
@@ -344,7 +335,7 @@ int main(int argc, char *argv[]) {
     }
 
     Image<float> ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
@@ -356,7 +347,7 @@ int main(int argc, char *argv[]) {
                << accumulate_shader(accum_image, framebuffer)
                       .dispatch(resolution)
                << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution);
-        if (!force_offline && swap_chain.has_value()) {
+        if (!opts.offline && swap_chain.has_value()) {
             stream << swap_chain->present(ldr_image)
                    << synchronize();
             window->poll_events();
@@ -371,13 +362,13 @@ int main(int argc, char *argv[]) {
         << ldr_image.copy_to(luisa::span{host_image})
         << synchronize();
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
-    stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        if (compare_path) {
+    stbi_write_png("test_path_tracing_ray_masks.png", resolution.x, resolution.y, 4, host_image.data(), 0);
+    if (opts.offline) {
+        if (opts.compare_path) {
             auto result = luisa::ref::compare_with_reference_file(
                 reinterpret_cast<const uint8_t *>(host_image.data()),
                 resolution.x, resolution.y, 4,
-                *compare_path);
+                *opts.compare_path);
             LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
             if (!result.passed) { return 1; }
         }

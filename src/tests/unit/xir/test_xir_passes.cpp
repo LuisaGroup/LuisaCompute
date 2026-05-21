@@ -277,6 +277,125 @@ void reg_algebraic_simplify() {
         auto info = algebraic_simplify_pass_run_on_module(&m);
         expect(info.simplified_inst_count == 3u);
     };
+
+    "algsimpl_select_const_condition"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = m.create_callable(Type::of<int>());
+        body = k->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        int32_t f_v = 1, t_v = 2;
+        auto *f = m.create_constant(Type::of<int>(), &f_v);
+        auto *t = m.create_constant(Type::of<int>(), &t_v);
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *select = b.call(Type::of<int>(), ArithmeticOp::SELECT, {f, t, cond});
+        auto *ret = b.return_(select);
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        expect(info.simplified_inst_count == 1u);
+        expect(ret->return_value() == t);
+    };
+
+    "algsimpl_float_mul_zero_keeps_nan_inf_semantics"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float zero_v = 0.0f, x_v = 1.5f;
+        auto *zero = m.create_constant(Type::of<float>(), &zero_v);
+        auto *x = m.create_constant(Type::of<float>(), &x_v);
+        b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {x, zero});
+        b.return_void();
+        auto info = algebraic_simplify_pass_run_on_function(k, {.enable_fast_math = true});
+        expect(info.simplified_inst_count == 0u);
+    };
+
+    "algsimpl_insert_into_aggregate"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto type = Type::vector(Type::of<int>(), 2u);
+        int32_t x_v = 1, y_v = 2, z_v = 3;
+        uint32_t index_v = 1u;
+        auto *x = m.create_constant(Type::of<int>(), &x_v);
+        auto *y = m.create_constant(Type::of<int>(), &y_v);
+        auto *z = m.create_constant(Type::of<int>(), &z_v);
+        auto *index = m.create_constant(Type::of<uint>(), &index_v);
+        auto *aggregate = b.call(type, ArithmeticOp::AGGREGATE, {x, y});
+        b.call(type, ArithmeticOp::INSERT, {aggregate, z, index});
+        b.return_void();
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        expect(info.simplified_inst_count == 1u);
+    };
+
+    "algsimpl_identity_extract_aggregate_to_original_vector"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto type = Type::vector(Type::of<float>(), 3u);
+        auto *k = m.create_callable(type);
+        auto *v = k->create_value_argument(type);
+        body = k->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        uint32_t x_i = 0u, y_i = 1u, z_i = 2u;
+        auto *x_index = m.create_constant(Type::of<uint>(), &x_i);
+        auto *y_index = m.create_constant(Type::of<uint>(), &y_i);
+        auto *z_index = m.create_constant(Type::of<uint>(), &z_i);
+        auto *x = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {v, x_index});
+        auto *y = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {v, y_index});
+        auto *z = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {v, z_index});
+        auto *aggregate = b.call(type, ArithmeticOp::AGGREGATE, {x, y, z});
+        auto *ret = b.return_(aggregate);
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        expect(info.simplified_inst_count == 1u);
+        expect(ret->return_value() == v);
+    };
+
+    "algsimpl_extract_aggregate_to_shuffle"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto type = Type::vector(Type::of<float>(), 3u);
+        auto *k = m.create_callable(type);
+        auto *v = k->create_value_argument(type);
+        body = k->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        uint32_t x_i = 0u, y_i = 1u;
+        auto *x_index = m.create_constant(Type::of<uint>(), &x_i);
+        auto *y_index = m.create_constant(Type::of<uint>(), &y_i);
+        auto *x = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {v, x_index});
+        auto *y = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {v, y_index});
+        auto *aggregate = b.call(type, ArithmeticOp::AGGREGATE, {y, x, x});
+        auto *ret = b.return_(aggregate);
+        auto info = algebraic_simplify_pass_run_on_function(k);
+        expect(info.simplified_inst_count == 1u);
+        expect(ret->return_value() != v);
+        expect(ret->return_value()->isa<ArithmeticInst>());
+        auto *shuffle = static_cast<ArithmeticInst *>(ret->return_value());
+        expect(shuffle->op() == ArithmeticOp::SHUFFLE);
+        expect(shuffle->operand(0) == v);
+        expect(shuffle->operand(1) == y_index);
+        expect(shuffle->operand(2) == x_index);
+        expect(shuffle->operand(3) == x_index);
+    };
+
+    "algsimpl_float_add_zero_keeps_signed_zero_semantics"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        float zero_v = 0.0f, x_v = 1.5f;
+        auto *zero = m.create_constant(Type::of<float>(), &zero_v);
+        auto *x = m.create_constant(Type::of<float>(), &x_v);
+        b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {x, zero});
+        b.return_void();
+        auto info = algebraic_simplify_pass_run_on_function(k, {.enable_fast_math = true});
+        expect(info.simplified_inst_count == 0u);
+    };
 }
 
 // ---- const_fold ----

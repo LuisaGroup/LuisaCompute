@@ -52,6 +52,7 @@ private:
     luisa::unordered_map<const Type *, uint> _struct_uid_map;
     luisa::unordered_set<const BasicBlock *> _emitted_blocks;
     bool _debug_info{false};
+    bool _flat_blocks{false};
 
 private:
     [[nodiscard]] auto _value_uid(const Value *value) noexcept {
@@ -177,6 +178,14 @@ private:
         for (int i = 0; i < indent; i++) { _main << "    "; }
     }
 
+    void _emit_basic_block_ref(const BasicBlock *b) noexcept {
+        if (b == nullptr) {
+            _main << "null";
+        } else {
+            _main << _value_ident(b);
+        }
+    }
+
     void _emit_use_debug_info(StringScratch &ss, const UseList &uses) noexcept {
         if (_debug_info && !uses.empty()) {
             ss << "// users:";
@@ -273,65 +282,65 @@ private:
 
     void _emit_if_inst(const IfInst *inst, int indent) noexcept {
         _main << "if " << _value_ident(inst->condition()) << ", then ";
-        _emit_basic_block(inst->true_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->true_block()) : _emit_basic_block(inst->true_block(), indent);
         _main << ", else ";
-        _emit_basic_block(inst->false_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->false_block()) : _emit_basic_block(inst->false_block(), indent);
         _main << ", merge ";
-        _emit_basic_block(inst->merge_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
     void _emit_switch_inst(const SwitchInst *inst, int indent) noexcept {
         _main << "switch " << _value_ident(inst->value()) << ", ";
         for (auto i = 0u; i < inst->case_count(); i++) {
             _main << "case " << inst->case_value(i) << " ";
-            _emit_basic_block(inst->case_block(i), indent);
+            _flat_blocks ? _emit_basic_block_ref(inst->case_block(i)) : _emit_basic_block(inst->case_block(i), indent);
             _main << ", ";
         }
         _main << "default ";
-        _emit_basic_block(inst->default_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->default_block()) : _emit_basic_block(inst->default_block(), indent);
         _main << ", merge ";
-        _emit_basic_block(inst->merge_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
     void _emit_loop_inst(const LoopInst *inst, int indent) noexcept {
         _main << "loop prepare ";
-        _emit_basic_block(inst->prepare_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->prepare_block()) : _emit_basic_block(inst->prepare_block(), indent);
         _main << ", body ";
-        _emit_basic_block(inst->body_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->body_block()) : _emit_basic_block(inst->body_block(), indent);
         _main << ", update ";
-        _emit_basic_block(inst->update_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->update_block()) : _emit_basic_block(inst->update_block(), indent);
         _main << ", merge ";
-        _emit_basic_block(inst->merge_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
     void _emit_simple_loop_inst(const SimpleLoopInst *inst, int indent) noexcept {
         _main << "simple_loop body ";
-        _emit_basic_block(inst->body_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->body_block()) : _emit_basic_block(inst->body_block(), indent);
         _main << ", merge ";
-        _emit_basic_block(inst->merge_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
     void _emit_outline_inst(const OutlineInst *inst, int indent) noexcept {
         _main << "outline body ";
-        _emit_basic_block(inst->target_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->target_block()) : _emit_basic_block(inst->target_block(), indent);
         _main << ", merge ";
-        _emit_basic_block(inst->merge_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
     void _emit_ray_query_dispatch_inst(const RayQueryDispatchInst *inst, int indent) noexcept {
         _main << "ray_query_dispatch " << _value_ident(inst->query_object())
               << ", exit " << _value_ident(inst->exit_block())
               << ", on_surface_candidate ";
-        _emit_basic_block(inst->on_surface_candidate_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->on_surface_candidate_block()) : _emit_basic_block(inst->on_surface_candidate_block(), indent);
         _main << ", on_procedural_candidate ";
-        _emit_basic_block(inst->on_procedural_candidate_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->on_procedural_candidate_block()) : _emit_basic_block(inst->on_procedural_candidate_block(), indent);
     }
 
     void _emit_ray_query_loop_inst(const RayQueryLoopInst *inst, int indent) noexcept {
         _main << "ray_query_loop dispatch ";
-        _emit_basic_block(inst->dispatch_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->dispatch_block()) : _emit_basic_block(inst->dispatch_block(), indent);
         _main << ", merge ";
-        _emit_basic_block(inst->merge_block(), indent);
+        _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
     void _emit_ray_query_object_read_inst(const RayQueryObjectReadInst *inst) noexcept {
@@ -616,6 +625,20 @@ private:
         }
     }
 
+    void _emit_flat_basic_block(const BasicBlock *b) noexcept {
+        if (b == nullptr) { return; }
+        if (!b->metadata_list().empty()) {
+            _emit_metadata_list(_main, b->metadata_list());
+            _main << "\n";
+        }
+        _main << _value_ident(b) << ":";
+        _emit_basic_block_use_and_pred_debug_info(_main, b);
+        _main << "\n";
+        for (auto &&inst : b->instructions()) {
+            _emit_instruction(inst, 1);
+        }
+    }
+
     void _emit_function(const Function *f) noexcept {
         if (!f->metadata_list().empty()) {
             _emit_metadata_list(_main, f->metadata_list());
@@ -646,17 +669,24 @@ private:
         }
         _main << ")";
         if (auto definition = f->definition()) {
-            _main << " = define ";
-            _emitted_blocks.clear();
-            _emit_basic_block(definition->body_block(), 0);
-            // sweep unstructured blocks (post-destructure_cfg) that the structured
-            // walk above never reached via if/switch/loop/ray_query terminators.
-            const_cast<FunctionDefinition *>(definition)
-                ->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-                    if (_emitted_blocks.contains(block)) { return; }
-                    _main << "\n";
-                    _emit_basic_block(block, 0);
-                });
+            if (_flat_blocks) {
+                _main << " = define {\n";
+                const_cast<FunctionDefinition *>(definition)
+                    ->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+                        _emit_flat_basic_block(block);
+                    });
+                _main << "}";
+            } else {
+                _main << " = define ";
+                _emitted_blocks.clear();
+                _emit_basic_block(definition->body_block(), 0);
+                const_cast<FunctionDefinition *>(definition)
+                    ->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+                        if (_emitted_blocks.contains(block)) { return; }
+                        _main << "\n";
+                        _emit_basic_block(block, 0);
+                    });
+            }
         }
         _main << ";";
         _emit_use_debug_info(_main, f->use_list());
@@ -852,19 +882,25 @@ private:
 public:
     XIR2TextTranslator() noexcept : _prelude{1_k}, _main{4_k} {}
 
-    [[nodiscard]] luisa::string emit(const Module *module, bool debug_info) noexcept {
+    [[nodiscard]] luisa::string emit(const Module *module, bool debug_info, bool flat_blocks) noexcept {
         _prelude.clear();
         _main.clear();
         _value_uid_map.clear();
         _struct_uid_map.clear();
+        _emitted_blocks.clear();
         _debug_info = debug_info;
+        _flat_blocks = flat_blocks;
         _emit_module(module);
         return _prelude.string() + _main.string();
     }
 };
 
 luisa::string xir_to_text_translate(const Module *module, bool debug_info) noexcept {
-    return XIR2TextTranslator{}.emit(module, debug_info);
+    return XIR2TextTranslator{}.emit(module, debug_info, false);
+}
+
+luisa::string xir_to_flat_text_translate(const Module *module, bool debug_info) noexcept {
+    return XIR2TextTranslator{}.emit(module, debug_info, true);
 }
 
 }// namespace luisa::compute::xir

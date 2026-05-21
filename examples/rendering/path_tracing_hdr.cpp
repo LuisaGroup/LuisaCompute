@@ -39,16 +39,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    bool force_offline = false;
-    std::optional<std::filesystem::path> compare_path;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            force_offline = true;
-        } else if ((std::string_view{argv[i]} == "--compare" || std::string_view{argv[i]} == "-c") && i + 1 < argc) {
-            compare_path = std::filesystem::path{argv[++i]};
-            force_offline = true;
-        }
-    }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
 
     Device device = context.create_device(argv[1]);
 
@@ -78,7 +69,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(force_offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(opts.offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(luisa::span{vertices});
     luisa::vector<Mesh> meshes;
@@ -378,7 +369,7 @@ int main(int argc, char *argv[]) {
     float3 white_point{1.0f};
     float scale = 1.0f;
 
-    if (!force_offline) {
+    if (!opts.offline) {
         window = std::make_unique<Window>("path tracing", resolution);
 
         if (device.backend_name() == "dx") {
@@ -416,16 +407,16 @@ int main(int argc, char *argv[]) {
     }
 
     Image<float> ldr_image = device.create_image<float>(
-        (!force_offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
+        (!opts.offline && swap_chain.has_value()) ? swap_chain->backend_storage() : PixelStorage::BYTE4,
         resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
     Clock clock;
 
-    static constexpr uint offline_total_spp = 1024u;
-    while (force_offline ? (frame_count < offline_total_spp) : !window->should_close()) {
+    uint offline_total_spp = opts.spp == 0u ? 1024u : opts.spp;
+    while (opts.offline ? (frame_count < offline_total_spp) : !window->should_close()) {
         int mode = 0;
-        if (!force_offline && swap_chain.has_value()) {
+        if (!opts.offline && swap_chain.has_value()) {
             if (swap_chain->backend_storage() == PixelStorage::R10G10B10A2) {
                 mode = 1;
             } else if (swap_chain->backend_storage() == PixelStorage::HALF4) {
@@ -436,7 +427,7 @@ int main(int argc, char *argv[]) {
                         .dispatch(resolution)
                  << accumulate_shader(accum_image, framebuffer)
                         .dispatch(resolution);
-        if (!force_offline && swap_chain.has_value()) {
+        if (!opts.offline && swap_chain.has_value()) {
             cmd_list << hdr2ldr_shader(accum_image, ldr_image, scale, mode, white_point, use_aces).dispatch(resolution);
             stream << cmd_list.commit()
                    << swap_chain->present(ldr_image) << synchronize();
@@ -455,12 +446,12 @@ int main(int argc, char *argv[]) {
            << synchronize();
     LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
     stbi_write_png("test_path_tracing_hdr.png", resolution.x, resolution.y, 4, host_image.data(), 0);
-    if (force_offline) {
-        if (compare_path) {
+    if (opts.offline) {
+        if (opts.compare_path) {
             auto result = luisa::ref::compare_with_reference_file(
                 reinterpret_cast<const uint8_t *>(host_image.data()),
                 resolution.x, resolution.y, 4,
-                *compare_path);
+                *opts.compare_path);
             LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
             if (!result.passed) { return 1; }
         }

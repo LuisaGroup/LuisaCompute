@@ -88,6 +88,8 @@ private:
     };
     void _analyze_instruction_usage(const xir::Function *f, InstructionUsageAnalysis &analysis,
                                     luisa::unordered_set<const xir::Function *> &visited) noexcept;
+    [[nodiscard]] InstructionUsageAnalysis _analyze_module_usage(const xir::Module *module) noexcept;
+    void _mark_atomic_buffer_types(const InstructionUsageAnalysis &analysis) noexcept;
 
     spv::Id _convert_type(const Type *type, Usage usage) noexcept;
     spv::Id _convert_laid_out_type(const Type *type) noexcept;

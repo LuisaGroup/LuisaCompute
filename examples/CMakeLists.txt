@@ -49,7 +49,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
     luisa_compute_add_example(example_sdf_renderer rendering/sdf_renderer.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_blackhole rendering/blackhole.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_voxel_raytracer rendering/voxel_raytracer.cpp MIRROR_AS_TEST)
-    luisa_compute_add_example(example_procedural rendering/procedural.cpp MIRROR_AS_TEST)
+    luisa_compute_add_example(example_procedural rendering/procedural.cpp)
     luisa_compute_add_example(example_shader_toy rendering/shader_toy.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_toy_spacex rendering/shader_toy_spacex.cpp MIRROR_AS_TEST)
     luisa_compute_add_example(example_shader_visuals_present rendering/shader_visuals_present.cpp MIRROR_AS_TEST)
@@ -85,6 +85,7 @@ if (LUISA_COMPUTE_ENABLE_GUI)
 endif ()
 
 # compute (headless)
+luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
 
 # --- GUI toolkit integration examples (wxWidgets, Qt) ---

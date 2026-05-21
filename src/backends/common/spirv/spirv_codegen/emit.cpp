@@ -613,49 +613,8 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
                              luisa::span<const Function::Binding> bindings,
                              luisa::string_view device_lib,
                              luisa::string_view native_include) noexcept {
-    auto kernel = [module] {
-        const xir::KernelFunction *k = nullptr;
-        for (auto f : module->function_list()) {
-            if (f->isa<xir::KernelFunction>()) {
-                LUISA_ASSERT(k == nullptr,
-                             "SPIR-V codegen: expected exactly one kernel function.");
-                k = static_cast<const xir::KernelFunction *>(f);
-            }
-        }
-        LUISA_ASSERT(k != nullptr, "SPIR-V codegen: kernel function not found in module.");
-        return k;
-    }();
-
-    auto analysis = [this, kernel] {
-        InstructionUsageAnalysis analysis;
-        analysis.used_types.reserve(Type::count());
-        analysis.used_constants.reserve(64u);
-        analysis.used_functions_post_order.reserve(64u);
-        luisa::unordered_set<const xir::Function *> visited;
-        visited.reserve(64u);
-        _analyze_instruction_usage(kernel, analysis, visited);
-        LUISA_ASSERT(!analysis.used_functions_post_order.empty() &&
-                         analysis.used_functions_post_order.back() == kernel,
-                     "SPIR-V codegen: kernel function not found in post-order traversal.");
-        return analysis;
-    }();
-
-    // Detect buffers that need atomic access (must stay as uint32 arrays)
-    {
-        for (auto f : analysis.used_functions_post_order) {
-            if (auto def = f->definition()) {
-                def->traverse_instructions([&](const xir::Instruction *inst) noexcept {
-                    if (inst->isa<xir::AtomicInst>()) {
-                        auto atomic = static_cast<const xir::AtomicInst *>(inst);
-                        auto base = atomic->operand(0);
-                        if (base != nullptr && base->type() != nullptr && base->type()->is_buffer()) {
-                            _needs_atomic_buffer_types.emplace(base->type());
-                        }
-                    }
-                });
-            }
-        }
-    }
+    auto analysis = _analyze_module_usage(module);
+    _mark_atomic_buffer_types(analysis);
 
     for (auto type : analysis.used_types) {
         if (type != nullptr) { _convert_type(type, Usage::READ); }
@@ -705,6 +664,48 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     std::ostringstream oss;
     spv::Disassemble(oss, spirv);
     _scratch << oss.str();
+}
+
+SpirvCodegenEntry::InstructionUsageAnalysis SpirvCodegenEntry::_analyze_module_usage(const xir::Module *module) noexcept {
+    auto kernel = [module] {
+        const xir::KernelFunction *k = nullptr;
+        for (auto f : module->function_list()) {
+            if (f->isa<xir::KernelFunction>()) {
+                LUISA_ASSERT(k == nullptr,
+                             "SPIR-V codegen: expected exactly one kernel function.");
+                k = static_cast<const xir::KernelFunction *>(f);
+            }
+        }
+        LUISA_ASSERT(k != nullptr, "SPIR-V codegen: kernel function not found in module.");
+        return k;
+    }();
+    InstructionUsageAnalysis analysis;
+    analysis.used_types.reserve(Type::count());
+    analysis.used_constants.reserve(64u);
+    analysis.used_functions_post_order.reserve(64u);
+    luisa::unordered_set<const xir::Function *> visited;
+    visited.reserve(64u);
+    _analyze_instruction_usage(kernel, analysis, visited);
+    LUISA_ASSERT(!analysis.used_functions_post_order.empty() &&
+                     analysis.used_functions_post_order.back() == kernel,
+                 "SPIR-V codegen: kernel function not found in post-order traversal.");
+    return analysis;
+}
+
+void SpirvCodegenEntry::_mark_atomic_buffer_types(const InstructionUsageAnalysis &analysis) noexcept {
+    for (auto f : analysis.used_functions_post_order) {
+        if (auto def = f->definition()) {
+            def->traverse_instructions([&](const xir::Instruction *inst) noexcept {
+                if (inst->isa<xir::AtomicInst>()) {
+                    auto atomic = static_cast<const xir::AtomicInst *>(inst);
+                    auto base = atomic->base();
+                    if (base != nullptr && base->type() != nullptr && base->type()->is_buffer()) {
+                        _needs_atomic_buffer_types.emplace(base->type());
+                    }
+                }
+            });
+        }
+    }
 }
 
 }// namespace lc::spirv
