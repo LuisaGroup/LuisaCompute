@@ -64,8 +64,8 @@ struct ComplexStruct {
     uint16_t u16;
     int i32;
     uint u32;
-    slong i64;
-    ulong u64;
+    luisa::slong i64;
+    luisa::ulong u64;
     half h;
     float f;
     double d;
@@ -638,8 +638,8 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("  u16  offset={}, size={}", offsetof(ComplexStruct, u16), sizeof(uint16_t));
         LUISA_INFO("  i32  offset={}, size={}", offsetof(ComplexStruct, i32), sizeof(int));
         LUISA_INFO("  u32  offset={}, size={}", offsetof(ComplexStruct, u32), sizeof(uint));
-        LUISA_INFO("  i64  offset={}, size={}", offsetof(ComplexStruct, i64), sizeof(slong));
-        LUISA_INFO("  u64  offset={}, size={}", offsetof(ComplexStruct, u64), sizeof(ulong));
+        LUISA_INFO("  i64  offset={}, size={}", offsetof(ComplexStruct, i64), sizeof(luisa::slong));
+        LUISA_INFO("  u64  offset={}, size={}", offsetof(ComplexStruct, u64), sizeof(luisa::ulong));
         LUISA_INFO("  h    offset={}, size={}", offsetof(ComplexStruct, h), sizeof(half));
         LUISA_INFO("  f    offset={}, size={}", offsetof(ComplexStruct, f), sizeof(float));
         LUISA_INFO("  d    offset={}, size={}", offsetof(ComplexStruct, d), sizeof(double));
@@ -753,8 +753,8 @@ int main(int argc, char *argv[]) {
             Var<uint16_t> u16_out = cast<uint16_t>(s.u16 + cast<uint16_t>(42u));
             Var<int> i32_out = s.i32 * 2;
             Var<uint> u32_out = s.u32 + 100u;
-            Var<slong> i64_out = s.i64 + 1ll;
-            Var<ulong> u64_out = s.u64 * 2ull;
+            Var<luisa::slong> i64_out = s.i64 + 1ll;
+            Var<luisa::ulong> u64_out = s.u64 * 2ull;
             Var<half> h_out = s.h * cast<half>(2.0f);
             Var<float> f_out = s.f * 3.0f + 1.0f;
             Var<double> d_out = s.d * 2.0;
