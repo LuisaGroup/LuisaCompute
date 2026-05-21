@@ -732,11 +732,11 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     VkPhysicalDeviceVulkan12Features vk12_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &vk11_feature,
+        .storageBuffer8BitAccess = enable_8bit ? VK_TRUE : VK_FALSE,
         .shaderBufferInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderSharedInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderFloat16 = enable_16bit ? VK_TRUE : VK_FALSE,
         .shaderInt8 = enable_8bit ? VK_TRUE : VK_FALSE,
-        .storageBuffer8BitAccess = enable_8bit ? VK_TRUE : VK_FALSE,
         .descriptorIndexing = vk_bindless_enabled,
         .shaderUniformBufferArrayNonUniformIndexing = vk_bindless_enabled,
         .shaderSampledImageArrayNonUniformIndexing = vk_bindless_enabled,
