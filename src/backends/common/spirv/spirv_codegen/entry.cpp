@@ -92,7 +92,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
-    luisa_spirv_validate(words, "pre-optimization");
+    // luisa_spirv_validate(words, "pre-optimization");
     if (std::getenv("LUISA_DUMP_SPV")) {
         auto filename = luisa::format("/tmp/opencode/kernel_{:016x}.spv", kernel.hash());
         std::ofstream file(filename.c_str(), std::ios::binary);

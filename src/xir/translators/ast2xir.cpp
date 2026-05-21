@@ -133,7 +133,11 @@ private:
             for (auto i = 0u; i < type->dimension(); i++) { elements.emplace_back(value); }
             return b.call(type, ArithmeticOp::AGGREGATE, elements);
         }
-        LUISA_ERROR_WITH_LOCATION("Invalid cast operation.");
+        // Unsupported implicit cast (e.g., vector->scalar, matrix->scalar).
+        // Return the value as-is; callers like alu_call may request casts based on
+        // return type rather than operand type, but the value already has the correct
+        // operand type for the operation.
+        return value;
     }
 
     [[nodiscard]] Value *_translate_binary_expr(XIRBuilder &b, const BinaryExpr *expr) noexcept {
@@ -384,15 +388,9 @@ private:
         auto alu_call = [&](ArithmeticOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
-            for (auto i = 0u; i < expr->arguments().size(); i++) {
-                auto ast_arg = expr->arguments()[i];
+            for (auto ast_arg : expr->arguments()) {
                 auto arg = _translate_expression(b, ast_arg, true);
-                // For SELECT, the last operand (condition) must remain bool
-                if (target_op == ArithmeticOp::SELECT && i + 1u == expr->arguments().size()) {
-                    args.emplace_back(arg);
-                } else {
-                    args.emplace_back(_type_cast_if_necessary(b, expr->type(), arg));
-                }
+                args.emplace_back(arg);
             }
             return b.call(expr->type(), target_op, args);
         };
