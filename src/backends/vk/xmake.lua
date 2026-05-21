@@ -4,7 +4,7 @@ _config_project({
     project_kind = "shared",
     batch_size = 8
 })
-add_deps("lc-runtime", "lc-vstl", "lc-hlsl-codegen", "spirv-tools")
+add_deps("lc-runtime", "lc-vstl", "lc-hlsl-codegen")
 add_headerfiles("*.h")
 add_files("*.cpp")
 lc_set_pcxxheader("lc_vk_pch.h")

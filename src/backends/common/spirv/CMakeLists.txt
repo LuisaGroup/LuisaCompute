@@ -26,8 +26,7 @@ target_link_libraries(luisa-compute-spirv PUBLIC
         luisa-compute-vstl
         luisa-compute-runtime
         luisa-compute-xir
-        glslang
-        SPIRV-Tools-opt)
+        glslang)
 if (NOT WIN32)
     target_compile_options(luisa-compute-spirv PUBLIC
             $<$<CXX_COMPILER_ID:Clang,AppleClang>:-fms-extensions>)

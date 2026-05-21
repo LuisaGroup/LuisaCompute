@@ -8,6 +8,11 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
     auto type = _convert_type(inst->type(), Usage::READ);
     auto t = inst->type();
     auto elem = t->is_vector() || t->is_matrix() ? t->element() : t;
+    if (elem->is_float8()) {
+        LUISA_ERROR_WITH_LOCATION(
+            "SPIR-V backend does not support general arithmetic on FP8 types. "
+            "Please up-convert to float16 or float32, perform arithmetic, and down-convert.");
+    }
     auto is_float = elem->is_float();
     auto is_signed_int = elem->is_int();
     auto is_bool = elem->is_bool();
@@ -321,9 +326,21 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 spv::Id zero = spv::NoResult;
                 spv::Id bool_type = _builder.makeBoolType();
                 if (_builder.isIntType(cond_type) || _builder.isUintType(cond_type)) {
-                    zero = _builder.makeIntConstant(0);
+                    auto bit_width = static_cast<int32_t>(_builder.getScalarTypeWidth(cond_type));
+                    zero = _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false);
                 } else if (_builder.isFloatType(cond_type)) {
-                    zero = _builder.makeFloatConstant(0.0f);
+                    auto bit_width = static_cast<int32_t>(_builder.getScalarTypeWidth(cond_type));
+                    if (bit_width == 16) {
+                        zero = _builder.makeFloat16Constant(0.0f);
+                    } else if (bit_width == 32) {
+                        zero = _builder.makeFloatConstant(0.0f);
+                    } else if (bit_width == 64) {
+                        zero = _builder.makeDoubleConstant(0.0);
+                    } else if (bit_width == 8) {
+                        // FP8: use the appropriate constant constructor
+                        // We don't know the exact encoding here, but float8 values
+                        // should not appear as SELECT conditions. Fall through.
+                    }
                 }
                 if (zero != spv::NoResult) {
                     if (_builder.isVectorType(cond_type)) {
@@ -393,14 +410,16 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::CLZ: {
             auto find_msb = glsl_typed(GLSLstd450FindSMsb, GLSLstd450FindSMsb, GLSLstd450FindUMsb, operand(0));
             auto bit_width = static_cast<int32_t>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
-            auto bit_width_id = elem->is_uint() ? _builder.makeUintConstant(bit_width) : _builder.makeIntConstant(bit_width);
-            auto minus_one = elem->is_uint() ? _builder.makeUintConstant(0xFFFFFFFFu) : _builder.makeIntConstant(-1);
+            auto bit_width_id = elem->is_uint()
+                ? _builder.makeIntConstant(_builder.makeUintType(bit_width), static_cast<unsigned>(bit_width), false)
+                : _builder.makeIntConstant(_builder.makeIntType(bit_width), static_cast<unsigned>(bit_width), false);
+            auto minus_one = elem->is_uint() ? _builder.makeIntConstant(_builder.makeUintType(bit_width), 0xFFFFFFFFu, false) : _builder.makeIntConstant(_builder.makeIntType(bit_width), 0xFFFFFFFFu, false);
             if (!is_scalar) {
                 bit_width_id = _builder.smearScalar(spv::NoPrecision, bit_width_id, type);
                 minus_one = _builder.smearScalar(spv::NoPrecision, minus_one, type);
             }
             auto is_zero = _builder.createBinOp(spv::Op::OpIEqual, _builder.makeBoolType(), find_msb, minus_one);
-            auto one = elem->is_uint() ? _builder.makeUintConstant(1u) : _builder.makeIntConstant(1);
+            auto one = elem->is_uint() ? _builder.makeIntConstant(_builder.makeUintType(bit_width), 1u, false) : _builder.makeIntConstant(_builder.makeIntType(bit_width), 1u, false);
             auto clz_val = _builder.createBinOp(spv::Op::OpISub, type, _builder.createBinOp(spv::Op::OpISub, type, bit_width_id, one), find_msb);
             id = _builder.createTriOp(spv::Op::OpSelect, type, is_zero, bit_width_id, clz_val);
             break;
@@ -408,8 +427,10 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::CTZ: {
             auto find_lsb = glsl(GLSLstd450FindILsb, operand(0));
             auto bit_width = static_cast<int32_t>(t->is_scalar() ? t->size() * 8 : t->element()->size() * 8);
-            auto bit_width_id = elem->is_uint() ? _builder.makeUintConstant(bit_width) : _builder.makeIntConstant(bit_width);
-            auto minus_one = elem->is_uint() ? _builder.makeUintConstant(0xFFFFFFFFu) : _builder.makeIntConstant(-1);
+            auto bit_width_id = elem->is_uint()
+                ? _builder.makeIntConstant(_builder.makeUintType(bit_width), static_cast<unsigned>(bit_width), false)
+                : _builder.makeIntConstant(_builder.makeIntType(bit_width), static_cast<unsigned>(bit_width), false);
+            auto minus_one = elem->is_uint() ? _builder.makeIntConstant(_builder.makeUintType(bit_width), 0xFFFFFFFFu, false) : _builder.makeIntConstant(_builder.makeIntType(bit_width), 0xFFFFFFFFu, false);
             if (!is_scalar) {
                 bit_width_id = _builder.smearScalar(spv::NoPrecision, bit_width_id, type);
                 minus_one = _builder.smearScalar(spv::NoPrecision, minus_one, type);
@@ -1786,6 +1807,12 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
             // bool: compare low bit with 0
             return _builder.createBinOp(spv::Op::OpINotEqual, spv_type, raw, _builder.makeUintConstant(0u));
         }
+        if (elem_type->is_float8()) {
+            // FP8: truncate to uint8, then bitcast to fp8
+            auto uint8_type = _builder.makeUintType(8);
+            auto u8 = _builder.createUnaryOp(spv::Op::OpUConvert, uint8_type, raw);
+            return _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, u8);
+        }
         // Other sub-word integer types: truncate
         auto bit_width = static_cast<int32_t>(elem_type->size() * 8);
         auto trunc_type = _builder.makeIntegerType(bit_width, elem_type->is_int());
@@ -1903,6 +1930,10 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
                     // Sub-word scalar
                     if (member->is_bool()) {
                         fields.push_back(_builder.createBinOp(spv::Op::OpINotEqual, spv_member_type, raw, _builder.makeUintConstant(0u)));
+                    } else if (member->is_float8()) {
+                        auto uint8_type = _builder.makeUintType(8);
+                        auto u8 = _builder.createUnaryOp(spv::Op::OpUConvert, uint8_type, raw);
+                        fields.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_member_type, u8));
                     } else {
                         fields.push_back(_builder.createUnaryOp(spv::Op::OpBitcast, spv_member_type, raw));
                     }
@@ -1973,6 +2004,11 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
         if (elem_type->is_bool()) {
             // bool -> uint: select 1u or 0u
             store_val = _builder.createOp(spv::Op::OpSelect, uint_type, {value, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
+        } else if (elem_type->is_float8()) {
+            // FP8: bitcast to uint8, then zero-extend to uint32
+            auto uint8_type = _builder.makeUintType(8);
+            store_val = _builder.createUnaryOp(spv::Op::OpBitcast, uint8_type, value);
+            store_val = _builder.createUnaryOp(spv::Op::OpUConvert, uint_type, store_val);
         } else {
             // Extend sub-word integer to 32 bits
             store_val = _builder.createUnaryOp(elem_type->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, uint_type, value);
@@ -2060,6 +2096,10 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
                         spv::Id comp_uint = spv::NoResult;
                         if (comp_type->is_bool()) {
                             comp_uint = _builder.createOp(spv::Op::OpSelect, uint_type, {comp, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
+                        } else if (comp_type->is_float8()) {
+                            auto uint8_type = _builder.makeUintType(8);
+                            comp_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint8_type, comp);
+                            comp_uint = _builder.createUnaryOp(spv::Op::OpUConvert, uint_type, comp_uint);
                         } else {
                             comp_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, comp);
                         }
@@ -2072,6 +2112,10 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
                 } else {
                     if (member->is_bool()) {
                         field_uint = _builder.createOp(spv::Op::OpSelect, uint_type, {field_val, _builder.makeUintConstant(1u), _builder.makeUintConstant(0u)});
+                    } else if (member->is_float8()) {
+                        auto uint8_type = _builder.makeUintType(8);
+                        field_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint8_type, field_val);
+                        field_uint = _builder.createUnaryOp(spv::Op::OpUConvert, uint_type, field_uint);
                     } else {
                         field_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, field_val);
                     }
@@ -2706,28 +2750,64 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
                 } else if (from->is_bool() && to->is_scalar()) {
                     spv::Id zero = spv::NoResult;
                     spv::Id one = spv::NoResult;
-                    if (to->is_int32()) {
-                        zero = _builder.makeIntConstant(0);
-                        one = _builder.makeIntConstant(1);
-                    } else if (to->is_uint32()) {
-                        zero = _builder.makeUintConstant(0);
-                        one = _builder.makeUintConstant(1);
-                    } else if (to->is_float32()) {
-                        zero = _builder.makeFloatConstant(0.0f);
-                        one = _builder.makeFloatConstant(1.0f);
-                    } else {
+                    if (to->is_int()) {
+                        auto bit_width = static_cast<int32_t>(to->size() * 8);
+                        zero = _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false);
+                        one = _builder.makeIntConstant(_builder.makeIntType(bit_width), 1u, false);
+                    } else if (to->is_uint()) {
+                        auto bit_width = static_cast<int32_t>(to->size() * 8);
+                        zero = _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
+                        one = _builder.makeIntConstant(_builder.makeUintType(bit_width), 1u, false);
+                    } else if (to->is_float()) {
+                        auto bit_width = static_cast<int32_t>(to->size() * 8);
+                        if (bit_width == 8) {
+                            if (to->is_float8_e5m2()) {
+                                zero = _builder.makeFloatE5M2Constant(0.0f);
+                                one = _builder.makeFloatE5M2Constant(1.0f);
+                            } else if (to->is_float8_e4m3()) {
+                                zero = _builder.makeFloatE4M3Constant(0.0f);
+                                one = _builder.makeFloatE4M3Constant(1.0f);
+                            }
+                        } else if (bit_width == 16) {
+                            zero = _builder.makeFloat16Constant(0.0f);
+                            one = _builder.makeFloat16Constant(1.0f);
+                        } else if (bit_width == 32) {
+                            zero = _builder.makeFloatConstant(0.0f);
+                            one = _builder.makeFloatConstant(1.0f);
+                        } else if (bit_width == 64) {
+                            zero = _builder.makeDoubleConstant(0.0);
+                            one = _builder.makeDoubleConstant(1.0);
+                        }
+                    }
+                    if (zero == spv::NoResult || one == spv::NoResult) {
                         LUISA_NOT_IMPLEMENTED("SPIR-V bool-to-scalar cast for {}.", to->description());
                     }
                     id = _builder.createTriOp(spv::Op::OpSelect, spv_to, val, one, zero);
                 } else if (to->is_bool() && from->is_scalar()) {
                     spv::Id zero = spv::NoResult;
-                    if (from->is_int32()) {
-                        zero = _builder.makeIntConstant(0);
-                    } else if (from->is_uint32()) {
-                        zero = _builder.makeUintConstant(0);
-                    } else if (from->is_float32()) {
-                        zero = _builder.makeFloatConstant(0.0f);
-                    } else {
+                    if (from->is_int()) {
+                        auto bit_width = static_cast<int32_t>(from->size() * 8);
+                        zero = _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false);
+                    } else if (from->is_uint()) {
+                        auto bit_width = static_cast<int32_t>(from->size() * 8);
+                        zero = _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
+                    } else if (from->is_float()) {
+                        auto bit_width = static_cast<int32_t>(from->size() * 8);
+                        if (bit_width == 8) {
+                            if (from->is_float8_e5m2()) {
+                                zero = _builder.makeFloatE5M2Constant(0.0f);
+                            } else if (from->is_float8_e4m3()) {
+                                zero = _builder.makeFloatE4M3Constant(0.0f);
+                            }
+                        } else if (bit_width == 16) {
+                            zero = _builder.makeFloat16Constant(0.0f);
+                        } else if (bit_width == 32) {
+                            zero = _builder.makeFloatConstant(0.0f);
+                        } else if (bit_width == 64) {
+                            zero = _builder.makeDoubleConstant(0.0);
+                        }
+                    }
+                    if (zero == spv::NoResult) {
                         LUISA_NOT_IMPLEMENTED("SPIR-V scalar-to-bool cast for {}.", from->description());
                     }
                     if (from->is_float()) {
@@ -3130,13 +3210,15 @@ spv::Id SpirvCodegenEntry::_ensure_type(spv::Id value, spv::Id target_type) noex
     }
     if (val_class == spv::Op::OpTypeBool && tgt_class == spv::Op::OpTypeInt) {
         // bool → int: select 1 or 0
-        auto one = _builder.isIntType(tgt_scalar) ? _builder.makeIntConstant(1) : _builder.makeUintConstant(1);
-        auto zero = _builder.isIntType(tgt_scalar) ? _builder.makeIntConstant(0) : _builder.makeUintConstant(0);
+        auto bit_width = static_cast<int32_t>(_builder.getScalarTypeWidth(tgt_scalar));
+        auto one = _builder.isIntType(tgt_scalar) ? _builder.makeIntConstant(_builder.makeIntType(bit_width), 1u, false) : _builder.makeIntConstant(_builder.makeUintType(bit_width), 1u, false);
+        auto zero = _builder.isIntType(tgt_scalar) ? _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false) : _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
         return _builder.createOp(spv::Op::OpSelect, target_type, {value, one, zero});
     }
     if (val_class == spv::Op::OpTypeInt && tgt_class == spv::Op::OpTypeBool) {
         // int → bool: compare with 0
-        auto zero = _builder.isIntType(val_scalar) ? _builder.makeIntConstant(0) : _builder.makeUintConstant(0);
+        auto bit_width = static_cast<int32_t>(_builder.getScalarTypeWidth(val_scalar));
+        auto zero = _builder.isIntType(val_scalar) ? _builder.makeIntConstant(_builder.makeIntType(bit_width), 0u, false) : _builder.makeIntConstant(_builder.makeUintType(bit_width), 0u, false);
         return _builder.createBinOp(spv::Op::OpINotEqual, target_type, value, zero);
     }
     return _builder.createUnaryOp(spv::Op::OpBitcast, target_type, value);

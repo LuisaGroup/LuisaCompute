@@ -4,10 +4,10 @@
 #include <luisa/core/logging.h>
 #include <fstream>
 #include <sstream>
-#include <spirv-tools/optimizer.hpp>
+// #include <spirv-tools/optimizer.hpp>
 
 namespace lc::spirv {
-
+/*
 static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
     spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_2);
     optimizer.SetMessageConsumer(
@@ -45,7 +45,7 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
         LUISA_WARNING("SPIR-V optimization failed, using unoptimized binary.");
     }
 }
-
+*/
 SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption &opt, bool use_native_float_atomics) {
     auto xir_module = luisa::compute::spirv::luisa_spirv_backend_translate_ast_to_xir(kernel, opt);
     StringScratch scratch;
@@ -60,7 +60,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
         std::ofstream file(filename.c_str(), std::ios::binary);
         file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));
     }
-    luisa_spirv_optimize(words);
+    // luisa_spirv_optimize(words);
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());
     if (std::getenv("LUISA_DUMP_SOURCE")) {

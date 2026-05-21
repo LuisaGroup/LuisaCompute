@@ -60,6 +60,11 @@ private:
     bool _use_tex3d_bindless{false};
     bool _use_buffer_bindless{false};
     bool _use_native_float_atomics{true};
+    bool _uses_int8{false};
+    bool _uses_float8{false};
+    bool _uses_8bit_storage_buffer{false};
+    bool _uses_8bit_uniform_storage{false};
+    bool _uses_8bit_push_constant{false};
     spv::Id _buffer_heap_id{spv::NoResult};
     spv::Id _tex2d_heap_id{spv::NoResult};
     spv::Id _tex3d_heap_id{spv::NoResult};
@@ -86,6 +91,7 @@ private:
 
     spv::Id _convert_type(const Type *type, Usage usage) noexcept;
     spv::Id _convert_laid_out_type(const Type *type) noexcept;
+    void _mark_8bit_storage_usage(const Type *type, spv::StorageClass storage) noexcept;
     spv::Id _emit_literal(const Type *type, const void *data) noexcept;
     spv::Id _emit_constant(const xir::Constant *c) noexcept;
     spv::Id _emit_value(const xir::Value *value) noexcept;

@@ -101,6 +101,8 @@ private:
             LUISA_DEBUG_ASSERT(expr->type()->is_bool() || expr->type()->is_bool_vector(),
                                "Invalid type for logical not operation.");
             operand = _type_cast_if_necessary(b, expr->type(), operand);
+        } else {
+            operand = _type_cast_if_necessary(b, expr->type(), operand);
         }
         return b.call(expr->type(), op, {operand});
     }
@@ -382,9 +384,15 @@ private:
         auto alu_call = [&](ArithmeticOp target_op) noexcept {
             luisa::fixed_vector<Value *, 16u> args;
             args.reserve(expr->arguments().size());
-            for (auto ast_arg : expr->arguments()) {
+            for (auto i = 0u; i < expr->arguments().size(); i++) {
+                auto ast_arg = expr->arguments()[i];
                 auto arg = _translate_expression(b, ast_arg, true);
-                args.emplace_back(arg);
+                // For SELECT, the last operand (condition) must remain bool
+                if (target_op == ArithmeticOp::SELECT && i + 1u == expr->arguments().size()) {
+                    args.emplace_back(arg);
+                } else {
+                    args.emplace_back(_type_cast_if_necessary(b, expr->type(), arg));
+                }
             }
             return b.call(expr->type(), target_op, args);
         };

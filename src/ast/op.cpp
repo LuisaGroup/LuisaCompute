@@ -65,15 +65,19 @@ LUISA_AST_API TypePromotion promote_types(BinaryOp op, const Type *lhs, const Ty
         auto lhs_and_rhs = [lhs, rhs] {
             static luisa::unordered_map<Type::Tag, uint> scalar_to_score{
                 {Type::Tag::BOOL, 0u},
-                {Type::Tag::INT16, 1u},
-                {Type::Tag::UINT16, 2u},
-                {Type::Tag::INT32, 3u},
-                {Type::Tag::UINT32, 4u},
-                {Type::Tag::INT64, 5u},
-                {Type::Tag::UINT64, 6u},
-                {Type::Tag::FLOAT16, 7u},
-                {Type::Tag::FLOAT32, 8u},
-                {Type::Tag::FLOAT64, 9u}};
+                {Type::Tag::INT8, 1u},
+                {Type::Tag::UINT8, 2u},
+                {Type::Tag::INT16, 3u},
+                {Type::Tag::UINT16, 4u},
+                {Type::Tag::INT32, 5u},
+                {Type::Tag::UINT32, 6u},
+                {Type::Tag::INT64, 7u},
+                {Type::Tag::UINT64, 8u},
+                {Type::Tag::FLOAT8_E4M3, 9u},
+                {Type::Tag::FLOAT8_E5M2, 10u},
+                {Type::Tag::FLOAT16, 11u},
+                {Type::Tag::FLOAT32, 12u},
+                {Type::Tag::FLOAT64, 13u}};
             return scalar_to_score.at(lhs->tag()) > scalar_to_score.at(rhs->tag()) ?
                        lhs :
                        rhs;
