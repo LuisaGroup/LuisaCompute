@@ -58,6 +58,10 @@ if (LUISA_COMPUTE_ENABLE_GUI)
         luisa_compute_add_example(example_path_tracing_ir rendering/path_tracing_ir.cpp MIRROR_AS_TEST)
         luisa_compute_add_example(example_sdf_renderer_ir rendering/sdf_renderer_ir.cpp MIRROR_AS_TEST)
     endif ()
+    if (LUISA_COMPUTE_ENABLE_XIR)
+        luisa_compute_add_example(example_path_tracing_xir2ast rendering/path_tracing_xir2ast.cpp MIRROR_AS_TEST)
+        luisa_compute_add_example(example_sdf_renderer_xir2ast rendering/sdf_renderer_xir2ast.cpp MIRROR_AS_TEST)
+    endif ()
 
     # simulation
     luisa_compute_add_example(example_fire_simulation simulation/fire_simulation.cpp MIRROR_AS_TEST)

@@ -38,6 +38,10 @@ if has_config("lc_enable_ir") then
     example_proj("example_path_tracing_ir", "rendering/path_tracing_ir.cpp", true)
     example_proj("example_sdf_renderer_ir", "rendering/sdf_renderer_ir.cpp", true)
 end
+if has_config("lc_enable_xir") then
+    example_proj("example_path_tracing_xir2ast", "rendering/path_tracing_xir2ast.cpp", true)
+    example_proj("example_sdf_renderer_xir2ast", "rendering/sdf_renderer_xir2ast.cpp", true)
+end
 
 -- simulation
 example_proj("example_fire_simulation", "simulation/fire_simulation.cpp", true)
