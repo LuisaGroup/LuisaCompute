@@ -14,6 +14,19 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+[[nodiscard]] static luisa::vector<CallInst *> collect_call_sites(Function *callee) noexcept {
+    luisa::vector<CallInst *> calls;
+    for (auto &&use : callee->use_list()) {
+        if (auto user = use->user(); user != nullptr && user->isa<CallInst>()) {
+            auto call = static_cast<CallInst *>(user);
+            if (call->callee() == callee) {
+                calls.push_back(call);
+            }
+        }
+    }
+    return calls;
+}
+
 class InlineValueResolver final : public InstructionCloneValueResolver {
     luisa::unordered_map<const Value *, Value *> _map;
 public:
@@ -73,7 +86,7 @@ public:
 
     // Collect callee blocks and create mapped blocks in caller
     luisa::vector<BasicBlock *> callee_blocks;
-    callee_def->traverse_basic_blocks([&](BasicBlock *bb) noexcept { callee_blocks.push_back(bb); });
+    callee_def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *bb) noexcept { callee_blocks.push_back(bb); });
 
     luisa::unordered_map<BasicBlock *, BasicBlock *> block_map;
     luisa::vector<BasicBlock *> new_blocks;
@@ -92,7 +105,24 @@ public:
         ret_alloca = builder.alloca_local(call->type());
     }
 
-    // Clone instructions from callee into new blocks
+    // Clone instructions from callee into new blocks.
+    // We make two passes:
+    //   Pass 1: clone all alloca instructions first. They have no operand
+    //   dependencies and may be referenced by instructions that appear
+    //   earlier in RPO (e.g., alloca inside a branch referenced from a
+    //   predecessor block after previous inlining).
+    //   Pass 2: clone everything else.
+    luisa::vector<std::pair<const PhiInst *, PhiInst *>> phi_nodes;
+    for (size_t i = 0; i < callee_blocks.size(); ++i) {
+        builder.set_insertion_point(new_blocks[i]);
+        for (auto inst : callee_blocks[i]->instructions()) {
+            if (inst->isa<AllocaInst>()) {
+                auto c = inst->clone_with_metadata(builder, resolver);
+                LUISA_ASSERT(c, "Inline: clone failed.");
+                resolver.emplace(inst, c);
+            }
+        }
+    }
     for (size_t i = 0; i < callee_blocks.size(); ++i) {
         builder.set_insertion_point(new_blocks[i]);
         for (auto inst : callee_blocks[i]->instructions()) {
@@ -103,11 +133,26 @@ public:
                     builder.store(ret_alloca, val);
                 }
                 builder.br(merge_bb);
-            } else {
+            } else if (inst->isa<PhiInst>()) {
+                auto phi = static_cast<PhiInst *>(inst);
+                auto dup_phi = builder.phi(phi->type());
+                phi_nodes.emplace_back(phi, dup_phi);
+                resolver.emplace(inst, dup_phi);
+            } else if (!inst->isa<AllocaInst>()) {
                 auto c = inst->clone_with_metadata(builder, resolver);
                 LUISA_ASSERT(c, "Inline: clone failed.");
                 resolver.emplace(inst, c);
             }
+        }
+    }
+    // Patch phi node operands now that all blocks and values are mapped.
+    for (auto [original_phi, dup_phi] : phi_nodes) {
+        dup_phi->set_incoming_count(original_phi->incoming_count());
+        for (auto i = 0u; i < original_phi->incoming_count(); i++) {
+            auto incoming = original_phi->incoming(i);
+            auto resolved_value = resolver.resolve(incoming.value);
+            auto resolved_block = resolver.resolve(incoming.block);
+            dup_phi->set_incoming(i, resolved_value, static_cast<BasicBlock *>(resolved_block));
         }
     }
 
@@ -181,7 +226,7 @@ static void run(Module *module, InlineInfo &info) noexcept {
     for (auto callee : callables) {
         auto def = callee->definition();
         if (!def) continue;
-        auto edges = cg.call_edges(def);
+        auto edges = collect_call_sites(callee);
         if (edges.empty()) continue;
 
         size_t n = edges.size();
@@ -240,8 +285,7 @@ InlineInfo inline_all_pass_run_on_module(Module *module) noexcept {
         for (auto callee : leaves) {
             auto def = callee->definition();
             if (!def) continue;
-            cg = compute_call_graph(module);
-            auto edges = cg.call_edges(def);
+            auto edges = detail::collect_call_sites(callee);
             for (auto call : edges) {
                 if (detail::inline_call(call, callee)) {
                     info.inlined_call_count++;

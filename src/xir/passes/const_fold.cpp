@@ -328,12 +328,14 @@ namespace detail {
             }
         }
         case ArithmeticOp::STEP: {
+            // STEP(edge, x) = x >= edge ? 1 : 0.
+            // op0 = edge, op1 = x.
             switch (tag) {
                 case Type::Tag::FLOAT32:
-                    *static_cast<float *>(data) = (*static_cast<const float *>(op0_data) >= *static_cast<const float *>(op1_data)) ? 1.0f : 0.0f;
+                    *static_cast<float *>(data) = (*static_cast<const float *>(op1_data) >= *static_cast<const float *>(op0_data)) ? 1.0f : 0.0f;
                     return true;
                 case Type::Tag::FLOAT64:
-                    *static_cast<double *>(data) = (*static_cast<const double *>(op0_data) >= *static_cast<const double *>(op1_data)) ? 1.0 : 0.0;
+                    *static_cast<double *>(data) = (*static_cast<const double *>(op1_data) >= *static_cast<const double *>(op0_data)) ? 1.0 : 0.0;
                     return true;
                 default: return false;
             }
