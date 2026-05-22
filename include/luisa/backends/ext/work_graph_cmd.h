@@ -6,20 +6,33 @@
 namespace luisa::compute {
 
 class WorkGraphDispatchCommand final : public CustomCommand {
+public:
+    struct NodeCPUInput {
+        size_t _record_count;
+        size_t _record_stride;
+        void* _records;
+    };
+
+    struct NodeGPUInput {
+        uint64_t _gpu_input;
+    };
 
 private:
     uint64_t _handle;
-    size_t _record_count;
-    size_t _record_stride;
-    void* _records;
+    luisa::variant<NodeCPUInput, NodeGPUInput> _records;
+
 
 public:
-    // `records` is not copied; user must keep it alive until it is read by backend
+    // CPU input: `records` is not copied; user must keep it alive until it is read by backend
     WorkGraphDispatchCommand(uint64_t handle,
                              size_t record_count,
                              size_t record_stride,
                              void* records) noexcept
-        : _handle(handle), _record_count(record_count), _record_stride(record_stride), _records(records) {}
+        : _handle(handle), _records(NodeCPUInput(record_count, record_stride, records)) {}
+
+    WorkGraphDispatchCommand(uint64_t handle,
+                             uint64_t gpu_input) noexcept
+        : _handle(handle), _records(NodeGPUInput(gpu_input)) {}
 
     WorkGraphDispatchCommand(WorkGraphDispatchCommand const &) noexcept = delete;
     WorkGraphDispatchCommand(WorkGraphDispatchCommand &&) noexcept = default;
@@ -27,8 +40,6 @@ public:
     uint64_t custom_cmd_uuid() const noexcept override { return to_underlying(CustomCommandUUID::WORK_GRAPH_DISPATCH); }
 
     [[nodiscard]] auto handle() const noexcept { return _handle; }
-    [[nodiscard]] auto record_count() const noexcept { return _record_count; }
-    [[nodiscard]] auto record_stride() const noexcept { return _record_stride; }
     [[nodiscard]] auto records() const noexcept { return _records; }
 
     LUISA_MAKE_COMMAND_COMMON(StreamTag::COMPUTE)

@@ -23,13 +23,13 @@ WorkGraphProgram *WorkGraphProgram::compile_work_graph(
     std::mbstowcs(wide_name.data(), work_graph_name.data(), work_graph_name.size());
 
     hlsl::CodegenResult codegen_result = codegen();
-
-    luisa::string dump_name = luisa::format("work_graph_dump_{}.hlsl", work_graph_name);
-    auto file = fopen(dump_name.c_str(), "w");
     auto code = codegen_result.result.view();
-    fwrite(code.data(), 1, code.size(), file);
-    fflush(file);
-    fclose(file);
+
+    // luisa::string dump_name = luisa::format("work_graph_dump_{}.hlsl", work_graph_name);
+    // auto file = fopen(dump_name.c_str(), "w");
+    // fwrite(code.data(), 1, code.size(), file);
+    // fflush(file);
+    // fclose(file);
 
     auto compile_result = Device::compiler()->compile_work_graph(
         code,

@@ -5,8 +5,10 @@
 #include <luisa/dsl/work_graph/work_graph.h>
 #include <luisa/dsl/work_graph/work_graph_kernel.h>
 #include <luisa/backends/ext/work_graph_ext.h>
+#include <luisa/backends/ext/native_resource_ext.hpp>
 #include <luisa/runtime/work_graph/work_graph_program.h>
 #include <luisa/runtime/rtx/accel.h>
+
 #ifdef _WIN32
 #include "Windows.h"
 // see note in DX backend `Device.cpp`
@@ -337,6 +339,59 @@ void accel_work_graph_test(Device &device, Stream &stream) {
     LUISA_INFO("accel_work_graph: passed");
 }
 
+WorkGraph gpu_input_work_graph(const Buffer<uint> &out) {
+    WorkGraphBuilder work_graph{"gpu-input-work-graph"};
+
+    auto consumer = work_graph.add_node<WorkGraphLaunchType::THREAD, ConsumerRecord>("consumer");
+    WorkGraphNodeKernel consumer_kernel = [&](Var<ConsumerRecord> input) {
+        // do work
+        out->write(input.index, input.data);
+    };
+    consumer.define(consumer_kernel);
+
+    return work_graph.build();
+}
+
+// test GPU input to work graph
+void gpu_input_test(Device &device, Stream &stream) {
+    struct GPUInput {
+        uint entrypoint_index;
+        uint num_records;
+        uint64_t record_va;
+        uint64_t stride;
+    } gpu_input;
+
+    auto d_gpu_input = device.create_buffer<GPUInput>(1);
+    auto d_gpu_records = device.create_buffer<ConsumerRecord>(1024);
+
+    luisa::vector<ConsumerRecord> h_gpu_records(1024);
+    for (size_t i = 0; i < h_gpu_records.size(); i += 1) {
+        h_gpu_records[i].index = i;
+        h_gpu_records[i].data = 1024 - i;
+    }
+
+    auto native_res = device.extension<NativeResourceExt>();
+    gpu_input.entrypoint_index = 0;
+    gpu_input.num_records = 1024;
+    gpu_input.record_va = native_res->get_device_address(d_gpu_records);
+    gpu_input.stride = sizeof(ConsumerRecord);
+
+    auto d_out = device.create_buffer<uint>(1024u);
+    luisa::vector<uint> h_out(1024);
+
+    WorkGraph wg = gpu_input_work_graph(d_out);
+    WorkGraphProgram program = device.compile(wg);
+
+    stream << d_gpu_records.copy_from(luisa::span{h_gpu_records}) << d_gpu_input.copy_from(&gpu_input) << synchronize();
+    stream << program().dispatch(native_res->get_device_address(d_gpu_input)) << synchronize();
+    stream << d_out.copy_to(luisa::span{h_out}) << synchronize();
+
+    for (uint i = 0u; i < 1024; i += 1) {
+        boost::ut::expect(h_out[i] == 1024 - i) << "gpu_input output mismatch.";
+    }
+    LUISA_INFO("gpu_input: passed");
+}
+
 void test_work_graph(Device &device) {
     boost::ut::expect(static_cast<bool>(device.backend_name() == "dx")) << "test_work_graph requires dx backend.";
     if (device.backend_name() != "dx") {
@@ -349,6 +404,7 @@ void test_work_graph(Device &device) {
     node_array_test(device, stream);
     bindless_array_work_graph_test(device, stream);
     accel_work_graph_test(device, stream);
+    gpu_input_test(device, stream);
 }
 
 int main(int argc, char *argv[]) {

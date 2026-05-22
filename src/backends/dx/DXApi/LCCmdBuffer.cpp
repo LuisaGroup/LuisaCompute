@@ -1108,12 +1108,21 @@ public:
         Visitor visitor{this, program->args().data()};
         decode_cmd(program->arg_bindings(), visitor);
 
-        D3D12_DISPATCH_GRAPH_DESC dispatchDesc{};
-        dispatchDesc.Mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
-        dispatchDesc.NodeCPUInput.EntrypointIndex = 0;
-        dispatchDesc.NodeCPUInput.NumRecords = static_cast<UINT>(cmd->record_count());
-        dispatchDesc.NodeCPUInput.RecordStrideInBytes = static_cast<UINT>(cmd->record_stride());
-        dispatchDesc.NodeCPUInput.pRecords = cmd->records();
+        D3D12_DISPATCH_GRAPH_DESC dispatchDesc {};
+        luisa::visit([&]<typename T>(T&& records) {
+            if constexpr (std::is_same_v<T, WorkGraphDispatchCommand::NodeCPUInput>) {
+                dispatchDesc.Mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
+                dispatchDesc.NodeCPUInput.EntrypointIndex = 0;
+                dispatchDesc.NodeCPUInput.NumRecords = static_cast<UINT>(records._record_count);
+                dispatchDesc.NodeCPUInput.RecordStrideInBytes = static_cast<UINT>(records._record_stride);
+                dispatchDesc.NodeCPUInput.pRecords = records._records;
+            }
+            else if constexpr (std::is_same_v<T, WorkGraphDispatchCommand::NodeGPUInput>) {
+                dispatchDesc.Mode = D3D12_DISPATCH_MODE_NODE_GPU_INPUT;
+                dispatchDesc.NodeGPUInput = records._gpu_input;
+            }
+        }, cmd->records());
+
         bd->dispatch_work_graph(program, dispatchDesc, *bind_props);
     }
     void visit(const DrawRasterSceneCommand *cmd) noexcept {

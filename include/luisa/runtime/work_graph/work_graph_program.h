@@ -22,6 +22,10 @@ public:
     luisa::unique_ptr<Command> dispatch(size_t record_count, size_t record_stride, void* records) && noexcept {
         return luisa::make_unique<WorkGraphDispatchCommand>(_handle, record_count, record_stride, records);
     }
+
+    luisa::unique_ptr<Command> dispatch(uint64_t gpu_input) && noexcept {
+        return luisa::make_unique<WorkGraphDispatchCommand>(_handle, gpu_input);
+    }
 };
 }// namespace detail
 
