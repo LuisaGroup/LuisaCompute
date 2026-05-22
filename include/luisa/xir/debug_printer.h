@@ -39,7 +39,7 @@ public:
     void emit_function_decl(luisa::string &s, const Function *function) noexcept;
     void emit_function(luisa::string &s, const Function *function) noexcept;
     void emit_module(luisa::string &s, const Module *module) noexcept;
-    void emit_metadata_list(luisa::string &s, const MetadataList &metadata) noexcept;
+    static void emit_metadata_list(luisa::string &s, const MetadataList &metadata) noexcept;
     [[nodiscard]] static XIRDebugPrinter &global() noexcept;
 };
 

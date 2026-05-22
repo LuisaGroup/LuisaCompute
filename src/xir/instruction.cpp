@@ -5,8 +5,8 @@
 
 namespace luisa::compute::xir {
 
-Instruction::Instruction(BasicBlock *block, const Type *type) noexcept
-    : Super{block, type} {}
+Instruction::Instruction(BasicBlock *parent_block, const Type *type) noexcept
+    : Super{parent_block, type} {}
 
 bool Instruction::_should_add_self_to_operand_use_lists() const noexcept {
     return is_linked();
@@ -59,7 +59,7 @@ const ControlFlowMerge *Instruction::control_flow_merge() const noexcept {
     return const_cast<Instruction *>(this)->control_flow_merge();
 }
 
-SentinelInst::SentinelInst(BasicBlock *block) noexcept : Instruction{block, nullptr} {}
+SentinelInst::SentinelInst(BasicBlock *parent_block) noexcept : Instruction{parent_block, nullptr} {}
 
 DerivedInstructionTag SentinelInst::derived_instruction_tag() const noexcept {
     LUISA_ERROR_WITH_LOCATION("Calling SentinelInst::derived_instruction_tag()");
@@ -72,7 +72,7 @@ Instruction *SentinelInst::clone(XIRBuilder &b, InstructionCloneValueResolver &r
 TerminatorInstruction::TerminatorInstruction(BasicBlock *block) noexcept
     : Instruction{block, nullptr} {}
 
-BranchTerminatorInstruction::BranchTerminatorInstruction(BasicBlock *block) noexcept : TerminatorInstruction{block} {
+BranchTerminatorInstruction::BranchTerminatorInstruction(BasicBlock *parent_block) noexcept : TerminatorInstruction{parent_block} {
     auto operands = std::array{static_cast<Value *>(nullptr)};
     set_operands(operands);
 }
@@ -96,7 +96,7 @@ const BasicBlock *BranchTerminatorInstruction::target_block() const noexcept {
     return const_cast<BranchTerminatorInstruction *>(this)->target_block();
 }
 
-ConditionalBranchTerminatorInstruction::ConditionalBranchTerminatorInstruction(BasicBlock *block, Value *condition) noexcept : TerminatorInstruction{block} {
+ConditionalBranchTerminatorInstruction::ConditionalBranchTerminatorInstruction(BasicBlock *parent_block, Value *condition) noexcept : TerminatorInstruction{parent_block} {
     auto operands = std::array{condition, static_cast<Value *>(nullptr), static_cast<Value *>(nullptr)};
     LUISA_DEBUG_ASSERT(operands[operand_index_condition] == condition, "Condition operand mismatch.");
     set_operands(operands);
