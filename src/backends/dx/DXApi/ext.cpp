@@ -439,7 +439,7 @@ luisa::shared_ptr<DenoiserExt::Denoiser> DXOidnDenoiserExt::create(Stream &strea
 namespace lc::dx {
 DxWorkGraphExt::DxWorkGraphExt(LCDevice &device) : _device(device) {
     LUISA_ASSERT(
-        device.nativeDevice.feature_check.work_graph_supported(),
+        device.native_device.feature_check.work_graph_supported(),
         "this device doesn't support DX12 work graphs"
     );
 }
@@ -465,7 +465,7 @@ luisa::compute::ResourceCreationInfo DxWorkGraphExt::create_work_graph_program(
     for (auto &c : captured) {
         argBindings.emplace_back(c.argument);
         SavedArgument sa{c.type};
-        sa.varUsage = c.usage;
+        sa.var_usage = c.usage;
         savedArgs.emplace_back(sa);
     }
 
@@ -474,8 +474,8 @@ luisa::compute::ResourceCreationInfo DxWorkGraphExt::create_work_graph_program(
         captured, std::move(properties), std::move(uid_map), bind_count, preamble_count
     );
 
-    auto program = WorkGraphProgram::CompileWorkGraph(
-        &_device.nativeDevice,
+    auto program = WorkGraphProgram::compile_work_graph(
+        &_device.native_device,
         work_graph.name(),
         [&]() { return std::move(codegen_result); },
         std::move(argBindings),

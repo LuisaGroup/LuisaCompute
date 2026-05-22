@@ -52,7 +52,7 @@ public:
         uint32_t indirectOffset,
         uint32_t maxIndirectCount,
         vstd::span<const BindProperty> resources);
-    void DispatchWorkGraph(
+    void dispatch_work_graph(
         WorkGraphProgram const *program,
         D3D12_DISPATCH_GRAPH_DESC const &dispatchDesc,
         vstd::span<const BindProperty> resources);

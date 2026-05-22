@@ -332,23 +332,23 @@ CommandBuffer::~CommandBuffer() {
     _close();
 }
 
-void CommandBufferBuilder::DispatchWorkGraph(
+void CommandBufferBuilder::dispatch_work_graph(
     WorkGraphProgram const *program,
     D3D12_DISPATCH_GRAPH_DESC const &dispatchDesc,
     vstd::span<const BindProperty> resources) {
     ComPtr<ID3D12GraphicsCommandList10> cmdList10;
-    ThrowIfFailed(cb->CmdList()->QueryInterface(IID_PPV_ARGS(&cmdList10)));
+    ThrowIfFailed(_cb->cmd_list()->QueryInterface(IID_PPV_ARGS(&cmdList10)));
 
-    cmdList10->SetComputeRootSignature(program->RootSig());
-    SetComputeResources(program, resources);
+    cmdList10->SetComputeRootSignature(program->root_sig());
+    set_compute_resources(program, resources);
 
     D3D12_SET_PROGRAM_DESC setProgramDesc{};
     setProgramDesc.Type = D3D12_PROGRAM_TYPE_WORK_GRAPH;
-    setProgramDesc.WorkGraph.ProgramIdentifier = program->ProgramId();
+    setProgramDesc.WorkGraph.ProgramIdentifier = program->program_id();
     setProgramDesc.WorkGraph.Flags = D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
-    if (program->BackingMemory()) {
-        setProgramDesc.WorkGraph.BackingMemory.StartAddress = program->BackingMemory()->GetGPUVirtualAddress();
-        setProgramDesc.WorkGraph.BackingMemory.SizeInBytes = program->BackingMemorySize();
+    if (program->backing_memory()) {
+        setProgramDesc.WorkGraph.BackingMemory.StartAddress = program->backing_memory()->GetGPUVirtualAddress();
+        setProgramDesc.WorkGraph.BackingMemory.SizeInBytes = program->backing_memory_size();
     }
     setProgramDesc.WorkGraph.NodeLocalRootArgumentsTable = {};
     cmdList10->SetProgram(&setProgramDesc);

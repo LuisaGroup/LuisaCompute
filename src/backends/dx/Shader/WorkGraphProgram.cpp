@@ -8,34 +8,34 @@
 
 namespace lc::dx {
 
-WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
+WorkGraphProgram *WorkGraphProgram::compile_work_graph(
     Device *device,
-    luisa::string_view workGraphName,
+    luisa::string_view work_graph_name,
     vstd::function<hlsl::CodegenResult()> const& codegen,
-    vstd::vector<luisa::compute::Argument> argBindings,
-    vstd::vector<SavedArgument> savedArgs,
-    uint shaderModel,
-    bool enableUnsafeMath,
+    vstd::vector<luisa::compute::Argument> arg_bindings,
+    vstd::vector<SavedArgument> saved_args,
+    uint shader_model,
+    bool enable_unsafe_math,
     bool debug
 ) {
     vstd::wstring wide_name;
-    wide_name.resize(workGraphName.size());
-    std::mbstowcs(wide_name.data(), workGraphName.data(), workGraphName.size());
+    wide_name.resize(work_graph_name.size());
+    std::mbstowcs(wide_name.data(), work_graph_name.data(), work_graph_name.size());
 
     hlsl::CodegenResult codegen_result = codegen();
 
-    luisa::string dump_name = luisa::format("work_graph_dump_{}.hlsl", workGraphName);
+    luisa::string dump_name = luisa::format("work_graph_dump_{}.hlsl", work_graph_name);
     auto file = fopen(dump_name.c_str(), "w");
     auto code = codegen_result.result.view();
     fwrite(code.data(), 1, code.size(), file);
     fflush(file);
     fclose(file);
 
-    auto compile_result = Device::Compiler()->compile_work_graph(
+    auto compile_result = Device::compiler()->compile_work_graph(
         code,
         true,
-        shaderModel,
-        enableUnsafeMath,
+        shader_model,
+        enable_unsafe_math,
         debug
     );
 
@@ -45,7 +45,7 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
             return true;
         },
         [&](vstd::string& failure) {
-            LUISA_ERROR("compilation of work graph ({}) failed: {}", workGraphName, failure);
+            LUISA_ERROR("compilation of work graph ({}) failed: {}", work_graph_name, failure);
             return false;
         }
     );
@@ -87,7 +87,7 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
 
     D3D12_WORK_GRAPH_MEMORY_REQUIREMENTS memory_requirements;
     work_graph_properties->GetWorkGraphMemoryRequirements(0, &memory_requirements);
-    LUISA_INFO("work graph ({}) allocated {} bytes of backing memory", workGraphName, memory_requirements.MaxSizeInBytes);
+    LUISA_INFO("work graph ({}) allocated {} bytes of backing memory", work_graph_name, memory_requirements.MaxSizeInBytes);
 
     AllocHandle backing_memory { nullptr };
 
@@ -96,8 +96,8 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
         ID3D12Heap* heap;
         uint64_t offset;
 
-        luisa::string alloc_name = luisa::format("work graph ({}) backing memory", workGraphName);
-        auto alloc = device->defaultAllocator->AllocateBufferHeap(
+        luisa::string alloc_name = luisa::format("work graph ({}) backing memory", work_graph_name);
+        auto alloc = device->default_allocator->AllocateBufferHeap(
             device,
             alloc_name,
             memory_requirements.MaxSizeInBytes,
@@ -112,7 +112,7 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS
         );
 
-        backing_memory.allocator = device->defaultAllocator.get();
+        backing_memory.allocator = device->default_allocator.get();
         backing_memory.allocateHandle = alloc;
         ThrowIfFailed(device->device->CreatePlacedResource(
             heap,
@@ -128,43 +128,43 @@ WorkGraphProgram *WorkGraphProgram::CompileWorkGraph(
     state_object->QueryInterface(IID_PPV_ARGS(&state_object_properties1));
     auto program_id = state_object_properties1->GetProgramIdentifier(wide_name.c_str());
 
-    uint bindlessBufferCount = 0;
-    if (codegen_result.useBufferBindless) bindlessBufferCount++;
-    if (codegen_result.useTex2DBindless) bindlessBufferCount++;
-    if (codegen_result.useTex3DBindless) bindlessBufferCount++;
+    uint bindless_buffer_count = 0;
+    if (codegen_result.useBufferBindless) bindless_buffer_count++;
+    if (codegen_result.useTex2DBindless) bindless_buffer_count++;
+    if (codegen_result.useTex3DBindless) bindless_buffer_count++;
 
     auto work_graph_program = new WorkGraphProgram(
         std::move(codegen_result.properties),
-        std::move(savedArgs),
+        std::move(saved_args),
         std::move(root_sig),
         std::move(codegen_result.printers),
         std::move(state_object),
         std::move(backing_memory),
         memory_requirements.MaxSizeInBytes,
         program_id,
-        std::move(argBindings)
+        std::move(arg_bindings)
     );
-    work_graph_program->bindlessCount = bindlessBufferCount;
+    work_graph_program->_bindless_count = bindless_buffer_count;
     return work_graph_program;
 
 }
 
 WorkGraphProgram::WorkGraphProgram(
     vstd::vector<hlsl::Property> prop,
-    vstd::vector<SavedArgument> savedArgs,
-    ComPtr<ID3D12RootSignature> rootSignature,
+    vstd::vector<SavedArgument> saved_args,
+    ComPtr<ID3D12RootSignature> root_signature,
     vstd::vector<std::pair<vstd::string, Type const *>> printers,
-    ComPtr<ID3D12StateObject> stateObject,
-    AllocHandle backingMemory,
-    size_t backingMemorySize,
-    D3D12_PROGRAM_IDENTIFIER programId,
-    vstd::vector<luisa::compute::Argument> argBindings
-) : Shader { std::move(prop), std::move(savedArgs), std::move(rootSignature), std::move(printers) },
-    stateObject(std::move(stateObject)),
-    backingMemory(std::move(backingMemory)),
-    backingMemorySize(backingMemorySize),
-    programId(programId),
-    argBindings(std::move(argBindings)) {}
+    ComPtr<ID3D12StateObject> state_object,
+    AllocHandle backing_memory,
+    size_t backing_memory_size,
+    D3D12_PROGRAM_IDENTIFIER program_id,
+    vstd::vector<luisa::compute::Argument> arg_bindings
+) : Shader { std::move(prop), std::move(saved_args), std::move(root_signature), std::move(printers) },
+    _state_object(std::move(state_object)),
+    _backing_memory(std::move(backing_memory)),
+    _backing_memory_size(backing_memory_size),
+    _program_id(program_id),
+    _arg_bindings(std::move(arg_bindings)) {}
 
 
 WorkGraphProgram::~WorkGraphProgram() = default;

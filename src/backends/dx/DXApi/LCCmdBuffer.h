@@ -51,10 +51,10 @@ struct ReorderFuncTable {
         return reinterpret_cast<ComputeShader const *>(handle)->arg_bindings();
     }
     luisa::span<const Argument> work_graph_bindings(uint64_t handle) const noexcept {
-        return reinterpret_cast<WorkGraphProgram const *>(handle)->ArgBindings();
+        return reinterpret_cast<WorkGraphProgram const *>(handle)->arg_bindings();
     }
     Usage work_graph_get_usage(uint64_t handle, size_t argument_index) const noexcept {
-        return reinterpret_cast<WorkGraphProgram const *>(handle)->Args()[argument_index].varUsage;
+        return reinterpret_cast<WorkGraphProgram const *>(handle)->args()[argument_index].var_usage;
     }
     void lock_bindless(uint64_t bindless_handle) const noexcept {
         reinterpret_cast<BindlessArray *>(bindless_handle)->Lock();

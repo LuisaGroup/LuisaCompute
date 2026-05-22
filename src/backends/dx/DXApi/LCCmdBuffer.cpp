@@ -457,26 +457,26 @@ public:
 
     void visit(const WorkGraphDispatchCommand *cmd) noexcept {
         auto program = reinterpret_cast<WorkGraphProgram const *>(cmd->handle());
-        auto savedArg = program->Args().data();
+        auto savedArg = program->args().data();
         struct WGBarrierVisitor {
             LCPreProcessVisitor *self;
             SavedArgument const *&arg;
             void operator()(Argument::Buffer const &bf) {
                 auto res = reinterpret_cast<Buffer const *>(bf.handle);
-                if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
+                if (((uint)arg->var_usage & (uint)Usage::WRITE) != 0) {
                     LUISA_ASSERT(is_device_buffer(res), "Unordered access buffer can not be host-buffer.");
-                    self->stateTracker->Record(BufferView{res, bf.offset, bf.size}, EnhancedBarrierTracker::Usage::ComputeUAV);
+                    self->state_tracker->Record(BufferView{res, bf.offset, bf.size}, EnhancedBarrierTracker::Usage::ComputeUAV);
                 } else if (is_device_buffer(res)) {
-                    self->stateTracker->Record(BufferView{res, bf.offset, bf.size}, EnhancedBarrierTracker::Usage::ComputeRead);
+                    self->state_tracker->Record(BufferView{res, bf.offset, bf.size}, EnhancedBarrierTracker::Usage::ComputeRead);
                 }
                 ++arg;
             }
             void operator()(Argument::Texture const &bf) {
                 auto rt = reinterpret_cast<TextureBase *>(bf.handle);
-                if (((uint)arg->varUsage & (uint)Usage::WRITE) != 0) {
-                    self->stateTracker->Record(EnhancedBarrierTracker::TexView{rt, bf.level}, EnhancedBarrierTracker::Usage::ComputeUAV);
+                if (((uint)arg->var_usage & (uint)Usage::WRITE) != 0) {
+                    self->state_tracker->Record(EnhancedBarrierTracker::TexView{rt, bf.level}, EnhancedBarrierTracker::Usage::ComputeUAV);
                 } else {
-                    self->stateTracker->Record(EnhancedBarrierTracker::TexView{rt, bf.level}, EnhancedBarrierTracker::Usage::ComputeRead);
+                    self->state_tracker->Record(EnhancedBarrierTracker::TexView{rt, bf.level}, EnhancedBarrierTracker::Usage::ComputeRead);
                 }
                 ++arg;
             }
@@ -484,7 +484,7 @@ public:
             void operator()(Argument::BindlessArray const &bf) {
                 auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
                 vstd::fixed_vector<vstd::HashMap<Resource const *, size_t>::Index, 16> writeMap;
-                auto &write_state_map = self->stateTracker->WriteStateMap();
+                auto &write_state_map = self->state_tracker->WriteStateMap();
                 arr->Lock();
                 for (auto iter = write_state_map.begin(); iter != write_state_map.end(); ++iter) {
                     auto &i = *iter;
@@ -493,23 +493,23 @@ public:
                 }
                 arr->Unlock();
                 for (auto &&iter : writeMap) {
-                    self->stateTracker->Record(iter.key(), EnhancedBarrierTracker::Range(0, iter.value()), EnhancedBarrierTracker::Usage::ComputeRead);
+                    self->state_tracker->Record(iter.key(), EnhancedBarrierTracker::Range(0, iter.value()), EnhancedBarrierTracker::Usage::ComputeRead);
                     write_state_map.remove(iter);
                 }
-                self->stateTracker->Record(BufferView(arr->BindlessBuffer()), EnhancedBarrierTracker::Usage::ComputeRead);
+                self->state_tracker->Record(BufferView(arr->BindlessBuffer()), EnhancedBarrierTracker::Usage::ComputeRead);
                 ++arg;
             }
             void operator()(Argument::Accel const &bf) {
                 auto accel = reinterpret_cast<TopAccel *>(bf.handle);
                 if (accel->GetInstBuffer()) [[likely]] {
-                    self->stateTracker->Record(BufferView{accel->GetInstBuffer(), 0, accel->GetInstBuffer()->GetByteSize()}, EnhancedBarrierTracker::Usage::ComputeRead);
+                    self->state_tracker->Record(BufferView{accel->GetInstBuffer(), 0, accel->GetInstBuffer()->GetByteSize()}, EnhancedBarrierTracker::Usage::ComputeRead);
                     auto accelBuffer = accel->GetAccelBuffer();
-                    self->stateTracker->Record(BufferView{accelBuffer, 0, accelBuffer->GetByteSize()}, EnhancedBarrierTracker::Usage::ComputeAccelRead);
+                    self->state_tracker->Record(BufferView{accelBuffer, 0, accelBuffer->GetByteSize()}, EnhancedBarrierTracker::Usage::ComputeAccelRead);
                 }
                 ++arg;
             }
         };
-        DecodeCmd(program->ArgBindings(), WGBarrierVisitor{this, savedArg});
+        decode_cmd(program->arg_bindings(), WGBarrierVisitor{this, savedArg});
     }
 
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
@@ -1096,17 +1096,17 @@ public:
     void visit(const WorkGraphDispatchCommand *cmd) noexcept {
         auto program = reinterpret_cast<WorkGraphProgram const *>(cmd->handle());
 
-        bindProps->clear();
+        bind_props->clear();
         // If bindless arrays are captured, push sampler heap + global heap views first
         // so they land at the root parameter indices reserved by the preamble properties.
-        if (program->BindlessCount() > 0) {
-            bindProps->emplace_back(DescriptorHeapView(device->samplerHeap.get()));
-            vstd::push_back_func(*bindProps, program->BindlessCount(), [&] {
-                return DescriptorHeapView(device->globalHeap.get());
+        if (program->bindless_count() > 0) {
+            bind_props->emplace_back(DescriptorHeapView(device->sampler_heap.get()));
+            vstd::push_back_func(*bind_props, program->bindless_count(), [&] {
+                return DescriptorHeapView(device->global_heap.get());
             });
         }
-        Visitor visitor{this, program->Args().data()};
-        DecodeCmd(program->ArgBindings(), visitor);
+        Visitor visitor{this, program->args().data()};
+        decode_cmd(program->arg_bindings(), visitor);
 
         D3D12_DISPATCH_GRAPH_DESC dispatchDesc{};
         dispatchDesc.Mode = D3D12_DISPATCH_MODE_NODE_CPU_INPUT;
@@ -1114,7 +1114,7 @@ public:
         dispatchDesc.NodeCPUInput.NumRecords = static_cast<UINT>(cmd->record_count());
         dispatchDesc.NodeCPUInput.RecordStrideInBytes = static_cast<UINT>(cmd->record_stride());
         dispatchDesc.NodeCPUInput.pRecords = cmd->records();
-        bd->DispatchWorkGraph(program, dispatchDesc, *bindProps);
+        bd->dispatch_work_graph(program, dispatchDesc, *bind_props);
     }
     void visit(const DrawRasterSceneCommand *cmd) noexcept {
 #ifdef LCDX_ENABLE_WINPIX
