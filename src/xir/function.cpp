@@ -6,8 +6,8 @@
 
 namespace luisa::compute::xir {
 
-Function::Function(Module *module, const Type *type) noexcept
-    : Super{module, type}, _arguments{this}, _basic_blocks{this} {}
+Function::Function(Module *parent_module, const Type *type) noexcept
+    : Super{parent_module, type}, _arguments{this}, _basic_blocks{this} {}
 
 Argument *Function::create_argument(const Type *type, bool by_ref) noexcept {
     if (type->is_resource()) {
@@ -126,8 +126,8 @@ void FunctionDefinition::_traverse_basic_block_reverse_post_order(BasicBlock *bl
     }
 }
 
-KernelFunction::KernelFunction(Module *module, luisa::uint3 block_size) noexcept
-    : Super{module}, _block_size{} { set_block_size(block_size); }
+KernelFunction::KernelFunction(Module *parent_module, luisa::uint3 block_size) noexcept
+    : Super{parent_module}, _block_size{} { set_block_size(block_size); }
 
 void KernelFunction::set_block_size(luisa::uint3 size) noexcept {
     auto thread_count = size.x * size.y * size.z;
