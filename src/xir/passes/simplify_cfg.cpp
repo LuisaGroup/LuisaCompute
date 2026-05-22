@@ -32,7 +32,7 @@ static void retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         case DerivedInstructionTag::SWITCH: {
             auto sw = static_cast<SwitchInst *>(term);
             if (sw->default_block() == from) sw->set_default_block(to);
-            for (size_t i = 0u; i < sw->case_count(); ++i) {
+            for (size_t i = 0; i < sw->case_count(); ++i) {
                 if (sw->case_block(i) == from) sw->set_case_block(i, to);
             }
             break;
@@ -107,7 +107,7 @@ static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexce
             if (default_block == nullptr) return;
             auto common = default_block;
             auto all_same = true;
-            for (size_t i = 0u; i < sw->case_count(); ++i) {
+            for (size_t i = 0; i < sw->case_count(); ++i) {
                 if (sw->case_block(i) != common) {
                     all_same = false;
                     break;
@@ -124,7 +124,7 @@ static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexce
         if (bb == nullptr) continue;
         auto target = sw->default_block();
         if (auto static_value = try_evaluate_static_switch_condition(sw->value())) {
-            for (size_t i = 0u; i < sw->case_count(); ++i) {
+            for (size_t i = 0; i < sw->case_count(); ++i) {
                 if (sw->case_value(i) == *static_value) {
                     target = sw->case_block(i);
                     break;
@@ -192,7 +192,10 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         auto target = br->target_block();
         bool target_has_phi = false;
         for (auto inst : target->instructions()) {
-            if (inst->isa<PhiInst>()) { target_has_phi = true; break; }
+            if (inst->isa<PhiInst>()) {
+                target_has_phi = true;
+                break;
+            }
         }
         if (target_has_phi) continue;
         luisa::vector<BasicBlock *> preds;
@@ -292,13 +295,13 @@ static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo 
         if (structural_targets.contains(bb) || structural_targets.contains(succ)) return;
         if (block_has_phi(succ)) return;
         if (has_phi_sensitive_successor(bb, succ)) return;
-        size_t pred_count = 0u;
+        size_t pred_count = 0;
         BasicBlock *pred = nullptr;
         succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
             ++pred_count;
             pred = p;
         });
-        if (pred_count == 1u && pred == bb) {
+        if (pred_count == 1 && pred == bb) {
             candidate_block = bb;
             candidate_successor = succ;
         }
@@ -310,13 +313,13 @@ static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo 
     auto br = static_cast<BranchInst *>(bb->terminator());
     if (br->target_block() != succ || block_has_phi(succ)) return false;
     if (has_phi_sensitive_successor(bb, succ)) return false;
-    size_t pred_count = 0u;
+    size_t pred_count = 0;
     BasicBlock *pred = nullptr;
     succ->traverse_predecessors(false, [&](BasicBlock *p) noexcept {
         ++pred_count;
         pred = p;
     });
-    if (pred_count != 1u || pred != bb) return false;
+    if (pred_count != 1 || pred != bb) return false;
     br->remove_self();
     XIRBuilder b;
     b.set_insertion_point(bb);

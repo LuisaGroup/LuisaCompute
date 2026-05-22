@@ -55,7 +55,10 @@ namespace detail {
         bool found = false;
         curr->traverse_successors(false, [&](BasicBlock *succ) noexcept {
             if (found || succ == stop || visited.contains(succ)) { return; }
-            if (succ == target) { found = true; return; }
+            if (succ == target) {
+                found = true;
+                return;
+            }
             visited.emplace(succ);
             stack.emplace_back(succ);
         });
@@ -65,10 +68,10 @@ namespace detail {
 }
 
 [[nodiscard]] static BasicBlock *find_merge_target(BasicBlock *early_return_block,
-                                                    const luisa::vector<BasicBlock *> &chain) noexcept {
+                                                   const luisa::vector<BasicBlock *> &chain) noexcept {
     auto n = chain.size();
-    for (size_t i = n - 1u; i > 0u; --i) {
-        auto candidate_container = chain[i - 1u];
+    for (size_t i = n - 1; i > 0; --i) {
+        auto candidate_container = chain[i - 1];
         auto candidate_merge = chain[i];
         if (is_reachable_avoiding(candidate_container, early_return_block, candidate_merge)) {
             return candidate_merge;
@@ -229,9 +232,12 @@ static void eliminate_early_return_in_function(Function *function, EarlyReturnEl
 
             luisa::unordered_set<BasicBlock *> conditionalized;
             for (auto &[r, merge_target] : return_targets) {
-                size_t idx = 0u;
-                for (size_t i = 0u; i < chain.size(); ++i) {
-                    if (chain[i] == merge_target) { idx = i; break; }
+                size_t idx = 0;
+                for (size_t i = 0; i < chain.size(); ++i) {
+                    if (chain[i] == merge_target) {
+                        idx = i;
+                        break;
+                    }
                 }
                 for (auto i = idx; i < chain.size(); ++i) {
                     conditionalized.emplace(chain[i]);

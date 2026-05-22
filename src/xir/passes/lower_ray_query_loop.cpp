@@ -85,7 +85,7 @@ static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const
             case DerivedValueTag::BASIC_BLOCK: [[fallthrough]];
             case DerivedValueTag::CONSTANT: [[fallthrough]];
             case DerivedValueTag::SPECIAL_REGISTER: return false;
-            case DerivedValueTag::INSTRUCTION: break;
+            case DerivedValueTag::INSTRUCTION: [[fallthrough]];
             case DerivedValueTag::ARGUMENT: break;
             default: LUISA_ERROR_WITH_LOCATION("Unknown derived value tag.");
         }
@@ -136,8 +136,8 @@ public:
             case DerivedValueTag::FUNCTION: [[fallthrough]];
             case DerivedValueTag::CONSTANT: [[fallthrough]];
             case DerivedValueTag::SPECIAL_REGISTER: return const_cast<Value *>(value);
-            case DerivedValueTag::BASIC_BLOCK: break;
-            case DerivedValueTag::INSTRUCTION: break;
+            case DerivedValueTag::BASIC_BLOCK: [[fallthrough]];
+            case DerivedValueTag::INSTRUCTION: [[fallthrough]];
             case DerivedValueTag::ARGUMENT: break;
             default: LUISA_ERROR_WITH_LOCATION("Invalid value.");
         }
@@ -231,7 +231,7 @@ static BasicBlock *duplicate_basic_block_for_ray_query_loop_dispatch_branch(cons
     // fix phi nodes
     for (auto [original_phi, dup_phi] : phi_nodes) {
         dup_phi->set_incoming_count(original_phi->incoming_count());
-        for (auto i = 0u; i < original_phi->incoming_count(); i++) {
+        for (size_t i = 0; i < original_phi->incoming_count(); i++) {
             auto incoming = original_phi->incoming(i);
             auto resolved_value = resolver.resolve(incoming.value);
             auto resolved_block = resolver.resolve(incoming.block);
@@ -285,7 +285,7 @@ static void lower_ray_query_loop(Function *function, RayQueryLoopInst *loop, Ray
     }
     // load the out values and replace the uses
     auto out_variables = luisa::span{captured_args}.subspan(capture_list.in_values.size());
-    for (auto i = 0u; i < capture_list.out_values.size(); i++) {
+    for (size_t i = 0; i < capture_list.out_values.size(); i++) {
         auto old_out_value = capture_list.out_values[i];
         auto out_variable = out_variables[i];
         auto out_value = b.load(old_out_value->type(), out_variable);
@@ -298,7 +298,7 @@ static void lower_ray_query_loop(Function *function, RayQueryLoopInst *loop, Ray
         succ->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->isa<PhiInst>()) {
                 auto phi = static_cast<PhiInst *>(inst);
-                for (auto i = 0u; i < phi->incoming_count(); i++) {
+                for (size_t i = 0; i < phi->incoming_count(); i++) {
                     if (auto incoming = phi->incoming(i); incoming.block == merge_block) {
                         phi->set_incoming(i, incoming.value, loop_parent_block);
                     }
@@ -329,7 +329,7 @@ static void collect_blocks_in_ray_query_dispatch_branch(BasicBlock *block, Basic
 static void replace_phi_uses_with_local_load_in_blocks(BasicBlock *block, PhiInst *phi, AllocaInst *phi_alloca,
                                                        const luisa::unordered_set<BasicBlock *> &collected_blocks) noexcept {
     if (block != nullptr) {
-        luisa::fixed_vector<Use *, 64u> local_uses;
+        luisa::fixed_vector<Use *, 64> local_uses;
         for (auto &&use : phi->use_list()) {
             if (auto user = use->user()) {
                 LUISA_DEBUG_ASSERT(user->isa<Instruction>(), "Invalid user.");
@@ -354,7 +354,7 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
     auto dispatch_block = loop->dispatch_block();
     LUISA_DEBUG_ASSERT(dispatch_block != nullptr, "Invalid dispatch block.");
     // collect phi nodes
-    luisa::fixed_vector<PhiInst *, 16u> phi_nodes;
+    luisa::fixed_vector<PhiInst *, 16> phi_nodes;
     for (auto inst : dispatch_block->instructions()) {
         switch (auto tag = inst->derived_instruction_tag()) {
             case DerivedInstructionTag::RAY_QUERY_DISPATCH: {
@@ -393,7 +393,7 @@ static void lower_phi_nodes_in_loop_dispatch_block(FunctionDefinition *f, RayQue
             static constexpr auto is_undef = [](Value *v) noexcept {
                 return v == nullptr || v->isa<Undefined>();
             };
-            for (auto i = 0u; i < phi->incoming_count(); i++) {
+            for (size_t i = 0; i < phi->incoming_count(); i++) {
                 if (auto incoming = phi->incoming(i); !is_undef(incoming.value)) {
                     b.set_insertion_point(incoming.block->terminator()->prev());
                     b.store(phi_alloca, incoming.value);

@@ -85,7 +85,7 @@ void lower_phi_node_to_local_variable(PhiInst *phi) noexcept {
             b.store(phi_alloca, undef);
         }
         // store incoming values at the end of their respective blocks
-        for (auto i = 0u; i < phi->incoming_count(); i++) {
+        for (size_t i = 0; i < phi->incoming_count(); i++) {
             if (auto incoming = phi->incoming(i); incoming.value != nullptr && !incoming.value->isa<Undefined>()) {
                 LUISA_DEBUG_ASSERT(incoming.block != nullptr, "Invalid incoming block.");
                 b.set_insertion_point(incoming.block->terminator()->prev());

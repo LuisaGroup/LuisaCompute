@@ -60,14 +60,14 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
 
         // move to the next block if it is the only successor and only has a single predecessor
         BasicBlock *next = nullptr;
-        auto successor_count = 0u;
+        size_t successor_count = 0;
         block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
             successor_count++;
             next = succ;
         });
         if (successor_count != 1) { break; }
         // check if the next block has a single predecessor
-        auto pred_count = 0u;
+        size_t pred_count = 0;
         next->traverse_predecessors(false, [&](BasicBlock *) noexcept { pred_count++; });
         if (pred_count != 1) { break; }
         block = next;

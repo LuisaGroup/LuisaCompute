@@ -29,7 +29,7 @@ public:
 
     [[nodiscard]] auto bit_range(luisa::span<const size_t> access_chain) const noexcept {
         auto node = this;
-        auto offset = static_cast<size_t>(0u);
+        auto offset = size_t{0};
         for (auto i : access_chain) {
             switch (node->type()->tag()) {
                 case Type::Tag::VECTOR: [[fallthrough]];
@@ -84,7 +84,7 @@ AggregateFieldTree::AggregateFieldTree(const Type *type) noexcept : _type{type},
             auto members = type->members();
             _child_offsets.reserve(members.size());
             _children.reserve(members.size());
-            auto offset = static_cast<size_t>(0u);
+            auto offset = size_t{0};
             for (auto m : members) {
                 auto child = register_aggregate_type(m);
                 _child_offsets.emplace_back(offset);
@@ -95,7 +95,7 @@ AggregateFieldTree::AggregateFieldTree(const Type *type) noexcept : _type{type},
             break;
         }
         default: {
-            _size = 1u;
+            _size = size_t{1};
             break;
         }
     }
@@ -166,7 +166,7 @@ void AggregateFieldBitmask::set(bool value) noexcept {
     if (_is_small()) {
         _bits_small = value ? ~0ull : 0ull;
     } else {
-        std::memset(_bits_large, value ? 0xffu : 0u, size_bytes());
+        std::memset(_bits_large, value ? 0xff : 0, size_bytes());
     }
 }
 
@@ -177,7 +177,7 @@ size_t AggregateFieldBitmask::size_bytes() const noexcept {
 }
 
 size_t AggregateFieldBitmask::size_buckets() const noexcept {
-    return (size() + 63u) / 64u;
+    return (size() + 63) / 64;
 }
 
 const Type *AggregateFieldBitmask::type() const noexcept { return _field_tree->type(); }
@@ -204,18 +204,18 @@ void AggregateFieldBitmask::flip() noexcept {
     if (_is_small()) {
         _bits_small = ~_bits_small;
     } else {
-        for (size_t i = 0u; i < size_buckets(); i++) {
+        for (size_t i = 0; i < size_buckets(); i++) {
             _bits_large[i] = ~_bits_large[i];
         }
     }
 }
 
 void AggregateFieldBitmask::BitSpan::set(bool value) noexcept {
-    auto lower = _offset / 64u;
-    auto upper = (_offset + _size - 1u) / 64u;
+    uint32_t lower = _offset / 64;
+    uint32_t upper = (_offset + _size - 1) / 64;
     if (lower == upper) {// all selected bits are in the same bucket
-        auto lower_mask = ~((1ull << (_offset % 64u)) - 1ull);
-        auto upper_mask = (1ull << ((_offset + _size) % 64u)) - 1ull;
+        uint64_t lower_mask = ~((1ull << (_offset % 64)) - 1ull);
+        uint64_t upper_mask = (1ull << ((_offset + _size) % 64)) - 1ull;
         auto mask = lower_mask & upper_mask;
         if (value) {
             _bits[lower] |= mask;
@@ -224,7 +224,7 @@ void AggregateFieldBitmask::BitSpan::set(bool value) noexcept {
         }
     } else {// selected bits are in different buckets
         // process the first bucket
-        if (auto lower_mask = ~((1ull << (_offset % 64u)) - 1ull); lower_mask != 0ull) {
+        if (uint64_t lower_mask = ~((1ull << (_offset % 64)) - 1ull); lower_mask != 0) {
             if (value) {
                 _bits[lower] |= lower_mask;
             } else {
@@ -241,7 +241,7 @@ void AggregateFieldBitmask::BitSpan::set(bool value) noexcept {
             }
         }
         // process the last bucket
-        if (auto upper_mask = (1ull << ((_offset + _size) % 64u)) - 1ull; upper_mask != 0ull) {
+        if (uint64_t upper_mask = (1ull << ((_offset + _size) % 64)) - 1ull; upper_mask != 0) {
             if (value) {
                 _bits[upper] |= upper_mask;
             } else {
@@ -252,16 +252,16 @@ void AggregateFieldBitmask::BitSpan::set(bool value) noexcept {
 }
 
 void AggregateFieldBitmask::BitSpan::flip() noexcept {
-    auto lower = _offset / 64u;
-    auto upper = (_offset + _size - 1u) / 64u;
+    uint32_t lower = _offset / 64;
+    uint32_t upper = (_offset + _size - 1) / 64;
     if (lower == upper) {// all selected bits are in the same bucket
-        auto lower_mask = ~((1ull << (_offset % 64u)) - 1ull);
-        auto upper_mask = (1ull << ((_offset + _size) % 64u)) - 1ull;
+        uint64_t lower_mask = ~((1ull << (_offset % 64)) - 1ull);
+        uint64_t upper_mask = (1ull << ((_offset + _size) % 64)) - 1ull;
         auto mask = lower_mask & upper_mask;
         _bits[lower] ^= mask;
     } else {// selected bits are in different buckets
         // process the first bucket
-        if (auto lower_mask = ~((1ull << (_offset % 64u)) - 1ull); lower_mask != 0ull) {
+        if (uint64_t lower_mask = ~((1ull << (_offset % 64)) - 1ull); lower_mask != 0) {
             _bits[lower] ^= lower_mask;
             lower++;
         }
@@ -270,7 +270,7 @@ void AggregateFieldBitmask::BitSpan::flip() noexcept {
             _bits[i] = ~_bits[i];
         }
         // process the last bucket
-        if (auto upper_mask = (1ull << ((_offset + _size) % 64u)) - 1ull; upper_mask != 0ull) {
+        if (uint64_t upper_mask = (1ull << ((_offset + _size) % 64)) - 1ull; upper_mask != 0) {
             _bits[upper] ^= upper_mask;
         }
     }
@@ -279,10 +279,10 @@ void AggregateFieldBitmask::BitSpan::flip() noexcept {
 // TODO: Implement the following methods in a SIMD-friendly way
 AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator|=(const ConstBitSpan &rhs) noexcept {
     LUISA_DEBUG_ASSERT(_size == rhs.size(), "Size mismatch.");
-    for (auto i = 0u; i < _size; i++) {
-        if (auto rhs_bucket = rhs.raw_bits()[(i + rhs.offset()) / 64u];
-            (rhs_bucket >> ((i + rhs.offset()) % 64u)) & 1ull) {
-            _bits[(_offset + i) / 64u] |= 1ull << ((_offset + i) % 64u);
+    for (uint32_t i = 0; i < _size; i++) {
+        if (auto rhs_bucket = rhs.raw_bits()[(i + rhs.offset()) / 64];
+            (rhs_bucket >> ((i + rhs.offset()) % 64)) & 1ull) {
+            _bits[(_offset + i) / 64] |= 1ull << ((_offset + i) % 64);
         }
     }
     return *this;
@@ -290,10 +290,10 @@ AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator|=(const
 
 AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator&=(const ConstBitSpan &rhs) noexcept {
     LUISA_DEBUG_ASSERT(_size == rhs.size(), "Size mismatch.");
-    for (auto i = 0u; i < _size; i++) {
-        if (auto rhs_bucket = rhs.raw_bits()[(i + rhs.offset()) / 64u];
-            (rhs_bucket >> ((i + rhs.offset()) % 64u)) & 1ull) {
-            _bits[(_offset + i) / 64u] &= 1ull << ((_offset + i) % 64u);
+    for (uint32_t i = 0; i < _size; i++) {
+        if (auto rhs_bucket = rhs.raw_bits()[(i + rhs.offset()) / 64];
+            (rhs_bucket >> ((i + rhs.offset()) % 64)) & 1ull) {
+            _bits[(_offset + i) / 64] &= 1ull << ((_offset + i) % 64);
         }
     }
     return *this;
@@ -301,10 +301,10 @@ AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator&=(const
 
 AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator^=(const ConstBitSpan &rhs) noexcept {
     LUISA_DEBUG_ASSERT(_size == rhs.size(), "Size mismatch.");
-    for (auto i = 0u; i < _size; i++) {
-        if (auto rhs_bucket = rhs.raw_bits()[(i + rhs.offset()) / 64u];
-            (rhs_bucket >> ((i + rhs.offset()) % 64u)) & 1ull) {
-            _bits[(_offset + i) / 64u] ^= 1ull << ((_offset + i) % 64u);
+    for (uint32_t i = 0; i < _size; i++) {
+        if (auto rhs_bucket = rhs.raw_bits()[(i + rhs.offset()) / 64];
+            (rhs_bucket >> ((i + rhs.offset()) % 64)) & 1ull) {
+            _bits[(_offset + i) / 64] ^= 1ull << ((_offset + i) % 64);
         }
     }
     return *this;
@@ -313,9 +313,9 @@ AggregateFieldBitmask::BitSpan &AggregateFieldBitmask::BitSpan::operator^=(const
 bool AggregateFieldBitmask::BitSpan::operator==(const ConstBitSpan &rhs) const noexcept {
     if (_size != rhs.size()) { return false; }
     if (this != &rhs) {
-        for (auto i = 0u; i < _size; i++) {
-            auto lhs_bit = (_bits[(_offset + i) / 64u] >> ((_offset + i) % 64u)) & 1ull;
-            auto rhs_bit = (rhs.raw_bits()[i / 64u] >> (i % 64u)) & 1ull;
+        for (uint32_t i = 0; i < _size; i++) {
+            uint64_t lhs_bit = (_bits[(_offset + i) / 64] >> ((_offset + i) % 64)) & 1ull;
+            uint64_t rhs_bit = (rhs.raw_bits()[i / 64] >> (i % 64)) & 1ull;
             if (lhs_bit != rhs_bit) { return false; }
         }
     }
@@ -327,17 +327,17 @@ bool AggregateFieldBitmask::BitSpan::operator!=(const ConstBitSpan &rhs) const n
 }
 
 bool AggregateFieldBitmask::ConstBitSpan::all() const noexcept {
-    auto lower = _offset / 64u;
-    auto upper = (_offset + _size - 1u) / 64u;
+    uint32_t lower = _offset / 64;
+    uint32_t upper = (_offset + _size - 1) / 64;
     if (lower == upper) {// all selected bits are in the same bucket
-        auto lower_mask = ~((1ull << (_offset % 64u)) - 1ull);
-        auto upper_mask = (1ull << ((_offset + _size) % 64u)) - 1ull;
+        uint64_t lower_mask = ~((1ull << (_offset % 64)) - 1ull);
+        uint64_t upper_mask = (1ull << ((_offset + _size) % 64)) - 1ull;
         auto mask = lower_mask & upper_mask;
         return (_bits[lower] & mask) == mask;
     }
     // selected bits are in different buckets
     // process the first bucket
-    if (auto lower_mask = ~((1ull << (_offset % 64u)) - 1ull); lower_mask != 0ull) {
+    if (uint64_t lower_mask = ~((1ull << (_offset % 64)) - 1ull); lower_mask != 0) {
         if ((_bits[lower] & lower_mask) != lower_mask) { return false; }
         lower++;
     }
@@ -346,7 +346,7 @@ bool AggregateFieldBitmask::ConstBitSpan::all() const noexcept {
         if (_bits[i] != ~0ull) { return false; }
     }
     // process the last bucket
-    if (auto upper_mask = (1ull << ((_offset + _size) % 64u)) - 1ull; upper_mask != 0ull) {
+    if (uint64_t upper_mask = (1ull << ((_offset + _size) % 64)) - 1ull; upper_mask != 0) {
         auto mask = ~upper_mask;
         return (_bits[upper] & mask) == mask;
     }
@@ -354,17 +354,17 @@ bool AggregateFieldBitmask::ConstBitSpan::all() const noexcept {
 }
 
 bool AggregateFieldBitmask::ConstBitSpan::any() const noexcept {
-    auto lower = _offset / 64u;
-    auto upper = (_offset + _size - 1u) / 64u;
+    uint32_t lower = _offset / 64;
+    uint32_t upper = (_offset + _size - 1) / 64;
     if (lower == upper) {// all selected bits are in the same bucket
-        auto lower_mask = ~((1ull << (_offset % 64u)) - 1ull);
-        auto upper_mask = (1ull << ((_offset + _size) % 64u)) - 1ull;
+        uint64_t lower_mask = ~((1ull << (_offset % 64)) - 1ull);
+        uint64_t upper_mask = (1ull << ((_offset + _size) % 64)) - 1ull;
         auto mask = lower_mask & upper_mask;
         return (_bits[lower] & mask) != 0ull;
     }
     // selected bits are in different buckets
     // process the first bucket
-    if (auto lower_mask = ~((1ull << (_offset % 64u)) - 1ull); lower_mask != 0ull) {
+    if (uint64_t lower_mask = ~((1ull << (_offset % 64)) - 1ull); lower_mask != 0) {
         if ((_bits[lower] & lower_mask) != 0ull) { return true; }
         lower++;
     }
@@ -373,7 +373,7 @@ bool AggregateFieldBitmask::ConstBitSpan::any() const noexcept {
         if (_bits[i] != 0ull) { return true; }
     }
     // process the last bucket
-    if (auto upper_mask = (1ull << ((_offset + _size) % 64u)) - 1ull; upper_mask != 0ull) {
+    if (uint64_t upper_mask = (1ull << ((_offset + _size) % 64)) - 1ull; upper_mask != 0) {
         auto mask = ~upper_mask;
         return (_bits[upper] & mask) != 0ull;
     }
@@ -407,7 +407,7 @@ AggregateFieldBitmask &AggregateFieldBitmask::operator|=(const AggregateFieldBit
     auto n_buckets = size_buckets();
     auto lhs_bits = raw_bits();
     auto rhs_bits = rhs.raw_bits();
-    for (size_t i = 0u; i < n_buckets; i++) {
+    for (size_t i = 0; i < n_buckets; i++) {
         lhs_bits[i] |= rhs_bits[i];
     }
     return *this;
@@ -418,7 +418,7 @@ AggregateFieldBitmask &AggregateFieldBitmask::operator&=(const AggregateFieldBit
     auto n_buckets = size_buckets();
     auto lhs_bits = raw_bits();
     auto rhs_bits = rhs.raw_bits();
-    for (size_t i = 0u; i < n_buckets; i++) {
+    for (size_t i = 0; i < n_buckets; i++) {
         lhs_bits[i] &= rhs_bits[i];
     }
     return *this;
@@ -429,7 +429,7 @@ AggregateFieldBitmask &AggregateFieldBitmask::operator^=(const AggregateFieldBit
     auto n_buckets = size_buckets();
     auto lhs_bits = raw_bits();
     auto rhs_bits = rhs.raw_bits();
-    for (size_t i = 0u; i < n_buckets; i++) {
+    for (size_t i = 0; i < n_buckets; i++) {
         lhs_bits[i] ^= rhs_bits[i];
     }
     return *this;
@@ -446,11 +446,11 @@ bool AggregateFieldBitmask::operator==(const AggregateFieldBitmask &rhs) const n
     if (type() != rhs.type() || size() != rhs.size()) { return false; }
     auto lhs_bits = raw_bits();
     auto rhs_bits = rhs.raw_bits();
-    auto n_complete_buckets = size() / 64u;
-    for (size_t i = 0u; i < n_complete_buckets; i++) {
+    auto n_complete_buckets = size() / 64;
+    for (size_t i = 0; i < n_complete_buckets; i++) {
         if (lhs_bits[i] != rhs_bits[i]) { return false; }
     }
-    if (auto n_remaining_bits = size() % 64ull; n_remaining_bits != 0ull) {
+    if (auto n_remaining_bits = size() % 64; n_remaining_bits != 0) {
         auto mask = (1ull << n_remaining_bits) - 1ull;
         if ((lhs_bits[n_complete_buckets] & mask) != (rhs_bits[n_complete_buckets] & mask)) { return false; }
     }

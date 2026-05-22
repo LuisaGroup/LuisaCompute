@@ -47,7 +47,7 @@ static void traverse_call_graph_post_order(Function *f, const CallGraph &call_gr
         if (auto user = use->user()) {
             LUISA_DEBUG_ASSERT(user->isa<Instruction>(), "Invalid user.");
             switch (static_cast<Instruction *>(user)->derived_instruction_tag()) {
-                case DerivedInstructionTag::LOAD: /* fine to check the next user */ break;
+                case DerivedInstructionTag::LOAD: [[fallthrough]];
                 case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: /* fine to check the next user */ break;
                 case DerivedInstructionTag::GEP: {
                     auto gep = static_cast<GEPInst *>(user);
@@ -92,9 +92,9 @@ struct PromotedArg {
 
 static void promote_ref_args_in_function(CallableFunction *f, PromoteRefArgInfo &info) {
     // collect promotable reference arguments
-    luisa::fixed_vector<PromotedArg, 16u> promoted_args;
+    luisa::fixed_vector<PromotedArg, 16> promoted_args;
     {
-        auto index = 0u;
+        size_t index = 0;
         for (auto arg : f->arguments()) {
             if (arg->is_reference() && !arg->type()->is_custom() && is_pointer_readonly(arg)) {
                 promoted_args.emplace_back(PromotedArg{

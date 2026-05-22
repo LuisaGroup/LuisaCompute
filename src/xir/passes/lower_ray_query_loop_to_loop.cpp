@@ -136,7 +136,7 @@ static bool lower_one_ray_query_loop(RayQueryLoopInst *rq_loop, XIRBuilder &b,
     retarget_handler_branches(on_surface_block, tri_merge);
     retarget_handler_branches(on_procedural_block, proc_merge);
 
-    info.lowered_ray_query_loop_count += 1u;
+    info.lowered_ray_query_loop_count += 1;
     return true;
 }
 

@@ -61,9 +61,12 @@ public:
 
     auto bc = static_cast<Constant *>(bound);
     int64_t bound_val = 0;
-    if (bc->type()->is_int32()) bound_val = bc->as<int32_t>();
-    else if (bc->type()->is_uint32()) bound_val = static_cast<int64_t>(bc->as<uint32_t>());
-    else return 0;
+    if (bc->type()->is_int32())
+        bound_val = bc->as<int32_t>();
+    else if (bc->type()->is_uint32())
+        bound_val = static_cast<int64_t>(bc->as<uint32_t>());
+    else
+        return 0;
 
     if (!induction->isa<PhiInst>()) return 0;
     auto phi = static_cast<PhiInst *>(induction);
@@ -79,15 +82,19 @@ public:
                 if (add->op() == ArithmeticOp::BINARY_ADD &&
                     add->operand(0) == phi && add->operand(1)->isa<Constant>()) {
                     auto sc = static_cast<Constant *>(add->operand(1));
-                    if (sc->type()->is_int32()) step = sc->as<int32_t>();
-                    else if (sc->type()->is_uint32()) step = static_cast<int64_t>(sc->as<uint32_t>());
+                    if (sc->type()->is_int32())
+                        step = sc->as<int32_t>();
+                    else if (sc->type()->is_uint32())
+                        step = static_cast<int64_t>(sc->as<uint32_t>());
                 }
             }
         } else {
             if (inc.value->isa<Constant>()) {
                 auto sc = static_cast<Constant *>(inc.value);
-                if (sc->type()->is_int32()) start = sc->as<int32_t>();
-                else if (sc->type()->is_uint32()) start = static_cast<int64_t>(sc->as<uint32_t>());
+                if (sc->type()->is_int32())
+                    start = sc->as<int32_t>();
+                else if (sc->type()->is_uint32())
+                    start = static_cast<int64_t>(sc->as<uint32_t>());
             }
         }
     }

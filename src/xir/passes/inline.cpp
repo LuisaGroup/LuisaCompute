@@ -69,9 +69,7 @@ public:
     {
         size_t i = 0;
         for (auto arg : callee->arguments()) {
-            auto call_arg = i < call->argument_count()
-                                ? call->argument(i)
-                                : static_cast<Value *>(module->create_undefined(arg->type()));
+            auto call_arg = i < call->argument_count() ? call->argument(i) : static_cast<Value *>(module->create_undefined(arg->type()));
             if (arg->is_lvalue() && !call_arg->is_lvalue()) {
                 builder.set_insertion_point(call);
                 auto tmp = builder.alloca_local(arg->type());
@@ -148,7 +146,7 @@ public:
     // Patch phi node operands now that all blocks and values are mapped.
     for (auto [original_phi, dup_phi] : phi_nodes) {
         dup_phi->set_incoming_count(original_phi->incoming_count());
-        for (auto i = 0u; i < original_phi->incoming_count(); i++) {
+        for (size_t i = 0; i < original_phi->incoming_count(); i++) {
             auto incoming = original_phi->incoming(i);
             auto resolved_value = resolver.resolve(incoming.value);
             auto resolved_block = resolver.resolve(incoming.block);
@@ -164,7 +162,10 @@ public:
     luisa::vector<Instruction *> to_move;
     bool past = false;
     for (auto inst : call_block->instructions()) {
-        if (inst == call) { past = true; continue; }
+        if (inst == call) {
+            past = true;
+            continue;
+        }
         if (past) to_move.push_back(inst);
     }
 

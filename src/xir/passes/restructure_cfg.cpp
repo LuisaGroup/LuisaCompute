@@ -76,7 +76,7 @@ struct PostDomInfo {
         luisa::unordered_set<BasicBlock *> visited;
         luisa::vector<std::pair<BasicBlock *, size_t>> stack;
         visited.emplace(virt);
-        stack.emplace_back(virt, 0u);
+        stack.emplace_back(virt, 0);
         while (!stack.empty()) {
             auto *cur = stack.back().first;
             auto &idx = stack.back().second;
@@ -85,7 +85,7 @@ struct PostDomInfo {
                 auto *pred = preds[idx++];
                 if (!visited.contains(pred)) {
                     visited.emplace(pred);
-                    stack.emplace_back(pred, 0u);
+                    stack.emplace_back(pred, 0);
                 }
             } else {
                 rpo.emplace_back(cur);
@@ -95,7 +95,7 @@ struct PostDomInfo {
     }
 
     luisa::unordered_map<BasicBlock *, size_t> rpo_index;
-    for (size_t i = 0u; i < rpo.size(); i++) { rpo_index[rpo[i]] = i; }
+    for (size_t i = 0; i < rpo.size(); i++) { rpo_index[rpo[i]] = i; }
     rpo_index[nullptr] = SIZE_MAX;
 
     PostDomInfo result;
@@ -161,7 +161,7 @@ struct PostDomInfo {
 }
 
 [[nodiscard]] static size_t dom_depth(const DomTree &dom, BasicBlock *bb) noexcept {
-    size_t d = 0u;
+    size_t d = 0;
     auto *node = dom.node_or_null(bb);
     while (node != nullptr && node->parent() != nullptr) {
         ++d;
@@ -185,7 +185,7 @@ struct PostDomInfo {
         return chain;
     };
     auto common = ancestors_of(blocks[0]);
-    for (size_t i = 1u; i < blocks.size(); i++) {
+    for (size_t i = 1; i < blocks.size(); i++) {
         auto other = ancestors_of(blocks[i]);
         luisa::unordered_set<BasicBlock *> next;
         for (auto *bb : common) {
@@ -234,7 +234,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
                 sw->set_default_block(to);
                 changed = true;
             }
-            for (size_t i = 0u; i < sw->case_count(); i++) {
+            for (size_t i = 0; i < sw->case_count(); i++) {
                 if (sw->case_block(i) == from) {
                     sw->set_case_block(i, to);
                     changed = true;
@@ -283,8 +283,6 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     return changed;
 }
 
-
-
 [[nodiscard]] static bool try_restructure_loop(FunctionDefinition *def,
                                                const DomTree &dom,
                                                const PostDomInfo &pdom,
@@ -308,7 +306,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     struct LoopCandidate {
         BasicBlock *header{nullptr};
         luisa::vector<BasicBlock *> latches;
-        size_t depth{0u};
+        size_t depth{0};
     };
 
     luisa::vector<LoopCandidate> candidates;
@@ -321,8 +319,11 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
             back_target = static_cast<BranchInst *>(term)->target_block();
         } else if (term->isa<ConditionalBranchInst>()) {
             auto *cb = static_cast<ConditionalBranchInst *>(term);
-            if (dom.dominates(cb->true_block(), bb)) { back_target = cb->true_block(); }
-            else if (dom.dominates(cb->false_block(), bb)) { back_target = cb->false_block(); }
+            if (dom.dominates(cb->true_block(), bb)) {
+                back_target = cb->true_block();
+            } else if (dom.dominates(cb->false_block(), bb)) {
+                back_target = cb->false_block();
+            }
         }
         if (back_target == nullptr) { continue; }
         if (!dom.dominates(back_target, bb)) { continue; }
@@ -395,7 +396,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     luisa::vector<BasicBlock *> pre_exit_targets{pre_exit_targets_set.begin(), pre_exit_targets_set.end()};
 
     BasicBlock *dispatch_merge_or_null = nullptr;
-    if (pre_exit_targets.size() > 1u) {
+    if (pre_exit_targets.size() > 1) {
         dispatch_merge_or_null = common_postdom(pdom, luisa::span<BasicBlock *const>{pre_exit_targets});
         if (dispatch_merge_or_null == pdom.virtual_exit) {
             dispatch_merge_or_null = nullptr;
@@ -403,7 +404,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     }
 
     BasicBlock *canonical_latch = nullptr;
-    if (latches.size() == 1u) {
+    if (latches.size() == 1) {
         canonical_latch = latches[0];
     } else {
         canonical_latch = def->create_basic_block();
@@ -453,7 +454,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
 
     auto *mod = def->parent_module();
 
-    if (exit_targets.size() <= 1u) {
+    if (exit_targets.size() <= 1) {
         for (auto &[src, tgt] : exit_edges) {
             retarget_terminator(src->terminator(), tgt, loop_merge);
         }
@@ -488,7 +489,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         b.store(keep_going, true_const);
         b.br(header);
 
-        uint32_t sel_id = 0u;
+        uint32_t sel_id = 0;
         luisa::unordered_map<BasicBlock *, uint32_t> exit_target_id;
         luisa::vector<BasicBlock *> used_exit_targets;
 
@@ -519,7 +520,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         b.set_insertion_point(loop_merge);
         if (used_exit_targets.empty()) {
             b.unreachable_();
-        } else if (used_exit_targets.size() == 1u) {
+        } else if (used_exit_targets.size() == 1) {
             b.br(used_exit_targets[0]);
         } else {
             auto *loaded_sel = b.load(Type::of<uint32_t>(), exit_sel);
@@ -530,7 +531,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
             auto *sw = b.switch_(loaded_sel);
             sw->set_merge_block(dispatch_merge);
             sw->set_default_block(used_exit_targets[0]);
-            for (size_t i = 1u; i < used_exit_targets.size(); i++) {
+            for (size_t i = 1; i < used_exit_targets.size(); i++) {
                 auto *tgt = used_exit_targets[i];
                 auto id = static_cast<SwitchInst::case_value_type>(exit_target_id[tgt]);
                 sw->add_case(id, tgt);
@@ -729,7 +730,7 @@ static void collect_construct_entries(BasicBlock *header_bb,
         }
         case DerivedInstructionTag::SWITCH: {
             auto *sw = static_cast<SwitchInst *>(term);
-            for (size_t i = 0u; i < sw->case_count(); i++) {
+            for (size_t i = 0; i < sw->case_count(); i++) {
                 if (auto *cb = sw->case_block(i); cb != nullptr) { entries.emplace_back(cb); }
             }
             if (sw->default_block() != nullptr) { entries.emplace_back(sw->default_block()); }
@@ -831,11 +832,11 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 // Clone the owned subgraph rooted at E. P (with its terminator) is rerouted via a
 // fresh relay block to the clone of E. Returns true on success.
 [[nodiscard]] static bool clone_owned_subgraph_for_edge(FunctionDefinition *def,
-                                                       BasicBlock *header_bb,
-                                                       BasicBlock *E, BasicBlock *P,
-                                                       luisa::span<BasicBlock *const> entries,
-                                                       BasicBlock *merge_bb,
-                                                       const DomTree &dom) noexcept {
+                                                        BasicBlock *header_bb,
+                                                        BasicBlock *E, BasicBlock *P,
+                                                        luisa::span<BasicBlock *const> entries,
+                                                        BasicBlock *merge_bb,
+                                                        const DomTree &dom) noexcept {
     luisa::unordered_set<BasicBlock *> region;
     collect_owned_region(E, header_bb, entries, merge_bb, dom, region);
     if (region.empty()) { return false; }
@@ -880,18 +881,18 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 
 // Per-construct entry-uniqueness fix. Returns true if any edges were rewritten.
 [[nodiscard]] static bool enforce_construct_entries(FunctionDefinition *def,
-                                                   BasicBlock *header_bb,
-                                                   BasicBlock *merge_bb) noexcept {
+                                                    BasicBlock *header_bb,
+                                                    BasicBlock *merge_bb) noexcept {
     luisa::vector<BasicBlock *> entries;
     collect_construct_entries(header_bb, entries);
-    if (entries.size() <= 1u) { return false; }
+    if (entries.size() <= 1) { return false; }
     bool changed_any = false;
     // Iterate entries in their natural order; per Oracle's design, if the sibling-entry
     // graph is acyclic, fixing earlier entries does not create new bad edges into them.
     // We bound the inner loop to defend against malformed CFGs.
     for (auto *E : entries) {
-        size_t guard = 64u;
-        while (guard-- > 0u) {
+        size_t guard = 64;
+        while (guard-- > 0) {
             auto dom = compute_dom_tree(def);
             luisa::vector<BasicBlock *> offenders;
             E->traverse_predecessors(false, [&](BasicBlock *P) noexcept {
@@ -918,8 +919,8 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 // Visit each structured construct (If/Switch/Loop/SimpleLoop) and enforce the
 // invariant. We rescan after each change because the BB list has grown.
 static void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
-    size_t outer_guard = 64u;
-    while (outer_guard-- > 0u) {
+    size_t outer_guard = 64;
+    while (outer_guard-- > 0) {
         bool changed = false;
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> construct_sites;// header_bb, merge_bb
         def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
@@ -952,8 +953,8 @@ static void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
 [[nodiscard]] static RestructureCFGInfo restructure_cfg_on_definition(FunctionDefinition *def) noexcept {
     check_phi_free(def);
     RestructureCFGInfo info{};
-    size_t max_iters = 10000u;
-    while (max_iters-- > 0u) {
+    size_t max_iters = 10000;
+    while (max_iters-- > 0) {
         auto dom = compute_dom_tree(def);
         auto pdom = compute_post_dom(def);
         if (try_restructure_loop(def, dom, pdom, info)) { continue; }

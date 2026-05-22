@@ -86,7 +86,7 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
             reload->add_comment("load from cross-block alloca");
             User::set_operand_use_value(use, reload);
         }
-        info.lowered_cross_block_value_count += 1u;
+        info.lowered_cross_block_value_count += 1;
     }
 }
 

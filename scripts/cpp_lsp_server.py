@@ -16,6 +16,8 @@ import sys
 import time
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import uvicorn
@@ -86,7 +88,6 @@ class ClangdProcess:
             "--clang-tidy=true",
             "--completion-style=bundled",
             "--pch-storage=memory",
-            "--cross-file-rename=false",
         ]
         if self.verbose:
             print(f"[verbose] Starting clangd: {' '.join(cmd)}")
@@ -94,7 +95,7 @@ class ClangdProcess:
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            # stderr=subprocess.DEVNULL,
         )
 
     def stop(self):
@@ -152,7 +153,7 @@ class ClangdProcess:
     # Lifecycle
     # -----------------------------------------------------------------------
 
-    def initialize(self):
+    def initialize(self, args):
         root_uri = Path(self.compile_commands_dir).resolve().as_uri()
         if self.verbose:
             print(f"[verbose] Initializing LSP with rootUri: {root_uri}")
@@ -169,7 +170,11 @@ class ClangdProcess:
         )
         while True:
             msg = self._read_message()
-            if msg and msg.get("id") == req_id and "result" in msg:
+            if msg is None:
+                if self.process.poll() is not None:
+                    raise RuntimeError("clangd process exited unexpectedly during initialization")
+                continue
+            if msg.get("id") == req_id and "result" in msg:
                 break
         self._send_notification_raw("initialized", {})
 
@@ -241,7 +246,15 @@ class ClangdProcess:
 # FastAPI application
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="C++ LSP Server")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    global clangd_process
+    if clangd_process:
+        await asyncio.to_thread(clangd_process.stop)
+
+
+app = FastAPI(title="C++ LSP Server", lifespan=lifespan)
 
 
 class CheckSyntaxRequest(BaseModel):
@@ -268,14 +281,6 @@ class SymbolRequest(BaseModel):
 
 # Global clangd handle – populated in main() before uvicorn starts.
 clangd_process: ClangdProcess | None = None
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    global clangd_process
-    if clangd_process:
-        # stop() is sync; run in thread so we don't block the loop
-        await asyncio.to_thread(clangd_process.stop)
 
 
 @app.get("/health")
@@ -399,25 +404,50 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Verbose LSP traffic")
     args = parser.parse_args()
 
+    print("[1/5] Parsing arguments... done")
+
     compile_commands_dir = args.compile_commands_dir
     if compile_commands_dir is None:
+        print("[2/5] Locating compile_commands.json... ", end="", flush=True)
         try:
             compile_commands_dir = load_compile_commands(args.project_root, verbose=args.verbose)
+            print(f"found at {compile_commands_dir}")
         except FileNotFoundError:
             compile_commands_dir = args.project_root
+            print("not found, falling back to project root")
+    else:
+        print(f"[2/5] Using provided compile_commands directory: {compile_commands_dir}")
 
+    print("[3/5] Spawning clangd process... ", end="", flush=True)
     global clangd_process
     clangd_process = ClangdProcess(args.clangd, compile_commands_dir, verbose=args.verbose)
     clangd_process.start()
-    clangd_process.initialize()
+    print("ok")
 
-    uvicorn.run(
-        app,
-        host=args.host,
-        port=args.port,
-        log_level="info" if args.verbose else "warning",
-    )
+    print("[4/5] Initializing LSP session... ", end="", flush=True)
+    
+    clangd_process.initialize(args)
+    print("ok")
+
+    print(f"[5/5] Starting HTTP server on http://{args.host}:{args.port}", flush=True)
+    print("        Press Ctrl+C to stop\n", flush=True)
+
+    try:
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level="info" if args.verbose else "warning",
+        )
+    except KeyboardInterrupt:
+        print("\n[shutdown] Received interrupt, exiting cleanly.")
+        clangd_process.stop()
+        sys.exit(0)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n[shutdown] Received interrupt, exiting cleanly.")
+        sys.exit(0)

@@ -27,6 +27,13 @@ def check_syntax(client: httpx.Client, args) -> int:
     try:
         r = client.post("/check_syntax", json=payload)
         r.raise_for_status()
+    except httpx.ConnectError as e:
+        print(
+            f"Failed to connect to LSP server at {args.server} ({e}). "
+            "The server may not be enabled.",
+            file=sys.stderr,
+        )
+        return 2
     except httpx.HTTPError as e:
         print(f"HTTP error: {e}", file=sys.stderr)
         return 2
@@ -64,6 +71,13 @@ def symbol(client: httpx.Client, args) -> int:
     try:
         r = client.post("/symbol", json=payload)
         r.raise_for_status()
+    except httpx.ConnectError as e:
+        print(
+            f"Failed to connect to LSP server at {args.server} ({e}). "
+            "The server may not be enabled.",
+            file=sys.stderr,
+        )
+        return 2
     except httpx.HTTPError as e:
         print(f"HTTP error: {e}", file=sys.stderr)
         return 2

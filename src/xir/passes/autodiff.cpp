@@ -19,7 +19,7 @@ struct TransformAdScope {
 struct AutodiffPass {
     Function *function{};
     AutodiffOptions options{};
-    auto locate_autodiff_scopes() {
+    [[nodiscard]] auto locate_autodiff_scopes() const {
         auto def = function->definition();
         auto dom = compute_dom_tree(def);
         luisa::vector<AutodiffScopeInst *> ad_scopes;

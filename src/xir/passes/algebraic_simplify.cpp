@@ -162,25 +162,43 @@ namespace detail {
             if (!first_idx->isa<Constant>()) break;
             auto src_dim = common_src->type()->dimension();
             luisa::vector<Value *> shuffle_operands;
-            shuffle_operands.reserve(inst->operand_count() + 1u);
+            shuffle_operands.reserve(inst->operand_count() + 1);
             shuffle_operands.emplace_back(common_src);
             auto first_idx_val = static_cast<const Constant *>(first_idx)->as<uint32_t>();
             if (first_idx_val >= src_dim) break;
             shuffle_operands.emplace_back(first_idx);
             bool all_match = true;
-            bool identity = common_src->type() == inst->type() && first_idx_val == 0u;
+            bool identity = common_src->type() == inst->type() && first_idx_val == 0;
             for (size_t i = 1; i < inst->operand_count(); ++i) {
                 auto op_i = inst->operand(i);
-                if (!op_i->isa<Instruction>()) { all_match = false; break; }
+                if (!op_i->isa<Instruction>()) {
+                    all_match = false;
+                    break;
+                }
                 auto op_inst = static_cast<Instruction *>(op_i);
-                if (!op_inst->isa<ArithmeticInst>()) { all_match = false; break; }
+                if (!op_inst->isa<ArithmeticInst>()) {
+                    all_match = false;
+                    break;
+                }
                 auto op_arith = static_cast<ArithmeticInst *>(op_inst);
-                if (op_arith->op() != ArithmeticOp::EXTRACT) { all_match = false; break; }
-                if (op_arith->operand(0) != common_src) { all_match = false; break; }
+                if (op_arith->op() != ArithmeticOp::EXTRACT) {
+                    all_match = false;
+                    break;
+                }
+                if (op_arith->operand(0) != common_src) {
+                    all_match = false;
+                    break;
+                }
                 auto op_idx = op_arith->operand(1);
-                if (!op_idx->isa<Constant>()) { all_match = false; break; }
+                if (!op_idx->isa<Constant>()) {
+                    all_match = false;
+                    break;
+                }
                 auto op_idx_val = static_cast<const Constant *>(op_idx)->as<uint32_t>();
-                if (op_idx_val >= src_dim) { all_match = false; break; }
+                if (op_idx_val >= src_dim) {
+                    all_match = false;
+                    break;
+                }
                 identity &= op_idx_val == static_cast<uint32_t>(i);
                 shuffle_operands.emplace_back(op_idx);
             }
@@ -204,7 +222,7 @@ namespace detail {
                     if (base_arith->op() == ArithmeticOp::AGGREGATE && idx_val < base_arith->operand_count()) {
                         luisa::vector<Value *> elems;
                         elems.reserve(base_arith->operand_count());
-                        for (size_t i = 0u; i < base_arith->operand_count(); ++i) {
+                        for (size_t i = 0; i < base_arith->operand_count(); ++i) {
                             elems.emplace_back(i == idx_val ? val : base_arith->operand(i));
                         }
                         builder.set_insertion_point(inst);
@@ -224,7 +242,7 @@ namespace detail {
             }
             if (inst->type() != nullptr && (inst->type()->is_vector() || inst->type()->is_array())) {
                 auto dim = inst->type()->dimension();
-                if (idx_val == dim - 1u) {
+                if (idx_val == dim - 1) {
                     luisa::vector<Value *> elems(dim, nullptr);
                     elems[idx_val] = val;
                     auto cur = base;
@@ -234,21 +252,41 @@ namespace detail {
                             valid = false;
                             break;
                         }
-                        if (!cur->isa<Instruction>()) { valid = false; break; }
+                        if (!cur->isa<Instruction>()) {
+                            valid = false;
+                            break;
+                        }
                         auto cur_inst = static_cast<Instruction *>(cur);
-                        if (!cur_inst->isa<ArithmeticInst>()) { valid = false; break; }
+                        if (!cur_inst->isa<ArithmeticInst>()) {
+                            valid = false;
+                            break;
+                        }
                         auto cur_arith = static_cast<ArithmeticInst *>(cur_inst);
-                        if (cur_arith->op() != ArithmeticOp::INSERT) { valid = false; break; }
+                        if (cur_arith->op() != ArithmeticOp::INSERT) {
+                            valid = false;
+                            break;
+                        }
                         auto ci = cur_arith->operand(2);
-                        if (!ci->isa<Constant>()) { valid = false; break; }
+                        if (!ci->isa<Constant>()) {
+                            valid = false;
+                            break;
+                        }
                         auto ci_val = static_cast<const Constant *>(ci)->as<uint32_t>();
-                        if (ci_val != static_cast<uint32_t>(slot)) { valid = false; break; }
+                        if (ci_val != static_cast<uint32_t>(slot)) {
+                            valid = false;
+                            break;
+                        }
                         elems[slot] = cur_arith->operand(1);
                         cur = cur_arith->operand(0);
                     }
                     if (valid && cur->isa<Undefined>()) {
                         bool all_filled = true;
-                        for (auto e : elems) { if (!e) { all_filled = false; break; } }
+                        for (auto e : elems) {
+                            if (!e) {
+                                all_filled = false;
+                                break;
+                            }
+                        }
                         if (all_filled) {
                             builder.set_insertion_point(inst);
                             return builder.call(inst->type(), ArithmeticOp::AGGREGATE, elems);

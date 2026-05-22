@@ -10,7 +10,7 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static void trace_gep_chain(Instruction *inst, luisa::fixed_vector<Value *, 16u> &chain) noexcept {
+static void trace_gep_chain(Instruction *inst, luisa::fixed_vector<Value *, 16> &chain) noexcept {
     switch (inst->derived_instruction_tag()) {
         case DerivedInstructionTag::ALLOCA: {
             LUISA_DEBUG_ASSERT(!chain.empty(), "Invalid GEP chain.");
@@ -34,7 +34,7 @@ static void trace_gep_chain(Instruction *inst, luisa::fixed_vector<Value *, 16u>
 }
 
 [[nodiscard]] static auto trace_gep_chain(Instruction *inst) noexcept {
-    luisa::fixed_vector<Value *, 16u> gep_chain;
+    luisa::fixed_vector<Value *, 16> gep_chain;
     trace_gep_chain(inst, gep_chain);
     std::reverse(gep_chain.begin(), gep_chain.end());
     return gep_chain;
@@ -74,7 +74,7 @@ static void transpose_store_gep(StoreInst *store, TransposeGEPInfo &info) noexce
 static void run_transpose_gep_pass_on_function(Function *function, TransposeGEPInfo &info) noexcept {
     if (auto def = function->definition()) {
         // run the trace gep pass first to ensure that no nested GEP chains exist
-        if (auto trace_gep_info = trace_gep_pass_run_on_function(def); trace_gep_info.traced_gep_count != 0u) {
+        if (auto trace_gep_info = trace_gep_pass_run_on_function(def); trace_gep_info.traced_gep_count != 0) {
             LUISA_VERBOSE("Traced {} GEP chain(s) in transpose_gep pass.", trace_gep_info.traced_gep_count);
         }
         // run the pass
@@ -110,8 +110,8 @@ static void run_transpose_gep_pass_on_function(Function *function, TransposeGEPI
                        }),
                        geps.end());
         }
-        luisa::fixed_vector<LoadInst *, 64u> gep_loads;
-        luisa::fixed_vector<StoreInst *, 64u> gep_stores;
+        luisa::fixed_vector<LoadInst *, 64> gep_loads;
+        luisa::fixed_vector<StoreInst *, 64> gep_stores;
         for (auto gep : geps) {
             gep_loads.clear();
             gep_stores.clear();

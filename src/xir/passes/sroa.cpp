@@ -16,10 +16,9 @@ namespace detail {
 [[nodiscard]] static bool is_sroa_candidate(AllocaInst *alloca, const SROAOptions &options) noexcept {
     if (alloca->op() != AllocaOp::LOCAL) return false;
     auto type = alloca->type();
-    if (type->is_structure() || type->is_array()) {
-    } else if (type->is_vector() && options.decompose_vectors) {
-    } else if (type->is_matrix() && options.decompose_matrices) {
-    } else {
+    if (!(type->is_structure() || type->is_array() ||
+          (type->is_vector() && options.decompose_vectors) ||
+          (type->is_matrix() && options.decompose_matrices))) {
         return false;
     }
 

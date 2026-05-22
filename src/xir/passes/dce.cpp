@@ -206,9 +206,9 @@ void propagate_unreachable_marks_in_function(Function *function, DCEInfo &info) 
             case Type::Tag::INT16: return static_cond->as<int16_t>();
             case Type::Tag::UINT16: return static_cond->as<uint16_t>();
             case Type::Tag::INT32: return static_cond->as<int32_t>();
-            case Type::Tag::UINT32: return static_cond->as<uint32_t>();
-            case Type::Tag::INT64: return static_cond->as<int64_t>();
-            case Type::Tag::UINT64: return static_cond->as<uint64_t>();
+            case Type::Tag::UINT32: return static_cast<SwitchInst::case_value_type>(static_cond->as<uint32_t>());
+            case Type::Tag::INT64: return static_cast<SwitchInst::case_value_type>(static_cond->as<int64_t>());
+            case Type::Tag::UINT64: return static_cast<SwitchInst::case_value_type>(static_cond->as<uint64_t>());
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Invalid switch condition type.");
@@ -266,7 +266,7 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
                     auto switch_inst = static_cast<SwitchInst *>(terminator);
                     if (auto static_cond = try_evaluate_static_switch_condition(switch_inst->value())) {
                         auto any_match = false;
-                        for (auto i = 0u; i < switch_inst->case_count(); i++) {
+                        for (size_t i = 0; i < switch_inst->case_count(); i++) {
                             if (switch_inst->case_value(i) == *static_cond) {
                                 any_match = true;
                             } else {
@@ -325,14 +325,14 @@ void fix_phi_nodes_in_function(Function *function, luisa::vector<PhiInst *> &phi
                 phi->parent_block()->traverse_predecessors(false, [&](auto block) noexcept {
                     predecessors.emplace(block);
                 });
-                for (auto i = 0u; i < phi->incoming_count(); i++) {
+                for (size_t i = 0; i < phi->incoming_count(); i++) {
                     if (auto incoming = phi->incoming(i); predecessors.contains(incoming.block)) {
                         valid_incomings.emplace_back(incoming);
                     }
                 }
                 LUISA_ASSERT(valid_incomings.size() == predecessors.size());
                 phi->set_incoming_count(valid_incomings.size());
-                for (auto i = 0u; i < valid_incomings.size(); i++) {
+                for (size_t i = 0; i < valid_incomings.size(); i++) {
                     auto incoming = valid_incomings[i];
                     phi->set_incoming(i, incoming.value, incoming.block);
                 }

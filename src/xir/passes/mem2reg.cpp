@@ -87,7 +87,7 @@ struct AllocaAnalysis {
             }
         }
         // compute live-in blocks
-        luisa::fixed_vector<BasicBlock *, 64u> work_list;
+        luisa::fixed_vector<BasicBlock *, 64> work_list;
         work_list.reserve(use_blocks.size());
         for (auto [use_block, load] : use_blocks) {
             if (auto def_iter = def_blocks.find(use_block); def_iter != def_blocks.end()) {
@@ -170,7 +170,7 @@ struct PhiInsertionAndRenaming {
         block_to_phi.clear();
         auto type = inst->type();
         {
-            luisa::fixed_vector<BasicBlock *, 64u> work_list;
+            luisa::fixed_vector<BasicBlock *, 64> work_list;
             work_list.reserve(analysis.def_blocks.size());
             for (auto [def_block, _] : analysis.def_blocks) {
                 work_list.emplace_back(def_block);
@@ -320,8 +320,8 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
     if (auto def = f->definition()) {
         // run the transpose GEP pass first so we can possibly handle more aggregates
         if (auto transpose_gep_info = transpose_gep_pass_run_on_function(def);
-            transpose_gep_info.transposed_load_count != 0u ||
-            transpose_gep_info.transposed_store_count != 0u) {
+            transpose_gep_info.transposed_load_count != 0 ||
+            transpose_gep_info.transposed_store_count != 0) {
             LUISA_VERBOSE("Transposed {} load instruction(s) and {} store instruction(s) in mem2reg pass.",
                           transpose_gep_info.transposed_load_count,
                           transpose_gep_info.transposed_store_count);

@@ -35,7 +35,7 @@ static void terminate_leaked_blocks(Function *function, DestructureCFGInfo &info
     for (auto block : leaked) {
         b.set_insertion_point(block);
         b.unreachable_("destructure_cfg: unterminated block patched with unreachable");
-        info.leaked_block_count += 1u;
+        info.leaked_block_count += 1;
     }
 }
 
@@ -53,7 +53,7 @@ static void spill_early_returns(Function *function, DestructureCFGInfo &info) no
             returns.emplace_back(static_cast<ReturnInst *>(term));
         }
     });
-    if (returns.size() <= 1u) { return; }
+    if (returns.size() <= 1) { return; }
     auto ret_type = function->type();
     XIRBuilder b;
     AllocaInst *spill_slot = nullptr;
@@ -85,7 +85,7 @@ static void spill_early_returns(Function *function, DestructureCFGInfo &info) no
         if (ret_type != nullptr && value != nullptr) { b.store(spill_slot, value); }
         b.br(exit_block);
         r->remove_self();
-        info.destructured_early_return_count += 1u;
+        info.destructured_early_return_count += 1;
     }
 }
 
@@ -93,7 +93,7 @@ static void verify_terminators(Function *function) noexcept {
     if (function == nullptr) { return; }
     auto def = function->definition();
     if (def == nullptr) { return; }
-    size_t return_count = 0u;
+    size_t return_count = 0;
     def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
         if (block == nullptr) { return; }
         if (!block->is_terminated()) {
@@ -114,7 +114,7 @@ static void verify_terminators(Function *function) noexcept {
             case DerivedInstructionTag::RAY_QUERY_DISPATCH:
                 break;
             case DerivedInstructionTag::RETURN:
-                return_count += 1u;
+                return_count += 1;
                 break;
             default:
                 LUISA_WARNING_WITH_LOCATION(
@@ -123,7 +123,7 @@ static void verify_terminators(Function *function) noexcept {
                 break;
         }
     });
-    if (return_count > 1u) {
+    if (return_count > 1) {
         LUISA_WARNING_WITH_LOCATION(
             "destructure_cfg: function still has {} ReturnInsts after early-return spill.",
             return_count);

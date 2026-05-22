@@ -67,14 +67,14 @@ static void run_local_store_forward_on_basic_block(luisa::unordered_set<BasicBlo
         }
         // move to the next block if it is the only successor and only has a single predecessor
         BasicBlock *next = nullptr;
-        auto successor_count = 0u;
+        size_t successor_count = 0;
         block->traverse_successors(true, [&](BasicBlock *succ) noexcept {
             successor_count++;
             next = succ;
         });
         if (successor_count != 1) { break; }
         // check if the next block has a single predecessor
-        auto pred_count = 0u;
+        size_t pred_count = 0;
         next->traverse_predecessors(false, [&](BasicBlock *) noexcept { pred_count++; });
         if (pred_count != 1) { break; }
         block = next;
@@ -112,7 +112,7 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
                 default: {
                     for (auto op_use : inst->operand_uses()) {
                         if (auto base_alloca = trace_pointer_base_local_alloca_inst(op_use->value())) {
-                            store_count.try_emplace(base_alloca, 0u).first->second++;
+                            store_count.try_emplace(base_alloca, 0).first->second++;
                         }
                     }
                     break;
@@ -120,7 +120,7 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
             }
         });
         for (auto [alloca_inst, count] : store_count) {
-            if (count == 1u) {
+            if (count == 1) {
                 for (auto &&use : alloca_inst->use_list()) {
                     if (auto user = use->user(); user->isa<StoreInst>()) {
                         auto store_inst = static_cast<StoreInst *>(user);
@@ -164,7 +164,7 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
     // do the elimination
     for (auto load : removable_loads) {
         // convert load to extract
-        luisa::fixed_vector<Value *, 8u> extract_args;
+        luisa::fixed_vector<Value *, 8> extract_args;
         LUISA_DEBUG_ASSERT(load->variable()->isa<Instruction>(), "Load variable must be an instruction.");
         auto pointer = static_cast<Instruction *>(load->variable());
         for (;;) {
@@ -190,7 +190,7 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
         extract_args.emplace_back(store->value());
         auto value = [&]() noexcept -> Value * {
             // simple case: scalar load
-            if (extract_args.size() == 1u) { return extract_args.front(); }
+            if (extract_args.size() == 1) { return extract_args.front(); }
             // reverse the indices to the correct order
             std::reverse(extract_args.begin(), extract_args.end());
             // create the extract instruction
