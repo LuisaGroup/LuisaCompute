@@ -66,7 +66,7 @@ void basic_work_graph_test(Device &device, Stream &stream) {
     stream << d_buffer.copy_to(luisa::span{h_buffer}) << synchronize();
 
     for (size_t i = 0; i < h_buffer.size(); i += 1) {
-        boost::ut::expect(static_cast<bool>(h_buffer[i] == i)) << "basic_work_graph output mismatch.";
+        boost::ut::expect(h_buffer[i] == i) << "basic_work_graph output mismatch.";
     }
 }
 
@@ -123,9 +123,9 @@ void dynamic_dispatch_grid_test(Device &device, Stream &stream) {
         stream << d_buffer.copy_to(luisa::span{h_buffer}) << synchronize();
         const uint count = groups * threads_per_group;
         for (uint i = 0; i < count; i++)
-            boost::ut::expect(static_cast<bool>(h_buffer[i] == i)) << "dynamic_dispatch_grid output mismatch.";
+            boost::ut::expect(h_buffer[i] == i) << "dynamic_dispatch_grid output mismatch.";
         for (uint i = count; i < buffer_size; i++)
-            boost::ut::expect(static_cast<bool>(h_buffer[i] == 0u)) << "dynamic_dispatch_grid unexpected write.";
+            boost::ut::expect(h_buffer[i] == 0u) << "dynamic_dispatch_grid unexpected write.";
         LUISA_INFO("dynamic_dispatch_grid: {} groups ({} threads) passed", groups, count);
     };
 
@@ -183,7 +183,7 @@ void node_array_test(Device &device, Stream &stream) {
     stream << d_buffer.copy_to(luisa::span{h_buffer}) << synchronize();
 
     for (uint i = 0u; i < array_size; i++)
-        boost::ut::expect(static_cast<bool>(h_buffer[i] == i)) << "node_array output mismatch.";
+        boost::ut::expect(h_buffer[i] == i) << "node_array output mismatch.";
     LUISA_INFO("node_array: passed");
 }
 
@@ -253,7 +253,7 @@ void bindless_array_work_graph_test(Device &device, Stream &stream) {
     stream << d_out.copy_to(luisa::span{h_out}) << synchronize();
 
     for (uint i = 0u; i < N; i++)
-        boost::ut::expect(static_cast<bool>(h_out[i] == values[i])) << "bindless_array_work_graph output mismatch.";
+        boost::ut::expect(h_out[i] == values[i]) << "bindless_array_work_graph output mismatch.";
     LUISA_INFO("bindless_array_work_graph: passed");
 }
 
@@ -314,8 +314,8 @@ void accel_work_graph_test(Device &device, Stream &stream) {
 
     auto vertex_buf = device.create_buffer<float3>(3u);
     auto triangle_buf = device.create_buffer<Triangle>(1u);
-    stream << vertex_buf.copy_from(luisa::span{vertices})
-           << triangle_buf.copy_from(luisa::span{triangles})
+    stream << vertex_buf.copy_from(vertices)
+           << triangle_buf.copy_from(triangles)
            << synchronize();
 
     auto mesh = device.create_mesh(vertex_buf, triangle_buf);
@@ -332,8 +332,8 @@ void accel_work_graph_test(Device &device, Stream &stream) {
     stream << program().dispatch(1, 0, nullptr) << synchronize();
     stream << d_out.copy_to(luisa::span{h_out}) << synchronize();
 
-    boost::ut::expect(static_cast<bool>(h_out[0] == 1u)) << "ray 0 should hit.";
-    boost::ut::expect(static_cast<bool>(h_out[1] == 0u)) << "ray 1 should miss.";
+    boost::ut::expect(h_out[0] == 1u) << "ray 0 should hit.";
+    boost::ut::expect(h_out[1] == 0u) << "ray 1 should miss.";
     LUISA_INFO("accel_work_graph: passed");
 }
 
