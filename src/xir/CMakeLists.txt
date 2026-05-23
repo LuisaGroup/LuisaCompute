@@ -64,6 +64,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/dom_tree.cpp
         passes/call_graph.cpp
         passes/outline.cpp
+        passes/dead_store_elimination.cpp
         passes/sroa.cpp
         passes/trace_gep.cpp
         passes/aggregate_field_bitmask.cpp

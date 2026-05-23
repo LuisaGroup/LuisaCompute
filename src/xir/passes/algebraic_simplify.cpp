@@ -229,13 +229,29 @@ namespace detail {
                         return builder.call(inst->type(), ArithmeticOp::AGGREGATE, elems);
                     }
                     if (base_arith->op() == ArithmeticOp::INSERT) {
-                        auto inner_idx = base_arith->operand(2);
-                        if (inner_idx->isa<Constant>()) {
-                            auto inner_idx_val = static_cast<const Constant *>(inner_idx)->as<uint32_t>();
-                            if (inner_idx_val == idx_val) {
-                                inst->set_operand(0, base_arith->operand(0));
-                                return nullptr;
+                        // Compare all index operands, not just the first one,
+                        // to handle multi-dimensional inserts correctly.
+                        bool all_indices_match = true;
+                        for (size_t i = 2; i < inst->operand_count(); ++i) {
+                            if (i >= base_arith->operand_count()) {
+                                all_indices_match = false;
+                                break;
                             }
+                            auto outer_idx = inst->operand(i);
+                            auto inner_idx = base_arith->operand(i);
+                            if (!outer_idx->isa<Constant>() || !inner_idx->isa<Constant>()) {
+                                all_indices_match = false;
+                                break;
+                            }
+                            if (static_cast<const Constant *>(outer_idx)->as<uint32_t>() !=
+                                static_cast<const Constant *>(inner_idx)->as<uint32_t>()) {
+                                all_indices_match = false;
+                                break;
+                            }
+                        }
+                        if (all_indices_match) {
+                            inst->set_operand(0, base_arith->operand(0));
+                            return nullptr;
                         }
                     }
                 }

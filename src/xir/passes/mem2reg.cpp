@@ -58,7 +58,7 @@ struct AllocaAnalysis {
     const luisa::unordered_map<BasicBlock *, uint> &block_indices;
 
     luisa::unordered_map<BasicBlock *, StoreInst *> def_blocks;
-    luisa::unordered_map<BasicBlock *, LoadInst *> use_blocks;
+    luisa::unordered_map<BasicBlock *, luisa::vector<LoadInst *>> use_blocks;
     luisa::unordered_set<BasicBlock *> live_in_blocks;
 
     void analyze(AllocaInst *inst) noexcept {
@@ -72,8 +72,7 @@ struct AllocaAnalysis {
                 switch (auto user_inst = static_cast<Instruction *>(user); user_inst->derived_instruction_tag()) {
                     case DerivedInstructionTag::LOAD: {
                         LUISA_DEBUG_ASSERT(user_inst->parent_block() != nullptr, "Invalid parent.");
-                        auto [_, success] = use_blocks.try_emplace(user_inst->parent_block(), static_cast<LoadInst *>(user_inst));
-                        LUISA_DEBUG_ASSERT(success, "Invalid state.");
+                        use_blocks[user_inst->parent_block()].emplace_back(static_cast<LoadInst *>(user_inst));
                         break;
                     }
                     case DerivedInstructionTag::STORE: {
@@ -89,11 +88,10 @@ struct AllocaAnalysis {
         // compute live-in blocks
         luisa::fixed_vector<BasicBlock *, 64> work_list;
         work_list.reserve(use_blocks.size());
-        for (auto [use_block, load] : use_blocks) {
-            if (auto def_iter = def_blocks.find(use_block); def_iter != def_blocks.end()) {
-                // make sure the store is after the load
-                LUISA_ASSERT(inst_indices.at(def_iter->second) > inst_indices.at(load), "Invalid state.");
-            }
+        for (auto &[use_block, loads] : use_blocks) {
+            // For loads before the store, the store must come after.
+            // Loads after the store read the store's value directly and
+            // are handled in place_phi_nodes.
             work_list.emplace_back(use_block);
         }
         // extend the live-in block set by adding all non-defining predecessors of the known live-in blocks
@@ -195,19 +193,24 @@ struct PhiInsertionAndRenaming {
             }
         }
         // other loads must be dominated by some def/phi block, or it must contain undefined value
-        for (auto [use_block, load_inst] : analysis.use_blocks) {
-            LUISA_DEBUG_ASSERT(!ctx.removed.contains(load_inst), "Invalid state.");
-            if (auto phi_iter = block_to_phi.find(use_block); phi_iter != block_to_phi.end()) {
-                // if we have a phi node in the use block, we can replace the load with it
-                replace_load_with_value(load_inst, phi_iter->second, ctx, info);
-            } else if (auto parent = analysis.dom.immediate_dominator(use_block)) {
-                // otherwise, we walk the dom tree to find the value that dominates the use block
-                auto dom_value = find_dom_value_from_block(parent, type, analysis);
-                replace_load_with_value(load_inst, dom_value, ctx, info);
-            } else {
-                // otherwise we have to use an undefined value
-                auto undef = use_block->parent_module()->create_undefined(type);
-                replace_load_with_value(load_inst, undef, ctx, info);
+        for (auto &[use_block, loads] : analysis.use_blocks) {
+            for (auto load_inst : loads) {
+                LUISA_DEBUG_ASSERT(!ctx.removed.contains(load_inst), "Invalid state.");
+                Value *replacement = nullptr;
+                // Check if there is a store in this block that comes before this load.
+                // If so, this load reads the store's value directly.
+                if (auto def_iter = analysis.def_blocks.find(use_block);
+                    def_iter != analysis.def_blocks.end() &&
+                    analysis.inst_indices.at(def_iter->second) < analysis.inst_indices.at(load_inst)) {
+                    replacement = def_iter->second->value();
+                } else if (auto phi_iter = block_to_phi.find(use_block); phi_iter != block_to_phi.end()) {
+                    replacement = phi_iter->second;
+                } else if (auto parent = analysis.dom.immediate_dominator(use_block)) {
+                    replacement = find_dom_value_from_block(parent, type, analysis);
+                } else {
+                    replacement = use_block->parent_module()->create_undefined(type);
+                }
+                replace_load_with_value(load_inst, replacement, ctx, info);
             }
         }
         // now the alloca should have no load uses but only store uses, check it
@@ -270,6 +273,12 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
         std::sort(instructions.begin(), instructions.end(), [&](Instruction *lhs, Instruction *rhs) noexcept {
             return inst_indices.at(lhs) < inst_indices.at(rhs);
         });
+        // For aggregate allocas, stores may write to different fields/elements
+        // (e.g., after transpose_gep_pass converts GEP stores to insert-based stores).
+        // Removing earlier stores or forwarding their values is unsafe because
+        // later stores only overwrite part of the aggregate.
+        auto alloca_type = inst->type();
+        bool is_aggregate = !alloca_type->is_scalar();
         // eliminate redundant loads and overwritten stores
         auto last_store = static_cast<StoreInst *>(nullptr);
         auto last_value = static_cast<Value *>(nullptr);
@@ -284,14 +293,22 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
                     break;
                 }
                 case DerivedInstructionTag::STORE: {
-                    // we have overwritten the last store so remove it if any
-                    if (last_store != nullptr) {
-                        remove_store(last_store, ctx, info);
+                    if (!is_aggregate) {
+                        // we have overwritten the last store so remove it if any
+                        if (last_store != nullptr) {
+                            remove_store(last_store, ctx, info);
+                        }
+                        // record the value from this store for forwarding to subsequent loads
+                        last_value = static_cast<StoreInst *>(store_or_load)->value();
+                        LUISA_DEBUG_ASSERT(last_value != nullptr, "Invalid store.");
+                    } else {
+                        // For aggregates, a store writes to only part of the alloca,
+                        // so we cannot forward store values to loads. But we must
+                        // invalidate any cached load value since the alloca changed.
+                        last_value = nullptr;
                     }
                     // record this store
                     last_store = static_cast<StoreInst *>(store_or_load);
-                    last_value = last_store->value();
-                    LUISA_DEBUG_ASSERT(last_value != nullptr, "Invalid store.");
                     break;
                 }
                 default: LUISA_ERROR_WITH_LOCATION("Invalid instruction.");
@@ -371,6 +388,26 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
                                     .block_indices = block_indices};
             PhiInsertionAndRenaming insertion{.ctx = ctx};
             for (auto inst : promotable) {
+                // Skip allocas with multiple direct stores in the same block.
+                // For non-scalar allocas (e.g., aggregates), simplify_single_block_store_load
+                // does not collapse stores, so multiple stores per block can remain after
+                // transpose_gep converts GEP stores to insert-based stores. The classic
+                // mem2reg algorithm assumes at most one store per block.
+                luisa::unordered_map<BasicBlock *, uint> block_store_count;
+                bool has_multiple_stores = false;
+                for (auto &&use : inst->use_list()) {
+                    if (auto user = use->user(); user != nullptr && user->isa<StoreInst>()) {
+                        auto block = static_cast<Instruction *>(user)->parent_block();
+                        auto [_, inserted] = block_store_count.try_emplace(block, 1u);
+                        if (!inserted) {
+                            has_multiple_stores = true;
+                            break;
+                        }
+                    }
+                }
+                if (has_multiple_stores) {
+                    continue;
+                }
                 // analyze and insert phi nodes
                 analysis.analyze(inst);
                 insertion.place_phi_nodes(inst, analysis, info);

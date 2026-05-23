@@ -8,6 +8,7 @@ namespace luisa::compute::xir {
 struct SROAOptions {
     bool decompose_vectors{false};
     bool decompose_matrices{false};
+    bool aggressive{false};// If true, decompose structs even without all-constant indices
 };
 
 struct SROAInfo {
