@@ -16,12 +16,9 @@ public:
             uint32_t invocations{0u};
             double elapsed_ms{0.0};
             bool changed{false};
-            luisa::vector<Record> children;
         };
         luisa::vector<Record> records;
         double total_ms{0.0};
-
-        void log(luisa::string_view pipeline_name = {}) const noexcept;
     };
 
 private:
@@ -55,30 +52,5 @@ public:
     [[nodiscard]] bool empty() const noexcept { return _entries.empty(); }
     [[nodiscard]] size_t size() const noexcept { return _entries.size(); }
 };
-
-struct OptimizationPipelineOptions {
-    bool enable_fast_math{false};
-};
-
-// Phase A: basic opts on structured-CFG alloca-form (ast2xir output).
-// dce, store-forward, load-elim, dce, algebraic, const-fold, dce,
-// promote-ref-arg, sroa, dse, dce.
-[[nodiscard]] LUISA_XIR_API PassPipeline
-create_basic_optimization_pipeline(OptimizationPipelineOptions options = {}) noexcept;
-
-// Post-inline cleanup: dce, store-forward, load-elim, dce,
-// algebraic, const-fold, dce, sroa, dse, dce.
-[[nodiscard]] LUISA_XIR_API PassPipeline
-create_post_inline_cleanup_pipeline(OptimizationPipelineOptions options = {}) noexcept;
-
-// SSA optimization on unstructured CFG (after destructure_cfg + mem2reg):
-// algebraic, const-fold, sccp, cse, dce, store-forward, load-elim, dse, dce.
-[[nodiscard]] LUISA_XIR_API PassPipeline
-create_ssa_optimization_pipeline(OptimizationPipelineOptions options = {}) noexcept;
-
-// Post-restructure cleanup:
-// dce, store-forward, load-elim, dse, algebraic, const-fold, dce.
-[[nodiscard]] LUISA_XIR_API PassPipeline
-create_post_restructure_cleanup_pipeline(OptimizationPipelineOptions options = {}) noexcept;
 
 }// namespace luisa::compute::xir
