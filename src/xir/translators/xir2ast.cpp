@@ -31,6 +31,8 @@
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
 #include <luisa/xir/passes/const_fold.h>
+#include <luisa/xir/passes/cse.h>
+#include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/inline.h>
@@ -1041,6 +1043,8 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     auto mem2reg_info = mem2reg_pass_run_on_module(module);
     alg_info = algebraic_simplify_pass_run_on_module(module);
     const_info = const_fold_pass_run_on_module(module);
+    auto sccp_info = sccp_pass_run_on_module(module);
+    auto cse_info = cse_pass_run_on_module(module);
     dce_info = dce_pass_run_on_module(module);
     store_info = local_store_forward_pass_run_on_module(module);
     load_info = local_load_elimination_pass_run_on_module(module);
@@ -1069,6 +1073,8 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     static_cast<void>(rq_info);
     static_cast<void>(destructure_info);
     static_cast<void>(mem2reg_info);
+    static_cast<void>(sccp_info);
+    static_cast<void>(cse_info);
     static_cast<void>(unused_info);
     static_cast<void>(simplify_info);
     static_cast<void>(reg2mem_info);

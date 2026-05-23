@@ -9,11 +9,8 @@
 
 namespace luisa::compute::xir {
 
-namespace detail {
-
-// Helper to compute a scalar result. Returns true if foldable.
-// data: output buffer; op0_data/op1_data/op2_data: inputs (may be nullptr if not used).
-[[nodiscard]] static bool eval_scalar_op(const Type *type, ArithmeticOp op,
+// Shared scalar evaluation used by const_fold and SCCP.
+[[nodiscard]] bool eval_scalar_op(const Type *type, ArithmeticOp op,
                                          void *data,
                                          const void *op0_data,
                                          const void *op1_data,
@@ -661,6 +658,8 @@ namespace detail {
     }
     return false;
 }
+
+namespace detail {
 
 // Try to fold a scalar arithmetic instruction
 [[nodiscard]] static Constant *try_fold_scalar(Module *module, const ArithmeticInst *inst) noexcept {
