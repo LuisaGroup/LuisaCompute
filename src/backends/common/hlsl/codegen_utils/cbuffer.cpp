@@ -59,10 +59,12 @@ void CodegenUtility::GenerateCBuffer(
     size_t struct_size = 0;
     for (auto &&f : fs) {
         size_t size_cache = 0;
+        size_t max_uid = 0;
         Type const *last_type = nullptr;
         for (auto &&i : *f) {
             if (!detail::IsCBuffer(i.tag())) continue;
             size_cache++;
+            max_uid = std::max(max_uid, static_cast<size_t>(i.uid() + 1));
             StructGenerator::ProvideAlignVariable(last_type, i.type()->alignment(), align, struct_size, result);
             if (last_type && (StructGenerator::half_type_adjacent_with_bool(last_type, i.type()) ||
                               StructGenerator::half_type_adjacent_with_bool(i.type(), last_type))) [[unlikely]] {
@@ -90,7 +92,7 @@ void CodegenUtility::GenerateCBuffer(
                 ++align;
             }
         }
-        size += size_cache;
+        size += max_uid;
     }
     if (opt->noRegister) {
         result << R"(};

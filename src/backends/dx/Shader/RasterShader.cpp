@@ -458,6 +458,7 @@ ID3D12PipelineState *RasterShader::get_pso(
     psoDesc.pRootSignature = this->_root_sig.Get();
     psoDesc.VS = {_vert_bin_data.data(), _vert_bin_data.size()};
     psoDesc.PS = {_pixel_bin_data.data(), _pixel_bin_data.size()};
+
     auto psoMD5 = vstd::MD5{vstd::span<const uint8_t>{reinterpret_cast<uint8_t const *>(md5Bytes.data()), md5Bytes.size()}};
     auto psoName = psoMD5.to_string(false);
     auto psoStream = _device->file_io->read_shader_cache(psoName);

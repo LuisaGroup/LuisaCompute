@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdio>
 #include <luisa/vstl/common.h>
 #include <luisa/runtime/device.h>
 #include <DXRuntime/Device.h>
@@ -29,8 +30,13 @@ struct ReorderFuncTable {
         return reinterpret_cast<BindlessArray *>(bindless_handle)->IsPtrInBindless(resource_handle);
     }
     Usage get_usage(uint64_t shader_handle, size_t argument_index) const noexcept {
-        auto cs = reinterpret_cast<ComputeShader *>(shader_handle);
-        return cs->args()[argument_index].var_usage;
+        if (shader_handle == 0) {
+            // Raster draw commands may not carry a shader handle through the
+            // reorder visitor. Return READ_WRITE as conservative default.
+            return Usage::READ_WRITE;
+        }
+        auto shader = reinterpret_cast<Shader *>(shader_handle);
+        return shader->args()[argument_index].var_usage;
     }
     void update_bindless(uint64_t handle, luisa::span<const BindlessArrayUpdateCommand::Modification> modifications) const noexcept {
         reinterpret_cast<BindlessArray *>(handle)->Bind(modifications);

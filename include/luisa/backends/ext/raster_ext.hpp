@@ -9,7 +9,9 @@ template<typename V, typename P>
     const RasterKernel<V, P> &kernel,
     const MeshFormat &mesh_format,
     const ShaderOption &option) noexcept {
-    return _create<typename RasterKernel<V, P>::RasterShaderType>(extension<RasterExt>(), mesh_format, kernel.vert(), kernel.pixel(), option);
+    // MeshFormat is needed for input layout but RasterShader constructor doesn't take it.
+    // TODO: Pass mesh_format to the backend when creating the PSO.
+    return _create<typename RasterKernel<V, P>::RasterShaderType>(extension<RasterExt>(), kernel.vert(), kernel.pixel(), option);
 }
 
 template<typename V, typename P>

@@ -574,7 +574,38 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
             option.enable_debug_info);
         return ResourceCreationInfo::make_invalid();
     } else {
+        vstd::string_view file_name;
+        vstd::string str_cache;
+        CacheType cache_type{};
+        if (option.enable_cache) {
+            if (option.name.empty()) {
+                str_cache << check_md5.to_string(false) << ".dxil"sv;
+                file_name = str_cache;
+                cache_type = CacheType::Cache;
+            } else {
+                file_name = option.name;
+                cache_type = CacheType::ByteCode;
+            }
+        }
+        auto res = RasterShader::compile_raster(
+            _native_device.file_io,
+            &_native_device,
+            vert,
+            pixel,
+            [&]() { return std::move(code); },
+            check_md5,
+            kShaderModel,
+            file_name,
+            cache_type,
+            option.enable_fast_math,
+            option.enable_debug_info);
         ResourceCreationInfo info{};
+        if (res) {
+            info.handle = reinterpret_cast<uint64>(res);
+            info.native_handle = nullptr;
+        } else {
+            info.invalidate();
+        }
         return info;
     }
 }
