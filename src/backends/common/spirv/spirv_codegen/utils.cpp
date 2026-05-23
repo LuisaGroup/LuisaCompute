@@ -24,6 +24,7 @@
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/gvn.h>
 
 namespace luisa::compute::spirv {
 
@@ -192,6 +193,9 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         pass_clk.tic();
         auto dceB2_info = xir::dce_pass_run_on_module(xir_module.get());
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.dce2: {} ms", pass_clk.toc());
+        pass_clk.tic();
+        auto gvnB_info = xir::gvn_pass_run_on_module(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.gvn: {} ms (replaced {}, removed {})", pass_clk.toc(), gvnB_info.replaced_inst_count, gvnB_info.removed_inst_count);
 
         pass_clk.tic();
         unused_callable_info = xir::unused_callable_removal_pass_run_on_module(xir_module.get());

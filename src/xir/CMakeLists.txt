@@ -89,6 +89,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/destructure_cfg.cpp
         passes/simplify_cfg.cpp
         passes/restructure_cfg.cpp
+        passes/gvn.cpp
 )
 
 add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})
