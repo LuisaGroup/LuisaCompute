@@ -120,8 +120,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     auto dseA_info = xir::dead_store_elimination_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dse: {} ms (eliminated {})", pass_clk.toc(), dseA_info.eliminated_store_count);
     pass_clk.tic();
-    auto loop_unroll_info = xir::loop_unroll_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.loop-unroll: {} ms (unrolled {})", pass_clk.toc(), loop_unroll_info.unrolled_loop_count);
+    // FIXME: loop_unroll pass disabled — trip count analysis has known correctness issues
+    // auto loop_unroll_info = xir::loop_unroll_pass_run_on_module(xir_module.get());
+    // if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.loop-unroll: {} ms (unrolled {})", pass_clk.toc(), loop_unroll_info.unrolled_loop_count);
+    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.loop-unroll: DISABLED (pass has known correctness issues)");
     pass_clk.tic();
     auto dceA4_info = xir::dce_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dce4: {} ms", pass_clk.toc());

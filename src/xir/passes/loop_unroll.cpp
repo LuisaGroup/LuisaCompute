@@ -9,6 +9,12 @@
 
 namespace luisa::compute::xir {
 
+// WARNING: This pass has known correctness issues with trip count analysis.
+// It only handles the simple `for(i=start; i<bound; i+=step)` pattern where
+// the bound is a constant on the RHS. Other patterns (decrementing loops,
+// non-constant bounds, nested induction variables) are not supported and
+// may produce wrong results. Disabled in production pipelines until hardened.
+
 namespace detail {
 
 static constexpr size_t MAX_UNROLL_COUNT = 16;
@@ -51,11 +57,14 @@ public:
     Value *induction = nullptr;
     Value *bound = nullptr;
     if (cmp->operand(1)->isa<Constant>()) {
+        // Pattern: induction < bound (constant on right) — expected form
         bound = cmp->operand(1);
         induction = cmp->operand(0);
-    } else if (cmp->operand(0)->isa<Constant>()) {
-        bound = cmp->operand(0);
-        induction = cmp->operand(1);
+    } else {
+        // Constant on left means `bound < induction` which is a different
+        // loop pattern (decrementing or inverted). Bail out rather than
+        // computing a wrong trip count.
+        return 0;
     }
     if (!bound || !induction) return 0;
 

@@ -1021,7 +1021,8 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     dce_info = dce_pass_run_on_module(module);
     auto promote_info = promote_ref_arg_pass_run_on_module(module);
     auto sroa_info = sroa_pass_run_on_module(module);
-    auto unroll_info = loop_unroll_pass_run_on_module(module);
+    // FIXME: loop_unroll pass disabled — trip count analysis has known correctness issues
+    // auto unroll_info = loop_unroll_pass_run_on_module(module);
     dce_info = dce_pass_run_on_module(module);
     auto inline_info = inline_all_pass_run_on_module(module);
     if (inline_info.inlined_call_count != 0u) {
@@ -1064,7 +1065,6 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     static_cast<void>(const_info);
     static_cast<void>(promote_info);
     static_cast<void>(sroa_info);
-    static_cast<void>(unroll_info);
     static_cast<void>(inline_info);
     static_cast<void>(rq_info);
     static_cast<void>(destructure_info);

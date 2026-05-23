@@ -360,12 +360,13 @@ void fix_control_flow_merges_in_function(Function *function) noexcept {
 
 static void eliminate_redundant_phi_nodes(luisa::vector<PhiInst *> &phi_nodes, DCEInfo &info) noexcept {
     for (;;) {
-        auto prev_dce_count = info.removed_inst_count;
+        auto prev_size = phi_nodes.size();
         phi_nodes.erase(std::remove_if(phi_nodes.begin(), phi_nodes.end(),
                                        remove_redundant_phi_instruction),
                         phi_nodes.end());
-        if (info.removed_inst_count == prev_dce_count) { break; }
-        info.removed_inst_count += phi_nodes.size() - prev_dce_count;
+        auto removed = prev_size - phi_nodes.size();
+        if (removed == 0u) { break; }
+        info.removed_inst_count += removed;
     }
 }
 

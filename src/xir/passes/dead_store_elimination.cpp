@@ -44,21 +44,7 @@ static void eliminate_dead_stores_in_block(BasicBlock *block, DeadStoreEliminati
 
                 auto it = last_store.find(ptr);
                 if (it != last_store.end()) {
-                    auto prev_store = it->second;
-                    // Check if prev_store's value is only used by prev_store itself
-                    bool value_is_dead = true;
-                    if (auto prev_val = prev_store->value(); prev_val->isa<Instruction>()) {
-                        auto prev_inst = static_cast<Instruction *>(prev_val);
-                        for (auto &&use : prev_inst->use_list()) {
-                            if (use->user() != prev_store) {
-                                value_is_dead = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (value_is_dead) {
-                        dead_stores.push_back(prev_store);
-                    }
+                    dead_stores.push_back(it->second);
                 }
                 last_store[ptr] = store;
                 break;
@@ -90,23 +76,8 @@ static void eliminate_dead_stores_in_block(BasicBlock *block, DeadStoreEliminati
 
     // Actually remove the dead stores
     for (auto store : dead_stores) {
-        // We need to check the store's value still exists
-        // Only remove stores whose values have no users OTHER than the store
-        auto val = store->value();
-        bool can_remove = true;
-        if (val->isa<Instruction>()) {
-            auto val_inst = static_cast<Instruction *>(val);
-            for (auto &&use : val_inst->use_list()) {
-                if (use->user() != store) {
-                    can_remove = false;
-                    break;
-                }
-            }
-        }
-        if (can_remove) {
-            store->remove_self();
-            info.eliminated_store_count++;
-        }
+        store->remove_self();
+        info.eliminated_store_count++;
     }
 }
 
