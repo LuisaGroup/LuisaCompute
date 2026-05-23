@@ -84,7 +84,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     //   Phase B runs SSA opts on unstructured CFG; mem2reg legal here.
     //   reg2mem before restructure_cfg: restructure_cfg requires phi-free input.
     //   restructure_cfg: unstructured -> structured.
-    //   Phase C ends with reg2mem: SPIR-V emit rejects PhiInst.
+    //   SPIR-V codegen now emits OpPhi directly; post-reg2mem no longer required.
 
     Clock opt_clk;
     Clock pass_clk;
@@ -279,10 +279,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             auto dceC2_info = xir::dce_pass_run_on_module(xir_module.get());
             if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.dce2: {} ms", pass_clk.toc());
 
-            pass_clk.tic();
-            auto reg2mem_post_info = xir::reg2mem_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  reg2mem-post: {} ms (lowered {} phi(s), {} cross-block value(s))", pass_clk.toc(), reg2mem_post_info.lowered_phi_count, reg2mem_post_info.lowered_cross_block_value_count);
-
+            // Post reg2mem removed: SPIR-V codegen now emits OpPhi directly.
             if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
                 auto filename = luisa::format("kernel.{:016x}.after_reg2mem_post.xir", kernel.hash());
                 dump_xir_module(xir_module.get(), filename);

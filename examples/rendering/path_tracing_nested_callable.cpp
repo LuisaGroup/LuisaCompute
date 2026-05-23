@@ -300,14 +300,15 @@ int main(int argc, char *argv[]) {
     };
 
     ShaderOption o{.enable_debug_info = false};
+    o.name = "raytracing";
+    auto raytracing_shader = device.compile(raytracing_kernel, o);
     o.name = "clear";
     auto clear_shader = device.compile(clear_kernel, o);
     o.name = "hdr2ldr";
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
     o.name = "accumulate";
     auto accumulate_shader = device.compile(accumulate_kernel, o);
-    o.name = "raytracing";
-    auto raytracing_shader = device.compile(raytracing_kernel, o);
+    
     o.name = "make_sampler";
     auto make_sampler_shader = device.compile(make_sampler_kernel, o);
 

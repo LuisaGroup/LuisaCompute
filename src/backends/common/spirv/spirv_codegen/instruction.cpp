@@ -3112,8 +3112,18 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::RESOURCE_READ: _emit_resource_read_inst(static_cast<const xir::ResourceReadInst *>(inst)); break;
         case xir::DerivedInstructionTag::RESOURCE_WRITE: _emit_resource_write_inst(static_cast<const xir::ResourceWriteInst *>(inst)); break;
         case xir::DerivedInstructionTag::THREAD_GROUP: _emit_thread_group_inst(static_cast<const xir::ThreadGroupInst *>(inst)); break;
-        case xir::DerivedInstructionTag::PHI:
-            LUISA_ERROR_WITH_LOCATION("Phi instructions should be eliminated before SPIR-V codegen.");
+        case xir::DerivedInstructionTag::PHI: {
+            auto phi = static_cast<const xir::PhiInst *>(inst);
+            auto spv_type = _convert_type(phi->type(), Usage::READ);
+            std::vector<spv::IdImmediate> operands;
+            for (size_t i = 0; i < phi->incoming_count(); ++i) {
+                auto [value, block] = phi->incoming(i);
+                operands.push_back({true, _emit_value(value)});
+                operands.push_back({true, _block_map.at(block)->getId()});
+            }
+            _value_map.emplace(inst, _builder.createOp(spv::Op::OpPhi, spv_type, operands));
+            break;
+        }
         case xir::DerivedInstructionTag::RAY_QUERY_LOOP:
             _emit_ray_query_loop_inst(static_cast<const xir::RayQueryLoopInst *>(inst));
             break;

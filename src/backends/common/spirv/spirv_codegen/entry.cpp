@@ -4,6 +4,7 @@
 #include <luisa/core/logging.h>
 #include <fstream>
 #include <sstream>
+#include <cstdlib>
 // #include <spirv-tools/optimizer.hpp>
 
 #include <spirv-tools/libspirv.hpp>
@@ -42,6 +43,18 @@ static void luisa_spirv_validate(luisa::span<const uint32_t> words, luisa::strin
 }
 
 static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
+    int opt_level = 2;
+    if (auto env = std::getenv("LUISA_SPIRV_OPT_LEVEL")) {
+        char *end = nullptr;
+        auto val = std::strtol(env, &end, 10);
+        if (end != env && *end == '\0') {
+            opt_level = static_cast<int>(val);
+        }
+    }
+    if (opt_level == 0) {
+        LUISA_INFO("SPIR-V optimization skipped (LUISA_SPIRV_OPT_LEVEL=0)");
+        return;
+    }
     spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_2);
     optimizer.SetMessageConsumer(
         [](spv_message_level_t level, const char *source,
@@ -64,14 +77,23 @@ static void luisa_spirv_optimize(std::vector<uint32_t> &words) {
                     break;
             }
         });
-    optimizer.RegisterPerformancePasses();
+    if (opt_level == 1) {
+        optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
+        optimizer.RegisterPass(spvtools::CreateBlockMergePass());
+        optimizer.RegisterPass(spvtools::CreateSimplificationPass());
+        optimizer.RegisterPass(spvtools::CreateDeadBranchElimPass());
+        LUISA_INFO("SPIR-V optimization level 1 (lightweight passes)");
+    } else {
+        optimizer.RegisterPerformancePasses();
+        LUISA_INFO("SPIR-V optimization level 2 (performance passes)");
+    }
     std::vector<uint32_t> optimized;
     if (optimizer.Run(words.data(),
                       words.size(), &optimized)) {
         auto before = words.size();
         words.assign(optimized.begin(), optimized.end());
-        LUISA_INFO("SPIR-V optimized: {} -> {} words ({:.1f}%)",
-                   before, words.size(),
+        LUISA_INFO("SPIR-V optimized (level {}): {} -> {} words ({:.1f}%)",
+                   opt_level, before, words.size(),
                    100.0 * static_cast<double>(words.size()) /
                        static_cast<double>(before));
     } else {
