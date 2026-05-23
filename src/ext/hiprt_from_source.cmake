@@ -117,7 +117,42 @@ set(_hiprt_bc_file "${_hiprt_bitcode_dir}/${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_a
 set(_hiprt_hipfb_file "${_hiprt_bitcode_dir}/${HIPRT_LIB_NAME}_${HIP_VERSION_STR}_amd.hipfb")
 set(_hiprt_oro_hipfb_file "${_hiprt_bitcode_dir}/oro_compiled_kernels.hipfb")
 
-set(_hiprt_common_flags -O3 -std=c++17 -ffast-math -parallel-jobs=15)
+find_path(_LIBCXX_INCLUDE_DIR NAMES __config
+    PATHS
+        "${hip_INCLUDE_DIRS}/../lib/llvm/lib/c++/v1"
+        "$ENV{ROCM_PATH}/lib/llvm/lib/c++/v1"
+        "$ENV{ROCM_PATH}/include/c++/v1"
+    PATH_SUFFIXES c++/v1
+)
+if(NOT _LIBCXX_INCLUDE_DIR)
+    message(WARNING "[HIPRT] libc++ headers not found; hipcc device compilation may fail. "
+                    "Set ROCM_PATH or ensure libc++ is installed.")
+endif()
+
+execute_process(
+    COMMAND hipcc --print-resource-dir
+    OUTPUT_VARIABLE _hipcc_resource_dir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+set(_ROCM_CUDA_WRAPPERS_NEW "")
+if(_hipcc_resource_dir)
+    find_file(_ROCM_CUDA_WRAPPERS_NEW NAMES cuda_wrappers/new
+        PATHS "${_hipcc_resource_dir}/include"
+        NO_DEFAULT_PATH)
+endif()
+if(NOT _ROCM_CUDA_WRAPPERS_NEW)
+    message(WARNING "[HIPRT] cuda_wrappers/new not found; device-side placement new may be unavailable. "
+                    "Ensure ROCm clang resource directory is accessible.")
+endif()
+
+set(_hiprt_common_flags -O3 -std=c++17 -ffast-math -parallel-jobs=15
+    "-I${hip_INCLUDE_DIRS}")
+if(_LIBCXX_INCLUDE_DIR)
+    list(APPEND _hiprt_common_flags -stdlib=libc++ "-isystem${_LIBCXX_INCLUDE_DIR}")
+endif()
+if(_ROCM_CUDA_WRAPPERS_NEW)
+    list(APPEND _hiprt_common_flags "-include${_ROCM_CUDA_WRAPPERS_NEW}")
+endif()
 
 # 5a. Bitcode bundle (.bc) - for hiprtBuildTraceKernelsFromBitcode
 add_custom_command(
