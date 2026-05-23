@@ -83,6 +83,8 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/promote_ref_arg.cpp
         passes/algebraic_simplify.cpp
         passes/const_fold.cpp
+        passes/cse.cpp
+        passes/sccp.cpp
         passes/inline.cpp
         passes/loop_unroll.cpp
         passes/lower_break_continue.cpp
@@ -90,6 +92,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/simplify_cfg.cpp
         passes/restructure_cfg.cpp
         passes/gvn.cpp
+        passes/pass_pipeline.cpp
 )
 
 add_library(luisa-compute-xir SHARED ${LUISA_COMPUTE_XIR_SOURCES})

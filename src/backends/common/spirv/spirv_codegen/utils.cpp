@@ -20,6 +20,8 @@
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
 #include <luisa/xir/passes/loop_unroll.h>
+#include <luisa/xir/passes/cse.h>
+#include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -121,8 +123,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     auto dseA_info = xir::dead_store_elimination_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dse: {} ms (eliminated {})", pass_clk.toc(), dseA_info.eliminated_store_count);
     pass_clk.tic();
-    auto loop_unroll_info = xir::loop_unroll_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.loop-unroll: {} ms (unrolled {})", pass_clk.toc(), loop_unroll_info.unrolled_loop_count);
+    // FIXME: loop_unroll pass disabled — trip count analysis has known correctness issues
+    // auto loop_unroll_info = xir::loop_unroll_pass_run_on_module(xir_module.get());
+    // if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.loop-unroll: {} ms (unrolled {})", pass_clk.toc(), loop_unroll_info.unrolled_loop_count);
+    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.loop-unroll: DISABLED (pass has known correctness issues)");
     pass_clk.tic();
     auto dceA4_info = xir::dce_pass_run_on_module(xir_module.get());
     if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dce4: {} ms", pass_clk.toc());
@@ -178,6 +182,12 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         pass_clk.tic();
         auto cfB_info = xir::const_fold_pass_run_on_module(xir_module.get());
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.const-fold: {} ms (folded {})", pass_clk.toc(), cfB_info.folded_inst_count);
+        pass_clk.tic();
+        auto sccpB_info = xir::sccp_pass_run_on_module(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.sccp: {} ms (folded {})", pass_clk.toc(), sccpB_info.folded_inst_count);
+        pass_clk.tic();
+        auto cseB_info = xir::cse_pass_run_on_module(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.cse: {} ms (eliminated {})", pass_clk.toc(), cseB_info.eliminated_inst_count);
         pass_clk.tic();
         auto dceB1_info = xir::dce_pass_run_on_module(xir_module.get());
         if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.dce1: {} ms", pass_clk.toc());
