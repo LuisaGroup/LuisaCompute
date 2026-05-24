@@ -351,9 +351,10 @@ info.is_volatile                  // barriers, prints, asserts — never remove/
 ```
 
 `MemoryScope::LOCAL` = alloca/load/store (function-private memory).
-`MemoryScope::GLOBAL` = buffers, textures, atomics, shared memory.
+`MemoryScope::SHARED` = workgroup-shared memory (thread_group barriers/ops).
+`MemoryScope::GLOBAL` = buffers, textures, atomics.
 
-Two instructions with different scopes cannot alias. Two LOCAL instructions alias only if they trace to the same alloca (use `trace_pointer_base_local_alloca_inst`).
+Two instructions with different scopes cannot alias. Two LOCAL instructions alias only if they trace to the same alloca (use `trace_pointer_base_local_alloca_inst`). SHARED memory is visible to all threads in a workgroup — never reorder across barriers.
 
 
 ## Build & Test Commands

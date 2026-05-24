@@ -31,6 +31,7 @@ LUISA_XIR_API void hoist_alloca_instructions_to_entry_block(FunctionDefinition *
 enum struct MemoryScope : uint8_t {
     NONE,
     LOCAL,
+    SHARED,
     GLOBAL,
 };
 
@@ -99,7 +100,7 @@ struct InstructionMemoryInfo {
         case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
             return {MemoryScope::GLOBAL, MemoryEffects::WRITE, false};
         case DerivedInstructionTag::THREAD_GROUP:
-            return {MemoryScope::GLOBAL, MemoryEffects::READ_WRITE, true};
+            return {MemoryScope::SHARED, MemoryEffects::READ_WRITE, true};
         case DerivedInstructionTag::CALL:
             return {MemoryScope::GLOBAL, MemoryEffects::READ_WRITE, false};
         case DerivedInstructionTag::PRINT:
