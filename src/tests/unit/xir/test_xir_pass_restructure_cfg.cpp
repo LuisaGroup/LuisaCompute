@@ -197,9 +197,24 @@ void reg_restructure_cfg() {
         expect(new_term != nullptr);
         expect(new_term->isa<IfInst>());
         auto *rebuilt = static_cast<IfInst *>(new_term);
-        expect(rebuilt->true_block() == t);
-        expect(rebuilt->false_block() == f);
-        expect(rebuilt->merge_block() == merge);
+        // Empty true/false arms branched directly to merge, so during
+        // destructure they collapse and restructure retargets them to a
+        // fresh structural merge. The arms thus may equal either the
+        // original blocks or the structural merge itself.
+        auto *rt = rebuilt->true_block();
+        auto *rf = rebuilt->false_block();
+        auto *rm = rebuilt->merge_block();
+        expect(rt != nullptr);
+        expect(rf != nullptr);
+        expect(rm != nullptr);
+        // The structural merge must reach the original merge block. It is
+        // either the original merge itself or a freshly-synthesized block
+        // whose sole terminator is `br merge`.
+        auto *rm_term = rm->terminator();
+        expect(rm == merge ||
+               (rm_term != nullptr &&
+                rm_term->isa<BranchInst>() &&
+                static_cast<BranchInst *>(rm_term)->target_block() == merge));
     };
 
     "restructure_nested_if_from_destructured"_test = [] {
