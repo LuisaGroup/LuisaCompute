@@ -33,31 +33,14 @@ static void eliminate_dead_code_in_function(Function *function, DCEInfo &info) n
             auto prev_size = dead.size();
             definition->traverse_instructions([&](Instruction *inst) noexcept {
                 if (!dead.contains(inst)) {
-                    switch (inst->derived_instruction_tag()) {
-                        case DerivedInstructionTag::PHI: [[fallthrough]];
-                        case DerivedInstructionTag::ALLOCA: [[fallthrough]];
-                        case DerivedInstructionTag::LOAD: [[fallthrough]];
-                        case DerivedInstructionTag::GEP: [[fallthrough]];
-                        case DerivedInstructionTag::ARITHMETIC: [[fallthrough]];
-                        case DerivedInstructionTag::CAST: [[fallthrough]];
-                        case DerivedInstructionTag::CLOCK: [[fallthrough]];
-                        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: [[fallthrough]];
-                        case DerivedInstructionTag::RESOURCE_QUERY: [[fallthrough]];
-                        case DerivedInstructionTag::RESOURCE_READ: {
+                    auto mem = get_memory_info(inst);
+                    if (mem.is_removable_if_unused()) {
+                        collect_if_dead(inst);
+                    } else if (inst->derived_instruction_tag() == DerivedInstructionTag::AUTODIFF_INTRINSIC) {
+                        auto intrinsic = static_cast<AutodiffIntrinsicInst *>(inst);
+                        if (intrinsic->op() == AutodiffIntrinsicOp::AUTODIFF_GRADIENT) {
                             collect_if_dead(inst);
-                            break;
                         }
-                        case DerivedInstructionTag::AUTODIFF_INTRINSIC: {
-                            auto intrinsic = static_cast<AutodiffIntrinsicInst *>(inst);
-                            switch (intrinsic->op()) {
-                                case AutodiffIntrinsicOp::AUTODIFF_GRADIENT: {
-                                    collect_if_dead(inst);
-                                    break;
-                                }
-                                default: break;
-                            }
-                        }
-                        default: break;
                     }
                 }
             });

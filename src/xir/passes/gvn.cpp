@@ -17,6 +17,8 @@
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/gvn.h>
 
+#include "helpers.h"
+
 namespace luisa::compute::xir {
 
 namespace detail {
@@ -276,24 +278,13 @@ static void process_instruction_for_gvn(Instruction *inst, BasicBlock *block, GV
 }
 
 [[nodiscard]] static bool is_safe_to_remove(Instruction *inst) noexcept {
-    switch (inst->derived_instruction_tag()) {
-        case DerivedInstructionTag::PHI:
-        case DerivedInstructionTag::ALLOCA:
-        case DerivedInstructionTag::LOAD:
-        case DerivedInstructionTag::GEP:
-        case DerivedInstructionTag::ARITHMETIC:
-        case DerivedInstructionTag::CAST:
-        case DerivedInstructionTag::CLOCK:
-        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
-        case DerivedInstructionTag::RESOURCE_QUERY:
-        case DerivedInstructionTag::RESOURCE_READ:
-            return true;
-        case DerivedInstructionTag::AUTODIFF_INTRINSIC: {
-            auto intrinsic = static_cast<AutodiffIntrinsicInst *>(inst);
-            return intrinsic->op() == AutodiffIntrinsicOp::AUTODIFF_GRADIENT;
-        }
-        default: return false;
+    auto info = get_memory_info(inst);
+    if (info.is_removable_if_unused()) return true;
+    if (inst->derived_instruction_tag() == DerivedInstructionTag::AUTODIFF_INTRINSIC) {
+        auto intrinsic = static_cast<AutodiffIntrinsicInst *>(inst);
+        return intrinsic->op() == AutodiffIntrinsicOp::AUTODIFF_GRADIENT;
     }
+    return false;
 }
 
 static void gvn_pass_on_function(Function *function, GVNInfo &info) noexcept {
