@@ -21,6 +21,18 @@ RenderTexture::RenderTexture(
         allowUav = false;
     }
     auto texDesc = GetResourceDescBase(allowUav, allowSimul, allowRaster, false);
+
+    D3D12_CLEAR_VALUE optimizedClear{};
+    D3D12_CLEAR_VALUE *clearPtr = nullptr;
+    if (allowRaster) {
+        optimizedClear.Format = static_cast<DXGI_FORMAT>(format);
+        optimizedClear.Color[0] = 0.f;
+        optimizedClear.Color[1] = 0.f;
+        optimizedClear.Color[2] = 0.f;
+        optimizedClear.Color[3] = 1.f;
+        clearPtr = &optimizedClear;
+    }
+
     if (!allocator) {
         auto prop = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
         D3D12_HEAP_PROPERTIES const *propPtr = &prop;
@@ -29,14 +41,11 @@ RenderTexture::RenderTexture(
             shared_adaptor ? D3D12_HEAP_FLAG_SHARED : D3D12_HEAP_FLAG_NONE,
             &texDesc,
             GetInitState(),
-            nullptr,
+            clearPtr,
             IID_PPV_ARGS(&allocHandle.resource)));
     } else {
         ID3D12Heap *heap;
         uint64 offset;
-        // if(device->gpu_type == Device::GpuType::NVIDIA && allowUav){
-        //     texDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-        // }
         auto allocateInfo = device->device->GetResourceAllocationInfo(
             0, 1, &texDesc);
         auto byteSize = allocateInfo.SizeInBytes;
@@ -53,7 +62,7 @@ RenderTexture::RenderTexture(
             offset,
             &texDesc,
             GetInitState(),
-            nullptr,
+            clearPtr,
             IID_PPV_ARGS(&allocHandle.resource)));
     }
     //Setup Desc
