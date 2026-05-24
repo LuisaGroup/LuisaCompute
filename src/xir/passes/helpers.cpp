@@ -105,7 +105,7 @@ bool simplify_phi_instruction(PhiInst *phi) noexcept {
 }
 
 void lower_phi_node_to_local_variable(PhiInst *phi) noexcept {
-    if (!remove_redundant_phi_instruction(phi)) {
+    if (!simplify_phi_instruction(phi)) {
         auto f = phi->parent_function();
         LUISA_DEBUG_ASSERT(f != nullptr && f->definition() != nullptr, "Invalid function.");
         XIRBuilder b;
