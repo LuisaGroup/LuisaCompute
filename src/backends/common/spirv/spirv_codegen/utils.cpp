@@ -179,6 +179,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                 auto i = xir::const_fold_pass_run_on_module(m, &r);
                 return i.folded_inst_count > 0u;
             });
+            norm.add("sccp", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::sccp_pass_run_on_module(m, &r);
+                return i.folded_inst_count > 0u || i.removed_branch_count > 0u;
+            });
             norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
                 auto i = xir::dce_pass_run_on_module(m, &r);
                 return i.removed_inst_count > 0u || i.removed_block_count > 0u;

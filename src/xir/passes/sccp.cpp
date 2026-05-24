@@ -73,8 +73,23 @@ struct SCCPSolver {
 
     [[nodiscard]] LatticeValue get_lattice(Value *v) noexcept {
         if (v == nullptr) return LatticeValue::make_bottom();
-        if (v->isa<Constant>()) return LatticeValue::make_constant(static_cast<Constant *>(v));
-        if (v->isa<Undefined>()) return LatticeValue::make_top();
+        switch (v->derived_value_tag()) {
+            case DerivedValueTag::CONSTANT:
+                return LatticeValue::make_constant(static_cast<Constant *>(v));
+            case DerivedValueTag::UNDEFINED:
+                return LatticeValue::make_top();
+            // Function arguments, special registers (dispatch_id, thread_id, ...),
+            // and other non-instruction runtime values are not statically known.
+            // Treating them as TOP would let phi meets and arithmetic folds collapse
+            // to a wrong constant; they must start at BOTTOM so the lattice stays sound.
+            case DerivedValueTag::ARGUMENT: [[fallthrough]];
+            case DerivedValueTag::SPECIAL_REGISTER: [[fallthrough]];
+            case DerivedValueTag::FUNCTION: [[fallthrough]];
+            case DerivedValueTag::BASIC_BLOCK:
+                return LatticeValue::make_bottom();
+            default:
+                break;
+        }
         auto it = value_lattice.find(v);
         if (it != value_lattice.end()) return it->second;
         return LatticeValue::make_top();
@@ -180,8 +195,7 @@ struct SCCPSolver {
                 }
                 break;
             }
-            case DerivedInstructionTag::CONDITIONAL_BRANCH:
-            case DerivedInstructionTag::IF: {
+            case DerivedInstructionTag::CONDITIONAL_BRANCH: {
                 auto cond_br = static_cast<ConditionalBranchTerminatorInstruction *>(term);
                 auto cond_lat = get_lattice(cond_br->condition());
                 if (cond_lat.is_constant() && cond_lat.constant->type()->is_bool()) {
@@ -195,6 +209,17 @@ struct SCCPSolver {
                     if (auto tb = cond_br->true_block()) mark_edge_executable(block, tb);
                     if (auto fb = cond_br->false_block()) mark_edge_executable(block, fb);
                 }
+                break;
+            }
+            case DerivedInstructionTag::IF: {
+                // Structured IF: rewrite() does not flatten this terminator (the
+                // structural frame must be preserved for destructure_cfg). Both
+                // successor edges remain reachable at runtime regardless of the
+                // condition's lattice value, so conservatively mark both
+                // executable to keep downstream phi lattices sound.
+                auto cond_br = static_cast<ConditionalBranchTerminatorInstruction *>(term);
+                if (auto tb = cond_br->true_block()) mark_edge_executable(block, tb);
+                if (auto fb = cond_br->false_block()) mark_edge_executable(block, fb);
                 break;
             }
             default: {
@@ -269,22 +294,38 @@ struct SCCPSolver {
         def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
             if (!executable_blocks.contains(block)) return;
             auto term = block->terminator();
-            if (term->derived_instruction_tag() == DerivedInstructionTag::CONDITIONAL_BRANCH ||
-                term->derived_instruction_tag() == DerivedInstructionTag::IF) {
-                auto cond_br = static_cast<ConditionalBranchTerminatorInstruction *>(term);
-                auto cond_lat = get_lattice(cond_br->condition());
-                if (cond_lat.is_constant() && cond_lat.constant->type()->is_bool()) {
-                    bool val = cond_lat.constant->as<bool>();
-                    auto target = val ? cond_br->true_block() : cond_br->false_block();
-                    if (target) {
-                        term->remove_self();
-                        XIRBuilder builder;
-                        builder.set_insertion_point(block);
-                        builder.br(target);
-                        info.removed_branch_count++;
+            // Only flatten plain conditional branches. Structured terminators (IF,
+            // LOOP, SWITCH, ...) carry a merge_block and structural semantics that
+            // destructure_cfg relies on; collapsing them here would corrupt the
+            // structured CFG frame.
+            if (term->derived_instruction_tag() != DerivedInstructionTag::CONDITIONAL_BRANCH) return;
+            auto cond_br = static_cast<ConditionalBranchTerminatorInstruction *>(term);
+            auto cond_lat = get_lattice(cond_br->condition());
+            if (!cond_lat.is_constant() || !cond_lat.constant->type()->is_bool()) return;
+            bool val = cond_lat.constant->as<bool>();
+            auto kept = val ? cond_br->true_block() : cond_br->false_block();
+            auto dropped = val ? cond_br->false_block() : cond_br->true_block();
+            if (kept == nullptr) return;
+            // The block is no longer a predecessor of `dropped`. Strip stale phi
+            // incomings now so downstream passes don't observe dangling references.
+            // Skipped if both edges go to the same block (dropping would also strip
+            // the surviving incoming).
+            if (dropped != nullptr && dropped != kept) {
+                for (auto inst : dropped->instructions()) {
+                    if (!inst->isa<PhiInst>()) continue;
+                    auto phi = static_cast<PhiInst *>(inst);
+                    for (size_t i = phi->incoming_count(); i-- > 0;) {
+                        if (phi->incoming(i).block == block) {
+                            phi->remove_incoming(i);
+                        }
                     }
                 }
             }
+            term->remove_self();
+            XIRBuilder builder;
+            builder.set_insertion_point(block);
+            builder.br(kept);
+            info.removed_branch_count++;
         });
 
         return info;
