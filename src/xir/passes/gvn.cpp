@@ -46,8 +46,9 @@ struct GVNState;
 }
 
 [[nodiscard]] static uint64_t hash_type(const Type *type, uint64_t seed) noexcept {
-    if (type == nullptr) return 0;
-    return type->hash();
+    if (type == nullptr) return seed;
+    auto th = type->hash();
+    return luisa::hash64(&th, sizeof(th), seed);
 }
 
 [[nodiscard]] static uint64_t hash_operand_vns(luisa::span<const uint64_t> vns, bool commutative, uint64_t seed) noexcept {
@@ -109,7 +110,6 @@ struct GVNState {
         case DerivedInstructionTag::CAST:
         case DerivedInstructionTag::GEP:
         case DerivedInstructionTag::RESOURCE_QUERY:
-        case DerivedInstructionTag::RESOURCE_READ:
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
             return true;
         case DerivedInstructionTag::CALL: {
@@ -118,9 +118,9 @@ struct GVNState {
             if (callee == nullptr || callee->is_definition()) return false;
             return true;
         }
-        // LoadInst is disabled because GVN does not track memory state;
-        // two loads from the same alloca/gep may not be equivalent if a
-        // store intervenes. Re-enable after integrating MemorySSA/MemDep.
+        // RESOURCE_READ is disabled: without memory dependency analysis,
+        // an intervening write could make two reads non-equivalent.
+        case DerivedInstructionTag::RESOURCE_READ: [[fallthrough]];
         case DerivedInstructionTag::LOAD: [[fallthrough]];
         default: return false;
     }

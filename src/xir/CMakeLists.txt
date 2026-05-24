@@ -83,7 +83,6 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/promote_ref_arg.cpp
         passes/algebraic_simplify.cpp
         passes/const_fold.cpp
-        passes/cse.cpp
         passes/sccp.cpp
         passes/inline.cpp
         passes/loop_unroll.cpp
