@@ -225,6 +225,12 @@ spv::Id SpirvCodegenEntry::_emit_literal(const Type *type, const void *data) noe
 
 spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
     if (auto it = _value_map.find(c); it != _value_map.end()) { return it->second; }
+    if (auto ubo_it = _ubo_constant_member_by_hash.find(c->hash());
+        ubo_it != _ubo_constant_member_by_hash.end()) {
+        auto ptr = _create_access_chain(spv::StorageClass::Uniform, _constant_ubo_var,
+                                        {_builder.makeUintConstant(ubo_it->second)});
+        return _builder.createLoad(ptr, spv::NoPrecision);
+    }
     auto id = _emit_literal(c->type(), c->data());
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit constant.");
     _value_map.emplace(c, id);
@@ -621,6 +627,7 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     }
 
     for (auto c : analysis.used_constants) {
+        if (_ubo_constant_member_by_hash.contains(c->hash())) { continue; }
         _emit_constant(c);
     }
 

@@ -21,6 +21,7 @@ struct SpirvResult {
     std::vector<uint32_t> spv_bin;
     Properties properties;
     vstd::vector<std::pair<vstd::string, luisa::compute::Type const *>> printers;
+    luisa::vector<std::byte> constant_ubo_data;
     bool useTex2DBindless;
     bool useTex3DBindless;
     bool useBufferBindless;
@@ -79,6 +80,12 @@ private:
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
     luisa::unordered_map<const Type *, spv::Id> _laid_out_type_map;
     luisa::compute::xir::UniformityAnalysis _uniformity;
+
+    spv::Id _constant_ubo_var{spv::NoResult};
+    luisa::unordered_map<uint64_t, uint32_t> _ubo_constant_member_by_hash;
+    luisa::vector<std::byte> _constant_ubo_data;
+    luisa::vector<const xir::Constant *> _ubo_array_constants;
+    bool _has_constant_ubo{false};
 
 private:
     struct InstructionUsageAnalysis {

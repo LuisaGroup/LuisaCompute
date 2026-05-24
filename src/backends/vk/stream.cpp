@@ -1459,6 +1459,24 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     nullptr});
             }
             offset_ptr++;
+            if (shader->has_constant_ubo()) {
+                auto ubo_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
+                *ubo_info = VkDescriptorBufferInfo{
+                    shader->constant_ubo()->vk_buffer(),
+                    0,
+                    VK_WHOLE_SIZE};
+                write_desc_sets->emplace_back(VkWriteDescriptorSet{
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                    nullptr,
+                    visitor.desc_set,
+                    desc_index++,
+                    0,
+                    1,
+                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    nullptr,
+                    ubo_info,
+                    nullptr});
+            }
             visitor.desc_index = desc_index;
             visitor.img_views = &_state->img_views;
             visitor.arg = shader->saved_arguments().data();

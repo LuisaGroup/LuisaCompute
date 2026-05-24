@@ -1037,8 +1037,28 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         }
         case xir::ArithmeticOp::EXTRACT: {
+            auto base_value = inst->operand(0);
+            auto base_type = base_value->type();
+
+            // Fast path for UBO-lowered constant arrays: emit a single indexed load
+            // through the constant cache instead of materializing the array as an SSA value.
+            if (base_value->isa<xir::Constant>()) {
+                auto c = static_cast<const xir::Constant *>(base_value);
+                if (auto ubo_it = _ubo_constant_member_by_hash.find(c->hash());
+                    ubo_it != _ubo_constant_member_by_hash.end()) {
+                    std::vector<spv::Id> indices;
+                    indices.reserve(inst->operand_count());
+                    indices.push_back(_builder.makeUintConstant(ubo_it->second));
+                    for (auto i = 1u; i < inst->operand_count(); ++i) {
+                        indices.push_back(_emit_value(inst->operand(i)));
+                    }
+                    auto ptr = _create_access_chain(spv::StorageClass::Uniform, _constant_ubo_var, indices);
+                    id = _builder.createLoad(ptr, spv::NoPrecision);
+                    break;
+                }
+            }
+
             auto v = operand(0);
-            auto base_type = inst->operand(0)->type();
             bool all_constant = true;
             std::vector<uint32_t> const_indices;
             std::vector<spv::Id> dynamic_indices;
@@ -1059,11 +1079,28 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 LUISA_ASSERT(dynamic_indices.size() == 1u, "SPIR-V vector extract should have only one index.");
                 id = _builder.createVectorExtractDynamic(v, type, dynamic_indices[0]);
             } else if (base_type->is_array() || base_type->is_matrix()) {
-                auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
-                                                        _convert_type(base_type, Usage::READ), "extract_tmp");
-                _builder.createStore(v, temp_var);
-                auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
-                id = _builder.createLoad(ptr, spv::NoPrecision);
+                // For small arrays/matrices, lower a single dynamic index to a chain of
+                // OpSelect over OpCompositeExtract. This stays in registers and avoids the
+                // memory round-trip that an OpAccessChain through a Function-scope variable
+                // would introduce on most drivers.
+                auto elem_count = base_type->dimension();
+                if (dynamic_indices.size() == 1u && elem_count <= 16u) {
+                    auto idx = dynamic_indices[0];
+                    auto result = _builder.createCompositeExtract(v, type, {0u});
+                    for (uint32_t i = 1u; i < elem_count; ++i) {
+                        auto elem_i = _builder.createCompositeExtract(v, type, {i});
+                        auto cmp = _builder.createBinOp(spv::Op::OpIEqual, _builder.makeBoolType(),
+                                                        idx, _builder.makeUintConstant(i));
+                        result = _builder.createTriOp(spv::Op::OpSelect, type, cmp, elem_i, result);
+                    }
+                    id = result;
+                } else {
+                    auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
+                                                            _convert_type(base_type, Usage::READ), "extract_tmp");
+                    _builder.createStore(v, temp_var);
+                    auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
+                    id = _builder.createLoad(ptr, spv::NoPrecision);
+                }
             } else {
                 LUISA_NOT_IMPLEMENTED("SPIR-V dynamic extract for type {}.", base_type->description());
             }
@@ -1089,6 +1126,7 @@ size_t SpirvCodegenEntry::_get_resource_property_base(const xir::Function *func)
         }
     }
     if (cbuffer_non_empty) { ++base; }
+    if (_has_constant_ubo) { ++base; }
     if (_use_buffer_bindless) { ++base; }
     if (_use_tex2d_bindless) { ++base; }
     if (_use_tex3d_bindless) { ++base; }

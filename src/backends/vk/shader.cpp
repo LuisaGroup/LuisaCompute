@@ -1,6 +1,8 @@
 #include "shader.h"
 #include "log.h"
 #include "device.h"
+#include "buffer.h"
+#include "upload_buffer.h"
 namespace lc::vk {
 SavedArgument::SavedArgument(luisa::compute::Type const *type) {
     if (luisa::to_underlying(type->tag()) < luisa::to_underlying(luisa::compute::Type::Tag::BUFFER)) {
@@ -16,7 +18,8 @@ Shader::Shader(
     bool use_tex2d_bindless,
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
-    vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers)
+    vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
+    luisa::span<const std::byte> constant_ubo_data)
     : Resource{device}, _captured{std::move(captured)}, _saved_arguments(std::move(saved_arguments)),
       _shader_tag(tag), _use_tex2d_bindless(use_tex2d_bindless), _use_tex3d_bindless(use_tex3d_bindless), _use_buffer_bindless(use_buffer_bindless), _printers(std::move(printers)) {
     if ((!device->enable_bindless()) && (use_tex2d_bindless || use_tex3d_bindless || use_buffer_bindless)) [[unlikely]] {
@@ -118,6 +121,13 @@ Shader::Shader(
             &pipeline_layout_create_info,
             Device::alloc_callbacks(),
             &_pipeline_layout));
+
+    if (!constant_ubo_data.empty()) {
+        _has_constant_ubo = true;
+        _constant_ubo = luisa::make_unique<UploadBuffer>(device, constant_ubo_data.size_bytes());
+        _constant_ubo->copy_from(constant_ubo_data.data(), 0, constant_ubo_data.size_bytes());
+        _constant_ubo->flush_host();
+    }
 }
 Shader::~Shader() {
     for (auto &&i : _desc_set_layout) {

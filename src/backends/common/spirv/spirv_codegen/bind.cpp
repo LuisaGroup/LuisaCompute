@@ -190,6 +190,65 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
         bind_count += 2;
     }
 
+    // Lower large array constants to a single std140 UBO so dynamic indexing
+    // hits the GPU constant cache instead of being inlined as OpConstantComposite.
+    if (!_ubo_array_constants.empty()) {
+        _has_constant_ubo = true;
+        std::vector<spv::Id> member_types;
+        std::vector<size_t> member_offsets;
+        size_t data_offset = 0u;
+        for (uint32_t member_idx = 0u; auto c : _ubo_array_constants) {
+            auto elem_type = c->type()->element();
+            auto elem_count = c->type()->dimension();
+            auto elem_size = elem_type->size();
+            auto elem_align = elem_type->alignment();
+            // std140 requires array stride and member alignment to be multiples of 16.
+            auto array_stride = (elem_size + 15u) & ~15u;
+            auto member_align = std::max<size_t>(elem_align, 16u);
+            data_offset = (data_offset + member_align - 1u) & ~(member_align - 1u);
+            member_offsets.push_back(data_offset);
+
+            auto spv_elem_type = _convert_type(elem_type, Usage::READ);
+            auto array_size_id = _builder.makeUintConstant(elem_count);
+            auto array_type = _builder.makeArrayType(spv_elem_type, array_size_id, array_stride);
+            // makeArrayType marks the type "explicitly laid out" but does not emit the
+            // ArrayStride decoration; SPIR-V validation requires it on Block-decorated arrays.
+            _builder.addDecoration(array_type, spv::Decoration::ArrayStride, static_cast<int>(array_stride));
+            member_types.push_back(array_type);
+
+            _ubo_constant_member_by_hash.emplace(c->hash(), member_idx);
+
+            _constant_ubo_data.resize(data_offset + array_stride * elem_count);
+            auto src = static_cast<const std::byte *>(c->data());
+            for (uint32_t i = 0u; i < elem_count; ++i) {
+                std::memcpy(_constant_ubo_data.data() + data_offset + i * array_stride,
+                            src + i * elem_size, elem_size);
+            }
+            data_offset += array_stride * elem_count;
+            ++member_idx;
+        }
+
+        auto struct_type = _builder.makeStructType(member_types, {}, "_ConstantUBO", false);
+        _builder.addDecoration(struct_type, spv::Decoration::Block);
+        for (uint32_t i = 0u; i < member_offsets.size(); ++i) {
+            _builder.addMemberDecoration(struct_type, i, spv::Decoration::Offset,
+                                         static_cast<int>(member_offsets[i]));
+            _builder.addMemberDecoration(struct_type, i, spv::Decoration::NonWritable);
+        }
+        _constant_ubo_var = _builder.createVariable(
+            spv::NoPrecision, spv::StorageClass::Uniform, struct_type, "_constant_ubo");
+
+        _properties.emplace_back(
+            Property{
+                ShaderVariableType::ConstantBuffer,
+                0u,
+                next_reg(RegType::CBV),
+                1u});
+        buffer_elem_types.push_back(nullptr);
+        buffer_names.emplace_back("_constant_ubo");
+        bind_count += 1u;
+    }
+
     // Bindless resources: spaces start at 2 for SPIR-V
     uint space_idx = 2;
     if (_use_buffer_bindless) {
@@ -420,6 +479,12 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 _builder.addDecoration(struct_type, spv::Decoration::Block);
                 _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
                 var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::PushConstant, struct_type, var_name);
+                break;
+            }
+            case ShaderVariableType::ConstantBuffer: {
+                var = _constant_ubo_var;
+                _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
+                _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
                 break;
             }
             case ShaderVariableType::SamplerHeap: {

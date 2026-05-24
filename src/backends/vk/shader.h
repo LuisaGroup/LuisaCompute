@@ -38,6 +38,8 @@ protected:
     vstd::vector<Argument> _captured;
     vstd::vector<SavedArgument> _saved_arguments;
     vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> _printers;
+    luisa::unique_ptr<class UploadBuffer> _constant_ubo;
+    bool _has_constant_ubo{false};
     ShaderTag _shader_tag;
     bool _use_tex2d_bindless;
     bool _use_tex3d_bindless;
@@ -53,6 +55,8 @@ public:
     bool use_tex2d_bindless() const { return _use_tex2d_bindless; }
     bool use_tex3d_bindless() const { return _use_tex3d_bindless; }
     bool use_buffer_bindless() const { return _use_buffer_bindless; }
+    bool has_constant_ubo() const { return _has_constant_ubo; }
+    UploadBuffer const *constant_ubo() const { return _constant_ubo.get(); }
     auto printers() const { return luisa::span{_printers}; }
     Shader(
         Device *device,
@@ -63,7 +67,8 @@ public:
         bool use_tex2d_bindless,
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
-        vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers);
+        vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
+        luisa::span<const std::byte> constant_ubo_data = {});
     virtual ~Shader();
     vstd::span<VkDescriptorSet> allocate_desc_set(VkDescriptorPool pool, vstd::vector<VkDescriptorSet> &descs) const;
     void update_desc_set(

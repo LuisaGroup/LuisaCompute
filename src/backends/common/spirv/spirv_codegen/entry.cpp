@@ -107,6 +107,13 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     codegen._use_native_float_atomics = use_native_float_atomics;
     auto analysis = codegen._analyze_module_usage(xir_module.get());
     codegen._mark_atomic_buffer_types(analysis);
+
+    for (auto c : analysis.used_constants) {
+        if (auto t = c->type(); t != nullptr && t->is_array()) {
+            codegen._ubo_array_constants.emplace_back(c);
+        }
+    }
+
     codegen.generate_binding(kernel);
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;
@@ -131,12 +138,14 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     auto use_tex2d = codegen._use_tex2d_bindless;
     auto use_tex3d = codegen._use_tex3d_bindless;
     auto use_buffer = codegen._use_buffer_bindless;
+    auto constant_ubo_data = std::move(codegen._constant_ubo_data);
     // Leak builder to avoid destructor crash
     codegen._builder_ptr.release();  // NOLINT: intentional leak to avoid destructor crash
     return SpirvResult{
         std::move(words),
         std::move(props),
         std::move(printers),
+        std::move(constant_ubo_data),
         use_tex2d,
         use_tex3d,
         use_buffer};

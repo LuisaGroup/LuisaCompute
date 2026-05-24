@@ -1264,7 +1264,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result.useTex2DBindless,
                 spv_result.useTex3DBindless,
                 spv_result.useBufferBindless,
-                std::move(spv_result.printers));
+                std::move(spv_result.printers),
+                {spv_result.constant_ubo_data.data(), spv_result.constant_ubo_data.size()});
             LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();

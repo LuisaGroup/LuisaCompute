@@ -35,7 +35,8 @@ public:
         bool use_tex2d_bindless,
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
-        vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers);
+        vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
+        luisa::span<const std::byte> constant_ubo_data = {});
     ~ComputeShader();
     static ComputeShader *compile(
         BinaryIO const *bin_io,
