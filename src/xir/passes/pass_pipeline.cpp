@@ -292,10 +292,6 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
         auto i = const_fold_pass_run_on_module(m, &r);
         return i.folded_inst_count > 0u;
     });
-    p.add("sccp", [](Module *m, PassReport &r) {
-        auto i = sccp_pass_run_on_module(m, &r);
-        return i.folded_inst_count > 0u;
-    });
     p.add("gvn", [](Module *m, PassReport &r) {
         auto i = gvn_pass_run_on_module(m, &r);
         return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
