@@ -83,8 +83,9 @@ struct InstructionMemoryInfo {
         case DerivedInstructionTag::CLOCK:
             return {MemoryScope::NONE, MemoryEffects::NONE, false};
         case DerivedInstructionTag::RESOURCE_QUERY:
-        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
             return {MemoryScope::GLOBAL, MemoryEffects::NONE, false};
+        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+            return {MemoryScope::LOCAL, MemoryEffects::READ, false};
         case DerivedInstructionTag::ALLOCA:
             return {MemoryScope::LOCAL, MemoryEffects::NONE, false};
         case DerivedInstructionTag::LOAD:
@@ -98,7 +99,7 @@ struct InstructionMemoryInfo {
         case DerivedInstructionTag::ATOMIC:
             return {MemoryScope::GLOBAL, MemoryEffects::READ_WRITE, false};
         case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
-            return {MemoryScope::GLOBAL, MemoryEffects::WRITE, false};
+            return {MemoryScope::LOCAL, MemoryEffects::WRITE, false};
         case DerivedInstructionTag::THREAD_GROUP:
             return {MemoryScope::SHARED, MemoryEffects::READ_WRITE, true};
         case DerivedInstructionTag::CALL:

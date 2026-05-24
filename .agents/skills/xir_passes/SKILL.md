@@ -298,7 +298,6 @@ Optimization passes (GVN, DCE, SCCP) must respect memory effects. Instructions f
 | `CAST` | all cast ops |
 | `GEP` | pointer arithmetic only, no dereference |
 | `RESOURCE_QUERY` | `buffer_size`, `texture_size` — read-only metadata |
-| `RAY_QUERY_OBJECT_READ` | `IS_TERMINATED`, `IS_TRIANGLE_CANDIDATE`, etc. |
 | `CLOCK` | technically pure but non-deterministic |
 
 ### Memory-reading (safe to DCE if unused, NOT safe to reorder past writes or value-number without alias analysis)
@@ -307,6 +306,7 @@ Optimization passes (GVN, DCE, SCCP) must respect memory effects. Instructions f
 |---|---|
 | `LOAD` | local alloca/GEP load |
 | `RESOURCE_READ` | `buffer_read`, `texture_read`, `byte_buffer_read` |
+| `RAY_QUERY_OBJECT_READ` | `IS_TERMINATED`, `COMMITTED_HIT`, etc. — reads mutable per-thread ray query state that changes after PROCEED/COMMIT/TERMINATE |
 
 ### Memory-writing / side-effecting (NEVER DCE, NEVER reorder past other writes/reads to same location)
 

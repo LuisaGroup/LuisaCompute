@@ -110,7 +110,6 @@ struct GVNState {
         case DerivedInstructionTag::CAST:
         case DerivedInstructionTag::GEP:
         case DerivedInstructionTag::RESOURCE_QUERY:
-        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
             return true;
         case DerivedInstructionTag::CALL: {
             auto call = static_cast<CallInst *>(inst);
@@ -118,6 +117,9 @@ struct GVNState {
             if (callee == nullptr || callee->is_definition()) return false;
             return true;
         }
+        // RAY_QUERY_OBJECT_READ reads mutable per-thread state that changes
+        // after PROCEED/COMMIT/TERMINATE — not safe to value-number.
+        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: [[fallthrough]];
         // RESOURCE_READ is disabled: without memory dependency analysis,
         // an intervening write could make two reads non-equivalent.
         case DerivedInstructionTag::RESOURCE_READ: [[fallthrough]];
