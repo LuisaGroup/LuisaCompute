@@ -286,6 +286,70 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 - ❌ Running `reg2mem` immediately after `restructure_cfg` without DCE — restructure_cfg may leave orphan blocks not reachable from `body_block()`. These blocks are absent from the dom tree, causing assertion failures in reg2mem. Always run `dce_pass_run_on_module` between `restructure_cfg` and `reg2mem`.
 - ❌ Using `OpCopyMemory` on `OpTypeRayQueryKHR` in SPIR-V emission — forbidden since Rev 15. Instead, remap `_value_map[store->variable()] = val` so subsequent loads resolve to the source variable directly.
 
+## Memory Effects & Instruction Purity
+
+Optimization passes (GVN, DCE, SCCP) must respect memory effects. Instructions fall into three categories:
+
+### Pure (safe to value-number, CSE, reorder, DCE if unused)
+
+| Tag | Examples |
+|---|---|
+| `ARITHMETIC` | all ops — no memory side effects |
+| `CAST` | all cast ops |
+| `GEP` | pointer arithmetic only, no dereference |
+| `RESOURCE_QUERY` | `buffer_size`, `texture_size` — read-only metadata |
+| `RAY_QUERY_OBJECT_READ` | `IS_TERMINATED`, `IS_TRIANGLE_CANDIDATE`, etc. |
+| `CLOCK` | technically pure but non-deterministic |
+
+### Memory-reading (safe to DCE if unused, NOT safe to reorder past writes or value-number without alias analysis)
+
+| Tag | Examples |
+|---|---|
+| `LOAD` | local alloca/GEP load |
+| `RESOURCE_READ` | `buffer_read`, `texture_read`, `byte_buffer_read` |
+
+### Memory-writing / side-effecting (NEVER DCE, NEVER reorder past other writes/reads to same location)
+
+| Tag | Examples |
+|---|---|
+| `STORE` | local alloca/GEP store |
+| `RESOURCE_WRITE` | `buffer_write`, `texture_write`, `byte_buffer_write` |
+| `CALL` (to definitions) | may have arbitrary side effects |
+| `ATOMIC` | read-modify-write |
+| `PRINT` | observable side effect |
+| `ASSERT` / `ASSUME` | control flow / UB |
+| `AUTODIFF_INTRINSIC` (non-GRADIENT) | tape manipulation |
+
+### Implications for pass authors
+
+1. **GVN**: only value-number pure instructions + `RESOURCE_QUERY`. `RESOURCE_READ` and `LOAD` require memory dependency analysis (not yet implemented) to prove no intervening write.
+
+2. **DCE**: remove instructions with `use_list().empty()` ONLY if they are pure or memory-reading. Never remove writes, atomics, calls to definitions, prints, or asserts.
+
+3. **SCCP**: only fold `ARITHMETIC` on constant operands. Branch elimination is safe (replaces `cond_br` with `br`) but must call `term->remove_self()` BEFORE `builder.set_insertion_point(block)` — otherwise the builder targets the tail sentinel and asserts.
+
+4. **Code motion**: pure instructions can be hoisted/sunk freely. Reads can be hoisted past other reads but not past writes to the same resource. Writes cannot be reordered with respect to other accesses to the same resource.
+
+5. **`is_safe_to_remove` (used by GVN/DCE cleanup)**: checks `use_list().empty()` + instruction tag whitelist. Current whitelist: `PHI`, `ALLOCA`, `LOAD`, `GEP`, `ARITHMETIC`, `CAST`, `CLOCK`, `RAY_QUERY_OBJECT_READ`, `RESOURCE_QUERY`, `RESOURCE_READ`, `AUTODIFF_INTRINSIC(GRADIENT)`.
+
+### Checking purity in code
+
+```cpp
+// No single API exists yet. Use the tag switch:
+[[nodiscard]] static bool is_pure(Instruction *inst) noexcept {
+    switch (inst->derived_instruction_tag()) {
+        case DerivedInstructionTag::ARITHMETIC:
+        case DerivedInstructionTag::CAST:
+        case DerivedInstructionTag::GEP:
+        case DerivedInstructionTag::RESOURCE_QUERY:
+        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+            return true;
+        default:
+            return false;
+    }
+}
+```
+
 ## Build & Test Commands
 
 ```bash
