@@ -12,6 +12,7 @@
 #include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/phi_cleanup.h>
+#include <luisa/xir/passes/if_conversion.h>
 
 namespace luisa::compute::xir {
 
@@ -300,6 +301,10 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
     p.add("gvn", [](Module *m, PassReport &r) {
         auto i = gvn_pass_run_on_module(m, &r);
         return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+    });
+    p.add("if-conversion", [](Module *m, PassReport &r) {
+        auto i = if_conversion_pass_run_on_module(m, &r);
+        return i.converted_diamond_count > 0u;
     });
     p.add("phi-cleanup", [](Module *m, PassReport &r) {
         auto i = phi_cleanup_pass_run_on_module(m, &r);
