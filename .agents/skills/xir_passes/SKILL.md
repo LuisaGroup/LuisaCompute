@@ -334,21 +334,27 @@ Optimization passes (GVN, DCE, SCCP) must respect memory effects. Instructions f
 
 ### Checking purity in code
 
+Use `get_memory_info()` from `helpers.h`:
+
 ```cpp
-// No single API exists yet. Use the tag switch:
-[[nodiscard]] static bool is_pure(Instruction *inst) noexcept {
-    switch (inst->derived_instruction_tag()) {
-        case DerivedInstructionTag::ARITHMETIC:
-        case DerivedInstructionTag::CAST:
-        case DerivedInstructionTag::GEP:
-        case DerivedInstructionTag::RESOURCE_QUERY:
-        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
-            return true;
-        default:
-            return false;
-    }
-}
+#include "helpers.h"  // from src/xir/passes/
+
+auto info = get_memory_info(inst);
+info.is_pure()                    // no memory effects, not volatile
+info.reads_memory()               // LOCAL or GLOBAL read
+info.writes_memory()              // LOCAL or GLOBAL write
+info.is_removable_if_unused()     // safe to DCE (no writes, not volatile)
+info.is_safe_to_value_number()    // safe for GVN/CSE (pure only)
+info.scope                        // NONE, LOCAL, GLOBAL
+info.effects                      // NONE, READ, WRITE, READ_WRITE
+info.is_volatile                  // barriers, prints, asserts — never remove/reorder
 ```
+
+`MemoryScope::LOCAL` = alloca/load/store (function-private memory).
+`MemoryScope::GLOBAL` = buffers, textures, atomics, shared memory.
+
+Two instructions with different scopes cannot alias. Two LOCAL instructions alias only if they trace to the same alloca (use `trace_pointer_base_local_alloca_inst`).
+
 
 ## Build & Test Commands
 
