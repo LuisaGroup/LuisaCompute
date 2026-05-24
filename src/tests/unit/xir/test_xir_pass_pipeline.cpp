@@ -33,6 +33,7 @@ int main() {
         expect(stats.records[0].invocations == 1u);
         expect(!stats.records[0].changed);
         expect(stats.records[0].elapsed_ms >= 0.0);
+        expect(stats.records[0].children.empty());
     };
 
     "pass_reports_changed"_test = [] {
@@ -73,6 +74,9 @@ int main() {
         expect(stats.records[0].name == "converge");
         expect(stats.records[0].invocations == 3u);
         expect(stats.records[0].changed);
+        expect(stats.records[0].children.size() == 1u);
+        expect(stats.records[0].children[0].name == "countdown");
+        expect(stats.records[0].children[0].invocations == 3u);
     };
 
     "fixed_point_respects_max_iterations"_test = [] {
@@ -114,5 +118,28 @@ int main() {
         auto stats = p.run(&m);
         expect(stats.total_ms > 0.0);
         expect(stats.records[0].elapsed_ms > 0.0);
+    };
+
+    "stats_log"_test = [] {
+        int counter = 0;
+        PassPipeline sub;
+        sub.add("inner_a", [&](Module *) { counter++; return counter < 2; });
+        sub.add("inner_b", [&](Module *) { return false; });
+        PassPipeline p;
+        p.add("outer_pass", [](Module *) { return true; });
+        p.add_fixed_point("group", std::move(sub), 10u);
+        Module m;
+        auto stats = p.run(&m);
+        stats.log("test_pipeline");
+        expect(stats.records.size() == 2u);
+        expect(stats.records[1].children.size() == 2u);
+    };
+
+    "factory_basic_optimization"_test = [] {
+        auto p = create_basic_optimization_pipeline({.enable_fast_math = false});
+        expect(!p.empty());
+        Module m;
+        auto stats = p.run(&m);
+        expect(stats.total_ms >= 0.0);
     };
 }
