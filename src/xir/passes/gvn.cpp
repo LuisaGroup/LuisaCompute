@@ -315,6 +315,22 @@ static void gvn_pass_on_function(Function *function, GVNInfo &info) noexcept {
         inst->remove_self();
         ++info.removed_inst_count;
     }
+    // Coalesce phis that GVN's value-numbering reduced to a single source
+    // (typical after mem2reg + GVN finds equivalent incoming values).
+    bool changed;
+    do {
+        changed = false;
+        luisa::vector<PhiInst *> phis;
+        def->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<PhiInst>()) phis.push_back(static_cast<PhiInst *>(inst));
+        });
+        for (auto phi : phis) {
+            if (simplify_phi_instruction(phi)) {
+                ++info.removed_inst_count;
+                changed = true;
+            }
+        }
+    } while (changed);
 }
 
 }// namespace detail

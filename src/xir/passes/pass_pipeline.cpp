@@ -11,6 +11,7 @@
 #include <luisa/xir/passes/dead_store_elimination.h>
 #include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/gvn.h>
+#include <luisa/xir/passes/phi_cleanup.h>
 
 namespace luisa::compute::xir {
 
@@ -299,6 +300,10 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
     p.add("gvn", [](Module *m, PassReport &r) {
         auto i = gvn_pass_run_on_module(m, &r);
         return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+    });
+    p.add("phi-cleanup", [](Module *m, PassReport &r) {
+        auto i = phi_cleanup_pass_run_on_module(m, &r);
+        return i.removed_phi_count > 0u;
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);

@@ -26,6 +26,7 @@
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/gvn.h>
+#include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::spirv {
@@ -206,6 +207,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             norm.add("gvn", [](xir::Module *m, xir::PassReport &r) {
                 auto i = xir::gvn_pass_run_on_module(m, &r);
                 return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+            });
+            norm.add("phi-cleanup", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::phi_cleanup_pass_run_on_module(m, &r);
+                return i.removed_phi_count > 0u;
             });
             norm.add("unused-callable-removal", [](xir::Module *m, xir::PassReport &r) {
                 auto i = xir::unused_callable_removal_pass_run_on_module(m, &r);

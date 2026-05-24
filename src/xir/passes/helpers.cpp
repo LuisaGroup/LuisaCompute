@@ -71,6 +71,39 @@ bool remove_redundant_phi_instruction(PhiInst *phi) noexcept {
     return false;
 }
 
+bool simplify_phi_instruction(PhiInst *phi) noexcept {
+    if (phi->use_list().empty()) {
+        phi->remove_self();
+        return true;
+    }
+    // SSA dominance guarantees that if every non-self, non-undef incoming is
+    // the same value V, then V dominates every use of the phi and may legally
+    // replace it. This is strictly stronger than remove_redundant_phi_instruction,
+    // which only replaces with constants/arguments/special-registers.
+    Value *unique = nullptr;
+    for (auto value_use : phi->incoming_value_uses()) {
+        auto v = value_use->value();
+        if (v == nullptr || v == phi) continue;
+        if (v->isa<Undefined>()) continue;
+        if (unique == nullptr) {
+            unique = v;
+        } else if (unique != v) {
+            return false;
+        }
+    }
+    if (unique == nullptr) {
+        if (auto m = phi->parent_function() ? phi->parent_function()->parent_module() : nullptr) {
+            auto undef = m->create_undefined(phi->type());
+            phi->replace_all_uses_with(undef);
+        }
+        phi->remove_self();
+        return true;
+    }
+    phi->replace_all_uses_with(unique);
+    phi->remove_self();
+    return true;
+}
+
 void lower_phi_node_to_local_variable(PhiInst *phi) noexcept {
     if (!remove_redundant_phi_instruction(phi)) {
         auto f = phi->parent_function();
