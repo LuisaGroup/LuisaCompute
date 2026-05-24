@@ -90,6 +90,8 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/destructure_cfg.cpp
         passes/simplify_cfg.cpp
         passes/restructure_cfg.cpp
+        passes/sccp.cpp
+        passes/gvn.cpp
         passes/pass_pipeline.cpp
 )
 

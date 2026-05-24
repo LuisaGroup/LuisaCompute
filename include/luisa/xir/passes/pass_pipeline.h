@@ -72,8 +72,7 @@ create_basic_optimization_pipeline(OptimizationPipelineOptions options = {}) noe
 create_post_inline_cleanup_pipeline(OptimizationPipelineOptions options = {}) noexcept;
 
 // SSA optimization on unstructured CFG (after destructure_cfg + mem2reg):
-// algebraic, const-fold, dce, store-forward, load-elim, dse, dce.
-// TODO: add sccp and cse when those passes are fully implemented.
+// algebraic, const-fold, sccp, gvn, dce, store-forward, load-elim, dse, dce.
 [[nodiscard]] LUISA_XIR_API PassPipeline
 create_ssa_optimization_pipeline(OptimizationPipelineOptions options = {}) noexcept;
 

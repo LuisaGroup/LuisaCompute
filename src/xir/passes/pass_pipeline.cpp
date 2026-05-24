@@ -9,6 +9,8 @@
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/dead_store_elimination.h>
+#include <luisa/xir/passes/sccp.h>
+#include <luisa/xir/passes/gvn.h>
 
 namespace luisa::compute::xir {
 
@@ -238,6 +240,14 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
     p.add("const-fold", [](Module *m) {
         auto i = const_fold_pass_run_on_module(m);
         return i.folded_inst_count > 0;
+    });
+    p.add("sccp", [](Module *m) {
+        auto i = sccp_pass_run_on_module(m);
+        return i.folded_inst_count > 0;
+    });
+    p.add("gvn", [](Module *m) {
+        auto i = gvn_pass_run_on_module(m);
+        return i.replaced_inst_count > 0 || i.removed_inst_count > 0;
     });
     p.add("dce", [](Module *m) {
         auto i = dce_pass_run_on_module(m);

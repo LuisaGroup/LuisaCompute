@@ -26,6 +26,7 @@
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/gvn.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::spirv {
 
@@ -89,213 +90,155 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     //   SPIR-V codegen now emits OpPhi directly; post-reg2mem no longer required.
 
     Clock opt_clk;
-    Clock pass_clk;
     auto algebraic_options = xir::AlgebraicSimplifyOptions{.enable_fast_math = option.enable_fast_math};
+    auto opt_options = xir::OptimizationPipelineOptions{.enable_fast_math = option.enable_fast_math};
 
-    // Phase A
-    auto dceA1_info = xir::dce_pass_run_on_module(xir_module.get());
-    pass_clk.tic();
-    auto storeA_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.store-forward: {} ms (forwarded {})", pass_clk.toc(), storeA_info.removed_load_count);
-    pass_clk.tic();
-    auto loadA_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.load-elim: {} ms (eliminated {})", pass_clk.toc(), loadA_info.removed_load_count);
-    pass_clk.tic();
-    auto dceA2_info = xir::dce_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dce2: {} ms", pass_clk.toc());
-    pass_clk.tic();
-    auto algA_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get(), algebraic_options);
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.algebraic-simplify: {} ms (simplified {})", pass_clk.toc(), algA_info.simplified_inst_count);
-    pass_clk.tic();
-    auto cfA_info = xir::const_fold_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.const-fold: {} ms (folded {})", pass_clk.toc(), cfA_info.folded_inst_count);
-    pass_clk.tic();
-    auto dceA3_info = xir::dce_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dce3: {} ms", pass_clk.toc());
-    pass_clk.tic();
-    auto promote_arg_info = xir::promote_ref_arg_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.promote-ref-arg: {} ms (promoted {})", pass_clk.toc(), promote_arg_info.promoted_ref_arg_count);
-    pass_clk.tic();
-    auto sroa_info = xir::sroa_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.sroa: {} ms (decomposed {} into {})", pass_clk.toc(), sroa_info.decomposed_alloca_count, sroa_info.inserted_alloca_count);
-    pass_clk.tic();
-    auto dseA_info = xir::dead_store_elimination_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dse: {} ms (eliminated {})", pass_clk.toc(), dseA_info.eliminated_store_count);
-    pass_clk.tic();
-    // FIXME: loop_unroll pass disabled — trip count analysis has known correctness issues
-    // auto loop_unroll_info = xir::loop_unroll_pass_run_on_module(xir_module.get());
-    // if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.loop-unroll: {} ms (unrolled {})", pass_clk.toc(), loop_unroll_info.unrolled_loop_count);
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.loop-unroll: DISABLED (pass has known correctness issues)");
-    pass_clk.tic();
-    auto dceA4_info = xir::dce_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  A.dce4: {} ms", pass_clk.toc());
+    xir::PassPipeline phase_a;
+    phase_a.add("dce", [](xir::Module *m) {
+        auto i = xir::dce_pass_run_on_module(m);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    phase_a.add("local-store-forward", [](xir::Module *m) {
+        auto i = xir::local_store_forward_pass_run_on_module(m);
+        return i.removed_load_count > 0u;
+    });
+    phase_a.add("local-load-elimination", [](xir::Module *m) {
+        auto i = xir::local_load_elimination_pass_run_on_module(m);
+        return i.removed_load_count > 0u;
+    });
+    phase_a.add("dce", [](xir::Module *m) {
+        auto i = xir::dce_pass_run_on_module(m);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    phase_a.add("algebraic-simplify", [algebraic_options](xir::Module *m) {
+        auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options);
+        return i.simplified_inst_count > 0u;
+    });
+    phase_a.add("const-fold", [](xir::Module *m) {
+        auto i = xir::const_fold_pass_run_on_module(m);
+        return i.folded_inst_count > 0u;
+    });
+    phase_a.add("dce", [](xir::Module *m) {
+        auto i = xir::dce_pass_run_on_module(m);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    phase_a.add("promote-ref-arg", [](xir::Module *m) {
+        auto i = xir::promote_ref_arg_pass_run_on_module(m);
+        return i.promoted_ref_arg_count > 0u;
+    });
+    phase_a.add("sroa", [](xir::Module *m) {
+        auto i = xir::sroa_pass_run_on_module(m);
+        return i.decomposed_alloca_count > 0u;
+    });
+    phase_a.add("dead-store-elimination", [](xir::Module *m) {
+        auto i = xir::dead_store_elimination_pass_run_on_module(m);
+        return i.eliminated_store_count > 0u;
+    });
+    phase_a.add("dce", [](xir::Module *m) {
+        auto i = xir::dce_pass_run_on_module(m);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    bool inlined_anything = false;
+    phase_a.add("inline-all", [&inlined_anything](xir::Module *m) {
+        auto i = xir::inline_all_pass_run_on_module(m);
+        if (i.inlined_call_count > 0u) { inlined_anything = true; }
+        return i.inlined_call_count > 0u;
+    });
+    auto phase_a_stats = phase_a.run(xir_module.get());
+    if (LUISA_SPIRV_DUMP_OPT_STATS) { phase_a_stats.log("SPIR-V Phase A"); }
 
-    pass_clk.tic();
-    auto inline_info = xir::inline_all_pass_run_on_module(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  inline-all: {} ms (inlined {}, removed {})", pass_clk.toc(), inline_info.inlined_call_count, inline_info.removed_callable_count);
-    if (inline_info.inlined_call_count > 0) {
-        pass_clk.tic();
-        [[maybe_unused]] auto post_inline_dce1_info = xir::dce_pass_run_on_module(xir_module.get());
-        [[maybe_unused]] auto post_inline_store_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
-        [[maybe_unused]] auto post_inline_load_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
-        [[maybe_unused]] auto post_inline_dce2_info = xir::dce_pass_run_on_module(xir_module.get());
-        [[maybe_unused]] auto post_inline_alg_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get(), algebraic_options);
-        [[maybe_unused]] auto post_inline_cf_info = xir::const_fold_pass_run_on_module(xir_module.get());
-        [[maybe_unused]] auto post_inline_dce3_info = xir::dce_pass_run_on_module(xir_module.get());
-        [[maybe_unused]] auto post_inline_sroa_info = xir::sroa_pass_run_on_module(xir_module.get());
-        [[maybe_unused]] auto post_inline_dse_info = xir::dead_store_elimination_pass_run_on_module(xir_module.get());
-        [[maybe_unused]] auto post_inline_dce4_info = xir::dce_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  post-inline-cleanup: {} ms", pass_clk.toc());
+    if (inlined_anything) {
+        auto post_inline = xir::create_post_inline_cleanup_pipeline(opt_options);
+        auto post_inline_stats = post_inline.run(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) { post_inline_stats.log("SPIR-V post-inline cleanup"); }
     }
 
-    xir::DestructureCFGInfo destructure_cfg_info{};
-    xir::SimplifyCFGInfo simplify_cfg_info{};
-    xir::RestructureCFGInfo restructure_cfg_info{};
-    xir::Mem2RegInfo mem2regB_info{};
-    xir::Reg2MemInfo reg2mem_pre_info{};
-    xir::UnusedCallableRemovalInfo unused_callable_info{};
-    xir::LowerRayQueryLoopToLoopInfo rq_to_loop_info{};
-
     if (!LUISA_XIR_DISABLE_NORMALIZE_CFG) {
-        pass_clk.tic();
-        rq_to_loop_info = xir::lower_ray_query_loop_to_loop_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  lower-ray-query-loop-to-loop: {} ms (lowered {})", pass_clk.toc(), rq_to_loop_info.lowered_ray_query_loop_count);
+        xir::PassPipeline norm;
+        norm.add("lower-ray-query-loop-to-loop", [](xir::Module *m) {
+            auto i = xir::lower_ray_query_loop_to_loop_pass_run_on_module(m);
+            return i.lowered_ray_query_loop_count > 0u;
+        });
 
         if (!LUISA_XIR_DISABLE_RESTRUCTURE_CFG) {
-        pass_clk.tic();
-        destructure_cfg_info = xir::destructure_cfg_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  destructure-cfg: {} ms", pass_clk.toc());
-
-        if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-            auto filename = luisa::format("kernel.{:016x}.after_destructure.xir", kernel.hash());
-            dump_xir_module(xir_module.get(), filename);
+            norm.add("destructure-cfg", [](xir::Module *m) {
+                auto i = xir::destructure_cfg_pass_run_on_module(m);
+                return i.destructured_if_count > 0u ||
+                       i.destructured_loop_count > 0u ||
+                       i.destructured_simple_loop_count > 0u;
+            });
+            norm.add("mem2reg", [](xir::Module *m) {
+                auto i = xir::mem2reg_pass_run_on_module(m);
+                return i.promoted_alloca_count > 0u;
+            });
+            norm.add("algebraic-simplify", [algebraic_options](xir::Module *m) {
+                auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options);
+                return i.simplified_inst_count > 0u;
+            });
+            norm.add("const-fold", [](xir::Module *m) {
+                auto i = xir::const_fold_pass_run_on_module(m);
+                return i.folded_inst_count > 0u;
+            });
+            norm.add("sccp", [](xir::Module *m) {
+                auto i = xir::sccp_pass_run_on_module(m);
+                return i.folded_inst_count > 0u;
+            });
+            norm.add("dce", [](xir::Module *m) {
+                auto i = xir::dce_pass_run_on_module(m);
+                return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+            });
+            norm.add("local-store-forward", [](xir::Module *m) {
+                auto i = xir::local_store_forward_pass_run_on_module(m);
+                return i.removed_load_count > 0u;
+            });
+            norm.add("local-load-elimination", [](xir::Module *m) {
+                auto i = xir::local_load_elimination_pass_run_on_module(m);
+                return i.removed_load_count > 0u;
+            });
+            norm.add("dead-store-elimination", [](xir::Module *m) {
+                auto i = xir::dead_store_elimination_pass_run_on_module(m);
+                return i.eliminated_store_count > 0u;
+            });
+            norm.add("dce", [](xir::Module *m) {
+                auto i = xir::dce_pass_run_on_module(m);
+                return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+            });
+            norm.add("gvn", [](xir::Module *m) {
+                auto i = xir::gvn_pass_run_on_module(m);
+                return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+            });
+            norm.add("unused-callable-removal", [](xir::Module *m) {
+                auto i = xir::unused_callable_removal_pass_run_on_module(m);
+                return i.removed_callable_count > 0u;
+            });
+            norm.add("simplify-cfg", [](xir::Module *m) {
+                auto i = xir::simplify_cfg_pass_run_on_module(m);
+                return i.folded_constant_cond_br_count > 0u ||
+                       i.folded_switch_count > 0u ||
+                       i.threaded_empty_block_count > 0u ||
+                       i.merged_straight_line_count > 0u ||
+                       i.removed_unreachable_block_count > 0u;
+            });
+            norm.add("reg2mem-pre", [](xir::Module *m) {
+                auto i = xir::reg2mem_pass_run_on_module(m);
+                return i.lowered_phi_count > 0u;
+            });
+            norm.add("restructure-cfg", [](xir::Module *m) {
+                auto i = xir::restructure_cfg_pass_run_on_module(m);
+                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+            });
+            norm.add("dce", [](xir::Module *m) {
+                auto i = xir::dce_pass_run_on_module(m);
+                return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+            });
+            norm.add("reg2mem-mid", [](xir::Module *m) {
+                auto i = xir::reg2mem_pass_run_on_module(m);
+                return i.lowered_phi_count > 0u;
+            });
+            norm.add_fixed_point("phase-c", xir::create_post_restructure_cleanup_pipeline(opt_options), 1u);
         }
-
-        // Phase B
-        pass_clk.tic();
-        mem2regB_info = xir::mem2reg_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.mem2reg: {} ms (promoted {} alloca(s), {} phi(s))", pass_clk.toc(), mem2regB_info.promoted_alloca_count, mem2regB_info.inserted_phi_count);
-        pass_clk.tic();
-        auto algB_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get(), algebraic_options);
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.algebraic-simplify: {} ms (simplified {})", pass_clk.toc(), algB_info.simplified_inst_count);
-        pass_clk.tic();
-        auto cfB_info = xir::const_fold_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.const-fold: {} ms (folded {})", pass_clk.toc(), cfB_info.folded_inst_count);
-        pass_clk.tic();
-        auto sccpB_info = xir::sccp_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.sccp: {} ms (folded {})", pass_clk.toc(), sccpB_info.folded_inst_count);
-        pass_clk.tic();
-        auto dceB1_info = xir::dce_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.dce1: {} ms", pass_clk.toc());
-        pass_clk.tic();
-        auto storeB_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.store-forward: {} ms (forwarded {})", pass_clk.toc(), storeB_info.removed_load_count);
-        pass_clk.tic();
-        auto loadB_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.load-elim: {} ms (eliminated {})", pass_clk.toc(), loadB_info.removed_load_count);
-        pass_clk.tic();
-        auto dseB_info = xir::dead_store_elimination_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.dse: {} ms (eliminated {})", pass_clk.toc(), dseB_info.eliminated_store_count);
-        pass_clk.tic();
-        auto dceB2_info = xir::dce_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.dce2: {} ms", pass_clk.toc());
-        pass_clk.tic();
-        auto gvnB_info = xir::gvn_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  B.gvn: {} ms (replaced {}, removed {})", pass_clk.toc(), gvnB_info.replaced_inst_count, gvnB_info.removed_inst_count);
-
-        pass_clk.tic();
-        unused_callable_info = xir::unused_callable_removal_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  unused-callable-removal: {} ms (removed {})", pass_clk.toc(), unused_callable_info.removed_callable_count);
-
-        pass_clk.tic();
-        simplify_cfg_info = xir::simplify_cfg_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  simplify-cfg: {} ms", pass_clk.toc());
-
-        LUISA_VERBOSE("XIR CFG normalization done:\n"
-                      "    destructured {} if(s), {} loop(s), {} simple loop(s), {} break(s), {} continue(s), {} ray query loop(s)->loop(s),\n"
-                      "    simplified: folded {} constant cond_br(s), folded {} switch(es), threaded {} empty block(s), merged {} straight-line block(s), removed {} unreachable block(s).",
-                      destructure_cfg_info.destructured_if_count,
-                      destructure_cfg_info.destructured_loop_count,
-                      destructure_cfg_info.destructured_simple_loop_count,
-                      destructure_cfg_info.destructured_break_count,
-                      destructure_cfg_info.destructured_continue_count,
-                      rq_to_loop_info.lowered_ray_query_loop_count,
-                      simplify_cfg_info.folded_constant_cond_br_count,
-                      simplify_cfg_info.folded_switch_count,
-                      simplify_cfg_info.threaded_empty_block_count,
-                      simplify_cfg_info.merged_straight_line_count,
-                      simplify_cfg_info.removed_unreachable_block_count);
-
-        if (!LUISA_XIR_DISABLE_RESTRUCTURE_CFG) {
-            if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-                auto filename = luisa::format("kernel.{:016x}.before_reg2mem.xir", kernel.hash());
-                dump_xir_module(xir_module.get(), filename);
-            }
-            pass_clk.tic();
-            reg2mem_pre_info = xir::reg2mem_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  reg2mem-pre: {} ms (lowered {} phi(s), {} cross-block value(s))", pass_clk.toc(), reg2mem_pre_info.lowered_phi_count, reg2mem_pre_info.lowered_cross_block_value_count);
-
-            if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-                auto filename = luisa::format("kernel.{:016x}.after_reg2mem.xir", kernel.hash());
-                dump_xir_module(xir_module.get(), filename);
-            }
-
-            pass_clk.tic();
-            restructure_cfg_info = xir::restructure_cfg_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  restructure-cfg: {} ms", pass_clk.toc());
-            LUISA_VERBOSE("XIR CFG restructuring done: restructured {} loop(s), {} if(s); {} irreducible region(s) remained.",
-                          restructure_cfg_info.restructured_loop_count,
-                          restructure_cfg_info.restructured_if_count,
-                          restructure_cfg_info.irreducible_region_count);
-
-            if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-                auto filename = luisa::format("kernel.{:016x}.after_restructure.xir", kernel.hash());
-                dump_xir_module(xir_module.get(), filename);
-            }
-
-            pass_clk.tic();
-            [[maybe_unused]] auto post_restructure_dce_info = xir::dce_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  post-restructure-dce: {} ms", pass_clk.toc());
-
-            pass_clk.tic();
-            auto reg2mem_mid_info = xir::reg2mem_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  reg2mem-mid: {} ms (lowered {} phi(s), {} cross-block value(s))", pass_clk.toc(), reg2mem_mid_info.lowered_phi_count, reg2mem_mid_info.lowered_cross_block_value_count);
-
-            if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-                auto filename = luisa::format("kernel.{:016x}.after_reg2mem_mid.xir", kernel.hash());
-                dump_xir_module(xir_module.get(), filename);
-            }
-
-            // Phase C
-            pass_clk.tic();
-            auto dceC1_info = xir::dce_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.dce1: {} ms", pass_clk.toc());
-            pass_clk.tic();
-            auto storeC_info = xir::local_store_forward_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.store-forward: {} ms (forwarded {})", pass_clk.toc(), storeC_info.removed_load_count);
-            pass_clk.tic();
-        auto loadC_info = xir::local_load_elimination_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.load-elim: {} ms (eliminated {})", pass_clk.toc(), loadC_info.removed_load_count);
-        pass_clk.tic();
-        auto dseC_info = xir::dead_store_elimination_pass_run_on_module(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.dse: {} ms (eliminated {})", pass_clk.toc(), dseC_info.eliminated_store_count);
-        pass_clk.tic();
-        auto algC_info = xir::algebraic_simplify_pass_run_on_module(xir_module.get(), algebraic_options);
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.algebraic-simplify: {} ms (simplified {})", pass_clk.toc(), algC_info.simplified_inst_count);
-            pass_clk.tic();
-            auto cfC_info = xir::const_fold_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.const-fold: {} ms (folded {})", pass_clk.toc(), cfC_info.folded_inst_count);
-            pass_clk.tic();
-            auto dceC2_info = xir::dce_pass_run_on_module(xir_module.get());
-            if (LUISA_SPIRV_DUMP_OPT_STATS) LUISA_INFO("  C.dce2: {} ms", pass_clk.toc());
-
-            // Post reg2mem removed: SPIR-V codegen now emits OpPhi directly.
-            if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
-                auto filename = luisa::format("kernel.{:016x}.after_reg2mem_post.xir", kernel.hash());
-                dump_xir_module(xir_module.get(), filename);
-            }
-        }
-        }// !LUISA_XIR_DISABLE_RESTRUCTURE_CFG
+        auto norm_stats = norm.run(xir_module.get());
+        if (LUISA_SPIRV_DUMP_OPT_STATS) { norm_stats.log("SPIR-V CFG normalization"); }
 
         if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
             auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());

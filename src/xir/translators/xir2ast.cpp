@@ -41,6 +41,7 @@
 #include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
 #include <luisa/xir/passes/loop_unroll.h>
 #include <luisa/xir/passes/mem2reg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -1014,71 +1015,66 @@ luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate_finalize(XIR2AS
 }
 
 void xir_to_ast_normalize_module(Module *module) noexcept {
-    auto dce_info = dce_pass_run_on_module(module);
-    auto store_info = local_store_forward_pass_run_on_module(module);
-    auto load_info = local_load_elimination_pass_run_on_module(module);
-    dce_info = dce_pass_run_on_module(module);
-    auto alg_info = algebraic_simplify_pass_run_on_module(module);
-    auto const_info = const_fold_pass_run_on_module(module);
-    dce_info = dce_pass_run_on_module(module);
-    auto promote_info = promote_ref_arg_pass_run_on_module(module);
-    auto sroa_info = sroa_pass_run_on_module(module);
-    // FIXME: loop_unroll pass disabled — trip count analysis has known correctness issues
-    // auto unroll_info = loop_unroll_pass_run_on_module(module);
-    dce_info = dce_pass_run_on_module(module);
-    auto inline_info = inline_all_pass_run_on_module(module);
-    if (inline_info.inlined_call_count != 0u) {
-        dce_info = dce_pass_run_on_module(module);
-        store_info = local_store_forward_pass_run_on_module(module);
-        load_info = local_load_elimination_pass_run_on_module(module);
-        dce_info = dce_pass_run_on_module(module);
-        alg_info = algebraic_simplify_pass_run_on_module(module);
-        const_info = const_fold_pass_run_on_module(module);
-        dce_info = dce_pass_run_on_module(module);
-        sroa_info = sroa_pass_run_on_module(module);
-        dce_info = dce_pass_run_on_module(module);
-    }
-    auto rq_info = lower_ray_query_loop_to_loop_pass_run_on_module(module);
-    auto destructure_info = destructure_cfg_pass_run_on_module(module);
-    auto mem2reg_info = mem2reg_pass_run_on_module(module);
-    alg_info = algebraic_simplify_pass_run_on_module(module);
-    const_info = const_fold_pass_run_on_module(module);
-    auto sccp_info = sccp_pass_run_on_module(module);
-    auto gvn_info = gvn_pass_run_on_module(module);
-    dce_info = dce_pass_run_on_module(module);
-    store_info = local_store_forward_pass_run_on_module(module);
-    load_info = local_load_elimination_pass_run_on_module(module);
-    dce_info = dce_pass_run_on_module(module);
-    auto unused_info = unused_callable_removal_pass_run_on_module(module);
-    auto simplify_info = simplify_cfg_pass_run_on_module(module);
-    auto reg2mem_info = reg2mem_pass_run_on_module(module);
-    auto restructure_info = restructure_cfg_pass_run_on_module(module);
-    dce_info = dce_pass_run_on_module(module);
-    reg2mem_info = reg2mem_pass_run_on_module(module);
-    dce_info = dce_pass_run_on_module(module);
-    store_info = local_store_forward_pass_run_on_module(module);
-    load_info = local_load_elimination_pass_run_on_module(module);
-    const_info = const_fold_pass_run_on_module(module);
-    dce_info = dce_pass_run_on_module(module);
-    reg2mem_info = reg2mem_pass_run_on_module(module);
-    unused_info = unused_callable_removal_pass_run_on_module(module);
-    static_cast<void>(dce_info);
-    static_cast<void>(store_info);
-    static_cast<void>(load_info);
-    static_cast<void>(alg_info);
-    static_cast<void>(const_info);
-    static_cast<void>(promote_info);
-    static_cast<void>(sroa_info);
-    static_cast<void>(inline_info);
-    static_cast<void>(rq_info);
-    static_cast<void>(destructure_info);
-    static_cast<void>(mem2reg_info);
-    static_cast<void>(sccp_info);
-    static_cast<void>(gvn_info);
-    static_cast<void>(unused_info);
-    static_cast<void>(simplify_info);
-    static_cast<void>(reg2mem_info);
-    static_cast<void>(restructure_info);
+    PassPipeline pipeline;
+    pipeline.add_fixed_point("phase-A", create_basic_optimization_pipeline(), 1u);
+    pipeline.add("inline-all", [](Module *m) {
+        auto i = inline_all_pass_run_on_module(m);
+        return i.inlined_call_count > 0u;
+    });
+    pipeline.add_fixed_point("post-inline-cleanup", create_post_inline_cleanup_pipeline(), 1u);
+    pipeline.add("lower-ray-query-loop-to-loop", [](Module *m) {
+        auto i = lower_ray_query_loop_to_loop_pass_run_on_module(m);
+        return i.lowered_ray_query_loop_count > 0u;
+    });
+    pipeline.add("destructure-cfg", [](Module *m) {
+        auto i = destructure_cfg_pass_run_on_module(m);
+        return i.destructured_if_count > 0u ||
+               i.destructured_loop_count > 0u ||
+               i.destructured_simple_loop_count > 0u;
+    });
+    pipeline.add("mem2reg", [](Module *m) {
+        auto i = mem2reg_pass_run_on_module(m);
+        return i.promoted_alloca_count > 0u;
+    });
+    pipeline.add_fixed_point("ssa-opt", create_ssa_optimization_pipeline(), 1u);
+    pipeline.add("unused-callable-removal", [](Module *m) {
+        auto i = unused_callable_removal_pass_run_on_module(m);
+        return i.removed_callable_count > 0u;
+    });
+    pipeline.add("simplify-cfg", [](Module *m) {
+        auto i = simplify_cfg_pass_run_on_module(m);
+        return i.folded_constant_cond_br_count > 0u ||
+               i.threaded_empty_block_count > 0u ||
+               i.merged_straight_line_count > 0u ||
+               i.removed_unreachable_block_count > 0u;
+    });
+    pipeline.add("reg2mem-pre", [](Module *m) {
+        auto i = reg2mem_pass_run_on_module(m);
+        return i.lowered_phi_count > 0u;
+    });
+    pipeline.add("restructure-cfg", [](Module *m) {
+        auto i = restructure_cfg_pass_run_on_module(m);
+        return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+    });
+    pipeline.add("dce", [](Module *m) {
+        auto i = dce_pass_run_on_module(m);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    pipeline.add("reg2mem-mid", [](Module *m) {
+        auto i = reg2mem_pass_run_on_module(m);
+        return i.lowered_phi_count > 0u;
+    });
+    pipeline.add_fixed_point("post-restructure-cleanup", create_post_restructure_cleanup_pipeline(), 1u);
+    pipeline.add("reg2mem-post", [](Module *m) {
+        auto i = reg2mem_pass_run_on_module(m);
+        return i.lowered_phi_count > 0u;
+    });
+    pipeline.add("unused-callable-removal-final", [](Module *m) {
+        auto i = unused_callable_removal_pass_run_on_module(m);
+        return i.removed_callable_count > 0u;
+    });
+    auto stats = pipeline.run(module);
+    stats.log("xir_to_ast_normalize_module");
 }
 
 luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate(const FunctionDefinition &function, const XIR2ASTConfig &config) noexcept {
