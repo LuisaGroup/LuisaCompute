@@ -1,4 +1,5 @@
 #include <luisa/xir/passes/inline.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/call_graph.h>
 #include <luisa/xir/builder.h>
 #include <luisa/core/logging.h>
@@ -248,13 +249,17 @@ static void run(Module *module, InlineInfo &info) noexcept {
 
 }// namespace detail
 
-InlineInfo inline_pass_run_on_module(Module *module) noexcept {
+InlineInfo inline_pass_run_on_module(Module *module, PassReport *report) noexcept {
     InlineInfo info;
     detail::run(module, info);
+    if (report != nullptr) {
+        report->set("inlined_call", info.inlined_call_count);
+        report->set("removed_callable", info.removed_callable_count);
+    }
     return info;
 }
 
-InlineInfo inline_all_pass_run_on_module(Module *module) noexcept {
+InlineInfo inline_all_pass_run_on_module(Module *module, PassReport *report) noexcept {
     InlineInfo info;
     if (!module) return info;
     for (;;) {
@@ -295,6 +300,10 @@ InlineInfo inline_all_pass_run_on_module(Module *module) noexcept {
             }
         }
         if (!progress) break;
+    }
+    if (report != nullptr) {
+        report->set("inlined_call", info.inlined_call_count);
+        report->set("removed_callable", info.removed_callable_count);
     }
     return info;
 }

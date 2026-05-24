@@ -7,6 +7,7 @@ namespace luisa::compute::xir {
 
 class Module;
 class Function;
+class PassReport;
 
 class RayQueryLoopInst;
 class RayQueryPipelineInst;
@@ -49,7 +50,7 @@ struct RayQueryLoopLowerInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir
 

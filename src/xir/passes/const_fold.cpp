@@ -1,4 +1,5 @@
 #include <luisa/xir/passes/const_fold.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/cast.h>
@@ -9,12 +10,11 @@
 
 namespace luisa::compute::xir {
 
-// Shared scalar evaluation used by const_fold and SCCP.
 [[nodiscard]] bool eval_scalar_op(const Type *type, ArithmeticOp op,
-                                         void *data,
-                                         const void *op0_data,
-                                         const void *op1_data,
-                                         const void *op2_data) noexcept {
+                                  void *data,
+                                  const void *op0_data,
+                                  const void *op1_data,
+                                  const void *op2_data) noexcept {
 
     auto tag = type->tag();
 
@@ -987,10 +987,13 @@ ConstFoldInfo const_fold_pass_run_on_function(Function *function) noexcept {
     return info;
 }
 
-ConstFoldInfo const_fold_pass_run_on_module(Module *module) noexcept {
+ConstFoldInfo const_fold_pass_run_on_module(Module *module, PassReport *report) noexcept {
     ConstFoldInfo info;
     for (auto f : module->function_list()) {
         detail::const_fold_pass_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("folded_inst", info.folded_inst_count);
     }
     return info;
 }

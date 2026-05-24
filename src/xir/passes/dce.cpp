@@ -1,6 +1,7 @@
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
 
 #include "helpers.h"
@@ -380,10 +381,14 @@ DCEInfo dce_pass_run_on_function(Function *function) noexcept {
     return info;
 }
 
-DCEInfo dce_pass_run_on_module(Module *module) noexcept {
+DCEInfo dce_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DCEInfo info;
     for (auto f : module->function_list()) {
         detail::run_dce_pass_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("removed_inst", info.removed_inst_count);
+        report->set("removed_block", info.removed_block_count);
     }
     return info;
 }

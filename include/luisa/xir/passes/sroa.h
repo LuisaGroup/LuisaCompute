@@ -5,6 +5,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 struct SROAOptions {
     bool decompose_vectors{false};
     bool decompose_matrices{false};
@@ -17,6 +19,6 @@ struct SROAInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API SROAInfo sroa_pass_run_on_function(Function *function, SROAOptions options = {}) noexcept;
-[[nodiscard]] LUISA_XIR_API SROAInfo sroa_pass_run_on_module(Module *module, SROAOptions options = {}) noexcept;
+[[nodiscard]] LUISA_XIR_API SROAInfo sroa_pass_run_on_module(Module *module, SROAOptions options = {}, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

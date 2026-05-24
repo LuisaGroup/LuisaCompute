@@ -1,4 +1,5 @@
 #include <luisa/xir/passes/algebraic_simplify.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/constant.h>
@@ -349,10 +350,13 @@ AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_function(Function *function
     return info;
 }
 
-AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_module(Module *module, AlgebraicSimplifyOptions options) noexcept {
+AlgebraicSimplifyInfo algebraic_simplify_pass_run_on_module(Module *module, AlgebraicSimplifyOptions options, PassReport *report) noexcept {
     AlgebraicSimplifyInfo info;
     for (auto f : module->function_list()) {
         detail::algebraic_simplify_on_function(f, info, options);
+    }
+    if (report != nullptr) {
+        report->set("simplified_inst", info.simplified_inst_count);
     }
     return info;
 }

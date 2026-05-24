@@ -5,6 +5,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 class Function;
 
 struct GVNInfo {
@@ -13,6 +15,6 @@ struct GVNInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API GVNInfo gvn_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API GVNInfo gvn_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API GVNInfo gvn_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

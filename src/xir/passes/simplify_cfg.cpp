@@ -10,6 +10,7 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -351,7 +352,7 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
     return info;
 }
 
-SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module) noexcept {
+SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     SimplifyCFGInfo info;
     if (module == nullptr) return info;
     for (auto f : module->function_list()) {
@@ -361,6 +362,13 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_module(Module *module) noexcept {
         info.threaded_empty_block_count += sub.threaded_empty_block_count;
         info.merged_straight_line_count += sub.merged_straight_line_count;
         info.removed_unreachable_block_count += sub.removed_unreachable_block_count;
+    }
+    if (report != nullptr) {
+        report->set("folded_constant_cond_br", info.folded_constant_cond_br_count);
+        report->set("folded_switch", info.folded_switch_count);
+        report->set("threaded_empty_block", info.threaded_empty_block_count);
+        report->set("merged_straight_line", info.merged_straight_line_count);
+        report->set("removed_unreachable_block", info.removed_unreachable_block_count);
     }
     return info;
 }

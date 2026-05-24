@@ -16,6 +16,7 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -250,11 +251,20 @@ DestructureCFGInfo destructure_cfg_pass_run_on_function(Function *function) noex
     return info;
 }
 
-DestructureCFGInfo destructure_cfg_pass_run_on_module(Module *module) noexcept {
+DestructureCFGInfo destructure_cfg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DestructureCFGInfo info;
     if (module == nullptr) { return info; }
     for (auto f : module->function_list()) {
         detail::destructure_in_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("destructured_if", info.destructured_if_count);
+        report->set("destructured_loop", info.destructured_loop_count);
+        report->set("destructured_simple_loop", info.destructured_simple_loop_count);
+        report->set("destructured_break", info.destructured_break_count);
+        report->set("destructured_continue", info.destructured_continue_count);
+        report->set("destructured_early_return", info.destructured_early_return_count);
+        report->set("leaked_block", info.leaked_block_count);
     }
     return info;
 }

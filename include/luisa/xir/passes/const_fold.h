@@ -5,6 +5,8 @@
 
 namespace luisa::compute::xir {
 
+class PassReport;
+
 // This pass folds constant expressions at compile time.
 // Arithmetic operations with all-constant operands are evaluated
 // and replaced with a Constant value.
@@ -14,6 +16,6 @@ struct ConstFoldInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API ConstFoldInfo const_fold_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API ConstFoldInfo const_fold_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API ConstFoldInfo const_fold_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 
 }// namespace luisa::compute::xir

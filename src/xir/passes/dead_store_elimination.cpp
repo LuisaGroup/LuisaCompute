@@ -6,6 +6,7 @@
 #include <luisa/xir/instructions/load.h>
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/passes/dead_store_elimination.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 #include "helpers.h"
 
@@ -97,10 +98,13 @@ DeadStoreEliminationInfo dead_store_elimination_pass_run_on_function(Function *f
     return info;
 }
 
-DeadStoreEliminationInfo dead_store_elimination_pass_run_on_module(Module *module) noexcept {
+DeadStoreEliminationInfo dead_store_elimination_pass_run_on_module(Module *module, PassReport *report) noexcept {
     DeadStoreEliminationInfo info;
     for (auto f : module->function_list()) {
         detail::run_dead_store_elimination_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("eliminated_store", info.eliminated_store_count);
     }
     return info;
 }

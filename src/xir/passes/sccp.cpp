@@ -1,4 +1,5 @@
 #include <luisa/xir/passes/sccp.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/constant.h>
 #include <luisa/xir/undefined.h>
@@ -363,10 +364,14 @@ SCCPInfo sccp_pass_run_on_function(Function *function) noexcept {
     return info;
 }
 
-SCCPInfo sccp_pass_run_on_module(Module *module) noexcept {
+SCCPInfo sccp_pass_run_on_module(Module *module, PassReport *report) noexcept {
     SCCPInfo info;
     for (auto f : module->function_list()) {
         detail::run_sccp_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("folded_inst", info.folded_inst_count);
+        report->set("removed_branch", info.removed_branch_count);
     }
     return info;
 }

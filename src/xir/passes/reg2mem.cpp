@@ -8,6 +8,7 @@
 #include <luisa/xir/use.h>
 #include <luisa/xir/user.h>
 #include <luisa/xir/passes/reg2mem.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/dom_tree.h>
 
 #include "helpers.h"
@@ -118,10 +119,14 @@ Reg2MemInfo reg2mem_pass_run_on_function(Function *function) noexcept {
     return info;
 }
 
-Reg2MemInfo reg2mem_pass_run_on_module(Module *module) noexcept {
+Reg2MemInfo reg2mem_pass_run_on_module(Module *module, PassReport *report) noexcept {
     Reg2MemInfo info;
     for (auto f : module->function_list()) {
         detail::run_reg2mem_pass_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("lowered_phi", info.lowered_phi_count);
+        report->set("lowered_cross_block_value", info.lowered_cross_block_value_count);
     }
     return info;
 }

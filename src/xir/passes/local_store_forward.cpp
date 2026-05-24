@@ -4,6 +4,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 #include "helpers.h"
 
@@ -222,10 +223,13 @@ LocalStoreForwardInfo local_store_forward_pass_run_on_function(Function *functio
     return info;
 }
 
-LocalStoreForwardInfo local_store_forward_pass_run_on_module(Module *module) noexcept {
+LocalStoreForwardInfo local_store_forward_pass_run_on_module(Module *module, PassReport *report) noexcept {
     LocalStoreForwardInfo info;
     for (auto f : module->function_list()) {
         detail::run_local_store_forward_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("removed_load", info.removed_load_count);
     }
     return info;
 }

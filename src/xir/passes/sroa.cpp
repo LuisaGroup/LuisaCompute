@@ -1,4 +1,5 @@
 #include <luisa/xir/passes/sroa.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/gep.h>
@@ -199,10 +200,14 @@ SROAInfo sroa_pass_run_on_function(Function *function, SROAOptions options) noex
     return info;
 }
 
-SROAInfo sroa_pass_run_on_module(Module *module, SROAOptions options) noexcept {
+SROAInfo sroa_pass_run_on_module(Module *module, SROAOptions options, PassReport *report) noexcept {
     SROAInfo info;
     for (auto f : module->function_list()) {
         detail::sroa_pass_on_function(f, info, options);
+    }
+    if (report != nullptr) {
+        report->set("decomposed_alloca", info.decomposed_alloca_count);
+        report->set("inserted_alloca", info.inserted_alloca_count);
     }
     return info;
 }

@@ -14,8 +14,46 @@
 
 namespace luisa::compute::xir {
 
+void PassReport::set(luisa::string_view key, uint64_t value) noexcept {
+    for (auto &e : _entries) {
+        if (e.key == key) {
+            e.value = value;
+            return;
+        }
+    }
+    _entries.emplace_back(Entry{.key = luisa::string{key}, .value = value});
+}
+
+void PassReport::merge_max(const PassReport &other) noexcept {
+    for (auto &o : other._entries) {
+        bool found = false;
+        for (auto &e : _entries) {
+            if (e.key == o.key) {
+                e.value = std::max(e.value, o.value);
+                found = true;
+                break;
+            }
+        }
+        if (!found) { _entries.emplace_back(o); }
+    }
+}
+
+void PassReport::merge_sum(const PassReport &other) noexcept {
+    for (auto &o : other._entries) {
+        bool found = false;
+        for (auto &e : _entries) {
+            if (e.key == o.key) {
+                e.value += o.value;
+                found = true;
+                break;
+            }
+        }
+        if (!found) { _entries.emplace_back(o); }
+    }
+}
+
 PassPipeline &PassPipeline::add(luisa::string name,
-                                luisa::move_only_function<bool(Module *)> pass) noexcept {
+                                luisa::move_only_function<bool(Module *, PassReport &)> pass) noexcept {
     _entries.emplace_back(Entry{
         .name = std::move(name),
         .run = std::move(pass),
@@ -48,6 +86,7 @@ void PassPipeline::_run_entries(luisa::span<const Entry> entries,
                 .invocations = 0u,
                 .elapsed_ms = 0.0,
                 .changed = false,
+                .report = {},
                 .children = {},
             };
             rec.children.reserve(entry.children.size());
@@ -56,7 +95,8 @@ void PassPipeline::_run_entries(luisa::span<const Entry> entries,
                 bool any_changed = false;
                 for (size_t ci = 0u; ci < entry.children.size(); ++ci) {
                     luisa::Clock child_clock;
-                    auto changed = entry.children[ci].run(module);
+                    PassReport child_report;
+                    auto changed = entry.children[ci].run(module, child_report);
                     auto child_elapsed = child_clock.toc();
                     any_changed |= changed;
                     if (iter == 0u) {
@@ -65,12 +105,14 @@ void PassPipeline::_run_entries(luisa::span<const Entry> entries,
                             .invocations = 1u,
                             .elapsed_ms = child_elapsed,
                             .changed = changed,
+                            .report = std::move(child_report),
                             .children = {},
                         });
                     } else {
                         rec.children[ci].invocations++;
                         rec.children[ci].elapsed_ms += child_elapsed;
                         rec.children[ci].changed |= changed;
+                        rec.children[ci].report.merge_sum(child_report);
                     }
                 }
                 rec.invocations++;
@@ -81,13 +123,15 @@ void PassPipeline::_run_entries(luisa::span<const Entry> entries,
             stats.records.emplace_back(std::move(rec));
         } else {
             luisa::Clock clock;
-            auto changed = entry.run(module);
+            PassReport report;
+            auto changed = entry.run(module, report);
             auto elapsed = clock.toc();
             stats.records.emplace_back(Stats::Record{
                 .name = entry.name,
                 .invocations = 1u,
                 .elapsed_ms = elapsed,
                 .changed = changed,
+                .report = std::move(report),
                 .children = {},
             });
         }
@@ -118,6 +162,13 @@ static void log_records(luisa::span<const PassPipeline::Stats::Record> records,
                           indent, rec.elapsed_ms, rec.name,
                           rec.invocations,
                           rec.changed ? "(changed)" : "(converged)");
+        }
+        for (auto &e : rec.report.entries()) {
+            if (e.value > 0u) {
+                LUISA_VERBOSE("{}  {}: {}", indent, e.key, e.value);
+            }
+        }
+        if (!rec.children.empty()) {
             log_records(rec.children, depth + 1u);
         }
     }
@@ -137,49 +188,49 @@ void PassPipeline::Stats::log(luisa::string_view pipeline_name) const noexcept {
 PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    p.add("local-store-forward", [](Module *m) {
-        auto i = local_store_forward_pass_run_on_module(m);
-        return i.removed_load_count > 0;
+    p.add("local-store-forward", [](Module *m, PassReport &r) {
+        auto i = local_store_forward_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
     });
-    p.add("local-load-elimination", [](Module *m) {
-        auto i = local_load_elimination_pass_run_on_module(m);
-        return i.removed_load_count > 0;
+    p.add("local-load-elimination", [](Module *m, PassReport &r) {
+        auto i = local_load_elimination_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    p.add("algebraic-simplify", [alg_opts](Module *m) {
-        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts);
-        return i.simplified_inst_count > 0;
+    p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
+        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
+        return i.simplified_inst_count > 0u;
     });
-    p.add("const-fold", [](Module *m) {
-        auto i = const_fold_pass_run_on_module(m);
-        return i.folded_inst_count > 0;
+    p.add("const-fold", [](Module *m, PassReport &r) {
+        auto i = const_fold_pass_run_on_module(m, &r);
+        return i.folded_inst_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    p.add("promote-ref-arg", [](Module *m) {
-        auto i = promote_ref_arg_pass_run_on_module(m);
-        return i.promoted_ref_arg_count > 0;
+    p.add("promote-ref-arg", [](Module *m, PassReport &r) {
+        auto i = promote_ref_arg_pass_run_on_module(m, &r);
+        return i.promoted_ref_arg_count > 0u;
     });
-    p.add("sroa", [](Module *m) {
-        auto i = sroa_pass_run_on_module(m);
-        return i.decomposed_alloca_count > 0;
+    p.add("sroa", [](Module *m, PassReport &r) {
+        auto i = sroa_pass_run_on_module(m, {}, &r);
+        return i.decomposed_alloca_count > 0u;
     });
-    p.add("dead-store-elimination", [](Module *m) {
-        auto i = dead_store_elimination_pass_run_on_module(m);
-        return i.eliminated_store_count > 0;
+    p.add("dead-store-elimination", [](Module *m, PassReport &r) {
+        auto i = dead_store_elimination_pass_run_on_module(m, &r);
+        return i.eliminated_store_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
     return p;
 }
@@ -187,45 +238,45 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
 PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    p.add("local-store-forward", [](Module *m) {
-        auto i = local_store_forward_pass_run_on_module(m);
-        return i.removed_load_count > 0;
+    p.add("local-store-forward", [](Module *m, PassReport &r) {
+        auto i = local_store_forward_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
     });
-    p.add("local-load-elimination", [](Module *m) {
-        auto i = local_load_elimination_pass_run_on_module(m);
-        return i.removed_load_count > 0;
+    p.add("local-load-elimination", [](Module *m, PassReport &r) {
+        auto i = local_load_elimination_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    p.add("algebraic-simplify", [alg_opts](Module *m) {
-        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts);
-        return i.simplified_inst_count > 0;
+    p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
+        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
+        return i.simplified_inst_count > 0u;
     });
-    p.add("const-fold", [](Module *m) {
-        auto i = const_fold_pass_run_on_module(m);
-        return i.folded_inst_count > 0;
+    p.add("const-fold", [](Module *m, PassReport &r) {
+        auto i = const_fold_pass_run_on_module(m, &r);
+        return i.folded_inst_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    p.add("sroa", [](Module *m) {
-        auto i = sroa_pass_run_on_module(m);
-        return i.decomposed_alloca_count > 0;
+    p.add("sroa", [](Module *m, PassReport &r) {
+        auto i = sroa_pass_run_on_module(m, {}, &r);
+        return i.decomposed_alloca_count > 0u;
     });
-    p.add("dead-store-elimination", [](Module *m) {
-        auto i = dead_store_elimination_pass_run_on_module(m);
-        return i.eliminated_store_count > 0;
+    p.add("dead-store-elimination", [](Module *m, PassReport &r) {
+        auto i = dead_store_elimination_pass_run_on_module(m, &r);
+        return i.eliminated_store_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
     return p;
 }
@@ -233,41 +284,41 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
 PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
-    p.add("algebraic-simplify", [alg_opts](Module *m) {
-        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts);
-        return i.simplified_inst_count > 0;
+    p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
+        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
+        return i.simplified_inst_count > 0u;
     });
-    p.add("const-fold", [](Module *m) {
-        auto i = const_fold_pass_run_on_module(m);
-        return i.folded_inst_count > 0;
+    p.add("const-fold", [](Module *m, PassReport &r) {
+        auto i = const_fold_pass_run_on_module(m, &r);
+        return i.folded_inst_count > 0u;
     });
-    p.add("sccp", [](Module *m) {
-        auto i = sccp_pass_run_on_module(m);
-        return i.folded_inst_count > 0;
+    p.add("sccp", [](Module *m, PassReport &r) {
+        auto i = sccp_pass_run_on_module(m, &r);
+        return i.folded_inst_count > 0u;
     });
-    p.add("gvn", [](Module *m) {
-        auto i = gvn_pass_run_on_module(m);
-        return i.replaced_inst_count > 0 || i.removed_inst_count > 0;
+    p.add("gvn", [](Module *m, PassReport &r) {
+        auto i = gvn_pass_run_on_module(m, &r);
+        return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    p.add("local-store-forward", [](Module *m) {
-        auto i = local_store_forward_pass_run_on_module(m);
-        return i.removed_load_count > 0;
+    p.add("local-store-forward", [](Module *m, PassReport &r) {
+        auto i = local_store_forward_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
     });
-    p.add("local-load-elimination", [](Module *m) {
-        auto i = local_load_elimination_pass_run_on_module(m);
-        return i.removed_load_count > 0;
+    p.add("local-load-elimination", [](Module *m, PassReport &r) {
+        auto i = local_load_elimination_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
     });
-    p.add("dead-store-elimination", [](Module *m) {
-        auto i = dead_store_elimination_pass_run_on_module(m);
-        return i.eliminated_store_count > 0;
+    p.add("dead-store-elimination", [](Module *m, PassReport &r) {
+        auto i = dead_store_elimination_pass_run_on_module(m, &r);
+        return i.eliminated_store_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
     return p;
 }
@@ -275,33 +326,33 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
 PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    p.add("local-store-forward", [](Module *m) {
-        auto i = local_store_forward_pass_run_on_module(m);
-        return i.removed_load_count > 0;
+    p.add("local-store-forward", [](Module *m, PassReport &r) {
+        auto i = local_store_forward_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
     });
-    p.add("local-load-elimination", [](Module *m) {
-        auto i = local_load_elimination_pass_run_on_module(m);
-        return i.removed_load_count > 0;
+    p.add("local-load-elimination", [](Module *m, PassReport &r) {
+        auto i = local_load_elimination_pass_run_on_module(m, &r);
+        return i.removed_load_count > 0u;
     });
-    p.add("dead-store-elimination", [](Module *m) {
-        auto i = dead_store_elimination_pass_run_on_module(m);
-        return i.eliminated_store_count > 0;
+    p.add("dead-store-elimination", [](Module *m, PassReport &r) {
+        auto i = dead_store_elimination_pass_run_on_module(m, &r);
+        return i.eliminated_store_count > 0u;
     });
-    p.add("algebraic-simplify", [alg_opts](Module *m) {
-        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts);
-        return i.simplified_inst_count > 0;
+    p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
+        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
+        return i.simplified_inst_count > 0u;
     });
-    p.add("const-fold", [](Module *m) {
-        auto i = const_fold_pass_run_on_module(m);
-        return i.folded_inst_count > 0;
+    p.add("const-fold", [](Module *m, PassReport &r) {
+        auto i = const_fold_pass_run_on_module(m, &r);
+        return i.folded_inst_count > 0u;
     });
-    p.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
-        return i.removed_inst_count > 0 || i.removed_block_count > 0;
+    p.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
+        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
     return p;
 }

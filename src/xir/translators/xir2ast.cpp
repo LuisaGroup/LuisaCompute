@@ -1017,60 +1017,60 @@ luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate_finalize(XIR2AS
 void xir_to_ast_normalize_module(Module *module) noexcept {
     PassPipeline pipeline;
     pipeline.add_fixed_point("phase-A", create_basic_optimization_pipeline(), 1u);
-    pipeline.add("inline-all", [](Module *m) {
-        auto i = inline_all_pass_run_on_module(m);
+    pipeline.add("inline-all", [](Module *m, PassReport &r) {
+        auto i = inline_all_pass_run_on_module(m, &r);
         return i.inlined_call_count > 0u;
     });
     pipeline.add_fixed_point("post-inline-cleanup", create_post_inline_cleanup_pipeline(), 1u);
-    pipeline.add("lower-ray-query-loop-to-loop", [](Module *m) {
-        auto i = lower_ray_query_loop_to_loop_pass_run_on_module(m);
+    pipeline.add("lower-ray-query-loop-to-loop", [](Module *m, PassReport &r) {
+        auto i = lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
         return i.lowered_ray_query_loop_count > 0u;
     });
-    pipeline.add("destructure-cfg", [](Module *m) {
-        auto i = destructure_cfg_pass_run_on_module(m);
+    pipeline.add("destructure-cfg", [](Module *m, PassReport &r) {
+        auto i = destructure_cfg_pass_run_on_module(m, &r);
         return i.destructured_if_count > 0u ||
                i.destructured_loop_count > 0u ||
                i.destructured_simple_loop_count > 0u;
     });
-    pipeline.add("mem2reg", [](Module *m) {
-        auto i = mem2reg_pass_run_on_module(m);
+    pipeline.add("mem2reg", [](Module *m, PassReport &r) {
+        auto i = mem2reg_pass_run_on_module(m, &r);
         return i.promoted_alloca_count > 0u;
     });
     pipeline.add_fixed_point("ssa-opt", create_ssa_optimization_pipeline(), 1u);
-    pipeline.add("unused-callable-removal", [](Module *m) {
-        auto i = unused_callable_removal_pass_run_on_module(m);
+    pipeline.add("unused-callable-removal", [](Module *m, PassReport &r) {
+        auto i = unused_callable_removal_pass_run_on_module(m, &r);
         return i.removed_callable_count > 0u;
     });
-    pipeline.add("simplify-cfg", [](Module *m) {
-        auto i = simplify_cfg_pass_run_on_module(m);
+    pipeline.add("simplify-cfg", [](Module *m, PassReport &r) {
+        auto i = simplify_cfg_pass_run_on_module(m, &r);
         return i.folded_constant_cond_br_count > 0u ||
                i.threaded_empty_block_count > 0u ||
                i.merged_straight_line_count > 0u ||
                i.removed_unreachable_block_count > 0u;
     });
-    pipeline.add("reg2mem-pre", [](Module *m) {
-        auto i = reg2mem_pass_run_on_module(m);
+    pipeline.add("reg2mem-pre", [](Module *m, PassReport &r) {
+        auto i = reg2mem_pass_run_on_module(m, &r);
         return i.lowered_phi_count > 0u;
     });
-    pipeline.add("restructure-cfg", [](Module *m) {
-        auto i = restructure_cfg_pass_run_on_module(m);
+    pipeline.add("restructure-cfg", [](Module *m, PassReport &r) {
+        auto i = restructure_cfg_pass_run_on_module(m, &r);
         return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
     });
-    pipeline.add("dce", [](Module *m) {
-        auto i = dce_pass_run_on_module(m);
+    pipeline.add("dce", [](Module *m, PassReport &r) {
+        auto i = dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    pipeline.add("reg2mem-mid", [](Module *m) {
-        auto i = reg2mem_pass_run_on_module(m);
+    pipeline.add("reg2mem-mid", [](Module *m, PassReport &r) {
+        auto i = reg2mem_pass_run_on_module(m, &r);
         return i.lowered_phi_count > 0u;
     });
     pipeline.add_fixed_point("post-restructure-cleanup", create_post_restructure_cleanup_pipeline(), 1u);
-    pipeline.add("reg2mem-post", [](Module *m) {
-        auto i = reg2mem_pass_run_on_module(m);
+    pipeline.add("reg2mem-post", [](Module *m, PassReport &r) {
+        auto i = reg2mem_pass_run_on_module(m, &r);
         return i.lowered_phi_count > 0u;
     });
-    pipeline.add("unused-callable-removal-final", [](Module *m) {
-        auto i = unused_callable_removal_pass_run_on_module(m);
+    pipeline.add("unused-callable-removal-final", [](Module *m, PassReport &r) {
+        auto i = unused_callable_removal_pass_run_on_module(m, &r);
         return i.removed_callable_count > 0u;
     });
     auto stats = pipeline.run(module);

@@ -15,6 +15,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -279,10 +280,13 @@ EarlyReturnEliminationInfo early_return_elimination_pass_run_on_function(Functio
     return info;
 }
 
-EarlyReturnEliminationInfo early_return_elimination_pass_run_on_module(Module *module) noexcept {
+EarlyReturnEliminationInfo early_return_elimination_pass_run_on_module(Module *module, PassReport *report) noexcept {
     EarlyReturnEliminationInfo info;
     for (auto f : module->function_list()) {
         detail::eliminate_early_return_in_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("removed_return", info.removed_return_count);
     }
     return info;
 }

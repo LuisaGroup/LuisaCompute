@@ -16,6 +16,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -974,13 +975,18 @@ RestructureCFGInfo restructure_cfg_pass_run_on_function(Function *function) noex
     return restructure_cfg_on_definition(def);
 }
 
-RestructureCFGInfo restructure_cfg_pass_run_on_module(Module *module) noexcept {
+RestructureCFGInfo restructure_cfg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     RestructureCFGInfo total{};
     for (auto *f : module->function_list()) {
         auto info = restructure_cfg_pass_run_on_function(f);
         total.restructured_loop_count += info.restructured_loop_count;
         total.restructured_if_count += info.restructured_if_count;
         total.irreducible_region_count += info.irreducible_region_count;
+    }
+    if (report != nullptr) {
+        report->set("restructured_loop", total.restructured_loop_count);
+        report->set("restructured_if", total.restructured_if_count);
+        report->set("irreducible_region", total.irreducible_region_count);
     }
     return total;
 }

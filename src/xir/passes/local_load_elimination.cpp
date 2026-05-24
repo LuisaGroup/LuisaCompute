@@ -4,6 +4,7 @@
 
 #include "helpers.h"
 #include <luisa/xir/passes/local_load_elimination.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -98,10 +99,13 @@ LocalLoadEliminationInfo local_load_elimination_pass_run_on_function(Function *f
     return info;
 }
 
-LocalLoadEliminationInfo local_load_elimination_pass_run_on_module(Module *module) noexcept {
+LocalLoadEliminationInfo local_load_elimination_pass_run_on_module(Module *module, PassReport *report) noexcept {
     LocalLoadEliminationInfo info;
     for (auto f : module->function_list()) {
         detail::run_local_load_elimination_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("removed_load", info.removed_load_count);
     }
     return info;
 }

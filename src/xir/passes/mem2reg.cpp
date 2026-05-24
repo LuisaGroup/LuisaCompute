@@ -5,6 +5,7 @@
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/transpose_gep.h>
 #include <luisa/xir/passes/mem2reg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 #include "helpers.h"
 
@@ -425,10 +426,16 @@ Mem2RegInfo mem2reg_pass_run_on_function(Function *function) noexcept {
     return info;
 }
 
-Mem2RegInfo mem2reg_pass_run_on_module(Module *module) noexcept {
+Mem2RegInfo mem2reg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     Mem2RegInfo info;
     for (auto f : module->function_list()) {
         detail::promote_alloca_instructions_in_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("promoted_alloca", info.promoted_alloca_count);
+        report->set("removed_store", info.removed_store_count);
+        report->set("removed_load", info.removed_load_count);
+        report->set("inserted_phi", info.inserted_phi_count);
     }
     return info;
 }

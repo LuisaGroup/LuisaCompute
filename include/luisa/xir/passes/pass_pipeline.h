@@ -7,6 +7,26 @@
 
 namespace luisa::compute::xir {
 
+class LUISA_XIR_API PassReport {
+
+public:
+    struct Entry {
+        luisa::string key;
+        uint64_t value{0u};
+    };
+
+private:
+    luisa::vector<Entry> _entries;
+
+public:
+    void set(luisa::string_view key, uint64_t value) noexcept;
+    [[nodiscard]] luisa::span<const Entry> entries() const noexcept { return _entries; }
+    [[nodiscard]] bool empty() const noexcept { return _entries.empty(); }
+    void clear() noexcept { _entries.clear(); }
+    void merge_max(const PassReport &other) noexcept;
+    void merge_sum(const PassReport &other) noexcept;
+};
+
 class LUISA_XIR_API PassPipeline {
 
 public:
@@ -16,6 +36,7 @@ public:
             uint32_t invocations{0u};
             double elapsed_ms{0.0};
             bool changed{false};
+            PassReport report;
             luisa::vector<Record> children;
         };
         luisa::vector<Record> records;
@@ -27,7 +48,7 @@ public:
 private:
     struct Entry {
         luisa::string name;
-        luisa::move_only_function<bool(Module *)> run;
+        luisa::move_only_function<bool(Module *, PassReport &)> run;
         uint32_t max_iterations{1u};
         bool is_group{false};
         luisa::vector<Entry> children;
@@ -45,7 +66,7 @@ public:
     PassPipeline &operator=(PassPipeline &&) noexcept = default;
 
     PassPipeline &add(luisa::string name,
-                      luisa::move_only_function<bool(Module *)> pass) noexcept;
+                      luisa::move_only_function<bool(Module *, PassReport &)> pass) noexcept;
 
     PassPipeline &add_fixed_point(luisa::string name,
                                   PassPipeline sub,
@@ -60,24 +81,15 @@ struct OptimizationPipelineOptions {
     bool enable_fast_math{false};
 };
 
-// Phase A: basic opts on structured-CFG alloca-form (ast2xir output).
-// dce, store-forward, load-elim, dce, algebraic, const-fold, dce,
-// promote-ref-arg, sroa, dse, dce.
 [[nodiscard]] LUISA_XIR_API PassPipeline
 create_basic_optimization_pipeline(OptimizationPipelineOptions options = {}) noexcept;
 
-// Post-inline cleanup: dce, store-forward, load-elim, dce,
-// algebraic, const-fold, dce, sroa, dse, dce.
 [[nodiscard]] LUISA_XIR_API PassPipeline
 create_post_inline_cleanup_pipeline(OptimizationPipelineOptions options = {}) noexcept;
 
-// SSA optimization on unstructured CFG (after destructure_cfg + mem2reg):
-// algebraic, const-fold, sccp, gvn, dce, store-forward, load-elim, dse, dce.
 [[nodiscard]] LUISA_XIR_API PassPipeline
 create_ssa_optimization_pipeline(OptimizationPipelineOptions options = {}) noexcept;
 
-// Post-restructure cleanup:
-// dce, store-forward, load-elim, dse, algebraic, const-fold, dce.
 [[nodiscard]] LUISA_XIR_API PassPipeline
 create_post_restructure_cleanup_pipeline(OptimizationPipelineOptions options = {}) noexcept;
 

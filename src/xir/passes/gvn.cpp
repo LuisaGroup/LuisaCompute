@@ -16,6 +16,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/gvn.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 #include "helpers.h"
 
@@ -324,13 +325,17 @@ GVNInfo gvn_pass_run_on_function(Function *function) noexcept {
     return info;
 }
 
-GVNInfo gvn_pass_run_on_module(Module *module) noexcept {
+GVNInfo gvn_pass_run_on_module(Module *module, PassReport *report) noexcept {
     GVNInfo info;
     if (module == nullptr) return info;
     for (auto f : module->function_list()) {
         auto sub = gvn_pass_run_on_function(f);
         info.replaced_inst_count += sub.replaced_inst_count;
         info.removed_inst_count += sub.removed_inst_count;
+    }
+    if (report != nullptr) {
+        report->set("replaced_inst", info.replaced_inst_count);
+        report->set("removed_inst", info.removed_inst_count);
     }
     return info;
 }

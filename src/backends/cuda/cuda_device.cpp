@@ -101,38 +101,38 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     }
 
     xir::PassPipeline pipeline;
-    pipeline.add("dce", [](xir::Module *m) {
-        auto i = xir::dce_pass_run_on_module(m);
+    pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    pipeline.add("local-store-forward", [](xir::Module *m) {
-        auto i = xir::local_store_forward_pass_run_on_module(m);
+    pipeline.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_store_forward_pass_run_on_module(m, &r);
         return i.removed_load_count > 0u;
     });
-    pipeline.add("local-load-elimination", [](xir::Module *m) {
-        auto i = xir::local_load_elimination_pass_run_on_module(m);
+    pipeline.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
         return i.removed_load_count > 0u;
     });
-    pipeline.add("dce", [](xir::Module *m) {
-        auto i = xir::dce_pass_run_on_module(m);
+    pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    pipeline.add("promote-ref-arg", [](xir::Module *m) {
-        auto i = xir::promote_ref_arg_pass_run_on_module(m);
+    pipeline.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
         return i.promoted_ref_arg_count > 0u;
     });
     if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
-        pipeline.add("early-return-elimination", [](xir::Module *m) {
-            auto i = xir::early_return_elimination_pass_run_on_module(m);
+        pipeline.add("early-return-elimination", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::early_return_elimination_pass_run_on_module(m, &r);
             return i.removed_return_count > 0u;
         });
     }
-    pipeline.add("mem2reg", [](xir::Module *m) {
-        auto i = xir::mem2reg_pass_run_on_module(m);
+    pipeline.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::mem2reg_pass_run_on_module(m, &r);
         return i.promoted_alloca_count > 0u;
     });
-    pipeline.add("dce", [](xir::Module *m) {
-        auto i = xir::dce_pass_run_on_module(m);
+    pipeline.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
     auto pre_cfg_stats = pipeline.run(xir_module.get());
@@ -144,31 +144,31 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
     }
     xir::PassPipeline cfg;
     if (lower_rq) {
-        cfg.add("lower-ray-query-loop", [](xir::Module *m) {
-            auto i = xir::lower_ray_query_loop_pass_run_on_module(m);
+        cfg.add("lower-ray-query-loop", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::lower_ray_query_loop_pass_run_on_module(m, &r);
             return i.lowered_loop_count > 0u;
         });
-        cfg.add("reg2mem", [](xir::Module *m) {
-            auto i = xir::reg2mem_pass_run_on_module(m);
+        cfg.add("reg2mem", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::reg2mem_pass_run_on_module(m, &r);
             return i.lowered_phi_count > 0u;
         });
     }
     if (LUISA_XIR_NORMALIZE_CFG) {
-        cfg.add("destructure-cfg", [](xir::Module *m) {
-            auto i = xir::destructure_cfg_pass_run_on_module(m);
+        cfg.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
             return i.destructured_if_count > 0u ||
                    i.destructured_loop_count > 0u ||
                    i.destructured_simple_loop_count > 0u;
         });
-        cfg.add("simplify-cfg", [](xir::Module *m) {
-            auto i = xir::simplify_cfg_pass_run_on_module(m);
+        cfg.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
             return i.folded_constant_cond_br_count > 0u ||
                    i.threaded_empty_block_count > 0u ||
                    i.merged_straight_line_count > 0u;
         });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
-            cfg.add("restructure-cfg", [](xir::Module *m) {
-                auto i = xir::restructure_cfg_pass_run_on_module(m);
+            cfg.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
                 return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
             });
         }

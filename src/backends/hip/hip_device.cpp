@@ -434,21 +434,21 @@ ShaderCreationInfo HIPDevice::create_shader(const ShaderOption &option, Function
     }
     if (LUISA_XIR_NORMALIZE_CFG) {
         xir::PassPipeline cfg_pipeline;
-        cfg_pipeline.add("destructure-cfg", [](xir::Module *m) {
-            auto i = xir::destructure_cfg_pass_run_on_module(m);
+        cfg_pipeline.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
             return i.destructured_if_count > 0u ||
                    i.destructured_loop_count > 0u ||
                    i.destructured_simple_loop_count > 0u;
         });
-        cfg_pipeline.add("simplify-cfg", [](xir::Module *m) {
-            auto i = xir::simplify_cfg_pass_run_on_module(m);
+        cfg_pipeline.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
             return i.folded_constant_cond_br_count > 0u ||
                    i.threaded_empty_block_count > 0u ||
                    i.removed_unreachable_block_count > 0u;
         });
         if (LUISA_XIR_RESTRUCTURE_CFG) {
-            cfg_pipeline.add("restructure-cfg", [](xir::Module *m) {
-                auto i = xir::restructure_cfg_pass_run_on_module(m);
+            cfg_pipeline.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
                 return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
             });
         }

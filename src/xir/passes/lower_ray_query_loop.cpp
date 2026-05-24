@@ -5,6 +5,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/lower_ray_query_loop.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 #include "helpers.h"
 
@@ -455,10 +456,13 @@ RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_function(Function *functi
     return info;
 }
 
-RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module) noexcept {
+RayQueryLoopLowerInfo lower_ray_query_loop_pass_run_on_module(Module *module, PassReport *report) noexcept {
     RayQueryLoopLowerInfo info;
     for (auto f : module->function_list()) {
         detail::run_lower_ray_query_loop_pass_on_function(f, info);
+    }
+    if (report != nullptr) {
+        report->set("lowered_loop", info.lowered_loop_count);
     }
     return info;
 }

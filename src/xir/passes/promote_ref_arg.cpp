@@ -7,6 +7,7 @@
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/passes/call_graph.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
@@ -143,9 +144,12 @@ static void promote_ref_args_in_module(Module *m, PromoteRefArgInfo &info) noexc
 
 }// namespace detail
 
-PromoteRefArgInfo promote_ref_arg_pass_run_on_module(Module *module) noexcept {
+PromoteRefArgInfo promote_ref_arg_pass_run_on_module(Module *module, PassReport *report) noexcept {
     PromoteRefArgInfo info;
     detail::promote_ref_args_in_module(module, info);
+    if (report != nullptr) {
+        report->set("promoted_ref_arg", info.promoted_ref_arg_count);
+    }
     return info;
 }
 
