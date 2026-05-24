@@ -29,7 +29,7 @@ RenderTexture::RenderTexture(
         optimizedClear.Color[0] = 0.f;
         optimizedClear.Color[1] = 0.f;
         optimizedClear.Color[2] = 0.f;
-        optimizedClear.Color[3] = 1.f;
+        optimizedClear.Color[3] = 0.f;
         clearPtr = &optimizedClear;
     }
 
