@@ -316,10 +316,9 @@ int main(int argc, char *argv[]) {
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
-    CommandList cmd_list;
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    cmd_list << clear_shader(accum_image).dispatch(resolution)
-             << make_sampler_shader(seed_image).dispatch(resolution);
+    stream << clear_shader(accum_image).dispatch(resolution)
+           << make_sampler_shader(seed_image).dispatch(resolution);
 
     // Setup window and swapchain conditionally
     std::unique_ptr<Window> window;
@@ -345,17 +344,14 @@ int main(int argc, char *argv[]) {
     Clock clock;
     uint offline_total_spp = opts.spp == 0u ? 1024u : opts.spp;
     while (opts.offline ? (frame_count < offline_total_spp) : !window->should_close()) {
-        cmd_list << raytracing_shader(framebuffer, seed_image, accel, resolution)
-                        .dispatch(resolution)
-                 << accumulate_shader(accum_image, framebuffer)
-                        .dispatch(resolution);
+        stream << raytracing_shader(framebuffer, seed_image, accel, resolution)
+                      .dispatch(resolution)
+               << accumulate_shader(accum_image, framebuffer)
+                      .dispatch(resolution);
         if (!opts.offline && swap_chain.has_value()) {
-            cmd_list << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution);
-            stream << cmd_list.commit()
-                   << swap_chain->present(ldr_image) << synchronize();
+            stream << hdr2ldr_shader(accum_image, ldr_image, 2.f).dispatch(resolution)
+                   << swap_chain->present(ldr_image);
             window->poll_events();
-        } else {
-            stream << cmd_list.commit() << synchronize();
         }
         double dt = clock.toc() - last_time;
         last_time = clock.toc();
