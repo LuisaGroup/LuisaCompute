@@ -42,7 +42,7 @@ public:
         luisa::vector<Record> records;
         double total_ms{0.0};
 
-        void log(luisa::string_view pipeline_name = {}) const noexcept;
+        LUISA_XIR_API void log(luisa::string_view pipeline_name = {}) const noexcept;
     };
 
 private:
