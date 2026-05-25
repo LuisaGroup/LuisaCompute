@@ -1,6 +1,6 @@
-#include <algorithm>
-#include <cmath>
 #include <iostream>
+#include <cstdlib>
+#include <cstring>
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
@@ -26,55 +26,17 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
     }
 };
 
-struct DebugPixel {
-    uint stage_mask;
-    uint seed;
-    uint miss;
-    uint hit_inst;
-    uint hit_prim;
-    uint triangle_i0;
-    uint triangle_i1;
-    uint triangle_i2;
-    uint occluded;
-    float rx;
-    float ry;
-    float2 pixel;
-    float3 ray_direction;
-    float2 hit_bary;
-    float hit_t;
-    float3 p0;
-    float3 p1;
-    float3 p2;
-    float3 p;
-    float3 n;
-    float cos_wo;
-    float3 albedo;
-    float cos_wi_light;
-    float cos_light;
-    float pdf_light;
-    float pdf_bsdf;
-    float3 beta;
-    float3 radiance;
-    float3 output;
-};
-
-LUISA_STRUCT(DebugPixel,
-             stage_mask, seed, miss, hit_inst, hit_prim,
-             triangle_i0, triangle_i1, triangle_i2, occluded,
-             rx, ry, pixel, ray_direction, hit_bary, hit_t,
-             p0, p1, p2, p, n, cos_wo, albedo,
-             cos_wi_light, cos_light, pdf_light, pdf_bsdf,
-             beta, radiance, output) {};
-
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend>. <backend>: cuda, dx, cpu, metal", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [max_dispatches] [headless]. <backend>: cuda, dx, cpu, metal", argv[0]);
         exit(1);
     }
+    auto max_dispatches = argc > 2 ? static_cast<uint>(std::strtoul(argv[2], nullptr, 10)) : 0u;
+    auto headless = argc > 3 && std::strcmp(argv[3], "headless") == 0;
     Device device = context.create_device(argv[1]);
 
     // load the Cornell Box scene
@@ -201,8 +163,7 @@ int main(int argc, char *argv[]) {
         return pdf_a / max(pdf_a + pdf_b, 1e-4f);
     };
 
-    auto spp_per_dispatch = 1u;
-    Buffer<DebugPixel> debug_buffer = device.create_buffer<DebugPixel>(6u);
+    auto spp_per_dispatch = device.backend_name() == "metal" || device.backend_name() == "cpu" ? 1u : 64u;
 
     coroutine::Coroutine coro = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
         UInt2 coord = dispatch_id().xy();
@@ -212,7 +173,6 @@ int main(int argc, char *argv[]) {
         Float ry = lcg(state);
         Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
-        Bool is_debug_pixel = all(coord == resolution / 2u);
         $suspend("per_spp");
         $for (i, spp_per_dispatch) {
             Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
@@ -224,32 +184,12 @@ int main(int argc, char *argv[]) {
             constexpr float3 light_emission = make_float3(17.0f, 12.0f, 4.0f);
             Float light_area = length(cross(light_u, light_v));
             Float3 light_normal = normalize(cross(light_u, light_v));
-            $if (is_debug_pixel) {
-                auto snapshot = def<DebugPixel>(
-                    2u, state, 0u, 0u, 0u,
-                    0u, 0u, 0u, 0u,
-                    rx, ry, pixel, ray->direction(), make_float2(0.0f), 0.0f,
-                    make_float3(0.0f), make_float3(0.0f), make_float3(0.0f), make_float3(0.0f), make_float3(0.0f),
-                    0.0f, make_float3(0.0f), 0.0f, 0.0f, 0.0f, 0.0f,
-                    make_float3(0.0f), make_float3(0.0f), make_float3(0.0f));
-                debug_buffer->write(0u, snapshot);
-            };
             $suspend("per_depth");
             $for (depth, 10u) {
                 // trace
                 $suspend("before_tracing");
                 Var<TriangleHit> hit = accel.intersect(ray, {});
                 reorder_shader_execution();
-                $if (is_debug_pixel & (depth == 0u)) {
-                    auto snapshot = def<DebugPixel>(
-                        4u, state, hit->miss().cast<uint>(), hit.inst, hit.prim,
-                        0u, 0u, 0u, 0u,
-                        rx, ry, pixel, ray->direction(), hit.bary, hit.committed_ray_t,
-                        make_float3(0.0f), make_float3(0.0f), make_float3(0.0f), make_float3(0.0f), make_float3(0.0f),
-                        0.0f, make_float3(0.0f), 0.0f, 0.0f, 0.0f, 0.0f,
-                        beta, radiance, make_float3(0.0f));
-                    debug_buffer->write(1u, snapshot);
-                };
                 $if (hit->miss()) { $break; };
                 Var<Triangle> triangle = heap->buffer<Triangle>(hit.inst).read(hit.prim);
                 Float3 p0 = vertex_buffer->read(triangle.i0);
@@ -257,16 +197,6 @@ int main(int argc, char *argv[]) {
                 Float3 p2 = vertex_buffer->read(triangle.i2);
                 Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
-                $if (is_debug_pixel & (depth == 0u)) {
-                    auto snapshot = def<DebugPixel>(
-                        8u, state, 0u, hit.inst, hit.prim,
-                        triangle.i0, triangle.i1, triangle.i2, 0u,
-                        rx, ry, pixel, ray->direction(), hit.bary, hit.committed_ray_t,
-                        p0, p1, p2, p, n,
-                        0.0f, make_float3(0.0f), 0.0f, 0.0f, 0.0f, 0.0f,
-                        beta, radiance, make_float3(0.0f));
-                    debug_buffer->write(2u, snapshot);
-                };
                 $suspend("after_tracing");
 
                 Float cos_wo = dot(-ray->direction(), n);
@@ -299,26 +229,12 @@ int main(int argc, char *argv[]) {
                 Float cos_wi_light = dot(wi_light, n);
                 Float cos_light = -dot(light_normal, wi_light);
                 Float3 albedo = materials.read(hit.inst);
-                Float debug_pdf_light = def(0.0f);
-                Float debug_pdf_bsdf = def(0.0f);
                 $if (!occluded & cos_wi_light > 1e-4f & cos_light > 1e-4f) {
                     Float pdf_light = (d_light * d_light) / (light_area * cos_light);
                     Float pdf_bsdf = cos_wi_light * inv_pi;
                     Float mis_weight = balanced_heuristic(pdf_light, pdf_bsdf);
                     Float3 bsdf = albedo * inv_pi * cos_wi_light;
-                    debug_pdf_light = pdf_light;
-                    debug_pdf_bsdf = pdf_bsdf;
                     radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
-                };
-                $if (is_debug_pixel & (depth == 0u)) {
-                    auto snapshot = def<DebugPixel>(
-                        16u, state, 0u, hit.inst, hit.prim,
-                        triangle.i0, triangle.i1, triangle.i2, occluded.cast<uint>(),
-                        rx, ry, pixel, ray->direction(), hit.bary, hit.committed_ray_t,
-                        p0, p1, p2, p, n,
-                        cos_wo, albedo, cos_wi_light, cos_light, debug_pdf_light, debug_pdf_bsdf,
-                        beta, radiance, make_float3(0.0f));
-                    debug_buffer->write(3u, snapshot);
                 };
 
                 // sample BSDF
@@ -332,16 +248,6 @@ int main(int argc, char *argv[]) {
                 ray = make_ray(pp, new_direction);
                 pdf_bsdf = cos_wi * inv_pi;
                 beta *= albedo;// * cos_wi * inv_pi / pdf_bsdf => * 1.f
-                $if (is_debug_pixel & (depth == 0u)) {
-                    auto snapshot = def<DebugPixel>(
-                        32u, state, 0u, hit.inst, hit.prim,
-                        triangle.i0, triangle.i1, triangle.i2, occluded.cast<uint>(),
-                        rx, ry, pixel, ray->direction(), hit.bary, hit.committed_ray_t,
-                        p0, p1, p2, p, n,
-                        cos_wo, albedo, cos_wi_light, cos_light, debug_pdf_light, pdf_bsdf,
-                        beta, radiance, make_float3(0.0f));
-                    debug_buffer->write(4u, snapshot);
-                };
 
                 // rr
                 $suspend("rr");
@@ -357,35 +263,33 @@ int main(int argc, char *argv[]) {
         radiance /= static_cast<float>(spp_per_dispatch);
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        Float3 output = clamp(radiance, 0.0f, 30.0f);
-        $if (is_debug_pixel) {
-            auto snapshot = def<DebugPixel>(
-                128u, state, 0u, 0u, 0u,
-                0u, 0u, 0u, 0u,
-                rx, ry, pixel, make_float3(0.0f), make_float2(0.0f), 0.0f,
-                make_float3(0.0f), make_float3(0.0f), make_float3(0.0f), make_float3(0.0f), make_float3(0.0f),
-                0.0f, make_float3(0.0f), 0.0f, 0.0f, 0.0f, 0.0f,
-                make_float3(0.0f), radiance, output);
-            debug_buffer->write(5u, snapshot);
-        };
-        image.write(dispatch_id().xy(), make_float4(output, 1.0f));
+        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 
     coroutine::StateMachineCoroSchedulerConfig config{.block_size = make_uint3(8u, 8u, 1u),
                                                       .shared_memory = false,
                                                       .shared_memory_soa = true};
-    LUISA_INFO("Coroutine graph:\n{}", coro.graph()->dump());
+    LUISA_INFO("coro_frame:\n{}", coro.frame()->dump());
     coroutine::StateMachineCoroScheduler scheduler{device, coro, config};
-
-    Kernel2D clear_kernel = [](ImageFloat image) noexcept {
-        image.write(dispatch_id().xy(), make_float4(0.0f));
-    };
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {
         UInt2 p = dispatch_id().xy();
         Float4 accum = accum_image.read(p);
         Float3 curr = curr_image.read(p).xyz();
-        accum_image.write(p, accum + make_float4(curr, 1.0f));
+        accum_image.write(p, accum + make_float4(curr, 1.f));
+    };
+
+    Callable aces_tonemapping = [](Float3 x) noexcept {
+        static constexpr float a = 2.51f;
+        static constexpr float b = 0.03f;
+        static constexpr float c = 2.43f;
+        static constexpr float d = 0.59f;
+        static constexpr float e = 0.14f;
+        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
+    };
+
+    Kernel2D clear_kernel = [](ImageFloat image) noexcept {
+        image.write(dispatch_id().xy(), make_float4(0.0f));
     };
 
     Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr_image, Float scale, Bool is_hdr) noexcept {
@@ -400,21 +304,42 @@ int main(int argc, char *argv[]) {
 
     ShaderOption o{.enable_debug_info = false};
     auto clear_shader = device.compile(clear_kernel, o);
-    auto accumulate_shader = device.compile(accumulate_kernel, o);
     auto hdr2ldr_shader = device.compile(hdr2ldr_kernel, o);
+    auto accumulate_shader = device.compile(accumulate_kernel, o);
     auto make_sampler_shader = device.compile(make_sampler_kernel, o);
 
     static constexpr uint2 resolution = make_uint2(1024u);
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
     luisa::vector<std::array<uint8_t, 4u>> host_image(resolution.x * resolution.y);
-    luisa::vector<DebugPixel> host_debug(6u);
 
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
-    std::fill(host_debug.begin(), host_debug.end(), DebugPixel{});
     stream << clear_shader(accum_image).dispatch(resolution)
-           << debug_buffer.copy_from(host_debug.data())
            << make_sampler_shader(seed_image).dispatch(resolution);
+
+    if (headless) {
+        stream << synchronize();
+        auto dispatch_limit = max_dispatches == 0u ? 1u : max_dispatches;
+        uint frame_count = 0u;
+        double last_time = 0.0;
+        Clock clock;
+        for (uint dispatch_count = 0u; dispatch_count < dispatch_limit; dispatch_count++) {
+            stream << scheduler(framebuffer, seed_image, accel, resolution)
+                          .dispatch(resolution)
+                   << accumulate_shader(accum_image, framebuffer)
+                          .dispatch(resolution)
+                   << synchronize();
+            double now = clock.toc();
+            double dt = now - last_time;
+            last_time = now;
+            frame_count += spp_per_dispatch;
+            LUISA_INFO("spp: {}, time: {} ms, spp/s: {}",
+                       frame_count, dt, spp_per_dispatch / dt * 1000);
+        }
+        LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
+        return 0;
+    }
+
     Window window{"path tracing", resolution};
     Swapchain swap_chain = device.create_swapchain(
         stream,
@@ -429,30 +354,29 @@ int main(int argc, char *argv[]) {
     Image<float> ldr_image = device.create_image<float>(swap_chain.backend_storage(), resolution);
     double last_time = 0.0;
     uint frame_count = 0u;
+    uint dispatch_count = 0u;
     Clock clock;
 
-    while (!window.should_close()) {
+    while (!window.should_close() && (max_dispatches == 0u || dispatch_count < max_dispatches)) {
         stream << scheduler(framebuffer, seed_image, accel, resolution)
                       .dispatch(resolution)
                << accumulate_shader(accum_image, framebuffer)
                       .dispatch(resolution)
-               << hdr2ldr_shader(accum_image, ldr_image, 1.0f,
-                                 swap_chain.backend_storage() != PixelStorage::BYTE4)
-                      .dispatch(resolution)
+               << hdr2ldr_shader(accum_image, ldr_image, 1.0f, swap_chain.backend_storage() != PixelStorage::BYTE4).dispatch(resolution)
                << swap_chain.present(ldr_image)
                << synchronize();
         window.poll_events();
-        auto now = clock.toc();
-        auto dt = now - last_time;
-        last_time = now;
+        double dt = clock.toc() - last_time;
+        last_time = clock.toc();
         frame_count += spp_per_dispatch;
+        dispatch_count++;
         LUISA_INFO("spp: {}, time: {} ms, spp/s: {}",
-                   frame_count, dt, spp_per_dispatch / dt * 1000.0);
+                   frame_count, dt, spp_per_dispatch / dt * 1000);
     }
-    stream << ldr_image.copy_to(host_image.data())
-           << debug_buffer.copy_to(host_debug.data())
-           << synchronize();
-    LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000.0);
-    stbi_write_png("test_path_tracing_state_machine.png",
-                   resolution.x, resolution.y, 4, host_image.data(), 0);
+    stream
+        << ldr_image.copy_to(host_image.data())
+        << synchronize();
+
+    LUISA_INFO("FPS: {}", frame_count / clock.toc() * 1000);
+    stbi_write_png("test_path_tracing.png", resolution.x, resolution.y, 4, host_image.data(), 0);
 }
