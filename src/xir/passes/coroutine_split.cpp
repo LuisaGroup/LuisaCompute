@@ -19,81 +19,12 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coroutine.h>
 #include <luisa/xir/passes/coroutine_split.h>
-#include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/undefined.h>
 
 namespace luisa::compute::xir {
 
 namespace {
 
-// A flat coroutine in this initial pass means:
-//   - every CoroSuspend / CoroRegister marker lives directly in the entry
-//     body block (no enclosing structured-CFG container);
-//   - the body block contains no IF / SWITCH / LOOP / SIMPLE_LOOP /
-//     RAY_QUERY_LOOP / OUTLINE / AUTODIFF_SCOPE instructions;
-//   - the body block ends with a ReturnInst (no out-edges to other blocks).
-//
-// The condition-replay extension in the SIGGRAPH Asia 2024 paper (appendix
-// Sec. CF reconstruction) lifts the latter two constraints, but is the next
-// milestone for this pass; PT/SDF should keep using `coroutine_lower` until
-// then.
-[[nodiscard]] bool is_flat_coroutine(FunctionDefinition *def, luisa::vector<luisa::string> &diagnostics) noexcept {
-    auto body = def->body_block();
-    if (body == nullptr) { return true; }
-    luisa::vector<BasicBlock *> blocks_with_markers;
-    def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-        for (auto inst : block->instructions()) {
-            if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND ||
-                inst->derived_instruction_tag() == DerivedInstructionTag::CORO_REGISTER) {
-                blocks_with_markers.emplace_back(block);
-                return;
-            }
-        }
-    });
-    for (auto block : blocks_with_markers) {
-        if (block != body) {
-            diagnostics.emplace_back(
-                "coroutine_split: suspend/register marker found outside the entry body block; "
-                "this typically means the marker is reached through a structured control-flow "
-                "container (loop/if/switch). Only flat coroutines are supported in this initial "
-                "pass; condition-replay loop handling is the next milestone "
-                "(see GPU Coroutines paper, appendix Sec. CF reconstruction)");
-            return false;
-        }
-    }
-    for (auto inst : body->instructions()) {
-        switch (inst->derived_instruction_tag()) {
-            case DerivedInstructionTag::IF:
-            case DerivedInstructionTag::SWITCH:
-            case DerivedInstructionTag::LOOP:
-            case DerivedInstructionTag::SIMPLE_LOOP:
-            case DerivedInstructionTag::RAY_QUERY_LOOP:
-            case DerivedInstructionTag::OUTLINE:
-            case DerivedInstructionTag::AUTODIFF_SCOPE: {
-                diagnostics.emplace_back(
-                    "coroutine_split: body contains a structured control-flow container "
-                    "(only flat coroutines are supported in this initial pass; "
-                    "condition-replay loop handling is the next milestone)");
-                return false;
-            }
-            default: break;
-        }
-    }
-    auto term = body->terminator();
-    if (term == nullptr ||
-        term->derived_instruction_tag() != DerivedInstructionTag::RETURN) {
-        diagnostics.emplace_back(
-            "coroutine_split: body block does not terminate in ReturnInst "
-            "(multi-block flat coroutines are not yet handled by the cloner)");
-        return false;
-    }
-    return true;
-}
-
-// InstructionCloneValueResolver implementation that maps:
-//   - the source coroutine's arguments → the new callable's arguments
-//   - the source allocas listed as frame slots → GEPs into the frame argument
-//   - cloned instructions → their clones (inserted incrementally)
 class CoroutineCloneResolver final : public InstructionCloneValueResolver {
 
 private:
@@ -102,6 +33,14 @@ private:
 public:
     void emplace(const Value *from, Value *to) noexcept {
         _map.emplace(from, to);
+    }
+
+    void bind(const Value *from, Value *to) noexcept {
+        _map.insert_or_assign(from, to);
+    }
+
+    [[nodiscard]] bool contains(const Value *v) const noexcept {
+        return _map.find(v) != _map.end();
     }
 
     [[nodiscard]] Value *resolve(const Value *value) noexcept override {
@@ -115,6 +54,19 @@ public:
             default: break;
         }
         if (auto it = _map.find(value); it != _map.end()) { return it->second; }
+        if (value->derived_value_tag() == DerivedValueTag::BASIC_BLOCK) {
+            // Branch target not in this continuation — should not happen after
+            // the branch handling logic, but return nullptr to catch bugs early.
+            LUISA_ERROR_WITH_LOCATION(
+                "coroutine_split: unresolved basic block during cloning");
+        }
+        if (value->derived_value_tag() == DerivedValueTag::INSTRUCTION) {
+            auto inst = static_cast<const Instruction *>(value);
+            LUISA_ERROR_WITH_LOCATION(
+                "coroutine_split: unresolved value during cloning (tag={}, type={})",
+                static_cast<int>(inst->derived_instruction_tag()),
+                inst->type() ? inst->type()->description() : "null");
+        }
         LUISA_ERROR_WITH_LOCATION("coroutine_split: unresolved value during cloning");
     }
 };
@@ -123,8 +75,6 @@ public:
     return module->create_constant(luisa::compute::Type::of<uint32_t>(), &value);
 }
 
-// Mirror an argument from the source coroutine into the new continuation
-// callable. Returns the new argument so the resolver can map it.
 [[nodiscard]] Argument *mirror_argument(Function *callable, const Argument *src) noexcept {
     switch (src->derived_argument_tag()) {
         case DerivedArgumentTag::VALUE:
@@ -137,6 +87,58 @@ public:
     return nullptr;
 }
 
+[[nodiscard]] Instruction *next_instruction_including_terminator(BasicBlock *block, Instruction *inst) noexcept {
+    auto found = false;
+    for (auto candidate : block->instructions()) {
+        if (found) { return candidate; }
+        if (candidate == inst) { found = true; }
+    }
+    return nullptr;
+}
+
+[[nodiscard]] bool is_frame_slot(const luisa::vector<CoroutineSplitFrameSlot> &slots, Instruction *inst) noexcept {
+    return std::any_of(slots.begin(), slots.end(), [&](auto slot) noexcept { return slot.source_alloca == inst; });
+}
+
+void emit_terminate(XIRBuilder &builder, Module *module, Value *state_gep) noexcept {
+    builder.store(state_gep, uint_constant(module, 0u));
+    builder.return_void();
+}
+
+void emit_suspend(XIRBuilder &builder, Module *module, Value *state_gep, uint32_t next_token) noexcept {
+    builder.store(state_gep, uint_constant(module, next_token));
+    builder.return_void();
+}
+
+[[nodiscard]] uint32_t next_token_for_suspend(const CoroutineAnalysisInfo &analysis, size_t suspend_id) noexcept {
+    for (auto transition : analysis.transitions) {
+        if (transition.suspend_id == suspend_id) {
+            return transition.exits ? 0u : static_cast<uint32_t>(transition.to_continuation);
+        }
+    }
+    return 0u;
+}
+
+[[nodiscard]] bool continuation_contains_block(const CoroutineContinuationInfo &continuation, BasicBlock *block) noexcept {
+    for (auto candidate : continuation.blocks) {
+        if (candidate == block) { return true; }
+    }
+    return false;
+}
+
+[[nodiscard]] bool is_unstructured_terminator(Instruction *inst) noexcept {
+    if (inst == nullptr) { return true; }
+    switch (inst->derived_instruction_tag()) {
+        case DerivedInstructionTag::BRANCH:
+        case DerivedInstructionTag::CONDITIONAL_BRANCH:
+        case DerivedInstructionTag::SWITCH:
+        case DerivedInstructionTag::RETURN:
+        case DerivedInstructionTag::UNREACHABLE:
+        case DerivedInstructionTag::RASTER_DISCARD: return true;
+        default: return !inst->is_terminator();
+    }
+}
+
 }// namespace
 
 CoroutineSplitInfo coroutine_split_run_on_function(Function *function) noexcept {
@@ -145,30 +147,11 @@ CoroutineSplitInfo coroutine_split_run_on_function(Function *function) noexcept 
         info.diagnostics.emplace_back("coroutine_split: function is null or not a definition");
         return info;
     }
-    auto def = static_cast<FunctionDefinition *>(function);
     auto analysis = coroutine_analysis_run_on_function(function);
     info.diagnostics = analysis.diagnostics;
     if (!analysis.is_coroutine) { return info; }
-    if (!is_flat_coroutine(def, info.diagnostics)) {
-        // Non-flat coroutine: use the full coro_materialize path with
-        // condition replay and first-flag mechanism.
-        auto mat_result = coro::coro_materialize_run_on_function(function);
-        if (mat_result.ok) {
-            return mat_result.split_info;
-        }
-        // If materialize failed, report its diagnostics.
-        info.diagnostics.insert(info.diagnostics.end(),
-                                mat_result.diagnostics.begin(),
-                                mat_result.diagnostics.end());
-        info.is_supported = false;
-        return info;
-    }
+    auto def = static_cast<FunctionDefinition *>(function);
     auto module = function->parent_module();
-
-    // --- Build frame type -----------------------------------------------------
-    // Slot 0 = target_token (uint). Slots 1..N map to allocas selected by the
-    // analysis pass, deterministically ordered by alloca pointer (matches
-    // coroutine_lower). The frame type is a struct of those member types.
     luisa::vector<CoroutineFrameCandidateInfo> sorted_candidates = analysis.frame_candidates;
     luisa::sort(sorted_candidates.begin(), sorted_candidates.end(),
                 [](auto lhs, auto rhs) noexcept { return lhs.alloca < rhs.alloca; });
@@ -187,119 +170,167 @@ CoroutineSplitInfo coroutine_split_run_on_function(Function *function) noexcept 
     }
     info.frame_type = luisa::compute::Type::structure(frame_member_types);
 
-    // --- Slice the body block by suspends ------------------------------------
-    // Each slice corresponds to one continuation. The first slice is the
-    // entry; subsequent slices begin right after a suspend marker. Suspend
-    // and register markers are NOT cloned — they get rewritten in place.
-    auto body = def->body_block();
-    luisa::vector<luisa::vector<Instruction *>> slices(1);
-    luisa::vector<size_t> slice_terminator_suspend_id;
-    auto suspend_to_id = luisa::unordered_map<const Instruction *, size_t>{};
-    for (auto marker : analysis.suspends) { suspend_to_id.emplace(marker.inst, marker.id); }
-    auto register_set = luisa::unordered_set<const Instruction *>{};
-    for (auto marker : analysis.registers) { register_set.emplace(marker.inst); }
-    for (auto inst : body->instructions()) {
-        if (auto reg_iter = register_set.find(inst); reg_iter != register_set.end()) {
-            continue;// drop coro_register markers
-        }
-        if (auto sus_iter = suspend_to_id.find(inst); sus_iter != suspend_to_id.end()) {
-            slice_terminator_suspend_id.emplace_back(sus_iter->second);
-            slices.emplace_back();
-            continue;
-        }
-        slices.back().emplace_back(inst);
-    }
-    slice_terminator_suspend_id.emplace_back(static_cast<size_t>(-1));// final slice ends with original return
+    luisa::unordered_map<const Instruction *, size_t> suspend_ids;
+    for (auto marker : analysis.suspends) { suspend_ids.emplace(marker.inst, marker.id); }
+    luisa::unordered_set<const Instruction *> registers;
+    for (auto marker : analysis.registers) { registers.emplace(marker.inst); }
 
-    // --- Resolve next-token per suspend --------------------------------------
-    luisa::unordered_map<size_t, size_t> suspend_next;
-    for (auto t : analysis.transitions) {
-        suspend_next.emplace(t.suspend_id, t.exits ? 0u : t.to_continuation);
-    }
-
-    // --- Emit one CallableFunction per slice ---------------------------------
     info.continuations.clear();
-    info.continuations.reserve(slices.size());
-    for (size_t k = 0; k < slices.size(); ++k) {
-        auto callable = module->create_callable(/* ret_type */ nullptr);
+    info.continuations.reserve(analysis.continuations.size());
+    for (auto &continuation : analysis.continuations) {
+        auto callable = module->create_callable(nullptr);
         auto frame_ref = callable->create_reference_argument(info.frame_type);
-        // Mirror the source coroutine's arguments after the frame ref.
         luisa::vector<Argument *> mirrored_args;
         for (auto src_arg : function->arguments()) {
             mirrored_args.emplace_back(mirror_argument(callable, src_arg));
         }
-        auto block = callable->create_body_block();
-        XIRBuilder builder;
-        builder.set_insertion_point(block);
+        luisa::unordered_map<BasicBlock *, BasicBlock *> block_map;
+        for (auto src_block : continuation.blocks) {
+            auto cloned_block = src_block == continuation.entry_block ? callable->create_body_block() : callable->create_basic_block();
+            block_map.emplace(src_block, cloned_block);
+        }
+        if (block_map.empty()) {
+            auto cloned_block = callable->create_body_block();
+            block_map.emplace(continuation.entry_block, cloned_block);
+        }
 
         CoroutineCloneResolver resolver;
-        // Map original arguments to the mirrored ones in this callable.
-        {
-            size_t i = 0;
-            for (auto src_arg : function->arguments()) {
-                resolver.emplace(src_arg, mirrored_args[i]);
-                ++i;
-            }
+        for (auto &&[src_block, cloned_block] : block_map) { resolver.emplace(src_block, cloned_block); }
+        size_t arg_index = 0;
+        for (auto src_arg : function->arguments()) {
+            resolver.emplace(src_arg, mirrored_args[arg_index]);
+            arg_index++;
         }
-        // Map source allocas to GEPs into the frame.
+
+        XIRBuilder builder;
+        builder.set_insertion_point(block_map.at(continuation.entry_block));
         for (auto slot : info.frame_slots) {
             auto idx = uint_constant(module, static_cast<uint32_t>(slot.field_index));
             auto gep = builder.gep(slot.type, frame_ref, {idx});
             resolver.emplace(slot.source_alloca, gep);
         }
-        // GEP for the target_token slot (slot 0).
         auto state_idx = uint_constant(module, 0u);
         auto state_gep = builder.gep(luisa::compute::Type::of<uint32_t>(), frame_ref, {state_idx});
 
-        // Clone the body slice.
-        for (auto inst : slices[k]) {
-            switch (inst->derived_instruction_tag()) {
-                case DerivedInstructionTag::ALLOCA: {
-                    auto is_frame_slot = std::any_of(
-                        info.frame_slots.begin(), info.frame_slots.end(),
-                        [&](auto slot) noexcept { return slot.source_alloca == inst; });
-                    if (!is_frame_slot) {
-                        // Local-only alloca that isn't live across suspends — clone in-place.
-                        auto cloned = inst->clone_with_metadata(builder, resolver);
-                        resolver.emplace(inst, cloned);
+        // Pre-clone non-frame-slot allocas into the entry block.
+        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            for (auto inst : block->instructions()) {
+                if (inst->derived_instruction_tag() != DerivedInstructionTag::ALLOCA) continue;
+                if (resolver.contains(inst)) continue;
+                builder.set_insertion_point(block_map.at(continuation.entry_block));
+                auto local = builder.alloca_local(inst->type());
+                resolver.bind(inst, local);
+            }
+        });
+
+        for (auto src_block : continuation.blocks) {
+            auto cloned_block = block_map.at(src_block);
+            builder.set_insertion_point(cloned_block);
+            auto started = src_block != continuation.entry_block || continuation.entry_inst == nullptr;
+            auto terminated = false;
+            for (auto inst : src_block->instructions()) {
+                if (!started) {
+                    started = inst == continuation.entry_inst;
+                    if (!started) { continue; }
+                }
+                if (registers.contains(inst)) { continue; }
+                if (auto suspend_iter = suspend_ids.find(inst); suspend_iter != suspend_ids.end()) {
+                    emit_suspend(builder, module, state_gep, next_token_for_suspend(analysis, suspend_iter->second));
+                    terminated = true;
+                    break;
+                }
+                switch (inst->derived_instruction_tag()) {
+                    case DerivedInstructionTag::ALLOCA: {
+                        if (!is_frame_slot(info.frame_slots, inst)) {
+                            auto cloned = inst->clone_with_metadata(builder, resolver);
+                            resolver.bind(inst, cloned);
+                        }
+                        break;
                     }
-                    break;
+                    case DerivedInstructionTag::RETURN: {
+                        emit_terminate(builder, module, state_gep);
+                        terminated = true;
+                        break;
+                    }
+                    case DerivedInstructionTag::BRANCH: {
+                        auto br = static_cast<BranchInst *>(inst);
+                        if (br->target_block() && !block_map.contains(br->target_block())) {
+                            emit_terminate(builder, module, state_gep);
+                        } else {
+                            auto cloned = inst->clone_with_metadata(builder, resolver);
+                            resolver.bind(inst, cloned);
+                        }
+                        terminated = true;
+                        break;
+                    }
+                    case DerivedInstructionTag::CONDITIONAL_BRANCH: {
+                        auto cbr = static_cast<ConditionalBranchInst *>(inst);
+                        auto true_in = cbr->true_block() && block_map.contains(cbr->true_block());
+                        auto false_in = cbr->false_block() && block_map.contains(cbr->false_block());
+                        if (true_in && false_in) {
+                            auto cloned = inst->clone_with_metadata(builder, resolver);
+                            resolver.bind(inst, cloned);
+                        } else if (true_in) {
+                            builder.br(block_map.at(cbr->true_block()));
+                        } else if (false_in) {
+                            builder.br(block_map.at(cbr->false_block()));
+                        } else {
+                            emit_terminate(builder, module, state_gep);
+                        }
+                        terminated = true;
+                        break;
+                    }
+                    case DerivedInstructionTag::SWITCH: {
+                        auto cloned = inst->clone_with_metadata(builder, resolver);
+                        resolver.bind(inst, cloned);
+                        terminated = true;
+                        break;
+                    }
+                    case DerivedInstructionTag::CORO_REGISTER:
+                    case DerivedInstructionTag::CORO_SUSPEND: break;
+                    default: {
+                        if (!is_unstructured_terminator(inst)) {
+                            info.diagnostics.emplace_back("coroutine_split: structured terminator found in unstructured coroutine CFG");
+                            emit_terminate(builder, module, state_gep);
+                            terminated = true;
+                            break;
+                        }
+                        auto cloned = inst->clone_with_metadata(builder, resolver);
+                        resolver.bind(inst, cloned);
+                        if (inst->is_terminator()) { terminated = true; }
+                        break;
+                    }
                 }
-                case DerivedInstructionTag::RETURN: {
-                    builder.store(state_gep, uint_constant(module, 0u));
-                    builder.return_void();
-                    break;
-                }
-                default: {
-                    auto cloned = inst->clone_with_metadata(builder, resolver);
-                    resolver.emplace(inst, cloned);
-                    break;
-                }
+                if (terminated) { break; }
+            }
+            if (!terminated && !cloned_block->is_terminated()) {
+                emit_terminate(builder, module, state_gep);
             }
         }
-
-        // If this slice ended with a suspend (not a return), emit the
-        // store-then-return-void epilogue using the precomputed next token.
-        auto term_suspend_id = slice_terminator_suspend_id[k];
-        if (term_suspend_id != static_cast<size_t>(-1)) {
-            auto next_iter = suspend_next.find(term_suspend_id);
-            auto next_token = next_iter == suspend_next.end() ? 0u : static_cast<uint32_t>(next_iter->second);
-            builder.store(state_gep, uint_constant(module, next_token));
-            builder.return_void();
-        } else if (slices[k].empty() ||
-                   slices[k].back()->derived_instruction_tag() != DerivedInstructionTag::RETURN) {
-            builder.store(state_gep, uint_constant(module, 0u));
-            builder.return_void();
+        // Ensure all blocks in this callable are terminated.
+        auto ensure_terminated = [&](BasicBlock *block) noexcept {
+            if (block && !block->is_terminated()) {
+                builder.set_insertion_point(block);
+                emit_terminate(builder, module, state_gep);
+            }
+        };
+        ensure_terminated(callable->body_block());
+        for (auto block : callable->basic_blocks()) { ensure_terminated(block); }
+        for (auto &&[_, cloned_block] : block_map) { ensure_terminated(cloned_block); }
+        // Verify: no unterminated blocks should remain.
+        LUISA_ASSERT(!callable->body_block() || callable->body_block()->is_terminated(),
+                     "coroutine_split: body block still unterminated after safety pass");
+        for (auto block : callable->basic_blocks()) {
+            LUISA_ASSERT(block->is_terminated(),
+                         "coroutine_split: block still unterminated after safety pass");
         }
 
         CoroutineSplitContinuation entry{
-            .id = k,
+            .id = continuation.id,
             .callable = callable,
             .outgoing_suspends = {},
         };
-        if (term_suspend_id != static_cast<size_t>(-1)) {
-            entry.outgoing_suspends.emplace_back(term_suspend_id);
-        }
+        for (auto suspend_id : continuation.suspend_ids) { entry.outgoing_suspends.emplace_back(suspend_id); }
         info.continuations.emplace_back(std::move(entry));
     }
 

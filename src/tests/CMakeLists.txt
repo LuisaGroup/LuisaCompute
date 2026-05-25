@@ -125,7 +125,6 @@ luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_rest
 luisa_compute_add_test(test_xir_pass_coroutine unit/xir/test_xir_pass_coroutine.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_coroutine_lower unit/xir/test_xir_pass_coroutine_lower.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_coroutine_split unit/xir/test_xir_pass_coroutine_split.cpp LABELS "unit;unit_xir")
-luisa_compute_add_test(test_xir_pass_coroutine_state_machine unit/xir/test_xir_pass_coroutine_state_machine.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_coro_graph unit/xir/test_coro_graph.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_coro_graph_analysis unit/xir/test_coro_graph_analysis.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_coro_materialize unit/xir/test_coro_materialize.cpp LABELS "unit;unit_xir")

@@ -389,6 +389,9 @@ private:
 
     [[nodiscard]] const Expression *_gep(const GEPInst *inst) noexcept {
         auto expr = _expr(inst->base());
+        if (expr->type()->is_resource()) {
+            return expr;
+        }
         for (auto i = 0u; i < inst->index_count(); i++) {
             auto type = expr->type();
             if (type->is_structure()) {
