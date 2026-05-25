@@ -89,6 +89,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/coroutine_state_machine_scheduler.cpp
         passes/coro_graph.cpp
         passes/coro_graph_analysis.cpp
+        passes/coro_materialize.cpp
         passes/sccp.cpp
         passes/inline.cpp
         passes/loop_unroll.cpp
