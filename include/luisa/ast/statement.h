@@ -34,6 +34,8 @@ public:
         COMMENT,
         RAY_QUERY,
         AUTO_DIFF,
+        SUSPEND,
+        CORO_BIND,
         PRINT,
         DEBUG_BREAK,
     };
@@ -74,6 +76,8 @@ class ForStmt;
 class CommentStmt;
 class RayQueryStmt;
 class AutoDiffStmt;
+class SuspendStmt;
+class CoroBindStmt;
 
 class PrintStmt;
 class DebugBreakStmt;
@@ -94,6 +98,8 @@ struct LUISA_AST_API StmtVisitor {
     virtual void visit(const CommentStmt *) = 0;
     virtual void visit(const RayQueryStmt *) = 0;
     virtual void visit(const AutoDiffStmt *stmt);
+    virtual void visit(const SuspendStmt *stmt);
+    virtual void visit(const CoroBindStmt *stmt);
     virtual void visit(const PrintStmt *stmt);
     virtual void visit(const DebugBreakStmt *stmt);
     virtual ~StmtVisitor() noexcept = default;
@@ -496,6 +502,44 @@ public:
     LUISA_STATEMENT_COMMON()
 };
 
+class LUISA_AST_API SuspendStmt final : public Statement {
+    friend class CallableLibrary;
+
+private:
+    uint32_t _token{};
+
+private:
+    SuspendStmt() noexcept = default;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit SuspendStmt(uint32_t token) noexcept : Statement{Tag::SUSPEND}, _token{token} {}
+    [[nodiscard]] auto token() const noexcept { return _token; }
+    LUISA_STATEMENT_COMMON()
+};
+
+class LUISA_AST_API CoroBindStmt final : public Statement {
+    friend class CallableLibrary;
+
+private:
+    const Expression *_expr{};
+    luisa::string _name;
+
+private:
+    CoroBindStmt() noexcept = default;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    CoroBindStmt(const Expression *expr, luisa::string name) noexcept;
+    [[nodiscard]] auto expression() const noexcept { return _expr; }
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
+    LUISA_STATEMENT_COMMON()
+};
+
 class LUISA_AST_API PrintStmt : public Statement {
     friend class CallableLibrary;
 
@@ -646,6 +690,12 @@ void traverse_expressions(
             auto ad_stmt = static_cast<const AutoDiffStmt *>(stmt);
             traverse_expressions<recurse_subexpr>(
                 ad_stmt->body(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::SUSPEND: break;
+        case Statement::Tag::CORO_BIND: {
+            auto bind_stmt = static_cast<const CoroBindStmt *>(stmt);
+            do_visit(bind_stmt->expression());
             break;
         }
         case Statement::Tag::PRINT: {

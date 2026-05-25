@@ -947,6 +947,8 @@ private:
             case Statement::Tag::COMMENT: _convert_comment_stmt(j, static_cast<const CommentStmt *>(stmt)); break;
             case Statement::Tag::RAY_QUERY: _convert_ray_query_stmt(j, static_cast<const RayQueryStmt *>(stmt)); break;
             case Statement::Tag::AUTO_DIFF: _convert_autodiff_stmt(j, static_cast<const AutoDiffStmt *>(stmt)); break;
+            case Statement::Tag::SUSPEND: _convert_suspend_stmt(j, static_cast<const SuspendStmt *>(stmt)); break;
+            case Statement::Tag::CORO_BIND: _convert_coro_bind_stmt(j, static_cast<const CoroBindStmt *>(stmt)); break;
             case Statement::Tag::PRINT: _convert_print_stmt(j, static_cast<const PrintStmt *>(stmt)); break;
             case Statement::Tag::DEBUG_BREAK: LUISA_NOT_IMPLEMENTED("Debug break statement is not supported.");
         }
@@ -1028,6 +1030,13 @@ private:
     }
     void _convert_autodiff_stmt(JSON &j, const AutoDiffStmt *stmt) noexcept {
         j["body"] = _convert_stmt(stmt->body());
+    }
+    void _convert_suspend_stmt(JSON &j, const SuspendStmt *stmt) noexcept {
+        j["coro_token"] = stmt->token();
+    }
+    void _convert_coro_bind_stmt(JSON &j, const CoroBindStmt *stmt) noexcept {
+        j["expression"] = _convert_expr(stmt->expression());
+        j["name"] = stmt->name();
     }
     void _convert_print_stmt(JSON &j, const PrintStmt *stmt) noexcept {
         j["format"] = stmt->format();

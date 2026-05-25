@@ -564,6 +564,25 @@ void CallableLibrary::deser_ptr(AutoDiffStmt *obj, std::byte const *&ptr, DeserP
     deser_ptr<Statement *>(&obj->_body, ptr, pack);
 }
 template<>
+void CallableLibrary::ser_value(SuspendStmt const &t, luisa::vector<std::byte> &vec) noexcept {
+    ser_value(t._token, vec);
+}
+template<>
+void CallableLibrary::deser_ptr(SuspendStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
+    (void)pack;
+    obj->_token = deser_value<uint32_t>(ptr, pack);
+}
+template<>
+void CallableLibrary::ser_value(CoroBindStmt const &t, luisa::vector<std::byte> &vec) noexcept {
+    ser_value(*t._expr, vec);
+    ser_value(t._name, vec);
+}
+template<>
+void CallableLibrary::deser_ptr(CoroBindStmt *obj, std::byte const *&ptr, DeserPackage &pack) noexcept {
+    obj->_expr = deser_value<Expression const *>(ptr, pack);
+    obj->_name = deser_value<luisa::string>(ptr, pack);
+}
+template<>
 void CallableLibrary::ser_value(RayQueryStmt const &t, luisa::vector<std::byte> &vec) noexcept {
     ser_value(*static_cast<Expression const *>(t._query), vec);
     ser_value<Statement>(t._on_triangle_candidate, vec);
@@ -653,6 +672,12 @@ void CallableLibrary::ser_value(Statement const &t, luisa::vector<std::byte> &ve
         case Statement::Tag::AUTO_DIFF:
             ser_value(*static_cast<AutoDiffStmt const *>(&t), vec);
             break;
+        case Statement::Tag::SUSPEND:
+            ser_value(*static_cast<SuspendStmt const *>(&t), vec);
+            break;
+        case Statement::Tag::CORO_BIND:
+            ser_value(*static_cast<CoroBindStmt const *>(&t), vec);
+            break;
         case Statement::Tag::PRINT:
             ser_value(*static_cast<PrintStmt const *>(&t), vec);
             break;
@@ -711,6 +736,10 @@ Statement *CallableLibrary::deser_value(std::byte const *&ptr, DeserPackage &pac
             return create_stmt.template operator()<RayQueryStmt>();
         case Statement::Tag::AUTO_DIFF:
             return create_stmt.template operator()<AutoDiffStmt>();
+        case Statement::Tag::SUSPEND:
+            return create_stmt.template operator()<SuspendStmt>();
+        case Statement::Tag::CORO_BIND:
+            return create_stmt.template operator()<CoroBindStmt>();
         case Statement::Tag::PRINT:
             return create_stmt.template operator()<PrintStmt>();
         case Statement::Tag::DEBUG_BREAK:
@@ -776,6 +805,12 @@ void CallableLibrary::deser_ptr(Statement *obj, std::byte const *&ptr, DeserPack
         case Statement::Tag::AUTO_DIFF:
             create_stmt.template operator()<AutoDiffStmt>();
             break;
+        case Statement::Tag::SUSPEND:
+            create_stmt.template operator()<SuspendStmt>();
+            break;
+        case Statement::Tag::CORO_BIND:
+            create_stmt.template operator()<CoroBindStmt>();
+            break;
         case Statement::Tag::PRINT:
             create_stmt.template operator()<PrintStmt>();
             break;
@@ -822,6 +857,14 @@ void CallableLibrary::deserialize_func_builder(detail::FunctionBuilder &builder,
     luisa::enlarge_by(builder._shared_variables, deser_value<size_t>(ptr, pack));
     for (auto &&i : builder._shared_variables) {
         i = deser_value<Variable>(ptr, pack);
+    }
+    auto coro_token_size = deser_value<size_t>(ptr, pack);
+    builder._coro_tokens.clear();
+    builder._coro_tokens.reserve(coro_token_size);
+    for (auto i = 0u; i < coro_token_size; i++) {
+        auto key = deser_value<luisa::string>(ptr, pack);
+        auto value = deser_value<uint32_t>(ptr, pack);
+        builder._coro_tokens.emplace(std::move(key), value);
     }
     size_t variable_usage_size = deser_value<size_t>(ptr, pack) / sizeof(Usage);
     luisa::enlarge_by(builder._variable_usages, variable_usage_size);
@@ -881,6 +924,11 @@ void CallableLibrary::serialize_func_builder(detail::FunctionBuilder const &buil
     ser_value(builder._shared_variables.size(), vec);
     for (auto &&i : builder._shared_variables) {
         ser_value(i, vec);
+    }
+    ser_value(builder._coro_tokens.size(), vec);
+    for (auto &&[key, value] : builder._coro_tokens) {
+        ser_value(key, vec);
+        ser_value(value, vec);
     }
     // variable usages
     ser_value(luisa::span<const std::byte>{reinterpret_cast<const std::byte *>(builder._variable_usages.data()), luisa::size_bytes(builder._variable_usages)}, vec);

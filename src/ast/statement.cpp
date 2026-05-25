@@ -94,6 +94,19 @@ uint64_t AutoDiffStmt::_compute_hash() const noexcept {
     return _body.hash();
 }
 
+uint64_t SuspendStmt::_compute_hash() const noexcept {
+    return hash_value(_token);
+}
+
+uint64_t CoroBindStmt::_compute_hash() const noexcept {
+    return hash_combine({_expr->hash(), hash_value(_name)});
+}
+
+CoroBindStmt::CoroBindStmt(const Expression *expr, luisa::string name) noexcept
+    : Statement{Tag::CORO_BIND}, _expr{expr}, _name{std::move(name)} {
+    _expr->mark(Usage::READ);
+}
+
 uint64_t PrintStmt::_compute_hash() const noexcept {
     auto h = luisa::hash_value(_format);
     for (auto &&e : _args) {
@@ -122,6 +135,14 @@ void StmtVisitor::visit(const AutoDiffStmt *stmt) {
     // reports error by default since it should be
     // handled by the IR when reaching the backend
     LUISA_ERROR_WITH_LOCATION("AutoDiffStmt is not supported.");
+}
+
+void StmtVisitor::visit(const SuspendStmt *stmt) {
+    LUISA_ERROR_WITH_LOCATION("SuspendStmt is not supported.");
+}
+
+void StmtVisitor::visit(const CoroBindStmt *stmt) {
+    LUISA_ERROR_WITH_LOCATION("CoroBindStmt is not supported.");
 }
 
 void StmtVisitor::visit(const PrintStmt *stmt) {

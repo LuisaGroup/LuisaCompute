@@ -107,6 +107,7 @@ namespace luisa::compute::dsl_detail {
 #define $continue ::luisa::compute::dsl::continue_()
 #define $return(...) ::luisa::compute::dsl::return_(__VA_ARGS__)
 #define $unreachable ::luisa::compute::dsl::unreachable()
+#define $suspend(...) ::luisa::compute::dsl::suspend(__VA_ARGS__)
 
 #define $if(...)                                                                  \
     ::luisa::compute::detail::IfStmtBuilder::create_with_comment(                 \

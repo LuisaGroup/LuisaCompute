@@ -237,6 +237,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coroutine.h>
 #include <luisa/xir/instructions/debug_break.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
@@ -263,6 +264,7 @@
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/call_graph.h>
+#include <luisa/xir/passes/coroutine.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/early_return_elimination.h>
@@ -290,4 +292,3 @@
 #include <luisa/xir/user.h>
 #include <luisa/xir/value.h>
 #endif
-

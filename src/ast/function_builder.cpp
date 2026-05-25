@@ -118,6 +118,20 @@ AutoDiffStmt *FunctionBuilder::autodiff_() noexcept {
     return _create_and_append_statement<AutoDiffStmt>();
 }
 
+uint32_t FunctionBuilder::suspend_(luisa::string desc) noexcept {
+    auto token = static_cast<uint32_t>(_coro_tokens.size() + 1u);
+    if (desc.empty()) { desc = luisa::format("__internal_suspend_{}", token); }
+    auto [_, success] = _coro_tokens.try_emplace(std::move(desc), token);
+    LUISA_ASSERT(success, "Duplicated coroutine suspend token.");
+    _create_and_append_statement<SuspendStmt>(token);
+    return token;
+}
+
+void FunctionBuilder::coro_bind_(const Expression *expr, luisa::string name) noexcept {
+    expr = _internalize(expr);
+    _create_and_append_statement<CoroBindStmt>(expr, std::move(name));
+}
+
 IfStmt *FunctionBuilder::if_(const Expression *cond) noexcept {
     cond = _internalize(cond);
     return _create_and_append_statement<IfStmt>(cond);

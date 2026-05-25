@@ -110,6 +110,7 @@ private:
     FuncBuilderMap _used_custom_callables;
     luisa::vector<Variable> _local_variables;
     luisa::vector<Variable> _shared_variables;
+    luisa::unordered_map<luisa::string, uint32_t> _coro_tokens;
     luisa::vector<Usage> _variable_usages;
     luisa::vector<std::pair<std::byte *, size_t /* alignment */>> _temporary_data;
     CallOpSet _direct_builtin_callables;
@@ -226,6 +227,7 @@ public:
     [[nodiscard]] auto propagated_builtin_callables() const noexcept { return _propagated_builtin_callables; }
     /// Return required curve bases.
     [[nodiscard]] auto required_curve_bases() const noexcept { return _required_curve_bases; }
+    [[nodiscard]] auto const &coro_tokens() const noexcept { return _coro_tokens; }
     /// Return tag(KERNEL, CALLABLE).
     [[nodiscard]] auto tag() const noexcept { return _tag; }
     /// Return pointer to body.
@@ -422,6 +424,8 @@ public:
     [[nodiscard]] RayQueryStmt *ray_query_(const RefExpr *query) noexcept;
     /// Add auto diff statement
     [[nodiscard]] AutoDiffStmt *autodiff_() noexcept;
+    [[nodiscard]] uint32_t suspend_(luisa::string desc = {}) noexcept;
+    void coro_bind_(const Expression *expr, luisa::string name) noexcept;
     /// Add print statement
     void print_(luisa::string format, luisa::span<const Expression *const> args) noexcept;
     /// Add debug break statement

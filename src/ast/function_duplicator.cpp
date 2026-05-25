@@ -428,6 +428,25 @@ private:
                 _dup_scope(s->body(), ad->body());
                 break;
             }
+            case Statement::Tag::SUSPEND: {
+                auto s = static_cast<const SuspendStmt *>(stmt);
+                luisa::string_view token_name;
+                for (auto &&[name, token] : _contexts.back()->original.coro_tokens()) {
+                    if (token == s->token()) {
+                        token_name = name;
+                        break;
+                    }
+                }
+                LUISA_ASSERT(!token_name.empty(), "Invalid coroutine suspend token.");
+                auto token = fb->suspend_(luisa::string{token_name});
+                LUISA_ASSERT(token == s->token(), "Duplicated coroutine suspend token mismatch.");
+                break;
+            }
+            case Statement::Tag::CORO_BIND: {
+                auto s = static_cast<const CoroBindStmt *>(stmt);
+                fb->coro_bind_(_dup_expr(s->expression()), luisa::string{s->name()});
+                break;
+            }
             case Statement::Tag::PRINT: {
                 auto s = static_cast<const PrintStmt *>(stmt);
                 luisa::vector<const Expression *> args;

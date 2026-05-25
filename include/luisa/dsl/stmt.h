@@ -329,6 +329,17 @@ inline void break_() noexcept { detail::FunctionBuilder::current()->break_(); }
 /// continue
 inline void continue_() noexcept { detail::FunctionBuilder::current()->continue_(); }
 
+inline auto suspend(luisa::string_view desc = {}) noexcept {
+    return detail::FunctionBuilder::current()->suspend_(luisa::string{desc});
+}
+
+template<typename Expr>
+inline void coro_bind(Expr &&expr, luisa::string_view name) noexcept {
+    detail::FunctionBuilder::current()->coro_bind_(
+        detail::extract_expression(std::forward<Expr>(expr)),
+        luisa::string{name});
+}
+
 /// if condition then t
 template<typename TrueFunc>
 inline auto if_(Expr<bool> condition, TrueFunc &&t) noexcept {
