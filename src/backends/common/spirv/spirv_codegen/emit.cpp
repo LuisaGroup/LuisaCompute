@@ -44,7 +44,7 @@ namespace lc::spirv {
 
 SpirvCodegenEntry::SpirvCodegenEntry(StringScratch &scratch, bool allow_indirect) noexcept
     : _scratch{scratch},
-      _builder_ptr{std::make_unique<spv::Builder>(spv::Spv_1_5, 0, &_logger)},
+      _builder_ptr{luisa::make_unique<spv::Builder>(spv::Spv_1_5, 0, &_logger)},
       _builder{*_builder_ptr},
       _allow_indirect_dispatch{allow_indirect} {
     _builder.setSource(spv::SourceLanguage::Unknown, 0);
@@ -244,9 +244,15 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
         case xir::DerivedValueTag::CONSTANT:
             id = _emit_constant(static_cast<const xir::Constant *>(value));
             break;
-        case xir::DerivedValueTag::UNDEFINED:
-            id = _builder.createUndefined(_convert_type(value->type(), Usage::READ));
+        case xir::DerivedValueTag::UNDEFINED: {
+            auto spv_type = _convert_type(value->type(), Usage::READ);
+            if (_builder.isPointerType(spv_type)) {
+                id = _builder.createUndefined(spv_type);
+            } else {
+                id = _builder.makeNullConstant(spv_type);
+            }
             break;
+        }
         case xir::DerivedValueTag::SPECIAL_REGISTER: {
             auto reg = static_cast<const xir::SpecialRegister *>(value);
             auto tag = reg->derived_special_register_tag();
@@ -402,13 +408,13 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
                 break;
             }
         }
-        if (cbuffer_non_empty && _property_ids.size() > 2) {
+            if (cbuffer_non_empty && _property_ids.size() > 2) {
             auto cbuffer_id = _property_ids[2];
             auto uint_type = _builder.makeUintType(32);
             auto bool_type = _builder.makeBoolType();
             size_t offset = 0;
             for (auto arg : value_args) {
-                _mark_8bit_storage_usage(arg->type(), spv::StorageClass::StorageBuffer);
+                _mark_8bit_storage_usage(arg->type(), _builder.getStorageClass(cbuffer_id));
                 auto align = arg->type()->alignment();
                 offset = (offset + align - 1) & ~(align - 1);
                 auto word_offset = _builder.makeUintConstant(static_cast<uint32_t>(offset / 4));
@@ -417,7 +423,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
                 auto type_size = arg->type()->size();
                 if (byte_in_word != 0 || type_size < 4) {
                     // Sub-word type: read the whole word and extract the relevant byte(s)
-                    auto ptr = _create_access_chain(spv::StorageClass::StorageBuffer, cbuffer_id,
+                    auto ptr = _create_access_chain(_builder.getStorageClass(cbuffer_id), cbuffer_id,
                                                     {_builder.makeUintConstant(0u), word_offset});
                     auto raw = _builder.createLoad(ptr, spv::NoPrecision);
                     if (byte_in_word != 0) {
@@ -447,10 +453,10 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
                 offset += type_size;
             }
         } else {
-            // Fallback: create undefined values if cbuffer is not available
+            // Fallback: create null values if cbuffer is not available
             for (auto arg : value_args) {
                 auto type = _convert_type(arg->type(), Usage::READ);
-                _value_map.emplace(arg, _builder.createUndefined(type));
+                _value_map.emplace(arg, _builder.makeNullConstant(type));
             }
         }
     }
@@ -564,11 +570,14 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
             spv::StorageClass storage = spv::StorageClass::Max;
             switch (type->tag()) {
                 case Type::Tag::BUFFER:
-                case Type::Tag::BINDLESS_ARRAY:
                     pointee_type = _convert_type(type, Usage::READ);
                     storage = spv::StorageClass::StorageBuffer;
                     _builder.addIncorporatedExtension("SPV_KHR_variable_pointers", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
+                    break;
+                case Type::Tag::BINDLESS_ARRAY:
+                    pointee_type = _convert_type(type, Usage::READ);
+                    storage = spv::StorageClass::Uniform;
                     break;
                 case Type::Tag::ACCEL:
                 case Type::Tag::TEXTURE:
@@ -619,6 +628,9 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
                              luisa::span<const Function::Binding> bindings,
                              luisa::string_view device_lib,
                              luisa::string_view native_include) noexcept {
+    _print_info.clear();
+    _print_formats.clear();
+    _requires_printing = false;
     auto analysis = _analyze_module_usage(module);
     _mark_atomic_buffer_types(analysis);
 

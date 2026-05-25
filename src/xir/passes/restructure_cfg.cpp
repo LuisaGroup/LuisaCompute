@@ -284,6 +284,12 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     return changed;
 }
 
+// Forward declaration.
+[[nodiscard]] static bool clone_subgraph_to_target(FunctionDefinition *def,
+                                                    BasicBlock *E, BasicBlock *P,
+                                                    BasicBlock *target,
+                                                    BasicBlock *new_target) noexcept;
+
 [[nodiscard]] static bool try_restructure_loop(FunctionDefinition *def,
                                                const DomTree &dom,
                                                const PostDomInfo &pdom,
@@ -709,6 +715,30 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     if_inst->set_false_target(false_bb);
     if_inst->set_merge_block(structural_merge);
 
+    // If an arm branches to a block that is not dominated by the header and not the
+    // structural merge, it is a shared tail from outside the construct. SPIR-V requires
+    // every block inside a selection to branch only to other in-construct blocks or the
+    // merge. Clone the shared tail so the arm has its own copy ending at the merge.
+    for (auto *arm_bb : {true_bb, false_bb}) {
+        if (arm_bb == nullptr) { continue; }
+        if (!arm_bb->is_terminated()) { continue; }
+        // Collect bad successors first to avoid UB from mutating the terminator
+        // (which modifies operand_uses()) while traversing it.
+        luisa::vector<BasicBlock *> bad_succs;
+        arm_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+            if (succ == structural_merge) { return; }
+            if (dom.dominates(found_header, succ)) { return; }
+            bad_succs.emplace_back(succ);
+        });
+        // Deduplicate: a terminator may have multiple edges to the same successor
+        // (e.g. a conditional branch where both arms target the same block).
+        luisa::sort(bad_succs.begin(), bad_succs.end());
+        bad_succs.erase(std::unique(bad_succs.begin(), bad_succs.end()), bad_succs.end());
+        for (auto *succ : bad_succs) {
+            clone_subgraph_to_target(def, succ, arm_bb, found_merge, structural_merge);
+        }
+    }
+
     info.restructured_if_count++;
     return true;
 }
@@ -808,11 +838,14 @@ struct CloneRemap final : public InstructionCloneValueResolver {
 }
 
 // Walk forward from E, collecting all blocks owned by E that are not boundary.
+// Blocks are recorded in deterministic DFS discovery order in `ordered`.
 static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                  luisa::span<BasicBlock *const> entries,
                                  BasicBlock *merge_bb, const DomTree &dom,
-                                 luisa::unordered_set<BasicBlock *> &region) noexcept {
+                                 luisa::unordered_set<BasicBlock *> &region,
+                                 luisa::vector<BasicBlock *> &ordered) noexcept {
     region.clear();
+    ordered.clear();
     luisa::vector<BasicBlock *> work;
     work.emplace_back(E);
     while (!work.empty()) {
@@ -821,6 +854,7 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
         if (region.contains(B)) { continue; }
         if (is_clone_boundary(B, E, header_bb, entries, merge_bb, dom)) { continue; }
         region.emplace(B);
+        ordered.emplace_back(B);
         B->traverse_successors(false, [&](BasicBlock *S) noexcept {
             if (!is_clone_boundary(S, E, header_bb, entries, merge_bb, dom) &&
                 !region.contains(S)) {
@@ -839,17 +873,15 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                                         BasicBlock *merge_bb,
                                                         const DomTree &dom) noexcept {
     luisa::unordered_set<BasicBlock *> region;
-    collect_owned_region(E, header_bb, entries, merge_bb, dom, region);
+    luisa::vector<BasicBlock *> ordered;
+    collect_owned_region(E, header_bb, entries, merge_bb, dom, region, ordered);
     if (region.empty()) { return false; }
 
-    // Pre-create cloned BBs.
+    // Pre-create cloned BBs in deterministic order.
     CloneRemap remap;
-    luisa::vector<BasicBlock *> ordered;
-    ordered.reserve(region.size());
-    for (auto *B : region) {
+    for (auto *B : ordered) {
         auto *NB = def->create_basic_block();
         remap.map[B] = NB;
-        ordered.emplace_back(B);
     }
 
     // Clone instructions of each region block into its counterpart.
@@ -876,6 +908,81 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
         rb.br(clone_E);
     }
     // Reroute every edge in P's terminator that targeted E to instead target relay.
+    retarget_terminator(P->terminator(), E, relay);
+    return true;
+}
+
+// Clone all blocks reachable from E until reaching target (exclusive).
+// Any terminators in the cloned region that point to target are retargeted to new_target.
+// P's terminator edge to E is rerouted through a fresh relay to clone(E).
+[[nodiscard]] static bool clone_subgraph_to_target(FunctionDefinition *def,
+                                                    BasicBlock *E, BasicBlock *P,
+                                                    BasicBlock *target,
+                                                    BasicBlock *new_target) noexcept {
+    // Defensive: all parameters must be non-null.
+    if (E == nullptr || P == nullptr || target == nullptr || new_target == nullptr) {
+        return false;
+    }
+
+    // Collect region: all blocks reachable from E, stopping at target.
+    // Every successor of a region block is either in region or == target (because
+    // the BFS pushes every non-target successor). Cloned terminators therefore only
+    // reference region blocks (resolved to their clones) or target (retargeted below).
+    luisa::unordered_set<BasicBlock *> region;
+    luisa::vector<BasicBlock *> ordered;
+    luisa::vector<BasicBlock *> work{E};
+    while (!work.empty()) {
+        auto *B = work.back();
+        work.pop_back();
+        if (region.contains(B)) { continue; }
+        if (B == target) { continue; }
+        region.emplace(B);
+        ordered.emplace_back(B);
+        if (!B->is_terminated()) { continue; }
+        B->traverse_successors(false, [&](BasicBlock *S) noexcept {
+            if (!region.contains(S) && S != target) {
+                work.emplace_back(S);
+            }
+        });
+    }
+    if (region.empty()) { return false; }
+    LUISA_DEBUG_ASSERT(!region.contains(target), "target must not be inside the cloned region");
+
+    // Pre-create cloned BBs in deterministic order.
+    CloneRemap remap;
+    for (auto *B : ordered) {
+        auto *NB = def->create_basic_block();
+        remap.map[B] = NB;
+    }
+
+    // Clone instructions of each region block into its counterpart.
+    XIRBuilder builder;
+    for (auto *old_bb : ordered) {
+        auto *new_bb = static_cast<BasicBlock *>(remap.map[old_bb]);
+        builder.set_insertion_point(new_bb);
+        for (auto *old_inst : old_bb->instructions()) {
+            auto *new_inst = old_inst->clone(builder, remap);
+            if (old_inst->type() != nullptr) {
+                remap.map[old_inst] = new_inst;
+            }
+        }
+    }
+
+    // Retarget cloned blocks that branch to target to new_target instead.
+    for (auto *old_bb : ordered) {
+        auto *new_bb = static_cast<BasicBlock *>(remap.map[old_bb]);
+        if (!new_bb->is_terminated()) { continue; }
+        retarget_terminator(new_bb->terminator(), target, new_target);
+    }
+
+    // Create a relay block: P -> relay -> clone(E).
+    auto *clone_E = static_cast<BasicBlock *>(remap.map[E]);
+    auto *relay = def->create_basic_block();
+    {
+        XIRBuilder rb;
+        rb.set_insertion_point(relay);
+        rb.br(clone_E);
+    }
     retarget_terminator(P->terminator(), E, relay);
     return true;
 }

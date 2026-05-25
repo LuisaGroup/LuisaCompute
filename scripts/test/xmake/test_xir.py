@@ -7,8 +7,17 @@ XIR_TARGETS = [
     "test_xir2ast_translators",
 ]
 
+BACKENDS = ["dx", "vk", "cuda", "metal"]
+
 
 def main():
+    if len(sys.argv) > 2:
+        print(f"Usage: python {sys.argv[0]} [backend]")
+        sys.exit(1)
+
+    backend = sys.argv[1] if len(sys.argv) > 1 else None
+    backends = [backend] if backend else BACKENDS
+
     ret = run_cmd(["xmake", "f", "-c", "--lc_enable_xir=true"])
     if ret != 0:
         print("ERROR: xmake config failed")

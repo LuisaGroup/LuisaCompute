@@ -48,8 +48,10 @@ def check_syntax(client: httpx.Client, args) -> int:
         print("[OK] No issues found!")
         return 0
 
-    if args.verbose:
-        for line in data.get("formatted", []) or []:
+    formatted = data.get("formatted") or []
+    for line in formatted:
+        # Always print errors and warnings; info/hint only in verbose mode
+        if args.verbose or line.startswith(("Error:", "Warning:")):
             print(line)
 
     print(

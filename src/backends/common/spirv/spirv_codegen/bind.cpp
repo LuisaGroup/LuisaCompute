@@ -208,7 +208,12 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             data_offset = (data_offset + member_align - 1u) & ~(member_align - 1u);
             member_offsets.push_back(data_offset);
 
-            auto spv_elem_type = _convert_type(elem_type, Usage::READ);
+            spv::Id spv_elem_type;
+            if (elem_type->is_structure() || elem_type->is_array()) {
+                spv_elem_type = _convert_laid_out_type(elem_type);
+            } else {
+                spv_elem_type = _convert_type(elem_type, Usage::READ);
+            }
             auto array_size_id = _builder.makeUintConstant(elem_count);
             auto array_type = _builder.makeArrayType(spv_elem_type, array_size_id, array_stride);
             // makeArrayType marks the type "explicitly laid out" but does not emit the
@@ -499,14 +504,16 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             case ShaderVariableType::StructuredBuffer:
             case ShaderVariableType::RWStructuredBuffer: {
                 bool writable = (prop.type == ShaderVariableType::RWStructuredBuffer);
+                bool is_untyped = elem_type == nullptr;
                 spv::Id struct_type;
-                if (elem_type == nullptr && luisa::string_view{var_name}.starts_with("_bdarr_")) {
+                if (is_untyped && luisa::string_view{var_name}.starts_with("_bdarr_")) {
                     // Bindless array: use _convert_type to ensure type consistency with callable parameters
                     struct_type = _convert_type(Type::from("bindless_array"), Usage::READ);
                 } else {
                     struct_type = make_typed_buffer_struct_type(elem_type, writable, "_Buffer");
                 }
-                var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, struct_type, var_name);
+                spv::StorageClass storage = spv::StorageClass::StorageBuffer;
+                var = _builder.createVariable(spv::NoPrecision, storage, struct_type, var_name);
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
                 // Align with HLSL globallycoherent: Coherent on writable buffer variables
@@ -529,6 +536,9 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 } else if (prop.array_size == 1) {
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, image_type, var_name);
                 } else {
+                    _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
+                    _builder.addCapability(spv::Capability::ShaderNonUniformEXT);
+                    _builder.addCapability(spv::Capability::SampledImageArrayNonUniformIndexingEXT);
                     auto array_size_id = _builder.makeUintConstant(prop.array_size);
                     auto array_type = _builder.makeArrayType(image_type, array_size_id, 0);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, array_type, var_name);
@@ -558,6 +568,9 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 } else if (prop.array_size == 1) {
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, image_type, var_name);
                 } else {
+                    _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
+                    _builder.addCapability(spv::Capability::ShaderNonUniformEXT);
+                    _builder.addCapability(spv::Capability::StorageImageArrayNonUniformIndexingEXT);
                     auto array_size_id = _builder.makeUintConstant(prop.array_size);
                     auto array_type = _builder.makeArrayType(image_type, array_size_id, 0);
                     var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::UniformConstant, array_type, var_name);
@@ -571,18 +584,27 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             }
             case ShaderVariableType::SRVBufferHeap:
             case ShaderVariableType::UAVBufferHeap: {
+                bool writable = (prop.type == ShaderVariableType::UAVBufferHeap);
                 auto struct_type = make_buffer_struct_type("_BindlessBuffer");
+                spv::StorageClass storage = spv::StorageClass::StorageBuffer;
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
                     _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::RuntimeDescriptorArray);
                     _builder.addCapability(spv::Capability::ShaderNonUniformEXT);
                     _builder.addCapability(spv::Capability::StorageBufferArrayNonUniformIndexingEXT);
                     auto array_type = _builder.makeRuntimeArray(struct_type);
-                    var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, array_type, var_name);
+                    var = _builder.createVariable(spv::NoPrecision, storage, array_type, var_name);
+                } else if (prop.array_size > 1) {
+                    _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
+                    _builder.addCapability(spv::Capability::ShaderNonUniformEXT);
+                    _builder.addCapability(spv::Capability::StorageBufferArrayNonUniformIndexingEXT);
+                    auto array_size_id = _builder.makeUintConstant(prop.array_size);
+                    auto array_type = _builder.makeArrayType(struct_type, array_size_id, 0);
+                    var = _builder.createVariable(spv::NoPrecision, storage, array_type, var_name);
                 } else {
                     auto array_size_id = _builder.makeUintConstant(prop.array_size);
                     auto array_type = _builder.makeArrayType(struct_type, array_size_id, 0);
-                    var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::StorageBuffer, array_type, var_name);
+                    var = _builder.createVariable(spv::NoPrecision, storage, array_type, var_name);
                 }
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));

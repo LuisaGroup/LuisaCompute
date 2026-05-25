@@ -25,6 +25,13 @@ BACKENDS = ["dx", "vk", "cuda", "metal"]
 
 
 def main():
+    if len(sys.argv) > 2:
+        print(f"Usage: python {sys.argv[0]} [backend]")
+        sys.exit(1)
+
+    backend = sys.argv[1] if len(sys.argv) > 1 else None
+    backends = [backend] if backend else BACKENDS
+
     ret = run_cmd(["xmake", "f", "-c"])
     if ret != 0:
         print("ERROR: xmake config failed")
@@ -43,7 +50,7 @@ def main():
         if run_cmd(["xmake", "build", target]) != 0:
             failures.append(f"build:{target}")
             continue
-        for backend in BACKENDS:
+        for backend in backends:
             print(f"--- Running {target} with backend {backend} ---")
             if run_cmd(["xmake", "run", target, backend]) != 0:
                 failures.append(f"run:{target}:{backend}")

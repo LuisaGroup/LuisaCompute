@@ -37,7 +37,7 @@ public:
 
 private:
     StringScratch &_scratch;
-    std::unique_ptr<spv::Builder> _builder_ptr;
+    luisa::unique_ptr<spv::Builder> _builder_ptr;
     spv::SpvBuildLogger _logger;
     spv::Builder &_builder; // reference to *_builder_ptr
 

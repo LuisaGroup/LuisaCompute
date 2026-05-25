@@ -118,6 +118,11 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
+    if (std::getenv("LUISA_DUMP_SOURCE")) {
+        std::ostringstream disasm;
+        spv::Disassemble(disasm, words);
+        LUISA_INFO("=== PRE-VALIDATION SPIR-V for {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
+    }
     luisa_spirv_validate(words, "pre-optimization");
     if (std::getenv("LUISA_DUMP_SPV")) {
         auto filename = luisa::format("/tmp/opencode/kernel_{:016x}.spv", kernel.hash());
@@ -140,7 +145,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     auto use_buffer = codegen._use_buffer_bindless;
     auto constant_ubo_data = std::move(codegen._constant_ubo_data);
     // Leak builder to avoid destructor crash
-    codegen._builder_ptr.release();  // NOLINT: intentional leak to avoid destructor crash
+    codegen._builder_ptr.release();// NOLINT: intentional leak to avoid destructor crash
     return SpirvResult{
         std::move(words),
         std::move(props),
