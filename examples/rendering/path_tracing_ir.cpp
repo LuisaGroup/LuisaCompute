@@ -16,7 +16,17 @@
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/ir/ast2ir.h>
+#ifndef LUISA_RENDERING_USE_XIR_COROUTINES
+#define LUISA_RENDERING_USE_XIR_COROUTINES 0
+#endif
 #if LUISA_RENDERING_USE_XIR_TO_AST
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+#include <luisa/xir/basic_block.h>
+#include <luisa/xir/function.h>
+#include <luisa/xir/instructions/coroutine.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/passes/coroutine.h>
+#endif
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
 #endif
@@ -34,8 +44,40 @@ using namespace luisa::compute;
 #if LUISA_RENDERING_USE_XIR_TO_AST
 namespace {
 
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+void strip_coroutine_markers(xir::Module *module) noexcept {
+    luisa::vector<xir::Instruction *> markers;
+    for (auto *f : module->function_list()) {
+        if (!f->is_definition()) { continue; }
+        static_cast<xir::FunctionDefinition *>(f)->traverse_basic_blocks([&](xir::BasicBlock *block) noexcept {
+            for (auto *inst : block->instructions()) {
+                switch (inst->derived_instruction_tag()) {
+                    case xir::DerivedInstructionTag::CORO_REGISTER:
+                    case xir::DerivedInstructionTag::CORO_SUSPEND: markers.emplace_back(inst); break;
+                    default: break;
+                }
+            }
+        });
+    }
+    for (auto *inst : markers) { inst->remove_self(); }
+}
+#endif
+
 [[nodiscard]] auto build_xir_to_ast_kernel(const Function &function) noexcept {
     auto module = xir::ast_to_xir_translate(function, {});
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+    auto info = xir::coroutine_analysis_run_on_module(module.get());
+    LUISA_INFO("XIR coroutine markers: {} register(s), {} suspend(s), {} continuation(s), {} transition(s).",
+               info.registers.size(), info.suspends.size(), info.continuations.size(), info.transitions.size());
+#if LUISA_RENDERING_USE_XIR_COROUTINE_STRIP_ONLY
+    strip_coroutine_markers(module.get());
+    LUISA_INFO("XIR coroutine strip-only mode: markers removed without lowering.");
+#else
+    auto lower = xir::coroutine_lower_run_on_module(module.get());
+    LUISA_INFO("XIR coroutine lower: {} register(s), {} suspend(s), {} switch(es).",
+               lower.removed_register_count, lower.removed_suspend_count, lower.created_switch_count);
+#endif
+#endif
     auto config = xir::XIR2ASTConfig{.bound_arguments = function.bound_arguments()};
     for (auto *f : module->function_list()) {
         if (f->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
@@ -230,6 +272,9 @@ int main(int argc, char *argv[]) {
             $for (depth, 10u) {
 
                 // trace
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+                $suspend("intersect");
+#endif
                 auto hit = accel.intersect(ray, {});
                 reorder_shader_execution();
                 $if (hit->miss()) { $break; };
@@ -257,6 +302,9 @@ int main(int argc, char *argv[]) {
                 };
 
                 // sample light
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+                $suspend("sample_light");
+#endif
                 auto ux_light = lcg(state);
                 auto uy_light = lcg(state);
                 auto p_light = light_position + ux_light * light_u + uy_light * light_v;
@@ -277,6 +325,9 @@ int main(int argc, char *argv[]) {
                 };
 
                 // sample BSDF
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+                $suspend("sample_bsdf");
+#endif
                 Var<Onb> onb = make_onb(n);
                 Float ux = lcg(state);
                 Float uy = lcg(state);
@@ -297,6 +348,9 @@ int main(int argc, char *argv[]) {
             };
         };
         radiance /= static_cast<float>(spp_per_dispatch);
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+        $suspend("write_film");
+#endif
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));

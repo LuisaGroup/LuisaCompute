@@ -41,6 +41,8 @@ end
 if has_config("lc_enable_xir") then
     example_proj("example_path_tracing_xir2ast", "rendering/path_tracing_xir2ast.cpp", true)
     example_proj("example_sdf_renderer_xir2ast", "rendering/sdf_renderer_xir2ast.cpp", true)
+    example_proj("example_path_tracing_xir_coroutine", "rendering/path_tracing_xir_coroutine.cpp", true)
+    example_proj("example_sdf_renderer_xir_coroutine", "rendering/sdf_renderer_xir_coroutine.cpp", true)
 end
 
 -- simulation

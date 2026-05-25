@@ -21,7 +21,17 @@
 #include <luisa/runtime/swapchain.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/ir/ast2ir.h>
+#ifndef LUISA_RENDERING_USE_XIR_COROUTINES
+#define LUISA_RENDERING_USE_XIR_COROUTINES 0
+#endif
 #if LUISA_RENDERING_USE_XIR_TO_AST
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+#include <luisa/xir/basic_block.h>
+#include <luisa/xir/function.h>
+#include <luisa/xir/instructions/coroutine.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/passes/coroutine.h>
+#endif
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
 #endif
@@ -32,8 +42,40 @@ using namespace luisa::compute;
 #if LUISA_RENDERING_USE_XIR_TO_AST
 namespace {
 
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+void strip_coroutine_markers(xir::Module *module) noexcept {
+    luisa::vector<xir::Instruction *> markers;
+    for (auto *f : module->function_list()) {
+        if (!f->is_definition()) { continue; }
+        static_cast<xir::FunctionDefinition *>(f)->traverse_basic_blocks([&](xir::BasicBlock *block) noexcept {
+            for (auto *inst : block->instructions()) {
+                switch (inst->derived_instruction_tag()) {
+                    case xir::DerivedInstructionTag::CORO_REGISTER:
+                    case xir::DerivedInstructionTag::CORO_SUSPEND: markers.emplace_back(inst); break;
+                    default: break;
+                }
+            }
+        });
+    }
+    for (auto *inst : markers) { inst->remove_self(); }
+}
+#endif
+
 [[nodiscard]] auto build_xir_to_ast_kernel(const Function &function) noexcept {
     auto module = xir::ast_to_xir_translate(function, {});
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+    auto info = xir::coroutine_analysis_run_on_module(module.get());
+    LUISA_INFO("XIR coroutine markers: {} register(s), {} suspend(s), {} continuation(s), {} transition(s).",
+               info.registers.size(), info.suspends.size(), info.continuations.size(), info.transitions.size());
+#if LUISA_RENDERING_USE_XIR_COROUTINE_STRIP_ONLY
+    strip_coroutine_markers(module.get());
+    LUISA_INFO("XIR coroutine strip-only mode: markers removed without lowering.");
+#else
+    auto lower = xir::coroutine_lower_run_on_module(module.get());
+    LUISA_INFO("XIR coroutine lower: {} register(s), {} suspend(s), {} switch(es).",
+               lower.removed_register_count, lower.removed_suspend_count, lower.created_switch_count);
+#endif
+#endif
     for (auto *f : module->function_list()) {
         if (f->derived_function_tag() == xir::DerivedFunctionTag::KERNEL) {
             return xir::xir_to_ast_translate(*static_cast<xir::FunctionDefinition *>(f), {});
@@ -189,6 +231,9 @@ int main(int argc, char *argv[]) {
             auto closest = def(0.0f);
             auto normal = def(make_float3());
             auto c = def(make_float3());
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+            $suspend("next_hit");
+#endif
             next_hit(closest, normal, c, pos, d);
             auto dist_to_light = intersect_light(pos, d);
             $if (dist_to_light < closest) {
@@ -197,10 +242,16 @@ int main(int argc, char *argv[]) {
             };
             $if (length_squared(normal) == 0.0f) { $break; };
             auto hit_pos = pos + closest * d;
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+            $suspend("sample_direction");
+#endif
             d = out_dir(normal, seed);
             pos = hit_pos + 1e-4f * d;
             throughput *= c;
         };
+#if LUISA_RENDERING_USE_XIR_COROUTINES
+        $suspend("write_accum");
+#endif
         auto accum_color = lerp(accum_image.read(coord).xyz(), throughput.xyz() * hit_light, 1.0f / (frame_index + 1.0f));
         accum_image.write(coord, make_float4(accum_color, 1.0f));
         seed_image.write(coord, make_uint4(seed));
