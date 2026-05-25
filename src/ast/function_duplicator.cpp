@@ -436,6 +436,25 @@ private:
                 fb->print_(luisa::string{s->format()}, args);
                 break;
             }
+            case Statement::Tag::SUSPEND: {
+                auto s = static_cast<const SuspendStmt *>(stmt);
+                auto token = s->token();
+                auto token_name = [this, token] {
+                    auto &original = this->_contexts.back()->original;
+                    for (auto &&[name, t] : original.coro_tokens()) {
+                        if (t == token) { return name; }
+                    }
+                    LUISA_ERROR_WITH_LOCATION("Invalid coroutine token.");
+                }();
+                auto new_token = fb->suspend_(token_name);
+                LUISA_ASSERT(token == new_token, "Invalid coroutine token.");
+                break;
+            }
+            case Statement::Tag::COROBIND: {
+                auto s = static_cast<const CoroBindStmt *>(stmt);
+                fb->bind_promise_(s->expression(), luisa::string{s->name()});
+                break;
+            }
             case Statement::Tag::DEBUG_BREAK: {
                 auto s = static_cast<const DebugBreakStmt *>(stmt);
                 luisa::vector<const Expression *> watches;

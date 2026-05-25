@@ -114,6 +114,16 @@ uint64_t DebugBreakStmt::_compute_hash() const noexcept {
     }
     return h;
 }
+uint64_t SuspendStmt::_compute_hash() const noexcept {
+    return luisa::hash_value(_token);
+}
+
+uint64_t CoroBindStmt::_compute_hash() const noexcept {
+    auto id2 = luisa::hash_value(_name);
+    auto expr = _expr->hash();
+    return hash_combine({id2, expr});
+}
+
 
 DebugBreakStmt::DebugBreakStmt(Wrapper *wrapper, luisa::vector<const Expression *> watches) noexcept
     : Statement{Tag::DEBUG_BREAK}, _wrapper{wrapper}, _watches{std::move(watches)} {}
@@ -135,5 +145,13 @@ void StmtVisitor::visit(const DebugBreakStmt *stmt) {
     // critical, so we just log a warning.
     LUISA_WARNING_WITH_LOCATION("DebugBreakStmt is not supported.");
 }
+
+void StmtVisitor::visit(const SuspendStmt *stmt) {
+    LUISA_ERROR_WITH_LOCATION("SuspendStmt is not supported.");
+}
+void StmtVisitor::visit(const CoroBindStmt *stmt) {
+    LUISA_ERROR_WITH_LOCATION("CoroBindStmt is not supported.");
+}
+
 
 }// namespace luisa::compute

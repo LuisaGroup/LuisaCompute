@@ -108,6 +108,43 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
     }
 }
 
+void FunctionBuilder::check_is_coroutine() noexcept {
+    LUISA_ASSERT(_tag == Tag::COROUTINE,
+                 "Coroutine intrinsics are only allowed in coroutines.");
+}
+
+uint FunctionBuilder::suspend_(luisa::string desc) noexcept {
+    check_is_coroutine();
+    auto token = static_cast<uint>(_coro_tokens.size() + 1u);
+    if (desc.empty()) { desc = luisa::format("__internal_suspend_{}", token); }
+    auto [_, success] = _coro_tokens.emplace(desc, token);
+    LUISA_ASSERT(success, "Duplicated suspend token '{}' description.", desc);
+    _create_and_append_statement<SuspendStmt>(token);
+    return token;
+}
+
+void FunctionBuilder::suspend_token_(uint token) noexcept {
+    check_is_coroutine();
+    auto desc = luisa::format("__xir_suspend_{}", token);
+    _coro_tokens.try_emplace(desc, token);
+    _create_and_append_statement<SuspendStmt>(token);
+}
+
+void FunctionBuilder::bind_promise_(const Expression *expr, luisa::string name) noexcept {
+    check_is_coroutine();
+    _create_and_append_statement<CoroBindStmt>(expr, std::move(name));
+}
+
+const CallExpr *FunctionBuilder::coro_id() noexcept {
+    check_is_coroutine();
+    return call(Type::of<uint3>(), CallOp::CORO_ID, {});
+}
+
+const CallExpr *FunctionBuilder::coro_token() noexcept {
+    check_is_coroutine();
+    return call(Type::of<uint>(), CallOp::CORO_TOKEN, {});
+}
+
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
     LUISA_ASSERT(query->builder() == this,
                  "Ray query must be created by the same function builder.");
@@ -612,7 +649,7 @@ void FunctionBuilder::_compute_hash() noexcept {
     using namespace std::string_view_literals;
     static auto seed = hash_value("__hash_function"sv);
     luisa::vector<uint64_t> hashes;
-    bool is_callable = _tag == Function::Tag::CALLABLE;
+    bool is_callable = _tag == Function::Tag::CALLABLE || _tag == Function::Tag::COROUTINE;
     hashes.reserve(2u /* body and tag */ +
                    1u /* return type */ +
                    1 +
@@ -644,6 +681,7 @@ luisa::string FunctionBuilder::debug_name() const noexcept {
             case Tag::CALLABLE: return "callable"sv;
             case Tag::KERNEL: return "kernel"sv;
             case Tag::RASTER_STAGE: return "raster_stage"sv;
+            case Tag::COROUTINE: return "coroutine"sv;
         }
         return "unknown"sv;
     }();
@@ -824,8 +862,33 @@ const CallExpr *FunctionBuilder::call(const Type *type, Function custom, luisa::
                             return _internalize(iter->second);
                         }
                         // normal argument
+                        auto explicit_arg_count = size_t{0u};
+                        luisa::string explicit_args{"("};
+                        for (auto j = 0u; j < f->_arguments.size(); j++) {
+                            auto candidate = f->_arguments[j];
+                            if (candidate.is_builtin()) { continue; }
+                            if (!luisa::holds_alternative<luisa::monostate>(f->_bound_arguments[j])) { continue; }
+                            if (f->_internalizer_arguments.contains(candidate)) { continue; }
+                            explicit_arg_count++;
+                            explicit_args.append("\n    ").append(candidate.type()->description()).append(",");
+                        }
+                        if (explicit_arg_count != 0u) {
+                            explicit_args.pop_back();
+                            explicit_args.append("\n");
+                        }
+                        explicit_args.append(")");
                         LUISA_ASSERT(in_iter != args.end(),
-                                     "Not enough arguments for custom callable.");
+                                     "Not enough arguments for custom callable '{}' "
+                                     "(total_args = {}, bound_args = {}, builtin_args = {}, captured_args = {}, explicit_args = {}, provided_args = {}). "
+                                     "Expected explicit arguments: {}",
+                                     f->debug_name(),
+                                     f->_arguments.size(),
+                                     f->_bound_arguments.size(),
+                                     f->_builtin_variables.size(),
+                                     f->_internalizer_arguments.size(),
+                                     explicit_arg_count,
+                                     args.size(),
+                                     explicit_args);
                         return _internalize(*(in_iter++));
                     }
                 },
@@ -1095,7 +1158,9 @@ const Expression *FunctionBuilder::_internalize(const Expression *expr) noexcept
     // Note: we support "variable leaking" into caller to help graph-style
     //  shading system implementation but this can be dangerous. So we also
     //  print a warning message with stacktrace for users to check twice.
-    if (_tag != Function::Tag::CALLABLE && !is_static) [[unlikely]] {
+    if (_tag != Function::Tag::CALLABLE &&
+        _tag != Function::Tag::COROUTINE &&
+        !is_static) [[unlikely]] {
         // must be a leak from a callable, so postpone
         // the fix until the kernel is encoded
         LUISA_ASSERT(expr->tag() == Expression::Tag::REF,

@@ -16,6 +16,10 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro/id.h>
+#include <luisa/xir/instructions/coro/register.h>
+#include <luisa/xir/instructions/coro/suspend.h>
+#include <luisa/xir/instructions/coro/token.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/load.h>
@@ -546,6 +550,8 @@ private:
                     return tmp;
                 }
                 case DerivedInstructionTag::GEP: return _gep(static_cast<const GEPInst *>(inst));
+                case DerivedInstructionTag::CORO_ID: return _current_builder()->coro_id();
+                case DerivedInstructionTag::CORO_TOKEN: return _current_builder()->coro_token();
                 case DerivedInstructionTag::ARITHMETIC: return _arithmetic(static_cast<const ArithmeticInst *>(inst));
                 case DerivedInstructionTag::CAST: {
                     auto cast = static_cast<const CastInst *>(inst);
@@ -705,6 +711,16 @@ private:
                     _current_builder()->call(detail::xir2ast_resource_write_op(write->op()), _operands(write));
                     break;
                 }
+                case DerivedInstructionTag::SUSPEND: {
+                    auto suspend = static_cast<const SuspendInst *>(inst);
+                    _current_builder()->suspend_token_(suspend->coro_token);
+                    break;
+                }
+                case DerivedInstructionTag::CORO_REGISTER: {
+                    auto reg = static_cast<const CoroRegisterInst *>(inst);
+                    _current_builder()->bind_promise_(_expr(reg->value()), luisa::string{reg->name()});
+                    break;
+                }
                 case DerivedInstructionTag::ASSERT: [[fallthrough]];
                 case DerivedInstructionTag::ASSUME: [[fallthrough]];
                 case DerivedInstructionTag::ATOMIC: [[fallthrough]];
@@ -806,6 +822,16 @@ private:
                 case DerivedInstructionTag::RESOURCE_WRITE: {
                     auto write = static_cast<const ResourceWriteInst *>(inst);
                     _current_builder()->call(detail::xir2ast_resource_write_op(write->op()), _operands(write));
+                    break;
+                }
+                case DerivedInstructionTag::SUSPEND: {
+                    auto suspend = static_cast<const SuspendInst *>(inst);
+                    _current_builder()->suspend_token_(suspend->coro_token);
+                    break;
+                }
+                case DerivedInstructionTag::CORO_REGISTER: {
+                    auto reg = static_cast<const CoroRegisterInst *>(inst);
+                    _current_builder()->bind_promise_(_expr(reg->value()), luisa::string{reg->name()});
                     break;
                 }
                 case DerivedInstructionTag::ASSERT: [[fallthrough]];
@@ -964,7 +990,18 @@ private:
         };
         switch (f.derived_function_tag()) {
             case DerivedFunctionTag::KERNEL: return ASTFunctionBuilder::define_kernel(build);
-            case DerivedFunctionTag::CALLABLE: return ASTFunctionBuilder::define_callable(build);
+            case DerivedFunctionTag::CALLABLE: {
+                auto has_coro_markers = false;
+                f.traverse_instructions([&](const Instruction *inst) noexcept {
+                    has_coro_markers |= inst->isa<CoroIdInst>() ||
+                                        inst->isa<CoroTokenInst>() ||
+                                        inst->isa<CoroRegisterInst>() ||
+                                        inst->isa<SuspendInst>();
+                });
+                return has_coro_markers ?
+                           ASTFunctionBuilder::define_coroutine(build) :
+                           ASTFunctionBuilder::define_callable(build);
+            }
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Cannot translate external XIR function to AST.");
@@ -1081,6 +1118,16 @@ luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate(const FunctionD
     XIR2ASTContext ctx{config};
     ctx.add_function(function);
     return ctx.finalize();
+}
+
+luisa::shared_ptr<const ASTFunctionBuilder> XIR2AST::build(const KernelFunction *kernel) noexcept {
+    LUISA_ASSERT(kernel != nullptr, "Kernel must not be null.");
+    return xir_to_ast_translate(*kernel, {});
+}
+
+luisa::shared_ptr<const ASTFunctionBuilder> XIR2AST::build(const CallableFunction *callable) noexcept {
+    LUISA_ASSERT(callable != nullptr, "Callable must not be null.");
+    return xir_to_ast_translate(*callable, {});
 }
 
 }// namespace luisa::compute::xir

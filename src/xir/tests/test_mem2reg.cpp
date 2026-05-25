@@ -4,7 +4,7 @@
 int main(int argc, char *argv[]) {
 
     auto context = luisa::compute::Context{luisa::current_executable_path()};
-    auto device = context.create_device("fallback");
+    auto device = context.create_device("cuda");
 
     auto stream = device.create_stream();
     auto buffer = device.create_buffer<uint>(1u);

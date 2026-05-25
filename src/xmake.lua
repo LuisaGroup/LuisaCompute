@@ -1,10 +1,15 @@
 includes("ext")
 includes("core", "vstl", "runtime")
+includes("rust", "ir")
+if has_config("lc_enable_xir") then
+    includes("xir")
+end
 if has_config("lc_enable_osl") then
     includes("osl")
 end
 if has_config("lc_enable_dsl") then
     includes("dsl")
+    includes("coro")
 end
 if has_config("lc_enable_gui") then
     includes("gui")

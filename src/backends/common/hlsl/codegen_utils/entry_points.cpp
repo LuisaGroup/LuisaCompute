@@ -519,6 +519,14 @@ uint obj_id:register(b0);
 }
 
 void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result, bool cbufferNonEmpty, bool codegen_self) {
+    auto is_zero_constant = [](ConstantData const &data) noexcept {
+        auto raw = data.raw();
+        auto size = data.type()->size();
+        for (size_t i = 0; i < size; i++) {
+            if (raw[i] != std::byte{0}) { return false; }
+        }
+        return true;
+    };
     auto codegenOneFunc = [&](Function func) {
         auto constants = func.constants();
         for (auto &&i : constants) {
@@ -527,8 +535,14 @@ void CodegenUtility::CodegenFunction(Function func, vstd::StringBuilder &result,
             result << "static const "sv;
             GetTypeName(*i.type(), result, Usage::READ);
             result << ' ' << constValueName << " = "sv;
-            CodegenConstantPrinter printer{*this, result};
-            i.decode(printer);
+            if ((i.type()->is_structure() || i.type()->is_array()) && is_zero_constant(i)) {
+                result << '(';
+                GetTypeName(*i.type(), result, Usage::READ);
+                result << ")0"sv;
+            } else {
+                CodegenConstantPrinter printer{*this, result};
+                i.decode(printer);
+            }
             result << ";\n"sv;
         }
 #ifdef LUISA_ENABLE_IR

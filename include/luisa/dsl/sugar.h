@@ -163,6 +163,24 @@ namespace luisa::compute::dsl_detail {
                  .append(" [")                                                                     \
                  .append(::luisa::compute::dsl_detail::format_source_location(__FILE__, __LINE__)) \
                  .append("]"))
+#define $suspend(...)                                             \
+    ([&] {                                                        \
+        ::luisa::compute::detail::comment(                        \
+            ::luisa::compute::dsl_detail::format_source_location( \
+                __FILE__, __LINE__));                             \
+        return ::luisa::compute::dsl::suspend(__VA_ARGS__);       \
+    }())
+
+#define $promise(...) ::luisa::compute::dsl::promise(__VA_ARGS__)
+
+#define $yield(...)                                                     \
+    do {                                                                \
+        ::luisa::compute::dsl::promise("__yielded_value", __VA_ARGS__); \
+        ::luisa::compute::dsl::suspend();                               \
+    } while (false)
+
+#define $await ::luisa::compute::coroutine::detail::CoroAwaitInvoker{} %
+
 
 #define LUISA_COMPUTE_DSL_DEVICE_DEBUG_WATCH_ADD(x)                                  \
     static_assert(::luisa::compute::is_var_v<decltype(x)>,                           \

@@ -764,6 +764,8 @@ private:
             }
             case CallOp::BACKWARD: LUISA_NOT_IMPLEMENTED();
             case CallOp::DETACH: LUISA_NOT_IMPLEMENTED();
+            case CallOp::CORO_ID: return b.coro_id();
+            case CallOp::CORO_TOKEN: return b.coro_token();
             case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM);
             case CallOp::RAY_TRACING_INSTANCE_USER_ID: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID);
             case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK);
@@ -1101,6 +1103,17 @@ private:
                     }
                     return static_cast<void>(_commented(b.return_void()));
                 }
+                case Statement::Tag::SUSPEND: {
+                    auto token = static_cast<const SuspendStmt *>(car)->token();
+                    _commented(b.suspend_(token));
+                    break;
+                }
+                case Statement::Tag::COROBIND: {
+                    auto bind = static_cast<const CoroBindStmt *>(car);
+                    auto value = _translate_expression(b, bind->expression(), false);
+                    _commented(b.coro_register(value, luisa::string{bind->name()}));
+                    break;
+                }
                 case Statement::Tag::SCOPE: LUISA_ERROR_WITH_LOCATION("Unexpected scope statement.");
                 case Statement::Tag::IF: {
                     auto ast_if = static_cast<const IfStmt *>(car);
@@ -1170,6 +1183,7 @@ private:
                     debug_break->set_operands(watches);
                     break;
                 }
+                
             }
             // update the statement list
             stmts = cdr;
@@ -1235,6 +1249,9 @@ public:
                     return kernel;
                 }
                 case ASTFunction::Tag::CALLABLE: {
+                    return _module->create_callable(f.return_type());
+                }
+                case ASTFunction::Tag::COROUTINE: {
                     return _module->create_callable(f.return_type());
                 }
                 case ASTFunction::Tag::RASTER_STAGE: LUISA_NOT_IMPLEMENTED();

@@ -128,6 +128,10 @@ luisa::span<const Variable> Function::unbound_arguments() const noexcept {
     return _builder->unbound_arguments();
 }
 
+const Expression *Function::captured_argument(Variable arg) const noexcept {
+    return _builder->captured_argument(arg);
+}
+
 bool Function::requires_autodiff() const noexcept {
     return _builder->requires_autodiff();
 }

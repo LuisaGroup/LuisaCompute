@@ -185,6 +185,18 @@ ClockInst *XIRBuilder::clock() noexcept {
     return _create_and_append_instruction<ClockInst>(_insertion_point->parent_block());
 }
 
+CoroIdInst *XIRBuilder::coro_id() noexcept {
+    return _create_and_append_instruction<CoroIdInst>(_insertion_point->parent_block());
+}
+
+CoroTokenInst *XIRBuilder::coro_token() noexcept {
+    return _create_and_append_instruction<CoroTokenInst>(_insertion_point->parent_block());
+}
+
+CoroRegisterInst *XIRBuilder::coro_register(Value *value, luisa::string name) noexcept {
+    return _create_and_append_instruction<CoroRegisterInst>(_insertion_point->parent_block(), value, std::move(name));
+}
+
 OutlineInst *XIRBuilder::outline() noexcept {
     return _create_and_append_instruction<OutlineInst>(_insertion_point->parent_block());
 }
@@ -344,6 +356,10 @@ AtomicInst *XIRBuilder::atomic_compare_exchange(const Type *type, Value *base,
     return this->call(type, AtomicOp::COMPARE_EXCHANGE, base, indices, std::array{expected, desired});
 }
 
+SuspendInst *XIRBuilder::suspend_(uint32_t token) noexcept {
+    return _create_and_append_instruction<SuspendInst>(_insertion_point->parent_block(), token);
+}
+
 void XIRBuilder::set_insertion_point(Instruction *insertion_point) noexcept {
     _insertion_point = insertion_point;
 }
@@ -352,5 +368,6 @@ void XIRBuilder::set_insertion_point(BasicBlock *block) noexcept {
     LUISA_ASSERT(block != nullptr, "Insertion point block cannot be null.");
     set_insertion_point(block->instructions().tail_sentinel()->prev());
 }
+
 
 }// namespace luisa::compute::xir

@@ -36,6 +36,8 @@ public:
         AUTO_DIFF,
         PRINT,
         DEBUG_BREAK,
+        SUSPEND,
+        COROBIND
     };
 
 private:
@@ -78,6 +80,8 @@ class AutoDiffStmt;
 class PrintStmt;
 class DebugBreakStmt;
 
+class SuspendStmt;
+class CoroBindStmt;
 struct LUISA_AST_API StmtVisitor {
     virtual void visit(const BreakStmt *) = 0;
     virtual void visit(const ContinueStmt *) = 0;
@@ -96,6 +100,8 @@ struct LUISA_AST_API StmtVisitor {
     virtual void visit(const AutoDiffStmt *stmt);
     virtual void visit(const PrintStmt *stmt);
     virtual void visit(const DebugBreakStmt *stmt);
+    virtual void visit(const SuspendStmt *stmt);
+    virtual void visit(const CoroBindStmt *stmt);
     virtual ~StmtVisitor() noexcept = default;
 };
 
@@ -541,6 +547,41 @@ public:
     LUISA_STATEMENT_COMMON()
 };
 
+class LUISA_AST_API SuspendStmt : public Statement {
+
+private:
+    const uint _token;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit SuspendStmt(const uint token) noexcept
+        : Statement{Tag::SUSPEND}, _token{token} {
+    }
+    [[nodiscard]] auto token() const noexcept { return _token; }
+    LUISA_STATEMENT_COMMON()
+};
+
+/// Bind Promise statement
+class LUISA_AST_API CoroBindStmt : public Statement {
+
+private:
+    const Expression *_expr;
+    luisa::string _name;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit CoroBindStmt(const Expression *expr, luisa::string name) noexcept
+        : Statement{Tag::COROBIND}, _expr{expr}, _name{std::move(name)} {
+    }
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
+    [[nodiscard]] auto expression() const noexcept { return _expr; }
+    LUISA_STATEMENT_COMMON()
+};
+
 #undef LUISA_STATEMENT_COMMON
 
 // helper function for easy traversal over the ASTs
@@ -656,6 +697,14 @@ void traverse_expressions(
         case Statement::Tag::DEBUG_BREAK: {
             auto debug_stmt = static_cast<const DebugBreakStmt *>(stmt);
             for (auto watch : debug_stmt->watches()) { do_visit(watch); }
+            break;
+        }
+        case Statement::Tag::SUSPEND: {
+            break;
+        }
+        case Statement::Tag::COROBIND: {
+            auto coro_stmt = static_cast<const CoroBindStmt *>(stmt);
+            do_visit(coro_stmt->expression());
             break;
         }
     }

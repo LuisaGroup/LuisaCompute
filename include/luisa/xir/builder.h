@@ -13,6 +13,8 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro/id.h>
+#include <luisa/xir/instructions/coro/register.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/autodiff.h>
@@ -30,6 +32,8 @@
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/instructions/thread_group.h>
 #include <luisa/xir/instructions/unreachable.h>
+#include <luisa/xir/instructions/coro/suspend.h>
+#include <luisa/xir/instructions/coro/token.h>
 
 namespace luisa::compute::xir {
 
@@ -127,6 +131,9 @@ public:
     StoreInst *store(Value *variable, Value *value) noexcept;
 
     ClockInst *clock() noexcept;
+    CoroIdInst *coro_id() noexcept;
+    CoroTokenInst *coro_token() noexcept;
+    CoroRegisterInst *coro_register(Value *value, luisa::string name) noexcept;
 
     OutlineInst *outline() noexcept;
 
@@ -160,6 +167,8 @@ public:
     ThreadGroupInst *synchronize_block() noexcept;
     ThreadGroupInst *raster_quad_ddx(const Type *type, Value *value) noexcept;
     ThreadGroupInst *raster_quad_ddy(const Type *type, Value *value) noexcept;
+
+    SuspendInst* suspend_(uint32_t token) noexcept;
 };
 
 }// namespace luisa::compute::xir

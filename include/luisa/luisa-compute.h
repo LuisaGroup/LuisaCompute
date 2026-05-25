@@ -54,6 +54,20 @@
 #include <luisa/core/thread_safety.h>
 
 #ifdef LUISA_ENABLE_DSL
+#include <luisa/coro/coro_frame.h>
+#include <luisa/coro/coro_frame_buffer.h>
+#include <luisa/coro/coro_frame_desc.h>
+#include <luisa/coro/coro_frame_smem.h>
+#include <luisa/coro/coro_frame_soa.h>
+#include <luisa/coro/coro_func.h>
+#include <luisa/coro/coro_graph.h>
+#include <luisa/coro/coro_scheduler.h>
+#include <luisa/coro/coro_token.h>
+#include <luisa/coro/radix_sort.h>
+#include <luisa/coro/schedulers/persistent_threads.h>
+#include <luisa/coro/schedulers/state_machine.h>
+#include <luisa/coro/schedulers/wavefront.h>
+
 #include <luisa/dsl/arg.h>
 #include <luisa/dsl/atomic.h>
 #include <luisa/dsl/binding_group.h>
@@ -237,6 +251,10 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro/id.h>
+#include <luisa/xir/instructions/coro/register.h>
+#include <luisa/xir/instructions/coro/suspend.h>
+#include <luisa/xir/instructions/coro/token.h>
 #include <luisa/xir/instructions/debug_break.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
@@ -263,6 +281,9 @@
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
 #include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/call_graph.h>
+#include <luisa/xir/passes/coro/coro_frame.h>
+#include <luisa/xir/passes/coro/coro_graph.h>
+#include <luisa/xir/passes/coro/materialize_coro.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/early_return_elimination.h>
@@ -283,6 +304,7 @@
 #include <luisa/xir/traits.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/json2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/translators/xir2json.h>
 #include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/undefined.h>

@@ -1903,6 +1903,10 @@ template<lc_uint flags>
     return lc_dispatch_id() / lc_block_size();
 }
 
+__device__ inline void lc_synchronize_block() noexcept {
+    __syncthreads();
+}
+
 [[nodiscard]] auto lc_get_hit_kind() noexcept {
     auto u0 = 0u;
     asm("call (%0), _optix_get_hit_kind, ();"

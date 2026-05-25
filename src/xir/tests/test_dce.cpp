@@ -25,6 +25,6 @@ int main(int argc, char *argv[]) {
     };
 
     auto context = Context{luisa::current_executable_path()};
-    auto device = context.create_device("fallback");
+    auto device = context.create_device("cuda");
     auto shader = device.compile(kernel);
 }

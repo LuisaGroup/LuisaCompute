@@ -27,6 +27,10 @@ set(LUISA_COMPUTE_XIR_SOURCES
         instructions/cast.cpp
         instructions/clock.cpp
         instructions/continue.cpp
+        instructions/coro/id.cpp
+        instructions/coro/register.cpp
+        instructions/coro/suspend.cpp
+        instructions/coro/token.cpp
         instructions/debug_break.cpp
         instructions/gep.cpp
         instructions/if.cpp
@@ -63,6 +67,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/uniformity_analysis.cpp
         passes/dom_tree.cpp
         passes/call_graph.cpp
+        passes/coro/materialize_coro.cpp
         passes/outline.cpp
         passes/dead_store_elimination.cpp
         passes/sroa.cpp
@@ -124,5 +129,9 @@ if (LUISA_COMPUTE_ENABLE_XIR_TESTS)
     luisa_compute_xir_add_test(debug_printer)
     luisa_compute_xir_add_test(dce)
     luisa_compute_xir_add_test(ray_query)
+    luisa_compute_xir_add_test(materialize_coro)
+    luisa_compute_xir_add_test(xir2ast)
+    target_link_libraries(xir_test_xir2ast PRIVATE luisa-compute-ir)
+    target_link_libraries(xir_test_materialize_coro PRIVATE luisa-compute-ir luisa-compute-coro)
 
 endif ()
