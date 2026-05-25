@@ -629,6 +629,12 @@ void StringStateVisitor::VisitFunction(
                 continue;
             }
         }
+        // Local variables with resource types cannot be declared locally in HLSL.
+        // They are aliases for kernel arguments and should be resolved through the
+        // argument-binding machinery (GetVariableName maps them appropriately).
+        if (v.type()->is_resource()) {
+            continue;
+        }
         if ((static_cast<uint32_t>(usage) & static_cast<uint32_t>(Usage::WRITE)) == 0) {
             str << "const "sv;
         }

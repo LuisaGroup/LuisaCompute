@@ -179,8 +179,24 @@ void CodegenUtility::GetVariableName(Function f, Variable::Tag type, uint id, vs
 }
 
 // Get variable name from variable object
-void CodegenUtility::GetVariableName(Function f, Variable const &type, vstd::StringBuilder &str) {
-    GetVariableName(f, type.tag(), type.uid(), str);
+void CodegenUtility::GetVariableName(Function f, Variable const &var, vstd::StringBuilder &str) {
+    // For local variables with resource types in kernel context, redirect to the
+    // corresponding kernel buffer/texture argument. Resource types cannot be declared
+    // as local variables in HLSL.
+    if (var.tag() == Variable::Tag::LOCAL && var.type()->is_resource() &&
+        (opt->funcType == CodegenStackData::FuncType::Kernel ||
+         opt->funcType == CodegenStackData::FuncType::Vert ||
+         opt->funcType == CodegenStackData::FuncType::Pixel)) {
+        // Find the kernel argument with a matching resource type
+        auto &&kernel_args = opt->kernel.arguments();
+        for (auto &&arg : kernel_args) {
+            if (arg.type()->tag() == var.type()->tag()) {
+                GetVariableName(f, arg.tag(), arg.uid(), str);
+                return;
+            }
+        }
+    }
+    GetVariableName(f, var.tag(), var.uid(), str);
 }
 
 }// namespace lc::hlsl
