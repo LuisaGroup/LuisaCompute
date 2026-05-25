@@ -2162,7 +2162,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
     LUISA_NOT_IMPLEMENTED("SPIR-V buffer read for type {}.", elem_type->description());
 }
 
-spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type) noexcept {
+spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, bool index_is_word_offset) noexcept {
     auto uint_type = _builder.makeUintType(32);
     if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type) && !_type_contains_bool(buffer_type->element())) {
         // Typed buffer: direct element access via SPIR-V type system.
@@ -2178,8 +2178,16 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
     }
     // Byte buffer or bindless: word-level access
     auto word_count = read_type->size() / 4u;
-    LUISA_ASSERT(word_count > 0u, "SPIR-V buffer read element size is zero.");
-    auto word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
+    spv::Id word_offset;
+    if (index_is_word_offset) {
+        // index is already a word offset (e.g., from BYTE_BUFFER_READ)
+        word_offset = index;
+    } else if (word_count == 0u) {
+        // Sub-word types are stored as one word per element by _emit_buffer_read_impl
+        word_offset = index;
+    } else {
+        word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
+    }
     return _emit_buffer_read_impl(buffer, word_offset, read_type);
 }
 
@@ -2422,7 +2430,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
     LUISA_NOT_IMPLEMENTED("SPIR-V buffer write for type {}.", elem_type->description());
 }
 
-void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type) noexcept {
+void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, bool index_is_word_offset) noexcept {
     auto uint_type = _builder.makeUintType(32);
     if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type) && !_type_contains_bool(buffer_type->element())) {
         // Typed buffer: direct element access via SPIR-V type system.
@@ -2439,8 +2447,16 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
     }
     // Byte buffer or bindless: word-level access
     auto word_count = value_type->size() / 4u;
-    LUISA_ASSERT(word_count > 0u, "SPIR-V buffer write element size is zero.");
-    auto word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
+    spv::Id word_offset;
+    if (index_is_word_offset) {
+        // index is already a word offset (e.g., from BYTE_BUFFER_WRITE)
+        word_offset = index;
+    } else if (word_count == 0u) {
+        // Sub-word types are stored as one word per element by _emit_buffer_write_impl
+        word_offset = index;
+    } else {
+        word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
+    }
     _emit_buffer_write_impl(buffer, word_offset, value, value_type);
 }
 
@@ -2462,7 +2478,7 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            id = _emit_buffer_read(buffer, word_index, inst->type(), inst->operand(0)->type());
+            id = _emit_buffer_read(buffer, word_index, inst->type(), nullptr, true);
             break;
         }
         case xir::ResourceReadOp::TEXTURE2D_READ:
@@ -2504,7 +2520,7 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
             auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx}, nonuniform);
             auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            id = _emit_buffer_read(buffer_base, word_index, inst->type(), nullptr);
+            id = _emit_buffer_read(buffer_base, word_index, inst->type(), nullptr, true);
             break;
         }
         default:
@@ -2532,7 +2548,7 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto value = _emit_value(inst->operand(2));
             auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            _emit_buffer_write(buffer, word_index, value, inst->operand(2)->type(), inst->operand(0)->type());
+            _emit_buffer_write(buffer, word_index, value, inst->operand(2)->type(), nullptr, true);
             break;
         }
         case xir::ResourceWriteOp::TEXTURE2D_WRITE:
@@ -2574,7 +2590,7 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
             auto buffer_base = _create_access_chain(spv::StorageClass::StorageBuffer, _buffer_heap_id, {buffer_idx}, nonuniform);
             auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            _emit_buffer_write(buffer_base, word_index, value, inst->operand(3)->type(), nullptr);
+            _emit_buffer_write(buffer_base, word_index, value, inst->operand(3)->type(), nullptr, true);
             break;
         }
         case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
@@ -2810,6 +2826,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         case xir::ThreadGroupOp::SHADER_EXECUTION_REORDER:{
 
         } break;
+        // TODO implement all the WARP operations.
         default:
             LUISA_NOT_IMPLEMENTED("SPIR-V thread group op {}.", xir::to_string(inst->op()));
     }

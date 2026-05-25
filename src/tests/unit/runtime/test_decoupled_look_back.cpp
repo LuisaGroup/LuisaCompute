@@ -246,6 +246,18 @@ static void InitializeWardStatus(compute::UInt num_tile, compute::BufferVar<comp
     };
 };
 
+// 2D variant: tile_idx computed from dispatch_id, padding handled by first 32 threads
+static void InitializeWardStatus2D(compute::UInt num_tile, compute::BufferVar<compute::uint> &d_tile_status) noexcept {
+    using StatusWordT = ScanTileStateViewer<int>::StatusWordT;
+    compute::UInt tile_idx = compute::dispatch_id().y * compute::dispatch_size().x + compute::dispatch_id().x;
+    $if (tile_idx < 32u) {
+        d_tile_status.write(tile_idx, compute::def(StatusWordT(ScanTileStatus::SCAN_TILE_OBB)));
+    };
+    $if (tile_idx < num_tile) {
+        d_tile_status.write(32u + tile_idx, compute::def(StatusWordT(ScanTileStatus::SCAN_TILE_INVALID)));
+    };
+};
+
 template<typename T>
 struct TilePrefixTempStorage {
     T exclusive_prefix;
@@ -369,10 +381,6 @@ using namespace luisa::parallel_primitive;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-static size_t ceil_div(size_t a, size_t b) {
-    return (a + b - 1) / b;
-}
-
 void test_decoupled_look_back(Device &device) {
     log_level_verbose();
 
@@ -382,30 +390,34 @@ void test_decoupled_look_back(Device &device) {
     constexpr size_t WARP_SIZE = 32;
     constexpr size_t BLOCK_SIZE = 256;
     constexpr size_t NUM_TILES = 102400;
-    const size_t num_blocks = ceil_div(NUM_TILES, BLOCK_SIZE);
 
     auto scan_tile_status_buffer = device.create_buffer<uint>(WARP_SIZE + NUM_TILES);
     auto scan_tile_value_partial_buffer = device.create_buffer<int>(WARP_SIZE + NUM_TILES);
     auto scan_tile_value_inclusive_buffer = device.create_buffer<int>(WARP_SIZE + NUM_TILES);
 
-    Kernel1D init_kernel = [&](BufferVar<uint> tile_status_buffer, BufferVar<int> tile_value_partial_buffer, BufferVar<int> tile_value_inclusive_buffer) noexcept {
-        set_block_size(BLOCK_SIZE);
-        InitializeWardStatus(NUM_TILES, tile_status_buffer);
+    constexpr uint INIT_DISPATCH_X = 400u;
+    constexpr uint INIT_DISPATCH_Y = 256u;
+    Kernel2D init_kernel = [&](BufferVar<uint> tile_status_buffer, BufferVar<int> tile_value_partial_buffer, BufferVar<int> tile_value_inclusive_buffer) noexcept {
+        InitializeWardStatus2D(NUM_TILES, tile_status_buffer);
     };
     auto init_shader = device.compile(init_kernel);
-    cmdlist << init_shader(scan_tile_status_buffer.view(), scan_tile_value_partial_buffer.view(), scan_tile_value_inclusive_buffer.view()).dispatch(num_blocks * BLOCK_SIZE);
+    cmdlist << init_shader(scan_tile_status_buffer.view(), scan_tile_value_partial_buffer.view(), scan_tile_value_inclusive_buffer.view()).dispatch(INIT_DISPATCH_X, INIT_DISPATCH_Y);
     stream << cmdlist.commit() << synchronize();
 
     auto scan_op = [](const Var<int> &a, const Var<int> &b) noexcept { return a + b; };
 
-    Kernel1D decoupled_look_back_kernel = [&](BufferVar<uint> tile_status,
+    constexpr uint DECOUPLED_DISPATCH_X = 51200u; // 200 blocks * 256 threads
+    constexpr uint DECOUPLED_DISPATCH_Y = 512u;   // 512 blocks
+    constexpr uint NUM_BLOCK_ROWS = 200u;
+    Kernel2D decoupled_look_back_kernel = [&](BufferVar<uint> tile_status,
                                               BufferVar<int> tile_partial,
                                               BufferVar<int> tile_inclusive,
                                               BufferVar<int> exclusive_output,
                                               BufferVar<int> inclusive_output) noexcept {
-        luisa::compute::set_block_size(BLOCK_SIZE);
+        luisa::compute::set_block_size(BLOCK_SIZE, 1u);
         luisa::compute::set_warp_size(WARP_SIZE);
         compute::UInt tid = compute::thread_x();
+        compute::UInt tile_idx = compute::block_id().y * NUM_BLOCK_ROWS + compute::block_id().x;
 
         ScanTileStateViewer<int> viewer{tile_status, tile_partial, tile_inclusive};
 
@@ -414,8 +426,7 @@ void test_decoupled_look_back(Device &device) {
 
         auto temp_storage = luisa::compute::Shared<TilePrefixTempStorage<int>>(1);
 
-        tile_prefix_op prefix(viewer, &temp_storage, scan_op);
-        const auto tile_idx = prefix.GetTileIndex();
+        tile_prefix_op prefix(viewer, &temp_storage, scan_op, tile_idx);
         compute::Int block_aggregate = 1;
         $if (tile_idx == 0) {
             $if (tid == 0) {
@@ -445,7 +456,7 @@ void test_decoupled_look_back(Device &device) {
                                           scan_tile_value_inclusive_buffer.view(),
                                           exclusive_output.view(),
                                           inclusive_output.view())
-                   .dispatch(NUM_TILES * BLOCK_SIZE);
+                   .dispatch(DECOUPLED_DISPATCH_X, DECOUPLED_DISPATCH_Y);
     stream << cmdlist.commit() << synchronize();
 
     luisa::vector<int> exclusive_result(NUM_TILES);
