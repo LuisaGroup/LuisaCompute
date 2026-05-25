@@ -361,3 +361,9 @@ AGENTS.*
 /agent*.py
 build-check/
 build-verify/
+
+# OpenCode session continuations
+.omo/
+
+# Out-of-tree build dirs
+build-dxc/
