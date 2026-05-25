@@ -83,17 +83,12 @@ void reg_coroutine_split() {
         }
     };
 
-    "coroutine_split_rejects_loop_containing_suspends"_test = [] {
+    "coroutine_split_handles_loop_via_materialize"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
         XIRBuilder b;
         b.set_insertion_point(body);
-        // Build a structured loop in the body. Even if no suspend lives
-        // inside the loop, the presence of a structured-CFG container in the
-        // body block disqualifies the input from the flat coroutine subset
-        // until condition replay lands. We add a suspend AFTER the loop so
-        // is_coroutine=true but is_supported=false.
         auto *loop = b.loop();
         auto *prepare = loop->create_prepare_block();
         auto *loop_body = loop->create_body_block();
@@ -110,17 +105,10 @@ void reg_coroutine_split() {
         b.return_void();
 
         auto info = coroutine_split_run_on_function(k);
-        expect(!info.is_supported);
-        // The pass must surface a diagnostic that names the unsupported case
-        // so callers can fall back to coroutine_lower.
-        auto found_diag = false;
-        for (auto &&d : info.diagnostics) {
-            if (d.find("structured control-flow") != luisa::string::npos ||
-                d.find("outside the entry body block") != luisa::string::npos) {
-                found_diag = true;
-            }
-        }
-        expect(found_diag);
+        // Now handled by coro_materialize path — should succeed.
+        expect(info.is_supported);
+        expect(info.changed);
+        expect(info.continuations.size() >= 2_u);
     };
 }
 

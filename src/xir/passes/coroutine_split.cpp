@@ -19,6 +19,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coroutine.h>
 #include <luisa/xir/passes/coroutine_split.h>
+#include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/undefined.h>
 
 namespace luisa::compute::xir {
@@ -149,6 +150,16 @@ CoroutineSplitInfo coroutine_split_run_on_function(Function *function) noexcept 
     info.diagnostics = analysis.diagnostics;
     if (!analysis.is_coroutine) { return info; }
     if (!is_flat_coroutine(def, info.diagnostics)) {
+        // Non-flat coroutine: use the full coro_materialize path with
+        // condition replay and first-flag mechanism.
+        auto mat_result = coro::coro_materialize_run_on_function(function);
+        if (mat_result.ok) {
+            return mat_result.split_info;
+        }
+        // If materialize failed, report its diagnostics.
+        info.diagnostics.insert(info.diagnostics.end(),
+                                mat_result.diagnostics.begin(),
+                                mat_result.diagnostics.end());
         info.is_supported = false;
         return info;
     }

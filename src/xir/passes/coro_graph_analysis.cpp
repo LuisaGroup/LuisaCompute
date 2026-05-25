@@ -148,6 +148,14 @@ struct PreliminaryBuilder {
         if (block == nullptr) { return refs; }
         for (auto inst : block->instructions()) {
             refs.emplace_back(translate_inst(inst));
+            // For structured CF nodes, also translate the merge block contents
+            // (instructions after the construct live there in XIR).
+            if (auto *cfm = inst->control_flow_merge()) {
+                if (auto *merge = cfm->merge_block()) {
+                    auto merge_refs = translate_block(merge);
+                    refs.insert(refs.end(), merge_refs.begin(), merge_refs.end());
+                }
+            }
         }
         return refs;
     }
