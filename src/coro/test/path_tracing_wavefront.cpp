@@ -1,4 +1,5 @@
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
 
 #include <luisa/luisa-compute.h>
@@ -276,6 +277,12 @@ int main(int argc, char *argv[]) {
         .gather_by_sorting = false,
     };
     coroutine::WavefrontCoroScheduler scheduler{device, coro, config};
+    LUISA_INFO("Coroutine graph:\n{}", coro.graph()->dump());
+    LUISA_INFO("Coroutine frame layout:\n{}", coro.frame()->dump());
+    if (auto dump_only = std::getenv("LUISA_CORO_DUMP_ONLY");
+        dump_only != nullptr && std::string_view{dump_only} == "1") {
+        return 0;
+    }
     // coroutine::PersistentThreadsCoroScheduler scheduler{device, coro};
 
     Kernel2D accumulate_kernel = [&](ImageFloat accum_image, ImageFloat curr_image) noexcept {

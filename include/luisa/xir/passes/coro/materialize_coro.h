@@ -24,6 +24,7 @@ struct MaterializeCoroResult {
     CallableFunction *entry{nullptr};
     luisa::vector<uint32_t> entry_input_fields;
     luisa::vector<uint32_t> entry_output_fields;
+    luisa::vector<uint32_t> entry_target_tokens;
     luisa::vector<MaterializedCoroScope> scopes;
     const Type *frame_interface_type{nullptr};
     luisa::vector<CoroFrameFieldInfo> frame_fields;

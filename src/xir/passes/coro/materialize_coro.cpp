@@ -2539,6 +2539,9 @@ MaterializeCoroResult materialize_coro_pass_run_on_function(CallableFunction *fu
                                                                       node_iter->second.union_states_to_save,
                                                                       false) :
                                          luisa::vector<uint32_t>{1u};
+        if (node_iter != transition.nodes.end()) {
+            for (auto &&[target_token, _] : node_iter->second.outlets) { result.entry_target_tokens.emplace_back(target_token); }
+        }
     }
     result.frame_interface_type = frame.interface_type;
     result.frame_fields = frame.fields;

@@ -14,7 +14,6 @@
 #include <luisa/xir/instructions/coro/id.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/module.h>
-#include <luisa/xir/passes/canonicalize_control_flow.h>
 #include <luisa/xir/passes/coro/coro_frame.h>
 #include <luisa/xir/passes/coro/coro_graph.h>
 #include <luisa/xir/passes/coro/materialize_coro.h>
@@ -41,16 +40,6 @@ namespace {
     return first_callable;
 }
 
-[[nodiscard]] luisa::vector<CoroToken>
-collect_targets(const xir::CoroTransitionGraph &transition,
-                xir::CoroScopeRef scope) noexcept {
-    luisa::vector<CoroToken> targets;
-    if (auto iter = transition.nodes.find(scope); iter != transition.nodes.end()) {
-        for (auto &&[target_token, _] : iter->second.outlets) { targets.emplace_back(target_token); }
-    }
-    return targets;
-}
-
 [[nodiscard]] luisa::vector<uint> convert_indices(luisa::span<const uint32_t> indices) noexcept {
     return luisa::vector<uint>{indices.begin(), indices.end()};
 }
@@ -67,18 +56,6 @@ collect_designated_fields(luisa::span<const xir::CoroDesignatedFieldInfo> design
     CoroFrameDesc::DesignatedFieldDict result;
     for (auto &&field : designated_fields) { result.emplace(field.name, field.frame_index); }
     return result;
-}
-
-[[nodiscard]] CoroGraph::Node create_entry_node(const xir::CoroTransitionGraph &transition,
-                                                xir::CoroScopeRef entry_scope,
-                                                luisa::span<const uint32_t> input_fields,
-                                                luisa::span<const uint32_t> output_fields,
-                                                luisa::shared_ptr<const compute::detail::FunctionBuilder> callable) noexcept {
-    return CoroGraph::Node{
-        convert_indices(input_fields),
-        convert_indices(output_fields),
-        collect_targets(transition, entry_scope),
-        std::move(callable)};
 }
 
 void dump_roundtrip_xir_if_requested(luisa::string_view stem,
@@ -109,8 +86,6 @@ void dump_materialized_module_if_requested(xir::CallableFunction *function) noex
 
 [[nodiscard]] luisa::unordered_map<CoroToken, CoroGraph::Node>
 collect_nodes(Function coroutine,
-              const xir::CoroGraph &graph,
-              const xir::CoroTransitionGraph &transition,
               const xir::MaterializeCoroResult &materialized) noexcept {
     auto wrap_materialized_node = [&](luisa::shared_ptr<const compute::detail::FunctionBuilder> callable) noexcept {
         auto inner = callable->function();
@@ -161,11 +136,11 @@ collect_nodes(Function coroutine,
     auto entry = xir::XIR2AST::build(materialized.entry);
     LUISA_ASSERT(entry != nullptr, "Failed to rebuild AST for materialized coroutine entry.");
     entry = wrap_materialized_node(std::move(entry));
-    nodes.emplace(coro_token_entry, create_entry_node(transition,
-                                                      graph.entry,
-                                                      materialized.entry_input_fields,
-                                                      materialized.entry_output_fields,
-                                                      std::move(entry)));
+    nodes.emplace(coro_token_entry, CoroGraph::Node{
+                                      convert_indices(materialized.entry_input_fields),
+                                      convert_indices(materialized.entry_output_fields),
+                                      convert_indices(materialized.entry_target_tokens),
+                                      std::move(entry)});
     auto expected_token = 1u;
     for (auto &&scope : materialized.scopes) {
         LUISA_ASSERT(scope.token == expected_token,
@@ -296,18 +271,13 @@ luisa::shared_ptr<const CoroGraph> CoroGraph::create(Function coroutine) noexcep
     auto module = xir::ast_to_xir_translate(coroutine, {});
     auto callable = find_translated_coroutine(module.get(), coroutine);
     LUISA_ASSERT(callable != nullptr, "Failed to locate translated XIR coroutine callable.");
-    static_cast<void>(xir::Canoinicalize_Control_Flow_pass_run_on_Function(callable));
-    auto graph = xir::compute_coro_graph(callable);
-    auto use_def = xir::compute_coro_use_def(graph);
-    auto transition = xir::compute_coro_transition_graph(graph, use_def);
-    auto frame = xir::compute_coro_frame(graph, transition);
     auto materialized = xir::materialize_coro_pass_run_on_function(callable);
     LUISA_ASSERT(materialized.entry != nullptr, "XIR coroutine materialization did not produce an entry callable.");
     LUISA_ASSERT(materialized.frame_interface_type != nullptr, "XIR coroutine materialization did not produce a frame interface.");
     dump_materialized_module_if_requested(materialized.entry);
     auto frame_desc = CoroFrameDesc::create(materialized.frame_interface_type,
                                             collect_designated_fields(materialized.designated_fields));
-    auto nodes = collect_nodes(coroutine, graph, transition, materialized);
+    auto nodes = collect_nodes(coroutine, materialized);
     dump_roundtrip_xir_if_requested("entry", nodes.at(coro_token_entry).cc());
     for (auto &&[token, node] : nodes) {
         if (token == coro_token_entry) { continue; }
