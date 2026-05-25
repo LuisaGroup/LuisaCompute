@@ -16,6 +16,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coroutine.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/load.h>
@@ -700,6 +701,17 @@ private:
                     _current_builder()->print_(luisa::string{print->format()}, _operands(print));
                     break;
                 }
+                case DerivedInstructionTag::CORO_REGISTER: {
+                    auto reg = static_cast<const CoroRegisterInst *>(inst);
+                    _current_builder()->coro_bind_(_expr(reg->value()), luisa::string{reg->name()});
+                    break;
+                }
+                case DerivedInstructionTag::CORO_SUSPEND: {
+                    auto suspend = static_cast<const CoroSuspendInst *>(inst);
+                    auto token = _current_builder()->suspend_();
+                    LUISA_ASSERT(token == suspend->token(), "Coroutine suspend token mismatch.");
+                    break;
+                }
                 case DerivedInstructionTag::RESOURCE_WRITE: {
                     auto write = static_cast<const ResourceWriteInst *>(inst);
                     _current_builder()->call(detail::xir2ast_resource_write_op(write->op()), _operands(write));
@@ -801,6 +813,17 @@ private:
                 case DerivedInstructionTag::PRINT: {
                     auto print = static_cast<const PrintInst *>(inst);
                     _current_builder()->print_(luisa::string{print->format()}, _operands(print));
+                    break;
+                }
+                case DerivedInstructionTag::CORO_REGISTER: {
+                    auto reg = static_cast<const CoroRegisterInst *>(inst);
+                    _current_builder()->coro_bind_(_expr(reg->value()), luisa::string{reg->name()});
+                    break;
+                }
+                case DerivedInstructionTag::CORO_SUSPEND: {
+                    auto suspend = static_cast<const CoroSuspendInst *>(inst);
+                    auto token = _current_builder()->suspend_();
+                    LUISA_ASSERT(token == suspend->token(), "Coroutine suspend token mismatch.");
                     break;
                 }
                 case DerivedInstructionTag::RESOURCE_WRITE: {

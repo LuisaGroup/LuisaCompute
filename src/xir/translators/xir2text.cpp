@@ -18,6 +18,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coroutine.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/autodiff.h>
 #include <luisa/xir/instructions/load.h>
@@ -438,6 +439,17 @@ private:
         _emit_operands(inst);
     }
 
+    void _emit_coro_register_inst(const CoroRegisterInst *inst) noexcept {
+        _main << "coro_register ";
+        _emit_string_escaped(_main, inst->name());
+        _main << " ";
+        _emit_operands(inst);
+    }
+
+    void _emit_coro_suspend_inst(const CoroSuspendInst *inst) noexcept {
+        _main << "coro_suspend " << inst->token();
+    }
+
     void _emit_debug_break_inst(const DebugBreakInst *inst) noexcept {
         _main << "debug_break ";
         _emit_operands(inst);
@@ -537,6 +549,12 @@ private:
                 break;
             case DerivedInstructionTag::PRINT:
                 _emit_print_inst(static_cast<const PrintInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_REGISTER:
+                _emit_coro_register_inst(static_cast<const CoroRegisterInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_SUSPEND:
+                _emit_coro_suspend_inst(static_cast<const CoroSuspendInst *>(inst));
                 break;
             case DerivedInstructionTag::OUTLINE:
                 _emit_outline_inst(static_cast<const OutlineInst *>(inst), indent);

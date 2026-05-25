@@ -1150,6 +1150,17 @@ private:
                     auto ast_auto_diff = static_cast<const AutoDiffStmt *>(car);
                     return _translate_autodiff_stmt(b, ast_auto_diff, cdr);
                 }
+                case Statement::Tag::SUSPEND: {
+                    auto suspend = static_cast<const SuspendStmt *>(car);
+                    _commented(b.coro_suspend(suspend->token()));
+                    break;
+                }
+                case Statement::Tag::CORO_BIND: {
+                    auto bind = static_cast<const CoroBindStmt *>(car);
+                    auto value = _translate_expression(b, bind->expression(), true);
+                    _commented(b.coro_register(value, luisa::string{bind->name()}));
+                    break;
+                }
                 case Statement::Tag::PRINT: {
                     auto ast_print = static_cast<const PrintStmt *>(car);
                     luisa::fixed_vector<Value *, 16u> args;

@@ -58,6 +58,9 @@ enum struct DerivedInstructionTag {
     AUTODIFF_SCOPE,
     AUTODIFF_INTRINSIC,
 
+    CORO_REGISTER,
+    CORO_SUSPEND,
+
     /* other instructions */
     CALL,       // user or external function calls
     CAST,       // type casts
@@ -111,6 +114,8 @@ enum struct DerivedInstructionTag {
         case DerivedInstructionTag::OUTLINE: return "outline"sv;
         case DerivedInstructionTag::AUTODIFF_SCOPE: return "autodiff_scope"sv;
         case DerivedInstructionTag::AUTODIFF_INTRINSIC: return "autodiff_intrinsic"sv;
+        case DerivedInstructionTag::CORO_REGISTER: return "coro_register"sv;
+        case DerivedInstructionTag::CORO_SUSPEND: return "coro_suspend"sv;
     }
     return "unknown"sv;
 }

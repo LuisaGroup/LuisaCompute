@@ -13,6 +13,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coroutine.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/autodiff.h>
@@ -127,6 +128,9 @@ public:
     StoreInst *store(Value *variable, Value *value) noexcept;
 
     ClockInst *clock() noexcept;
+
+    CoroRegisterInst *coro_register(Value *value, luisa::string name) noexcept;
+    CoroSuspendInst *coro_suspend(uint32_t token) noexcept;
 
     OutlineInst *outline() noexcept;
 

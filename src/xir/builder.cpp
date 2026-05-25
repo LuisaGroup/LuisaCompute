@@ -185,6 +185,14 @@ ClockInst *XIRBuilder::clock() noexcept {
     return _create_and_append_instruction<ClockInst>(_insertion_point->parent_block());
 }
 
+CoroRegisterInst *XIRBuilder::coro_register(Value *value, luisa::string name) noexcept {
+    return _create_and_append_instruction<CoroRegisterInst>(_insertion_point->parent_block(), value, std::move(name));
+}
+
+CoroSuspendInst *XIRBuilder::coro_suspend(uint32_t token) noexcept {
+    return _create_and_append_instruction<CoroSuspendInst>(_insertion_point->parent_block(), token);
+}
+
 OutlineInst *XIRBuilder::outline() noexcept {
     return _create_and_append_instruction<OutlineInst>(_insertion_point->parent_block());
 }

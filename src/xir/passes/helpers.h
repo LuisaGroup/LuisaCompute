@@ -113,6 +113,8 @@ struct InstructionMemoryInfo {
             return {MemoryScope::NONE, MemoryEffects::NONE, true};
         case DerivedInstructionTag::AUTODIFF_SCOPE:
         case DerivedInstructionTag::AUTODIFF_INTRINSIC:
+        case DerivedInstructionTag::CORO_REGISTER:
+        case DerivedInstructionTag::CORO_SUSPEND:
             return {MemoryScope::GLOBAL, MemoryEffects::READ_WRITE, true};
         default:
             return {MemoryScope::NONE, MemoryEffects::NONE, true};
