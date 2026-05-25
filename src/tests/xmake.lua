@@ -109,6 +109,12 @@ if has_config("lc_enable_xir") then
     test_proj("test_xir2ast_translators", "unit/xir/test_xir2ast_translators.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
+    test_proj("test_xir_pass_coroutine", "unit/xir/test_xir_pass_coroutine.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
+    test_proj("test_xir_pass_coroutine_lower", "unit/xir/test_xir_pass_coroutine_lower.cpp", false, function()
+        add_defines("LUISA_ENABLE_XIR")
+    end)
 end
 
 -- integration/runtime

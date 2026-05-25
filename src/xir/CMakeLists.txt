@@ -27,6 +27,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         instructions/cast.cpp
         instructions/clock.cpp
         instructions/continue.cpp
+        instructions/coroutine.cpp
         instructions/debug_break.cpp
         instructions/gep.cpp
         instructions/if.cpp
@@ -83,6 +84,10 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/promote_ref_arg.cpp
         passes/algebraic_simplify.cpp
         passes/const_fold.cpp
+        passes/coroutine.cpp
+        passes/coroutine_split.cpp
+        passes/coroutine_state_machine_scheduler.cpp
+        passes/coro_graph.cpp
         passes/sccp.cpp
         passes/inline.cpp
         passes/loop_unroll.cpp

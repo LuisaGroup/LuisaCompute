@@ -22,6 +22,8 @@ struct StatementCounter final : StmtVisitor {
     uint switches = 0u;
     uint exprs = 0u;
     uint prints = 0u;
+    uint suspends = 0u;
+    uint coro_binds = 0u;
 
     void visit(const BreakStmt *) override {}
     void visit(const ContinueStmt *) override {}
@@ -55,6 +57,8 @@ struct StatementCounter final : StmtVisitor {
     void visit(const AutoDiffStmt *stmt) override { stmt->body()->accept(*this); }
     void visit(const PrintStmt *) override { prints++; }
     void visit(const DebugBreakStmt *) override {}
+    void visit(const SuspendStmt *) override { suspends++; }
+    void visit(const CoroBindStmt *) override { coro_binds++; }
 };
 
 [[nodiscard]] auto first_definition(Module *module) noexcept {
@@ -149,6 +153,32 @@ void reg_xir2ast_direct() {
         expect(counter.exprs == 2u);
         expect(counter.returns == 1u);
     };
+
+    "xir_to_ast_direct_coroutine_markers_roundtrip"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *local = b.alloca_local(Type::of<float>());
+        b.coro_register(local, "local");
+        b.coro_suspend(1u);
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.coro_binds == 1u);
+        expect(counter.suspends == 1u);
+        expect(counter.returns == 1u);
+
+        auto roundtrip = ast_to_xir_translate(ast->function(), {});
+        expect(roundtrip != nullptr);
+        auto text = xir_to_text_translate(roundtrip.get(), false);
+        expect(text.find("coro_register") != string::npos);
+        expect(text.find("coro_suspend 1") != string::npos);
+    };
 }
 
 void reg_xir2ast_ast_roundtrip() {
@@ -210,6 +240,30 @@ void reg_xir2ast_ast_roundtrip() {
         expect(ast->bound_arguments().size() == 1u);
         expect(ast->unbound_arguments().size() == 1u);
         expect(luisa::holds_alternative<compute::Function::BufferBinding>(ast->bound_arguments().front()));
+    };
+
+    "xir_to_ast_ast_xir_coroutine_dsl_roundtrip"_test = [] {
+        Kernel1D kernel = [](BufferFloat buffer) {
+            auto idx = dispatch_id().x;
+            auto value = buffer->read(idx);
+            coro_bind(value, "value");
+            $suspend("after_read");
+            buffer->write(idx, value);
+        };
+        auto original = ast_to_xir_translate(kernel.function()->function(), {});
+        auto *def = first_kernel_definition(original.get());
+        expect(def != nullptr);
+        auto ast = xir_to_ast_translate(*def, {});
+        expect(ast != nullptr);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.coro_binds == 1u);
+        expect(counter.suspends == 1u);
+        auto rebuilt = ast_to_xir_translate(ast->function(), {});
+        expect(rebuilt != nullptr);
+        auto text = xir_to_text_translate(rebuilt.get(), false);
+        expect(text.find("coro_register") != string::npos);
+        expect(text.find("coro_suspend 1") != string::npos);
     };
 }
 
