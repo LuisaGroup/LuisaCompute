@@ -52,7 +52,9 @@ namespace {
 // special registers, arguments) should resolve to themselves.
 class MaterializeResolver final : public InstructionCloneValueResolver {
     luisa::unordered_map<const Value *, Value *> _map;
+    XIRBuilder *_builder{};
 public:
+    void set_builder(XIRBuilder *b) noexcept { _builder = b; }
     void emplace(const Value *from, Value *to) noexcept { _map.emplace(from, to); }
     bool contains(const Value *v) const noexcept { return _map.contains(v); }
     [[nodiscard]] Value *resolve(const Value *value) noexcept override {
@@ -66,10 +68,34 @@ public:
             default: break;
         }
         if (auto it = _map.find(value); it != _map.end()) return it->second;
-        // Fall through: value is from outside the scope (e.g., argument, alloca
-        // that became a frame slot). This should have been mapped already.
+        // Replay: clone non-terminator, non-alloca instructions on demand.
+        // This handles pure computations defined before the suspend point
+        // that are used after (equivalent to the Rust impl's replay_value).
+        if (value->derived_value_tag() == DerivedValueTag::INSTRUCTION && _builder != nullptr) {
+            auto inst = const_cast<Instruction *>(static_cast<const Instruction *>(value));
+            if (inst->derived_instruction_tag() == DerivedInstructionTag::ALLOCA) {
+                auto alloca_inst = static_cast<AllocaInst *>(inst);
+                LUISA_ASSERT(!alloca_inst->type()->is_resource(),
+                             "coro_materialize: resource-typed alloca is ill-formed");
+            }
+            if (!inst->is_terminator()) {
+                if (inst->derived_instruction_tag() == DerivedInstructionTag::GEP) {
+                    auto gep = static_cast<GEPInst *>(inst);
+                    if (gep->base()->type() && gep->base()->type()->is_resource()) {
+                        auto resolved_base = this->resolve(gep->base());
+                        _map.emplace(value, resolved_base);
+                        return resolved_base;
+                    }
+                }
+                auto cloned = inst->clone_with_metadata(*_builder, *this);
+                _map.emplace(value, cloned);
+                return cloned;
+            }
+        }
         LUISA_ERROR_WITH_LOCATION(
-            "coro_materialize: unresolved value during materialization");
+            "coro_materialize: unresolved value (tag={}, type={})",
+            static_cast<int>(value->derived_value_tag()),
+            value->type() ? value->type()->description() : "null");
     }
 };
 
@@ -150,6 +176,14 @@ struct ScopeMaterializer {
             resolver.emplace(inst, cloned);
             return;
         }
+        // Skip GEPs on resource bases — they're resolved inline by ResourceQueryInst.
+        if (inst->derived_instruction_tag() == DerivedInstructionTag::GEP) {
+            auto gep = static_cast<GEPInst *>(inst);
+            if (gep->base()->type() && gep->base()->type()->is_resource()) {
+                return;
+            }
+        }
+        if (resolver.contains(inst)) return;
         auto cloned = inst->clone_with_metadata(builder, resolver);
         resolver.emplace(inst, cloned);
     }
@@ -348,10 +382,12 @@ CoroMaterializeResult coro_materialize_run_on_function(Function *function) noexc
     frame_member_types.emplace_back(luisa::compute::Type::of<uint32_t>());
     for (auto &candidate : sorted_candidates) {
         if (candidate.alloca == nullptr) continue;
+        auto t = candidate.alloca->type();
+        if (t == nullptr || t->is_resource() || t->is_custom()) continue;
         CoroutineSplitFrameSlot slot{
             .source_alloca = candidate.alloca,
             .field_index = frame_member_types.size(),
-            .type = candidate.alloca->type(),
+            .type = t,
         };
         frame_member_types.emplace_back(slot.type);
         result.split_info.frame_slots.emplace_back(slot);
@@ -384,6 +420,7 @@ CoroMaterializeResult coro_materialize_run_on_function(Function *function) noexc
         mat.callable = callable;
         mat.frame_ref = frame_ref;
         mat.builder.set_insertion_point(block);
+        mat.resolver.set_builder(&mat.builder);
 
         // Map source arguments to mirrored.
         {

@@ -21,11 +21,11 @@
 #endif
 #if LUISA_RENDERING_USE_XIR_TO_AST
 #if LUISA_RENDERING_USE_XIR_COROUTINES
-#include <luisa/xir/basic_block.h>
-#include <luisa/xir/function.h>
+#include <luisa/xir/translators/ast2xir.h>
+#include <luisa/xir/translators/xir2ast.h>
 #include <luisa/xir/instructions/coroutine.h>
-#include <luisa/xir/module.h>
 #include <luisa/xir/passes/coroutine.h>
+#include <luisa/xir/passes/coro_materialize.h>
 #endif
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
@@ -72,6 +72,23 @@ void strip_coroutine_markers(xir::Module *module) noexcept {
 #if LUISA_RENDERING_USE_XIR_COROUTINE_STRIP_ONLY
     strip_coroutine_markers(module.get());
     LUISA_INFO("XIR coroutine strip-only mode: markers removed without lowering.");
+#elif LUISA_RENDERING_USE_XIR_COROUTINE_SPLIT
+    // Run coro_materialize to produce continuations (analysis + split).
+    for (auto *f : module->function_list()) {
+        if (f->derived_function_tag() != xir::DerivedFunctionTag::KERNEL) continue;
+        auto mat = xir::coro::coro_materialize_run_on_function(f);
+        if (mat.ok) {
+            LUISA_INFO("XIR coroutine split: {} continuation(s), frame has {} slot(s).",
+                       mat.split_info.continuations.size(), mat.split_info.frame_slots.size());
+        } else {
+            for (auto &d : mat.diagnostics) { LUISA_WARNING("{}", d); }
+        }
+        break;
+    }
+    // Use in-place lowering for the actual kernel execution.
+    auto lower = xir::coroutine_lower_run_on_module(module.get());
+    LUISA_INFO("XIR coroutine lower: {} register(s), {} suspend(s), {} switch(es).",
+               lower.removed_register_count, lower.removed_suspend_count, lower.created_switch_count);
 #else
     auto lower = xir::coroutine_lower_run_on_module(module.get());
     LUISA_INFO("XIR coroutine lower: {} register(s), {} suspend(s), {} switch(es).",

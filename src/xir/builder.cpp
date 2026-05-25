@@ -130,6 +130,10 @@ AllocaInst *XIRBuilder::alloca_shared(const Type *type) noexcept {
 }
 
 GEPInst *XIRBuilder::gep(const Type *type, Value *base, std::initializer_list<Value *> indices) noexcept {
+    LUISA_ASSERT(base != nullptr && base->type() != nullptr,
+                 "GEP: base must have a type");
+    LUISA_ASSERT(!base->type()->is_resource(),
+                 "GEP: base must not be a resource type (got {})", base->type()->description());
     return _create_and_append_instruction<GEPInst>(_insertion_point->parent_block(), type, base, luisa::span{indices.begin(), indices.end()});
 }
 
@@ -165,6 +169,10 @@ PrintInst *XIRBuilder::print(luisa::string format, luisa::span<Value *const> val
 }
 
 GEPInst *XIRBuilder::gep(const Type *type, Value *base, luisa::span<Value *const> indices) noexcept {
+    LUISA_ASSERT(base != nullptr && base->type() != nullptr,
+                 "GEP: base must have a type");
+    LUISA_ASSERT(!base->type()->is_resource(),
+                 "GEP: base must not be a resource type (got {})", base->type()->description());
     return _create_and_append_instruction<GEPInst>(_insertion_point->parent_block(), type, base, indices);
 }
 

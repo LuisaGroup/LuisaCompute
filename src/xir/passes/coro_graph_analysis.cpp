@@ -283,18 +283,20 @@ struct ScopeSplitter {
                         if (frame.is_loop) { has_enclosing_loop = true; break; }
                     }
                     if (!has_enclosing_loop) {
-                        // Simple case: no loops. Just collect remaining instructions.
                         collect_reachable(block, i + 1, cont_scope, {});
                     } else {
-                        // Complex case: enclosing loop(s). Need first-flag mechanism.
-                        // Emit: remaining-in-current-block (dominated by suspend)
-                        // Then reconstruct enclosing loops with first-flag guards.
-                        // First: collect dominated instructions (rest of this block).
+                        // Collect dominated instructions (rest of this block after suspend).
+                        luisa::vector<CoroInstrRef> cont_instrs;
                         for (size_t j = i + 1; j < block.size(); ++j) {
-                            scopes[cont_scope.index].instructions.emplace_back(block[j]);
+                            cont_instrs.emplace_back(block[j]);
                         }
-                        // Then: reconstruct enclosing loops from innermost to outermost.
+                        // Reconstruct enclosing loops with first-flag guards.
                         reconstruct_loops(cont_scope, stack, block, i);
+                        // Recursively process the continuation to find further suspends.
+                        auto &cont_scope_instrs = scopes[cont_scope.index].instructions;
+                        auto copy = cont_scope_instrs;
+                        cont_scope_instrs.clear();
+                        collect_reachable(copy, 0, cont_scope, {});
                     }
                     return static_cast<int64_t>(instr.suspend_token);
                 }
@@ -430,8 +432,7 @@ struct ScopeSplitter {
                 luisa::vector<CoroInstrRef> pre_suspend;
                 bool past_suspend = false;
                 for (auto r : block) {
-                    if (r.index == suspend_block[suspend_idx].index ||
-                        (pg.instructions[r.index].tag == CoroInstruction::Tag::SUSPEND)) {
+                    if (r.index == suspend_block[suspend_idx].index) {
                         // Insert SkipIfFirstFlag for pre-suspend
                         if (!pre_suspend.empty()) {
                             CoroInstruction skip{};
