@@ -41,12 +41,6 @@ const bool LUISA_SPIRV_SHOULD_DUMP_XIR = [] {
     return false;
 }();
 
-const bool LUISA_SPIRV_DUMP_OPT_STATS = [] {
-    if (auto env = getenv("LUISA_SPIRV_DUMP_OPT_STATS")) {
-        return luisa::string_view{env} == "1";
-    }
-    return false;
-}();
 
 const bool LUISA_XIR_DISABLE_NORMALIZE_CFG = [] {
     if (auto env = getenv("LUISA_XIR_DISABLE_NORMALIZE_CFG")) {
@@ -154,13 +148,13 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     });
     auto phase_a_stats = phase_a.run(xir_module.get());
     LUISA_VERBOSE("SPIR-V Phase A done in {} ms.", phase_a_stats.total_ms);
-    if (LUISA_SPIRV_DUMP_OPT_STATS) { phase_a_stats.log("SPIR-V Phase A"); }
+    phase_a_stats.log("SPIR-V Phase A");
 
     if (inlined_anything) {
         auto post_inline = xir::create_post_inline_cleanup_pipeline(opt_options);
         auto post_inline_stats = post_inline.run(xir_module.get());
         LUISA_VERBOSE("SPIR-V post-inline cleanup done in {} ms.", post_inline_stats.total_ms);
-        if (LUISA_SPIRV_DUMP_OPT_STATS) { post_inline_stats.log("SPIR-V post-inline cleanup"); }
+        post_inline_stats.log("SPIR-V post-inline cleanup");
     }
 
     if (!LUISA_XIR_DISABLE_NORMALIZE_CFG) {
@@ -257,7 +251,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         }
         auto norm_stats = norm.run(xir_module.get());
         LUISA_VERBOSE("SPIR-V CFG normalization done in {} ms.", norm_stats.total_ms);
-        if (LUISA_SPIRV_DUMP_OPT_STATS) { norm_stats.log("SPIR-V CFG normalization"); }
+        norm_stats.log("SPIR-V CFG normalization"); 
 
         if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
             auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());
