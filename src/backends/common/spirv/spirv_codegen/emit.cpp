@@ -63,6 +63,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _loop_header_redirect.clear();
     _emitted_blocks.clear();
     _used_merge_blocks.clear();
+    _pending_blocks.clear();
     _print_info.clear();
     _print_formats.clear();
     _control_flow_stack.clear();
@@ -542,6 +543,11 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
     }
 
     _emit_block(kernel->body_block());
+    while (!_pending_blocks.empty()) {
+        auto *bb = _pending_blocks.back();
+        _pending_blocks.pop_back();
+        _emit_block(bb);
+    }
 
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.makeReturn(false);
@@ -621,6 +627,11 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
     _builder.setBuildPoint(entry);
     _block_map.emplace(callable->body_block(), entry);
     _emit_block(callable->body_block());
+    while (!_pending_blocks.empty()) {
+        auto *bb = _pending_blocks.back();
+        _pending_blocks.pop_back();
+        _emit_block(bb);
+    }
     _builder.leaveFunction();
 }
 
