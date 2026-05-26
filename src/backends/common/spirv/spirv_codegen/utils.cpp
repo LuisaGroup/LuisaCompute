@@ -83,6 +83,8 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         dump_xir_module(xir_module.get(), filename);
     }
 
+    LUISA_VERBOSE("XIR translation done in {} ms.", translate_clk.toc());
+
     // Pipeline invariants:
     //   Phase A runs on structured-CFG alloca-form (ast2xir output).
     //   destructure_cfg: structured -> unstructured.
@@ -151,11 +153,13 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         return i.inlined_call_count > 0u;
     });
     auto phase_a_stats = phase_a.run(xir_module.get());
+    LUISA_VERBOSE("SPIR-V Phase A done in {} ms.", phase_a_stats.total_ms);
     if (LUISA_SPIRV_DUMP_OPT_STATS) { phase_a_stats.log("SPIR-V Phase A"); }
 
     if (inlined_anything) {
         auto post_inline = xir::create_post_inline_cleanup_pipeline(opt_options);
         auto post_inline_stats = post_inline.run(xir_module.get());
+        LUISA_VERBOSE("SPIR-V post-inline cleanup done in {} ms.", post_inline_stats.total_ms);
         if (LUISA_SPIRV_DUMP_OPT_STATS) { post_inline_stats.log("SPIR-V post-inline cleanup"); }
     }
 
@@ -252,6 +256,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             norm.add_fixed_point("phase-c", xir::create_post_restructure_cleanup_pipeline(opt_options), 1u);
         }
         auto norm_stats = norm.run(xir_module.get());
+        LUISA_VERBOSE("SPIR-V CFG normalization done in {} ms.", norm_stats.total_ms);
         if (LUISA_SPIRV_DUMP_OPT_STATS) { norm_stats.log("SPIR-V CFG normalization"); }
 
         if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
