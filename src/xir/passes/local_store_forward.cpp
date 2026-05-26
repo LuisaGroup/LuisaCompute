@@ -30,6 +30,11 @@ static void run_local_store_forward_on_basic_block(luisa::unordered_set<BasicBlo
             }
             return alloca_inst;
         }
+        // Also invalidate for non-alloca pointers (e.g., function arguments)
+        latest_stores.erase(ptr);
+        if (auto base = trace_pointer_base_value(ptr); base != ptr) {
+            latest_stores.erase(base);
+        }
         return nullptr;
     };
 
@@ -237,6 +242,20 @@ static void forward_uniform_store_to_loads_on_function(FunctionDefinition *funct
     luisa::unordered_map<AllocaInst *, Value *> uniform_value;
     for (auto &[alloca_inst, stores] : alloca_stores) {
         if (stores.empty()) continue;
+        // Skip allocas that have stores through GEPs (partial updates)
+        bool has_gep_store = false;
+        for (auto &&use : alloca_inst->use_list()) {
+            if (auto user = use->user(); user != nullptr && user->isa<GEPInst>()) {
+                for (auto &&gep_use : user->use_list()) {
+                    if (gep_use->user() != nullptr && gep_use->user()->isa<StoreInst>()) {
+                        has_gep_store = true;
+                        break;
+                    }
+                }
+                if (has_gep_store) break;
+            }
+        }
+        if (has_gep_store) continue;
         Value *common = stores.front()->value();
         bool all_same = true;
         for (size_t i = 1; i < stores.size(); ++i) {

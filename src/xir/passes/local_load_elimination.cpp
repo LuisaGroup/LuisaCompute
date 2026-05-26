@@ -33,6 +33,13 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
             }
             return alloca_inst;
         }
+        // Also invalidate for non-alloca pointers (e.g., function arguments),
+        // since stores through GEPs of reference args must invalidate
+        // previously cached loads from the same base pointer.
+        already_loaded.erase(ptr);
+        if (auto base = trace_pointer_base_value(ptr); base != ptr) {
+            already_loaded.erase(base);
+        }
         return nullptr;
     };
 
@@ -46,8 +53,10 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
                     auto load = static_cast<LoadInst *>(inst);
                     if (auto iter = already_loaded.find(load->variable()); iter != already_loaded.end()) {
                         removable_loads.emplace(load, iter->second);
-                    } else if (auto alloca_inst = trace_pointer_base_local_alloca_inst(load->variable())) {
-                        variable_pointers[alloca_inst].emplace_back(load->variable());
+                    } else {
+                        if (auto alloca_inst = trace_pointer_base_local_alloca_inst(load->variable())) {
+                            variable_pointers[alloca_inst].emplace_back(load->variable());
+                        }
                         already_loaded[load->variable()] = load;
                     }
                     break;
@@ -131,17 +140,17 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
                 if (inst->isa<LoadInst>()) {
                     auto load = static_cast<LoadInst *>(inst);
                     auto ptr = load->variable();
-                    if (trace_pointer_base_local_alloca_inst(ptr)) {
-                        auto it = current.find(ptr);
-                        if (it != current.end() && it->second != load) {
-                            to_remove.emplace_back(load, it->second);
-                        } else {
-                            current[ptr] = load;
-                        }
+                    auto it = current.find(ptr);
+                    if (it != current.end() && it->second != load) {
+                        to_remove.emplace_back(load, it->second);
+                    } else {
+                        current[ptr] = load;
                     }
                 } else if (inst->isa<StoreInst>()) {
                     auto store = static_cast<StoreInst *>(inst);
-                    if (auto base = trace_pointer_base_local_alloca_inst(store->variable())) {
+                    auto ptr = store->variable();
+                    auto base = trace_pointer_base_local_alloca_inst(ptr);
+                    if (base) {
                         for (auto it = current.begin(); it != current.end();) {
                             if (trace_pointer_base_local_alloca_inst(it->first) == base) {
                                 it = current.erase(it);
@@ -149,10 +158,16 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
                                 ++it;
                             }
                         }
+                    } else {
+                        current.erase(ptr);
+                        auto value_base = trace_pointer_base_value(ptr);
+                        if (value_base != ptr) { current.erase(value_base); }
                     }
                 } else {
                     for (auto op_use : inst->operand_uses()) {
-                        if (auto base = trace_pointer_base_local_alloca_inst(op_use->value())) {
+                        auto val = op_use->value();
+                        auto base = trace_pointer_base_local_alloca_inst(val);
+                        if (base) {
                             for (auto it = current.begin(); it != current.end();) {
                                 if (trace_pointer_base_local_alloca_inst(it->first) == base) {
                                     it = current.erase(it);
@@ -160,6 +175,10 @@ static void run_dominator_load_elimination_on_function(FunctionDefinition *funct
                                     ++it;
                                 }
                             }
+                        } else {
+                            current.erase(val);
+                            auto value_base = trace_pointer_base_value(val);
+                            if (value_base != val) { current.erase(value_base); }
                         }
                     }
                 }

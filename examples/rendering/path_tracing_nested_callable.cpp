@@ -303,7 +303,7 @@ int main(int argc, char *argv[]) {
     o.name = "raytracing";
     auto raytracing_shader = device.compile(raytracing_kernel, o);
     // DO NOT CHANGE THIS
-    return 0;
+    // return 0;
     o.name = "clear";
     auto clear_shader = device.compile(clear_kernel, o);
     o.name = "hdr2ldr";
