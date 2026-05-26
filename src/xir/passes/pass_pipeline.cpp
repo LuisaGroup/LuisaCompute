@@ -352,6 +352,10 @@ PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOption
         auto i = dead_store_elimination_pass_run_on_module(m, &r);
         return i.eliminated_store_count > 0u;
     });
+    p.add("gvn", [](Module *m, PassReport &r) {
+        auto i = gvn_pass_run_on_module(m, &r);
+        return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+    });
     p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
         auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
         return i.simplified_inst_count > 0u;

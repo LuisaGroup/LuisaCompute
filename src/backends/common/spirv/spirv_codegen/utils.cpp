@@ -132,6 +132,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         auto i = xir::sroa_pass_run_on_module(m, {}, &r);
         return i.decomposed_alloca_count > 0u;
     });
+    phase_a.add("gvn", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::gvn_pass_run_on_module(m, &r);
+        return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+    });
     phase_a.add("dead-store-elimination", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dead_store_elimination_pass_run_on_module(m, &r);
         return i.eliminated_store_count > 0u;

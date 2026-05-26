@@ -1,15 +1,21 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/load.h>
+#include <luisa/xir/instructions/store.h>
 
 #include "helpers.h"
 #include <luisa/xir/passes/local_load_elimination.h>
+#include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::xir {
 
 namespace detail {
 
+// Straight-line load elimination: within a chain of single-successor/single-predecessor
+// blocks, eliminate a load if an earlier load from the same pointer already dominates.
 static void run_local_load_elimination_on_basic_block(luisa::unordered_set<BasicBlock *> &visited,
                                                       BasicBlock *block,
                                                       LocalLoadEliminationInfo &info) noexcept {
@@ -82,12 +88,102 @@ static void run_local_load_elimination_on_basic_block(luisa::unordered_set<Basic
     }
 }
 
+// Dominator-based cross-block load elimination.
+// Propagates reaching loads through the CFG; at merge points, a reaching load
+// is kept only if it agrees across all predecessors.
+static void run_dominator_load_elimination_on_function(FunctionDefinition *function, LocalLoadEliminationInfo &info) noexcept {
+    luisa::vector<BasicBlock *> rpo;
+    function->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
+        rpo.push_back(block);
+    });
+    luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> predecessors;
+    for (auto block : rpo) {
+        block->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            predecessors[block].push_back(pred);
+        });
+    }
+    using ReachingMap = luisa::unordered_map<Value *, LoadInst *>;
+    luisa::unordered_map<BasicBlock *, ReachingMap> reaching_load;
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto block : rpo) {
+            ReachingMap in;
+            auto &preds = predecessors[block];
+            if (!preds.empty()) {
+                in = reaching_load[preds.front()];
+                for (size_t i = 1; i < preds.size(); ++i) {
+                    auto &pred_map = reaching_load[preds[i]];
+                    for (auto it = in.begin(); it != in.end();) {
+                        auto jt = pred_map.find(it->first);
+                        if (jt == pred_map.end() || jt->second != it->second) {
+                            it = in.erase(it);
+                        } else {
+                            ++it;
+                        }
+                    }
+                }
+            }
+            auto &block_reaching = reaching_load[block];
+            auto current = in;
+            luisa::vector<std::pair<LoadInst *, LoadInst *>> to_remove;
+            for (auto inst : block->instructions()) {
+                if (inst->isa<LoadInst>()) {
+                    auto load = static_cast<LoadInst *>(inst);
+                    auto ptr = load->variable();
+                    if (trace_pointer_base_local_alloca_inst(ptr)) {
+                        auto it = current.find(ptr);
+                        if (it != current.end() && it->second != load) {
+                            to_remove.emplace_back(load, it->second);
+                        } else {
+                            current[ptr] = load;
+                        }
+                    }
+                } else if (inst->isa<StoreInst>()) {
+                    auto store = static_cast<StoreInst *>(inst);
+                    if (auto base = trace_pointer_base_local_alloca_inst(store->variable())) {
+                        for (auto it = current.begin(); it != current.end();) {
+                            if (trace_pointer_base_local_alloca_inst(it->first) == base) {
+                                it = current.erase(it);
+                            } else {
+                                ++it;
+                            }
+                        }
+                    }
+                } else {
+                    for (auto op_use : inst->operand_uses()) {
+                        if (auto base = trace_pointer_base_local_alloca_inst(op_use->value())) {
+                            for (auto it = current.begin(); it != current.end();) {
+                                if (trace_pointer_base_local_alloca_inst(it->first) == base) {
+                                    it = current.erase(it);
+                                } else {
+                                    ++it;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (block_reaching != current) {
+                block_reaching = std::move(current);
+                changed = true;
+            }
+            for (auto [load, earlier] : to_remove) {
+                load->replace_all_uses_with(earlier);
+                load->remove_self();
+                info.removed_load_count++;
+            }
+        }
+    }
+}
+
 static void run_local_load_elimination_on_function(Function *function, LocalLoadEliminationInfo &info) noexcept {
     if (auto definition = function->definition()) {
         luisa::unordered_set<BasicBlock *> visited;
         definition->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
             run_local_load_elimination_on_basic_block(visited, block, info);
         });
+        run_dominator_load_elimination_on_function(definition, info);
     }
 }
 

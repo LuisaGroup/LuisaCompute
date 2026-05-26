@@ -14,33 +14,32 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-// Eliminate stores that are overwritten before any load in the same basic block.
-// Also eliminate stores whose value has no users (truly dead stores).
-static void eliminate_dead_stores_in_block(BasicBlock *block, DeadStoreEliminationInfo &info) noexcept {
-
-    // Track the last store to each pointer (must be exact same pointer for aliasing safety).
-    luisa::unordered_map<Value *, StoreInst *> last_store;
-    // Track which stores are dead (overwritten before load)
-    luisa::vector<StoreInst *> dead_stores;
-
-    // Erase all tracked stores whose pointer traces to the given base alloca.
-    // Used when a load or call may access memory through an aliasing pointer.
-    auto erase_stores_with_base_alloca = [&](AllocaInst *base) noexcept {
-        for (auto it = last_store.begin(); it != last_store.end();) {
-            if (trace_pointer_base_local_alloca_inst(it->first) == base) {
-                it = last_store.erase(it);
-            } else {
-                ++it;
-            }
+// Erase all tracked stores whose pointer traces to the given base alloca.
+static void erase_stores_with_base_alloca(
+    luisa::unordered_map<Value *, StoreInst *> &last_store,
+    AllocaInst *base) noexcept {
+    for (auto it = last_store.begin(); it != last_store.end();) {
+        if (trace_pointer_base_local_alloca_inst(it->first) == base) {
+            it = last_store.erase(it);
+        } else {
+            ++it;
         }
-    };
+    }
+}
+
+// Process a single block for dead stores. Mutates last_store in place.
+// Returns dead stores found in this block alone.
+static luisa::vector<StoreInst *> process_block_dse(
+    BasicBlock *block,
+    luisa::unordered_map<Value *, StoreInst *> &last_store) noexcept {
+
+    luisa::vector<StoreInst *> dead_stores;
 
     for (auto inst : block->instructions()) {
         switch (inst->derived_instruction_tag()) {
             case DerivedInstructionTag::STORE: {
                 auto store = static_cast<StoreInst *>(inst);
                 auto ptr = store->variable();
-                // Only track stores to local allocas (direct or via GEP)
                 if (!trace_pointer_base_local_alloca_inst(ptr)) break;
 
                 auto it = last_store.find(ptr);
@@ -52,10 +51,8 @@ static void eliminate_dead_stores_in_block(BasicBlock *block, DeadStoreEliminati
             }
             case DerivedInstructionTag::LOAD: {
                 auto load = static_cast<LoadInst *>(inst);
-                // A load from any pointer to the same alloca invalidates all
-                // tracked stores to that alloca.
                 if (auto base = trace_pointer_base_local_alloca_inst(load->variable())) {
-                    erase_stores_with_base_alloca(base);
+                    erase_stores_with_base_alloca(last_store, base);
                 }
                 break;
             }
@@ -64,10 +61,8 @@ static void eliminate_dead_stores_in_block(BasicBlock *block, DeadStoreEliminati
             }
             default: {
                 for (auto op_use : inst->operand_uses()) {
-                    // Any non-load/non-store use of a pointer invalidates all
-                    // tracked stores to the same alloca.
                     if (auto base = trace_pointer_base_local_alloca_inst(op_use->value())) {
-                        erase_stores_with_base_alloca(base);
+                        erase_stores_with_base_alloca(last_store, base);
                     }
                 }
                 break;
@@ -75,18 +70,63 @@ static void eliminate_dead_stores_in_block(BasicBlock *block, DeadStoreEliminati
         }
     }
 
-    // Actually remove the dead stores
-    for (auto store : dead_stores) {
-        store->remove_self();
-        info.eliminated_store_count++;
-    }
+    return dead_stores;
 }
 
-static void run_dead_store_elimination_on_function(Function *function, DeadStoreEliminationInfo &info) noexcept {
+// Run intra-block DSE on each block independently.
+static size_t run_intra_block_dse(FunctionDefinition *function) noexcept {
+    size_t count = 0u;
+    function->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        luisa::unordered_map<Value *, StoreInst *> last_store;
+        auto dead = process_block_dse(block, last_store);
+        for (auto store : dead) {
+            store->remove_self();
+            count++;
+        }
+    });
+    return count;
+}
+
+// Run cross-block DSE along straight-line chains (single-successor, single-predecessor).
+// Carries the last_store map forward across blocks in a chain.
+static size_t run_straight_line_dse(FunctionDefinition *function) noexcept {
+    size_t count = 0u;
+    luisa::unordered_set<BasicBlock *> visited;
+    function->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
+        if (visited.contains(block)) return;
+        luisa::unordered_map<Value *, StoreInst *> last_store;
+        luisa::vector<StoreInst *> dead_stores;
+        BasicBlock *current = block;
+        while (true) {
+            auto block_dead = process_block_dse(current, last_store);
+            dead_stores.insert(dead_stores.end(), block_dead.begin(), block_dead.end());
+            visited.emplace(current);
+            BasicBlock *next = nullptr;
+            size_t successor_count = 0;
+            current->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+                successor_count++;
+                next = succ;
+            });
+            if (successor_count != 1) break;
+            size_t pred_count = 0;
+            next->traverse_predecessors(false, [&](BasicBlock *) noexcept { pred_count++; });
+            if (pred_count != 1) break;
+            current = next;
+        }
+        for (auto store : dead_stores) {
+            store->remove_self();
+            count++;
+        }
+    });
+    return count;
+}
+
+// Run dead store elimination on a function.
+static void run_dead_store_elimination_on_function(Function *function,
+                                                   DeadStoreEliminationInfo &info) noexcept {
     if (auto def = function->definition()) {
-        def->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-            eliminate_dead_stores_in_block(block, info);
-        });
+        info.eliminated_store_count += run_intra_block_dse(def);
+        info.eliminated_store_count += run_straight_line_dse(def);
     }
 }
 

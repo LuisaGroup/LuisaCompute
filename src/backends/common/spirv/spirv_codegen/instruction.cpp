@@ -3565,11 +3565,14 @@ spv::Id SpirvCodegenEntry::_ensure_type(spv::Id value, spv::Id target_type) noex
             auto tgt_signed = _builder.isIntType(tgt_scalar);
             auto val_width = _builder.getScalarTypeWidth(val_scalar);
             auto tgt_width = _builder.getScalarTypeWidth(tgt_scalar);
-            if (val_signed == tgt_signed || val_width == tgt_width) {
-                if (val_width == tgt_width) {
-                    return _builder.createUnaryOp(spv::Op::OpBitcast, target_type, value);
-                }
+            if (val_width == tgt_width && val_signed == tgt_signed) {
+                return value;  // No conversion needed
+            }
+            if (val_signed == tgt_signed) {
                 return _builder.createUnaryOp(val_signed ? spv::Op::OpSConvert : spv::Op::OpUConvert, target_type, value);
+            }
+            if (val_width == tgt_width) {
+                return _builder.createUnaryOp(spv::Op::OpBitcast, target_type, value);
             }
             // Cross-signedness with different sizes
             auto tmp_type = _builder.makeIntegerType(tgt_width, val_signed);
