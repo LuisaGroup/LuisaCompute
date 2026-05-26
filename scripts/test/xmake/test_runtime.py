@@ -1,6 +1,6 @@
 import shutil
 import sys
-from common import run_cmd, get_targets, PROJECT_ROOT
+from common import run_cmd, get_targets, PROJECT_ROOT, get_backends
 
 RUNTIME_TARGETS = [
     "test_atomic",
@@ -34,9 +34,6 @@ RUNTIME_TARGETS = [
     "test_fp8_quantization",
 ]
 
-BACKENDS = ["dx", "vk", "cuda", "metal"]
-
-
 def _copy_logo():
     """Copy logo.png to bin/debug and bin/release before running tests."""
     src = PROJECT_ROOT / "src" / "tests" / "logo.png"
@@ -53,26 +50,8 @@ def _copy_logo():
 
 
 def main():
-    args = sys.argv[1:]
-    mode = None
-    backend = None
-
-    if args and args[0] in ("debug", "release"):
-        mode = args.pop(0)
-    if args:
-        backend = args.pop(0)
-    if args:
-        print(f"Usage: python {sys.argv[0]} [mode] [backend]")
-        sys.exit(1)
-
-    backends = [backend] if backend else BACKENDS
-
-    ret = run_cmd(["xmake", "f", "-m", mode if mode else "release", "-c"])
-    if ret != 0:
-        print("ERROR: xmake config failed")
-        sys.exit(ret)
-
     _copy_logo()
+    backends = get_backends(["dx", "vk", "cuda", "metal"])
 
     available = set(get_targets())
     targets = [t for t in RUNTIME_TARGETS if t in available]
@@ -83,10 +62,6 @@ def main():
 
     failures = []
     for target in targets:
-        print(f"\n=== Building {target} ===")
-        if run_cmd(["xmake", "build", target]) != 0:
-            failures.append(f"build:{target}")
-            continue
         for backend in backends:
             print(f"--- Running {target} with backend {backend} ---")
             if run_cmd(["xmake", "run", target, backend]) != 0:

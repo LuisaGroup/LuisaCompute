@@ -1,5 +1,5 @@
 import sys
-from common import run_cmd, get_targets
+from common import run_cmd, get_targets, get_backends
 
 DSL_TARGETS = [
     "test_binding_group",
@@ -21,29 +21,8 @@ DSL_TARGETS = [
     "test_dsl_mathematic",
 ]
 
-BACKENDS = ["dx", "vk", "cuda", "metal"]
-
-
 def main():
-    args = sys.argv[1:]
-    mode = None
-    backend = None
-
-    if args and args[0] in ("debug", "release"):
-        mode = args.pop(0)
-    if args:
-        backend = args.pop(0)
-    if args:
-        print(f"Usage: python {sys.argv[0]} [mode] [backend]")
-        sys.exit(1)
-
-    backends = [backend] if backend else BACKENDS
-
-    ret = run_cmd(["xmake", "f", "-m", mode if mode else "release", "-c"])
-    if ret != 0:
-        print("ERROR: xmake config failed")
-        sys.exit(ret)
-
+    backends = get_backends(["dx", "vk", "cuda", "metal"])
     available = set(get_targets())
     targets = [t for t in DSL_TARGETS if t in available]
 
@@ -53,10 +32,6 @@ def main():
 
     failures = []
     for target in targets:
-        print(f"\n=== Building {target} ===")
-        if run_cmd(["xmake", "build", target]) != 0:
-            failures.append(f"build:{target}")
-            continue
         for backend in backends:
             print(f"--- Running {target} with backend {backend} ---")
             if run_cmd(["xmake", "run", target, backend]) != 0:

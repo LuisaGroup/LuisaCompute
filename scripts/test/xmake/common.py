@@ -11,6 +11,18 @@ def run_cmd(cmd: list[str], cwd: Path = PROJECT_ROOT) -> int:
     return result.returncode
 
 
+def get_backends(defaults: list[str] | None = None) -> list[str]:
+    """Parse backend arguments from trivial positional text and return the list of backends to test."""
+    import argparse
+    parser = argparse.ArgumentParser()
+    args, remaining = parser.parse_known_args()
+    valid = {"dx", "vk", "cuda", "metal"}
+    backends = [a for a in remaining if a in valid]
+    if backends:
+        return backends
+    return defaults if defaults is not None else []
+
+
 def get_targets(cwd: Path = PROJECT_ROOT) -> list[str]:
     result = subprocess.run(
         ["xmake", "show", "--list=targets"],

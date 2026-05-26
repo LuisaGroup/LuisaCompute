@@ -97,22 +97,21 @@ Located under `scripts/test/xmake/`.
 | `test_dsl.py` | DSL tests |
 | `test_runtime.py` | Runtime tests |
 | `test_xir.py` | XIR tests |
+| `test_examples.py` | Example tests |
 
 ### Usage
+These scripts only run tests. Build and configure the project first, then execute:
+
 ```bash
-# Default mode (release), all backends
+# Run all backends (default)
 python scripts/test/xmake/test_runtime.py
 
-# Specify mode only
-python scripts/test/xmake/test_runtime.py debug
-python scripts/test/xmake/test_runtime.py release
-
-# Specify backend only (backward-compatible)
+# Run a specific backend only
 python scripts/test/xmake/test_runtime.py cuda
-
-# Specify both mode and backend
-python scripts/test/xmake/test_runtime.py debug cuda
+python scripts/test/xmake/test_runtime.py dx
 ```
+
+Available backends: `dx`, `vk`, `cuda`, `metal`.
 
 ## Common Issues
 
