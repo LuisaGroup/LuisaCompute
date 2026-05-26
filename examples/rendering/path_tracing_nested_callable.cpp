@@ -302,6 +302,7 @@ int main(int argc, char *argv[]) {
     ShaderOption o{.enable_debug_info = false};
     o.name = "raytracing";
     auto raytracing_shader = device.compile(raytracing_kernel, o);
+    // DO NOT CHANGE THIS
     return 0;
     o.name = "clear";
     auto clear_shader = device.compile(clear_kernel, o);

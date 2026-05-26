@@ -22,14 +22,21 @@ BACKENDS = ["dx", "vk", "cuda", "metal"]
 
 
 def main():
-    if len(sys.argv) > 2:
-        print(f"Usage: python {sys.argv[0]} [backend]")
+    args = sys.argv[1:]
+    mode = None
+    backend = None
+
+    if args and args[0] in ("debug", "release"):
+        mode = args.pop(0)
+    if args:
+        backend = args.pop(0)
+    if args:
+        print(f"Usage: python {sys.argv[0]} [mode] [backend]")
         sys.exit(1)
 
-    backend = sys.argv[1] if len(sys.argv) > 1 else None
     backends = [backend] if backend else BACKENDS
 
-    ret = run_cmd(["xmake", "f", "-c"])
+    ret = run_cmd(["xmake", "f", "-m", mode if mode else "release", "-c"])
     if ret != 0:
         print("ERROR: xmake config failed")
         sys.exit(ret)

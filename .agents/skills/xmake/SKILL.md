@@ -86,6 +86,34 @@ xmake f -m debug --lc_enable_tests=true -c && xmake
 | `xmake -l` | List targets |
 | `xmake install -o <dir>` | Install |
 
+## Test Scripts
+
+Located under `scripts/test/xmake/`.
+
+| Script | Description |
+|---|---|
+| `test_ast.py` | AST tests |
+| `test_core.py` | Core library tests |
+| `test_dsl.py` | DSL tests |
+| `test_runtime.py` | Runtime tests |
+| `test_xir.py` | XIR tests |
+
+### Usage
+```bash
+# Default mode (release), all backends
+python scripts/test/xmake/test_runtime.py
+
+# Specify mode only
+python scripts/test/xmake/test_runtime.py debug
+python scripts/test/xmake/test_runtime.py release
+
+# Specify backend only (backward-compatible)
+python scripts/test/xmake/test_runtime.py cuda
+
+# Specify both mode and backend
+python scripts/test/xmake/test_runtime.py debug cuda
+```
+
 ## Common Issues
 
 - `-v`, `-D`, `--diagnosis` invalid; use `--verbose`

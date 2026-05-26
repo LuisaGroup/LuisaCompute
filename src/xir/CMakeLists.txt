@@ -70,6 +70,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/aggregate_field_bitmask.cpp
         passes/early_return_elimination.cpp
         passes/pointer_usage.cpp
+        passes/post_dom_tree.cpp
         passes/lex_scope_analysis.cpp
         passes/local_store_forward.cpp
         passes/local_load_elimination.cpp
@@ -81,15 +82,24 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/unused_callable_removal.cpp
         passes/reg2mem.cpp
         passes/promote_ref_arg.cpp
+        passes/reassociate.cpp
         passes/algebraic_simplify.cpp
+        passes/alias_analysis.cpp
         passes/const_fold.cpp
+        passes/dead_arg_elim.cpp
+        passes/cvp.cpp
         passes/sccp.cpp
+        passes/scalarizer.cpp
         passes/inline.cpp
+        passes/loop_rotation.cpp
         passes/loop_unroll.cpp
         passes/lower_break_continue.cpp
         passes/destructure_cfg.cpp
+        passes/div_rem_pairs.cpp
         passes/simplify_cfg.cpp
+        passes/simplify_libcalls.cpp
         passes/restructure_cfg.cpp
+        passes/scalar_evolution.cpp
         passes/gvn.cpp
         passes/phi_cleanup.cpp
         passes/if_conversion.cpp
