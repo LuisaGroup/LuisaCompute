@@ -13,7 +13,7 @@
 #include <luisa/runtime/dispatch_buffer.h>
 #include <luisa/ast/function_builder.h>
 #ifdef LUISA_BACKEND_ENABLE_VULKAN_SWAPCHAIN
-#include <luisa/backends/ext/cuda_config_ext.h>
+#include <luisa/backends/ext/cuda/cuda_config_ext.h>
 #endif
 
 #ifdef LUISA_ENABLE_IR
