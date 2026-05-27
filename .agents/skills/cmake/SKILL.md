@@ -1,6 +1,6 @@
 ---
 name: cmake
-description: CMake build system for LuisaCompute — options, architecture, custom functions, and backend patterns
+description: CMake build options, custom functions, and backend patterns for LuisaCompute.
 ---
 
 # CMake Build Guide

@@ -1,6 +1,6 @@
 ---
 name: ir_pipeline
-description: IR and XIR compiler pipeline, AST translation, SSA-based IR, instruction set, optimization passes, and control flow representation in LuisaCompute
+description: Legacy IR and XIR compiler pipeline, AST lowering, SSA IR, and optimization passes.
 ---
 
 # IR and XIR Pipeline

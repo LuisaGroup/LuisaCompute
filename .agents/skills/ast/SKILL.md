@@ -1,6 +1,6 @@
 ---
 name: ast
-description: Manual AST construction API for building kernels and callables without DSL syntax sugar
+description: Manual AST construction with FunctionBuilder for kernels and callables without DSL sugar.
 ---
 
 # Manual AST Construction

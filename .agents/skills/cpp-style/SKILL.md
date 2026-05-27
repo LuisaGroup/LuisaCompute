@@ -1,6 +1,6 @@
 ---
 name: cpp-style
-description: C++ naming conventions, formatting, static analysis rules, and RTTI prohibition for LuisaCompute
+description: C++ naming, formatting, static analysis, and RTTI rules for LuisaCompute.
 ---
 
 ## Naming

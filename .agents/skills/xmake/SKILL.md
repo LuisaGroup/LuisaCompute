@@ -1,6 +1,6 @@
 ---
 name: xmake
-description: XMake build system — configuration, project options, commands, and common patterns for LuisaCompute
+description: XMake build configuration, options, commands, and patterns for LuisaCompute.
 ---
 
 # XMake Build System

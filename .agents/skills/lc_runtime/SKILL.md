@@ -1,6 +1,6 @@
 ---
 name: lc_runtime
-description: LuisaCompute runtime API — Context, Device, Stream, Buffer, Image, Volume, BindlessArray, Swapchain, ray tracing, rasterization, and command patterns
+description: Runtime API: Context, Device, Stream, buffers, images, ray tracing, and rasterization.
 ---
 
 # LuisaCompute Runtime API

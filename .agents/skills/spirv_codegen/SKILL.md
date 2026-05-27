@@ -1,6 +1,6 @@
 ---
 name: spirv_codegen
-description: SPIR-V backend codegen — XIR→SPIR-V via glslang Builder, type/instruction/control-flow/binding emission, ray query, bindless, and debugging
+description: SPIR-V backend codegen: XIR to SPIR-V with glslang Builder, bindings, and ray query.
 ---
 
 # SPIR-V Codegen

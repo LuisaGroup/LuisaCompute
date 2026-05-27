@@ -1,6 +1,6 @@
 ---
 name: backend_architecture
-description: Backend plugin architecture, DeviceInterface API, dynamic loading, command encoding, and backend registration patterns in LuisaCompute
+description: Backend plugin architecture, DeviceInterface, dynamic loading, and command encoding.
 ---
 
 # Backend Plugin Architecture

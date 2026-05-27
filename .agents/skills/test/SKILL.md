@@ -1,6 +1,6 @@
 ---
 name: test
-description: LuisaCompute test guide — Boost.UT framework, test layout, adding tests, device helpers, and running
+description: Boost.UT test layout, device helpers, adding tests, and running them.
 ---
 
 # LuisaCompute Test Guide

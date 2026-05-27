@@ -1,6 +1,6 @@
 ---
 name: lc_dsl
-description: LuisaCompute DSL — kernels, callables, structs, buffers, atomics, control flow, sugar syntax, and dispatch
+description: DSL kernels, callables, structs, buffers, atomics, control flow, and dispatch.
 ---
 
 # LuisaCompute DSL Usage Guide

@@ -1,6 +1,6 @@
 ---
 name: lsp
-description: C++ LSP tooling via clangd HTTP server. Use when checking C++ syntax, navigating symbols (definition/declaration/hover), or analyzing document symbols in LuisaCompute source files.
+description: clangd LSP over HTTP for C++ syntax checks and symbol navigation in LuisaCompute sources.
 ---
 
 # C++ LSP

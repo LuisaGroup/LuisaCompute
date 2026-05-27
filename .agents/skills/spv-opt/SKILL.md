@@ -1,6 +1,6 @@
 ---
 name: spv-opt
-description: SPIRV-Tools optimizer pass development — writing passes, IR manipulation, testing with PassTest, and registration. Use when adding or modifying optimizer passes in src/ext/SPIRV-Tools/source/opt/ or tests under test/opt/.
+description: SPIRV-Tools optimizer pass development, IR manipulation, and PassTest registration.
 ---
 
 # SPIRV-Tools Optimizer
