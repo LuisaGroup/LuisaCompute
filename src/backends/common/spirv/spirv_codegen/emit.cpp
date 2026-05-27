@@ -543,6 +543,9 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 
         // Update block map so XIR body block maps to body_block instead of entry
         _block_map[kernel->body_block()] = body_block;
+        // Track dispatch bounds check body_block as a used merge so nested
+        // constructs that would reuse it create synthetic merges instead.
+        _used_merge_blocks.emplace(body_block->getId());
     }
 
     _emit_block(kernel->body_block());

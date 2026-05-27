@@ -388,19 +388,44 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
         }
     }
 
+    // Compute loop_blocks via forward BFS from header, keeping only blocks
+    // dominated by the header that can reach at least one latch.
+    // The old backward-only traversal missed forward-only paths (e.g., if-then
+    // arms that don't lead back to any latch), causing exit edges on those paths
+    // to escape detection and produce invalid structured CFG.
     luisa::unordered_set<BasicBlock *> loop_blocks;
     {
-        luisa::vector<BasicBlock *> worklist{latches.begin(), latches.end()};
+        // Step 1: backward BFS from latches to find blocks that can reach a latch.
+        luisa::unordered_set<BasicBlock *> can_reach_latch;
+        {
+            luisa::vector<BasicBlock *> worklist{latches.begin(), latches.end()};
+            for (auto *l : latches) { can_reach_latch.emplace(l); }
+            while (!worklist.empty()) {
+                auto *cur = worklist.back();
+                worklist.pop_back();
+                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                    if (!dom.contains(pred)) { return; }
+                    if (can_reach_latch.emplace(pred).second) {
+                        worklist.emplace_back(pred);
+                    }
+                });
+            }
+        }
+
+        // Step 2: forward BFS from header; include blocks dominated by header
+        // that can reach a latch.
         loop_blocks.emplace(header);
-        for (auto *l : latches) { loop_blocks.emplace(l); }
-        while (!worklist.empty()) {
-            auto *cur = worklist.back();
-            worklist.pop_back();
-            cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                if (!dom.contains(pred)) { return; }
-                if (!loop_blocks.contains(pred) && dom.dominates(header, pred)) {
-                    loop_blocks.emplace(pred);
-                    worklist.emplace_back(pred);
+        luisa::vector<BasicBlock *> fwd_work{header};
+        while (!fwd_work.empty()) {
+            auto *cur = fwd_work.back();
+            fwd_work.pop_back();
+            if (!cur->is_terminated()) { continue; }
+            cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (!dom.contains(succ)) { return; }
+                if (!dom.strictly_dominates(header, succ)) { return; }
+                if (!can_reach_latch.contains(succ)) { return; }
+                if (loop_blocks.emplace(succ).second) {
+                    fwd_work.emplace_back(succ);
                 }
             });
         }
@@ -773,13 +798,6 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
                         if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
                             retarget_terminator(term, found_merge, structural_merge);
                         }
-                        // Disabled: extra_targets retargeting causes back-edge
-                        // validation errors by redirecting loop-internal branches.
-                        // for (auto *succ : extra_targets) {
-                        //     if (dom.contains(succ) && !dom.strictly_dominates(succ, bb)) {
-                        //         retarget_terminator(term, succ, structural_merge);
-                        //     }
-                        // }
                         fix_degenerate_terminator(bb);
                     }
                 }
@@ -962,24 +980,39 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     // structural merge, it is a shared tail from outside the construct. SPIR-V requires
     // every block inside a selection to branch only to other in-construct blocks or the
     // merge. Clone the shared tail so the arm has its own copy ending at the merge.
-    for (auto *arm_bb : {true_bb, false_bb}) {
-        if (arm_bb == nullptr) { continue; }
-        if (!arm_bb->is_terminated()) { continue; }
-        // Collect bad successors first to avoid UB from mutating the terminator
-        // (which modifies operand_uses()) while traversing it.
-        luisa::vector<BasicBlock *> bad_succs;
-        arm_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-            if (succ == structural_merge) { return; }
-            if (!dom.contains(succ)) { return; }
-            if (dom.dominates(found_header, succ)) { return; }
-            bad_succs.emplace_back(succ);
-        });
-        // Deduplicate: a terminator may have multiple edges to the same successor
-        // (e.g. a conditional branch where both arms target the same block).
-        luisa::sort(bad_succs.begin(), bad_succs.end());
-        bad_succs.erase(std::unique(bad_succs.begin(), bad_succs.end()), bad_succs.end());
-        for (auto *succ : bad_succs) {
-            clone_subgraph_to_target(def, succ, arm_bb, found_merge, structural_merge);
+    //
+    // We walk ALL blocks dominated by found_header (not just arm blocks), because
+    // deeper blocks may also have edges that leak outside the construct. Each
+    // leaking edge is fixed by cloning the target subgraph and retargeting to
+    // structural_merge.
+    {
+        luisa::unordered_set<BasicBlock *> seen;
+        luisa::vector<BasicBlock *> work{true_bb, false_bb};
+        while (!work.empty()) {
+            auto *bb = work.back();
+            work.pop_back();
+            if (!seen.emplace(bb).second) { continue; }
+            if (bb == structural_merge) { continue; }
+            if (!bb->is_terminated()) { continue; }
+
+            luisa::vector<BasicBlock *> bad_succs;
+            bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (succ == structural_merge) { return; }
+                if (!dom.contains(succ)) { return; }
+                if (dom.dominates(found_header, succ)) {
+                    // Inside the construct; visit it later.
+                    work.emplace_back(succ);
+                    return;
+                }
+                // Outside the construct and not the merge — must clone.
+                bad_succs.emplace_back(succ);
+            });
+
+            luisa::sort(bad_succs.begin(), bad_succs.end());
+            bad_succs.erase(std::unique(bad_succs.begin(), bad_succs.end()), bad_succs.end());
+            for (auto *succ : bad_succs) {
+                clone_subgraph_to_target(def, succ, bb, found_merge, structural_merge);
+            }
         }
     }
 
