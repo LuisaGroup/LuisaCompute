@@ -317,7 +317,10 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
         case xir::DerivedValueTag::FUNCTION:
         case xir::DerivedValueTag::BASIC_BLOCK:
         case xir::DerivedValueTag::INSTRUCTION: {
-            LUISA_ERROR_WITH_LOCATION("SPIR-V value {} should have been pre-mapped.", xir::to_string(value->derived_value_tag()));
+            auto tag = xir::to_string(value->derived_value_tag());
+            auto name = value->name().value_or("<noname>");
+            auto type_desc = value->type() ? value->type()->description() : "void";
+            LUISA_ERROR_WITH_LOCATION("SPIR-V value {} (name={}, type={}) should have been pre-mapped.", tag, name, type_desc);
             break;
         }
     }

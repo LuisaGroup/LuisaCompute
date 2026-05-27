@@ -118,11 +118,13 @@ luisa_compute_add_test(test_xir_builder     unit/xir/test_xir_builder.cpp     LA
 luisa_compute_add_test(test_xir_translators unit/xir/test_xir_translators.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir2ast_translators unit/xir/test_xir2ast_translators.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_passes      unit/xir/test_xir_passes.cpp      LABELS "unit;unit_xir")
+luisa_compute_add_test(test_xir_pass_licm unit/xir/test_xir_pass_licm.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_lower_break_continue unit/xir/test_xir_pass_lower_break_continue.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_destructure_cfg unit/xir/test_xir_pass_destructure_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_simplify_cfg unit/xir/test_xir_pass_simplify_cfg.cpp LABELS "unit;unit_xir")
 luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_restructure_cfg.cpp LABELS "unit;unit_xir")
     luisa_compute_add_test(test_xir_pass_early_return_elimination unit/xir/test_xir_pass_early_return_elimination.cpp LABELS "unit;unit_xir")
+    luisa_compute_add_test(test_xir_pass_indvar_simplify unit/xir/test_xir_pass_indvar_simplify.cpp LABELS "unit;unit_xir")
     luisa_compute_add_test(test_xir_pass_pipeline unit/xir/test_xir_pass_pipeline.cpp LABELS "unit;unit_xir")
 
 # =============================================================================

@@ -68,6 +68,14 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     _builder.createBranch(false, prepare);
     _emit_block(inst->prepare_block());
     _emit_block(inst->body_block());
+    while (!_pending_blocks.empty()) {
+        auto *bb = _pending_blocks.back();
+        _pending_blocks.pop_back();
+        if (bb == inst->update_block() || bb == inst->merge_block()) {
+            continue;
+        }
+        _emit_block(bb);
+    }
     _emit_block(inst->update_block());
     _emit_block(inst->merge_block());
 }

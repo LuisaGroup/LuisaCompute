@@ -13,6 +13,8 @@
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/if_conversion.h>
+#include <luisa/xir/passes/licm.h>
+#include <luisa/xir/passes/indvar_simplify.h>
 
 namespace luisa::compute::xir {
 
@@ -190,6 +192,10 @@ void PassPipeline::Stats::log(luisa::string_view pipeline_name) const noexcept {
 PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
+    p.add("licm", [](Module *m, PassReport &r) {
+        auto i = licm_pass_run_on_module(m, &r);
+        return i.hoisted_count > 0u;
+    });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
@@ -286,6 +292,14 @@ PassPipeline create_post_inline_cleanup_pipeline(OptimizationPipelineOptions opt
 PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
+    p.add("licm", [](Module *m, PassReport &r) {
+        auto i = licm_pass_run_on_module(m, &r);
+        return i.hoisted_count > 0u;
+    });
+    p.add("indvar-simplify", [](Module *m, PassReport &r) {
+        auto i = indvar_simplify_pass_run_on_module(m, &r);
+        return i.simplified_iv_count > 0u || i.removed_dead_iv_count > 0u;
+    });
     p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
         auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
         return i.simplified_inst_count > 0u;

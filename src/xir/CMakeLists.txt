@@ -72,6 +72,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/pointer_usage.cpp
         passes/post_dom_tree.cpp
         passes/lex_scope_analysis.cpp
+        passes/licm.cpp
         passes/local_store_forward.cpp
         passes/local_load_elimination.cpp
         passes/lower_ray_query_loop.cpp
@@ -103,6 +104,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/gvn.cpp
         passes/phi_cleanup.cpp
         passes/if_conversion.cpp
+        passes/indvar_simplify.cpp
         passes/pass_pipeline.cpp
 )
 

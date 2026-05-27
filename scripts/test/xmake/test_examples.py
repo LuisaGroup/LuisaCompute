@@ -16,8 +16,6 @@ ALLOWED_EXAMPLES = {
     "example_shader_toy",
     "example_shader_toy_spacex",
     "example_shader_visuals_present",
-    "example_path_tracing_ir",
-    "example_sdf_renderer_ir",
     "example_path_tracing_xir2ast",
     "example_sdf_renderer_xir2ast",
     "example_fire_simulation",

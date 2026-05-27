@@ -3312,6 +3312,14 @@ void SpirvCodegenEntry::_emit_ray_query_loop_inst(const xir::RayQueryLoopInst *i
         _builder.createLoopMerge(merge_spv, continue_block, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, dispatch_spv);
     _emit_block(inst->dispatch_block());
+    while (!_pending_blocks.empty()) {
+        auto *bb = _pending_blocks.back();
+        _pending_blocks.pop_back();
+        if (bb == inst->merge_block()) {
+            continue;
+        }
+        _emit_block(bb);
+    }
     _builder.setBuildPoint(continue_block);
     _builder.createBranch(false, header);
     _emit_block(inst->merge_block());
