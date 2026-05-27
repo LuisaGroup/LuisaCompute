@@ -241,6 +241,10 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
                     changed = true;
                 }
             }
+            if (sw->merge_block() == from) {
+                sw->set_merge_block(to);
+                changed = true;
+            }
             break;
         }
         case DerivedInstructionTag::IF: {
@@ -251,6 +255,10 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
             }
             if (ii->false_block() == from) {
                 ii->set_false_target(to);
+                changed = true;
+            }
+            if (ii->merge_block() == from) {
+                ii->set_merge_block(to);
                 changed = true;
             }
             break;
