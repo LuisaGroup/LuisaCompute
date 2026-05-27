@@ -72,18 +72,26 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
         options.NoTrappingFPMath = true;
         if (_config.enable_fast_math) {
             options.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+#if LLVM_VERSION_MAJOR < 22
             options.UnsafeFPMath = true;
+#endif
             options.NoInfsFPMath = true;
             options.NoNaNsFPMath = true;
             options.NoSignedZerosFPMath = true;
+#if LLVM_VERSION_MAJOR < 22
             options.ApproxFuncFPMath = true;
+#endif
         } else {
             options.AllowFPOpFusion = llvm::FPOpFusion::Strict;
+#if LLVM_VERSION_MAJOR < 22
             options.UnsafeFPMath = false;
+#endif
             options.NoInfsFPMath = false;
             options.NoNaNsFPMath = false;
             options.NoSignedZerosFPMath = false;
+#if LLVM_VERSION_MAJOR < 22
             options.ApproxFuncFPMath = false;
+#endif
         }
         if (_config.enable_debug_info) {
             options.TrapUnreachable = true;
