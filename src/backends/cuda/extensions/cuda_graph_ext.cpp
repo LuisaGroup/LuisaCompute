@@ -70,6 +70,7 @@ ResourceCreationInfo CudaGraphExtImpl::create_graph(CommandList &&cmdlist) noexc
         luisa::vector<void *> host_allocs;
         auto commands = cmdlist.steal_commands();
         auto user_callbacks = cmdlist.steal_callbacks();
+        cudaGraph_t graph = nullptr;
 
         for (auto &cmd : commands) {
             if (auto *upload = dynamic_cast<BufferUploadCommand *>(cmd.get())) {
@@ -78,12 +79,16 @@ ResourceCreationInfo CudaGraphExtImpl::create_graph(CommandList &&cmdlist) noexc
                 auto data = upload->data();
                 auto size = upload->size();
                 void *host_mem = nullptr;
-                if (cudaMallocHost(&host_mem, size) == cudaSuccess) {
-                    std::memcpy(host_mem, data, size);
-                    cudaMemcpyAsync(reinterpret_cast<void *>(address), host_mem, size,
-                                    cudaMemcpyHostToDevice, cuda_cap_stream);
-                    host_allocs.push_back(host_mem);
+                if (cudaMallocHost(&host_mem, size) != cudaSuccess) {
+                    cudaStreamEndCapture(cuda_cap_stream, &graph);
+                    cuStreamDestroy(cap_stream);
+                    for (auto *ptr : host_allocs) { cudaFreeHost(ptr); }
+                    return {invalid_handle, nullptr};
                 }
+                std::memcpy(host_mem, data, size);
+                cudaMemcpyAsync(reinterpret_cast<void *>(address), host_mem, size,
+                                cudaMemcpyHostToDevice, cuda_cap_stream);
+                host_allocs.push_back(host_mem);
             } else if (auto *download = dynamic_cast<BufferDownloadCommand *>(cmd.get())) {
                 auto *buffer = reinterpret_cast<const CUDABuffer *>(download->handle());
                 auto address = buffer->device_address() + download->offset();
@@ -103,7 +108,6 @@ ResourceCreationInfo CudaGraphExtImpl::create_graph(CommandList &&cmdlist) noexc
 
         for (auto &cb : user_callbacks) { cb(); }
 
-        cudaGraph_t graph = nullptr;
         ret = cudaStreamEndCapture(cuda_cap_stream, &graph);
         cuStreamDestroy(cap_stream);
 
@@ -177,16 +181,22 @@ void CudaGraphExtImpl::destroy_exec(GraphExecHandle exec) noexcept {
 void CudaGraphExtImpl::launch(GraphExecHandle exec, uint64_t stream_handle) noexcept {
     if (exec == invalid_handle) { return; }
     _device->with_handle([&] {
-        cudaGraphLaunch(reinterpret_cast<cudaGraphExec_t>(exec),
-                        static_cast<cudaStream_t>(to_cu_stream(stream_handle)));
+        auto ret = cudaGraphLaunch(reinterpret_cast<cudaGraphExec_t>(exec),
+                                   static_cast<cudaStream_t>(to_cu_stream(stream_handle)));
+        if (ret != cudaSuccess) {
+            LUISA_WARNING_WITH_LOCATION("cudaGraphLaunch failed: {}", cudaGetErrorName(ret));
+        }
     });
 }
 
 void CudaGraphExtImpl::upload(GraphExecHandle exec, uint64_t stream_handle) noexcept {
     if (exec == invalid_handle) { return; }
     _device->with_handle([&] {
-        cudaGraphUpload(reinterpret_cast<cudaGraphExec_t>(exec),
-                        static_cast<cudaStream_t>(to_cu_stream(stream_handle)));
+        auto ret = cudaGraphUpload(reinterpret_cast<cudaGraphExec_t>(exec),
+                                   static_cast<cudaStream_t>(to_cu_stream(stream_handle)));
+        if (ret != cudaSuccess) {
+            LUISA_WARNING_WITH_LOCATION("cudaGraphUpload failed: {}", cudaGetErrorName(ret));
+        }
     });
 }
 
@@ -224,17 +234,16 @@ bool CudaGraphExtImpl::update_kernel_node(GraphExecHandle exec, size_t node_inde
         auto *node = _get_node(exec, node_index);
         if (!node) { return false; }
 
+        cudaKernelNodeParams params{};
+        if (cudaGraphKernelNodeGetParams(node, &params) != cudaSuccess) { return false; }
+
         luisa::vector<void *> kernel_args;
         for (const auto &arg : arguments) {
             kernel_args.push_back(const_cast<void *>(static_cast<const void *>(&arg)));
         }
 
-        cudaKernelNodeParams params{};
         params.gridDim = dim3{dispatch_size.x, dispatch_size.y, dispatch_size.z};
-        params.blockDim = dim3{1, 1, 1};
-        params.sharedMemBytes = 0u;
         params.kernelParams = kernel_args.data();
-        params.extra = nullptr;
 
         return cudaGraphExecKernelNodeSetParams(
                    reinterpret_cast<cudaGraphExec_t>(exec), node, &params) == cudaSuccess;
@@ -250,6 +259,8 @@ bool CudaGraphExtImpl::update_upload_node(GraphExecHandle exec, size_t node_inde
         if (!node) { return false; }
 
         cudaMemcpy3DParms params{};
+        if (cudaGraphMemcpyNodeGetParams(node, &params) != cudaSuccess) { return false; }
+
         params.srcPtr = cudaPitchedPtr{const_cast<void *>(data), size, size, 1};
         params.srcPos = cudaPos{0, 0, 0};
         params.extent = cudaExtent{size, 1, 1};
@@ -269,6 +280,8 @@ bool CudaGraphExtImpl::update_download_node(GraphExecHandle exec, size_t node_in
         if (!node) { return false; }
 
         cudaMemcpy3DParms params{};
+        if (cudaGraphMemcpyNodeGetParams(node, &params) != cudaSuccess) { return false; }
+
         params.dstPtr = cudaPitchedPtr{data, size, size, 1};
         params.dstPos = cudaPos{0, 0, 0};
         params.extent = cudaExtent{size, 1, 1};
@@ -311,8 +324,11 @@ void CudaGraphExtImpl::set_node_enabled(GraphExecHandle exec, size_t node_index,
         std::scoped_lock lock{_mutex};
         auto *node = _get_node(exec, node_index);
         if (!node) { return; }
-        cudaGraphNodeSetEnabled(reinterpret_cast<cudaGraphExec_t>(exec), node,
-                                enabled ? 1u : 0u);
+        auto ret = cudaGraphNodeSetEnabled(reinterpret_cast<cudaGraphExec_t>(exec), node,
+                                           enabled ? 1u : 0u);
+        if (ret != cudaSuccess) {
+            LUISA_WARNING_WITH_LOCATION("cudaGraphNodeSetEnabled failed: {}", cudaGetErrorName(ret));
+        }
     });
 }
 
@@ -323,8 +339,8 @@ bool CudaGraphExtImpl::is_node_enabled(GraphExecHandle exec, size_t node_index) 
         auto *node = const_cast<CudaGraphExtImpl *>(this)->_get_node(exec, node_index);
         if (!node) { return false; }
         unsigned int is_enabled = 0u;
-        cudaGraphNodeGetEnabled(reinterpret_cast<cudaGraphExec_t>(exec), node, &is_enabled);
-        return is_enabled != 0u;
+        auto ret = cudaGraphNodeGetEnabled(reinterpret_cast<cudaGraphExec_t>(exec), node, &is_enabled);
+        return ret == cudaSuccess && is_enabled != 0u;
     });
 }
 
