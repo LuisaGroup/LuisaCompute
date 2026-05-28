@@ -16,6 +16,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/xir2ast.h>
+#include <luisa/xir/translators/xir2text.h>
 #include <luisa/xir/instructions/coroutine.h>
 #include <luisa/xir/passes/coroutine.h>
 #include <luisa/xir/passes/coro_materialize.h>
@@ -392,14 +393,15 @@ int main(int argc, char *argv[]) {
 
         auto target_token_type = Type::of<uint>();
 
+        // The old impl's scheduler: loop { switch(frame.target_token) { case i: node(i); } default: return; }
+        // frame.target_token is field 0 of the frame struct.
         auto loop = fb->loop_();
         fb->push_scope(loop->body());
         {
             auto sw = fb->switch_(fb->member(target_token_type, frame, 0u));
             fb->push_scope(sw->body());
             for (size_t i = 1u; i < num_conts; i++) {
-                auto token_for_this_cont = static_cast<uint>(i + 1);
-                auto case_val = fb->literal(target_token_type, token_for_this_cont);
+                auto case_val = fb->literal(target_token_type, static_cast<uint>(i));
                 auto case_stmt = fb->case_(case_val);
                 fb->push_scope(case_stmt->body());
                 fb->call(Function{continuation_asts[i].get()}, luisa::span{call_args});
