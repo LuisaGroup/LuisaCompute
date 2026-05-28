@@ -43,8 +43,11 @@ static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &
         if (it == div_map.end()) continue;
         auto div_inst = it->second;
 
+        // Insert the replacement at the end of the block so that it
+        // comes after both div_inst and mod_inst, avoiding use-before-def
+        // when div_inst appears after mod_inst in the same block.
         XIRBuilder b;
-        b.set_insertion_point(mod_inst);
+        b.set_insertion_point(mod_inst->parent_block());
         auto mul = b.call(div_inst->type(), ArithmeticOp::BINARY_MUL, {div_inst, key.y});
         auto sub = b.call(mod_inst->type(), ArithmeticOp::BINARY_SUB, {key.x, mul});
 

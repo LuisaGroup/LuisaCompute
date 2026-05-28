@@ -98,7 +98,9 @@ CVPInfo cvp_pass_run_on_function(FunctionDefinition *def) noexcept {
 CVPInfo cvp_pass_run_on_module(Module *module, PassReport *report) noexcept {
     CVPInfo info;
     for (auto f : module->function_list()) {
-        detail::cvp_pass_on_function(f->definition(), info);
+        if (auto def = f->definition()) {
+            detail::cvp_pass_on_function(def, info);
+        }
     }
     if (report != nullptr) {
         report->set("replaced_inst", info.replaced_inst_count);

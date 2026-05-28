@@ -14,12 +14,11 @@ static void eliminate_dead_code_in_function(Function *function, DCEInfo &info) n
     if (auto definition = function->definition()) {
         luisa::unordered_set<Instruction *> dead;
         auto all_users_dead = [&](Instruction *inst) noexcept {
-            auto is_live = [&dead](Value *value) noexcept {
-                return value != nullptr && (!value->isa<Instruction>() || !dead.contains(static_cast<Instruction *>(value)));
-            };
             for (auto &&use : inst->use_list()) {
-                if (is_live(use->value())) {
-                    return false;// not all users are dead
+                auto user = use->user();
+                if (user != nullptr && user->isa<Instruction>() &&
+                    !dead.contains(static_cast<Instruction *>(user))) {
+                    return false;// at least one user is still live
                 }
             }
             return true;// no user or all users are dead
@@ -210,33 +209,20 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
                 work_list.emplace_back(block);
             }
         };
-        definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-            reachable.emplace(block);
-            add_to_work_list(block);
-        });
+        // Seed reachability from the entry block.
+        reachable.emplace(definition->body_block());
+        add_to_work_list(definition->body_block());
+        // Forward reachability analysis: propagate from entry block via successors.
         while (!work_list.empty()) {
             auto b = work_list.back();
             work_list.pop_back();
-            // check the block's predecessors
-            b->traverse_predecessors(true, [&](auto pred) noexcept {
-                if (!reachable.contains(pred)) {
-                    unreachable.emplace(pred);
-                    add_to_work_list(pred);
+            // Traverse successors to discover transitively reachable blocks.
+            b->traverse_successors(true, [&](auto succ) noexcept {
+                if (reachable.emplace(succ).second) {
+                    add_to_work_list(succ);
                 }
             });
-            // let's find out instruction users' blocks that are not in the reachable set
-            b->traverse_instructions([&](Instruction *inst) noexcept {
-                for (auto &&use : inst->use_list()) {
-                    if (auto user = use->user(); user != nullptr && user->isa<Instruction>()) {
-                        if (auto user_block = static_cast<Instruction *>(user)->parent_block();
-                            user_block != nullptr && !reachable.contains(user_block)) {
-                            unreachable.emplace(user_block);
-                            add_to_work_list(user_block);
-                        }
-                    }
-                }
-            });
-            // also check if the terminator is a constant branch
+            // Also fold constant branches to identify statically dead successors.
             switch (auto terminator = b->terminator(); terminator->derived_instruction_tag()) {
                 case DerivedInstructionTag::IF: [[fallthrough]];
                 case DerivedInstructionTag::CONDITIONAL_BRANCH: {
@@ -268,7 +254,13 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
                 default: break;
             }
         }
-        // eliminate unreachable blocks
+        // Any block not reached from the entry is unreachable.
+        definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            if (!reachable.contains(block)) {
+                unreachable.emplace(block);
+            }
+        });
+        // Eliminate instructions in unreachable blocks.
         eliminate_instructions_in_unreachable_blocks(unreachable, info);
         // now we can remove non-entry blocks without users from the function
         {
