@@ -4,7 +4,7 @@
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/spin_mutex.h>
-#include <cuda_runtime_api.h>
+#include <cuda.h>
 
 namespace luisa::compute::cuda {
 
@@ -15,7 +15,7 @@ class CudaGraphExtImpl final : public CudaGraphExt {
     CUDADevice *_device;
 
     struct GraphData {
-        luisa::vector<cudaGraphNode_t> nodes;
+        luisa::vector<CUgraphNode> nodes;
         luisa::vector<void *> host_allocations;// pinned memory kept alive for graph lifetime
     };
 
@@ -23,7 +23,7 @@ class CudaGraphExtImpl final : public CudaGraphExt {
     luisa::unordered_map<uint64_t, GraphData> _graph_data;
     luisa::unordered_map<uint64_t, uint64_t> _exec_to_graph;// exec_handle -> graph_handle
 
-    [[nodiscard]] cudaGraphNode_t _get_node(GraphExecHandle exec, size_t node_index) const noexcept;
+    [[nodiscard]] CUgraphNode _get_node(GraphExecHandle exec, size_t node_index) const noexcept;
 
 public:
     explicit CudaGraphExtImpl(CUDADevice *device) noexcept;
