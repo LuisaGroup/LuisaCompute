@@ -28,6 +28,23 @@
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/if_conversion.h>
+#include <luisa/xir/passes/cvp.h>
+#include <luisa/xir/passes/dead_arg_elim.h>
+#include <luisa/xir/passes/div_rem_pairs.h>
+#include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/indvar_simplify.h>
+#include <luisa/xir/passes/licm.h>
+#include <luisa/xir/passes/loop_rotation.h>
+#include <luisa/xir/passes/lower_break_continue.h>
+#include <luisa/xir/passes/reassociate.h>
+#include <luisa/xir/passes/scalarizer.h>
+#include <luisa/xir/passes/simplify_libcalls.h>
+#include <luisa/xir/passes/trace_gep.h>
+#include <luisa/xir/passes/transpose_gep.h>
+#include <luisa/xir/passes/scalar_evolution.h>
+#include <luisa/xir/passes/alias_analysis.h>
+#include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/outline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::spirv {
@@ -92,6 +109,14 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     auto opt_options = xir::OptimizationPipelineOptions{.enable_fast_math = option.enable_fast_math};
 
     xir::PassPipeline phase_a;
+    phase_a.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::scalarizer_pass_run_on_module(m, &r);
+        return i.scalarized_inst_count > 0u;
+    });
+    phase_a.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::trace_gep_pass_run_on_module(m);
+        return i.traced_gep_count > 0u;
+    });
     phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
@@ -112,9 +137,25 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options, &r);
         return i.simplified_inst_count > 0u;
     });
+    phase_a.add("simplify-libcalls", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::simplify_libcalls_pass_run_on_module(m, &r);
+        return i.simplified_count > 0u;
+    });
+    phase_a.add("reassociate", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::reassociate_pass_run_on_module(m, &r);
+        return i.reassociated_inst_count > 0u;
+    });
     phase_a.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::const_fold_pass_run_on_module(m, &r);
         return i.folded_inst_count > 0u;
+    });
+    phase_a.add("cvp", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::cvp_pass_run_on_module(m, &r);
+        return i.replaced_inst_count > 0u;
+    });
+    phase_a.add("div-rem-pairs", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::div_rem_pairs_pass_run_on_module(m, &r);
+        return i.merged_pair_count > 0u;
     });
     phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
@@ -155,6 +196,19 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         auto post_inline_stats = post_inline.run(xir_module.get());
         LUISA_VERBOSE("SPIR-V post-inline cleanup done in {} ms.", post_inline_stats.total_ms);
         post_inline_stats.log("SPIR-V post-inline cleanup");
+
+        xir::PassPipeline post_inline_extra;
+        post_inline_extra.add("dead-arg-elim", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dead_arg_elim_pass_run_on_module(m, &r);
+            return i.removed_arg_count > 0u;
+        });
+        post_inline_extra.add("dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        });
+        auto post_inline_extra_stats = post_inline_extra.run(xir_module.get());
+        LUISA_VERBOSE("SPIR-V post-inline extra done in {} ms.", post_inline_extra_stats.total_ms);
+        post_inline_extra_stats.log("SPIR-V post-inline extra");
     }
 
     if (!LUISA_XIR_DISABLE_NORMALIZE_CFG) {
