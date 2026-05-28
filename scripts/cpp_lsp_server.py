@@ -325,7 +325,7 @@ async def check_syntax(req: CheckSyntaxRequest):
         "diagnostics": diagnostics,
         "errors": errors,
         "warnings": warnings,
-        "formatted": formatted if req.verbose else None,
+        "formatted": formatted if (req.verbose or errors or warnings) else None,
     }
 
 

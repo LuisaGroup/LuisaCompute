@@ -1,6 +1,6 @@
 ---
 name: yyjson
-description: yyjson — high-performance C JSON library for parsing, creating, querying, and modifying JSON
+description: High-performance C JSON parsing, creation, and modification with yyjson.
 ---
 
 # yyjson Usage Guide

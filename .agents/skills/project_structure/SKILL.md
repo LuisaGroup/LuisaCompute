@@ -1,6 +1,6 @@
 ---
 name: project_structure
-description: LuisaCompute project structure and architecture — modules, build system, compiler pipeline, and design patterns
+description: Project layout, module architecture, compiler pipeline, and design patterns.
 ---
 
 # LuisaCompute Project Structure

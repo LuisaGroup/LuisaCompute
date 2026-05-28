@@ -1,6 +1,6 @@
 ---
 name: xir_passes
-description: Writing XIR transformation passes — APIs, idioms, and pitfalls discovered while building Pipeline B (destructure_cfg, simplify_cfg, restructure_cfg). Load when authoring or modifying any pass under src/xir/passes/.
+description: XIR transformation pass authoring under src/xir/passes/.
 ---
 
 # XIR Passes: Authoring Guide

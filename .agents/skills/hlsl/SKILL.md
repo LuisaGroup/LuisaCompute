@@ -1,6 +1,6 @@
 ---
 name: hlsl
-description: HLSL code generation with StringBuilder, formatting patterns, builtin headers, and DXIL embedding
+description: HLSL code generation, StringBuilder patterns, builtin headers, and DXIL embedding.
 ---
 
 # HLSL Code Generation

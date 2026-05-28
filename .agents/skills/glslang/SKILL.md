@@ -1,6 +1,6 @@
 ---
 name: glslang
-description: glslang SPIR-V builder API — types, constants, functions, control flow, memory, textures, decorations, debug info, and GlslangToSpv patterns
+description: glslang SPIR-V Builder API for types, instructions, control flow, and decorations.
 ---
 
 # glslang SPIR-V Usage

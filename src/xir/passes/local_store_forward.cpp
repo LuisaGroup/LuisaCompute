@@ -30,6 +30,11 @@ static void run_local_store_forward_on_basic_block(luisa::unordered_set<BasicBlo
             }
             return alloca_inst;
         }
+        // Also invalidate for non-alloca pointers (e.g., function arguments)
+        latest_stores.erase(ptr);
+        if (auto base = trace_pointer_base_value(ptr); base != ptr) {
+            latest_stores.erase(base);
+        }
         return nullptr;
     };
 
@@ -206,12 +211,146 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
     }
 }
 
+[[nodiscard]] static bool is_alloca_used_only_by_load_store_gep(Value *ptr) noexcept {
+    for (auto &&use : ptr->use_list()) {
+        if (auto user = use->user(); user != nullptr) {
+            if (user->isa<LoadInst>() || user->isa<StoreInst>()) { continue; }
+            if (user->isa<GEPInst>()) {
+                if (!is_alloca_used_only_by_load_store_gep(static_cast<GEPInst *>(user))) { return false; }
+                continue;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+// forward stores to loads from local variables where all stores store the same value
+static void forward_uniform_store_to_loads_on_function(FunctionDefinition *function, LocalStoreForwardInfo &info) noexcept {
+    // find allocas where all direct stores store the same value
+    luisa::unordered_map<AllocaInst *, luisa::vector<StoreInst *>> alloca_stores;
+    function->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->isa<StoreInst>()) {
+            auto store = static_cast<StoreInst *>(inst);
+            if (auto base = trace_pointer_base_local_alloca_inst(store->variable())) {
+                if (store->variable() == base) {
+                    alloca_stores[base].push_back(store);
+                }
+            }
+        }
+    });
+    luisa::unordered_map<AllocaInst *, Value *> uniform_value;
+    for (auto &[alloca_inst, stores] : alloca_stores) {
+        if (stores.empty()) continue;
+        // Skip allocas that have stores through GEPs (partial updates)
+        bool has_gep_store = false;
+        for (auto &&use : alloca_inst->use_list()) {
+            if (auto user = use->user(); user != nullptr && user->isa<GEPInst>()) {
+                for (auto &&gep_use : user->use_list()) {
+                    if (gep_use->user() != nullptr && gep_use->user()->isa<StoreInst>()) {
+                        has_gep_store = true;
+                        break;
+                    }
+                }
+                if (has_gep_store) break;
+            }
+        }
+        if (has_gep_store) continue;
+        Value *common = stores.front()->value();
+        bool all_same = true;
+        for (size_t i = 1; i < stores.size(); ++i) {
+            if (stores[i]->value() != common) {
+                all_same = false;
+                break;
+            }
+        }
+        if (all_same && is_alloca_used_only_by_load_store_gep(alloca_inst)) {
+            uniform_value.emplace(alloca_inst, common);
+        }
+    }
+    if (uniform_value.empty()) return;
+    // build dom tree and instruction indices for dominance checks
+    auto dom_tree = compute_dom_tree(function);
+    luisa::unordered_map<Instruction *, size_t> inst_indices;
+    function->traverse_instructions([&](Instruction *inst) noexcept {
+        inst_indices.emplace(inst, inst_indices.size());
+    });
+    auto dominates = [&](StoreInst *store, LoadInst *load) noexcept {
+        auto store_block = store->parent_block();
+        auto load_block = load->parent_block();
+        if (store_block == load_block) {
+            return inst_indices.at(store) < inst_indices.at(load);
+        }
+        return dom_tree.dominates(store_block, load_block);
+    };
+    luisa::vector<LoadInst *> removable_loads;
+    function->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->isa<LoadInst>()) {
+            auto load = static_cast<LoadInst *>(inst);
+            if (auto base = trace_pointer_base_local_alloca_inst(load->variable())) {
+                auto it = uniform_value.find(base);
+                if (it != uniform_value.end()) {
+                    auto &stores = alloca_stores[base];
+                    bool any_dominates = false;
+                    for (auto store : stores) {
+                        if (dominates(store, load)) {
+                            any_dominates = true;
+                            break;
+                        }
+                    }
+                    if (any_dominates) {
+                        removable_loads.push_back(load);
+                    }
+                }
+            }
+        }
+    });
+    // replace loads with the uniform value (handling GEPs like single_store pass)
+    for (auto load : removable_loads) {
+        luisa::fixed_vector<Value *, 8> extract_args;
+        LUISA_DEBUG_ASSERT(load->variable()->isa<Instruction>(), "Load variable must be an instruction.");
+        auto pointer = static_cast<Instruction *>(load->variable());
+        for (;;) {
+            if (pointer->isa<AllocaInst>()) { break; }
+            if (pointer->isa<GEPInst>()) {
+                auto gep = static_cast<GEPInst *>(pointer);
+                LUISA_DEBUG_ASSERT(gep->base()->isa<Instruction>(), "GEP base must be an instruction.");
+                auto sub_indices = gep->index_uses();
+                for (auto iter = sub_indices.rbegin(); iter != sub_indices.rend(); ++iter) {
+                    extract_args.emplace_back((*iter)->value());
+                }
+                pointer = static_cast<Instruction *>(gep->base());
+            } else {
+                LUISA_ERROR_WITH_LOCATION("Unexpected instruction type.");
+            }
+        }
+        LUISA_DEBUG_ASSERT(pointer->isa<AllocaInst>(), "Pointer must be an alloca.");
+        auto it = uniform_value.find(static_cast<AllocaInst *>(pointer));
+        LUISA_DEBUG_ASSERT(it != uniform_value.end(), "Uniform value must exist.");
+        auto value = it->second;
+        LUISA_DEBUG_ASSERT(value != nullptr, "Uniform value must not be null.");
+        extract_args.emplace_back(value);
+        auto replacement = [&]() noexcept -> Value * {
+            if (extract_args.size() == 1) { return extract_args.front(); }
+            std::reverse(extract_args.begin(), extract_args.end());
+            XIRBuilder builder;
+            builder.set_insertion_point(load);
+            return builder.call(load->type(), ArithmeticOp::EXTRACT, extract_args);
+        }();
+        load->replace_all_uses_with(replacement);
+        load->remove_self();
+        info.removed_load_count++;
+    }
+}
+
 static void run_local_store_forward_on_function(Function *function, LocalStoreForwardInfo &info) noexcept {
     if (auto definition = function->definition()) {
         // first pass: forward stores to loads within straight-line code
         forward_straight_line_stores_to_loads_on_function(definition, info);
         // second pass: forward stores to loads from local variables that only have a single (or no) store
         forward_single_store_to_loads_on_function(definition, info);
+        // third pass: forward uniform stores to loads
+        forward_uniform_store_to_loads_on_function(definition, info);
     }
 }
 

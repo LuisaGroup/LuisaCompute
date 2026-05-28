@@ -117,7 +117,7 @@ struct PostDomInfo {
             if (!rpo_index.count(f1) || !rpo_index.count(f2)) { return nullptr; }
             auto i1 = rpo_index[f1];
             auto i2 = rpo_index[f2];
-            if (i1 == i2) { return nullptr; }
+            if (i1 == i2) { LUISA_ERROR_WITH_LOCATION("intersect: RPO index collision — corrupted RPO computation"); }
             while (rpo_index.count(f1) && rpo_index.count(f2) && rpo_index[f1] < rpo_index[f2]) {
                 f1 = ipostdom[f1];
                 if (f1 == nullptr) { return nullptr; }
@@ -241,6 +241,10 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
                     changed = true;
                 }
             }
+            if (sw->merge_block() == from) {
+                sw->set_merge_block(to);
+                changed = true;
+            }
             break;
         }
         case DerivedInstructionTag::IF: {
@@ -251,6 +255,10 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
             }
             if (ii->false_block() == from) {
                 ii->set_false_target(to);
+                changed = true;
+            }
+            if (ii->merge_block() == from) {
+                ii->set_merge_block(to);
                 changed = true;
             }
             break;
@@ -269,6 +277,10 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
                 lp->set_update_block(to);
                 changed = true;
             }
+            if (lp->merge_block() == from) {
+                lp->set_merge_block(to);
+                changed = true;
+            }
             break;
         }
         case DerivedInstructionTag::SIMPLE_LOOP: {
@@ -277,12 +289,39 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
                 sl->set_body_block(to);
                 changed = true;
             }
+            if (sl->merge_block() == from) {
+                sl->set_merge_block(to);
+                changed = true;
+            }
             break;
         }
         default: break;
     }
     return changed;
 }
+
+// After retargeting, a conditional branch may have both targets equal.
+// Replace it with an unconditional branch to avoid duplicate successors.
+static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
+    if (!bb->is_terminated()) { return; }
+    auto *term = bb->terminator();
+    if (term->isa<ConditionalBranchInst>()) {
+        auto *cb = static_cast<ConditionalBranchInst *>(term);
+        if (cb->true_block() == cb->false_block()) {
+            auto *target = cb->true_block();
+            cb->remove_self();
+            XIRBuilder b;
+            b.set_insertion_point(bb);
+            b.br(target);
+        }
+    }
+}
+
+// Forward declaration.
+[[nodiscard]] static bool clone_subgraph_to_target(FunctionDefinition *def,
+                                                    BasicBlock *E, BasicBlock *P,
+                                                    BasicBlock *target,
+                                                    BasicBlock *new_target) noexcept;
 
 [[nodiscard]] static bool try_restructure_loop(FunctionDefinition *def,
                                                const DomTree &dom,
@@ -365,19 +404,44 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         }
     }
 
+    // Compute loop_blocks via forward BFS from header, keeping only blocks
+    // dominated by the header that can reach at least one latch.
+    // The old backward-only traversal missed forward-only paths (e.g., if-then
+    // arms that don't lead back to any latch), causing exit edges on those paths
+    // to escape detection and produce invalid structured CFG.
     luisa::unordered_set<BasicBlock *> loop_blocks;
     {
-        luisa::vector<BasicBlock *> worklist{latches.begin(), latches.end()};
+        // Step 1: backward BFS from latches to find blocks that can reach a latch.
+        luisa::unordered_set<BasicBlock *> can_reach_latch;
+        {
+            luisa::vector<BasicBlock *> worklist{latches.begin(), latches.end()};
+            for (auto *l : latches) { can_reach_latch.emplace(l); }
+            while (!worklist.empty()) {
+                auto *cur = worklist.back();
+                worklist.pop_back();
+                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                    if (!dom.contains(pred)) { return; }
+                    if (can_reach_latch.emplace(pred).second) {
+                        worklist.emplace_back(pred);
+                    }
+                });
+            }
+        }
+
+        // Step 2: forward BFS from header; include blocks dominated by header
+        // that can reach a latch.
         loop_blocks.emplace(header);
-        for (auto *l : latches) { loop_blocks.emplace(l); }
-        while (!worklist.empty()) {
-            auto *cur = worklist.back();
-            worklist.pop_back();
-            cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                if (!dom.contains(pred)) { return; }
-                if (!loop_blocks.contains(pred) && dom.dominates(header, pred)) {
-                    loop_blocks.emplace(pred);
-                    worklist.emplace_back(pred);
+        luisa::vector<BasicBlock *> fwd_work{header};
+        while (!fwd_work.empty()) {
+            auto *cur = fwd_work.back();
+            fwd_work.pop_back();
+            if (!cur->is_terminated()) { continue; }
+            cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (!dom.contains(succ)) { return; }
+                if (!dom.strictly_dominates(header, succ)) { return; }
+                if (!can_reach_latch.contains(succ)) { return; }
+                if (loop_blocks.emplace(succ).second) {
+                    fwd_work.emplace_back(succ);
                 }
             });
         }
@@ -387,7 +451,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     for (auto *lb : loop_blocks) {
         if (!lb->is_terminated()) { continue; }
         lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-            if (!loop_blocks.contains(succ)) {
+            if (!loop_blocks.contains(succ) && !dom.dominates(header, succ)) {
                 pre_exit_edges.emplace_back(lb, succ);
             }
         });
@@ -441,7 +505,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     for (auto *lb : loop_blocks) {
         if (!lb->is_terminated()) { continue; }
         lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-            if (!loop_blocks.contains(succ)) {
+            if (!loop_blocks.contains(succ) && !dom.dominates(header, succ)) {
                 exit_edges.emplace_back(lb, succ);
             }
         });
@@ -480,14 +544,13 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         XIRBuilder b;
         auto *entry_bb = def->body_block();
         b.set_insertion_point(entry_bb->instructions().front());
-        auto *keep_going = b.alloca_local(Type::of<bool>());
         auto *exit_sel = b.alloca_local(Type::of<uint32_t>());
-        auto *true_const = mod->create_constant_one(Type::of<bool>());
         b.set_insertion_point(preheader);
         auto *preheader_br = preheader->terminator();
         preheader_br->remove_self();
         b.set_insertion_point(preheader);
-        b.store(keep_going, true_const);
+        auto *zero_const = mod->create_constant_zero(Type::of<uint32_t>());
+        b.store(exit_sel, zero_const);
         b.br(header);
 
         uint32_t sel_id = 0;
@@ -510,10 +573,8 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
             } else {
                 id = id_it->second;
             }
-            auto *false_const = mod->create_constant_zero(Type::of<bool>());
             auto *id_const = mod->create_constant(Type::of<uint32_t>(), &id);
             b.set_insertion_point(stub);
-            b.store(keep_going, false_const);
             b.store(exit_sel, id_const);
             b.br(loop_merge);
         }
@@ -590,15 +651,13 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
     return true;
 }
 
-[[nodiscard]] static bool try_restructure_if(FunctionDefinition *def,
-                                             const DomTree &dom,
-                                             const PostDomInfo &pdom,
-                                             RestructureCFGInfo &info) noexcept {
-    // Collect merge blocks of already-structured loops. A cbr whose postdom is
-    // a loop merge must NOT be restructured as an if-construct: doing so would
-    // make the loop body flow to the if's structural_merge (which exits the
-    // loop) instead of the loop's continue block.
+[[nodiscard]] static bool try_restructure_if_batch(FunctionDefinition *def,
+                                                     const DomTree &dom,
+                                                     const PostDomInfo &pdom,
+                                                     RestructureCFGInfo &info) noexcept {
+    // Collect merge blocks and headers of already-structured loops.
     luisa::unordered_map<BasicBlock *, BasicBlock *> loop_merge_to_header;
+    luisa::unordered_set<BasicBlock *> loop_headers;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (!bb->is_terminated()) { return; }
         auto *term = bb->terminator();
@@ -608,13 +667,20 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         } else if (term->isa<SimpleLoopInst>()) {
             merge = static_cast<SimpleLoopInst *>(term)->merge_block();
         }
-        if (merge != nullptr) { loop_merge_to_header.emplace(merge, bb); }
+        if (merge != nullptr) {
+            loop_merge_to_header.emplace(merge, bb);
+            loop_headers.emplace(bb);
+        }
     });
 
-    BasicBlock *found_header = nullptr;
-    ConditionalBranchInst *found_cbr = nullptr;
-    BasicBlock *found_merge = nullptr;
-    BasicBlock *enclosing_loop_continue = nullptr;// non-null when postdom is a loop merge
+    struct Candidate {
+        BasicBlock *header;
+        ConditionalBranchInst *cbr;
+        BasicBlock *merge;
+        BasicBlock *enclosing_loop_continue;
+        size_t depth;
+    };
+    luisa::vector<Candidate> candidates;
 
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (!bb->is_terminated()) { return; }
@@ -635,82 +701,189 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
         if (!dom.strictly_dominates(bb, true_bb)) { return; }
         if (!dom.strictly_dominates(bb, false_bb)) { return; }
 
-        // Prefer innermost: choose the candidate dominated by all other candidates,
-        // i.e., the deepest in the dominator tree. Picking innermost first ensures
-        // that when we synthesize the structural merge and retarget in-construct
-        // edges, no still-unstructured nested cbr is left with edges to the
-        // newly-created merge (which would later force it to skip its own merge).
-        if (found_header == nullptr || dom.strictly_dominates(found_header, bb)) {
-            found_header = bb;
-            found_cbr = cbr;
-            found_merge = merge;
-            // Detect if this cbr's postdom is an enclosing loop's merge.
-            enclosing_loop_continue = nullptr;
-            if (auto it = loop_merge_to_header.find(merge); it != loop_merge_to_header.end()) {
-                if (dom.dominates(it->second, bb)) {
-                    auto *loop_term = it->second->terminator();
-                    if (loop_term->isa<LoopInst>()) {
-                        auto *li = static_cast<LoopInst *>(loop_term);
-                        enclosing_loop_continue = li->update_block();
-                        if (enclosing_loop_continue == nullptr) { enclosing_loop_continue = li->prepare_block(); }
-                    } else if (loop_term->isa<SimpleLoopInst>()) {
-                        auto *sl = static_cast<SimpleLoopInst *>(loop_term);
-                        enclosing_loop_continue = sl->body_block();
-                    }
+        BasicBlock *enclosing_loop_continue = nullptr;
+        if (auto it = loop_merge_to_header.find(merge); it != loop_merge_to_header.end()) {
+            if (dom.dominates(it->second, bb)) {
+                auto *loop_term = it->second->terminator();
+                if (loop_term->isa<LoopInst>()) {
+                    auto *li = static_cast<LoopInst *>(loop_term);
+                    enclosing_loop_continue = li->update_block();
+                    if (enclosing_loop_continue == nullptr) { enclosing_loop_continue = li->prepare_block(); }
+                } else if (loop_term->isa<SimpleLoopInst>()) {
+                    auto *sl = static_cast<SimpleLoopInst *>(loop_term);
+                    enclosing_loop_continue = sl->body_block();
                 }
             }
         }
+
+        candidates.push_back({bb, cbr, merge, enclosing_loop_continue, dom_depth(dom, bb)});
     });
 
-    if (found_header == nullptr) { return false; }
+    if (candidates.empty()) { return false; }
 
-    auto *true_bb = found_cbr->true_block();
-    auto *false_bb = found_cbr->false_block();
-    auto *cond = found_cbr->condition();
+    // Sort by depth descending (innermost first)
+    luisa::sort(candidates.begin(), candidates.end(), [](const Candidate &a, const Candidate &b) {
+        return a.depth > b.depth;
+    });
 
-    // Conservatively synthesize a fresh structural merge block for this if-construct.
-    // This guarantees:
-    //   1. Merge uniqueness across all constructs (each construct owns its merge).
-    //   2. No collision with reserved loop blocks (continue/update/header).
-    //   3. The original postdom (`found_merge`) keeps its semantics (phi-loads from
-    //      reg2mem, etc.) and gets a single predecessor (the fresh merge).
-    //
-    // When the postdom is an enclosing loop's merge AND one arm directly targets
-    // the loop merge (loop condition check), use the loop merge directly as the
-    // if's merge. The body arm flows to continue naturally without reaching the
-    // if merge, which is valid in SPIR-V (selection inside loop).
-    // For other cbrs inside the loop (if-else with break), also use the loop merge
-    // directly — the break arm reaches the merge, the non-break arm flows to continue.
-    auto *structural_merge = def->create_basic_block();
-    {
-        XIRBuilder mb;
-        mb.set_insertion_point(structural_merge);
-        mb.br(found_merge);
+    bool any = false;
+    luisa::vector<BasicBlock *> created_structural_merges;
+    for (auto &cand : candidates) {
+        auto *found_header = cand.header;
+        auto *found_cbr = cand.cbr;
+        auto *found_merge = cand.merge;
+        auto *enclosing_loop_continue = cand.enclosing_loop_continue;
+
+        // Skip if already restructured in this batch
+        if (!found_header->is_terminated()) { continue; }
+        if (!found_header->terminator()->isa<ConditionalBranchInst>()) { continue; }
+        if (found_header->terminator() != found_cbr) { continue; }
+
+        auto *true_bb = found_cbr->true_block();
+        auto *false_bb = found_cbr->false_block();
+        auto *cond = found_cbr->condition();
+
+        BasicBlock *structural_merge = nullptr;
+        if (enclosing_loop_continue != nullptr &&
+            (true_bb == found_merge || false_bb == found_merge)) {
+            // If is inside a loop and one arm directly targets the loop merge.
+            structural_merge = found_merge;
+        } else if (loop_headers.contains(found_merge)) {
+            // If the post-dominator is a loop header (e.g., the if is the loop
+            // condition check), use the loop header directly as the merge.
+            // Creating a new block that branches to the loop header would make
+            // merge_reachable include loop blocks, breaking back-edges.
+            structural_merge = found_merge;
+        } else {
+            structural_merge = def->create_basic_block();
+            {
+                XIRBuilder mb;
+                mb.set_insertion_point(structural_merge);
+                mb.br(found_merge);
+            }
+        }
+
+        // Compute the set of blocks reachable from structural_merge.
+        // Any block inside the construct that branches to one of these
+        // creates a path that bypasses the merge, making the target
+        // part of the selection construct. We retarget such branches
+        // to structural_merge so all paths reach the merge first.
+        luisa::unordered_set<BasicBlock *> merge_reachable;
+        {
+            luisa::vector<BasicBlock *> work;
+            work.push_back(structural_merge);
+            while (!work.empty()) {
+                auto *bb = work.back();
+                work.pop_back();
+                if (!merge_reachable.emplace(bb).second) { continue; }
+                if (!bb->is_terminated()) { continue; }
+                bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    work.emplace_back(succ);
+                });
+            }
+        }
+        luisa::vector<BasicBlock *> extra_targets;
+        for (auto *succ : merge_reachable) {
+            if (succ != structural_merge && succ != found_merge) {
+                extra_targets.emplace_back(succ);
+            }
+        }
+
+        // Walk the dominator-tree subtree rooted at found_header instead of
+        // scanning the entire CFG. Every block dominated by found_header is
+        // exactly the descendant subtree in the dom tree.
+        auto header_node = dom.node_or_null(found_header);
+        if (header_node != nullptr) {
+            luisa::vector<const DomTreeNode *> work;
+            work.push_back(header_node);
+            while (!work.empty()) {
+                auto *node = work.back();
+                work.pop_back();
+                auto *bb = node->block();
+                if (bb != structural_merge && bb != found_header && bb->is_terminated()) {
+                    auto *term = bb->terminator();
+                    // Retarget unstructured terminators (cbr/br) and structured
+                    // IfInst/SwitchInst. Skip LoopInst/SimpleLoopInst to avoid
+                    // breaking already-structured loop constructs (e.g., retargeting
+                    // a LoopInst's body block to structural_merge would break the loop).
+                    if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>() ||
+                        term->isa<IfInst>() || term->isa<SwitchInst>()) {
+                        // Do NOT retarget back-edges (where the target dominates
+                        // the source). Retargeting them would break loop structure.
+                        if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
+                            retarget_terminator(term, found_merge, structural_merge);
+                        }
+                        // Only fix degenerate terminators for cbr/br
+                        if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
+                            fix_degenerate_terminator(bb);
+                        }
+                    }
+                }
+                for (auto *child : node->children()) {
+                    work.push_back(child);
+                }
+            }
+        }
+
+        // Fallback: newly-created blocks from inner restructures aren't in dom.
+        // Only retarget unstructured cbr/br here. IfInst/SwitchInst in newly
+        // created blocks belong to inner restructures and their merge blocks
+        // are already correct; retargeting them would corrupt those constructs.
+        for (auto *bb : def->basic_blocks()) {
+            if (bb == structural_merge || bb == found_header) { continue; }
+            if (!bb->is_terminated() || dom.contains(bb)) { continue; }
+            auto *term = bb->terminator();
+            if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
+                // Newly-created blocks aren't in dom, so we can't check back-edges.
+                // They were created by inner restructures and should be safe to retarget.
+                if (dom.contains(found_merge)) {
+                    retarget_terminator(term, found_merge, structural_merge);
+                }
+                fix_degenerate_terminator(bb);
+            }
+        }
+
+        if (true_bb == found_merge) { true_bb = structural_merge; }
+        if (false_bb == found_merge) { false_bb = structural_merge; }
+
+        // Sanity check: a previous candidate (or retargeting above) must not
+        // have already removed/replaced the header's terminator.
+        if (!found_header->is_terminated() ||
+            !found_header->terminator()->isa<ConditionalBranchInst>() ||
+            found_header->terminator() != found_cbr) {
+            continue;
+        }
+
+        found_cbr->remove_self();
+
+        XIRBuilder b;
+        b.set_insertion_point(found_header);
+        auto *if_inst = b.if_(cond);
+        if_inst->set_true_target(true_bb);
+        if_inst->set_false_target(false_bb);
+        if_inst->set_merge_block(structural_merge);
+
+        for (auto *arm_bb : {true_bb, false_bb}) {
+            if (arm_bb == nullptr) { continue; }
+            if (!arm_bb->is_terminated()) { continue; }
+            luisa::vector<BasicBlock *> bad_succs;
+            arm_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (succ == structural_merge) { return; }
+                if (!dom.contains(succ)) { return; }
+                if (dom.dominates(found_header, succ)) { return; }
+                bad_succs.emplace_back(succ);
+            });
+            luisa::sort(bad_succs.begin(), bad_succs.end());
+            bad_succs.erase(std::unique(bad_succs.begin(), bad_succs.end()), bad_succs.end());
+            for (auto *succ : bad_succs) {
+                clone_subgraph_to_target(def, succ, arm_bb, found_merge, structural_merge);
+            }
+        }
+
+        info.restructured_if_count++;
+        any = true;
     }
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (bb == structural_merge) { return; }
-        if (!bb->is_terminated()) { return; }
-        if (!dom.dominates(found_header, bb)) { return; }
-        retarget_terminator(bb->terminator(), found_merge, structural_merge);
-    });
-
-    // If an if-arm directly targeted found_merge (empty arm), it must now target
-    // structural_merge instead. The retarget loop above already handled the cbr's
-    // successors, but we captured true_bb/false_bb before retargeting.
-    if (true_bb == found_merge) { true_bb = structural_merge; }
-    if (false_bb == found_merge) { false_bb = structural_merge; }
-
-    found_cbr->remove_self();
-
-    XIRBuilder b;
-    b.set_insertion_point(found_header);
-    auto *if_inst = b.if_(cond);
-    if_inst->set_true_target(true_bb);
-    if_inst->set_false_target(false_bb);
-    if_inst->set_merge_block(structural_merge);
-
-    info.restructured_if_count++;
-    return true;
+    return any;
 }
 
 // Collect the entry blocks of a structured construct C whose header is `header_bb`.
@@ -808,11 +981,14 @@ struct CloneRemap final : public InstructionCloneValueResolver {
 }
 
 // Walk forward from E, collecting all blocks owned by E that are not boundary.
+// Blocks are recorded in deterministic DFS discovery order in `ordered`.
 static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                  luisa::span<BasicBlock *const> entries,
                                  BasicBlock *merge_bb, const DomTree &dom,
-                                 luisa::unordered_set<BasicBlock *> &region) noexcept {
+                                 luisa::unordered_set<BasicBlock *> &region,
+                                 luisa::vector<BasicBlock *> &ordered) noexcept {
     region.clear();
+    ordered.clear();
     luisa::vector<BasicBlock *> work;
     work.emplace_back(E);
     while (!work.empty()) {
@@ -821,6 +997,7 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
         if (region.contains(B)) { continue; }
         if (is_clone_boundary(B, E, header_bb, entries, merge_bb, dom)) { continue; }
         region.emplace(B);
+        ordered.emplace_back(B);
         B->traverse_successors(false, [&](BasicBlock *S) noexcept {
             if (!is_clone_boundary(S, E, header_bb, entries, merge_bb, dom) &&
                 !region.contains(S)) {
@@ -839,17 +1016,15 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                                         BasicBlock *merge_bb,
                                                         const DomTree &dom) noexcept {
     luisa::unordered_set<BasicBlock *> region;
-    collect_owned_region(E, header_bb, entries, merge_bb, dom, region);
+    luisa::vector<BasicBlock *> ordered;
+    collect_owned_region(E, header_bb, entries, merge_bb, dom, region, ordered);
     if (region.empty()) { return false; }
 
-    // Pre-create cloned BBs.
+    // Pre-create cloned BBs in deterministic order.
     CloneRemap remap;
-    luisa::vector<BasicBlock *> ordered;
-    ordered.reserve(region.size());
-    for (auto *B : region) {
+    for (auto *B : ordered) {
         auto *NB = def->create_basic_block();
         remap.map[B] = NB;
-        ordered.emplace_back(B);
     }
 
     // Clone instructions of each region block into its counterpart.
@@ -880,6 +1055,81 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
     return true;
 }
 
+// Clone all blocks reachable from E until reaching target (exclusive).
+// Any terminators in the cloned region that point to target are retargeted to new_target.
+// P's terminator edge to E is rerouted through a fresh relay to clone(E).
+[[nodiscard]] static bool clone_subgraph_to_target(FunctionDefinition *def,
+                                                    BasicBlock *E, BasicBlock *P,
+                                                    BasicBlock *target,
+                                                    BasicBlock *new_target) noexcept {
+    // Defensive: all parameters must be non-null.
+    if (E == nullptr || P == nullptr || target == nullptr || new_target == nullptr) {
+        return false;
+    }
+
+    // Collect region: all blocks reachable from E, stopping at target.
+    // Every successor of a region block is either in region or == target (because
+    // the BFS pushes every non-target successor). Cloned terminators therefore only
+    // reference region blocks (resolved to their clones) or target (retargeted below).
+    luisa::unordered_set<BasicBlock *> region;
+    luisa::vector<BasicBlock *> ordered;
+    luisa::vector<BasicBlock *> work{E};
+    while (!work.empty()) {
+        auto *B = work.back();
+        work.pop_back();
+        if (region.contains(B)) { continue; }
+        if (B == target) { continue; }
+        region.emplace(B);
+        ordered.emplace_back(B);
+        if (!B->is_terminated()) { continue; }
+        B->traverse_successors(false, [&](BasicBlock *S) noexcept {
+            if (!region.contains(S) && S != target) {
+                work.emplace_back(S);
+            }
+        });
+    }
+    if (region.empty()) { return false; }
+    LUISA_DEBUG_ASSERT(!region.contains(target), "target must not be inside the cloned region");
+
+    // Pre-create cloned BBs in deterministic order.
+    CloneRemap remap;
+    for (auto *B : ordered) {
+        auto *NB = def->create_basic_block();
+        remap.map[B] = NB;
+    }
+
+    // Clone instructions of each region block into its counterpart.
+    XIRBuilder builder;
+    for (auto *old_bb : ordered) {
+        auto *new_bb = static_cast<BasicBlock *>(remap.map[old_bb]);
+        builder.set_insertion_point(new_bb);
+        for (auto *old_inst : old_bb->instructions()) {
+            auto *new_inst = old_inst->clone(builder, remap);
+            if (old_inst->type() != nullptr) {
+                remap.map[old_inst] = new_inst;
+            }
+        }
+    }
+
+    // Retarget cloned blocks that branch to target to new_target instead.
+    for (auto *old_bb : ordered) {
+        auto *new_bb = static_cast<BasicBlock *>(remap.map[old_bb]);
+        if (!new_bb->is_terminated()) { continue; }
+        retarget_terminator(new_bb->terminator(), target, new_target);
+    }
+
+    // Create a relay block: P -> relay -> clone(E).
+    auto *clone_E = static_cast<BasicBlock *>(remap.map[E]);
+    auto *relay = def->create_basic_block();
+    {
+        XIRBuilder rb;
+        rb.set_insertion_point(relay);
+        rb.br(clone_E);
+    }
+    retarget_terminator(P->terminator(), E, relay);
+    return true;
+}
+
 // Per-construct entry-uniqueness fix. Returns true if any edges were rewritten.
 [[nodiscard]] static bool enforce_construct_entries(FunctionDefinition *def,
                                                     BasicBlock *header_bb,
@@ -893,8 +1143,11 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
     // We bound the inner loop to defend against malformed CFGs.
     for (auto *E : entries) {
         size_t guard = 64;
+        // Defer dom-tree computation until we know there are offenders.
+        // Recompute only after a successful clone invalidates the old tree.
+        DomTree dom;
+        bool dom_valid = false;
         while (guard-- > 0) {
-            auto dom = compute_dom_tree(def);
             luisa::vector<BasicBlock *> offenders;
             E->traverse_predecessors(false, [&](BasicBlock *P) noexcept {
                 if (!is_authorized_construct_pred(header_bb->terminator(), E, header_bb, P)) {
@@ -902,6 +1155,10 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                 }
             });
             if (offenders.empty()) { break; }
+            if (!dom_valid) {
+                dom = compute_dom_tree(def);
+                dom_valid = true;
+            }
             bool local_change = false;
             for (auto *P : offenders) {
                 if (clone_owned_subgraph_for_edge(def, header_bb, E, P,
@@ -912,6 +1169,8 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
             }
             if (!local_change) { break; }
             changed_any = true;
+            // The CFG was modified; the dom tree is now stale.
+            dom_valid = false;
         }
     }
     return changed_any;
@@ -959,7 +1218,21 @@ static void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
         auto dom = compute_dom_tree(def);
         auto pdom = compute_post_dom(def);
         if (try_restructure_loop(def, dom, pdom, info)) { continue; }
-        if (try_restructure_if(def, dom, pdom, info)) { continue; }
+        if (try_restructure_if_batch(def, dom, pdom, info)) {
+            // Fast path: if no conditional branches remain, we can skip the
+            // expensive dom/pdom recomputation and break out early.
+            bool has_cbr = false;
+            def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+                if (has_cbr) { return; }
+                if (bb->is_terminated()) {
+                    if (bb->terminator()->isa<ConditionalBranchInst>()) {
+                        has_cbr = true;
+                    }
+                }
+            });
+            if (!has_cbr) { break; }
+            continue;
+        }
         break;
     }
     enforce_unique_construct_entries(def);

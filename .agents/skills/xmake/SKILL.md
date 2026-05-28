@@ -1,6 +1,6 @@
 ---
 name: xmake
-description: XMake build system — configuration, project options, commands, and common patterns for LuisaCompute
+description: XMake build configuration, options, commands, and patterns for LuisaCompute.
 ---
 
 # XMake Build System
@@ -85,6 +85,33 @@ xmake f -m debug --lc_enable_tests=true -c && xmake
 | `xmake run <target>` | Run target |
 | `xmake -l` | List targets |
 | `xmake install -o <dir>` | Install |
+
+## Test Scripts
+
+Located under `scripts/test/xmake/`.
+
+| Script | Description |
+|---|---|
+| `test_ast.py` | AST tests |
+| `test_core.py` | Core library tests |
+| `test_dsl.py` | DSL tests |
+| `test_runtime.py` | Runtime tests |
+| `test_xir.py` | XIR tests |
+| `test_examples.py` | Example tests |
+
+### Usage
+These scripts only run tests. Build and configure the project first, then execute:
+
+```bash
+# Run all backends (default)
+python scripts/test/xmake/test_runtime.py
+
+# Run a specific backend only
+python scripts/test/xmake/test_runtime.py cuda
+python scripts/test/xmake/test_runtime.py dx
+```
+
+Available backends: `dx`, `vk`, `cuda`, `metal`.
 
 ## Common Issues
 

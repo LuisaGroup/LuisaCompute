@@ -19,7 +19,7 @@ inline void DomTreeNode::add_frontier(DomTreeNode *frontier) noexcept {
     _frontiers.emplace_back(frontier);
 }
 
-inline DomTree::DomTree() noexcept : _root{nullptr} {}
+DomTree::DomTree() noexcept : _root{nullptr} {}
 
 inline DomTreeNode *DomTree::add_or_get_node(BasicBlock *block) noexcept {
     auto iter = _nodes.try_emplace(block).first;

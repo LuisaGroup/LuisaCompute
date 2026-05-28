@@ -68,6 +68,14 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     _builder.createBranch(false, prepare);
     _emit_block(inst->prepare_block());
     _emit_block(inst->body_block());
+    while (!_pending_blocks.empty()) {
+        auto *bb = _pending_blocks.back();
+        _pending_blocks.pop_back();
+        if (bb == inst->update_block() || bb == inst->merge_block()) {
+            continue;
+        }
+        _emit_block(bb);
+    }
     _emit_block(inst->update_block());
     _emit_block(inst->merge_block());
 }
@@ -183,7 +191,9 @@ void SpirvCodegenEntry::_emit_branch_inst(const xir::BranchInst *inst) noexcept 
         spv_target = _get_or_create_block(target);
     }
     _builder.createBranch(false, spv_target);
-    _emit_block(target);
+    if (!_emitted_blocks.contains(target)) {
+        _pending_blocks.push_back(target);
+    }
 }
 
 void SpirvCodegenEntry::_emit_conditional_branch_inst(const xir::ConditionalBranchInst *inst) noexcept {
@@ -197,8 +207,12 @@ void SpirvCodegenEntry::_emit_conditional_branch_inst(const xir::ConditionalBran
     auto true_block = get_target(inst->true_block());
     auto false_block = get_target(inst->false_block());
     _builder.createConditionalBranch(cond, true_block, false_block);
-    _emit_block(inst->true_block());
-    _emit_block(inst->false_block());
+    if (!_emitted_blocks.contains(inst->true_block())) {
+        _pending_blocks.push_back(inst->true_block());
+    }
+    if (!_emitted_blocks.contains(inst->false_block())) {
+        _pending_blocks.push_back(inst->false_block());
+    }
 }
 
 }// namespace lc::spirv

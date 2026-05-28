@@ -37,7 +37,7 @@ public:
 
 private:
     StringScratch &_scratch;
-    std::unique_ptr<spv::Builder> _builder_ptr;
+    luisa::unique_ptr<spv::Builder> _builder_ptr;
     spv::SpvBuildLogger _logger;
     spv::Builder &_builder; // reference to *_builder_ptr
 
@@ -49,6 +49,7 @@ private:
     luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _loop_header_redirect;
     luisa::unordered_set<const xir::BasicBlock *> _emitted_blocks;
     luisa::unordered_set<spv::Id> _used_merge_blocks;
+    luisa::vector<const xir::BasicBlock *> _pending_blocks;
 
     luisa::unordered_map<const xir::PrintInst *, PrintInfo> _print_info;
     PrintFormatVector _print_formats;
@@ -125,9 +126,9 @@ private:
     void _emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept;
     void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
     void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
-    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type) noexcept;
+    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, bool index_is_word_offset = false) noexcept;
     spv::Id _emit_buffer_read_impl(spv::Id buffer, spv::Id word_offset, const Type *elem_type) noexcept;
-    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type) noexcept;
+    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, bool index_is_word_offset = false) noexcept;
     void _emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type) noexcept;
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
     void _emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept;

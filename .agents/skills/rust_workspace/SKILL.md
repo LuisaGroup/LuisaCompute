@@ -1,6 +1,6 @@
 ---
 name: rust_workspace
-description: Rust workspace — IR data structures, compiler transforms, CPU backend, FFI with C++, crate dependencies
+description: Rust IR, compiler transforms, CPU backend, FFI, and crate structure.
 ---
 
 # LuisaCompute Rust Workspace

@@ -49,7 +49,11 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
             // (since SPIR-V atomic ops require scalar integer types).
             bool needs_atomic = _needs_atomic_buffer_types.contains(type);
             bool contains_bool = elem_type != nullptr && _type_contains_bool(elem_type);
-            bool use_typed = elem_type != nullptr && !needs_atomic && !contains_bool;
+            // Scalar types with native SPIR-V atomic support (32/64-bit int/uint/float)
+            // can remain typed even when used with atomics. Non-scalar or sub-word
+            // scalar buffers fall back to uint32 for word-level atomic access.
+            bool is_atomic_compatible_scalar = elem_type != nullptr && elem_type->is_scalar() && elem_type->size() >= 4u;
+            bool use_typed = elem_type != nullptr && (!needs_atomic || is_atomic_compatible_scalar) && !contains_bool;
             spv::Id spv_elem_type;
             if (use_typed && (elem_type->is_structure() || elem_type->is_array())) {
                 spv_elem_type = _convert_laid_out_type(elem_type);

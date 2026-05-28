@@ -28,6 +28,23 @@
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/phi_cleanup.h>
 #include <luisa/xir/passes/if_conversion.h>
+#include <luisa/xir/passes/cvp.h>
+#include <luisa/xir/passes/dead_arg_elim.h>
+#include <luisa/xir/passes/div_rem_pairs.h>
+#include <luisa/xir/passes/early_return_elimination.h>
+#include <luisa/xir/passes/indvar_simplify.h>
+#include <luisa/xir/passes/licm.h>
+#include <luisa/xir/passes/loop_rotation.h>
+#include <luisa/xir/passes/lower_break_continue.h>
+#include <luisa/xir/passes/reassociate.h>
+#include <luisa/xir/passes/scalarizer.h>
+#include <luisa/xir/passes/simplify_libcalls.h>
+#include <luisa/xir/passes/trace_gep.h>
+#include <luisa/xir/passes/transpose_gep.h>
+#include <luisa/xir/passes/scalar_evolution.h>
+#include <luisa/xir/passes/alias_analysis.h>
+#include <luisa/xir/passes/autodiff.h>
+#include <luisa/xir/passes/outline.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
 namespace luisa::compute::spirv {
@@ -41,12 +58,6 @@ const bool LUISA_SPIRV_SHOULD_DUMP_XIR = [] {
     return false;
 }();
 
-const bool LUISA_SPIRV_DUMP_OPT_STATS = [] {
-    if (auto env = getenv("LUISA_SPIRV_DUMP_OPT_STATS")) {
-        return luisa::string_view{env} == "1";
-    }
-    return false;
-}();
 
 const bool LUISA_XIR_DISABLE_NORMALIZE_CFG = [] {
     if (auto env = getenv("LUISA_XIR_DISABLE_NORMALIZE_CFG")) {
@@ -83,6 +94,8 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         dump_xir_module(xir_module.get(), filename);
     }
 
+    LUISA_VERBOSE("XIR translation done in {} ms.", translate_clk.toc());
+
     // Pipeline invariants:
     //   Phase A runs on structured-CFG alloca-form (ast2xir output).
     //   destructure_cfg: structured -> unstructured.
@@ -96,6 +109,14 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     auto opt_options = xir::OptimizationPipelineOptions{.enable_fast_math = option.enable_fast_math};
 
     xir::PassPipeline phase_a;
+    phase_a.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::scalarizer_pass_run_on_module(m, &r);
+        return i.scalarized_inst_count > 0u;
+    });
+    phase_a.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::trace_gep_pass_run_on_module(m);
+        return i.traced_gep_count > 0u;
+    });
     phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
@@ -116,9 +137,25 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options, &r);
         return i.simplified_inst_count > 0u;
     });
+    phase_a.add("simplify-libcalls", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::simplify_libcalls_pass_run_on_module(m, &r);
+        return i.simplified_count > 0u;
+    });
+    phase_a.add("reassociate", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::reassociate_pass_run_on_module(m, &r);
+        return i.reassociated_inst_count > 0u;
+    });
     phase_a.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::const_fold_pass_run_on_module(m, &r);
         return i.folded_inst_count > 0u;
+    });
+    phase_a.add("cvp", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::cvp_pass_run_on_module(m, &r);
+        return i.replaced_inst_count > 0u;
+    });
+    phase_a.add("div-rem-pairs", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::div_rem_pairs_pass_run_on_module(m, &r);
+        return i.merged_pair_count > 0u;
     });
     phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dce_pass_run_on_module(m, &r);
@@ -131,6 +168,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     phase_a.add("sroa", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::sroa_pass_run_on_module(m, {}, &r);
         return i.decomposed_alloca_count > 0u;
+    });
+    phase_a.add("gvn", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::gvn_pass_run_on_module(m, &r);
+        return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
     });
     phase_a.add("dead-store-elimination", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::dead_store_elimination_pass_run_on_module(m, &r);
@@ -147,12 +188,27 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         return i.inlined_call_count > 0u;
     });
     auto phase_a_stats = phase_a.run(xir_module.get());
-    if (LUISA_SPIRV_DUMP_OPT_STATS) { phase_a_stats.log("SPIR-V Phase A"); }
+    LUISA_VERBOSE("SPIR-V Phase A done in {} ms.", phase_a_stats.total_ms);
+    phase_a_stats.log("SPIR-V Phase A");
 
     if (inlined_anything) {
         auto post_inline = xir::create_post_inline_cleanup_pipeline(opt_options);
         auto post_inline_stats = post_inline.run(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) { post_inline_stats.log("SPIR-V post-inline cleanup"); }
+        LUISA_VERBOSE("SPIR-V post-inline cleanup done in {} ms.", post_inline_stats.total_ms);
+        post_inline_stats.log("SPIR-V post-inline cleanup");
+
+        xir::PassPipeline post_inline_extra;
+        post_inline_extra.add("dead-arg-elim", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dead_arg_elim_pass_run_on_module(m, &r);
+            return i.removed_arg_count > 0u;
+        });
+        post_inline_extra.add("dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        });
+        auto post_inline_extra_stats = post_inline_extra.run(xir_module.get());
+        LUISA_VERBOSE("SPIR-V post-inline extra done in {} ms.", post_inline_extra_stats.total_ms);
+        post_inline_extra_stats.log("SPIR-V post-inline extra");
     }
 
     if (!LUISA_XIR_DISABLE_NORMALIZE_CFG) {
@@ -248,7 +304,8 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             norm.add_fixed_point("phase-c", xir::create_post_restructure_cleanup_pipeline(opt_options), 1u);
         }
         auto norm_stats = norm.run(xir_module.get());
-        if (LUISA_SPIRV_DUMP_OPT_STATS) { norm_stats.log("SPIR-V CFG normalization"); }
+        LUISA_VERBOSE("SPIR-V CFG normalization done in {} ms.", norm_stats.total_ms);
+        norm_stats.log("SPIR-V CFG normalization"); 
 
         if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
             auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());

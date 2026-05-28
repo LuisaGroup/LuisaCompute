@@ -1,6 +1,6 @@
 ---
 name: lc_vstl
-description: vstd (V-Engine STL) — custom containers, HashMap, queues, pools, variant, smart pointers, and utilities for LuisaCompute
+description: vstd containers: HashMap, queues, pools, variant, smart pointers, and utilities.
 ---
 
 # LuisaCompute VSTL Container Guide

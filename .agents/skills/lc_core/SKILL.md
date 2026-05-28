@@ -1,6 +1,6 @@
 ---
 name: lc_core
-description: LuisaCompute core library — basic traits/types, binary I/O, clock, dynamic module, allocators, logging, math, fiber, and STL containers
+description: Core library: traits, types, logging, math, fiber, allocators, and STL containers.
 ---
 
 # LuisaCompute Core Library (lc_core)

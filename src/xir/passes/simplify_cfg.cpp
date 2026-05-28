@@ -166,9 +166,22 @@ static luisa::unordered_set<BasicBlock *> collect_loop_headers(FunctionDefinitio
     return headers;
 }
 
+static luisa::unordered_set<BasicBlock *> collect_structural_targets(FunctionDefinition *def) noexcept {
+    luisa::unordered_set<BasicBlock *> targets;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        auto term = bb->terminator();
+        if (term == nullptr) return;
+        if (auto merge = term->control_flow_merge()) {
+            if (auto merge_block = merge->merge_block()) targets.emplace(merge_block);
+        }
+    });
+    return targets;
+}
+
 static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
     auto loop_headers = collect_loop_headers(def);
+    auto structural_targets = collect_structural_targets(def);
     luisa::vector<BasicBlock *> candidates;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (bb == entry) return;
@@ -183,6 +196,9 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         // Threading them out would force a structured merge block (the predecessor of bb)
         // to serve as the loop's continue target, which violates SPIR-V structured CF.
         if (br->target_block() != nullptr && loop_headers.contains(br->target_block())) return;
+        // Preserve merge blocks of structured constructs; threading them out would
+        // allow in-construct blocks to bypass the merge, breaking SPIR-V structured CF.
+        if (structural_targets.contains(bb)) return;
         candidates.push_back(bb);
     });
     if (candidates.empty()) return false;
@@ -267,18 +283,6 @@ static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &
         if (target == bb || target == succ || block_has_phi(target)) sensitive = true;
     });
     return sensitive;
-}
-
-static luisa::unordered_set<BasicBlock *> collect_structural_targets(FunctionDefinition *def) noexcept {
-    luisa::unordered_set<BasicBlock *> targets;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        auto term = bb->terminator();
-        if (term == nullptr) return;
-        if (auto merge = term->control_flow_merge()) {
-            if (auto merge_block = merge->merge_block()) targets.emplace(merge_block);
-        }
-    });
-    return targets;
 }
 
 static bool merge_straight_line_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
