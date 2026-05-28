@@ -722,6 +722,7 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     });
 
     bool any = false;
+    luisa::vector<BasicBlock *> created_structural_merges;
     for (auto &cand : candidates) {
         auto *found_header = cand.header;
         auto *found_cbr = cand.cbr;
@@ -796,22 +797,44 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
                 auto *bb = node->block();
                 if (bb != structural_merge && bb != found_header && bb->is_terminated()) {
                     auto *term = bb->terminator();
-                    // Only retarget unstructured terminators (cbr/br).
-                    // Skip LoopInst/SimpleLoopInst/IfInst/SwitchInst to avoid
-                    // breaking already-structured constructs (e.g., retargeting
-                    // a LoopInst's body block to structural_merge).
-                    if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
+                    // Retarget unstructured terminators (cbr/br) and structured
+                    // IfInst/SwitchInst. Skip LoopInst/SimpleLoopInst to avoid
+                    // breaking already-structured loop constructs (e.g., retargeting
+                    // a LoopInst's body block to structural_merge would break the loop).
+                    if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>() ||
+                        term->isa<IfInst>() || term->isa<SwitchInst>()) {
                         // Do NOT retarget back-edges (where the target dominates
                         // the source). Retargeting them would break loop structure.
                         if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
                             retarget_terminator(term, found_merge, structural_merge);
                         }
-                        fix_degenerate_terminator(bb);
+                        // Only fix degenerate terminators for cbr/br
+                        if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
+                            fix_degenerate_terminator(bb);
+                        }
                     }
                 }
                 for (auto *child : node->children()) {
                     work.push_back(child);
                 }
+            }
+        }
+
+        // Fallback: newly-created blocks from inner restructures aren't in dom.
+        // Only retarget unstructured cbr/br here. IfInst/SwitchInst in newly
+        // created blocks belong to inner restructures and their merge blocks
+        // are already correct; retargeting them would corrupt those constructs.
+        for (auto *bb : def->basic_blocks()) {
+            if (bb == structural_merge || bb == found_header) { continue; }
+            if (!bb->is_terminated() || dom.contains(bb)) { continue; }
+            auto *term = bb->terminator();
+            if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
+                // Newly-created blocks aren't in dom, so we can't check back-edges.
+                // They were created by inner restructures and should be safe to retarget.
+                if (dom.contains(found_merge)) {
+                    retarget_terminator(term, found_merge, structural_merge);
+                }
+                fix_degenerate_terminator(bb);
             }
         }
 
