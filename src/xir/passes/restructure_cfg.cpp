@@ -117,7 +117,7 @@ struct PostDomInfo {
             if (!rpo_index.count(f1) || !rpo_index.count(f2)) { return nullptr; }
             auto i1 = rpo_index[f1];
             auto i2 = rpo_index[f2];
-            if (i1 == i2) { return nullptr; }
+            if (i1 == i2) { LUISA_ERROR_WITH_LOCATION("intersect: RPO index collision — corrupted RPO computation"); }
             while (rpo_index.count(f1) && rpo_index.count(f2) && rpo_index[f1] < rpo_index[f2]) {
                 f1 = ipostdom[f1];
                 if (f1 == nullptr) { return nullptr; }
@@ -277,12 +277,20 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
                 lp->set_update_block(to);
                 changed = true;
             }
+            if (lp->merge_block() == from) {
+                lp->set_merge_block(to);
+                changed = true;
+            }
             break;
         }
         case DerivedInstructionTag::SIMPLE_LOOP: {
             auto *sl = static_cast<SimpleLoopInst *>(term);
             if (sl->body_block() == from) {
                 sl->set_body_block(to);
+                changed = true;
+            }
+            if (sl->merge_block() == from) {
+                sl->set_merge_block(to);
                 changed = true;
             }
             break;
@@ -536,14 +544,13 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
         XIRBuilder b;
         auto *entry_bb = def->body_block();
         b.set_insertion_point(entry_bb->instructions().front());
-        auto *keep_going = b.alloca_local(Type::of<bool>());
         auto *exit_sel = b.alloca_local(Type::of<uint32_t>());
-        auto *true_const = mod->create_constant_one(Type::of<bool>());
         b.set_insertion_point(preheader);
         auto *preheader_br = preheader->terminator();
         preheader_br->remove_self();
         b.set_insertion_point(preheader);
-        b.store(keep_going, true_const);
+        auto *zero_const = mod->create_constant_zero(Type::of<uint32_t>());
+        b.store(exit_sel, zero_const);
         b.br(header);
 
         uint32_t sel_id = 0;
@@ -566,10 +573,8 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
             } else {
                 id = id_it->second;
             }
-            auto *false_const = mod->create_constant_zero(Type::of<bool>());
             auto *id_const = mod->create_constant(Type::of<uint32_t>(), &id);
             b.set_insertion_point(stub);
-            b.store(keep_going, false_const);
             b.store(exit_sel, id_const);
             b.br(loop_merge);
         }
@@ -879,176 +884,6 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
         any = true;
     }
     return any;
-}
-
-[[nodiscard]] static bool try_restructure_if(FunctionDefinition *def,
-                                             const DomTree &dom,
-                                             const PostDomInfo &pdom,
-                                             RestructureCFGInfo &info) noexcept {
-    // Collect merge blocks of already-structured loops. A cbr whose postdom is
-    // a loop merge must NOT be restructured as an if-construct: doing so would
-    // make the loop body flow to the if's structural_merge (which exits the
-    // loop) instead of the loop's continue block.
-    luisa::unordered_map<BasicBlock *, BasicBlock *> loop_merge_to_header;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (!bb->is_terminated()) { return; }
-        auto *term = bb->terminator();
-        BasicBlock *merge = nullptr;
-        if (term->isa<LoopInst>()) {
-            merge = static_cast<LoopInst *>(term)->merge_block();
-        } else if (term->isa<SimpleLoopInst>()) {
-            merge = static_cast<SimpleLoopInst *>(term)->merge_block();
-        }
-        if (merge != nullptr) { loop_merge_to_header.emplace(merge, bb); }
-    });
-
-    BasicBlock *found_header = nullptr;
-    ConditionalBranchInst *found_cbr = nullptr;
-    BasicBlock *found_merge = nullptr;
-    BasicBlock *enclosing_loop_continue = nullptr;// non-null when postdom is a loop merge
-
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (!bb->is_terminated()) { return; }
-        auto *term = bb->terminator();
-        if (!term->isa<ConditionalBranchInst>()) { return; }
-        auto *cbr = static_cast<ConditionalBranchInst *>(term);
-        auto *true_bb = cbr->true_block();
-        auto *false_bb = cbr->false_block();
-        if (true_bb == nullptr || false_bb == nullptr) { return; }
-        if (true_bb == false_bb) { return; }
-
-        auto ipm_it = pdom.ipostdom.find(bb);
-        if (ipm_it == pdom.ipostdom.end() || ipm_it->second == nullptr) { return; }
-        auto *merge = ipm_it->second;
-        if (merge == pdom.virtual_exit) { return; }
-        if (merge == bb) { return; }
-
-        if (!dom.strictly_dominates(bb, true_bb)) { return; }
-        if (!dom.strictly_dominates(bb, false_bb)) { return; }
-
-        // Prefer innermost: choose the candidate dominated by all other candidates,
-        // i.e., the deepest in the dominator tree. Picking innermost first ensures
-        // that when we synthesize the structural merge and retarget in-construct
-        // edges, no still-unstructured nested cbr is left with edges to the
-        // newly-created merge (which would later force it to skip its own merge).
-        if (found_header == nullptr || dom.strictly_dominates(found_header, bb)) {
-            found_header = bb;
-            found_cbr = cbr;
-            found_merge = merge;
-            // Detect if this cbr's postdom is an enclosing loop's merge.
-            enclosing_loop_continue = nullptr;
-            if (auto it = loop_merge_to_header.find(merge); it != loop_merge_to_header.end()) {
-                if (dom.dominates(it->second, bb)) {
-                    auto *loop_term = it->second->terminator();
-                    if (loop_term->isa<LoopInst>()) {
-                        auto *li = static_cast<LoopInst *>(loop_term);
-                        enclosing_loop_continue = li->update_block();
-                        if (enclosing_loop_continue == nullptr) { enclosing_loop_continue = li->prepare_block(); }
-                    } else if (loop_term->isa<SimpleLoopInst>()) {
-                        auto *sl = static_cast<SimpleLoopInst *>(loop_term);
-                        enclosing_loop_continue = sl->body_block();
-                    }
-                }
-            }
-        }
-    });
-
-    if (found_header == nullptr) { return false; }
-
-    auto *true_bb = found_cbr->true_block();
-    auto *false_bb = found_cbr->false_block();
-    auto *cond = found_cbr->condition();
-
-    // Conservatively synthesize a fresh structural merge block for this if-construct.
-    // This guarantees:
-    //   1. Merge uniqueness across all constructs (each construct owns its merge).
-    //   2. No collision with reserved loop blocks (continue/update/header).
-    //   3. The original postdom (`found_merge`) keeps its semantics (phi-loads from
-    //      reg2mem, etc.) and gets a single predecessor (the fresh merge).
-    //
-    // When the postdom is an enclosing loop's merge AND one arm directly targets
-    // the loop merge (loop condition check), use the loop merge directly as the
-    // if's merge. The body arm flows to continue naturally without reaching the
-    // if merge, which is valid in SPIR-V (selection inside loop).
-    // For other cbrs inside the loop (if-else with break), also use the loop merge
-    // directly — the break arm reaches the merge, the non-break arm flows to continue.
-    BasicBlock *structural_merge = nullptr;
-    if (enclosing_loop_continue != nullptr &&
-        (true_bb == found_merge || false_bb == found_merge)) {
-        structural_merge = found_merge;
-    } else {
-        structural_merge = def->create_basic_block();
-        {
-            XIRBuilder mb;
-            mb.set_insertion_point(structural_merge);
-            mb.br(found_merge);
-        }
-        def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-            if (bb == structural_merge) { return; }
-            if (!bb->is_terminated()) { return; }
-            if (!dom.contains(bb)) { return; }
-            if (!dom.dominates(found_header, bb)) { return; }
-            retarget_terminator(bb->terminator(), found_merge, structural_merge);
-        });
-    }
-
-    // If an if-arm directly targeted found_merge (empty arm), it must now target
-    // structural_merge instead. The retarget loop above already handled the cbr's
-    // successors, but we captured true_bb/false_bb before retargeting.
-    if (true_bb == found_merge) { true_bb = structural_merge; }
-    if (false_bb == found_merge) { false_bb = structural_merge; }
-
-    found_cbr->remove_self();
-
-    XIRBuilder b;
-    b.set_insertion_point(found_header);
-    auto *if_inst = b.if_(cond);
-    if_inst->set_true_target(true_bb);
-    if_inst->set_false_target(false_bb);
-    if_inst->set_merge_block(structural_merge);
-
-    // If an arm branches to a block that is not dominated by the header and not the
-    // structural merge, it is a shared tail from outside the construct. SPIR-V requires
-    // every block inside a selection to branch only to other in-construct blocks or the
-    // merge. Clone the shared tail so the arm has its own copy ending at the merge.
-    //
-    // We walk ALL blocks dominated by found_header (not just arm blocks), because
-    // deeper blocks may also have edges that leak outside the construct. Each
-    // leaking edge is fixed by cloning the target subgraph and retargeting to
-    // structural_merge.
-    {
-        luisa::unordered_set<BasicBlock *> seen;
-        luisa::vector<BasicBlock *> work{true_bb, false_bb};
-        while (!work.empty()) {
-            auto *bb = work.back();
-            work.pop_back();
-            if (!seen.emplace(bb).second) { continue; }
-            if (bb == structural_merge) { continue; }
-            if (!bb->is_terminated()) { continue; }
-
-            luisa::vector<BasicBlock *> bad_succs;
-            bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                if (succ == structural_merge) { return; }
-                if (!dom.contains(succ)) { return; }
-                if (dom.dominates(found_header, succ)) {
-                    // Inside the construct; visit it later.
-                    work.emplace_back(succ);
-                    return;
-                }
-                // Outside the construct and not the merge — must clone.
-                bad_succs.emplace_back(succ);
-            });
-
-            luisa::sort(bad_succs.begin(), bad_succs.end());
-            bad_succs.erase(std::unique(bad_succs.begin(), bad_succs.end()), bad_succs.end());
-            for (auto *succ : bad_succs) {
-                clone_subgraph_to_target(def, succ, bb, found_merge, structural_merge);
-            }
-        }
-    }
-
-    info.restructured_if_count++;
-    return true;
 }
 
 // Collect the entry blocks of a structured construct C whose header is `header_bb`.
