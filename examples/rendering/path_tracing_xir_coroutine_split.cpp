@@ -318,7 +318,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("  cont[{}] id={} suspends=[{}]", i, c.id, suspends_str);
     }
 
-    // 4. Translate each continuation to AST (already structured CF from split).
+    // 4. Translate each continuation to AST.
     luisa::vector<luisa::shared_ptr<const FuncBuilder>> continuation_asts;
     continuation_asts.reserve(split_info.continuations.size());
     for (auto &cont : split_info.continuations) {
