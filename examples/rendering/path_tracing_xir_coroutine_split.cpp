@@ -299,10 +299,8 @@ int main(int argc, char *argv[]) {
     auto original_function = raytracing_kernel.function()->function();
     auto module = xir::ast_to_xir_translate(original_function, {});
 
-    // 2. Inline all callables (keeps structured CF intact).
+    // 2. Inline all callables, then coro split.
     xir::inline_all_pass_run_on_module(module.get());
-
-    // 3. Coro split on structured CFG.
     xir::CoroutineSplitInfo split_info;
     for (auto *f : module->function_list()) {
         if (f->derived_function_tag() != xir::DerivedFunctionTag::KERNEL) continue;
@@ -312,6 +310,12 @@ int main(int argc, char *argv[]) {
     LUISA_ASSERT(split_info.is_supported && split_info.changed, "coroutine_split failed");
     LUISA_INFO("Coroutine split: {} continuation(s), frame has {} slot(s).",
                split_info.continuations.size(), split_info.frame_slots.size());
+    for (size_t i = 0; i < split_info.continuations.size(); i++) {
+        auto &c = split_info.continuations[i];
+        luisa::string suspends_str;
+        for (auto s : c.outgoing_suspends) { suspends_str += std::to_string(s) + " "; }
+        LUISA_INFO("  cont[{}] id={} suspends=[{}]", i, c.id, suspends_str);
+    }
 
     // 4. Translate each continuation to AST (already structured CF from split).
     luisa::vector<luisa::shared_ptr<const FuncBuilder>> continuation_asts;
@@ -387,15 +391,15 @@ int main(int argc, char *argv[]) {
         fb->call(cont0_func, luisa::span{call_args});
 
         auto target_token_type = Type::of<uint>();
-        auto target_token = fb->member(target_token_type, frame, 0u);
 
         auto loop = fb->loop_();
         fb->push_scope(loop->body());
         {
-            auto sw = fb->switch_(target_token);
+            auto sw = fb->switch_(fb->member(target_token_type, frame, 0u));
             fb->push_scope(sw->body());
             for (size_t i = 1u; i < num_conts; i++) {
-                auto case_val = fb->literal(target_token_type, static_cast<uint>(i));
+                auto token_for_this_cont = static_cast<uint>(i + 1);
+                auto case_val = fb->literal(target_token_type, token_for_this_cont);
                 auto case_stmt = fb->case_(case_val);
                 fb->push_scope(case_stmt->body());
                 fb->call(Function{continuation_asts[i].get()}, luisa::span{call_args});
