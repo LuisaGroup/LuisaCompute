@@ -188,8 +188,8 @@ private:
         return _type_cast_if_necessary(b, type_promotion.result, result);
     }
 
-    [[nodiscard]] Value *_translate_constant_access_index(uint i) noexcept {
-        auto key = TypedLiteral{Type::of<uint>(), LiteralExpr::Value{i}};
+    [[nodiscard]] Value *_translate_constant_access_index(uint32_t i) noexcept {
+        auto key = TypedLiteral{Type::of<uint32_t>(), LiteralExpr::Value{i}};
         return _translate_typed_literal(key);
     }
 
@@ -669,24 +669,24 @@ private:
             case CallOp::MAKE_INT2: return make_vector_call(Type::of<int>(), 2);
             case CallOp::MAKE_INT3: return make_vector_call(Type::of<int>(), 3);
             case CallOp::MAKE_INT4: return make_vector_call(Type::of<int>(), 4);
-            case CallOp::MAKE_UINT2: return make_vector_call(Type::of<uint>(), 2);
-            case CallOp::MAKE_UINT3: return make_vector_call(Type::of<uint>(), 3);
-            case CallOp::MAKE_UINT4: return make_vector_call(Type::of<uint>(), 4);
+            case CallOp::MAKE_UINT2: return make_vector_call(Type::of<uint32_t>(), 2);
+            case CallOp::MAKE_UINT3: return make_vector_call(Type::of<uint32_t>(), 3);
+            case CallOp::MAKE_UINT4: return make_vector_call(Type::of<uint32_t>(), 4);
             case CallOp::MAKE_FLOAT2: return make_vector_call(Type::of<float>(), 2);
             case CallOp::MAKE_FLOAT3: return make_vector_call(Type::of<float>(), 3);
             case CallOp::MAKE_FLOAT4: return make_vector_call(Type::of<float>(), 4);
-            case CallOp::MAKE_SHORT2: return make_vector_call(Type::of<short>(), 2);
-            case CallOp::MAKE_SHORT3: return make_vector_call(Type::of<short>(), 3);
-            case CallOp::MAKE_SHORT4: return make_vector_call(Type::of<short>(), 4);
-            case CallOp::MAKE_USHORT2: return make_vector_call(Type::of<ushort>(), 2);
-            case CallOp::MAKE_USHORT3: return make_vector_call(Type::of<ushort>(), 3);
-            case CallOp::MAKE_USHORT4: return make_vector_call(Type::of<ushort>(), 4);
-            case CallOp::MAKE_LONG2: return make_vector_call(Type::of<long>(), 2);
-            case CallOp::MAKE_LONG3: return make_vector_call(Type::of<long>(), 3);
-            case CallOp::MAKE_LONG4: return make_vector_call(Type::of<long>(), 4);
-            case CallOp::MAKE_ULONG2: return make_vector_call(Type::of<ulong>(), 2);
-            case CallOp::MAKE_ULONG3: return make_vector_call(Type::of<ulong>(), 3);
-            case CallOp::MAKE_ULONG4: return make_vector_call(Type::of<ulong>(), 4);
+            case CallOp::MAKE_SHORT2: return make_vector_call(Type::of<int16_t>(), 2);
+            case CallOp::MAKE_SHORT3: return make_vector_call(Type::of<int16_t>(), 3);
+            case CallOp::MAKE_SHORT4: return make_vector_call(Type::of<int16_t>(), 4);
+            case CallOp::MAKE_USHORT2: return make_vector_call(Type::of<uint16_t>(), 2);
+            case CallOp::MAKE_USHORT3: return make_vector_call(Type::of<uint16_t>(), 3);
+            case CallOp::MAKE_USHORT4: return make_vector_call(Type::of<uint16_t>(), 4);
+            case CallOp::MAKE_LONG2: return make_vector_call(Type::of<int64_t>(), 2);
+            case CallOp::MAKE_LONG3: return make_vector_call(Type::of<int64_t>(), 3);
+            case CallOp::MAKE_LONG4: return make_vector_call(Type::of<int64_t>(), 4);
+            case CallOp::MAKE_ULONG2: return make_vector_call(Type::of<uint64_t>(), 2);
+            case CallOp::MAKE_ULONG3: return make_vector_call(Type::of<uint64_t>(), 3);
+            case CallOp::MAKE_ULONG4: return make_vector_call(Type::of<uint64_t>(), 4);
             case CallOp::MAKE_HALF2: return make_vector_call(Type::of<half>(), 2);
             case CallOp::MAKE_HALF3: return make_vector_call(Type::of<half>(), 3);
             case CallOp::MAKE_HALF4: return make_vector_call(Type::of<half>(), 4);

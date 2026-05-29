@@ -17,7 +17,7 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static constexpr size_t MAX_UNROLL_COUNT = 16;
+static constexpr size_t kMaxUnrollCount = 16;
 
 class LoopUnrollResolver final : public InstructionCloneValueResolver {
     luisa::unordered_map<const Value *, Value *> _map;
@@ -110,7 +110,7 @@ public:
 
     if (step <= 0) return 0;
     int64_t trips = (bound_val - start + (op == ArithmeticOp::BINARY_LESS_EQUAL ? 1 : 0) + step - 1) / step;
-    if (trips <= 0 || static_cast<size_t>(trips) > MAX_UNROLL_COUNT) return 0;
+    if (trips <= 0 || static_cast<size_t>(trips) > kMaxUnrollCount) return 0;
     return static_cast<size_t>(trips);
 }
 

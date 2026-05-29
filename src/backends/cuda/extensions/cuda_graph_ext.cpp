@@ -25,13 +25,21 @@ namespace {
     return f;
 }
 
+void CUDA_CB cuda_graph_host_copy_callback(void *user_data) noexcept {
+    auto *data = static_cast<CudaGraphHostCopyData *>(user_data);
+    std::memcpy(data->dst, data->src, data->size);
+}
+
 }// namespace
 
 CudaGraphExtImpl::CudaGraphExtImpl(CUDADevice *device) noexcept
     : _device{device} {}
 
 CudaGraphExtImpl::~CudaGraphExtImpl() noexcept {
-    for (auto &[exec_handle, graph_handle] : _exec_to_graph) {
+    for (auto &[exec_handle, data] : _exec_data) {
+        for (auto *ptr : data.host_allocations) {
+            cuMemFreeHost(ptr);
+        }
         cuGraphExecDestroy(reinterpret_cast<CUgraphExec>(exec_handle));
     }
     for (auto &[graph_handle, data] : _graph_data) {
@@ -43,9 +51,9 @@ CudaGraphExtImpl::~CudaGraphExtImpl() noexcept {
 }
 
 CUgraphNode CudaGraphExtImpl::_get_node(GraphExecHandle exec, size_t node_index) const noexcept {
-    auto it = _exec_to_graph.find(exec);
-    if (it == _exec_to_graph.end()) { return nullptr; }
-    auto git = _graph_data.find(it->second);
+    auto it = _exec_data.find(exec);
+    if (it == _exec_data.end()) { return nullptr; }
+    auto git = _graph_data.find(it->second.graph_handle);
     if (git == _graph_data.end() || node_index >= git->second.nodes.size()) { return nullptr; }
     return git->second.nodes[node_index];
 }
@@ -54,11 +62,81 @@ ResourceCreationInfo CudaGraphExtImpl::create_graph(CommandList &&cmdlist) noexc
     if (cmdlist.empty()) { return {invalid_handle, nullptr}; }
 
     return _device->with_handle([&]() -> ResourceCreationInfo {
+        luisa::vector<void *> host_allocs;
+        luisa::vector<CudaGraphHostCopyData> host_copies;
+        auto commands = cmdlist.steal_commands();
+        auto user_callbacks = cmdlist.steal_callbacks();
+
+        struct UploadStagingVisitor final : MutableCommandVisitor {
+            luisa::vector<void *> &host_allocs;
+            luisa::vector<CudaGraphHostCopyData> &host_copies;
+            bool ok{true};
+
+            UploadStagingVisitor(luisa::vector<void *> &host_allocs,
+                                 luisa::vector<CudaGraphHostCopyData> &host_copies) noexcept
+                : host_allocs{host_allocs}, host_copies{host_copies} {}
+
+            void visit(BufferUploadCommand *upload) noexcept override {
+                if (!ok) { return; }
+                auto size = upload->size();
+                void *host_mem = nullptr;
+                if (cuMemAllocHost(&host_mem, size) != CUDA_SUCCESS) {
+                    ok = false;
+                    return;
+                }
+                std::memcpy(host_mem, upload->data(), size);
+                upload->set_data(host_mem);
+                host_allocs.push_back(host_mem);
+            }
+
+            void visit(BufferDownloadCommand *download) noexcept override {
+                if (!ok) { return; }
+                auto size = download->size();
+                void *host_mem = nullptr;
+                if (cuMemAllocHost(&host_mem, size) != CUDA_SUCCESS) {
+                    ok = false;
+                    return;
+                }
+                host_copies.push_back(CudaGraphHostCopyData{
+                    .dst = download->data(),
+                    .src = host_mem,
+                    .size = size,
+                });
+                download->set_data(host_mem);
+                host_allocs.push_back(host_mem);
+            }
+            void visit(BufferCopyCommand *) noexcept override {}
+            void visit(BufferToTextureCopyCommand *) noexcept override {}
+            void visit(ShaderDispatchCommand *) noexcept override {}
+            void visit(TextureUploadCommand *) noexcept override {}
+            void visit(TextureDownloadCommand *) noexcept override {}
+            void visit(TextureCopyCommand *) noexcept override {}
+            void visit(TextureToBufferCopyCommand *) noexcept override {}
+            void visit(AccelBuildCommand *) noexcept override {}
+            void visit(MeshBuildCommand *) noexcept override {}
+            void visit(CurveBuildCommand *) noexcept override {}
+            void visit(ProceduralPrimitiveBuildCommand *) noexcept override {}
+            void visit(MotionInstanceBuildCommand *) noexcept override {}
+            void visit(BindlessArrayUpdateCommand *) noexcept override {}
+            void visit(CustomCommand *) noexcept override {}
+        };
+
+        UploadStagingVisitor staging_visitor{host_allocs, host_copies};
+        for (auto &cmd : commands) {
+            cmd->accept(staging_visitor);
+            if (!staging_visitor.ok) { break; }
+        }
+        if (!staging_visitor.ok) {
+            for (auto *ptr : host_allocs) { cuMemFreeHost(ptr); }
+            return {invalid_handle, nullptr};
+        }
+
         CUstream cap_stream = nullptr;
         if (auto err = cuStreamCreate(&cap_stream, CU_STREAM_DEFAULT); err != CUDA_SUCCESS) {
             const char *err_name = nullptr;
             cuGetErrorName(err, &err_name);
             LUISA_WARNING_WITH_LOCATION("Failed to create capture stream: {}", err_name ? err_name : "unknown");
+            for (auto *ptr : host_allocs) { cuMemFreeHost(ptr); }
             return {invalid_handle, nullptr};
         }
 
@@ -68,45 +146,88 @@ ResourceCreationInfo CudaGraphExtImpl::create_graph(CommandList &&cmdlist) noexc
             cuGetErrorName(ret, &err_name);
             LUISA_WARNING_WITH_LOCATION("cuStreamBeginCapture failed: {}", err_name ? err_name : "unknown");
             cuStreamDestroy(cap_stream);
+            for (auto *ptr : host_allocs) { cuMemFreeHost(ptr); }
             return {invalid_handle, nullptr};
         }
 
-        luisa::vector<void *> host_allocs;
-        auto commands = cmdlist.steal_commands();
-        auto user_callbacks = cmdlist.steal_callbacks();
         CUgraph graph = nullptr;
 
-        for (auto &cmd : commands) {
-            if (auto *upload = dynamic_cast<BufferUploadCommand *>(cmd.get())) {
+        struct GraphCaptureVisitor final : MutableCommandVisitor {
+            CUstream stream;
+            luisa::vector<CudaGraphHostCopyData> &host_copies;
+            size_t download_index{0u};
+            bool ok{true};
+
+            GraphCaptureVisitor(CUstream stream, luisa::vector<CudaGraphHostCopyData> &host_copies) noexcept
+                : stream{stream}, host_copies{host_copies} {}
+
+            void visit(BufferUploadCommand *upload) noexcept override {
+                if (!ok) { return; }
                 auto *buffer = reinterpret_cast<const CUDABuffer *>(upload->handle());
                 auto address = buffer->device_address() + upload->offset();
                 auto data = upload->data();
                 auto size = upload->size();
-                void *host_mem = nullptr;
-                if (cuMemAllocHost(&host_mem, size) != CUDA_SUCCESS) {
-                    cuStreamEndCapture(cap_stream, &graph);
-                    cuStreamDestroy(cap_stream);
-                    for (auto *ptr : host_allocs) { cuMemFreeHost(ptr); }
-                    if (graph) { cuGraphDestroy(graph); }
-                    return {invalid_handle, nullptr};
+                if (cuMemcpyHtoDAsync(static_cast<CUdeviceptr>(address), data, size, stream) != CUDA_SUCCESS) {
+                    ok = false;
                 }
-                std::memcpy(host_mem, data, size);
-                cuMemcpyHtoDAsync(static_cast<CUdeviceptr>(address), host_mem, size, cap_stream);
-                host_allocs.push_back(host_mem);
-            } else if (auto *download = dynamic_cast<BufferDownloadCommand *>(cmd.get())) {
+            }
+
+            void visit(BufferDownloadCommand *download) noexcept override {
+                if (!ok) { return; }
                 auto *buffer = reinterpret_cast<const CUDABuffer *>(download->handle());
                 auto address = buffer->device_address() + download->offset();
                 auto data = download->data();
                 auto size = download->size();
-                cuMemcpyDtoHAsync(data, static_cast<CUdeviceptr>(address), size, cap_stream);
-            } else if (auto *copy = dynamic_cast<BufferCopyCommand *>(cmd.get())) {
+                if (cuMemcpyDtoHAsync(data, static_cast<CUdeviceptr>(address), size, stream) != CUDA_SUCCESS) {
+                    ok = false;
+                    return;
+                }
+                if (download_index >= host_copies.size() ||
+                    cuLaunchHostFunc(stream, cuda_graph_host_copy_callback,
+                                     &host_copies[download_index++]) != CUDA_SUCCESS) {
+                    ok = false;
+                }
+            }
+
+            void visit(BufferCopyCommand *copy) noexcept override {
+                if (!ok) { return; }
                 auto *src = reinterpret_cast<const CUDABuffer *>(copy->src_handle());
                 auto *dst = reinterpret_cast<const CUDABuffer *>(copy->dst_handle());
-                cuMemcpyDtoDAsync(
-                    static_cast<CUdeviceptr>(dst->device_address() + copy->dst_offset()),
-                    static_cast<CUdeviceptr>(src->device_address() + copy->src_offset()),
-                    copy->size(), cap_stream);
+                if (cuMemcpyDtoDAsync(
+                        static_cast<CUdeviceptr>(dst->device_address() + copy->dst_offset()),
+                        static_cast<CUdeviceptr>(src->device_address() + copy->src_offset()),
+                        copy->size(), stream) != CUDA_SUCCESS) {
+                    ok = false;
+                }
             }
+
+            void visit(BufferToTextureCopyCommand *) noexcept override {}
+            void visit(ShaderDispatchCommand *) noexcept override {}
+            void visit(TextureUploadCommand *) noexcept override {}
+            void visit(TextureDownloadCommand *) noexcept override {}
+            void visit(TextureCopyCommand *) noexcept override {}
+            void visit(TextureToBufferCopyCommand *) noexcept override {}
+            void visit(AccelBuildCommand *) noexcept override {}
+            void visit(MeshBuildCommand *) noexcept override {}
+            void visit(CurveBuildCommand *) noexcept override {}
+            void visit(ProceduralPrimitiveBuildCommand *) noexcept override {}
+            void visit(MotionInstanceBuildCommand *) noexcept override {}
+            void visit(BindlessArrayUpdateCommand *) noexcept override {}
+            void visit(CustomCommand *) noexcept override {}
+        };
+
+        GraphCaptureVisitor visitor{cap_stream, host_copies};
+        for (auto &cmd : commands) {
+            cmd->accept(visitor);
+            if (!visitor.ok) { break; }
+        }
+
+        if (!visitor.ok) {
+            cuStreamEndCapture(cap_stream, &graph);
+            cuStreamDestroy(cap_stream);
+            for (auto *ptr : host_allocs) { cuMemFreeHost(ptr); }
+            if (graph) { cuGraphDestroy(graph); }
+            return {invalid_handle, nullptr};
         }
 
         for (auto &cb : user_callbacks) { cb(); }
@@ -133,7 +254,7 @@ ResourceCreationInfo CudaGraphExtImpl::create_graph(CommandList &&cmdlist) noexc
         auto graph_handle = reinterpret_cast<uint64_t>(graph);
         {
             std::scoped_lock lock{_mutex};
-            _graph_data[graph_handle] = GraphData{std::move(nodes), std::move(host_allocs)};
+            _graph_data[graph_handle] = GraphData{std::move(nodes), std::move(host_allocs), std::move(host_copies)};
         }
 
         return {graph_handle, graph};
@@ -169,7 +290,7 @@ ResourceCreationInfo CudaGraphExtImpl::instantiate(GraphHandle graph, Instantiat
         auto exec_handle = reinterpret_cast<uint64_t>(exec);
         {
             std::scoped_lock lock{_mutex};
-            _exec_to_graph.emplace(exec_handle, graph);
+            _exec_data.emplace(exec_handle, ExecData{graph, {}, {}});
         }
         return {exec_handle, exec};
     });
@@ -180,7 +301,12 @@ void CudaGraphExtImpl::destroy_exec(GraphExecHandle exec) noexcept {
     _device->with_handle([&] {
         {
             std::scoped_lock lock{_mutex};
-            _exec_to_graph.erase(exec);
+            if (auto it = _exec_data.find(exec); it != _exec_data.end()) {
+                for (auto *ptr : it->second.host_allocations) {
+                    cuMemFreeHost(ptr);
+                }
+                _exec_data.erase(it);
+            }
         }
         cuGraphExecDestroy(reinterpret_cast<CUgraphExec>(exec));
     });
@@ -221,17 +347,33 @@ bool CudaGraphExtImpl::update(GraphExecHandle exec, CommandList &&cmdlist) noexc
                                      reinterpret_cast<CUgraph>(new_graph_info.handle),
                                      &result_info);
 
+        auto updated = ret == CUDA_SUCCESS;
         {
             std::scoped_lock lock{_mutex};
-            if (auto it = _graph_data.find(new_graph_info.handle); it != _graph_data.end()) {
-                for (auto *ptr : it->second.host_allocations) {
-                    cuMemFreeHost(ptr);
+            auto new_graph_it = _graph_data.find(new_graph_info.handle);
+            if (new_graph_it != _graph_data.end()) {
+                if (updated) {
+                    auto exec_it = _exec_data.find(exec);
+                    if (exec_it != _exec_data.end()) {
+                        for (auto *ptr : exec_it->second.host_allocations) {
+                            cuMemFreeHost(ptr);
+                        }
+                        exec_it->second.host_allocations = std::move(new_graph_it->second.host_allocations);
+                        exec_it->second.host_copies = std::move(new_graph_it->second.host_copies);
+                    } else {
+                        updated = false;
+                    }
                 }
-                _graph_data.erase(it);
+                if (!updated) {
+                    for (auto *ptr : new_graph_it->second.host_allocations) {
+                        cuMemFreeHost(ptr);
+                    }
+                }
+                _graph_data.erase(new_graph_it);
             }
         }
         cuGraphDestroy(reinterpret_cast<CUgraph>(new_graph_info.handle));
-        return ret == CUDA_SUCCESS;
+        return updated;
     });
 }
 

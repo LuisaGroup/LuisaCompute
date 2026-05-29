@@ -124,11 +124,11 @@ static void collect_ray_query_loop_capture_list_in_inst(Instruction *inst, const
 class RayQueryLowerPassValueResolver final : public InstructionCloneValueResolver {
 
 private:
-    luisa::unordered_map<const Value *, Value *> value_map;
+    luisa::unordered_map<const Value *, Value *> _value_map;
 
 public:
     bool emplace(const Value *original, Value *duplicate) noexcept {
-        return value_map.emplace(original, duplicate).second;
+        return _value_map.emplace(original, duplicate).second;
     }
     [[nodiscard]] Value *resolve_or_null(const Value *value) noexcept {
         if (value == nullptr) { return nullptr; }
@@ -142,8 +142,8 @@ public:
             case DerivedValueTag::ARGUMENT: break;
             default: LUISA_ERROR_WITH_LOCATION("Invalid value.");
         }
-        auto iter = value_map.find(value);
-        return iter == value_map.end() ? nullptr : iter->second;
+        auto iter = _value_map.find(value);
+        return iter == _value_map.end() ? nullptr : iter->second;
     }
     [[nodiscard]] Value *resolve(const Value *value) noexcept override {
         if (value == nullptr) { return nullptr; }

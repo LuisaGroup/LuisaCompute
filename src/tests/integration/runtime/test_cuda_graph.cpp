@@ -48,11 +48,18 @@ void test_cuda_graph(Device &device) {
     auto graph_info = ext->create_graph(std::move(cmdlist.commit()).command_list());
     expect(graph_info.handle != CudaGraphExt::invalid_handle)
         << "create_graph should succeed";
+    if (graph_info.handle == CudaGraphExt::invalid_handle) {
+        return;
+    }
 
     // Instantiate the graph
     auto exec_info = ext->instantiate(graph_info.handle);
     expect(exec_info.handle != CudaGraphExt::invalid_handle)
         << "instantiate should succeed";
+    if (exec_info.handle == CudaGraphExt::invalid_handle) {
+        ext->destroy_graph(graph_info.handle);
+        return;
+    }
 
     // Launch the graph on a stream
     Stream stream = device.create_stream();
@@ -64,7 +71,31 @@ void test_cuda_graph(Device &device) {
         expect(static_cast<bool>(download_data[i] == upload_data[i]))
             << "mismatch at index " << i;
     }
-    // TODO run again with different upload data and download data, test if the returned result changed.
+    // Update the executable graph with different upload/download host buffers and run it again.
+    luisa::vector<float> upload_data_2(n);
+    luisa::vector<float> download_data_2(n, -2.0f);
+    for (uint i = 0u; i < n; i++) {
+        upload_data_2[i] = static_cast<float>(n + i);
+    }
+
+    auto updated_cmdlist = CommandList::create();
+    updated_cmdlist << buffer.view().copy_from(luisa::span{upload_data_2});
+    updated_cmdlist << buffer.view().copy_to(luisa::span{download_data_2});
+
+    auto updated = ext->update(exec_info.handle, std::move(updated_cmdlist.commit()).command_list());
+    expect(updated) << "updating graph with new upload/download buffers should succeed";
+    if (updated) {
+        ext->launch(exec_info.handle, stream.handle());
+        stream << synchronize();
+
+        bool result_changed = false;
+        for (uint i = 0u; i < n; i++) {
+            expect(static_cast<bool>(download_data_2[i] == upload_data_2[i]))
+                << "second launch mismatch at index " << i;
+            result_changed = result_changed || download_data_2[i] != download_data[i];
+        }
+        expect(result_changed) << "second launch should return updated data";
+    }
 
     LUISA_INFO("CUDA graph upload/download test passed.");
 

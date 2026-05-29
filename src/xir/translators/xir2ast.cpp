@@ -413,12 +413,12 @@ private:
         switch (c->type()->tag()) {
             case Type::Tag::INT8: return static_cast<uint64_t>(c->as<byte>());
             case Type::Tag::UINT8: return static_cast<uint64_t>(c->as<ubyte>());
-            case Type::Tag::INT16: return static_cast<uint64_t>(c->as<short>());
-            case Type::Tag::UINT16: return static_cast<uint64_t>(c->as<ushort>());
+            case Type::Tag::INT16: return static_cast<uint64_t>(c->as<int16_t>());
+            case Type::Tag::UINT16: return static_cast<uint64_t>(c->as<uint16_t>());
             case Type::Tag::INT32: return static_cast<uint64_t>(c->as<int>());
-            case Type::Tag::UINT32: return static_cast<uint64_t>(c->as<uint>());
+            case Type::Tag::UINT32: return static_cast<uint64_t>(c->as<uint32_t>());
             case Type::Tag::INT64: return static_cast<uint64_t>(c->as<slong>());
-            case Type::Tag::UINT64: return static_cast<uint64_t>(c->as<ulong>());
+            case Type::Tag::UINT64: return static_cast<uint64_t>(c->as<uint64_t>());
             default: break;
         }
         LUISA_ERROR_WITH_LOCATION("Expected integer constant, got {}.", c->type()->description());
@@ -461,7 +461,7 @@ private:
                     LUISA_ASSERT(args.size() == inst->type()->dimension(), "Array aggregate element count mismatch.");
                     auto tmp = b->local(inst->type());
                     for (auto i = 0u; i < args.size(); i++) {
-                        auto index = b->literal(Type::of<uint>(), i);
+                        auto index = b->literal(Type::of<uint32_t>(), i);
                         b->assign(b->access(inst->type()->element(), tmp, index), args[i]);
                     }
                     return tmp;
@@ -570,7 +570,7 @@ private:
                 case DerivedInstructionTag::RESOURCE_READ: return _current_builder()->call(inst->type(), detail::xir2ast_resource_read_op(static_cast<const ResourceReadInst *>(inst)->op()), _operands(inst));
                 case DerivedInstructionTag::ATOMIC: return _atomic(static_cast<const AtomicInst *>(inst));
                 case DerivedInstructionTag::THREAD_GROUP: return _current_builder()->call(inst->type(), detail::xir2ast_thread_group_op(static_cast<const ThreadGroupInst *>(inst)->op()), _operands(inst));
-                case DerivedInstructionTag::CLOCK: return _current_builder()->call(Type::of<ulong>(), CallOp::CLOCK, {});
+                case DerivedInstructionTag::CLOCK: return _current_builder()->call(Type::of<uint64_t>(), CallOp::CLOCK, {});
                 case DerivedInstructionTag::ASSERT: return _assert_or_assume(static_cast<const AssertInst *>(inst));
                 case DerivedInstructionTag::ASSUME: return _assert_or_assume(static_cast<const AssumeInst *>(inst));
                 default: break;

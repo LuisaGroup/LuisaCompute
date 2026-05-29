@@ -48,8 +48,8 @@ class XIR2TextTranslator final {
 private:
     StringScratch _prelude;
     StringScratch _main;
-    luisa::unordered_map<const Value *, uint> _value_uid_map;
-    luisa::unordered_map<const Type *, uint> _struct_uid_map;
+    luisa::unordered_map<const Value *, uint32_t> _value_uid_map;
+    luisa::unordered_map<const Type *, uint32_t> _struct_uid_map;
     luisa::unordered_set<const BasicBlock *> _emitted_blocks;
     bool _debug_info{false};
     bool _flat_blocks{false};
@@ -57,7 +57,7 @@ private:
 private:
     [[nodiscard]] auto _value_uid(const Value *value) noexcept {
         LUISA_ASSERT(value != nullptr, "Value must not be null.");
-        auto next_uid = static_cast<uint>(_value_uid_map.size());
+        auto next_uid = static_cast<uint32_t>(_value_uid_map.size());
         return _value_uid_map.try_emplace(value, next_uid).first->second;
     }
 
@@ -81,7 +81,7 @@ private:
             if (auto iter = _struct_uid_map.find(type); iter != _struct_uid_map.end()) {
                 return iter->second;
             }
-            auto next_uid = static_cast<uint>(_struct_uid_map.size());
+            auto next_uid = static_cast<uint32_t>(_struct_uid_map.size());
             _prelude << "type T" << next_uid << " = opaque \"" << type->description() << "\";\n\n";
             _struct_uid_map.emplace(type, next_uid);
             return next_uid;
@@ -99,7 +99,7 @@ private:
             desc.pop_back();
             desc.pop_back();
         }
-        auto next_uid = static_cast<uint>(_struct_uid_map.size());
+        auto next_uid = static_cast<uint32_t>(_struct_uid_map.size());
         _prelude << "type T" << next_uid << " = struct { " << desc << " };\n\n";
         _struct_uid_map.emplace(type, next_uid);
         return next_uid;
@@ -221,7 +221,7 @@ private:
         auto size = c->type()->size();
         for (auto i = 0u; i < size; i++) {
             auto x = static_cast<const uint8_t *>(c->data())[i];
-            _prelude << luisa::format("{:02x}", static_cast<uint>(x));
+            _prelude << luisa::format("{:02x}", static_cast<uint32_t>(x));
         }
         _prelude << ";";
         _emit_use_debug_info(_prelude, c->use_list());

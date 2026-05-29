@@ -22,7 +22,7 @@ namespace luisa::compute::xir {
 
 namespace {
 
-static void check_phi_free(FunctionDefinition *def) noexcept {
+void check_phi_free(FunctionDefinition *def) noexcept {
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         for (auto *inst : bb->instructions()) {
             if (inst->isa<PhiInst>()) {
@@ -32,7 +32,7 @@ static void check_phi_free(FunctionDefinition *def) noexcept {
     });
 }
 
-[[nodiscard]] static bool is_sink(BasicBlock *bb) noexcept {
+[[nodiscard]] bool is_sink(BasicBlock *bb) noexcept {
     if (!bb->is_terminated()) { return true; }
     auto *t = bb->terminator();
     if (t->isa<ReturnInst>() || t->isa<UnreachableInst>() || t->isa<RasterDiscardInst>()) { return true; }
@@ -46,7 +46,7 @@ struct PostDomInfo {
     BasicBlock *virtual_exit{nullptr};
 };
 
-[[nodiscard]] static PostDomInfo compute_post_dom(FunctionDefinition *def) noexcept {
+[[nodiscard]] PostDomInfo compute_post_dom(FunctionDefinition *def) noexcept {
     luisa::vector<BasicBlock *> all_blocks;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         all_blocks.emplace_back(bb);
@@ -161,7 +161,7 @@ struct PostDomInfo {
     return result;
 }
 
-[[nodiscard]] static size_t dom_depth(const DomTree &dom, BasicBlock *bb) noexcept {
+[[nodiscard]] size_t dom_depth(const DomTree &dom, BasicBlock *bb) noexcept {
     size_t d = 0;
     auto *node = dom.node_or_null(bb);
     while (node != nullptr && node->parent() != nullptr) {
@@ -171,7 +171,7 @@ struct PostDomInfo {
     return d;
 }
 
-[[nodiscard]] static BasicBlock *common_postdom(const PostDomInfo &pdom, luisa::span<BasicBlock *const> blocks) noexcept {
+[[nodiscard]] BasicBlock *common_postdom(const PostDomInfo &pdom, luisa::span<BasicBlock *const> blocks) noexcept {
     if (blocks.empty()) { return nullptr; }
     auto ancestors_of = [&](BasicBlock *bb) noexcept {
         luisa::unordered_set<BasicBlock *> chain;
@@ -205,7 +205,7 @@ struct PostDomInfo {
     return nullptr;
 }
 
-static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
+bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
     if (term == nullptr) { return false; }
     auto changed = false;
     switch (term->derived_instruction_tag()) {
@@ -302,7 +302,7 @@ static bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock 
 
 // After retargeting, a conditional branch may have both targets equal.
 // Replace it with an unconditional branch to avoid duplicate successors.
-static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
+void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     if (!bb->is_terminated()) { return; }
     auto *term = bb->terminator();
     if (term->isa<ConditionalBranchInst>()) {
@@ -318,12 +318,12 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
 }
 
 // Forward declaration.
-[[nodiscard]] static bool clone_subgraph_to_target(FunctionDefinition *def,
+[[nodiscard]] bool clone_subgraph_to_target(FunctionDefinition *def,
                                                     BasicBlock *E, BasicBlock *P,
                                                     BasicBlock *target,
                                                     BasicBlock *new_target) noexcept;
 
-[[nodiscard]] static bool try_restructure_loop(FunctionDefinition *def,
+[[nodiscard]] bool try_restructure_loop(FunctionDefinition *def,
                                                const DomTree &dom,
                                                const PostDomInfo &pdom,
                                                RestructureCFGInfo &info) noexcept {
@@ -651,7 +651,7 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     return true;
 }
 
-[[nodiscard]] static bool try_restructure_if_batch(FunctionDefinition *def,
+[[nodiscard]] bool try_restructure_if_batch(FunctionDefinition *def,
                                                      const DomTree &dom,
                                                      const PostDomInfo &pdom,
                                                      RestructureCFGInfo &info) noexcept {
@@ -890,7 +890,7 @@ static void fix_degenerate_terminator(BasicBlock *bb) noexcept {
 // "Entry blocks" are blocks that should only be reachable from the header (or from
 // authorized internal back-edges, e.g. the update block of a loop), and NEVER from
 // sibling arms. Returns nullptr-free, possibly-duplicate-free list.
-static void collect_construct_entries(BasicBlock *header_bb,
+void collect_construct_entries(BasicBlock *header_bb,
                                       luisa::vector<BasicBlock *> &entries) noexcept {
     entries.clear();
     auto *term = header_bb->terminator();
@@ -938,7 +938,7 @@ struct CloneRemap final : public InstructionCloneValueResolver {
 
 // For a construct C with header H and one of its entries E, decide whether predecessor
 // P of E is "authorized" per the XIR invariant.
-[[nodiscard]] static bool is_authorized_construct_pred(Instruction *header_term,
+[[nodiscard]] bool is_authorized_construct_pred(Instruction *header_term,
                                                        BasicBlock * /*entry*/,
                                                        BasicBlock *header_bb,
                                                        BasicBlock *pred) noexcept {
@@ -964,7 +964,7 @@ struct CloneRemap final : public InstructionCloneValueResolver {
 // Decide if a block S is on the "frontier" of the clone region rooted at E within
 // construct C (with header H). Frontier blocks are NOT cloned; edges into them from
 // cloned blocks remain pointing at the original block.
-[[nodiscard]] static bool is_clone_boundary(BasicBlock *S, BasicBlock *E,
+[[nodiscard]] bool is_clone_boundary(BasicBlock *S, BasicBlock *E,
                                             BasicBlock *header_bb,
                                             luisa::span<BasicBlock *const> entries,
                                             BasicBlock *merge_bb,
@@ -982,7 +982,7 @@ struct CloneRemap final : public InstructionCloneValueResolver {
 
 // Walk forward from E, collecting all blocks owned by E that are not boundary.
 // Blocks are recorded in deterministic DFS discovery order in `ordered`.
-static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
+void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                  luisa::span<BasicBlock *const> entries,
                                  BasicBlock *merge_bb, const DomTree &dom,
                                  luisa::unordered_set<BasicBlock *> &region,
@@ -1009,7 +1009,7 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 
 // Clone the owned subgraph rooted at E. P (with its terminator) is rerouted via a
 // fresh relay block to the clone of E. Returns true on success.
-[[nodiscard]] static bool clone_owned_subgraph_for_edge(FunctionDefinition *def,
+[[nodiscard]] bool clone_owned_subgraph_for_edge(FunctionDefinition *def,
                                                         BasicBlock *header_bb,
                                                         BasicBlock *E, BasicBlock *P,
                                                         luisa::span<BasicBlock *const> entries,
@@ -1058,7 +1058,7 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 // Clone all blocks reachable from E until reaching target (exclusive).
 // Any terminators in the cloned region that point to target are retargeted to new_target.
 // P's terminator edge to E is rerouted through a fresh relay to clone(E).
-[[nodiscard]] static bool clone_subgraph_to_target(FunctionDefinition *def,
+[[nodiscard]] bool clone_subgraph_to_target(FunctionDefinition *def,
                                                     BasicBlock *E, BasicBlock *P,
                                                     BasicBlock *target,
                                                     BasicBlock *new_target) noexcept {
@@ -1131,7 +1131,7 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 }
 
 // Per-construct entry-uniqueness fix. Returns true if any edges were rewritten.
-[[nodiscard]] static bool enforce_construct_entries(FunctionDefinition *def,
+[[nodiscard]] bool enforce_construct_entries(FunctionDefinition *def,
                                                     BasicBlock *header_bb,
                                                     BasicBlock *merge_bb) noexcept {
     luisa::vector<BasicBlock *> entries;
@@ -1178,7 +1178,7 @@ static void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 
 // Visit each structured construct (If/Switch/Loop/SimpleLoop) and enforce the
 // invariant. We rescan after each change because the BB list has grown.
-static void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
+void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
     size_t outer_guard = 64;
     while (outer_guard-- > 0) {
         bool changed = false;
@@ -1210,7 +1210,7 @@ static void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
     }
 }
 
-[[nodiscard]] static RestructureCFGInfo restructure_cfg_on_definition(FunctionDefinition *def) noexcept {
+[[nodiscard]] RestructureCFGInfo restructure_cfg_on_definition(FunctionDefinition *def) noexcept {
     check_phi_free(def);
     RestructureCFGInfo info{};
     size_t max_iters = 10000;

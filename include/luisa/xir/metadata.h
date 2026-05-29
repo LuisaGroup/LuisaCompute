@@ -22,7 +22,7 @@ public:
     LUISA_XIR_DEFINED_ISA_METHOD(Metadata, metadata)
 };
 
-template<typename Derived, DerivedMetadataTag tag, typename Base = Metadata>
+template<typename Derived, DerivedMetadataTag Tag, typename Base = Metadata>
     requires std::derived_from<Base, Metadata>
 class LUISA_XIR_API DerivedMetadata : public Base {
 public:
@@ -31,7 +31,7 @@ public:
     using Base::Base;
 
     [[nodiscard]] static constexpr auto
-    static_derived_metadata_tag() noexcept { return tag; }
+    static_derived_metadata_tag() noexcept { return Tag; }
 
     [[nodiscard]] DerivedMetadataTag
     derived_metadata_tag() const noexcept final { return static_derived_metadata_tag(); }

@@ -21,7 +21,8 @@ namespace detail {
 static thread_local luisa::unordered_map<Instruction *, AllocaInst *> s_inst_to_base_alloca;
 
 static luisa::optional<int64_t> try_get_constant_int_value(Value *v) noexcept {
-    if (auto c = dynamic_cast<Constant *>(v)) {
+    if (v->isa<Constant>()) {
+        auto c = static_cast<Constant *>(v);
         auto type = c->type();
         auto size = type->size();
         if (size == 4) {

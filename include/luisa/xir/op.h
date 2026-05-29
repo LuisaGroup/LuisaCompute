@@ -152,7 +152,7 @@ enum class AtomicOp {
     return op == AtomicOp::COMPARE_EXCHANGE ? 2u : 1u;
 }
 
-enum struct AutodiffIntrinsicOp {
+enum class AutodiffIntrinsicOp {
     AUTODIFF_REQUIRES_GRADIENT,  // (expr) -> void
     AUTODIFF_GRADIENT,           // (expr) -> expr
     AUTODIFF_GRADIENT_MARKER,    // (ref, expr) -> void
@@ -161,7 +161,7 @@ enum struct AutodiffIntrinsicOp {
     AUTODIFF_DETACH,             // (expr) -> expr
 };
 
-enum struct CastOp {
+enum class CastOp {
     STATIC_CAST,
     BITWISE_CAST,
 };

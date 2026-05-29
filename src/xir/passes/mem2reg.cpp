@@ -55,8 +55,8 @@ namespace detail {
 struct AllocaAnalysis {
 
     const DomTree &dom;
-    const luisa::unordered_map<Instruction *, uint> &inst_indices;
-    const luisa::unordered_map<BasicBlock *, uint> &block_indices;
+    const luisa::unordered_map<Instruction *, uint32_t> &inst_indices;
+    const luisa::unordered_map<BasicBlock *, uint32_t> &block_indices;
 
     luisa::unordered_map<BasicBlock *, StoreInst *> def_blocks;
     luisa::unordered_map<BasicBlock *, luisa::vector<LoadInst *>> use_blocks;
@@ -255,7 +255,7 @@ using AllocaStoreLoadSequence = luisa::unordered_map<BasicBlock *, std::vector<I
 // after this function, for each block, the must be at most one store and one load instruction for an
 // alloca, and the load instruction must precede the store instruction if both exist
 static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSequence &seq,
-                                             const luisa::unordered_map<Instruction *, uint> &inst_indices,
+                                             const luisa::unordered_map<Instruction *, uint32_t> &inst_indices,
                                              Mem2RegPassContext &ctx, Mem2RegInfo &info) noexcept {
     // collect load/store instructions concerning the alloca
     seq.clear();
@@ -346,10 +346,10 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
         }
         // collect local alloca instructions that can be promoted
         luisa::vector<AllocaInst *> promotable;
-        luisa::unordered_map<Instruction *, uint> inst_indices;
-        luisa::unordered_map<BasicBlock *, uint> block_indices;
+        luisa::unordered_map<Instruction *, uint32_t> inst_indices;
+        luisa::unordered_map<BasicBlock *, uint32_t> block_indices;
         def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
-            block_indices.emplace(block, static_cast<uint>(block_indices.size()));
+            block_indices.emplace(block, static_cast<uint32_t>(block_indices.size()));
             block->traverse_instructions([&](Instruction *inst) noexcept {
                 switch (inst->derived_instruction_tag()) {
                     case DerivedInstructionTag::ALLOCA: {
@@ -360,7 +360,7 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
                     }
                     case DerivedInstructionTag::LOAD: [[fallthrough]];
                     case DerivedInstructionTag::STORE: {
-                        inst_indices.emplace(inst, static_cast<uint>(inst_indices.size()));
+                        inst_indices.emplace(inst, static_cast<uint32_t>(inst_indices.size()));
                         break;
                     }
                     default: break;
@@ -394,7 +394,7 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
                 // does not collapse stores, so multiple stores per block can remain after
                 // transpose_gep converts GEP stores to insert-based stores. The classic
                 // mem2reg algorithm assumes at most one store per block.
-                luisa::unordered_map<BasicBlock *, uint> block_store_count;
+                luisa::unordered_map<BasicBlock *, uint32_t> block_store_count;
                 bool has_multiple_stores = false;
                 for (auto &&use : inst->use_list()) {
                     if (auto user = use->user(); user != nullptr && user->isa<StoreInst>()) {

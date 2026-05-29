@@ -221,6 +221,7 @@ const bool LUISA_USE_EXPERIMENTAL_XIR_CODEGEN = [] {
 #include "extensions/cuda_dstorage.h"
 #include "extensions/cuda_denoiser.h"
 #include "extensions/cuda_pinned_memory.h"
+#include "extensions/cuda_graph_ext.h"
 
 #ifdef LUISA_COMPUTE_ENABLE_NVTT
 #include "extensions/cuda_texture_compression.h"
@@ -1255,6 +1256,11 @@ DeviceExtension *CUDADevice::extension(luisa::string_view name) noexcept {
 #endif
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(DStorage, _dstorage_ext)
     LUISA_COMPUTE_CREATE_CUDA_EXTENSION(PinnedMemory, _pinned_memory_ext)
+    if (name == CudaGraphExt::name) {
+        std::scoped_lock lock{_ext_mutex};
+        if (_cuda_graph_ext == nullptr) { _cuda_graph_ext = luisa::make_unique<CudaGraphExtImpl>(this); }
+        return _cuda_graph_ext.get();
+    }
     if (name == CUDAExternalExt::name) {
         std::scoped_lock lock{_ext_mutex};
         if (_external_ext == nullptr) { _external_ext = luisa::make_unique<CUDAExternalExtImpl>(this); }

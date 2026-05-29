@@ -115,7 +115,7 @@ auto PostDomTree::immediate_post_dominator(BasicBlock *block) const noexcept -> 
     return n->parent()->block();
 }
 
-static const auto UNKNOWN_DOM = reinterpret_cast<BasicBlock *>(uintptr_t(-1));
+static const auto kUnknownDom = reinterpret_cast<BasicBlock *>(uintptr_t(-1));
 
 PostDomTree compute_post_dom_tree(Function *function) noexcept {
     auto definition = function->definition();
@@ -182,7 +182,7 @@ PostDomTree compute_post_dom_tree(Function *function) noexcept {
     }
     // dominance algorithm on reversed CFG
     luisa::unordered_map<BasicBlock *, BasicBlock *> doms;
-    for (auto block : reverse_postorder) { doms[block] = UNKNOWN_DOM; }
+    for (auto block : reverse_postorder) { doms[block] = kUnknownDom; }
     auto get_index = [&](BasicBlock *b) noexcept -> size_t {
         if (b == nullptr) { return SIZE_MAX; }
         LUISA_DEBUG_ASSERT(postorder_index.contains(b), "Block not in postorder.");
@@ -191,7 +191,7 @@ PostDomTree compute_post_dom_tree(Function *function) noexcept {
     auto get_dom = [&](BasicBlock *b) noexcept -> BasicBlock * {
         if (b == nullptr) { return nullptr; }
         auto it = doms.find(b);
-        LUISA_DEBUG_ASSERT(it != doms.end() && it->second != UNKNOWN_DOM, "Dom not computed.");
+        LUISA_DEBUG_ASSERT(it != doms.end() && it->second != kUnknownDom, "Dom not computed.");
         return it->second;
     };
     auto intersect = [&](BasicBlock *b1, BasicBlock *b2) noexcept -> BasicBlock * {
@@ -217,7 +217,7 @@ PostDomTree compute_post_dom_tree(Function *function) noexcept {
                 first = false;
             }
             block->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                if (auto iter = doms.find(succ); iter != doms.end() && iter->second != UNKNOWN_DOM) {
+                if (auto iter = doms.find(succ); iter != doms.end() && iter->second != kUnknownDom) {
                     if (first) {
                         new_idom = succ;
                         first = false;
@@ -238,7 +238,7 @@ PostDomTree compute_post_dom_tree(Function *function) noexcept {
     // build the post-dom tree
     PostDomTree tree;
     for (auto block : reverse_postorder) {
-        LUISA_DEBUG_ASSERT(doms[block] != UNKNOWN_DOM, "Block has unknown post-dom.");
+        LUISA_DEBUG_ASSERT(doms[block] != kUnknownDom, "Block has unknown post-dom.");
         auto parent_node = tree.add_or_get_node(doms[block]);
         auto block_node = tree.add_or_get_node(block);
         parent_node->add_child(block_node);

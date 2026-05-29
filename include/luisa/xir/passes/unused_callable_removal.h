@@ -1,6 +1,6 @@
 #pragma once
 
-#include "luisa/xir/module.h"
+#include <luisa/xir/module.h>
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/unordered_map.h>

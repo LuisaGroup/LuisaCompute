@@ -10,6 +10,12 @@ namespace luisa::compute::cuda {
 
 class CUDADevice;
 
+struct CudaGraphHostCopyData {
+    void *dst;
+    const void *src;
+    size_t size;
+};
+
 class CudaGraphExtImpl final : public CudaGraphExt {
 
     CUDADevice *_device;
@@ -17,11 +23,18 @@ class CudaGraphExtImpl final : public CudaGraphExt {
     struct GraphData {
         luisa::vector<CUgraphNode> nodes;
         luisa::vector<void *> host_allocations;// pinned memory kept alive for graph lifetime
+        luisa::vector<CudaGraphHostCopyData> host_copies;
+    };
+
+    struct ExecData {
+        uint64_t graph_handle;
+        luisa::vector<void *> host_allocations;// pinned memory kept alive for updated executable graphs
+        luisa::vector<CudaGraphHostCopyData> host_copies;
     };
 
     mutable spin_mutex _mutex;
     luisa::unordered_map<uint64_t, GraphData> _graph_data;
-    luisa::unordered_map<uint64_t, uint64_t> _exec_to_graph;// exec_handle -> graph_handle
+    luisa::unordered_map<uint64_t, ExecData> _exec_data;// exec_handle -> executable data
 
     [[nodiscard]] CUgraphNode _get_node(GraphExecHandle exec, size_t node_index) const noexcept;
 
