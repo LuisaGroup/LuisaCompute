@@ -182,6 +182,11 @@ if (LUISA_COMPUTE_ENABLE_HIP)
     luisa_compute_add_test(test_hiprt_standalone integration/runtime/test_hiprt_standalone.cpp)
 endif ()
 
+# --- integration/runtime: CUDA-only tests ---
+if (LUISA_COMPUTE_ENABLE_CUDA)
+    luisa_compute_add_test(test_cuda_graph integration/runtime/test_cuda_graph.cpp)
+endif ()
+
 # --- integration/ir: standalone tests ---
 if (LUISA_COMPUTE_ENABLE_RUST)
     luisa_compute_add_test(test_autodiff        integration/ir/test_autodiff.cpp)

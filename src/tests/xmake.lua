@@ -154,6 +154,11 @@ test_proj("test_transient_resource", "integration/runtime/test_transient_resourc
     add_files("integration/runtime/transient_resource_device/*.cpp")
 end)
 
+-- integration/runtime: CUDA-only tests
+if has_config("lc_cuda_backend") then
+    test_proj("test_cuda_graph", "integration/runtime/test_cuda_graph.cpp")
+end
+
 -- integration/runtime: DX-only tests
 if has_config("lc_dx_backend") then
     test_proj("test_raster", "integration/runtime/test_raster.cpp", true)
