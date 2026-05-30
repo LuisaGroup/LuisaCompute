@@ -2675,6 +2675,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_ALL: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformVote);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformAll, _convert_type(inst->type(), Usage::READ),
                                    {subgroup_scope, val});
@@ -2682,6 +2683,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_ANY: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformVote);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformAny, _convert_type(inst->type(), Usage::READ),
                                    {subgroup_scope, val});
