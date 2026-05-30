@@ -374,3 +374,68 @@ ctest --test-dir cmake-build-release -R destructure_cfg --output-on-failure
 ```
 
 Build dir convention: `cmake-build-release`.
+
+## LLVM Equivalents
+
+When debugging or implementing an XIR pass, the LLVM project has similar passes for reference. Below is the mapping from XIR pass file to the closest LLVM implementation(s).
+
+| XIR Pass | LLVM Equivalent(s) | Notes |
+|---|---|---|
+| `aggregate_field_bitmask` | — | XIR-specific aggregate field bit-range analysis. |
+| `algebraic_simplify` | `llvm/lib/Transforms/InstCombine/InstCombineAndOrXor.cpp` (and siblings) | Peephole algebraic simplifications; also see `AggressiveInstCombine`. |
+| `alias_analysis` | `llvm/lib/Analysis/BasicAliasAnalysis.cpp` | Basic and type-based alias analysis. |
+| `autodiff` | — | XIR-specific autodiff pass. |
+| `call_graph` | `llvm/lib/Analysis/CallGraph.cpp` | Call-graph construction and SCC passes. |
+| `const_fold` | `llvm/lib/Analysis/ConstantFolding.cpp` | Constant folding of instructions and intrinsics. |
+| `cvp` | `llvm/lib/Transforms/Scalar/CorrelatedValuePropagation.cpp` | Correlated value propagation (range/branch info). |
+| `dce` | `llvm/lib/Transforms/Scalar/DCE.cpp` | Standard dead-code elimination. Also see `ADCE.cpp`, `BDCE.cpp`, `GlobalDCE.cpp`. |
+| `dead_arg_elim` | `llvm/lib/Transforms/IPO/DeadArgumentElimination.cpp` | Remove unused arguments from internal functions. |
+| `dead_store_elimination` | `llvm/lib/Transforms/Scalar/DeadStoreElimination.cpp` | Memory-write DSE (FastDSE / ClassicDSE). |
+| `destructure_cfg` | `llvm/lib/Transforms/Scalar/StructurizeCFG.cpp` | XIR: structured → unstructured. LLVM `StructurizeCFG` does the inverse (unstructured → structured). Also see `FixIrreducible.cpp`. |
+| `div_rem_pairs` | `llvm/lib/Transforms/Scalar/DivRemPairs.cpp` | Combine div/rem into a single instruction. |
+| `dom_tree` | `llvm/lib/IR/Dominators.cpp` | Dominator tree construction. |
+| `early_return_elimination` | `llvm/lib/Transforms/Utils/UnifyFunctionExitNodes.cpp` | XIR-specific early-return elimination for structured CFG. |
+| `fix_self_referential` | — | XIR-specific fix for self-referential `INSERT` operands after buggy optimizations. |
+| `gvn` | `llvm/lib/Transforms/Scalar/GVN.cpp` / `NewGVN.cpp` | Global value numbering and redundant-load elimination. |
+| `if_conversion` | `llvm/lib/CodeGen/IfConversion.cpp` | Machine-level if-conversion (predication). |
+| `indvar_simplify` | `llvm/lib/Transforms/Scalar/IndVarSimplify.cpp` | Canonicalize and simplify induction variables. |
+| `inline` | `llvm/lib/Transforms/IPO/Inliner.cpp` | Call-site inlining heuristics and implementation. Also see `InlineFunction.cpp`. |
+| `lex_scope_analysis` | — | XIR-specific lexical-scope analysis. |
+| `licm` | `llvm/lib/Transforms/Scalar/LICM.cpp` | Loop-invariant code motion. |
+| `local_load_elimination` | `llvm/lib/Transforms/Utils/Local.cpp` | Local redundant-load elimination (part of GVN/local CSE). |
+| `local_store_forward` | `llvm/lib/Transforms/Utils/Local.cpp` | Store-to-load forwarding (part of local memory opts). |
+| `loop_rotation` | `llvm/lib/Transforms/Scalar/LoopRotation.cpp` | Rotate loops to place test at bottom. |
+| `loop_unroll` | `llvm/lib/Transforms/Utils/LoopUnroll.cpp` | Loop unrolling (full / partial / runtime). |
+| `lower_break_continue` | — | XIR-specific lowering of structured `BreakInst`/`ContinueInst`. |
+| `lower_ray_query_loop` | — | XIR-specific ray-query pipeline lowering. |
+| `lower_ray_query_loop_to_loop` | — | XIR-specific ray-query → structured `LoopInst` lowering. |
+| `mem2reg` | `llvm/lib/Transforms/Utils/Mem2Reg.cpp` | Promote memory to registers (alloca → SSA). Also see `PromoteMemToReg.h`. |
+| `outline` | `llvm/lib/Transforms/IPO/IROutliner.cpp` | Outlining similar instruction sequences. |
+| `pass_pipeline` | — | XIR pass pipeline driver. |
+| `phi_cleanup` | `llvm/lib/Transforms/Utils/BasicBlockUtils.cpp` | Trivial/dead PHI removal (`DeleteDeadPHIs`, `simplifyPHINode`). |
+| `pointer_usage` | — | Stub / XIR-specific pointer-usage tracking. |
+| `post_dom_tree` | `llvm/lib/Analysis/PostDominators.cpp` | Post-dominator tree construction. |
+| `promote_ref_arg` | `llvm/lib/Transforms/IPO/ArgumentPromotion.cpp` | XIR-specific promotion of reference arguments to value arguments. |
+| `reassociate` | `llvm/lib/Transforms/Scalar/Reassociate.cpp` | Reassociate expressions for CSE/constant folding. |
+| `reg2mem` | `llvm/lib/Transforms/Scalar/Reg2Mem.cpp` | Demote SSA to memory (inverse of mem2reg). |
+| `restructure_cfg` | `llvm/lib/Transforms/Scalar/StructurizeCFG.cpp` | XIR: unstructured → structured. LLVM `StructurizeCFG` is the closest analog. Also see `FixIrreducible.cpp`. |
+| `scalar_evolution` | `llvm/lib/Analysis/ScalarEvolution.cpp` | Analyze evolution of scalar expressions in loops. |
+| `scalarizer` | `llvm/lib/Transforms/Scalar/Scalarizer.cpp` | Break vector ops into scalar components. |
+| `sccp` | `llvm/lib/Transforms/Scalar/SCCP.cpp` | Sparse conditional constant propagation. |
+| `simplify_cfg` | `llvm/lib/Transforms/Utils/SimplifyCFG.cpp` | CFG simplification (fold branches, remove empty blocks, etc.). |
+| `simplify_libcalls` | `llvm/lib/Transforms/Utils/SimplifyLibCalls.cpp` | Fold library calls to simpler forms. |
+| `sroa` | `llvm/lib/Transforms/Scalar/SROA.cpp` | Scalar replacement of aggregates (alloca splitting). |
+| `trace_gep` | `llvm/lib/Transforms/InstCombine/InstCombineCompares.cpp` | GEP chaining / index folding. General GEP combining lives in InstCombine. |
+| `transpose_gep` | `llvm/lib/Transforms/Scalar/SeparateConstOffsetFromGEP.cpp` | Reorder / split GEP indices. |
+| `uniformity_analysis` | `llvm/lib/Analysis/UniformityAnalysis.cpp` | Divergence / uniformity analysis (GPU-focused). |
+| `unused_callable_removal` | `llvm/lib/Transforms/IPO/GlobalDCE.cpp` | Remove unreferenced internal functions. Also see `Internalize.cpp`. |
+
+### Reading LLVM sources for XIR pass debugging
+
+When an XIR pass produces incorrect IR:
+
+1. Look up the XIR pass in the table above.
+2. Open the matching LLVM file(s), if not found, ask user.
+3. Read the LLVM implementation for the algorithm (e.g., how `SROA` splits allocas, how `StructurizeCFG` builds regions).
+4. Compare with the XIR implementation in `src/xir/passes/<name>.cpp`. The XIR passes are often simplified versions of the LLVM algorithms.
+5. For passes with no LLVM equivalent (ray query, break/continue lowering, self-referential fix), the XIR pass is the authoritative reference.

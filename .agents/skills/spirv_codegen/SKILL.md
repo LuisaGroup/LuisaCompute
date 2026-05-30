@@ -494,3 +494,49 @@ The four types above cannot be materialized on-the-fly by `_emit_value` the way 
 4. **For `FUNCTION`**: ensure the callee was included in `used_functions_post_order` and emitted via `_emit_callable`. Check if `unused_callable_removal` pass incorrectly removed a callable that is still referenced.
 5. **For `BASIC_BLOCK`**: this indicates a fundamental IR integrity issue. Dump XIR at the last pipeline stage, search for block values in instruction operand positions.
 6. **General debugging**: set `LUISA_DUMP_SOURCE=1` and `LUISA_XIR_DISABLE_RESTRUCTURE_CFG=1` to narrow down which pipeline stage introduces the unregistered value. The XIR dump at each phase will show the IR state.
+
+## Debug Workflow for Crashes / SPIR-V Validation Failures
+
+When a test crashes or SPIR-V validation fails, follow this triage workflow:
+
+### 1. Disable Optimization Passes
+
+The optimization pipeline is defined in `src/backends/common/spirv/spirv_codegen/utils.cpp` inside `luisa_spirv_backend_translate_ast_to_xir()`. Temporarily comment out or skip the passes:
+
+- Phase A passes: `dce`, `local_store_forward`, `local_load_elimination`, `algebraic_simplify`, `const_fold`, `promote_ref_arg`, `sroa`, `loop_unroll`
+- CFG normalization: `destructure_cfg`, `mem2reg`, `unused_callable_removal`, `simplify_cfg`
+- CFG restructuring: `restructure_cfg`, `reg2mem`
+- Phase B / Phase C passes after normalization / restructuring
+
+Also disable the SPIR-V optimizer in `entry.cpp` (`compile_spirv()`): skip the `spvtools::Optimizer` `RegisterPerformancePasses()` run.
+
+Re-run the test.
+
+### 2. If Run Succeeds After Disabling Passes
+
+The bug is introduced by an XIR pass. Narrow it down:
+
+- Re-enable passes one group at a time (Phase A → CFG normalization → CFG restructuring → spv-opt).
+- Once the failing group is identified, bisect individual passes within that group.
+- Debug the offending pass in `src/xir/passes/`. Common culprits:
+  - `destructure_cfg` / `restructure_cfg`: corrupt structured control flow.
+  - `mem2reg` / `reg2mem`: broken SSA / phi nodes.
+  - `sroa`: incorrect scalar replacement of aggregates.
+  - `loop_unroll`: unrolled loop body has invalid uses or dominates.
+  - `unused_callable_removal`: removed a callable still referenced.
+- Use `LUISA_DUMP_SOURCE=1` to compare XIR before / after the bad pass.
+
+### 3. If Run Still Fails With All Passes Disabled
+
+The bug is in the core SPIR-V codegen, not in optimizations. Start reading at `src/backends/common/spirv/spirv_codegen/entry.cpp` and follow the coding structure:
+
+1. **`entry.cpp: compile_spirv()`** — verify `luisa_spirv_backend_translate_ast_to_xir()` produces a module.
+2. **`bind.cpp: generate_binding()`** — check descriptor layout and global variable creation.
+3. **`emit.cpp: emit()`** — verify type conversion, constant emission, and function emission order.
+4. **`emit.cpp: _emit_kernel()`** — check cbuffer loading, entry point creation, dispatch bounds check.
+5. **`emit.cpp: _emit_callable()`** — check parameter mapping and resource argument handling.
+6. **`type.cpp: _convert_type()`** — verify the XIR type maps to valid SPIR-V type.
+7. **`instruction.cpp: _emit_instruction()`** — locate the specific instruction that triggers the crash / validation error.
+8. **`condition_inst.cpp`** — if the failure involves control flow, inspect if/loop/switch emission.
+
+Set `LUISA_DUMP_SOURCE=1` to capture the final SPIR-V disassembly before the crash. If validation fails but codegen completes, run the SPIR-V binary through `spirv-val` directly to get the exact validation error and rule violated.
