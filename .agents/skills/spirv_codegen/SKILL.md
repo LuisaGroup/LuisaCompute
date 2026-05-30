@@ -457,3 +457,40 @@ When `LUISA_XIR_TO_SPIRV` is undefined, backend falls back to HLSL codegen + DXC
 7. **New type**: update `_convert_type()` in `type.cpp`
 
 All paths must: use `_convert_type(inst->type())` for result, `_emit_value(op)` for operands, store in `_value_map` (or `spv::NoResult` for void).
+
+## Debugging `_emit_value` Assertion: "should have been pre-mapped"
+
+Location: `emit.cpp:323`, inside `_emit_value()`, the fallthrough case for `ARGUMENT` (non-resource, not in map) / `FUNCTION` / `BASIC_BLOCK` / `INSTRUCTION`.
+
+### Root Cause
+
+`_emit_value` is the central XIR→SPIR-V value resolver. It expects **structural/non-leaf values** to be pre-registered in `_value_map` *before* any instruction uses them as an operand. These are pre-mapped by:
+
+| Tag | Pre-mapped by | When |
+|---|---|---|
+| `FUNCTION` (kernel) | `_emit_kernel()` line 402 | During kernel emission |
+| `FUNCTION` (callable) | `_emit_callable()` line 617 | During callable emission |
+| `ARGUMENT` (value/ref) | `_emit_kernel()` cbuffer load (lines 454–463) or `_emit_callable()` param mapping (line 623) | During function prologue |
+| `ARGUMENT` (resource) | `_resolve_resource_argument()` → `_value_map.emplace` in `instruction.cpp:1178` | On first use |
+| `INSTRUCTION` | `_emit_instruction()` via `set_result` lambda (line 2926–2928) | When instruction is emitted |
+| `BASIC_BLOCK` | Should never reach `_emit_value`; blocks are in `_block_map` | — |
+
+If any of these arrives at `_emit_value` *without* a `_value_map` entry, the assertion fires. Typical scenarios:
+
+1. **Non-resource `Argument` not in map** (most common): an XIR pass (inlining, DCE, SROA) created or reparented an argument without re-registering it, or cbuffer setup in `_emit_kernel` missed an arg (e.g., `_property_ids.size() <= 2` with no fallback).
+2. **`Instruction` result used before its defining instruction is emitted**: corrupted IR with a use-before-def cycle, or a PHI referencing a value from an unemitted block.
+3. **`Function` (call target) not emitted**: dead code removal bug, or a call to a function never passed through `_emit_kernel`/`_emit_callable`.
+4. **`BasicBlock` leaked as operand**: structural IR corruption — blocks should only be branch targets, never regular operands.
+
+### Why This Assertion Is Necessary
+
+The four types above cannot be materialized on-the-fly by `_emit_value` the way constants or builtins can. They depend on global state (function entry blocks, cbuffer layout, the block emission order). If `_emit_value` were to silently return `spv::NoResult`, the downstream `LUISA_ASSERT(id != spv::NoResult)` at line 327 would fire with "Failed to emit value" — a far less diagnostic message. This assertion catches the problem *at the point where the root cause is identifiable* (value type, name, type description), rather than later when a missing ID causes a cascade of failures.
+
+### How to Solve
+
+1. **Read the error message**: it prints `tag` (the `DerivedValueTag` string), `name`, and `type_desc`. This immediately tells you which kind of value is unregistered.
+2. **For `ARGUMENT` (value/ref)**: check if the argument belongs to a kernel or callable. If kernel, verify cbuffer layout in `_emit_kernel` — ensure `_property_ids[2]` exists and the arg appears in `value_args`. If callable, check `_emit_callable` param mapping. If the IR was mutated by a pass, re-run that pass's registration logic or ensure the pass properly calls the emission entry points.
+3. **For `INSTRUCTION`**: verify topological order. The instruction's defining block must have been emitted via `_emit_block` before its result is used. Check for PHI nodes that survived `reg2mem` (should be eliminated). Enable `LUISA_DUMP_SOURCE=1` to dump XIR at each pipeline stage.
+4. **For `FUNCTION`**: ensure the callee was included in `used_functions_post_order` and emitted via `_emit_callable`. Check if `unused_callable_removal` pass incorrectly removed a callable that is still referenced.
+5. **For `BASIC_BLOCK`**: this indicates a fundamental IR integrity issue. Dump XIR at the last pipeline stage, search for block values in instruction operand positions.
+6. **General debugging**: set `LUISA_DUMP_SOURCE=1` and `LUISA_XIR_DISABLE_RESTRUCTURE_CFG=1` to narrow down which pipeline stage introduces the unregistered value. The XIR dump at each phase will show the IR state.

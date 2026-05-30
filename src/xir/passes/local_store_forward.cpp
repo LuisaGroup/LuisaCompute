@@ -154,12 +154,42 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
                        inst_indices.at(store) < inst_indices.at(load) :
                        dom_tree.dominates(store_block, load_block);
         };
+        // check if replacing 'load' with 'store->value()' would create a cycle
+        auto store_value_depends_on_load = [&](StoreInst *store, LoadInst *load) noexcept {
+            luisa::vector<Value *> worklist;
+            luisa::unordered_set<Value *> visited;
+            worklist.push_back(store->value());
+            while (!worklist.empty()) {
+                auto v = worklist.back();
+                worklist.pop_back();
+                if (!visited.emplace(v).second) { continue; }
+                if (v == load) { return true; }
+                if (v->isa<Instruction>()) {
+                    auto inst = static_cast<Instruction *>(v);
+                    for (auto &&op_use : inst->operand_uses()) {
+                        worklist.push_back(op_use->value());
+                    }
+                }
+            }
+            return false;
+        };
+        // Composite insert stores depend on the current aggregate value;
+        // forwarding them to loads creates self-referencing inserts.
+        auto is_composite_insert_store = [&](StoreInst *store) noexcept -> bool {
+            if (auto v = store->value(); v->isa<ArithmeticInst>()) {
+                auto arith = static_cast<ArithmeticInst *>(v);
+                return arith->op() == ArithmeticOp::INSERT;
+            }
+            return false;
+        };
         function->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->isa<LoadInst>()) {
                 auto load = static_cast<LoadInst *>(inst);
                 if (auto base_alloca = trace_pointer_base_local_alloca_inst(load->variable())) {
                     auto iter = single_store.find(base_alloca);
-                    if (iter != single_store.end() && dominates(iter->second, load)) {
+                    if (iter != single_store.end() && dominates(iter->second, load) &&
+                        !store_value_depends_on_load(iter->second, load) &&
+                        !is_composite_insert_store(iter->second)) {
                         removable_loads.emplace_back(load);
                     }
                 }
