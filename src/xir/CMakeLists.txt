@@ -69,6 +69,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/trace_gep.cpp
         passes/aggregate_field_bitmask.cpp
         passes/early_return_elimination.cpp
+        passes/fix_self_referential.cpp
         passes/pointer_usage.cpp
         passes/post_dom_tree.cpp
         passes/lex_scope_analysis.cpp
