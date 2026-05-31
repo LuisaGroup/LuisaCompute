@@ -108,6 +108,7 @@ private:
     spv::Id _emit_value(const xir::Value *value) noexcept;
     spv::Block *_get_or_create_block(const xir::BasicBlock *bb) noexcept;
 
+    void _pre_register_merge_blocks(const xir::FunctionDefinition *def) noexcept;
     void _emit_kernel(const xir::KernelFunction *kernel) noexcept;
     void _emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept;
     void _emit_block(const xir::BasicBlock *bb) noexcept;
@@ -126,10 +127,10 @@ private:
     void _emit_resource_query_inst(const xir::ResourceQueryInst *inst) noexcept;
     void _emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept;
     void _emit_resource_write_inst(const xir::ResourceWriteInst *inst) noexcept;
-    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, bool index_is_word_offset = false) noexcept;
-    spv::Id _emit_buffer_read_impl(spv::Id buffer, spv::Id word_offset, const Type *elem_type) noexcept;
-    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, bool index_is_word_offset = false) noexcept;
-    void _emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type) noexcept;
+    spv::Id _emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, bool index_is_word_offset = false, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
+    spv::Id _emit_buffer_read_impl(spv::Id buffer, spv::Id word_offset, const Type *elem_type, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
+    void _emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, bool index_is_word_offset = false, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
+    void _emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type, spv::MemoryAccessMask memory_access = spv::MemoryAccessMask::MaskNone) noexcept;
     void _emit_thread_group_inst(const xir::ThreadGroupInst *inst) noexcept;
     void _emit_ray_query_object_read_inst(const xir::RayQueryObjectReadInst *inst) noexcept;
     void _emit_ray_query_object_write_inst(const xir::RayQueryObjectWriteInst *inst) noexcept;

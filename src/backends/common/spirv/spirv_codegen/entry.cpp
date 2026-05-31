@@ -121,7 +121,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     if (std::getenv("LUISA_DUMP_SOURCE")) {
         std::ostringstream disasm;
         spv::Disassemble(disasm, words);
-        LUISA_INFO("=== PRE-VALIDATION SPIR-V for {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
+        LUISA_VERBOSE("=== PRE-VALIDATION SPIR-V for {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
     }
     luisa_spirv_validate(words, "pre-optimization");
     if (std::getenv("LUISA_DUMP_SPV")) {

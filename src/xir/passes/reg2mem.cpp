@@ -43,6 +43,8 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
         if (inst->isa<PhiInst>()) { return; }
         auto def_block = inst->parent_block();
         if (def_block == nullptr) { return; }
+        // Skip instructions in unreachable blocks (not in dom tree)
+        if (!dom_tree.contains(def_block)) { return; }
         // Only consider this instruction as a candidate if it has at least
         // one cross-block use that is NOT dominated by the defining block.
         for (auto use : inst->use_list()) {
@@ -52,6 +54,8 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
             if (!u_val->isa<Instruction>()) { continue; }
             auto user_inst = static_cast<Instruction *>(u_val);
             auto use_block = user_inst->parent_block();
+            if (use_block == nullptr) { continue; }
+            if (!dom_tree.contains(use_block)) { continue; }
             if (use_block != def_block && !dom_tree.dominates(def_block, use_block)) {
                 candidates.emplace_back(inst);
                 break;
@@ -76,6 +80,8 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
             if (!u_val->isa<Instruction>()) { continue; }
             auto user_inst = static_cast<Instruction *>(u_val);
             auto use_block = user_inst->parent_block();
+            if (use_block == nullptr) { continue; }
+            if (!dom_tree.contains(use_block)) { continue; }
             if (use_block != def_block && !dom_tree.dominates(def_block, use_block)) {
                 cross_block_uses.emplace_back(use);
             }

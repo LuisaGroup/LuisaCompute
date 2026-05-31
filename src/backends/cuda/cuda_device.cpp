@@ -281,6 +281,9 @@ namespace luisa::compute::cuda {
         case PixelFormat::R32F: return CU_AD_FORMAT_FLOAT;
         case PixelFormat::RG32F: return CU_AD_FORMAT_FLOAT;
         case PixelFormat::RGBA32F: return CU_AD_FORMAT_FLOAT;
+        case PixelFormat::BC1UNorm: return CU_AD_FORMAT_BC1_UNORM;
+        case PixelFormat::BC2UNorm: return CU_AD_FORMAT_BC2_UNORM;
+        case PixelFormat::BC3UNorm: return CU_AD_FORMAT_BC3_UNORM;
         case PixelFormat::BC4UNorm: return CU_AD_FORMAT_BC4_UNORM;
         case PixelFormat::BC5UNorm: return CU_AD_FORMAT_BC5_UNORM;
         case PixelFormat::BC6HUF16: return CU_AD_FORMAT_BC6H_UF16;

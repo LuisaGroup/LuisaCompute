@@ -385,6 +385,31 @@ void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb) noexcept {
     }
 }
 
+void SpirvCodegenEntry::_pre_register_merge_blocks(const xir::FunctionDefinition *def) noexcept {
+    for (auto *bb : def->basic_blocks()) {
+        if (!bb->is_terminated()) { continue; }
+        const xir::BasicBlock *merge = nullptr;
+        switch (bb->terminator()->derived_instruction_tag()) {
+            case xir::DerivedInstructionTag::IF:
+                merge = static_cast<const xir::IfInst *>(bb->terminator())->merge_block();
+                break;
+            case xir::DerivedInstructionTag::LOOP:
+                merge = static_cast<const xir::LoopInst *>(bb->terminator())->merge_block();
+                break;
+            case xir::DerivedInstructionTag::SIMPLE_LOOP:
+                merge = static_cast<const xir::SimpleLoopInst *>(bb->terminator())->merge_block();
+                break;
+            case xir::DerivedInstructionTag::SWITCH:
+                merge = static_cast<const xir::SwitchInst *>(bb->terminator())->merge_block();
+                break;
+            default: break;
+        }
+        if (merge != nullptr) {
+            _get_or_create_block(merge);
+        }
+    }
+}
+
 void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept {
     _uniformity.analyze(kernel);
     auto ret_type = _builder.makeVoidType();
@@ -548,6 +573,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
         _used_merge_blocks.emplace(body_block->getId());
     }
 
+    _pre_register_merge_blocks(kernel);
     _emit_block(kernel->body_block());
     while (!_pending_blocks.empty()) {
         auto *bb = _pending_blocks.back();
@@ -632,6 +658,7 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
     _builder.enterFunction(func);
     _builder.setBuildPoint(entry);
     _block_map.emplace(callable->body_block(), entry);
+    _pre_register_merge_blocks(callable);
     _emit_block(callable->body_block());
     while (!_pending_blocks.empty()) {
         auto *bb = _pending_blocks.back();
