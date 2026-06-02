@@ -1,5 +1,6 @@
 #pragma once
 
+#include <luisa/core/logging.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/stream_event.h>
 #include <luisa/runtime/rhi/tile_modification.h>
@@ -37,7 +38,13 @@ private:
                   if (size == 0) [[unlikely]] {
                       detail::error_buffer_size_is_zero();
                   }
-                  return device->create_sparse_buffer(Type::of<T>(), size);
+                  auto info = device->create_sparse_buffer(Type::of<T>(), size);
+#ifdef LUISA_ENABLE_SAFE_MODE
+                  if (!info.valid()) {
+                      LUISA_ERROR("Failed to create sparse buffer.");
+                  }
+#endif
+                  return info;
               }()} {}
 
 public:
