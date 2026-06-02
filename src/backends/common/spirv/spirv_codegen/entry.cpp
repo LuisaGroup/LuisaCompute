@@ -130,7 +130,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
         file.write(reinterpret_cast<const char *>(words.data()), words.size() * sizeof(uint32_t));
     }
     luisa_spirv_optimize(words);
-    // luisa_spirv_validate(words, "post-optimization");
+    luisa_spirv_validate(words, "post-optimization");
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());
     if (std::getenv("LUISA_DUMP_SOURCE")) {

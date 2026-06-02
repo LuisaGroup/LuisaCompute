@@ -31,13 +31,13 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
     _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
     _builder.createConditionalBranch(cond, true_block, false_block);
-    if (true_fresh) { function.addBlock(true_block); }
+    if (true_fresh) { function.addBlock(true_block); _added_blocks.emplace(true_block); }
     _builder.setBuildPoint(true_block);
     _emit_block(inst->true_block());
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, selection_merge_target);
     }
-    if (false_fresh) { function.addBlock(false_block); }
+    if (false_fresh) { function.addBlock(false_block); _added_blocks.emplace(false_block); }
     _builder.setBuildPoint(false_block);
     _emit_block(inst->false_block());
     if (!_builder.getBuildPoint()->isTerminated()) {
@@ -45,22 +45,24 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     }
     if (synthetic_merge != nullptr) {
         function.addBlock(synthetic_merge);
+        _added_blocks.emplace(synthetic_merge);
         _builder.setBuildPoint(synthetic_merge);
         _builder.createBranch(false, merge_block);
     }
-    if (merge_fresh) { function.addBlock(merge_block); }
+    if (merge_fresh) { function.addBlock(merge_block); _added_blocks.emplace(merge_block); }
     _builder.setBuildPoint(merge_block);
     _emit_block(inst->merge_block());
 }
 
 void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
+    auto header = &_builder.makeNewBlock();
+    _added_blocks.emplace(header);
     auto prepare = _get_or_create_block(inst->prepare_block());
     auto body = _get_or_create_block(inst->body_block());
     auto update = _get_or_create_block(inst->update_block());
     auto merge = _get_or_create_block(inst->merge_block());
     _used_merge_blocks.emplace(merge->getId());
     _used_merge_blocks.emplace(update->getId());
-    auto header = &_builder.makeNewBlock();
     _loop_header_redirect.emplace(inst->prepare_block(), header);
     _builder.createBranch(false, header);
     _builder.setBuildPoint(header);
@@ -81,11 +83,13 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
 }
 
 void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) noexcept {
+    auto header = &_builder.makeNewBlock();
+    _added_blocks.emplace(header);
+    auto continue_block = &_builder.makeNewBlock();
+    _added_blocks.emplace(continue_block);
     auto body = _get_or_create_block(inst->body_block());
     auto merge = _get_or_create_block(inst->merge_block());
     _used_merge_blocks.emplace(merge->getId());
-    auto header = &_builder.makeNewBlock();
-    auto continue_block = &_builder.makeNewBlock();
     _used_merge_blocks.emplace(continue_block->getId());
     _loop_header_redirect.emplace(inst->body_block(), continue_block);
     _builder.createBranch(false, header);
@@ -159,14 +163,14 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     }
     _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(switch_inst));
     for (uint i = 0u; i < case_count; ++i) {
-        if (segment_fresh[i]) { function.addBlock(segment_blocks[i]); }
+        if (segment_fresh[i]) { function.addBlock(segment_blocks[i]); _added_blocks.emplace(segment_blocks[i]); }
         _builder.setBuildPoint(segment_blocks[i]);
         _emit_block(inst->case_block(i));
         if (!_builder.getBuildPoint()->isTerminated()) {
             _builder.createBranch(false, selection_merge_target);
         }
     }
-    if (segment_fresh[case_count]) { function.addBlock(segment_blocks[case_count]); }
+    if (segment_fresh[case_count]) { function.addBlock(segment_blocks[case_count]); _added_blocks.emplace(segment_blocks[case_count]); }
     _builder.setBuildPoint(segment_blocks[case_count]);
     _emit_block(inst->default_block());
     if (!_builder.getBuildPoint()->isTerminated()) {
@@ -174,10 +178,11 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     }
     if (synthetic_merge != nullptr) {
         function.addBlock(synthetic_merge);
+        _added_blocks.emplace(synthetic_merge);
         _builder.setBuildPoint(synthetic_merge);
         _builder.createBranch(false, merge_block);
     }
-    if (merge_fresh) { function.addBlock(merge_block); }
+    if (merge_fresh) { function.addBlock(merge_block); _added_blocks.emplace(merge_block); }
     _builder.setBuildPoint(merge_block);
     _emit_block(inst->merge_block());
 }

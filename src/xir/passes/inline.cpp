@@ -201,6 +201,13 @@ public:
     builder.set_insertion_point(call_block);
     builder.br(entry_block);
 
+    // Defensive: if merge_bb has no terminator (can happen when call_block
+    // was already unterminated in malformed IR), add unreachable.
+    if (!merge_bb->is_terminated()) {
+        builder.set_insertion_point(merge_bb);
+        builder.unreachable_();
+    }
+
     return true;
 }
 

@@ -16,6 +16,7 @@ sdf-renderer.png
 # Created by .ignore support plugin (hsz.mobi)
 ### Windows template
 # Windows thumbnail cache files
+nul
 Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db

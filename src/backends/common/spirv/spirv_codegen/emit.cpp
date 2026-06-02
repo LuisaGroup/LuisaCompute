@@ -64,6 +64,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _emitted_blocks.clear();
     _used_merge_blocks.clear();
     _pending_blocks.clear();
+    _added_blocks.clear();
     _print_info.clear();
     _print_formats.clear();
     _control_flow_stack.clear();
@@ -370,7 +371,8 @@ spv::Block *SpirvCodegenEntry::_get_or_create_block(const xir::BasicBlock *bb) n
     if (bb == nullptr) { return nullptr; }
     if (auto it = _block_map.find(bb); it != _block_map.end()) { return it->second; }
     auto block = &_builder.makeNewBlock();
-    // makeNewBlock already adds the block to the function, no need to add again
+    // Track this block as added to the function
+    _added_blocks.emplace(block);
     _block_map.emplace(bb, block);
     return block;
 }
@@ -559,11 +561,13 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 
         // Return block
         function.addBlock(return_block);
+        _added_blocks.emplace(return_block);
         _builder.setBuildPoint(return_block);
         _builder.makeReturn(false);
 
         // Body block
         function.addBlock(body_block);
+        _added_blocks.emplace(body_block);
         _builder.setBuildPoint(body_block);
 
         // Update block map so XIR body block maps to body_block instead of entry
@@ -615,7 +619,9 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
                     break;
                 case Type::Tag::BINDLESS_ARRAY:
                     pointee_type = _convert_type(type, Usage::READ);
-                    storage = spv::StorageClass::Uniform;
+                    storage = spv::StorageClass::StorageBuffer;
+                    _builder.addIncorporatedExtension("SPV_KHR_variable_pointers", spv::Spv_1_5);
+                    _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
                     break;
                 case Type::Tag::ACCEL:
                 case Type::Tag::TEXTURE:

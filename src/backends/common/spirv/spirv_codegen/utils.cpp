@@ -183,8 +183,8 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
     bool inlined_anything = false;
-    phase_a.add("inline-all", [&inlined_anything](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::inline_all_pass_run_on_module(m, &r);
+    phase_a.add("inline", [&inlined_anything](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::inline_pass_run_on_module(m, &r);
         if (i.inlined_call_count > 0u) { inlined_anything = true; }
         return i.inlined_call_count > 0u;
     });

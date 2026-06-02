@@ -150,6 +150,9 @@ static void forward_single_store_to_loads_on_function(FunctionDefinition *functi
         auto dominates = [&](StoreInst *store, LoadInst *load) noexcept {
             auto store_block = store->parent_block();
             auto load_block = load->parent_block();
+            if (!dom_tree.contains(store_block) || !dom_tree.contains(load_block)) {
+                return false;
+            }
             return store_block == load_block ?
                        inst_indices.at(store) < inst_indices.at(load) :
                        dom_tree.dominates(store_block, load_block);
@@ -308,6 +311,9 @@ static void forward_uniform_store_to_loads_on_function(FunctionDefinition *funct
     auto dominates = [&](StoreInst *store, LoadInst *load) noexcept {
         auto store_block = store->parent_block();
         auto load_block = load->parent_block();
+        if (!dom_tree.contains(store_block) || !dom_tree.contains(load_block)) {
+            return false;
+        }
         if (store_block == load_block) {
             return inst_indices.at(store) < inst_indices.at(load);
         }

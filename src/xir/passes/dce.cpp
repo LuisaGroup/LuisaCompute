@@ -111,6 +111,7 @@ static void eliminate_dead_alloca_in_function(Function *function, DCEInfo &info)
 }
 
 [[nodiscard]] static bool is_block_terminated_by_unreachable(BasicBlock *block) noexcept {
+    if (!block->is_terminated()) { return false; }
     return block->terminator()->isa<UnreachableInst>();
 }
 
@@ -347,6 +348,17 @@ static void eliminate_redundant_phi_nodes(luisa::vector<PhiInst *> &phi_nodes, D
 }
 
 void run_dce_pass_on_function(Function *function, DCEInfo &info) noexcept {
+    // Defensive: ensure all blocks are terminated. Some passes (e.g., inline)
+    // may leave blocks without terminators in edge cases.
+    if (auto definition = function->definition()) {
+        definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            if (!block->is_terminated()) {
+                XIRBuilder builder;
+                builder.set_insertion_point(block);
+                builder.unreachable_();
+            }
+        });
+    }
     luisa::vector<ManagedPtr<BasicBlock>> removed_blocks;
     for (;;) {
         auto prev_count = info.removed_inst_count + info.removed_block_count;
