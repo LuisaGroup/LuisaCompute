@@ -135,6 +135,63 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     }
     bool merge_fresh = false;
     auto merge_block = bind_or_get(inst->merge_block(), merge_fresh);
+
+    // Detect if any case body branches back to the switch header.
+    // In structured SPIR-V, back-edges can only target loop headers,
+    // not selection headers. If we detect a back-edge, we must wrap
+    // the switch in a synthetic loop with a dedicated loop header block.
+    auto *switch_xir_bb = inst->parent_block();
+    bool needs_loop_wrapper = false;
+    {
+        luisa::unordered_set<const xir::BasicBlock *> visited;
+        luisa::vector<const xir::BasicBlock *> work;
+        for (uint i = 0u; i < case_count; ++i) {
+            work.push_back(inst->case_block(i));
+        }
+        work.push_back(inst->default_block());
+        while (!work.empty()) {
+            auto *bb = work.back();
+            work.pop_back();
+            if (bb == nullptr || !visited.emplace(bb).second) { continue; }
+            if (bb == switch_xir_bb) { needs_loop_wrapper = true; break; }
+            if (bb->is_terminated()) {
+                bb->traverse_successors(false, [&](const xir::BasicBlock *succ) noexcept {
+                    work.push_back(succ);
+                });
+                // Also follow merge blocks of structured terminators.
+                // traverse_successors only visits instruction operands;
+                // merge_block is stored as a separate member in
+                // ControlFlowMerge and must be visited explicitly.
+                if (auto *cfm = bb->terminator()->control_flow_merge()) {
+                    if (auto *merge = cfm->merge_block()) {
+                        work.push_back(merge);
+                    }
+                }
+            }
+        }
+    }
+
+    spv::Block *loop_header = nullptr;
+    spv::Block *loop_continue = nullptr;
+    spv::Block *loop_merge = nullptr;
+    if (needs_loop_wrapper) {
+        auto *switch_spv_block = new spv::Block(_builder.getUniqueId(), function);
+        loop_header = &_builder.makeNewBlock();
+        loop_continue = &_builder.makeNewBlock();
+        loop_merge = &_builder.makeNewBlock();
+
+        _builder.createBranch(false, loop_header);
+        _block_map[switch_xir_bb] = loop_header;
+        _loop_header_redirect.emplace(switch_xir_bb, loop_continue);
+
+        _builder.setBuildPoint(loop_header);
+        _builder.createLoopMerge(loop_merge, loop_continue, spv::LoopControlMask::MaskNone, {});
+        _builder.createBranch(false, switch_spv_block);
+
+        function.addBlock(switch_spv_block);
+        _builder.setBuildPoint(switch_spv_block);
+    }
+
     spv::Block *synthetic_merge = nullptr;
     spv::Block *selection_merge_target = merge_block;
     if (_used_merge_blocks.contains(merge_block->getId())) {
@@ -183,6 +240,100 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
         _builder.createBranch(false, merge_block);
     }
     if (merge_fresh) { function.addBlock(merge_block); _added_blocks.emplace(merge_block); }
+
+    // Fix up branches from within case/default blocks that don't target
+    // the selection merge, another case/default, or an outer loop construct.
+    // This handles structured terminators (IfInst, LoopInst) inside cases
+    // whose internal blocks may branch through intermediate forwarding blocks
+    // that SPIR-V validation rejects as invalid switch exit targets.
+    {
+        // Valid exit targets for switch case bodies.
+        luisa::unordered_set<spv::Block *> valid_targets;
+        valid_targets.emplace(selection_merge_target);
+        for (uint i = 0u; i <= case_count; ++i) {
+            valid_targets.emplace(segment_blocks[i]);
+        }
+        if (needs_loop_wrapper) {
+            valid_targets.emplace(loop_continue);
+            valid_targets.emplace(loop_merge);
+        }
+
+        // BFS to find all blocks reachable from case/default entries.
+        luisa::unordered_set<spv::Block *> reachable;
+        luisa::vector<spv::Block *> work;
+        for (uint i = 0u; i <= case_count; ++i) {
+            reachable.emplace(segment_blocks[i]);
+            work.push_back(segment_blocks[i]);
+        }
+        while (!work.empty()) {
+            auto *blk = work.back();
+            work.pop_back();
+            if (!blk->isTerminated()) { continue; }
+            auto &insts = blk->getInstructions();
+            auto *term = insts.back().get();
+            auto op = term->getOpCode();
+            if (op == spv::Op::OpBranch) {
+                auto target_id = term->getIdOperand(0);
+                for (auto *b : function.getBlocks()) {
+                    if (b->getId() == target_id) {
+                        if (reachable.emplace(b).second) { work.push_back(b); }
+                        break;
+                    }
+                }
+            } else if (op == spv::Op::OpBranchConditional) {
+                for (int j = 1; j <= 2; ++j) {
+                    auto target_id = term->getIdOperand(j);
+                    for (auto *b : function.getBlocks()) {
+                        if (b->getId() == target_id) {
+                            if (reachable.emplace(b).second) { work.push_back(b); }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Redirect branches from reachable blocks that target non-valid blocks.
+        for (auto *blk : reachable) {
+            if (!blk->isTerminated()) { continue; }
+            if (blk == selection_merge_target) { continue; }
+            auto &insts = blk->getInstructions();
+            auto *term = insts.back().get();
+            auto op = term->getOpCode();
+            if (op == spv::Op::OpBranch) {
+                auto target_id = term->getIdOperand(0);
+                for (auto *b : function.getBlocks()) {
+                    if (b->getId() == target_id) {
+                        if (!valid_targets.contains(b)) {
+                            term->setIdOperand(0, selection_merge_target->getId());
+                        }
+                        break;
+                    }
+                }
+            } else if (op == spv::Op::OpBranchConditional) {
+                for (int j = 1; j <= 2; ++j) {
+                    auto target_id = term->getIdOperand(j);
+                    for (auto *b : function.getBlocks()) {
+                        if (b->getId() == target_id) {
+                            if (!valid_targets.contains(b)) {
+                                term->setIdOperand(j, selection_merge_target->getId());
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (needs_loop_wrapper) {
+        _builder.setBuildPoint(loop_continue);
+        _builder.createBranch(false, loop_header);
+        function.addBlock(loop_merge);
+        _builder.setBuildPoint(loop_merge);
+        _builder.createNoResultOp(spv::Op::OpUnreachable);
+    }
+
     _builder.setBuildPoint(merge_block);
     _emit_block(inst->merge_block());
 }

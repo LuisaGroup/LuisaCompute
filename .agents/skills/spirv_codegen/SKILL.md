@@ -540,3 +540,65 @@ The bug is in the core SPIR-V codegen, not in optimizations. Start reading at `s
 8. **`condition_inst.cpp`** — if the failure involves control flow, inspect if/loop/switch emission.
 
 Set `LUISA_DUMP_SOURCE=1` to capture the final SPIR-V disassembly before the crash. If validation fails but codegen completes, run the SPIR-V binary through `spirv-val` directly to get the exact validation error and rule violated.
+
+## Common SPIR-V Validation Errors
+
+### Back-edge to non-loop-header block
+
+**Error**: `Back-edges ('N[%N]' -> 'M[%M]') can only be formed between a block and a loop header`
+
+**Root cause**: `restructure_cfg` creates a `SwitchInst` as part of multi-exit loop restructuring. A switch case body may contain a loop whose merge block branches back to the switch header. In structured SPIR-V, back-edges can only target blocks with `OpLoopMerge`, but the switch header has `OpSelectionMerge`.
+
+**Typical XIR pattern**:
+```
+SwitchInst (header=H, merge=M)
+  Case 1: ... 
+    LoopInst (merge=L)
+    L: BranchInst → H   ← back-edge to switch header!
+  Default: M            ← switch merge (may contain return)
+```
+
+**Detection**: Before emitting the switch, traverse XIR successors from all case entry blocks. If any path reaches the switch header block (`inst->parent_block()`), the switch forms a loop and needs a wrapper.
+
+**Fix in `_emit_switch_inst`** (`condition_inst.cpp`):
+
+Wrap the switch in a synthetic SPIR-V loop:
+
+```
+loop_header (OpLoopMerge → loop_merge, loop_continue)
+  → switch_spv_block (OpSelectionMerge → merge_block, OpSwitch)
+  → cases ... → back-edge → loop_continue → loop_header
+merge_block = switch merge (loop exit, may contain return)
+loop_merge = unreachable (infinite loop exit)
+```
+
+Key implementation details:
+
+1. **Block creation order matters**: `loop_header` must be created before all case blocks so the back-edge from case bodies to `loop_header` is lexically a back-edge (allowed since `loop_header` has `OpLoopMerge`).
+
+2. **`_block_map` update**: After creating `loop_header`, update `_block_map[switch_xir_bb] = loop_header` so forward edges from outside the switch enter through the loop header.
+
+3. **`_loop_header_redirect`**: Redirect branches that target the switch XIR header to `loop_continue` (the dedicated back-edge target block). This is set via `_loop_header_redirect.emplace(switch_xir_bb, loop_continue)`.
+
+4. **Separate loop merge**: The loop merge must be a fresh block (`loop_merge`), NOT the switch merge (`merge_block`). A block cannot be the merge for two constructs (OpLoopMerge + OpSelectionMerge). Use `OpUnreachable` for the loop merge since the loop is infinite.
+
+5. **Loop continue block**: Creates a dedicated `loop_continue` block that branches to `loop_header`. The back-edges from inside case bodies go to `loop_continue` via `_loop_header_redirect`.
+
+**Debugging tips**:
+- Dump the SPIR-V disassembly from the validation error message (add `spv::Disassemble` to `luisa_spirv_validate` temporarily).
+- Identify the back-edge source and target blocks from the error message.
+- Trace the block IDs to understand the XIR structure (switch header vs loop merge).
+- Verify that the back-edge target is a switch header (`OpSelectionMerge`) not a loop header (`OpLoopMerge`).
+- Check that the switch merge and loop merge are distinct blocks.
+
+
+### GPU Crash Debugging Workflow (VK_ERROR_DEVICE_LOST)
+
+When the Vulkan backend reports `VK_ERROR_DEVICE_LOST` at `vkQueueSubmit`, the GPU is crashing on previously submitted work. Key triage steps:
+
+1. **Disable CFG passes first**: `LUISA_XIR_DISABLE_NORMALIZE_CFG=1` or `LUISA_XIR_DISABLE_RESTRUCTURE_CFG=1`. If the crash disappears, the bug is in CFG restructuring.
+2. **Disable SPIR-V optimizer**: `LUISA_SPIRV_OPT_LEVEL=0`. The optimizer can inflate binary size (3831→5514 words, +43.9%) via inlining and may mask or introduce issues.
+3. **Dump XIR at each stage**: `LUISA_DUMP_SOURCE=1` writes `.xir`, `.opt.xir`, `.norm.xir` files. Compare pre/post normalization to identify which pass corrupts the CFG.
+4. **Compare with LLVM fallback**: The `fallback` backend (`luisa-backend-fallback`) uses its own XIR→LLVM codegen. If the fallback works but SPIR-V crashes, the bug is in SPIR-V codegen or the shared XIR passes.
+5. **Check for infinite loops**: GPU timeout often means an infinite loop. Verify all loop back-edges are preserved after restructuring. Look for `restructured_loop` count mismatches.
+6. **Check non-deterministic behavior**: `unordered_set` iteration order can cause intermittent bugs (e.g., `exit_targets[0]`). If a crash is flaky, suspect unordered container ordering.
