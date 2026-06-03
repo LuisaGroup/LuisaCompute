@@ -329,7 +329,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             next_reg(RegType::SRV),
                             1});
                 }
-                buffer_elem_types.push_back(arg.type()->element());
+                buffer_elem_types.push_back(arg.type()); // Store full buffer type for _convert_type cache
                 buffer_names.emplace_back(luisa::string("_buf_") + vstd::to_string(arg.uid()));
                 bind_count += 2;
                 break;
@@ -509,6 +509,11 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 if (is_untyped && luisa::string_view{var_name}.starts_with("_bdarr_")) {
                     // Bindless array: use _convert_type to ensure type consistency with callable parameters
                     struct_type = _convert_type(Type::from("bindless_array"), Usage::READ);
+                } else if (elem_type != nullptr && prop.type == ShaderVariableType::StructuredBuffer) {
+                    // For typed read-only buffers, use _convert_type to share the cached type
+                    struct_type = _convert_type(elem_type, Usage::READ);
+                } else if (elem_type != nullptr && prop.type == ShaderVariableType::RWStructuredBuffer) {
+                    struct_type = _convert_type(elem_type, Usage::READ_WRITE);
                 } else {
                     struct_type = make_typed_buffer_struct_type(elem_type, writable, "_Buffer");
                 }
