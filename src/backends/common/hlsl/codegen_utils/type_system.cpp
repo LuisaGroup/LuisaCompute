@@ -145,7 +145,7 @@ void CodegenUtility::GetTypeName(Type const &type, vstd::StringBuilder &str, Usa
             str << '_' << type.description();
         } break;
         default:
-            LUISA_ERROR_WITH_LOCATION("Bad.");
+            LUISA_ERROR("Unsupported {}", luisa::to_string(type.tag()));
             break;
     }
 }
