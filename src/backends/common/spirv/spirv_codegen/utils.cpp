@@ -238,16 +238,12 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                 auto i = xir::const_fold_pass_run_on_module(m, &r);
                 return i.folded_inst_count > 0u;
             });
-            // SCCP is disabled because it incorrectly folds loop-carried phi nodes
-            // created by mem2reg on unstructured CFG, causing scalar loop bodies
-            // (e.g., in ONNX Gemm operators with local-array inputs) to be eliminated.
-            // SPIRV-Tools optimizer (level 2) performs its own constant propagation,
-            // so disabling XIR-level SCCP does not lose correctness.
-            // TODO: Investigate a proper fix in sccp_pass for loop-carried phis.
-            // norm.add("sccp", [](xir::Module *m, xir::PassReport &r) {
-            //     auto i = xir::sccp_pass_run_on_module(m, &r);
-            //     return i.folded_inst_count > 0u || i.removed_branch_count > 0u;
-            // });
+            // SCCP: fixed loop-carried phi unsoundness (UNDEFINED was TOP,
+            // and visit_arithmetic had an operand-order bug that missed BOTTOM).
+            norm.add("sccp", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::sccp_pass_run_on_module(m, &r);
+                return i.folded_inst_count > 0u || i.removed_branch_count > 0u;
+            });
             norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
                 auto i = xir::dce_pass_run_on_module(m, &r);
                 return i.removed_inst_count > 0u || i.removed_block_count > 0u;

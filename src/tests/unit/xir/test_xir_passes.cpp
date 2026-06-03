@@ -1041,6 +1041,53 @@ void reg_sccp() {
         auto info = sccp_pass_run_on_module(&m);
         expect(info.folded_inst_count >= 2u);
     };
+
+    "sccp_loop_carried_phi_not_folded"_test = [] {
+        Module m;
+        BasicBlock *entry;
+        auto *k = make_kernel_with_body(m, entry);
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+
+        auto *header = k->create_basic_block();
+        auto *loop_body = k->create_basic_block();
+        auto *update = k->create_basic_block();
+        auto *merge = k->create_basic_block();
+
+        // entry -> header
+        b.br(header);
+
+        // header: phi and loop condition
+        b.set_insertion_point(header);
+        auto *phi = b.phi(Type::of<int>());
+        int32_t zero_v = 0, four_v = 4;
+        auto *zero = m.create_constant(Type::of<int>(), &zero_v);
+        auto *four = m.create_constant(Type::of<int>(), &four_v);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {phi, four});
+        b.cond_br(cond, loop_body, merge);
+
+        // loop_body: load produces BOTTOM, add is loop-carried
+        b.set_insertion_point(loop_body);
+        auto *alloca = b.alloca_local(Type::of<int>());
+        auto *load = b.load(Type::of<int>(), alloca);
+        auto *i_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {phi, load});
+        b.br(update);
+
+        // update: back-edge to header
+        b.set_insertion_point(update);
+        b.br(header);
+
+        // merge
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        phi->add_incoming(zero, entry);
+        phi->add_incoming(i_next, update);
+
+        auto info = sccp_pass_run_on_function(k);
+        expect(info.removed_branch_count == 0u);
+        expect(header->terminator()->derived_instruction_tag() == DerivedInstructionTag::CONDITIONAL_BRANCH);
+    };
 }
 
 // ---- simplify_libcalls ----

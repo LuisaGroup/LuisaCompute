@@ -77,7 +77,7 @@ struct SCCPSolver {
             case DerivedValueTag::CONSTANT:
                 return LatticeValue::make_constant(static_cast<Constant *>(v));
             case DerivedValueTag::UNDEFINED:
-                return LatticeValue::make_top();
+                return LatticeValue::make_bottom();
             // Function arguments, special registers (dispatch_id, thread_id, ...),
             // and other non-instruction runtime values are not statically known.
             // Treating them as TOP would let phi meets and arithmetic folds collapse
@@ -156,9 +156,13 @@ struct SCCPSolver {
         bool any_bottom = false;
         for (size_t i = 0; i < inst->operand_count(); ++i) {
             auto lat = get_lattice(inst->operand(i));
-            if (lat.is_bottom()) { any_bottom = true; break; }
-            if (lat.is_top()) { all_const = false; break; }
-            const_operands.push_back(lat.constant);
+            if (lat.is_bottom()) {
+                any_bottom = true;
+            } else if (lat.is_top()) {
+                all_const = false;
+            } else {
+                const_operands.push_back(lat.constant);
+            }
         }
 
         LatticeValue result;
