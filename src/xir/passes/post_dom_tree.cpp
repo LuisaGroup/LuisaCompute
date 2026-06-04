@@ -110,8 +110,8 @@ bool PostDomTree::strictly_post_dominates(BasicBlock *a, BasicBlock *b) const no
 }
 
 auto PostDomTree::immediate_post_dominator(BasicBlock *block) const noexcept -> BasicBlock * {
-    auto n = this->node(block);
-    if (n->parent() == _root) { return nullptr; }
+    auto n = this->node_or_null(block);
+    if (n == nullptr || n->parent() == _root) { return nullptr; }
     return n->parent()->block();
 }
 

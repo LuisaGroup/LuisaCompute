@@ -92,8 +92,8 @@ bool DomTree::strictly_dominates(BasicBlock *src, BasicBlock *dst) const noexcep
 }
 
 auto DomTree::immediate_dominator(BasicBlock *block) const noexcept -> BasicBlock * {
-    auto node = this->node(block);
-    if (node == _root) { return nullptr; }
+    auto node = this->node_or_null(block);
+    if (node == nullptr || node == _root) { return nullptr; }
     return node->parent()->block();
 }
 

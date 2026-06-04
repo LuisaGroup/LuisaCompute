@@ -30,7 +30,10 @@ namespace detail {
 
 class InlineValueResolver final : public InstructionCloneValueResolver {
     luisa::unordered_map<const Value *, Value *> _map;
+    Module *_module;
 public:
+    explicit InlineValueResolver(Function *caller_func) noexcept
+        : _module{caller_func->parent_module()} {}
     void emplace(const Value *from, Value *to) noexcept { _map.emplace(from, to); }
     [[nodiscard]] Value *resolve(const Value *value) noexcept override {
         if (value == nullptr) return nullptr;
@@ -43,7 +46,18 @@ public:
             default: break;
         }
         auto it = _map.find(value);
-        LUISA_ASSERT(it != _map.end(), "Inline: unresolved value.");
+        if (it == _map.end()) {
+            if (value->derived_value_tag() == DerivedValueTag::BASIC_BLOCK) {
+                return nullptr;
+            }
+            if (value->type() != nullptr) {
+                auto undef = _module->create_undefined(value->type());
+                _map.emplace(value, undef);
+                return undef;
+            }
+            LUISA_ASSERT(false, "Inline: unresolved value (tag={}).",
+                         luisa::to_string(value->derived_value_tag()));
+        }
         return it->second;
     }
 };
@@ -64,7 +78,7 @@ public:
 
     auto module = caller_func->parent_module();
     XIRBuilder builder;
-    InlineValueResolver resolver;
+    InlineValueResolver resolver{caller_func};
 
     // Map callee args -> call args
     {
@@ -83,7 +97,7 @@ public:
         }
     }
 
-    // Collect callee blocks and create mapped blocks in caller
+    // Collect reachable callee blocks in RPO for instruction cloning.
     luisa::vector<BasicBlock *> callee_blocks;
     callee_def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *bb) noexcept { callee_blocks.push_back(bb); });
 
@@ -98,6 +112,21 @@ public:
 
     // Create single-exit merge block and return value alloca
     auto merge_bb = caller_func->create_basic_block();
+
+    // Map unreachable blocks to dedicated empty blocks so structured
+    // terminators (IfInst, LoopInst) referencing them get valid targets.
+    {
+        luisa::unordered_set<BasicBlock *> reachable{callee_blocks.begin(), callee_blocks.end()};
+        for (auto bb : callee_def->basic_blocks()) {
+            if (reachable.find(bb) == reachable.end()) {
+                auto nb = caller_func->create_basic_block();
+                block_map[bb] = nb;
+                resolver.emplace(bb, nb);
+                builder.set_insertion_point(nb);
+                builder.unreachable_();
+            }
+        }
+    }
     Instruction *ret_alloca = nullptr;
     if (call->type()) {
         builder.set_insertion_point(call);

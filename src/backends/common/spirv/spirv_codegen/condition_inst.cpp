@@ -136,35 +136,42 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     bool merge_fresh = false;
     auto merge_block = bind_or_get(inst->merge_block(), merge_fresh);
 
-    // Detect if any case body branches back to the switch header.
-    // In structured SPIR-V, back-edges can only target loop headers,
-    // not selection headers. If we detect a back-edge, we must wrap
-    // the switch in a synthetic loop with a dedicated loop header block.
+    // Detect if any case body branches to another case body or back to
+    // the switch header. In structured SPIR-V, both require a loop wrapper.
     auto *switch_xir_bb = inst->parent_block();
     bool needs_loop_wrapper = false;
     {
-        luisa::unordered_set<const xir::BasicBlock *> visited;
-        luisa::vector<const xir::BasicBlock *> work;
+        // Collect all segment entry blocks (case bodies + default)
+        luisa::unordered_set<const xir::BasicBlock *> segment_entries;
         for (uint i = 0u; i < case_count; ++i) {
-            work.push_back(inst->case_block(i));
+            segment_entries.emplace(inst->case_block(i));
         }
-        work.push_back(inst->default_block());
-        while (!work.empty()) {
-            auto *bb = work.back();
-            work.pop_back();
-            if (bb == nullptr || !visited.emplace(bb).second) { continue; }
-            if (bb == switch_xir_bb) { needs_loop_wrapper = true; break; }
-            if (bb->is_terminated()) {
-                bb->traverse_successors(false, [&](const xir::BasicBlock *succ) noexcept {
-                    work.push_back(succ);
-                });
-                // Also follow merge blocks of structured terminators.
-                // traverse_successors only visits instruction operands;
-                // merge_block is stored as a separate member in
-                // ControlFlowMerge and must be visited explicitly.
-                if (auto *cfm = bb->terminator()->control_flow_merge()) {
-                    if (auto *merge = cfm->merge_block()) {
-                        work.push_back(merge);
+        segment_entries.emplace(inst->default_block());
+        // For each segment, traverse and check for cross-segment branches
+        for (uint i = 0u; i <= case_count && !needs_loop_wrapper; ++i) {
+            auto *start = i < case_count ? inst->case_block(i) : inst->default_block();
+            luisa::unordered_set<const xir::BasicBlock *> visited;
+            luisa::vector<const xir::BasicBlock *> work;
+            work.push_back(start);
+            while (!work.empty()) {
+                auto *bb = work.back();
+                work.pop_back();
+                if (bb == nullptr || !visited.emplace(bb).second) { continue; }
+                if (bb == switch_xir_bb) {
+                    needs_loop_wrapper = true; break;
+                }
+                // Cross-segment branch: reached a different segment entry
+                if (bb != start && segment_entries.contains(bb)) {
+                    needs_loop_wrapper = true; break;
+                }
+                if (bb->is_terminated()) {
+                    bb->traverse_successors(false, [&](const xir::BasicBlock *succ) noexcept {
+                        work.push_back(succ);
+                    });
+                    if (auto *cfm = bb->terminator()->control_flow_merge()) {
+                        if (auto *merge = cfm->merge_block()) {
+                            work.push_back(merge);
+                        }
                     }
                 }
             }

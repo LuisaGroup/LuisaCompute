@@ -16,37 +16,13 @@ namespace detail {
 [[nodiscard]] static bool is_alloca_promotable(AllocaInst *inst) noexcept {
     // check if it's a local variable
     if (inst->op() != AllocaOp::LOCAL) { return false; }
-    // check if it's used as reference in other instructions than load/store/gep
+    // check if it's used as reference in other instructions than load/store
+    // (transpose_gep_pass should have eliminated all GEPs before mem2reg)
     for (auto &&use : inst->use_list()) {
         LUISA_DEBUG_ASSERT(use->user() != nullptr && use->user()->isa<Instruction>(), "Invalid user.");
         if (auto user_inst = static_cast<Instruction *>(use->user());
-            !user_inst->isa<LoadInst>() && !user_inst->isa<StoreInst>() && !user_inst->isa<GEPInst>()) {
+            !user_inst->isa<LoadInst>() && !user_inst->isa<StoreInst>()) {
             return false;
-        }
-    }
-    // Also check that GEP users are only used by load/store
-    // (trace through GEP chain to ensure the alloca is only loaded/stored)
-    luisa::vector<const Instruction *> work_list;
-    luisa::unordered_set<const Instruction *> visited;
-    for (auto &&use : inst->use_list()) {
-        if (auto user = use->user(); user != nullptr && user->isa<Instruction>()) {
-            work_list.push_back(static_cast<const Instruction *>(user));
-        }
-    }
-    while (!work_list.empty()) {
-        auto u = work_list.back();
-        work_list.pop_back();
-        if (!visited.emplace(u).second) { continue; }
-        if (u->isa<LoadInst>() || u->isa<StoreInst>()) { continue; }
-        if (u->isa<GEPInst>()) {
-            // GEP is fine, trace its users
-            for (auto &&gep_use : u->use_list()) {
-                if (auto gep_user = gep_use->user(); gep_user != nullptr && gep_user->isa<Instruction>()) {
-                    work_list.push_back(static_cast<const Instruction *>(gep_user));
-                }
-            }
-        } else {
-            return false;// non-load/store/gep user found through GEP chain
         }
     }
     return true;
@@ -177,7 +153,9 @@ struct PhiInsertionAndRenaming {
             while (!work_list.empty()) {
                 auto block = work_list.back();
                 work_list.pop_back();
-                for (auto frontier : analysis.dom.node(block)->frontiers()) {
+                auto block_node = analysis.dom.node_or_null(block);
+                if (block_node == nullptr) { continue; }
+                for (auto frontier : block_node->frontiers()) {
                     if (auto fb = frontier->block(); analysis.live_in_blocks.contains(fb)) {
                         if (auto iter = block_to_phi.try_emplace(fb, nullptr).first; iter->second == nullptr) {
                             // insert the phi node
@@ -217,7 +195,10 @@ struct PhiInsertionAndRenaming {
         // now the alloca should have no load uses but only store uses, check it
         for (auto &&use : inst->use_list()) {
             if (auto user = use->user()) {
-                LUISA_ASSERT(user->isa<StoreInst>(), "Invalid user.");
+                if (user->isa<Instruction>() &&
+                    !static_cast<Instruction *>(user)->isa<StoreInst>()) {
+                    LUISA_ASSERT(false, "Invalid user.");
+                }
             }
         }
         // now we fill the incoming values of the phi nodes
