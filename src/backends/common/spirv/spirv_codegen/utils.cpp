@@ -74,6 +74,13 @@ const bool LUISA_XIR_DISABLE_RESTRUCTURE_CFG = [] {
     return false;
 }();
 
+const bool LUISA_XIR_DISABLE_OPTIMIZATION = [] {
+    if (auto env = getenv("LUISA_XIR_DISABLE_OPTIMIZATION")) {
+        return luisa::string_view{env} == "1";
+    }
+    return false;
+}();
+
 void dump_xir_module(const xir::Module *module, luisa::string_view filename) noexcept {
     std::ofstream f{luisa::string{filename}.c_str()};
     f << xir::xir_to_text_translate(module, true);
@@ -105,6 +112,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     //   restructure_cfg: unstructured -> structured.
     //   SPIR-V codegen now emits OpPhi directly; post-reg2mem no longer required.
 
+    if (!LUISA_XIR_DISABLE_OPTIMIZATION) {
     Clock opt_clk;
     auto algebraic_options = xir::AlgebraicSimplifyOptions{.enable_fast_math = option.enable_fast_math};
     auto opt_options = xir::OptimizationPipelineOptions{.enable_fast_math = option.enable_fast_math};
@@ -331,6 +339,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         auto filename = luisa::format("kernel.{:016x}.opt.rq.xir", kernel.hash());
         dump_xir_module(xir_module.get(), filename);
     }
+    } // if (!LUISA_XIR_DISABLE_OPTIMIZATION)
     return xir_module;
 }
 

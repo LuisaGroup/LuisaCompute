@@ -406,6 +406,7 @@ If `kernel.requires_printing()`: adds 2x RWStructuredBuffer (`_printCounter`, `_
 | `LUISA_SPIRV_DUMP_OPT_STATS=1` | Log per-pass timing and counts |
 | `LUISA_XIR_DISABLE_NORMALIZE_CFG=1` | Skip destructure/mem2reg/restructure (debug) |
 | `LUISA_XIR_DISABLE_RESTRUCTURE_CFG=1` | Skip destructure+restructure, keep lower_ray_query_loop_to_loop (debug) |
+| `LUISA_XIR_DISABLE_OPTIMIZATION=1` | Skip all XIR optimization passes (Phase A, post-inline, CFG normalization). Returns raw AST→XIR module directly. Use to isolate bugs: if bug disappears → XIR pass bug; if bug persists → SPIR-V codegen/backend bug. |
 
 ## SPIR-V Optimization (spv-opt)
 
@@ -499,9 +500,16 @@ The four types above cannot be materialized on-the-fly by `_emit_value` the way 
 
 When a test crashes or SPIR-V validation fails, follow this triage workflow:
 
-### 1. Disable Optimization Passes
+### 1. Quick Triage: Disable All XIR Optimization
 
-The optimization pipeline is defined in `src/backends/common/spirv/spirv_codegen/utils.cpp` inside `luisa_spirv_backend_translate_ast_to_xir()`. Temporarily comment out or skip the passes:
+Set `LUISA_XIR_DISABLE_OPTIMIZATION=1` to skip the entire XIR optimization pipeline (Phase A, post-inline, CFG normalization). The raw AST→XIR module goes directly to SPIR-V codegen.
+
+- **If the bug disappears**: the issue is in an XIR optimization pass. Re-enable optimization and bisect individual passes (use `LUISA_XIR_DISABLE_NORMALIZE_CFG=1` / `LUISA_XIR_DISABLE_RESTRUCTURE_CFG=1` to narrow further). See `xir_passes` skill for pass-level debugging.
+- **If the bug persists**: the issue is in SPIR-V codegen or the Vulkan backend, not in XIR optimization. Proceed to Step 2 (disable SPIR-V optimizer).
+
+### 2. Disable SPIR-V Optimizer & Other Passes
+
+The optimization pipeline is defined in `src/backends/common/spirv/spirv_codegen/utils.cpp` inside `luisa_spirv_backend_translate_ast_to_xir()`. For finer-grained control beyond `LUISA_XIR_DISABLE_OPTIMIZATION`, temporarily comment out or skip individual passes:
 
 - Phase A passes: `dce`, `local_store_forward`, `local_load_elimination`, `algebraic_simplify`, `const_fold`, `promote_ref_arg`, `sroa`, `loop_unroll`
 - CFG normalization: `destructure_cfg`, `mem2reg`, `unused_callable_removal`, `simplify_cfg`
@@ -512,9 +520,11 @@ Also disable the SPIR-V optimizer in `entry.cpp` (`compile_spirv()`): skip the `
 
 Re-run the test.
 
-### 2. If Run Succeeds After Disabling Passes
+### 3. If Run Succeeds After Disabling Passes
 
 The bug is introduced by an XIR pass. Narrow it down:
+
+- Re-enable passes one group at a time (Phase A → CFG normalization → CFG restructuring → spv-opt).
 
 - Re-enable passes one group at a time (Phase A → CFG normalization → CFG restructuring → spv-opt).
 - Once the failing group is identified, bisect individual passes within that group.
@@ -526,7 +536,7 @@ The bug is introduced by an XIR pass. Narrow it down:
   - `unused_callable_removal`: removed a callable still referenced.
 - Use `LUISA_DUMP_SOURCE=1` to compare XIR before / after the bad pass.
 
-### 3. If Run Still Fails With All Passes Disabled
+### 4. If Run Still Fails With All Passes Disabled
 
 The bug is in the core SPIR-V codegen, not in optimizations. Start reading at `src/backends/common/spirv/spirv_codegen/entry.cpp` and follow the coding structure:
 
