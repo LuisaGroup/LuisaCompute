@@ -1346,6 +1346,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         }
 #endif
     }// end else (non-motion-blur path)
+    info.block_size = kernel.block_size();
     return info;
 }
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }

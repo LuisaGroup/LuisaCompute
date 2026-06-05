@@ -11,7 +11,7 @@ lc_set_pcxxheader("lc_vk_pch.h")
 
 on_load(function(target)
     if target:is_plat("windows") then
-        target:add("defines", "VK_USE_PLATFORM_WIN32_KHR")
+        target:add("defines", "NOMINMAX", "VK_USE_PLATFORM_WIN32_KHR")
     elseif target:is_plat("linux") then
         target:add("defines", "VK_USE_PLATFORM_XCB_KHR", "VK_USE_PLATFORM_XLIB_KHR")
     end

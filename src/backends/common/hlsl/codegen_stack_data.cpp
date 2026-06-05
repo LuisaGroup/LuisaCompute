@@ -58,16 +58,6 @@ std::pair<vstd::string_view, bool> CodegenStackData::CreateAliasedStruct(Type co
     if (!util->TypeIsAliased(t)) {
         return {CreateStruct(t), false};
     }
-    // if (isSpirv && t->is_matrix()) {
-    //     switch (t->dimension()) {
-    //         case 2:
-    //             return {"_Alsfloat2x2"sv, true};
-    //         case 3:
-    //             return {"_Alsfloat3x4"sv, true};
-    //         case 4:
-    //             return {"_Alsfloat4x4"sv, true};
-    //     }
-    // }
     auto ite = customStructAliased.try_emplace(
         t,
         vstd::lazy_eval([&] {
@@ -282,19 +272,13 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             tmp.body = _atomic_exchange;
             break;
         case CallOp::ATOMIC_COMPARE_EXCHANGE:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_compare_exchange_float_spirv : _atomic_compare_exchange_float)
-                           : _atomic_compare_exchange;
+            tmp.body = (retType->is_float32()) ? (isSpirv ? _atomic_compare_exchange_float_spirv : _atomic_compare_exchange_float) : _atomic_compare_exchange;
             break;
         case CallOp::ATOMIC_FETCH_ADD:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_add_float_spirv : _atomic_add_float)
-                           : _atomic_add;
+            tmp.body = (retType->is_float32()) ? (isSpirv ? _atomic_add_float_spirv : _atomic_add_float) : _atomic_add;
             break;
         case CallOp::ATOMIC_FETCH_SUB:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_sub_float_spirv : _atomic_sub_float)
-                           : _atomic_sub;
+            tmp.body = (retType->is_float32()) ? (isSpirv ? _atomic_sub_float_spirv : _atomic_sub_float) : _atomic_sub;
             break;
         case CallOp::ATOMIC_FETCH_AND:
             tmp.body = _atomic_and;
@@ -306,14 +290,10 @@ AccessChain const &CodegenStackData::GetAtomicFunc(
             tmp.body = _atomic_xor;
             break;
         case CallOp::ATOMIC_FETCH_MIN:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_min_float_spirv : _atomic_min_float)
-                           : _atomic_min;
+            tmp.body = (retType->is_float32()) ? (isSpirv ? _atomic_min_float_spirv : _atomic_min_float) : _atomic_min;
             break;
         case CallOp::ATOMIC_FETCH_MAX:
-            tmp.body = (retType->is_float32())
-                           ? (isSpirv ? _atomic_max_float_spirv : _atomic_max_float)
-                           : _atomic_max;
+            tmp.body = (retType->is_float32()) ? (isSpirv ? _atomic_max_float_spirv : _atomic_max_float) : _atomic_max;
             break;
         default:
             LUISA_ERROR_WITH_LOCATION("Invalid atomic operator.");

@@ -101,9 +101,6 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
     if (ops.uses_raytracing()) {
         builder << CodegenUtility::ReadInternalHLSLFile("raytracing_header");
     }
-    if (is_spirv) {
-        builder << CodegenUtility::ReadInternalHLSLFile("spv_alias");
-    }
     if (ops.test(CallOp::DETERMINANT)) {
         builder << CodegenUtility::ReadInternalHLSLFile("determinant");
     }

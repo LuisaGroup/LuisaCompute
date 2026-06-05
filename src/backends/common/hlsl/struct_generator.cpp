@@ -116,9 +116,6 @@ void StructGenerator::InitAsStructAliased(
             structDesc << "_Als";
             util->GetTypeName(*i->element(), structDesc, Usage::READ);
             structDesc << luisa::format("{}", i->dimension());
-        } else if (isSpirv && i->is_matrix()) {
-            structDesc << "_Als";
-            util->GetTypeName(*i, structDesc, Usage::READ);
         } else if (i->is_bool_vector()) {
             structDesc << "int"sv;
         } else {
@@ -141,7 +138,7 @@ void StructGenerator::InitAsStructAliased(
 void StructGenerator::InitAsArrayAliased(
     Type const *structureType,
     size_t /*structIdx*/,
-    Callback const &/*visitor*/,
+    Callback const & /*visitor*/,
     bool isSpirv) {
     auto i = structureType->element();
     if (i->is_structure() || i->is_array()) {
@@ -151,9 +148,6 @@ void StructGenerator::InitAsArrayAliased(
         structDesc << "_Als";
         util->GetTypeName(*i->element(), structDesc, Usage::READ);
         structDesc << luisa::format("{}", i->dimension());
-    } else if (isSpirv && i->is_matrix()) {
-        structDesc << "_Als";
-        util->GetTypeName(*i, structDesc, Usage::READ);
     } else {
         util->GetTypeName(*i, structDesc, Usage::READ, false);
     }
@@ -203,7 +197,7 @@ void StructGenerator::InitAsStruct(
 void StructGenerator::InitAsArray(
     Type const *structureType,
     size_t /*structIdx*/,
-    Callback const &/*visitor*/,
+    Callback const & /*visitor*/,
     bool isSpirv) {
     const auto ele = structureType->element();
     util->GetTypeName(*ele, structDesc, Usage::READ, false);

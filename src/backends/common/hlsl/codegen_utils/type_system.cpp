@@ -173,8 +173,7 @@ bool CodegenUtility::TypeIsAliased(luisa::compute::Type const *t) const {
 
 // Check if vector should use aliased type
 bool CodegenUtility::VectorShouldBeAliased(luisa::compute::Type const *t) const {
-    return (t->is_vector() && ((opt->isSpirv && t->element()->size() > 4 && t->dimension() >= 3) || t->element()->is_bool())) ||
-           (t->is_matrix() && opt->isSpirv);
+    return (t->is_vector() && ((opt->isSpirv && t->element()->size() > 4 && t->dimension() >= 3) || t->element()->is_bool()));
 }
 
 // Convert original type to aliased representation

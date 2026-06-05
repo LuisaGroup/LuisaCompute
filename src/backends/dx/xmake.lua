@@ -10,7 +10,7 @@ add_headerfiles("**.h")
 add_includedirs("./")
 add_syslinks("dxgi")
 if is_plat("windows") then
-    add_defines("UNICODE", "_CRT_SECURE_NO_WARNINGS")
+    add_defines("NOMINMAX", "UNICODE", "_CRT_SECURE_NO_WARNINGS")
 end
 on_load(function(target)
     target:add("headerfiles", path.normalize(path.join(os.scriptdir(), "../common/default_binary_io.h")))
