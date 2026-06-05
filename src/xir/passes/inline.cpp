@@ -10,6 +10,7 @@
 #include <luisa/xir/argument.h>
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/value.h>
 
 namespace luisa::compute::xir {
 
@@ -55,8 +56,7 @@ public:
                 _map.emplace(value, undef);
                 return undef;
             }
-            LUISA_ASSERT(false, "Inline: unresolved value (tag={}).",
-                         luisa::to_string(value->derived_value_tag()));
+            LUISA_ERROR("Inline: unresolved value (tag={}).", to_string(value->derived_value_tag()));
         }
         return it->second;
     }

@@ -76,3 +76,42 @@ python scripts/git_commit.py cba8a5d
 - Exits with code 1 and prints to stderr on invalid commit hash.
 - Handles root (initial) commits by using `git show` instead of `git diff`.
 - Renamed files are listed under "updated" and show the new path.
+
+## update_sha256 — DX SDK zip update
+
+Update DX SDK zip name and SHA256 across all files that reference it, via `scripts/update_sha256.py`.
+
+```bash
+python scripts/update_sha256.py [zip_name]
+```
+
+### Behavior
+
+| Arg | Effect |
+|-----|--------|
+| **zip_name given** | Uses `SDKs/<zip_name>` as the local zip; must exist. |
+| **zip_name omitted** | Parses zip name from `LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL` in `src/backends/dx/CMakeLists.txt`. |
+
+Computes SHA256 of the local zip, then updates:
+
+| File | What changes |
+|------|-------------|
+| `src/backends/dx/CMakeLists.txt` | `LUISA_COMPUTE_DX_SDK_DOWNLOAD_URL` + `LUISA_COMPUTE_DX_SDK_SHA256` |
+| `scripts/download_sdks.cmake` | URL + SHA256 inside `if (sdk STREQUAL "dx")` block |
+| `scripts/find_sdk.lua` | `name` field under `dx_sdk` entry |
+
+### Examples
+
+```bash
+# Provide zip name explicitly
+python scripts/update_sha256.py dx_sdk_20260605.zip
+
+# Auto-detect from CMakeLists.txt URL
+python scripts/update_sha256.py
+```
+
+### Notes
+
+- Zip must live under `SDKs/` relative to repo root.
+- Skips files not found with a warning (non-fatal).
+- No-op if all values are already up-to-date.

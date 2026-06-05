@@ -197,7 +197,7 @@ struct PhiInsertionAndRenaming {
             if (auto user = use->user()) {
                 if (user->isa<Instruction>() &&
                     !static_cast<Instruction *>(user)->isa<StoreInst>()) {
-                    LUISA_ASSERT(false, "Invalid user.");
+                    LUISA_ERROR("Invalid user.");
                 }
             }
         }
