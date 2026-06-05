@@ -10,11 +10,10 @@ using namespace metal;
 
 #ifdef LUISA_ENABLE_EXTENDED_LIMITS
 #define LC_EXTENDED_LIMITS_TAG , extended_limits
-#define LC_INSTANCE_ACCELERATION_STRUCTURE instance_acceleration_structure<extended_limits>
 #else
 #define LC_EXTENDED_LIMITS_TAG
-#define LC_INSTANCE_ACCELERATION_STRUCTURE instance_acceleration_structure
 #endif
+#define LC_INSTANCE_ACCELERATION_STRUCTURE instance_acceleration_structure
 
 template<typename Ptr>
 [[nodiscard]] inline auto lc_address_of_impl(Ptr ptr) {
@@ -776,9 +775,9 @@ static_assert(sizeof(LCInstance) == 64u, "");
 
 struct LCAccel {
 #ifdef LUISA_ENABLE_MOTION_BLUR
-    acceleration_structure<instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> handle;
+    acceleration_structure<instancing, primitive_motion, instance_motion> handle;
 #else
-    LC_INSTANCE_ACCELERATION_STRUCTURE handle;
+    instance_acceleration_structure handle;
 #endif
     device LCInstance *__restrict__ instances;
 };
@@ -897,9 +896,9 @@ struct LCAccel {
 
 struct LCRayQuery {
 #ifdef LUISA_ENABLE_MOTION_BLUR
-    acceleration_structure<instancing, primitive_motion, instance_motion LC_EXTENDED_LIMITS_TAG> accel;
+    acceleration_structure<instancing, primitive_motion, instance_motion> accel;
 #else
-    LC_INSTANCE_ACCELERATION_STRUCTURE accel;
+    instance_acceleration_structure accel;
 #endif
     ray ray;
     uint mask;
