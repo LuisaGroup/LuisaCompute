@@ -421,6 +421,7 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
                 worklist.pop_back();
                 cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
                     if (!dom.contains(pred)) { return; }
+                    if (!dom.strictly_dominates(header, pred)) { return; }
                     if (can_reach_latch.emplace(pred).second) {
                         worklist.emplace_back(pred);
                     }
@@ -447,19 +448,12 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
         }
     }
 
-    luisa::unordered_set<BasicBlock *> dominated_by_header;
-    for (auto *bb : all_blocks) {
-        if (dom.contains(bb) && dom.dominates(header, bb)) {
-            dominated_by_header.emplace(bb);
-        }
-    }
-
     luisa::vector<std::pair<BasicBlock *, BasicBlock *>> pre_exit_edges;
-    for (auto *lb : dominated_by_header) {
+    for (auto *lb : loop_blocks) {
         if (!lb->is_terminated()) { continue; }
         lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
             if (succ == header) { return; }
-            if (dom.contains(succ) && dom.dominates(header, succ)) { return; }
+            if (loop_blocks.contains(succ)) { return; }
             pre_exit_edges.emplace_back(lb, succ);
         });
     }
@@ -473,6 +467,18 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
         if (dispatch_merge_or_null == pdom.virtual_exit) {
             dispatch_merge_or_null = nullptr;
         }
+        // Always create a fresh merge block so the switch merge is never
+        // one of the exit targets. The fresh merge branches to the common
+        // post-dominator (or is unreachable if none was found).
+        auto *fresh_merge = def->create_basic_block();
+        XIRBuilder mb;
+        mb.set_insertion_point(fresh_merge);
+        if (dispatch_merge_or_null) {
+            mb.br(dispatch_merge_or_null);
+        } else {
+            mb.unreachable_();
+        }
+        dispatch_merge_or_null = fresh_merge;
     }
 
     BasicBlock *canonical_latch = nullptr;
@@ -511,12 +517,12 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     auto *loop_merge = def->create_basic_block();
 
     luisa::vector<std::pair<BasicBlock *, BasicBlock *>> exit_edges;
-    for (auto *lb : dominated_by_header) {
+    for (auto *lb : loop_blocks) {
         if (!lb->is_terminated()) { continue; }
         lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
             if (succ == loop_merge) { return; }
             if (succ == header) { return; }
-            if (dom.contains(succ) && dom.dominates(header, succ)) { return; }
+            if (loop_blocks.contains(succ)) { return; }
             exit_edges.emplace_back(lb, succ);
         });
     }
@@ -631,9 +637,12 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
             auto *fb = cb->false_block();
             bool true_in_loop = loop_blocks.contains(tb);
             bool false_in_loop = loop_blocks.contains(fb);
-            if (true_in_loop && fb == loop_merge) {
+            // The loop body successor is the target that remains in the loop.
+            // This handles both single-exit (where the other target is loop_merge)
+            // and multi-exit (where the other target is a stub that exits).
+            if (true_in_loop && !false_in_loop) {
                 loop_body_succ = tb;
-            } else if (false_in_loop && tb == loop_merge) {
+            } else if (!true_in_loop && false_in_loop) {
                 loop_body_succ = fb;
             }
         }
@@ -858,7 +867,8 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
                     work.pop_back();
                     auto *bb = node->block();
                     if (bb != structural_merge && bb != found_header && bb != found_merge &&
-                        bb->is_terminated() && if_scope_blocks.contains(bb)) {
+                        bb->is_terminated() && if_scope_blocks.contains(bb) &&
+                        !allowed_outside_targets.contains(bb)) {
                         auto *term = bb->terminator();
                         if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
                             // Do NOT retarget back-edges.
@@ -899,8 +909,10 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
                     luisa::vector<BasicBlock *> bad_succs;
                     arm_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
                         if (succ == structural_merge) { return; }
+                        if (succ == found_merge) { return; }
                         if (!dom.contains(succ)) { return; }
                         if (dom.dominates(found_header, succ)) { return; }
+                        if (allowed_outside_targets.contains(succ)) { return; }
                         bad_succs.emplace_back(succ);
                     });
                     luisa::sort(bad_succs.begin(), bad_succs.end());

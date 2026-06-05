@@ -301,9 +301,18 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
         }
 
         // Redirect branches from reachable blocks that target non-valid blocks.
+        // Skip the case/default entry blocks themselves — only redirect from
+        // blocks internal to structured constructs (IfInst, LoopInst) within
+        // the case bodies. The case body blocks' own branches are part of the
+        // normal CFG and should not be redirected.
+        luisa::unordered_set<spv::Block *> segment_set;
+        for (uint i = 0u; i <= case_count; ++i) {
+            segment_set.emplace(segment_blocks[i]);
+        }
         for (auto *blk : reachable) {
             if (!blk->isTerminated()) { continue; }
             if (blk == selection_merge_target) { continue; }
+            if (segment_set.contains(blk)) { continue; }
             auto &insts = blk->getInstructions();
             auto *term = insts.back().get();
             auto op = term->getOpCode();
