@@ -15,7 +15,6 @@ struct ConvergenceRegion {
     BasicBlock *entry{nullptr};
     BasicBlock *convergence_merge{nullptr};
     luisa::unordered_set<BasicBlock *> blocks;
-    luisa::unordered_set<BasicBlock *> exits;
     ConvergenceRegion *parent{nullptr};
     luisa::vector<luisa::unique_ptr<ConvergenceRegion>> children;
 };

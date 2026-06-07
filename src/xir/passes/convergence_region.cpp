@@ -86,6 +86,7 @@ void extend_region_from_exits(
 
 // Find the innermost region in the tree whose blocks set contains `bb`.
 ConvergenceRegion *find_parent_region(ConvergenceRegion *start, BasicBlock *bb) noexcept {
+    if (start == nullptr || !start->blocks.contains(bb)) { return nullptr; }
     ConvergenceRegion *candidate = nullptr;
     ConvergenceRegion *next = start;
     while (candidate != next && next != nullptr) {
@@ -198,7 +199,6 @@ ConvergenceRegionInfo compute_convergence_regions(
         cr->entry = fc.header;
         cr->convergence_merge = fc.merge;
         cr->blocks = std::move(fc.blocks);
-        cr->exits = find_exit_nodes(cr->blocks);
 
         auto *parent = find_parent_region(top.get(), cr->entry);
         LUISA_ASSERT(parent != nullptr, "Convergence region must have a parent.");

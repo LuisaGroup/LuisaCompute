@@ -115,15 +115,13 @@ void reg_convergence_region() {
         expect(found_inner);
     };
 
-    "simple_loop_region_includes_body_and_latch"_test = [] {
+    "simple_loop_region_includes_body"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
         auto *def = k->definition();
         auto *cond = k->create_value_argument(Type::of<bool>());
         auto *header = def->create_basic_block();
-        auto *loop_body = def->create_basic_block();
-        auto *latch = def->create_basic_block();
         auto *exit_bb = def->create_basic_block();
         XIRBuilder b;
         b.set_insertion_point(body);
@@ -149,6 +147,53 @@ void reg_convergence_region() {
             }
         }
         expect(found_loop);
+    };
+
+    "switch_construct_region"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        int v0 = 0;
+        auto *val = m.create_constant(Type::of<int>(), &v0);
+        b.set_insertion_point(body);
+        auto *sw = b.switch_(val);
+        auto *c0 = sw->create_case_block(0);
+        auto *c1 = sw->create_case_block(1);
+        auto *def_bb = sw->create_default_block();
+        auto *merge = sw->create_merge_block();
+        b.set_insertion_point(c0);
+        b.br(merge);
+        b.set_insertion_point(c1);
+        b.br(merge);
+        b.set_insertion_point(def_bb);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto dom = compute_dom_tree(k);
+        auto cri = compute_convergence_regions(k, dom);
+        expect(cri.top_level != nullptr);
+        expect(cri.top_level->children.size() == 1u);
+        auto *sw_region = cri.top_level->children[0].get();
+        expect(sw_region->entry == body);
+        expect(sw_region->convergence_merge == merge);
+        expect(sw_region->blocks.contains(c0));
+        expect(sw_region->blocks.contains(c1));
+        expect(sw_region->blocks.contains(def_bb));
+    };
+
+    "find_region_null_for_unreachable"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+        auto dom = compute_dom_tree(k);
+        auto cri = compute_convergence_regions(k, dom);
+        auto *orphan = reinterpret_cast<BasicBlock *>(0xdead);
+        auto *region = cri.find_region(orphan);
+        expect(region == nullptr);
     };
 
     "find_region_locates_nested_construct"_test = [] {
