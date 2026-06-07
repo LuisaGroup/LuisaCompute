@@ -1,9 +1,8 @@
 #include <luisa/core/logging.h>
-#include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/algorithm.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/basic_block.h>
-#include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
@@ -30,30 +29,6 @@ luisa::unordered_set<BasicBlock *> collect_loop_headers(FunctionDefinition *def,
     return headers;
 }
 
-// Walk forward from `from`, following successors (ignoring back-edges to loop headers),
-// and collect all blocks on paths that eventually reach a block matching `is_match`.
-luisa::unordered_set<BasicBlock *> find_paths_to_match(
-    BasicBlock *from,
-    const DomTree &dom,
-    const luisa::unordered_set<BasicBlock *> &loop_headers,
-    luisa::function<bool(BasicBlock *)> is_match) noexcept {
-
-    luisa::unordered_set<BasicBlock *> result;
-    if (is_match(from)) { result.emplace(from); }
-
-    if (!from->is_terminated()) { return result; }
-    from->traverse_successors(false, [&](BasicBlock *to) noexcept {
-        if (loop_headers.contains(to) && dom.contains(from) && dom.dominates(to, from)) {
-            return;
-        }
-        auto child = find_paths_to_match(to, dom, loop_headers, is_match);
-        if (child.empty()) { return; }
-        result.insert(child.begin(), child.end());
-        result.emplace(from);
-    });
-    return result;
-}
-
 // Collect blocks that have successors outside the given region.
 luisa::unordered_set<BasicBlock *> find_exit_nodes(
     const luisa::unordered_set<BasicBlock *> &region) noexcept {
@@ -67,11 +42,14 @@ luisa::unordered_set<BasicBlock *> find_exit_nodes(
     return exits;
 }
 
-// Check if a block belongs to a structure with the given merge block.
-// A block "belongs" if it is dominated by the merge's corresponding header
-// and not strictly dominated by the merge. We use the merge itself as the token.
-bool block_shares_convergence(BasicBlock *bb, BasicBlock *merge, const DomTree &dom) noexcept {
-    if (!dom.contains(bb) || !dom.contains(merge)) { return false; }
+// Check if a block belongs to the convergence scope of a construct with
+// the given header and merge. A block belongs if:
+// 1. It is dominated by the construct's header, AND
+// 2. It is NOT strictly dominated by the construct's merge.
+bool block_shares_convergence(BasicBlock *bb, BasicBlock *header, BasicBlock *merge, const DomTree &dom) noexcept {
+    if (bb == merge) { return false; }
+    if (!dom.contains(bb) || !dom.contains(header) || !dom.contains(merge)) { return false; }
+    if (!dom.dominates(header, bb)) { return false; }
     return !dom.strictly_dominates(merge, bb);
 }
 
@@ -98,7 +76,7 @@ void extend_region_from_exits(
             }
             if (visited.contains(succ)) { return; }
             visited.emplace(succ);
-            if (block_shares_convergence(succ, fc.merge, dom)) {
+            if (block_shares_convergence(succ, fc.header, fc.merge, dom)) {
                 fc.blocks.emplace(succ);
                 extend_region_from_exits(fc, dom, loop_headers, visited);
             }
@@ -176,7 +154,18 @@ ConvergenceRegionInfo compute_convergence_regions(
 
     auto loop_headers = collect_loop_headers(def, dom);
     auto flat = collect_flat_constructs(def, dom);
-    if (flat.empty()) { return {}; }
+
+    // Create top-level region with all blocks (even if no constructs exist).
+    auto top = luisa::make_unique<ConvergenceRegion>();
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        top->blocks.emplace(bb);
+    });
+
+    if (flat.empty()) {
+        ConvergenceRegionInfo info;
+        info.top_level = std::move(top);
+        return info;
+    }
 
     // Extend each region by walking forward from exits.
     for (auto &fc : flat) {
@@ -184,10 +173,23 @@ ConvergenceRegionInfo compute_convergence_regions(
         extend_region_from_exits(fc, dom, loop_headers, visited);
     }
 
-    // Create top-level region with all blocks.
-    auto top = luisa::make_unique<ConvergenceRegion>();
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        top->blocks.emplace(bb);
+    // Sort constructs by dominance depth (outermost first) to ensure
+    // find_parent_region sees parents before children during tree building.
+    luisa::unordered_map<BasicBlock *, size_t> depth_cache;
+    auto compute_depth = [&](BasicBlock *bb) noexcept -> size_t {
+        auto it = depth_cache.find(bb);
+        if (it != depth_cache.end()) { return it->second; }
+        size_t d = 0;
+        auto *node = dom.node_or_null(bb);
+        while (node != nullptr && node->parent() != nullptr) {
+            ++d;
+            node = node->parent();
+        }
+        depth_cache.emplace(bb, d);
+        return d;
+    };
+    luisa::sort(flat.begin(), flat.end(), [&](const FlatConstruct &a, const FlatConstruct &b) {
+        return compute_depth(a.header) < compute_depth(b.header);
     });
 
     // Build tree: for each construct, find parent via entry containment.

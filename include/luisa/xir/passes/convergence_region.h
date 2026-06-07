@@ -1,7 +1,7 @@
 #pragma once
 
+#include <luisa/core/dll_export.h>
 #include <luisa/core/stl/memory.h>
-#include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/xir/basic_block.h>
@@ -22,10 +22,10 @@ struct ConvergenceRegion {
 
 struct ConvergenceRegionInfo {
     luisa::unique_ptr<ConvergenceRegion> top_level;
-    [[nodiscard]] const ConvergenceRegion *find_region(BasicBlock *bb) const noexcept;
+    [[nodiscard]] LUISA_XIR_API const ConvergenceRegion *find_region(BasicBlock *bb) const noexcept;
 };
 
-[[nodiscard]] ConvergenceRegionInfo compute_convergence_regions(
+[[nodiscard]] LUISA_XIR_API ConvergenceRegionInfo compute_convergence_regions(
     Function *function, const DomTree &dom) noexcept;
 
 }// namespace luisa::compute::xir

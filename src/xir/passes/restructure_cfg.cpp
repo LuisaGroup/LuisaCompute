@@ -1398,6 +1398,10 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
 
     // Use convergence region analysis to compute correct region boundaries
     // with exit-path walking (LLVM's ConvergenceRegionAnalysis pattern).
+    // The analysis is freshly computed before the fixup walk; since
+    // merge-equality mode performs at most one fixup per construct and
+    // does not iterate, the ConvergenceRegion and PostDomInfo data remain
+    // consistent throughout the traversal — no stale-data risk.
     auto cri = compute_convergence_regions(def, dom);
     if (cri.top_level == nullptr || cri.top_level->children.empty()) { return false; }
 
