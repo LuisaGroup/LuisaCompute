@@ -636,6 +636,64 @@ void reg_restructure_cfg() {
             }
         }
     };
+    "restructure_converts_remaining_divergent_conditional"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *cond = k->create_value_argument(Type::of<bool>());
+        auto *ret_a = def->create_basic_block();
+        auto *ret_b = def->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.cond_br(cond, ret_a, ret_b);
+        b.set_insertion_point(ret_a);
+        b.return_void();
+        b.set_insertion_point(ret_b);
+        b.return_void();
+        // Skip full pipeline; reg2mem is a no-op here (no phis).
+        (void)reg2mem_pass_run_on_function(k);
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 1u);
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.restructured_if_count >= 1u) << "conditional branch should be structurized";
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+    };
+
+    "restructure_fixup_nested_if_cross_hierarchy"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *cond = k->create_value_argument(Type::of<bool>());
+        auto *outer_merge = def->create_basic_block();
+        auto *inner_merge = def->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *outer = b.if_(cond);
+        auto *ot = outer->create_true_block();
+        auto *of = outer->create_false_block();
+        b.set_insertion_point(ot);
+        auto *inner = b.if_(cond);
+        auto *it = inner->create_true_block();
+        auto *if_ = inner->create_false_block();
+        b.set_insertion_point(it);
+        b.br(inner_merge);
+        b.set_insertion_point(if_);
+        b.br(outer_merge);
+        b.set_insertion_point(inner_merge);
+        b.br(outer_merge);
+        b.set_insertion_point(of);
+        b.br(outer_merge);
+        b.set_insertion_point(outer_merge);
+        b.return_void();
+        (void)destructure_cfg_pass_run_on_function(k);
+        (void)reg2mem_pass_run_on_function(k);
+        expect_no_structured_cfg(def);
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) >= 2u);
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.restructured_if_count >= 2u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+    };
 }
 
 int main(int argc, char *argv[]) {
