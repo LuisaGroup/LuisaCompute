@@ -1,15 +1,33 @@
 #include "ut/ut.hpp"
+#include <luisa/luisa-compute.h>
 #include <luisa/ast/type_registry.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/if.h>
+#include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/algebraic_simplify.h>
+#include <luisa/xir/passes/const_fold.h>
+#include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/dead_store_elimination.h>
+#include <luisa/xir/passes/gvn.h>
+#include <luisa/xir/passes/if_conversion.h>
+#include <luisa/xir/passes/local_load_elimination.h>
+#include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/lower_ray_query_loop_to_loop.h>
+#include <luisa/xir/passes/mem2reg.h>
+#include <luisa/xir/passes/phi_cleanup.h>
+#include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/sccp.h>
+#include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/unused_callable_removal.h>
+#include <luisa/xir/translators/ast2xir.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -33,6 +51,89 @@ namespace {
         if (bb->terminator()->derived_instruction_tag() == tag) { ++n; }
     });
     return n;
+}
+
+[[nodiscard]] size_t count_non_canonical_loop_prepare(FunctionDefinition *def) noexcept {
+    size_t n = 0u;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (!bb->is_terminated()) { return; }
+        auto *term = bb->terminator();
+        if (!term->isa<LoopInst>()) { return; }
+        auto *loop = static_cast<LoopInst *>(term);
+        auto *prepare = loop->prepare_block();
+        if (prepare == nullptr || !prepare->is_terminated()) {
+            ++n;
+            return;
+        }
+        auto *prepare_term = prepare->terminator();
+        if (!prepare_term->isa<ConditionalBranchInst>()) {
+            ++n;
+            return;
+        }
+        auto *cond_br = static_cast<ConditionalBranchInst *>(prepare_term);
+        if (cond_br->true_block() != loop->body_block() ||
+            cond_br->false_block() != loop->merge_block()) {
+            ++n;
+        }
+    });
+    return n;
+}
+
+[[nodiscard]] size_t count_non_canonical_loop_update(FunctionDefinition *def) noexcept {
+    size_t n = 0u;
+    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+        if (!bb->is_terminated()) { return; }
+        auto *term = bb->terminator();
+        if (!term->isa<LoopInst>()) { return; }
+        auto *loop = static_cast<LoopInst *>(term);
+        auto *prepare = loop->prepare_block();
+        auto *update = loop->update_block();
+        if (prepare == nullptr || update == nullptr || !update->is_terminated()) {
+            ++n;
+            return;
+        }
+        bool branches_to_prepare = false;
+        update->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+            if (succ == prepare) { branches_to_prepare = true; }
+        });
+        if (!branches_to_prepare) { ++n; }
+    });
+    return n;
+}
+
+[[nodiscard]] size_t count_phi(FunctionDefinition *def) noexcept {
+    size_t n = 0u;
+    def->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->isa<PhiInst>()) { ++n; }
+    });
+    return n;
+}
+
+void run_spirv_normalize_before_restructure(Module *m) noexcept {
+    auto algebraic_options = AlgebraicSimplifyOptions{};
+    (void)lower_ray_query_loop_to_loop_pass_run_on_module(m);
+    (void)destructure_cfg_pass_run_on_module(m);
+    (void)mem2reg_pass_run_on_module(m);
+    (void)algebraic_simplify_pass_run_on_module(m, algebraic_options);
+    (void)const_fold_pass_run_on_module(m);
+    (void)sccp_pass_run_on_module(m);
+    (void)dce_pass_run_on_module(m);
+    (void)local_store_forward_pass_run_on_module(m);
+    (void)local_load_elimination_pass_run_on_module(m);
+    (void)dead_store_elimination_pass_run_on_module(m);
+    (void)dce_pass_run_on_module(m);
+    (void)gvn_pass_run_on_module(m);
+    (void)if_conversion_pass_run_on_module(m);
+    (void)phi_cleanup_pass_run_on_module(m);
+    (void)unused_callable_removal_pass_run_on_module(m);
+    (void)simplify_cfg_pass_run_on_module(m);
+    (void)reg2mem_pass_run_on_module(m);
+}
+
+void expect_no_structured_cfg(FunctionDefinition *def) noexcept {
+    expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) == 0u);
+    expect(count_terminator_kind(def, DerivedInstructionTag::SIMPLE_LOOP) == 0u);
+    expect(count_terminator_kind(def, DerivedInstructionTag::IF) == 0u);
 }
 
 }// namespace
@@ -250,6 +351,290 @@ void reg_restructure_cfg() {
         expect(info.restructured_if_count == 2u);
         expect(count_terminator_kind(def, DerivedInstructionTag::IF) == 2u);
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
+    };
+
+    "restructure_nested_loop_does_not_capture_outer_tail"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *outer_header = def->create_basic_block();
+        auto *outer_body = def->create_basic_block();
+        auto *inner_header = def->create_basic_block();
+        auto *inner_body = def->create_basic_block();
+        auto *inner_latch = def->create_basic_block();
+        auto *after_inner = def->create_basic_block();
+        auto *outer_latch = def->create_basic_block();
+        auto *outer_exit = def->create_basic_block();
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.br(outer_header);
+        b.set_insertion_point(outer_header);
+        b.cond_br(cond, outer_body, outer_exit);
+        b.set_insertion_point(outer_body);
+        b.br(inner_header);
+        b.set_insertion_point(inner_header);
+        b.cond_br(cond, inner_body, after_inner);
+        b.set_insertion_point(inner_body);
+        b.br(inner_latch);
+        b.set_insertion_point(inner_latch);
+        b.br(inner_header);
+        b.set_insertion_point(after_inner);
+        b.cond_br(cond, outer_exit, outer_latch);
+        b.set_insertion_point(outer_latch);
+        b.br(outer_header);
+        b.set_insertion_point(outer_exit);
+        b.return_void();
+        auto info = restructure_cfg_pass_run_on_function(k);
+        auto loop_count = count_terminator_kind(def, DerivedInstructionTag::LOOP) +
+                          count_terminator_kind(def, DerivedInstructionTag::SIMPLE_LOOP);
+        expect(info.restructured_loop_count == 2u);
+        expect(loop_count == 2u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::SWITCH) == 0u);
+        expect(count_non_canonical_loop_prepare(def) == 0u);
+        expect(count_non_canonical_loop_update(def) == 0u);
+    };
+
+    "restructure_outer_update_path_with_inner_loop"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        XIRBuilder b;
+        auto *cond = k->create_value_argument(Type::of<bool>());
+        auto *outer_continue_entry = def->create_basic_block();
+        auto *after_inner = def->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *outer = b.loop();
+        auto *outer_prepare = outer->create_prepare_block();
+        auto *outer_body = outer->create_body_block();
+        auto *outer_update = outer->create_update_block();
+        auto *outer_merge = outer->create_merge_block();
+
+        b.set_insertion_point(outer_prepare);
+        b.cond_br(cond, outer_body, outer_merge);
+
+        b.set_insertion_point(outer_body);
+        auto *body_if = b.if_(cond);
+        auto *body_then = body_if->create_true_block();
+        auto *body_else = body_if->create_false_block();
+        auto *body_if_merge = body_if->create_merge_block();
+        b.set_insertion_point(body_then);
+        b.br(body_if_merge);
+        b.set_insertion_point(body_else);
+        b.br(body_if_merge);
+        b.set_insertion_point(body_if_merge);
+        auto *continue_if = b.if_(cond);
+        auto *break_path = continue_if->create_true_block();
+        auto *continue_path = continue_if->create_false_block();
+        auto *continue_if_merge = continue_if->create_merge_block();
+        b.set_insertion_point(break_path);
+        b.break_(outer_merge);
+        b.set_insertion_point(continue_path);
+        b.br(continue_if_merge);
+        b.set_insertion_point(continue_if_merge);
+        b.br(outer_continue_entry);
+
+        b.set_insertion_point(outer_continue_entry);
+        auto *inner = b.loop();
+        auto *inner_prepare = inner->create_prepare_block();
+        auto *inner_body = inner->create_body_block();
+        auto *inner_update = inner->create_update_block();
+        auto *inner_merge = inner->create_merge_block();
+        b.set_insertion_point(inner_prepare);
+        b.cond_br(cond, inner_body, inner_merge);
+        b.set_insertion_point(inner_body);
+        b.br(inner_update);
+        b.set_insertion_point(inner_update);
+        b.br(inner_prepare);
+        b.set_insertion_point(inner_merge);
+        b.br(after_inner);
+        b.set_insertion_point(after_inner);
+        b.br(outer_update);
+
+        b.set_insertion_point(outer_update);
+        b.br(outer_prepare);
+        b.set_insertion_point(outer_merge);
+        b.return_void();
+
+        expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) == 2u);
+        run_spirv_normalize_before_restructure(&m);
+        expect_no_structured_cfg(def);
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.restructured_loop_count == 2u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) +
+               count_terminator_kind(def, DerivedInstructionTag::SIMPLE_LOOP) == 2u);
+        expect(count_non_canonical_loop_prepare(def) == 0u);
+        expect(count_non_canonical_loop_update(def) == 0u);
+    };
+
+    "restructure_outer_loop_break_or_update_if_shape"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *cond = k->create_value_argument(Type::of<bool>());
+        auto *header = def->create_basic_block();
+        auto *body_entry = def->create_basic_block();
+        auto *first_then = def->create_basic_block();
+        auto *first_else = def->create_basic_block();
+        auto *first_merge = def->create_basic_block();
+        auto *break_block = def->create_basic_block();
+        auto *update_path = def->create_basic_block();
+        auto *if_merge_on_update_path = def->create_basic_block();
+        auto *latch = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.br(header);
+        b.set_insertion_point(header);
+        b.cond_br(cond, body_entry, exit);
+        b.set_insertion_point(body_entry);
+        b.cond_br(cond, first_then, first_else);
+        b.set_insertion_point(first_then);
+        b.br(first_merge);
+        b.set_insertion_point(first_else);
+        b.br(first_merge);
+        b.set_insertion_point(first_merge);
+        b.cond_br(cond, break_block, update_path);
+        b.set_insertion_point(break_block);
+        b.br(exit);
+        b.set_insertion_point(update_path);
+        b.br(if_merge_on_update_path);
+        b.set_insertion_point(if_merge_on_update_path);
+        b.br(latch);
+        b.set_insertion_point(latch);
+        b.br(header);
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        run_spirv_normalize_before_restructure(&m);
+        expect_no_structured_cfg(def);
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.restructured_loop_count == 1u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) == 1u);
+        expect(count_non_canonical_loop_prepare(def) == 0u);
+        expect(count_non_canonical_loop_update(def) == 0u);
+    };
+
+    "restructure_full_pipeline_loop_with_inner_phi_diamond"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *cond = k->create_value_argument(Type::of<bool>());
+        auto *header = def->create_basic_block();
+        auto *loop_body = def->create_basic_block();
+        auto *then_block = def->create_basic_block();
+        auto *else_block = def->create_basic_block();
+        auto *diamond_merge = def->create_basic_block();
+        auto *break_block = def->create_basic_block();
+        auto *continue_block = def->create_basic_block();
+        auto *inner_header = def->create_basic_block();
+        auto *inner_body = def->create_basic_block();
+        auto *inner_latch = def->create_basic_block();
+        auto *inner_merge = def->create_basic_block();
+        auto *outer_latch = def->create_basic_block();
+        auto *exit = def->create_basic_block();
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        int one_v = 1;
+        auto *one = m.create_constant(Type::of<int>(), &one_v);
+        int two_v = 2;
+        auto *two = m.create_constant(Type::of<int>(), &two_v);
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.br(header);
+        b.set_insertion_point(header);
+        b.cond_br(cond, loop_body, exit);
+        b.set_insertion_point(loop_body);
+        b.cond_br(cond, then_block, else_block);
+        b.set_insertion_point(then_block);
+        auto *then_value = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {zero, one});
+        b.br(diamond_merge);
+        b.set_insertion_point(else_block);
+        auto *else_value = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {zero, two});
+        b.br(diamond_merge);
+        b.set_insertion_point(diamond_merge);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(then_value, then_block);
+        phi->add_incoming(else_value, else_block);
+        auto *break_cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {phi, zero});
+        b.cond_br(break_cond, break_block, continue_block);
+        b.set_insertion_point(break_block);
+        b.br(exit);
+        b.set_insertion_point(continue_block);
+        b.br(inner_header);
+        b.set_insertion_point(inner_header);
+        b.cond_br(cond, inner_body, inner_merge);
+        b.set_insertion_point(inner_body);
+        b.br(inner_latch);
+        b.set_insertion_point(inner_latch);
+        b.br(inner_header);
+        b.set_insertion_point(inner_merge);
+        b.br(outer_latch);
+        b.set_insertion_point(outer_latch);
+        b.br(header);
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        expect(count_phi(def) == 1u);
+        run_spirv_normalize_before_restructure(&m);
+        expect_no_structured_cfg(def);
+        expect(count_phi(def) == 0u);
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.restructured_loop_count == 2u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::LOOP) +
+               count_terminator_kind(def, DerivedInstructionTag::SIMPLE_LOOP) == 2u);
+        expect(count_non_canonical_loop_prepare(def) == 0u);
+        expect(count_non_canonical_loop_update(def) == 0u);
+    };
+
+    "restructure_full_pipeline_ast_kernel_nested_loop_break"_test = [] {
+        Kernel1D kernel = [](BufferFloat buf, Float t) noexcept {
+            auto idx = dispatch_id().x;
+            Float x = buf.read(idx);
+            Float acc = def(0.0f);
+            Float state = def(x);
+            Bool flag = def(false);
+            $for (i, 8u) {
+                auto hit = state > t;
+                $if (hit & (state != acc)) {
+                    flag = flag | hit;
+                    hit = false;
+                    Float tmp = def(0.0f);
+                    $for (j, 4u) {
+                        tmp += state * cast<float>(j + 1u);
+                    };
+                    state = tmp * 0.25f;
+                };
+                acc += state;
+                state += 1.0f;
+                $if (hit) { $break; };
+            };
+            buf.write(idx, ite(flag, acc, state));
+        };
+
+        auto m = ast_to_xir_translate(kernel.function()->function(), {});
+        expect(m != nullptr);
+        run_spirv_normalize_before_restructure(m.get());
+        for (auto *f : m->function_list()) {
+            if (auto *def = f->definition(); def != nullptr) {
+                expect_no_structured_cfg(def);
+                expect(count_phi(def) == 0u);
+            }
+        }
+        auto info = restructure_cfg_pass_run_on_module(m.get());
+        expect(info.restructured_loop_count > 0u);
+        for (auto *f : m->function_list()) {
+            if (auto *def = f->definition(); def != nullptr) {
+                expect(count_non_canonical_loop_prepare(def) == 0u);
+                expect(count_non_canonical_loop_update(def) == 0u);
+            }
+        }
     };
 }
 

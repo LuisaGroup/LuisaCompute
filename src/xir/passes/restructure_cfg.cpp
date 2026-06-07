@@ -247,54 +247,6 @@ bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) no
             }
             break;
         }
-        case DerivedInstructionTag::IF: {
-            auto *ii = static_cast<IfInst *>(term);
-            if (ii->true_block() == from) {
-                ii->set_true_target(to);
-                changed = true;
-            }
-            if (ii->false_block() == from) {
-                ii->set_false_target(to);
-                changed = true;
-            }
-            if (ii->merge_block() == from) {
-                ii->set_merge_block(to);
-                changed = true;
-            }
-            break;
-        }
-        case DerivedInstructionTag::LOOP: {
-            auto *lp = static_cast<LoopInst *>(term);
-            if (lp->prepare_block() == from) {
-                lp->set_prepare_block(to);
-                changed = true;
-            }
-            if (lp->body_block() == from) {
-                lp->set_body_block(to);
-                changed = true;
-            }
-            if (lp->update_block() == from) {
-                lp->set_update_block(to);
-                changed = true;
-            }
-            if (lp->merge_block() == from) {
-                lp->set_merge_block(to);
-                changed = true;
-            }
-            break;
-        }
-        case DerivedInstructionTag::SIMPLE_LOOP: {
-            auto *sl = static_cast<SimpleLoopInst *>(term);
-            if (sl->body_block() == from) {
-                sl->set_body_block(to);
-                changed = true;
-            }
-            if (sl->merge_block() == from) {
-                sl->set_merge_block(to);
-                changed = true;
-            }
-            break;
-        }
         default: break;
     }
     return changed;
@@ -404,47 +356,31 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
         }
     }
 
-    // Compute loop_blocks via forward BFS from header, keeping only blocks
-    // dominated by the header that can reach at least one latch.
-    // The old backward-only traversal missed forward-only paths (e.g., if-then
-    // arms that don't lead back to any latch), causing exit edges on those paths
-    // to escape detection and produce invalid structured CFG.
     luisa::unordered_set<BasicBlock *> loop_blocks;
-    {
-        // Step 1: backward BFS from latches to find blocks that can reach a latch.
-        luisa::unordered_set<BasicBlock *> can_reach_latch;
-        {
-            luisa::vector<BasicBlock *> worklist{latches.begin(), latches.end()};
-            for (auto *l : latches) { can_reach_latch.emplace(l); }
-            while (!worklist.empty()) {
-                auto *cur = worklist.back();
-                worklist.pop_back();
-                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                    if (!dom.contains(pred)) { return; }
-                    if (!dom.strictly_dominates(header, pred)) { return; }
-                    if (can_reach_latch.emplace(pred).second) {
-                        worklist.emplace_back(pred);
-                    }
-                });
+    BasicBlock *loop_scope_boundary = nullptr;
+    if (auto it = pdom.ipostdom.find(header);
+        it != pdom.ipostdom.end() && it->second != pdom.virtual_exit) {
+        loop_scope_boundary = it->second;
+    }
+    loop_blocks.emplace(header);
+    luisa::vector<BasicBlock *> fwd_work{header};
+    while (!fwd_work.empty()) {
+        auto *cur = fwd_work.back();
+        fwd_work.pop_back();
+        if (!cur->is_terminated()) { continue; }
+        cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+            if (succ == loop_scope_boundary) { return; }
+            if (!dom.contains(succ)) { return; }
+            if (!dom.strictly_dominates(header, succ)) { return; }
+            if (loop_blocks.emplace(succ).second) {
+                fwd_work.emplace_back(succ);
             }
-        }
-
-        // Step 2: forward BFS from header; include blocks dominated by header
-        // that can reach a latch.
-        loop_blocks.emplace(header);
-        luisa::vector<BasicBlock *> fwd_work{header};
-        while (!fwd_work.empty()) {
-            auto *cur = fwd_work.back();
-            fwd_work.pop_back();
-            if (!cur->is_terminated()) { continue; }
-            cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                if (!dom.contains(succ)) { return; }
-                if (!dom.strictly_dominates(header, succ)) { return; }
-                if (!can_reach_latch.contains(succ)) { return; }
-                if (loop_blocks.emplace(succ).second) {
-                    fwd_work.emplace_back(succ);
-                }
-            });
+        });
+    }
+    for (auto *latch : latches) {
+        if (!loop_blocks.contains(latch)) {
+            info.irreducible_region_count++;
+            return false;
         }
     }
 
@@ -677,12 +613,19 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     // Collect merge blocks and headers of already-structured loops.
     luisa::unordered_map<BasicBlock *, BasicBlock *> loop_merge_to_header;
     luisa::unordered_set<BasicBlock *> loop_headers;
+    luisa::unordered_set<BasicBlock *> loop_prepare_blocks;
+    luisa::unordered_map<BasicBlock *, BasicBlock *> loop_update_to_prepare;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (!bb->is_terminated()) { return; }
         auto *term = bb->terminator();
         BasicBlock *merge = nullptr;
         if (term->isa<LoopInst>()) {
-            merge = static_cast<LoopInst *>(term)->merge_block();
+            auto *li = static_cast<LoopInst *>(term);
+            merge = li->merge_block();
+            if (li->prepare_block() != nullptr) { loop_prepare_blocks.emplace(li->prepare_block()); }
+            if (li->update_block() != nullptr && li->prepare_block() != nullptr) {
+                loop_update_to_prepare.emplace(li->update_block(), li->prepare_block());
+            }
         } else if (term->isa<SimpleLoopInst>()) {
             merge = static_cast<SimpleLoopInst *>(term)->merge_block();
         }
@@ -705,6 +648,7 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
         if (!bb->is_terminated()) { return; }
         auto *term = bb->terminator();
         if (!term->isa<ConditionalBranchInst>()) { return; }
+        if (loop_prepare_blocks.contains(bb)) { return; }
         auto *cbr = static_cast<ConditionalBranchInst *>(term);
         auto *true_bb = cbr->true_block();
         auto *false_bb = cbr->false_block();
@@ -804,10 +748,11 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
                     auto *loop_term = loop_header->terminator();
                     if (loop_term->isa<LoopInst>()) {
                         auto *li = static_cast<LoopInst *>(loop_term);
+                        if (li->prepare_block() != nullptr) {
+                            allowed_outside_targets.emplace(li->prepare_block());
+                        }
                         if (li->update_block() != nullptr) {
                             allowed_outside_targets.emplace(li->update_block());
-                        } else {
-                            allowed_outside_targets.emplace(li->prepare_block());
                         }
                     } else if (loop_term->isa<SimpleLoopInst>()) {
                         auto *sl = static_cast<SimpleLoopInst *>(loop_term);
@@ -871,11 +816,17 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
                         !allowed_outside_targets.contains(bb)) {
                         auto *term = bb->terminator();
                         if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
-                            // Do NOT retarget back-edges.
-                            if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
-                                retarget_terminator(term, found_merge, structural_merge);
-                            } else if (dom.contains(found_merge) && dom.strictly_dominates(found_merge, bb) && dom.strictly_dominates(found_header, bb)) {
-                                retarget_terminator(term, found_merge, structural_merge);
+                            bool is_loop_update_backedge = false;
+                            if (auto it = loop_update_to_prepare.find(bb);
+                                it != loop_update_to_prepare.end() && it->second == found_merge) {
+                                is_loop_update_backedge = true;
+                            }
+                            if (!is_loop_update_backedge) {
+                                if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
+                                    retarget_terminator(term, found_merge, structural_merge);
+                                } else if (dom.contains(found_merge) && dom.strictly_dominates(found_merge, bb) && dom.strictly_dominates(found_header, bb)) {
+                                    retarget_terminator(term, found_merge, structural_merge);
+                                }
                             }
                             fix_degenerate_terminator(bb);
                         }
@@ -910,9 +861,10 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
                     arm_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
                         if (succ == structural_merge) { return; }
                         if (succ == found_merge) { return; }
+                        if (succ == enclosing_loop_continue) { return; }
+                        if (allowed_outside_targets.contains(succ)) { return; }
                         if (!dom.contains(succ)) { return; }
                         if (dom.dominates(found_header, succ)) { return; }
-                        if (allowed_outside_targets.contains(succ)) { return; }
                         bad_succs.emplace_back(succ);
                     });
                     luisa::sort(bad_succs.begin(), bad_succs.end());
