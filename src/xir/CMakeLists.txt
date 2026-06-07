@@ -63,6 +63,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/uniformity_analysis.cpp
         passes/dom_tree.cpp
         passes/call_graph.cpp
+        passes/convergence_region.cpp
         passes/outline.cpp
         passes/dead_store_elimination.cpp
         passes/sroa.cpp
