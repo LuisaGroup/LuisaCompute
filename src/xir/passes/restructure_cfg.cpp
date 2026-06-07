@@ -1566,11 +1566,10 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
             if (exits.empty()) { return; }
 
             bool bad = (cn.merge == parent->merge || cn.merge == parent->cont);
-            for (auto &[src, dst] : exits) {
-                if (dst == cn.merge) { continue; }
-                if (dst == cn.cont) { continue; }
-                bad = true;
-            }
+            // Only fix constructs that share a merge/continue with the parent.
+            // Exit-edge scanning (LLVM's full fixupConstruct) requires the
+            // ConvergenceRegionAnalysis to correctly bound region exits without
+            // corrupting loop back-edges.
             if (!bad) { return; }
 
             local_mod = true;
@@ -1674,13 +1673,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
         auto dom = compute_dom_tree(def);
         auto pdom = compute_post_dom(def);
         (void)add_header_to_remaining_divergent(def, dom, pdom, info);
-        // fixup_construct_exits: tree-walking refinement implemented but
-        // disabled — the iterative dom-invalidation approach still corrupts
-        // loop back-edges in nested-construct scenarios (e.g., loop body
-        // inside if with break/continue). The LLVM SPIRV structurizer handles
-        // this via convergence-region analysis + BlockAddress merge update,
-        // which is not directly portable to XIR's structured instruction
-        // model. Retained for future reference.
+        (void)fixup_construct_exits(def, dom, pdom);
     }
     return info;
 }
