@@ -91,6 +91,7 @@ endif ()
 # compute (headless)
 luisa_compute_add_example(example_bindless_mip compute/bindless_mip.cpp)
 luisa_compute_add_example(example_helloworld compute/helloworld.cpp MIRROR_AS_TEST)
+luisa_compute_add_example(example_multi_head_attention ml/multi_head_attention.cpp MIRROR_AS_TEST)
 
 # --- GUI toolkit integration examples (wxWidgets, Qt) ---
 

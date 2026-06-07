@@ -196,6 +196,144 @@ Kernel1D k = []() noexcept {
 };
 ```
 
+## Warp/Wave Intrinsics
+
+Warp (NVIDIA) / Wave (AMD) intrinsics enable cross-lane communication within a single warp.
+Requires setting a warp size and uses lane indices for per-lane data exchange.
+
+### Configuration
+
+```cpp
+Kernel1D k = []() noexcept {
+    set_block_size(128u, 1u, 1u);
+    set_warp_size(32u);            // 32 (NVIDIA) or 64 (AMD, some cases)
+
+    UInt lane_count = warp_lane_count();  // total lanes in warp
+    UInt lane_id    = warp_lane_id();     // this thread's lane index (0..31)
+};
+```
+
+### Lane Identification
+
+```cpp
+// Check if current lane is the first active lane in the warp
+Bool first = warp_is_first_active_lane();
+
+// Get the index of the first active lane
+UInt first_lane = warp_first_active_lane();
+```
+
+### Active Lane Vote & Ballot
+
+```cpp
+// Returns true if predicate is true for ALL active lanes
+Bool all_true = warp_active_all(condition);
+
+// Returns true if predicate is true for ANY active lane
+Bool any_true = warp_active_any(condition);
+
+// Returns a uint4 bitmask (up to 128 lanes, each bit = one lane)
+UInt4 mask = warp_active_bit_mask(predicate);
+
+// Count active lanes where predicate is true
+UInt count = warp_active_count_bits(predicate);
+
+// Exclusive prefix count of active lanes where predicate is true
+UInt prefix_count = warp_prefix_count_bits(predicate);
+```
+
+### Active Lane Reductions
+
+Operate on values from all active lanes in the warp. Accept `Float`, `Int`, `UInt`, and vectors.
+
+```cpp
+// Sum reduction
+Float sum = warp_active_sum(value);         // scalar or vector
+
+// Product reduction
+Float prod = warp_active_product(value);
+
+// Minimum / Maximum
+Float min_val = warp_active_min(value);
+Float max_val = warp_active_max(value);
+
+// Bitwise reductions (integral types only)
+UInt and_bits = warp_active_bit_and(value); // bitwise AND
+UInt or_bits  = warp_active_bit_or(value);  // bitwise OR
+UInt xor_bits = warp_active_bit_xor(value); // bitwise XOR
+
+// Check if all active lanes have the same value
+Bool equal = warp_active_all_equal(value);  // returns bool or Vector<bool,N>
+```
+
+### Prefix (Scan) Operations
+
+Exclusive prefix scan across active lanes. Lane i gets the sum/product of lanes 0..i-1.
+
+```cpp
+// Exclusive prefix sum: lane i receives sum of lanes 0..i-1
+Float prefix_sum = warp_prefix_sum(value);
+
+// Exclusive prefix product: lane i receives product of lanes 0..i-1
+Float prefix_prod = warp_prefix_product(value);
+```
+
+### Lane Data Exchange
+
+```cpp
+// Read value from a specific lane by index (broadcast)
+// Supports scalar, vector, and matrix types; lane index must be integral
+Float other_val = warp_read_lane(value, lane_index);
+
+// Read value from the first active lane (convenient broadcast)
+Float first_val = warp_read_first_active_lane(value);
+```
+
+### Block-Wide Barrier
+
+```cpp
+sync_block();  // synchronize all threads in a thread block
+```
+
+### Complete Warp MatMul Example
+
+Based on `src/tests/unit/runtime/test_warp.cpp`:
+
+```cpp
+constexpr uint k_warp_size = 32;
+
+auto mat_mul_kernel = [&](BufferVar<float> lhs, BufferVar<float> rhs,
+                          BufferVar<float> result, UInt lhs_row_size) {
+    set_block_size(128, 1, 1);
+    set_warp_size(k_warp_size);
+
+    UInt2 lhs_size = make_uint2(lhs_row_size, dispatch_size().y);
+    UInt2 rhs_size = make_uint2(dispatch_size().x / k_warp_size, lhs_row_size);
+
+    UInt lhs_y = dispatch_id().x / k_warp_size;
+    UInt rhs_x = dispatch_id().y;
+    UInt lane = warp_lane_id();
+
+    UInt tile_count = (lhs_size.x + k_warp_size - 1) / k_warp_size;
+    Float accum = 0.f;
+
+    for (auto tile : dynamic_range(tile_count)) {
+        UInt lhs_x = tile * k_warp_size + lane;
+        Float v = 0.f;
+        $if (lhs_x < lhs_size.x) {
+            v = lhs.read(lhs_size.x * lhs_y + lhs_x);
+            v *= rhs.read(rhs_size.x * rhs_x + lhs_x);
+        };
+        accum += warp_active_sum(v);  // sum across all 32 lanes
+    }
+
+    // Only lane 0 writes the result
+    $if (lane == 0) {
+        result.write(rhs_size.x * lhs_y + rhs_x, accum);
+    };
+};
+```
+
 ## Constants
 
 ```cpp
@@ -312,3 +450,13 @@ int main(int argc, char *argv[]) {
 | Dispatch ID | `dispatch_id().xy()` / `dispatch_x()` |
 | Thread ID | `thread_id().x` / `thread_x()` |
 | Compose | `compose(v1, v2)` → `.get<0>()`, `.get<1>()` |
+| Warp Config | `set_warp_size(32)` / `warp_lane_id()` / `warp_lane_count()` |
+| Warp Vote | `warp_active_all(pred)` / `warp_active_any(pred)` / `warp_active_bit_mask(pred)` |
+| Warp Count | `warp_active_count_bits(pred)` / `warp_prefix_count_bits(pred)` |
+| Warp Reduce | `warp_active_sum(v)` / `warp_active_min(v)` / `warp_active_max(v)` / `warp_active_product(v)` |
+| Warp Bitwise | `warp_active_bit_and(v)` / `warp_active_bit_or(v)` / `warp_active_bit_xor(v)` |
+| Warp Prefix | `warp_prefix_sum(v)` / `warp_prefix_product(v)` |
+| Warp Broadcast | `warp_read_lane(v, lane)` / `warp_read_first_active_lane(v)` |
+| Warp Equal | `warp_active_all_equal(v)` |
+| Warp First Lane | `warp_is_first_active_lane()` / `warp_first_active_lane()` |
+| Block Barrier | `sync_block()` |

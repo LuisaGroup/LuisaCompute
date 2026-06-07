@@ -60,10 +60,11 @@ example_proj("example_swapchain", "gui/swapchain.cpp", true)
 example_proj("example_swapchain_static", "gui/swapchain_static.cpp", true)
 example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
 
--- compute
-example_proj("example_helloworld", "compute/helloworld.cpp", false)
-example_proj("example_image_processing", "compute/image_processing.cpp", true)
-includes("compute/tokenize")
+    -- compute
+    example_proj("example_helloworld", "compute/helloworld.cpp", false)
+    example_proj("example_image_processing", "compute/image_processing.cpp", true)
+    example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false)
+    includes("compute/tokenize")
 
 -- extension
 if has_config("lc_dx_backend") then

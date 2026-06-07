@@ -19,6 +19,8 @@ struct ExampleOptions {
     bool offline{false};
     uint32_t spp{0u};
     std::optional<std::filesystem::path> compare_path;
+    std::optional<std::filesystem::path> out_ref_path;
+    bool out_ref_write{false};
 
     static ExampleOptions parse(int argc, char *argv[]) {
         ExampleOptions opts;
@@ -32,6 +34,17 @@ struct ExampleOptions {
                 opts.offline = true;
             } else if (a == "--spp" && i + 1 < argc && argv[i + 1]) {
                 opts.spp = static_cast<uint32_t>(std::atoi(argv[++i]));
+            } else if (a == "--out_ref" && i + 1 < argc && argv[i + 1]) {
+                std::string_view mode{argv[++i]};
+                if (mode == "write" && i + 1 < argc && argv[i + 1]) {
+                    opts.out_ref_path = std::filesystem::path{argv[++i]};
+                    opts.out_ref_write = true;
+                    opts.offline = true;
+                } else if (mode == "read" && i + 1 < argc && argv[i + 1]) {
+                    opts.out_ref_path = std::filesystem::path{argv[++i]};
+                    opts.out_ref_write = false;
+                    opts.offline = true;
+                }
             }
         }
         return opts;
