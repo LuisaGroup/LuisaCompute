@@ -16,35 +16,35 @@ return s[idx*3];
 #define _READ_BUFFER(arr,arrIdx,idx,size,type,bf,vid) \
     (((arrIdx) < _Global[0]._validate_##vid) ? \
         bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(size*idx) : \
-        (bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0))
+        (bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0) - 1)
 #define _READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,vid) \
     (((arrIdx) < _Global[0]._validate_##vid) ? \
         bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(idx) : \
-        (bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0))
+        (bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0) - 1)
 #define _uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf,vid) \
     (((arrIdx) < _Global[0]._validate_##vid) ? \
         bf[(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(size*idx) : \
-        (bf[(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0))
+        (bf[(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0) - 1)
 #define _uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,vid) \
     (((arrIdx) < _Global[0]._validate_##vid) ? \
         bf[(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(idx) : \
-        (bf[(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0))
+        (bf[(_ReadBdlsBuffer(arr,0))].template Load<type>(0) * 0) - 1)
 #define _typed_READ_BUFFER(arr,arrIdx,idx,size,type,bf,vid) \
     (((arrIdx) < _Global[0]._validate_##vid) ? \
         bf[NonUniformResourceIndex(arr[0]+arrIdx)].template Load<type>(size*idx) : \
-        (bf[NonUniformResourceIndex(arr[0]+0)].template Load<type>(0) * 0))
+        (bf[NonUniformResourceIndex(arr[0]+0)].template Load<type>(0) * 0) - 1)
 #define _typed_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,vid) \
     (((arrIdx) < _Global[0]._validate_##vid) ? \
         bf[NonUniformResourceIndex(arr[0]+arrIdx)].template Load<type>(idx) : \
-        (bf[NonUniformResourceIndex(arr[0]+0)].template Load<type>(0) * 0))
+        (bf[NonUniformResourceIndex(arr[0]+0)].template Load<type>(0) * 0) - 1)
 #define _typed_uniform_READ_BUFFER(arr,arrIdx,idx,size,type,bf,vid) \
     (((arrIdx) < _Global[0]._validate_##vid) ? \
         bf[(arr[0]+arrIdx)].template Load<type>(size*idx) : \
-        (bf[(arr[0]+0)].template Load<type>(0) * 0))
+        (bf[(arr[0]+0)].template Load<type>(0) * 0) - 1)
 #define _typed_uniform_READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf,vid) \
     (((arrIdx) < _Global[0]._validate_##vid) ? \
         bf[(arr[0]+arrIdx)].template Load<type>(idx) : \
-        (bf[(arr[0]+0)].template Load<type>(0) * 0))
+        (bf[(arr[0]+0)].template Load<type>(0) * 0) - 1)
 #else
 #define _READ_BUFFER(arr,arrIdx,idx,size,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(size*idx)
 #define _READ_BUFFER_BYTES(arr,arrIdx,idx,type,bf) bf[NonUniformResourceIndex(_ReadBdlsBuffer(arr,arrIdx))].template Load<type>(idx)

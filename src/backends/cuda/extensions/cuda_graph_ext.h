@@ -42,9 +42,9 @@ public:
     explicit CudaGraphExtImpl(CUDADevice *device) noexcept;
     ~CudaGraphExtImpl() noexcept;
 
-    ResourceCreationInfo create_graph(CommandList &&cmdlist) noexcept override;
+    ResourceCreationInfo _create_graph(CommandList &&cmdlist) noexcept override;
     void destroy_graph(GraphHandle graph) noexcept override;
-    ResourceCreationInfo instantiate(GraphHandle graph, InstantiateFlag flags) noexcept override;
+    ResourceCreationInfo _instantiate(GraphHandle graph, InstantiateFlag flags) noexcept override;
     void destroy_exec(GraphExecHandle exec) noexcept override;
     void launch(GraphExecHandle exec, uint64_t stream_handle) noexcept override;
     void upload(GraphExecHandle exec, uint64_t stream_handle) noexcept override;

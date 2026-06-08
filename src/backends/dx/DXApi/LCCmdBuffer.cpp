@@ -165,9 +165,14 @@ public:
                     LUISA_ASSERT(res->get_tag() == Resource::Tag::UploadBuffer, "Only upload-buffer allowed as shader's resource.");
                 }
             }
-            // Emplace buffer validation size when debug info is enabled
+            // Emplace buffer validation size (element count) when debug info is enabled
             if (bf.handle != 0 && validation_count > 0) {
-                self->emplace_data(static_cast<uint>(bf.size), /*alignment=*/4);
+                auto element_size = arg->struct_size;
+                if (element_size > 0) {
+                    self->emplace_data(static_cast<uint>(bf.size / element_size), /*alignment=*/4);
+                } else {
+                    self->emplace_data(static_cast<uint>(bf.size), /*alignment=*/4);
+                }
             }
             ++arg;
         }

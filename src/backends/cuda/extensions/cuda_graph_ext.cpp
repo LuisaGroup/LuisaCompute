@@ -58,7 +58,7 @@ CUgraphNode CudaGraphExtImpl::_get_node(GraphExecHandle exec, size_t node_index)
     return git->second.nodes[node_index];
 }
 
-ResourceCreationInfo CudaGraphExtImpl::create_graph(CommandList &&cmdlist) noexcept {
+ResourceCreationInfo CudaGraphExtImpl::_create_graph(CommandList &&cmdlist) noexcept {
     if (cmdlist.empty()) { return {invalid_handle, nullptr}; }
 
     return _device->with_handle([&]() -> ResourceCreationInfo {
@@ -275,7 +275,7 @@ void CudaGraphExtImpl::destroy_graph(GraphHandle graph) noexcept {
     });
 }
 
-ResourceCreationInfo CudaGraphExtImpl::instantiate(GraphHandle graph, InstantiateFlag flags) noexcept {
+ResourceCreationInfo CudaGraphExtImpl::_instantiate(GraphHandle graph, InstantiateFlag flags) noexcept {
     if (graph == invalid_handle) { return {invalid_handle, nullptr}; }
     return _device->with_handle([&]() -> ResourceCreationInfo {
         CUgraphExec exec = nullptr;
@@ -339,7 +339,7 @@ void CudaGraphExtImpl::upload(GraphExecHandle exec, uint64_t stream_handle) noex
 bool CudaGraphExtImpl::update(GraphExecHandle exec, CommandList &&cmdlist) noexcept {
     if (exec == invalid_handle || cmdlist.empty()) { return false; }
     return _device->with_handle([&] {
-        auto new_graph_info = create_graph(std::move(cmdlist));
+        auto new_graph_info = _create_graph(std::move(cmdlist));
         if (new_graph_info.handle == invalid_handle) { return false; }
 
         CUgraphExecUpdateResultInfo result_info{};

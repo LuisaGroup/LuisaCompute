@@ -17,6 +17,28 @@ struct CudaGraphUpload {
     uint64_t handle;
     void operator()(DeviceInterface *device, uint64_t stream_handle) const && noexcept;
 };
+class CudaGraphExt;
+class CudaGraphInstance {
+    CudaGraphExt *_ext;
+    ResourceCreationInfo _resource_info;
+public:
+    explicit CudaGraphInstance(CudaGraphExt *ext, ResourceCreationInfo const &resource_info) noexcept
+        : _ext{ext}, _resource_info{resource_info} {}
+    ~CudaGraphInstance() noexcept;
+    [[nodiscard]] ResourceCreationInfo release() noexcept;
+    [[nodiscard]] ResourceCreationInfo const &handle() const noexcept { return _resource_info; }
+};
+
+class CudaGraphExecInstance {
+    CudaGraphExt *_ext;
+    ResourceCreationInfo _resource_info;
+public:
+    explicit CudaGraphExecInstance(CudaGraphExt *ext, ResourceCreationInfo const &resource_info) noexcept
+        : _ext{ext}, _resource_info{resource_info} {}
+    ~CudaGraphExecInstance() noexcept;
+    [[nodiscard]] ResourceCreationInfo release() noexcept;
+    [[nodiscard]] ResourceCreationInfo const &handle() const noexcept { return _resource_info; }
+};
 
 class CudaGraphExt : public DeviceExtension {
 
@@ -37,14 +59,24 @@ public:
     // -- Lifecycle --
 
     /// Capture a CommandList into a CUDA graph via stream capture.
-    [[nodiscard]] virtual ResourceCreationInfo create_graph(CommandList &&cmdlist) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo _create_graph(CommandList &&cmdlist) noexcept = 0;
+    [[nodiscard]] CudaGraphInstance create_graph(CommandList &&cmdlist) {
+        return CudaGraphInstance{this, _create_graph(std::move(cmdlist))};
+    }
 
     virtual void destroy_graph(GraphHandle graph) noexcept = 0;
 
     /// @param flags OR of InstantiateFlag.
-    [[nodiscard]] virtual ResourceCreationInfo instantiate(GraphHandle graph, InstantiateFlag flags) noexcept = 0;
+    [[nodiscard]] virtual ResourceCreationInfo _instantiate(GraphHandle graph, InstantiateFlag flags) noexcept = 0;
 
-    [[nodiscard]] ResourceCreationInfo instantiate(GraphHandle graph) noexcept {
+    [[nodiscard]] ResourceCreationInfo _instantiate(GraphHandle graph) noexcept {
+        return _instantiate(graph, InstantiateFlag::INSTANTIATE_DEFAULT);
+    }
+
+    [[nodiscard]] CudaGraphExecInstance instantiate(GraphHandle graph, InstantiateFlag flags) {
+        return CudaGraphExecInstance{this, _instantiate(graph, flags)};
+    }
+    [[nodiscard]] CudaGraphExecInstance instantiate(GraphHandle graph) {
         return instantiate(graph, InstantiateFlag::INSTANTIATE_DEFAULT);
     }
 
@@ -116,6 +148,30 @@ inline void CudaGraphLaunch::operator()(DeviceInterface *device, uint64_t stream
     auto *ext = static_cast<CudaGraphExt *>(device->extension(CudaGraphExt::name));
     LUISA_ASSERT(ext, "CudaGraphExt not available on this device.");
     ext->launch(handle, stream_handle);
+}
+
+inline CudaGraphInstance::~CudaGraphInstance() noexcept {
+    if (_resource_info.handle != CudaGraphExt::invalid_handle) {
+        _ext->destroy_graph(_resource_info.handle);
+    }
+}
+
+inline ResourceCreationInfo CudaGraphInstance::release() noexcept {
+    auto info = _resource_info;
+    _resource_info = {CudaGraphExt::invalid_handle, nullptr};
+    return info;
+}
+
+inline CudaGraphExecInstance::~CudaGraphExecInstance() noexcept {
+    if (_resource_info.handle != CudaGraphExt::invalid_handle) {
+        _ext->destroy_exec(_resource_info.handle);
+    }
+}
+
+inline ResourceCreationInfo CudaGraphExecInstance::release() noexcept {
+    auto info = _resource_info;
+    _resource_info = {CudaGraphExt::invalid_handle, nullptr};
+    return info;
 }
 
 }// namespace luisa::compute

@@ -41,27 +41,27 @@ float16_t4 _Mul(float16_t4x4 b,float16_t4 a){return mul(a,b);}
 float16_t3 _Mul(float16_t3x4 b,float16_t3 a){return mul(a,b).xyz;}
 float16_t2 _Mul(float16_t2x2 b,float16_t2 a){return mul(a,b);}
 #ifdef LUISA_DEBUG_INFO
-	#define _bfreadMat(bf,idx,vid) (((idx) < _Global[0]._validate_##vid) ? bf[idx].m : (bf[0].m * 0))
+	#define _bfreadMat(bf,idx,vid) (((idx) < _Global[0]._validate_##vid) ? bf[idx].m : (bf[0].m * 0) - 1)
 	#define _bfwriteMat(bf,idx,value,vid) { if ((idx) < _Global[0]._validate_##vid) { bf[idx].m = value; } }
 	// Volatile and byte-buffer matrix macros use template functions below (unchanged for debug)
 #else
 	#define _bfreadMat(bf,idx) bf[idx].m
 	#define _bfwriteMat(bf,idx,value) bf[idx].m=value
 #endif
-	template<typename T,typename BufferType>
-	T _volatile_bfreadMat(BufferType b,uint idx){
-	DeviceMemoryBarrier();
-	return b[idx].m;
-	}
-	template<typename BufferElem,typename T,typename BufferType>
-	T _volatile_bytebfreadMat(BufferType b,uint idx){
-	DeviceMemoryBarrier();
-	return b.template Load<BufferElem>(idx).m;
-	}
-	#define _volatile_bfwriteMat(bf,idx,value) {bf[idx].m=value; DeviceMemoryBarrier();}
-	#define _bytebfreadMat(bf,type,idx) bf.template Load<type>(idx).m
-	#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}
-	#define _volatile_bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);DeviceMemoryBarrier();}
+template<typename T,typename BufferType>
+T _volatile_bfreadMat(BufferType b,uint idx){
+DeviceMemoryBarrier();
+return b[idx].m;
+}
+template<typename BufferElem,typename T,typename BufferType>
+T _volatile_bytebfreadMat(BufferType b,uint idx){
+DeviceMemoryBarrier();
+return b.template Load<BufferElem>(idx).m;
+}
+#define _volatile_bfwriteMat(bf,idx,value) {bf[idx].m=value; DeviceMemoryBarrier();}
+#define _bytebfreadMat(bf,type,idx) bf.template Load<type>(idx).m
+#define _bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);}
+#define _volatile_bytebfwriteMat(bf,type,idx,value) {type _tempm;_tempm.m=value;bf.template Store<type>(idx,_tempm);DeviceMemoryBarrier();}
 struct _wfloat3 {float3 v; float a;};
 struct _wfloat16_t3 {float16_t3 v; float16_t a;};
 struct _wfloat64_t3 {float64_t3 v; float64_t a;};
@@ -71,19 +71,19 @@ struct _wuint64_t3 {uint64_t3 v; uint64_t a;};
 struct _wint3 {int3 v; int a;};
 struct _wint16_t3 {int16_t3 v; int16_t a;};
 struct _wint64_t3 {int64_t3 v; int64_t a;};
-	struct _WrappedFloat2x2 {float2x2 m;};
-	struct _WrappedFloat3x3 {
-	float3x4 m;
-	};
-	struct _WrappedFloat4x4 {
-	float4x4 m;
-	};
+struct _WrappedFloat2x2 {float2x2 m;};
+struct _WrappedFloat3x3 {
+float3x4 m;
+};
+struct _WrappedFloat4x4 {
+float4x4 m;
+};
 #ifdef LUISA_DEBUG_INFO
 // Debug: range-checked buffer read/write macros with validate index
 #define _bfread(bf,idx,vid) \
-    (((idx) < _Global[0]._validate_##vid) ? bf[idx] : (bf[0] * 0))
+    (((idx) < _Global[0]._validate_##vid) ? bf[idx] : (bf[0] * 0) - 1)
 #define _bfreadVec3(bf,idx,vid) \
-    (((idx) < _Global[0]._validate_##vid) ? bf[idx].xyz : (bf[0].xyz * 0))
+    (((idx) < _Global[0]._validate_##vid) ? bf[idx].xyz : (bf[0].xyz * 0) - 1)
 #define _bfwrite(bf,idx,value,vid) \
     { if ((idx) < _Global[0]._validate_##vid) { bf[idx] = value; } }
 #define _bfwriteVec3(bf,idx,value,type,vid) \
@@ -120,9 +120,9 @@ return b.template Load<BufferElem>(idx).xyz;
 #define _volatile_bfwriteVec3(bf,idx,value,type) {bf[idx]=type##4(value,0); DeviceMemoryBarrier();}
 #ifdef LUISA_DEBUG_INFO
 #define _bytebfread(bf,type,idx,vid) \
-    (((idx) < _Global[0]._validate_##vid) ? bf.template Load<type>(idx) : (bf.template Load<type>(0) * 0))
+    (((idx) < _Global[0]._validate_##vid) ? bf.template Load<type>(idx) : (bf.template Load<type>(0) * 0) - 1)
 #define _bytebfreadVec3(bf,type,idx,vid) \
-    (((idx) < _Global[0]._validate_##vid) ? bf.template Load<type##4>(idx).xyz : (bf.template Load<type##4>(0).xyz * 0))
+    (((idx) < _Global[0]._validate_##vid) ? bf.template Load<type##4>(idx).xyz : (bf.template Load<type##4>(0).xyz * 0) - 1)
 #define _bytebfwrite(bf,idx,value,vid) \
     { if ((idx) < _Global[0]._validate_##vid) { bf.Store(idx, value); } }
 #define _bytebfwriteVec3(bf,type,idx,value,vid) \

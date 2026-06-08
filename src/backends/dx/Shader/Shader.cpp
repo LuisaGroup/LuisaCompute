@@ -19,8 +19,15 @@ SavedArgument::SavedArgument(Function kernel, Variable const &var)
     var_usage = kernel.variable_usage(var.uid());
 }
 SavedArgument::SavedArgument(Type const *type) {
-    if (luisa::to_underlying(type->tag()) < luisa::to_underlying(Type::Tag::BUFFER)) {
-        struct_size = type->size();
+    tag = type->tag();
+    if (type->tag() == Type::Tag::BUFFER) {
+        if (auto ele = type->element()) {
+            struct_size = static_cast<uint>(ele->size());
+        } else {
+            struct_size = 1u;// byte buffer
+        }
+    } else if (luisa::to_underlying(type->tag()) < luisa::to_underlying(Type::Tag::BUFFER)) {
+        struct_size = static_cast<uint>(type->size());
     }
 }
 

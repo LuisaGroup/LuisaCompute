@@ -21,7 +21,7 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-// Test 1: Buffer read OOB returns zero
+// Test 1: Buffer read OOB returns sentinel value
 static void test_buffer_read_oob(Device &device) {
     constexpr uint n = 4u;
     Buffer<float> buf = device.create_buffer<float>(n);
@@ -43,7 +43,7 @@ static void test_buffer_read_oob(Device &device) {
     stream << result.copy_to(luisa::span{res});
     stream << synchronize();
 
-    expect(static_cast<bool>(res[0] == 0.0f));
+    expect(static_cast<bool>(res[0] == -1.0f));
 }
 
 // Test 2: Buffer write OOB does not corrupt valid data
@@ -76,7 +76,7 @@ static void test_buffer_write_oob(Device &device) {
     }
 }
 
-// Test 3: Volatile buffer read OOB returns zero
+// Test 3: Volatile buffer read OOB returns sentinel value
 static void test_volatile_buffer_read_oob(Device &device) {
     constexpr uint n = 4u;
     Buffer<float> buf = device.create_buffer<float>(n);
@@ -98,10 +98,10 @@ static void test_volatile_buffer_read_oob(Device &device) {
     stream << result.copy_to(luisa::span{res});
     stream << synchronize();
 
-    expect(static_cast<bool>(res[0] == 0.0f));
+    expect(static_cast<bool>(res[0] == -1.0f));
 }
 
-// Test 4: Bindless buffer read OOB returns zero
+// Test 4: Bindless buffer read OOB returns sentinel value
 static void test_bindless_buffer_read_oob(Device &device) {
     constexpr uint buf_size = 4u;
     Buffer<float> buf0 = device.create_buffer<float>(buf_size);
@@ -128,7 +128,7 @@ static void test_bindless_buffer_read_oob(Device &device) {
     stream << result.copy_to(luisa::span{res});
     stream << synchronize();
 
-    expect(static_cast<bool>(res[0] == 0.0f));
+    expect(static_cast<bool>(res[0] == -1.0f));
 }
 
 // Test 5: Buffer read valid (sanity check)
