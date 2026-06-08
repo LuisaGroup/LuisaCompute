@@ -6,6 +6,7 @@
 #include <luisa/xir/instruction.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/instructions/cast.h>
+#include <luisa/xir/instructions/resource.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/early_cse.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -107,6 +108,8 @@ struct InstKeyHash {
         key.sub_op = static_cast<uint64_t>(static_cast<const ArithmeticInst *>(inst)->op());
     } else if (key.tag == DerivedInstructionTag::CAST) {
         key.sub_op = static_cast<uint64_t>(static_cast<const CastInst *>(inst)->op());
+    } else if (key.tag == DerivedInstructionTag::RESOURCE_QUERY) {
+        key.sub_op = static_cast<uint64_t>(static_cast<const ResourceQueryInst *>(inst)->op());
     }
     return key;
 }
