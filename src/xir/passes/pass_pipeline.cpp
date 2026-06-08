@@ -350,6 +350,14 @@ PassPipeline create_ssa_optimization_pipeline(OptimizationPipelineOptions option
 PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOptions options) noexcept {
     auto alg_opts = AlgebraicSimplifyOptions{.enable_fast_math = options.enable_fast_math};
     PassPipeline p;
+    p.add("const-fold", [](Module *m, PassReport &r) {
+        auto i = const_fold_pass_run_on_module(m, &r);
+        return i.folded_inst_count > 0u;
+    });
+    p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
+        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
+        return i.simplified_inst_count > 0u;
+    });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
@@ -369,14 +377,6 @@ PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOption
     p.add("gvn", [](Module *m, PassReport &r) {
         auto i = gvn_pass_run_on_module(m, &r);
         return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
-    });
-    p.add("algebraic-simplify", [alg_opts](Module *m, PassReport &r) {
-        auto i = algebraic_simplify_pass_run_on_module(m, alg_opts, &r);
-        return i.simplified_inst_count > 0u;
-    });
-    p.add("const-fold", [](Module *m, PassReport &r) {
-        auto i = const_fold_pass_run_on_module(m, &r);
-        return i.folded_inst_count > 0u;
     });
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
