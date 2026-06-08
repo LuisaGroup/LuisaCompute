@@ -115,10 +115,10 @@ struct GVNState {
         case DerivedInstructionTag::RESOURCE_QUERY:
             return true;
         case DerivedInstructionTag::CALL: {
-            auto call = static_cast<CallInst *>(inst);
-            auto callee = call->callee();
-            if (callee == nullptr || callee->is_definition()) return false;
-            return true;
+            // Only value-number calls that are guaranteed pure.
+            // Without function attribute analysis, conservatively
+            // skip all calls to avoid unsound CSE of impure calls.
+            return false;
         }
         // RAY_QUERY_OBJECT_READ reads mutable per-thread state that changes
         // after PROCEED/COMMIT/TERMINATE — not safe to value-number.
