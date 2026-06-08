@@ -81,8 +81,10 @@ struct InstructionMemoryInfo {
         case DerivedInstructionTag::CAST:
         case DerivedInstructionTag::GEP:
         case DerivedInstructionTag::PHI:
-        case DerivedInstructionTag::CLOCK:
             return {MemoryScope::NONE, MemoryEffects::NONE, false};
+        case DerivedInstructionTag::CLOCK:
+            // Hardware timer read — not pure, not loop-invariant.
+            return {MemoryScope::GLOBAL, MemoryEffects::READ, false};
         case DerivedInstructionTag::RESOURCE_QUERY:
             return {MemoryScope::GLOBAL, MemoryEffects::NONE, false};
         case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:

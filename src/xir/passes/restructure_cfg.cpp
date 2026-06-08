@@ -1576,8 +1576,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
             bool local = false;
             if (add_header_to_remaining_divergent(def, dom, pdom, info)) {
                 local = true;
-                dom = compute_dom_tree(def);
-                pdom = compute_post_dom(def);
+                // dom/pdom already recomputed internally by add_header_to_remaining_divergent.
             }
             if (fixup_construct_exits(def, dom, pdom)) {
                 local = true;

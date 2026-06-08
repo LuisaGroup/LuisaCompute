@@ -347,11 +347,11 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
     bool changed = true;
     while (changed) {
         changed = false;
-        if (detail::fold_constant_cond_br(def, info)) changed = true;
-        if (detail::fold_switches(def, info)) changed = true;
-        if (detail::thread_empty_blocks(def, info)) changed = true;
-        if (detail::merge_straight_line_blocks(def, info)) changed = true;
-        if (detail::remove_unreachable_blocks(def, info)) changed = true;
+        if (detail::fold_constant_cond_br(def, info)) { continue; }
+        if (detail::fold_switches(def, info)) { continue; }
+        if (detail::thread_empty_blocks(def, info)) { continue; }
+        if (detail::merge_straight_line_blocks(def, info)) { continue; }
+        if (detail::remove_unreachable_blocks(def, info)) { continue; }
     }
     return info;
 }

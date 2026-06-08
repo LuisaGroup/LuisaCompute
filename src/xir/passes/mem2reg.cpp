@@ -14,16 +14,14 @@ namespace luisa::compute::xir {
 namespace detail {
 
 [[nodiscard]] static bool is_alloca_promotable(AllocaInst *inst) noexcept {
-    // check if it's a local variable
     if (inst->op() != AllocaOp::LOCAL) { return false; }
-    // check if it's used as reference in other instructions than load/store
-    // (transpose_gep_pass should have eliminated all GEPs before mem2reg)
     for (auto &&use : inst->use_list()) {
         LUISA_DEBUG_ASSERT(use->user() != nullptr && use->user()->isa<Instruction>(), "Invalid user.");
-        if (auto user_inst = static_cast<Instruction *>(use->user());
-            !user_inst->isa<LoadInst>() && !user_inst->isa<StoreInst>()) {
-            return false;
-        }
+        auto user_inst = static_cast<Instruction *>(use->user());
+        if (user_inst->isa<LoadInst>()) { continue; }
+        if (!user_inst->isa<StoreInst>()) { return false; }
+        // Reject allocas whose pointer value escapes via being stored.
+        if (static_cast<StoreInst *>(user_inst)->value() == inst) { return false; }
     }
     return true;
 }
