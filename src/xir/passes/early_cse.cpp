@@ -4,6 +4,8 @@
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instruction.h>
+#include <luisa/xir/instructions/arithmetic.h>
+#include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/early_cse.h>
 #include <luisa/xir/passes/pass_pipeline.h>
@@ -16,9 +18,11 @@ struct InstKey {
     DerivedInstructionTag tag;
     luisa::vector<const Value *> operands;
     const Type *type;
+    uint64_t sub_op{0};
 
     bool operator==(const InstKey &other) const noexcept {
-        if (tag != other.tag || type != other.type || operands.size() != other.operands.size()) {
+        if (tag != other.tag || type != other.type || sub_op != other.sub_op ||
+            operands.size() != other.operands.size()) {
             return false;
         }
         for (size_t i = 0; i < operands.size(); ++i) {
@@ -30,7 +34,8 @@ struct InstKey {
 
 struct InstKeyHash {
     size_t operator()(const InstKey &key) const noexcept {
-        uint64_t h = static_cast<uint64_t>(key.tag);
+        uint64_t h = key.sub_op;
+        h = luisa::hash_combine({h, static_cast<uint64_t>(key.tag)});
         h = luisa::hash_combine({h, reinterpret_cast<uint64_t>(key.type)});
         for (auto *op : key.operands) {
             h = luisa::hash_combine({h, reinterpret_cast<uint64_t>(op)});
@@ -42,24 +47,48 @@ struct InstKeyHash {
 [[nodiscard]] bool is_side_effect_free(const Instruction *inst) noexcept {
     auto tag = inst->derived_instruction_tag();
     switch (tag) {
-        case DerivedInstructionTag::CALL:
+        // Control flow terminators — cannot CSE
+        case DerivedInstructionTag::IF:
+        case DerivedInstructionTag::SWITCH:
+        case DerivedInstructionTag::LOOP:
+        case DerivedInstructionTag::SIMPLE_LOOP:
+        case DerivedInstructionTag::BRANCH:
+        case DerivedInstructionTag::CONDITIONAL_BRANCH:
+        case DerivedInstructionTag::UNREACHABLE:
+        case DerivedInstructionTag::BREAK:
+        case DerivedInstructionTag::CONTINUE:
+        case DerivedInstructionTag::RETURN:
+        case DerivedInstructionTag::RASTER_DISCARD:
+        // Memory & synchronization — cannot CSE
+        case DerivedInstructionTag::PHI:
+        case DerivedInstructionTag::ALLOCA:
         case DerivedInstructionTag::LOAD:
         case DerivedInstructionTag::STORE:
         case DerivedInstructionTag::ATOMIC:
-        case DerivedInstructionTag::ALLOCA:
-        case DerivedInstructionTag::BRANCH:
-        case DerivedInstructionTag::CONDITIONAL_BRANCH:
-        case DerivedInstructionTag::SWITCH:
-        case DerivedInstructionTag::RETURN:
-        case DerivedInstructionTag::UNREACHABLE:
-        case DerivedInstructionTag::LOOP:
-        case DerivedInstructionTag::SIMPLE_LOOP:
-        case DerivedInstructionTag::IF:
-        case DerivedInstructionTag::BREAK:
-        case DerivedInstructionTag::CONTINUE:
-        case DerivedInstructionTag::RASTER_DISCARD:
-        case DerivedInstructionTag::PHI:
+        case DerivedInstructionTag::THREAD_GROUP:
+        // Resource access — has side effects
+        case DerivedInstructionTag::RESOURCE_READ:
+        case DerivedInstructionTag::RESOURCE_WRITE:
+        // Ray query — has side effects
+        case DerivedInstructionTag::RAY_QUERY_LOOP:
+        case DerivedInstructionTag::RAY_QUERY_DISPATCH:
+        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ:
+        case DerivedInstructionTag::RAY_QUERY_OBJECT_WRITE:
+        case DerivedInstructionTag::RAY_QUERY_PIPELINE:
+        // Autodiff — has side effects
+        case DerivedInstructionTag::AUTODIFF_SCOPE:
+        case DerivedInstructionTag::AUTODIFF_INTRINSIC:
+        // Calls, I/O, debug — cannot CSE
+        case DerivedInstructionTag::CALL:
+        case DerivedInstructionTag::PRINT:
+        case DerivedInstructionTag::CLOCK:
+        case DerivedInstructionTag::DEBUG_BREAK:
+        case DerivedInstructionTag::ASSERT:
+        case DerivedInstructionTag::ASSUME:
+        case DerivedInstructionTag::OUTLINE:
             return false;
+        // Pure instructions — safe to CSE
+        // ARITHMETIC, CAST, GEP, RESOURCE_QUERY
         default:
             return true;
     }
@@ -72,6 +101,12 @@ struct InstKeyHash {
     key.operands.reserve(inst->operand_count());
     for (size_t i = 0; i < inst->operand_count(); ++i) {
         key.operands.push_back(inst->operand(i));
+    }
+    // Capture instruction sub-op (e.g., ADD vs MUL for arithmetic).
+    if (key.tag == DerivedInstructionTag::ARITHMETIC) {
+        key.sub_op = static_cast<uint64_t>(static_cast<const ArithmeticInst *>(inst)->op());
+    } else if (key.tag == DerivedInstructionTag::CAST) {
+        key.sub_op = static_cast<uint64_t>(static_cast<const CastInst *>(inst)->op());
     }
     return key;
 }
