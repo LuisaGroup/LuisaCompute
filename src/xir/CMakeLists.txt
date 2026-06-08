@@ -58,6 +58,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         translators/xir2text.cpp
 
         # passes
+        passes/early_cse.cpp
         passes/helpers.cpp
         passes/dce.cpp
         passes/uniformity_analysis.cpp
