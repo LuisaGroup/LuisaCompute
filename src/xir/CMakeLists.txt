@@ -79,6 +79,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/local_load_elimination.cpp
         passes/lower_ray_query_loop.cpp
         passes/lower_ray_query_loop_to_loop.cpp
+        passes/lower_switch.cpp
         passes/mem2reg.cpp
         passes/autodiff.cpp
         passes/transpose_gep.cpp
