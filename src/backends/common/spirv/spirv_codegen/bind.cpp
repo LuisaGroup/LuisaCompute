@@ -157,13 +157,10 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
     vstd::vector<const Type *> buffer_elem_types;
     vstd::vector<luisa::string> buffer_names;  // per-property variable names
 
-    // Push constant / constant value at space=0 (fixed position, does not consume register slot)
-    _properties.emplace_back(
-        Property{
-            ShaderVariableType::ConstantValue,
-            0,
-            0,
-            1});
+    // Push constant at space=0 reg=0 — does NOT go into _properties to avoid creating
+    // a descriptor set layout binding (push constants are handled via vkCmdPushConstants).
+    // The ConstantValue property is added only to buffer_elem_types/buffer_names for
+    // correlation with _property_ids[0] in emit.cpp.
     buffer_elem_types.push_back(nullptr);
     buffer_names.emplace_back("dsp_c");
 
@@ -471,21 +468,26 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
         return {sampled_type, dim};
     };
 
+
+    // Create push constant variable first (always at _property_ids[0])
+    {
+        auto uint_type = _builder.makeUintType(32);
+        auto uint4_type = _builder.makeVectorType(uint_type, 4);
+        auto struct_type = _builder.makeStructType({uint4_type}, {}, "_PushConstant", false);
+        _builder.addDecoration(struct_type, spv::Decoration::Block);
+        _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
+        auto var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::PushConstant, struct_type, "dsp_c");
+        _property_ids.emplace_back(var);
+    }
+
     for (size_t i = 0; i < _properties.size(); ++i) {
         auto &&prop = _properties[i];
-        auto elem_type = buffer_elem_types[i];
-        auto var_name = i < buffer_names.size() ? buffer_names[i].c_str() : "resource";
+        // buffer_elem_types and buffer_names still include the push constant at index 0,
+        // so offset by 1 to match _properties (which no longer includes ConstantValue).
+        auto elem_type = buffer_elem_types[i + 1];
+        auto var_name = (i + 1) < buffer_names.size() ? buffer_names[i + 1].c_str() : "resource";
         spv::Id var = spv::NoResult;
         switch (prop.type) {
-            case ShaderVariableType::ConstantValue: {
-                auto uint_type = _builder.makeUintType(32);
-                auto uint4_type = _builder.makeVectorType(uint_type, 4);
-                auto struct_type = _builder.makeStructType({uint4_type}, {}, "_PushConstant", false);
-                _builder.addDecoration(struct_type, spv::Decoration::Block);
-                _builder.addMemberDecoration(struct_type, 0, spv::Decoration::Offset, 0);
-                var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::PushConstant, struct_type, var_name);
-                break;
-            }
             case ShaderVariableType::ConstantBuffer: {
                 var = _constant_ubo_var;
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));

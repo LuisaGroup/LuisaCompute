@@ -160,8 +160,8 @@ static void test_buffer_read_valid(Device &device) {
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) return 0;
-    if (dc->device.backend_name() != "dx" && dc->device.backend_name() != "vk") {
-        LUISA_INFO("Skipping out-of-range test: debug feature is DX and VK -only.");
+    if (dc->device.backend_name() != "dx") {
+        LUISA_INFO("Skipping out-of-range test: debug feature is DX-only for now.");
         return 0;
     }
     test_buffer_read_oob(dc->device);

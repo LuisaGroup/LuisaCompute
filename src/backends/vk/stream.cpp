@@ -1443,12 +1443,12 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                     device()->logic_device(),
                     &alloc_info,
                     &visitor.desc_set));
-            if (offset_ptr->second > 0) {
+            if (offset_ptr->second > 0 || shader->validation_count() > 0) {
                 auto arg_buffer_info = temp_desc->allocate_memory<VkDescriptorBufferInfo>();
                 *arg_buffer_info = VkDescriptorBufferInfo{
                     arg_buffer.buffer->vk_buffer(),
                     arg_buffer.offset + offset_ptr->first,
-                    offset_ptr->second};
+                    offset_ptr->second + shader->validation_count() * sizeof(uint)};
                 write_desc_sets->emplace_back(VkWriteDescriptorSet{
                     VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                     nullptr,
