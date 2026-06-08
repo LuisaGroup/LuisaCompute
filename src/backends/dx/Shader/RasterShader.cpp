@@ -48,8 +48,9 @@ RasterShader::RasterShader(
     ComPtr<ID3D12RootSignature> &&root_sig,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     vstd::vector<std::byte> &&vert_bin_data,
-    vstd::vector<std::byte> &&pixel_bin_data)
-    : Shader(std::move(prop), std::move(args), std::move(root_sig), std::move(printers)), _device(device), _md5{md5},
+    vstd::vector<std::byte> &&pixel_bin_data,
+    uint validation_count)
+    : Shader(std::move(prop), std::move(args), std::move(root_sig), std::move(printers), validation_count), _device(device), _md5{md5},
       _vert_bin_data{std::move(vert_bin_data)}, _pixel_bin_data{std::move(pixel_bin_data)} {
 }
 void RasterShader::get_mesh_format_state(
@@ -94,8 +95,9 @@ RasterShader::RasterShader(
     vstd::vector<SavedArgument> &&args,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     vstd::vector<std::byte> &&vert_bin_data,
-    vstd::vector<std::byte> &&pixel_bin_data)
-    : Shader(std::move(prop), std::move(args), device->device.Get(), std::move(printers), true),
+    vstd::vector<std::byte> &&pixel_bin_data,
+    uint validation_count)
+    : Shader(std::move(prop), std::move(args), device->device.Get(), std::move(printers), validation_count, true),
       _device(device), _md5{md5},
       _vert_bin_data{std::move(vert_bin_data)}, _pixel_bin_data{std::move(pixel_bin_data)} {
 }
@@ -318,6 +320,7 @@ RasterShader *RasterShader::compile_raster(
             auto serData = ShaderSerializer::RasterSerialize(
                 str.properties,
                 kernelArgs, vertBin, pixelBin, md5, str.typeMD5, bdlsBufferCount,
+                str.validation_count,
                 str.printers);
             write_binary_io(cacheType, file_io, fileName, {reinterpret_cast<std::byte const *>(serData.data()), luisa::size_bytes(serData)});
         }
@@ -329,7 +332,8 @@ RasterShader *RasterShader::compile_raster(
             std::move(kernelArgs),
             std::move(str.printers),
             std::move(vertBin),
-            std::move(pixelBin));
+            std::move(pixelBin),
+            str.validation_count);
         s->_bindless_count = bdlsBufferCount;
         return s;
     };
@@ -397,6 +401,7 @@ void RasterShader::save_raster(
             result.properties,
             kernelArgs,
             vertBin, pixelBin, md5, result.typeMD5, bdlsBufferCount,
+            result.validation_count,
             result.printers);
         static_cast<void>(file_io->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(serData.data()), luisa::size_bytes(serData)}));
     } else {

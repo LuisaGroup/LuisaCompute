@@ -26,6 +26,7 @@ struct CodegenResult {
     bool useTex2DBindless;
     bool useTex3DBindless;
     bool useBufferBindless;
+    uint32_t validation_count;// resource size count when debug mode enabled
     uint64 immutableHeaderSize = 0;
     vstd::MD5 typeMD5;
     CodegenResult() {}
@@ -36,8 +37,9 @@ struct CodegenResult {
         bool useTex2DBindless,
         bool useTex3DBindless,
         bool useBufferBindless,
+        uint32_t validation_count,
         uint64 immutableHeaderSize,
-        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), printers(std::move(printers)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, useBufferBindless{useBufferBindless}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
+        vstd::MD5 typeMD5) : result(std::move(result)), properties(std::move(properties)), printers(std::move(printers)), useTex2DBindless{useTex2DBindless}, useTex3DBindless{useTex3DBindless}, useBufferBindless{useBufferBindless}, validation_count{validation_count}, immutableHeaderSize(immutableHeaderSize), typeMD5(typeMD5) {}
     CodegenResult(CodegenResult const &) = delete;
     CodegenResult(CodegenResult &&) = default;
 };
@@ -74,7 +76,10 @@ public:
 
     void GenerateCBuffer(
         std::initializer_list<vstd::IRange<Variable> *> f,
-        vstd::StringBuilder &result);
+        vstd::StringBuilder &result,
+        bool generate_debug_info,
+        uint &validation_count,
+        vstd::span<const uint64_t> func_hashes = {});
     void GenerateBindless(
         CodegenResult::Properties &properties,
         vstd::StringBuilder &str,
@@ -93,15 +98,16 @@ public:
         uint offset,
         RegisterIndexer &registerCount,
         uint &bind_count);
-    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);
-    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false);
+    CodegenResult Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false);
+    CodegenResult RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister = false, bool enable_debug_info = false);
     CodegenResult RasterCodegen(
         Function vertFunc,
         Function pixelFunc,
         luisa::string_view native_code,
         uint custom_mask,
         bool isSpirV,
-        bool noRegister = false);
+        bool noRegister = false,
+        bool enable_debug_info = false);
     static vstd::string_view ReadInternalHLSLFile(vstd::string_view name);
     uint AddPrinter(vstd::string_view name, luisa::compute::Type const *structType);
     vstd::StringBuilder GetNewTempVarName();

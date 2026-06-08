@@ -1156,7 +1156,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             LUISA_ERROR("compile_only is not yet supported for motion blur shaders.");
         }
         // Use ray tracing pipeline for motion blur shaders
-        auto code = hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true);
+        auto code = hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
         vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
 
         vstd::string_view file_name;
@@ -1208,7 +1208,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 LUISA_VERBOSE("SPIRV printed to {}.", filename);
             }
             // Test HLSL
-            auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
+            auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
             auto f = fopen("hlsl_output.hlsl", "ab");
             if (f) {
                 fwrite(code.result.view().data(), code.result.view().size(), 1, f);
@@ -1276,7 +1276,7 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         }
 
 #else
-        auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
+        auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
         vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
         if (option.compile_only) {
             assert(!option.name.empty());

@@ -128,11 +128,13 @@ public:
         EnhancedBarrierTracker::Usage uav_usage;
         EnhancedBarrierTracker::Usage read_usage;
         EnhancedBarrierTracker::Usage accel_read_usage;
+        uint validation_count = 0;
         Visitor(
             LCPreProcessVisitor *self,
             SavedArgument const *arg,
             ShaderDispatchCommandBase const &cmd,
-            bool is_raster) : self(self), arg(arg), cmd(cmd) {
+            bool is_raster,
+            uint validation_count = 0) : self(self), arg(arg), cmd(cmd), validation_count(validation_count) {
             if (is_raster) {
                 uav_usage = EnhancedBarrierTracker::Usage::RasterUAV;
                 read_usage = EnhancedBarrierTracker::Usage::RasterRead;
@@ -162,6 +164,10 @@ public:
                 else {
                     LUISA_ASSERT(res->get_tag() == Resource::Tag::UploadBuffer, "Only upload-buffer allowed as shader's resource.");
                 }
+            }
+            // Emplace buffer validation size when debug info is enabled
+            if (bf.handle != 0 && validation_count > 0) {
+                self->emplace_data(static_cast<uint>(bf.size), /*alignment=*/4);
             }
             ++arg;
         }
@@ -208,6 +214,11 @@ public:
                 BufferView(arr->BindlessBuffer()),
                 read_usage);
             ++arg;
+            // Emplace bindless array validation size when debug info is enabled
+            if (bf.handle != 0 && validation_count > 0) {
+                auto arr = reinterpret_cast<BindlessArray *>(bf.handle);
+                self->emplace_data(static_cast<uint>(arr->size()), /*alignment=*/4);
+            }
         }
         void operator()(Argument::Uniform const &a) {
             auto bf = cmd.uniform(a);
@@ -356,7 +367,7 @@ public:
         auto cs = reinterpret_cast<ComputeShader *>(cmd->handle());
         uniform_align(32);
         size_t beforeSize = arg_buffer->size();
-        Visitor visitor{this, cs->args().data(), *cmd, false};
+        Visitor visitor{this, cs->args().data(), *cmd, false, cs->validation_count()};
         decode_cmd(cs->arg_bindings(), visitor);
         decode_cmd(cmd->arguments(), visitor);
         size_t afterSize = arg_buffer->size();
@@ -456,7 +467,7 @@ public:
         size_t beforeSize = arg_buffer->size();
         auto rtvs = cmd->rtv_texs();
         auto dsv = cmd->dsv_tex();
-        decode_cmd(cmd->arguments(), Visitor{this, cs->args().data(), *cmd, true});
+        decode_cmd(cmd->arguments(), Visitor{this, cs->args().data(), *cmd, true, cs->validation_count()});
         size_t afterSize = arg_buffer->size();
         arg_vecs->emplace_back(beforeSize, afterSize - beforeSize);
 
@@ -1257,14 +1268,22 @@ void LCCmdBuffer::Execute(
                     for (auto &&i : c->arguments()) {
                         add_size(*c, i);
                     }
+                    // Account for validation data (_validate_* fields) in cbuffer
+                    if (cs->validation_count() > 0) {
+                        uniform_size += cs->validation_count() * sizeof(uint);
+                    }
                 } break;
                 case Command::Tag::ECustomCommand: {
                     if (static_cast<CustomCommand const *>(command.get())->custom_cmd_uuid() ==
                         to_underlying(CustomCommandUUID::RASTER_DRAW_SCENE)) {
                         auto c = static_cast<DrawRasterSceneCommand const *>(command.get());
+                        auto rs = reinterpret_cast<RasterShader *>(c->handle());
                         uniform_size = CalcAlign(uniform_size, 32);
                         for (auto &&i : c->arguments()) {
                             add_size(*c, i);
+                        }
+                        if (rs->validation_count() > 0) {
+                            uniform_size += rs->validation_count() * sizeof(uint);
                         }
                     }
                 } break;

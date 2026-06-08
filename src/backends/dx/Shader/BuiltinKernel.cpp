@@ -38,7 +38,8 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         uint3(256, 1, 1),
         62,
         "set_accel4.dxil"sv,
-        CacheType::Internal, true, false);
+        CacheType::Internal, true, false,
+        0);
 }
 ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
     auto func = [&] {
@@ -76,7 +77,8 @@ ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
         uint3(256, 1, 1),
         62,
         "load_bdls.dxil"sv,
-        CacheType::Internal, true, false);
+        CacheType::Internal, true, false,
+        0);
 }
 namespace detail {
 static ComputeShader *_load_bc_kernel(
@@ -134,7 +136,8 @@ static ComputeShader *_load_bc_kernel(
         uint3(1, 1, 1),
         62,
         file_name,
-        CacheType::Internal, true, false);
+        CacheType::Internal, true, false,
+        0);
 }
 static vstd::string_view _bc6_header() {
     static auto bc6_header = hlsl::CodegenUtility::ReadInternalHLSLFile("bc6_header");

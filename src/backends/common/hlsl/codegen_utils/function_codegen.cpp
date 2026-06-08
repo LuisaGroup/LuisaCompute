@@ -473,6 +473,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             }
             str << '(';
             PrintArgs();
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
             str << ')';
             if (aliasStruct || floatToInt) {
                 str << ')';
@@ -501,6 +509,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             GetTypeName(*expr->type(), str, Usage::NONE);
             str << ">(";
             PrintArgs();
+            // Note: volatile reads use template functions (not macros), so we skip the debug vid
             str << ')';
             if (aliasStruct || floatToInt) {
                 str << ')';
@@ -509,7 +518,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::BUFFER_WRITE:
         case CallOp::BUFFER_VOLATILE_WRITE: {
-            if (expr->op() == CallOp::BUFFER_VOLATILE_WRITE) {
+            bool is_volatile = expr->op() == CallOp::BUFFER_VOLATILE_WRITE;
+            if (is_volatile) {
                 mark_coherent(args[0]);
                 str << "_volatile"sv;
             }
@@ -522,6 +532,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 PrintArgs();
                 str << ',';
                 GetTypeName(*elem->element(), str, Usage::NONE);
+                if (opt->enable_debug_info && !is_volatile) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                        str << ',' << luisa::format("{}", it->second);
+                    }
+                }
                 str << ')';
                 return;
             } else if (elem->is_matrix()) {
@@ -544,6 +562,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 str << ')';
             } else {
                 args.back()->accept(vis);
+            }
+            if (opt->enable_debug_info && !is_volatile) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
             }
             str << ')';
             return;
@@ -574,6 +600,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 args[0]->accept(vis);
                 str << ',';
                 args[1]->accept(vis);
+                // Note: volatile byte buffer reads use template functions, skip debug vid
                 str << ')';
 
             } else if (elem->is_matrix()) {
@@ -630,6 +657,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 GetTypeName(*elem->element(), str, Usage::NONE);
                 str << ',';
                 args[1]->accept(vis);
+                if (opt->enable_debug_info) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+                }
                 str << ')';
 
             } else if (elem->is_matrix()) {
@@ -649,6 +684,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 }
                 str << ',';
                 args[1]->accept(vis);
+                if (opt->enable_debug_info) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+                }
                 str << ')';
             } else {
                 str << '(';
@@ -661,6 +704,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 }
                 str << ',';
                 args[1]->accept(vis);
+                if (opt->enable_debug_info) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+                }
                 str << ')';
             }
             if (aliasStruct) {
@@ -670,7 +721,8 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
         }
         case CallOp::BYTE_BUFFER_WRITE:
         case CallOp::BYTE_BUFFER_VOLATILE_WRITE: {
-            if (expr->op() == CallOp::BYTE_BUFFER_VOLATILE_WRITE) {
+            bool is_volatile = expr->op() == CallOp::BYTE_BUFFER_VOLATILE_WRITE;
+            if (is_volatile) {
                 mark_coherent(args[0]);
                 str << "_volatile"sv;
             }
@@ -686,6 +738,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                 args[1]->accept(vis);
                 str << ',';
                 args[2]->accept(vis);
+                if (opt->enable_debug_info && !is_volatile) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                        str << ',' << luisa::format("{}", it->second);
+                    }
+                }
                 str << ')';
                 return;
             } else if (elem->is_matrix()) {
@@ -713,6 +773,14 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
                     str << ')';
                 } else {
                     args[2]->accept(vis);
+                }
+                if (opt->enable_debug_info && !is_volatile) {
+                    auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                    uint64_t func_hash = vis.f.hash();
+                    auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                    if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                        str << ',' << luisa::format("{}", it->second);
+                    }
                 }
                 str << ')';
                 return;
@@ -811,7 +879,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -835,7 +912,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -872,7 +958,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -896,7 +991,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -933,7 +1037,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -957,7 +1070,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -994,7 +1116,16 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             } else {
                 GetTypeName(*expr->type(), str, Usage::READ, true);
             }
-            str << ",bdls)"sv;
+            str << ",bdls"sv;
+            if (opt->enable_debug_info) {
+                auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+                uint64_t func_hash = vis.f.hash();
+                auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+                if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                    str << ',' << luisa::format("{}", it->second);
+                }
+            }
+            str << ')';
             if (aliasStruct) {
                 str << ')';
             }
@@ -1792,6 +1923,18 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
     }
     str << '(';
     PrintArgs();
+    if (opt->enable_debug_info) {
+        // Append validate index for byte buffer write/read generic path
+        auto op = expr->op();
+        if (op == CallOp::BYTE_BUFFER_WRITE || op == CallOp::BYTE_BUFFER_READ) {
+            auto ref_var = static_cast<RefExpr const *>(args[0])->variable();
+            uint64_t func_hash = vis.f.hash();
+            auto key = CodegenStackData::ValidateKey{func_hash, ref_var.uid()};
+            if (auto it = opt->validate_index_map.find(key); it != opt->validate_index_map.end()) {
+                str << ',' << luisa::format("{}", it->second);
+            }
+        }
+    }
     str << ')';
 }
 

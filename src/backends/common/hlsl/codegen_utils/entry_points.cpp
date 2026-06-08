@@ -171,10 +171,11 @@ bool IsCBuffer(Variable::Tag t);
 }// namespace detail
 
 // Main compute kernel codegen
-CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister) {
+CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
+    opt->enable_debug_info = enable_debug_info;
     opt->atomicFloatToInt = isSpirV && kernel.propagated_builtin_callables().uses_atomic();
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
@@ -189,26 +190,34 @@ CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native
     vstd::StringBuilder finalResult;
     opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
+    if (enable_debug_info) {
+        finalResult << "#define LUISA_DEBUG_INFO 1\n";
+    }
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations());
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';
-    CodegenFunction(kernel, codegenData, nonEmptyCbuffer, true);
 
+    // Generate cbuffer FIRST to populate validate_index_map before codegen
     opt->funcType = CodegenStackData::FuncType::Callable;
     auto argRange = vstd::make_ite_range(kernel.arguments()).i_range();
     uint bind_count = 2;
-    if (nonEmptyCbuffer) {
-        GenerateCBuffer({&argRange}, varData);
+    uint validation_count = 0;
+    if (nonEmptyCbuffer || enable_debug_info) {
+        uint64_t func_hash = kernel.hash();
+        uint64_t hashes[] = {func_hash};
+        GenerateCBuffer({&argRange}, varData, enable_debug_info, validation_count, hashes);
     }
+
+    CodegenFunction(kernel, codegenData, nonEmptyCbuffer || enable_debug_info, true);
     if (isSpirV) {
         if (opt->noRegister) {
             varData << R"(
-struct _CBType{
-uint4 v;
-};
-[[vk::push_constant]] ConstantBuffer<_CBType> dsp_c;
-)"sv;
+	struct _CBType{
+	uint4 v;
+	};
+	[[vk::push_constant]] ConstantBuffer<_CBType> dsp_c;
+	)"sv;
         } else {
             varData << R"(
 struct _CBType{
@@ -230,7 +239,7 @@ uint4 v;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, false, isSpirV, bind_count);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer || enable_debug_info, false, isSpirV, bind_count);
     CodegenProperties(properties, varData, kernel, 0, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, kernel.requires_autodiff());
     finalResult << varData << incrementalFunc << codegenData;
@@ -247,17 +256,19 @@ uint4 v;
         opt->useTex2DBindless,
         opt->useTex3DBindless,
         opt->useBufferBindless,
+        validation_count,
         immutableHeaderSize,
         GetTypeMD5(kernel)};
 }
 
 // Ray tracing pipeline codegen for motion blur
 // Generates a lib_6_5 HLSL with raygen/miss/closesthit entry points
-CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister) {
+CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
     opt->isRayTracing = true;
+    opt->enable_debug_info = enable_debug_info;
     opt->atomicFloatToInt = isSpirV && kernel.propagated_builtin_callables().uses_atomic();
     auto disposeOpt = vstd::scope_exit([&] {
         CodegenStackData::DeAllocate(std::move(opt));
@@ -271,36 +282,44 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
     vstd::StringBuilder finalResult;
     opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
+    if (enable_debug_info) {
+        finalResult << "#define LUISA_DEBUG_INFO 1\n";
+    }
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations());
     // Add motion blur ray tracing header (miss/closesthit entry points + _TraceClosestMotion)
     finalResult << ReadInternalHLSLFile("raytracing_motion_header");
     finalResult << native_code << "\n//"sv;
     finalResult << luisa::format("{}", custom_mask);
     finalResult << '\n';
-    CodegenFunction(kernel, codegenData, nonEmptyCbuffer, true);
-
+    // Generate cbuffer FIRST to populate validate_index_map before codegen
     opt->funcType = CodegenStackData::FuncType::Callable;
     auto argRange = vstd::make_ite_range(kernel.arguments()).i_range();
     uint bind_count = 2;
-    if (nonEmptyCbuffer) {
-        GenerateCBuffer({&argRange}, varData);
+    uint validation_count = 0;
+    if (nonEmptyCbuffer || enable_debug_info) {
+        uint64_t func_hash = kernel.hash();
+        uint64_t hashes[] = {func_hash};
+        GenerateCBuffer({&argRange}, varData, enable_debug_info, validation_count, hashes);
     }
+
+    CodegenFunction(kernel, codegenData, nonEmptyCbuffer || enable_debug_info, true);
+
     // For ray tracing pipeline, we use push constants for dispatch dimensions
     if (isSpirV) {
         if (opt->noRegister) {
             varData << R"(
-struct _CBType{
-uint4 v;
-};
-[[vk::push_constant]] ConstantBuffer<_CBType> dsp_c;
-)"sv;
+	struct _CBType{
+	uint4 v;
+	};
+	[[vk::push_constant]] ConstantBuffer<_CBType> dsp_c;
+	)"sv;
         } else {
             varData << R"(
-struct _CBType{
-uint4 v;
-};
-[[vk::push_constant]] ConstantBuffer<_CBType> dsp_c:register(b0);
-)"sv;
+	struct _CBType{
+	uint4 v;
+	};
+	[[vk::push_constant]] ConstantBuffer<_CBType> dsp_c:register(b0);
+	)"sv;
         }
         bind_count += 2;
     } else {
@@ -315,7 +334,7 @@ uint4 v;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, false, isSpirV, bind_count);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer || enable_debug_info, false, isSpirV, bind_count);
     CodegenProperties(properties, varData, kernel, 0, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, kernel.requires_autodiff());
     finalResult << varData << incrementalFunc << codegenData;
@@ -327,6 +346,7 @@ uint4 v;
         opt->useTex2DBindless,
         opt->useTex3DBindless,
         opt->useBufferBindless,
+        validation_count,
         immutableHeaderSize,
         GetTypeMD5(kernel)};
 }
@@ -338,9 +358,11 @@ CodegenResult CodegenUtility::RasterCodegen(
     luisa::string_view native_code,
     uint custom_mask,
     bool isSpirV,
-    bool noRegister) {
+    bool noRegister,
+    bool enable_debug_info) {
     opt = CodegenStackData::Allocate(this);
     opt->isSpirv = isSpirV;
+    opt->enable_debug_info = enable_debug_info;
     // CodegenStackData::ThreadLocalSpirv() = false;
     opt->kernel = vertFunc;
     opt->noRegister = noRegister;
@@ -356,6 +378,9 @@ CodegenResult CodegenUtility::RasterCodegen(
     vstd::StringBuilder incrementalFunc;
     opt->incrementalFunc = &incrementalFunc;
     finalResult.reserve(65500);
+    if (enable_debug_info) {
+        finalResult << "#define LUISA_DEBUG_INFO 1\n";
+    }
     auto opSet = vertFunc.propagated_builtin_callables();
     opSet.propagate(pixelFunc.propagated_builtin_callables());
     uint64 immutableHeaderSize = detail::AddHeader(opSet, finalResult, true, isSpirV, noRegister, vertFunc.use_cooperative_operations() || pixelFunc.use_cooperative_operations());
@@ -471,10 +496,19 @@ uint obj_id:register(b0);
     std::initializer_list<vstd::IRange<Variable> *> funcs = {&vertRange, &pixelRange};
 
     bool nonEmptyCbuffer = IsCBufferNonEmpty(funcs);
+
+    // Generate cbuffer FIRST to populate validate_index_map before codegen
+    uint validation_count = 0;
+    if (nonEmptyCbuffer || enable_debug_info) {
+        uint64_t vert_hash = vertFunc.hash();
+        uint64_t pixel_hash = pixelFunc.hash();
+        uint64_t hashes[] = {vert_hash, pixel_hash};
+        GenerateCBuffer(funcs, varData, enable_debug_info, validation_count, hashes);
+    }
+
     opt->appdataId = vert_args[0].uid();
-    CodegenVertex(vertFunc, codegenData, nonEmptyCbuffer);
+    CodegenVertex(vertFunc, codegenData, nonEmptyCbuffer || enable_debug_info);
     opt->appdataId = -1;
-    // TODO: gen vertex data
     codegenData << "#elif defined(PS)\n"sv;
     size_t vert_arg_offset = 0;
     for (auto &i : vert_args.subspan(1)) {
@@ -483,19 +517,15 @@ uint obj_id:register(b0);
         }
     }
     opt->argOffset = vert_arg_offset;
-    // TODO: gen pixel data
     CodegenPixel(pixelFunc, codegenData, nonEmptyCbuffer);
     codegenData << "#endif\n"sv;
 
     opt->funcType = CodegenStackData::FuncType::Callable;
-    if (nonEmptyCbuffer) {
-        GenerateCBuffer(funcs, varData);
-    }
     CodegenResult::Properties properties;
     DXILRegisterIndexer dxilRegisters;
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
-    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, true, isSpirV, bind_count);
+    PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer || enable_debug_info, true, isSpirV, bind_count);
     CodegenProperties(properties, varData, vertFunc, 1, indexer, bind_count);
     CodegenProperties(properties, varData, pixelFunc, 1, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, false);
@@ -511,6 +541,7 @@ uint obj_id:register(b0);
         opt->useTex2DBindless,
         opt->useTex3DBindless,
         opt->useBufferBindless,
+        validation_count,
         immutableHeaderSize,
         GetTypeMD5(funcs)};
 }

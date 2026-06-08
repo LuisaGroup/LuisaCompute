@@ -88,7 +88,8 @@ ComputeShader *ComputeShader::compile_compute(
     vstd::string_view fileName,
     CacheType cacheType,
     bool enableUnsafeMath,
-    bool debug) {
+    bool debug,
+    uint validation_count) {
 
     using namespace ComputeShaderDetail;
     auto compile_new_compute = [&](bool WriteCache, vstd::string_view pso_name) {
@@ -144,6 +145,7 @@ ComputeShader *ComputeShader::compile_compute(
                         md5,
                         str.typeMD5,
                         bdls_buffer_count,
+                        str.validation_count,
                         blockSize,
                         str.printers);
                     write_binary_io(cacheType, file_io, fileName, {reinterpret_cast<std::byte const *>(ser_data.data()), luisa::size_bytes(ser_data)});
@@ -156,6 +158,7 @@ ComputeShader *ComputeShader::compile_compute(
                      buffer->GetBufferSize()},
                     std::move(bindings),
                     std::move(str.printers),
+                    validation_count,
                     device);
                 cs->_bindless_count = bdls_buffer_count;
                 if (WriteCache) {
@@ -254,6 +257,7 @@ void ComputeShader::save_compute(
                     md5,
                     str.typeMD5,
                     bdls_buffer_count,
+                    str.validation_count,
                     blockSize,
                     str.printers);
                 static_cast<void>(file_io->write_shader_bytecode(fileName, {reinterpret_cast<std::byte const *>(ser_data.data()), luisa::size_bytes(ser_data)}));
@@ -292,8 +296,9 @@ ComputeShader::ComputeShader(
     vstd::span<std::byte const> binData,
     vstd::vector<luisa::compute::Argument> &&bindings,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
+    uint validation_count,
     Device *device)
-    : Shader(std::move(prop), std::move(args), device->device, std::move(printers), false),
+    : Shader(std::move(prop), std::move(args), device->device, std::move(printers), validation_count, false),
       _arg_bindings(std::move(bindings)),
       _device(device),
       _block_size(blockSize) {
@@ -312,8 +317,9 @@ ComputeShader::ComputeShader(
     vstd::vector<luisa::compute::Argument> &&bindings,
     vstd::vector<std::pair<vstd::string, Type const *>> &&printers,
     ComPtr<ID3D12RootSignature> &&root_sig,
-    ComPtr<ID3D12PipelineState> &&pso)
-    : Shader(std::move(prop), std::move(args), std::move(root_sig), std::move(printers)),
+    ComPtr<ID3D12PipelineState> &&pso,
+    uint validation_count)
+    : Shader(std::move(prop), std::move(args), std::move(root_sig), std::move(printers), validation_count),
       _arg_bindings(std::move(bindings)),
       _device(device),
       _block_size(blockSize) {

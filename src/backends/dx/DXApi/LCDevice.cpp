@@ -366,7 +366,7 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
     constexpr uint compiler_version = 202403u;// dxc version at march 2024
     mask |= (1 << 2);
     mask |= compiler_version << 3u;
-    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr);
+    auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info);
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());
         ComputeShader::save_compute(
@@ -410,7 +410,8 @@ ShaderCreationInfo LCDevice::create_shader(const ShaderOption &option, Function 
             file_name,
             cache_type,
             option.enable_fast_math,
-            option.enable_debug_info);
+            option.enable_debug_info,
+            code.validation_count);
         info.block_size = kernel.block_size();
         info.handle = reinterpret_cast<uint64>(res);
         info.native_handle = res->pso();
@@ -557,7 +558,7 @@ ResourceCreationInfo DxRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, false, Device::compiler() == nullptr, option.enable_debug_info);
     vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
     if (option.compile_only) {
         LUISA_ASSUME(!option.name.empty());

@@ -28,7 +28,7 @@ ResourceCreationInfo VkRasterExt::create_raster_shader(
     if (option.enable_debug_info) {
         mask |= 2;
     }
-    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, true);
+    auto code = hlsl::CodegenUtility{}.RasterCodegen(vert, pixel, option.native_include, mask, true, false, option.enable_debug_info);
     if (kRasterPrintCode) {
         auto f = fopen("hlsl_output.hlsl", "ab");
         fwrite(code.result.data(), code.result.size(), 1, f);
