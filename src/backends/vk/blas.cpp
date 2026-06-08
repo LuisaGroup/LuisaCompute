@@ -70,13 +70,11 @@ void Blas::_pre_build(
     }
     VK_CHECK_RESULT(vkCreateAccelerationStructureKHR(device()->logic_device(), &acceleration_structure_create_info, Device::alloc_callbacks(), &_accel));
     scratch_buffer_size = (scratch_buffer_size + 255) & (~(255u));
-    scratch_buffer_size += 256u; // extra padding for GPU buffer address misalignment
-    auto scratch_chunk = cmdbuffer.scratch_buffer_alloc->allocate(scratch_buffer_size, 256u);
+    auto scratch_chunk = cmdbuffer.scratch_buffer_alloc->allocate(scratch_buffer_size);
 
     _scratch_buffer = reinterpret_cast<Buffer const *>(scratch_chunk.handle);
-    auto addr = _scratch_buffer->get_device_address() + scratch_chunk.offset;
-    auto misalign = addr & 255u;
-    _scratch_buffer_offset = scratch_chunk.offset + (misalign ? (256u - misalign) : 0u);
+    _scratch_buffer_offset = scratch_chunk.offset;
+    LUISA_DEBUG_ASSERT(((_scratch_buffer->get_device_address() + scratch_chunk.offset) & 255) == 0, "blas scratch buffer alignment failed.");
     cmdbuffer.resource_barrier->record(
         _scratch_buffer,
         ResourceBarrier::Usage::kComputeUAV);
