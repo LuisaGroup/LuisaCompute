@@ -1,6 +1,7 @@
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/passes/early_cse.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/local_store_forward.h>
 #include <luisa/xir/passes/local_load_elimination.h>
@@ -361,6 +362,10 @@ PassPipeline create_post_restructure_cleanup_pipeline(OptimizationPipelineOption
     p.add("dce", [](Module *m, PassReport &r) {
         auto i = dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+    });
+    p.add("early-cse", [](Module *m, PassReport &r) {
+        auto i = early_cse_pass_run_on_module(m, &r);
+        return i.eliminated_inst_count > 0u;
     });
     p.add("local-store-forward", [](Module *m, PassReport &r) {
         auto i = local_store_forward_pass_run_on_module(m, &r);
