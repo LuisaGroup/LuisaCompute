@@ -1187,6 +1187,9 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
         for (auto &i : c->arguments()) {
             add_size(*c, i);
         }
+        if (shader->validation_count() > 0) {
+            uniform_buffer_size += shader->validation_count() * sizeof(uint);
+        }
     };
     for (auto &&command : cmds) {
         command->accept(_stream.reorder);

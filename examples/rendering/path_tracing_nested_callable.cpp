@@ -92,11 +92,7 @@ int main(int argc, char *argv[]) {
     for (Mesh &m : meshes) {
         accel.emplace_back(m, make_float4x4(1.0f));
     }
-    stream << heap.update()
-           << accel.build()
-           << synchronize();
-
-    Constant materials{
+    float3 materials_host[]{
         make_float3(0.725f, 0.710f, 0.680f),// floor
         make_float3(0.725f, 0.710f, 0.680f),// ceiling
         make_float3(0.725f, 0.710f, 0.680f),// back wall
@@ -106,6 +102,13 @@ int main(int argc, char *argv[]) {
         make_float3(0.725f, 0.710f, 0.680f),// tall box
         make_float3(0.000f, 0.000f, 0.000f),// light
     };
+    Buffer<float3> materials = device.create_buffer<float3>(8);
+    stream << heap.update()
+           << accel.build()
+           << materials.copy_from(materials_host)
+           << synchronize();
+
+    
 
     Callable linear_to_srgb = [&](Var<float3> x) noexcept {
         return saturate(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
@@ -222,7 +225,7 @@ int main(int argc, char *argv[]) {
                     Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
                     Float3 pp_light = offset_ray_origin(p_light, light_normal);
                     pp.emplace(offset_ray_origin(p, n));
-                    albedo.emplace(materials.read(hit.inst));
+                    albedo.emplace(materials->read(hit.inst));
                     Float d_light = distance(*pp, pp_light);
                     Float3 wi_light = normalize(pp_light - *pp);
                     $lambda({

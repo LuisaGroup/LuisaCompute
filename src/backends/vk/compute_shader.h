@@ -36,7 +36,8 @@ public:
         bool use_tex3d_bindless,
         bool use_buffer_bindless,
         vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
-        luisa::span<const std::byte> constant_ubo_data = {});
+        luisa::span<const std::byte> constant_ubo_data = {},
+        uint validation_count = 0);
     ~ComputeShader();
     static ComputeShader *compile(
         BinaryIO const *bin_io,
@@ -49,6 +50,7 @@ public:
         vstd::string_view file_name,
         SerdeType serde_type,
         uint shader_model,
-        bool unsafe_math);
+        bool unsafe_math,
+        uint validation_count = 0);
 };
 }// namespace lc::vk

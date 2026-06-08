@@ -8,7 +8,7 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
-        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("accel_process");
+        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("accel_process.bytes");
         code.properties.resize(3);
         auto &global = code.properties[0];
         global.array_size = 1;
@@ -47,7 +47,7 @@ ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
         code.useBufferBindless = false;
         code.useTex2DBindless = false;
         code.useTex3DBindless = false;
-        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("bindless_upload");
+        code.result << hlsl::CodegenUtility::ReadInternalHLSLFile("bindless_upload.bytes");
         code.properties.resize(3);
         auto &global = code.properties[0];
         global.array_size = 1;

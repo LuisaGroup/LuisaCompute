@@ -17,6 +17,7 @@ struct ShaderSerHeader {
     uint kernel_arg_count;
     uint printer_count;
     uint printer_size_bytes;
+    uint validation_count;
     bool use_bindless_buffer;
     bool use_bindless_tex2d;
     bool use_bindless_tex3d;
@@ -31,10 +32,12 @@ struct RasterSerHeader {
     uint kernel_arg_count;
     uint printer_count;
     uint printer_size_bytes;
+    uint validation_count;
     bool use_bindless_buffer;
     bool use_bindless_tex2d;
     bool use_bindless_tex3d;
 };
+constexpr uint32_t kShaderSerVersion = 2; // version: set to header_ver
 struct PSODataPackage {
     VkPipelineCacheHeaderVersionOne header;
     std::byte md5[sizeof(vstd::MD5)];
@@ -87,10 +90,12 @@ void ShaderSerializer::serialize_raster(
     bool use_tex2d_bindless,
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
-    vstd::span<std::pair<vstd::string, Type const *> const> printers) {
+    vstd::span<std::pair<vstd::string, Type const *> const> printers,
+    uint validation_count) {
     vstd::vector<std::byte> results;
     using namespace detail;
     RasterSerHeader header{
+        .header_ver = kShaderSerVersion,
         .md5 = shader_md5,
         .type_md5 = type_md5,
         .property_size = binds.size(),
@@ -122,6 +127,7 @@ void ShaderSerializer::serialize_raster(
     header.use_bindless_tex3d = use_tex3d_bindless;
     header.printer_count = printers.size();
     header.printer_size_bytes = printer_size_bytes;
+    header.validation_count = validation_count;
     save(header);
     save_arr(binds.data(), binds.size());
     save_arr(saved_args.data(), saved_args.size());
@@ -160,10 +166,12 @@ void ShaderSerializer::serialize_bytecode(
     bool use_tex2d_bindless,
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
-    vstd::span<std::pair<vstd::string, Type const *> const> printers) {
+    vstd::span<std::pair<vstd::string, Type const *> const> printers,
+    uint validation_count) {
     using namespace detail;
     vstd::vector<std::byte> results;
     ShaderSerHeader header{
+        .header_ver = kShaderSerVersion,
         .md5 = shader_md5,
         .type_md5 = type_md5,
         .property_size = binds.size(),
@@ -194,6 +202,7 @@ void ShaderSerializer::serialize_bytecode(
     header.use_bindless_tex3d = use_tex3d_bindless;
     header.printer_count = printers.size();
     header.printer_size_bytes = printer_size_bytes;
+    header.validation_count = validation_count;
     save(header);
     save_arr(binds.data(), binds.size());
     save_arr(saved_args.data(), saved_args.size());
@@ -261,6 +270,7 @@ auto ShaderSerializer::try_deser_raster(
         auto stream_len = read_stream->length();
         if (stream_len < sizeof(RasterSerHeader)) return result;
         read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(RasterSerHeader)});
+        if (header.header_ver != kShaderSerVersion) return result;
         uint64_t final_size = sizeof(RasterSerHeader) +
                               header.property_size * sizeof(hlsl::Property) +
                               header.vert_spv_byte_size +
@@ -307,7 +317,8 @@ auto ShaderSerializer::try_deser_raster(
         std::move(pixel_spv),
         header.use_bindless_tex2d,
         header.use_bindless_tex3d,
-        header.use_bindless_buffer);
+        header.use_bindless_buffer,
+        header.validation_count);
     return result;
 }
 
@@ -336,6 +347,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         auto stream_len = read_stream->length();
         if (stream_len < sizeof(ShaderSerHeader)) return result;
         read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(ShaderSerHeader)});
+        if (header.header_ver != kShaderSerVersion) return result;
         if (stream_len != read_stream->pos() + (header.printer_size_bytes + header.property_size * sizeof(hlsl::Property) + header.spv_byte_size + header.kernel_arg_count * sizeof(SavedArgument)))
             return result;
         if (shader_md5 && *shader_md5 != header.md5)
@@ -405,7 +417,9 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         header.use_bindless_tex2d,
         header.use_bindless_tex3d,
         header.use_bindless_buffer,
-        std::move(printers)};
+        std::move(printers),
+        {},
+        header.validation_count};
     if (pso_data.empty() &&
         shader->serialize_pso(pso_data)) {
         bin_io->write_shader_cache(pso_name, pso_data);

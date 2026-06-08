@@ -1255,7 +1255,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result.useTex2DBindless,
                 spv_result.useTex3DBindless,
                 spv_result.useBufferBindless,
-                spv_result.printers);
+                spv_result.printers,
+                0);
         } else {
             auto shader = new ComputeShader(
                 this,
@@ -1269,7 +1270,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result.useTex3DBindless,
                 spv_result.useBufferBindless,
                 std::move(spv_result.printers),
-                {spv_result.constant_ubo_data.data(), spv_result.constant_ubo_data.size()});
+                {spv_result.constant_ubo_data.data(), spv_result.constant_ubo_data.size()},
+                0);
             LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
@@ -1308,7 +1310,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                         _binary_io, code.useTex2DBindless,
                         code.useTex3DBindless,
                         code.useBufferBindless,
-                        code.printers);
+                        code.printers,
+                        code.validation_count);
                 },
                 [](auto &&err) {
                     LUISA_ERROR("Compile Error: {}", err);
@@ -1340,7 +1343,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 file_name,
                 serde_type,
                 kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
-                option.enable_fast_math);
+                option.enable_fast_math,
+                code.validation_count);
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
         }

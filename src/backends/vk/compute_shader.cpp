@@ -24,8 +24,9 @@ ComputeShader::ComputeShader(
     bool use_tex3d_bindless,
     bool use_buffer_bindless,
     vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
-    luisa::span<const std::byte> constant_ubo_data)
-    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data}, _block_size(block_size) {
+    luisa::span<const std::byte> constant_ubo_data,
+    uint validation_count)
+    : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count}, _block_size(block_size) {
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     if (!cache_code.empty()) {
@@ -80,12 +81,16 @@ ComputeShader *ComputeShader::compile(
     vstd::string_view file_name,
     SerdeType serde_type,
     uint shader_model,
-    bool unsafe_math) {
+    bool unsafe_math,
+    uint validation_count) {
 
     auto result = ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
     // cache invalid, need compile
     bool write_cache = !file_name.empty();
     if (!result.shader) {
+        if (serde_type == SerdeType::kBuiltin) [[unlikely]] {
+            LUISA_WARNING("Cached SPIRV {} is invalid!", file_name);
+        }
         auto str = codegen();
         vstd::MD5 md5;
         if (write_cache) {
@@ -121,7 +126,9 @@ ComputeShader *ComputeShader::compile(
                     str.useTex2DBindless,
                     str.useTex3DBindless,
                     str.useBufferBindless,
-                    std::move(str.printers));
+                    std::move(str.printers),
+                    {},
+                    validation_count);
                 if (write_cache) {
                     ShaderSerializer::serialize_bytecode(
                         shader->binds(),
@@ -136,7 +143,8 @@ ComputeShader *ComputeShader::compile(
                         str.useTex2DBindless,
                         str.useTex3DBindless,
                         str.useBufferBindless,
-                        shader->printers());
+                        shader->printers(),
+                        validation_count);
                     ShaderSerializer::serialize_pso(
                         device,
                         shader,

@@ -192,6 +192,14 @@ ComputeShader *ComputeShader::compile_compute(
             }
             return result;
         }
+        if (cacheType == CacheType::Internal) [[unlikely]] {
+            LUISA_WARNING("Cached DXIL {} is invalid!", fileName);
+            result = compile_new_compute(true, pso_name);
+#ifndef NDEBUG
+// TODO save
+#endif
+            return result;
+        }
 
         return compile_new_compute(true, pso_name);
     } else {
