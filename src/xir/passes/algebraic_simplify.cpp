@@ -48,18 +48,14 @@ namespace detail {
 
     switch (op) {
         case ArithmeticOp::BINARY_ADD: {
-            if (!is_float_like(type)) {
-                if (is_const_zero(inst->operand(1))) return inst->operand(0);
-                if (is_const_zero(inst->operand(0))) return inst->operand(1);
-            }
+            if (is_const_zero(inst->operand(1))) return inst->operand(0);
+            if (is_const_zero(inst->operand(0))) return inst->operand(1);
             break;
         }
         case ArithmeticOp::BINARY_SUB: {
-            if (!is_float_like(type)) {
-                if (is_const_zero(inst->operand(1))) return inst->operand(0);
-                if (inst->operand(0) == inst->operand(1)) {
-                    return module->create_constant_zero(type);
-                }
+            if (is_const_zero(inst->operand(1))) return inst->operand(0);
+            if (inst->operand(0) == inst->operand(1)) {
+                return module->create_constant_zero(type);
             }
             break;
         }
