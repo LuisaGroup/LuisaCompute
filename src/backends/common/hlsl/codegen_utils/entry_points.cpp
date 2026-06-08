@@ -546,7 +546,13 @@ uint obj_id:register(b0);
     SpirVRegisterIndexer spvRegisters;
     RegisterIndexer &indexer = isSpirV ? static_cast<RegisterIndexer &>(spvRegisters) : static_cast<RegisterIndexer &>(dxilRegisters);
     PreprocessCodegenProperties(properties, varData, indexer, nonEmptyCbuffer, true, isSpirV, bind_count);
+    // Reset argOffset for vertex function properties so buffer/texture names
+    // use raw UIDs. Pixel function properties get offset UIDs to avoid
+    // name collisions when both stages have resource variables with the same UID.
+    auto savedArgOffset = opt->argOffset;
+    opt->argOffset = 0;
     CodegenProperties(properties, varData, vertFunc, 1, indexer, bind_count);
+    opt->argOffset = savedArgOffset;
     CodegenProperties(properties, varData, pixelFunc, 1, indexer, bind_count);
     PostprocessCodegenProperties(finalResult, false);
     finalResult << varData << incrementalFunc << codegenData;
