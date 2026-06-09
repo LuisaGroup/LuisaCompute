@@ -442,8 +442,17 @@ struct SpirvResult {
 
 Set env var to dump codegen results. In `Device::create_shader()`:
 
-- **XIR→SPIRV path** (`LUISA_XIR_TO_SPIRV`): logs binary size + property bindings. `print_code()`: writes `spirv_output.spvasm` (XIR→SPIRV disassembly) + `spirv_output_hlsl.spvasm` (HLSL→DXC→SPIRV for comparison). HLSL writes to `hlsl_output.hlsl`.
-- **HLSL-only path**: `compile_only` + `print_code()`: writes `hlsl_output.hlsl`.
+- **XIR→SPIRV path** (`LUISA_XIR_TO_SPIRV`): logs binary size + property bindings. `print_code()`: writes `spv_code_<name>.spvasm` (XIR→SPIRV disassembly) + `spv_code_hlsl_<name>.spvasm` (HLSL→DXC→SPIRV for comparison). HLSL writes to `hlsl_output_<name>.hlsl`.
+- **HLSL-only path**: `compile_only` + `print_code()`: writes `hlsl_output_<name>.hlsl`.
+
+All files use `"wb"` (overwrite) mode — no append, no need to delete old files.
+
+**Naming priority** (consistent across all backends):
+1. `ShaderOption::name` — user-provided shader name
+2. `Function::name()` — kernel/callable debug name
+3. `Function::hash()` formatted as hex — fallback (e.g. `spv_code_a1b2c3d4e5f6a7b8.spvasm`)
+
+For the VK `ComputeShader::compile()` path (no `Function` available), falls back to MD5 hash of the generated HLSL code when `file_name` is empty.
 
 When `LUISA_XIR_TO_SPIRV` is undefined, backend falls back to HLSL codegen + DXC.
 

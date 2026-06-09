@@ -9,6 +9,7 @@
 #include "../common/hlsl/binding_to_arg.h"
 #include <luisa/runtime/context.h>
 #include "../common/hlsl/shader_compiler.h"
+#include "../common/backend_print_code.h"
 #include "builtin_kernel.h"
 #include "shader_serializer.h"
 #include "default_buffer.h"
@@ -1119,16 +1120,8 @@ void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchai
     reinterpret_cast<Stream *>(stream_handle)->present(reinterpret_cast<Texture const *>(image_handle), 0, reinterpret_cast<Swapchain *>(swapchain_handle), _inqueue_limit);
 }
 
-static const bool kComputePrintCode = ([] {
-    // read env LUISA_DUMP_SOURCE
-    auto env = std::getenv("LUISA_DUMP_SOURCE");
-    if (env == nullptr) {
-        return false;
-    }
-    return std::string_view{env} == "1";
-})();
 bool Device::print_code() {
-    return kComputePrintCode;
+    return luisa::compute::backend_print_code_enabled();
 }
 // kernel
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
@@ -1198,21 +1191,29 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
         }
         if (print_code()) [[unlikely]] {
+            auto dump_name = [&]() -> luisa::string {
+                if (!option.name.empty()) return option.name;
+                if (!kernel.name().empty()) return luisa::string{kernel.name()};
+                return luisa::format("{:x}", kernel.hash());
+            }();
             {
-                auto filename = luisa::format("spirv_output_{}.spvasm", kernel.name().empty() ? "unnamed" : kernel.name());
-                std::ofstream file(filename.c_str(), std::ios::app);
+                auto filename = luisa::format("spv_code_{}.spvasm", dump_name);
+                std::ofstream file(filename.c_str());
                 if (file) {
-                    file << "\n; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
+                    file << "; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
                     spv::Disassemble(file, spv_result.spv_bin);
                 }
                 LUISA_VERBOSE("SPIRV printed to {}.", filename);
             }
             // Test HLSL
             auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
-            auto f = fopen("hlsl_output.hlsl", "ab");
-            if (f) {
-                fwrite(code.result.view().data(), code.result.view().size(), 1, f);
-                fclose(f);
+            {
+                auto hlsl_filename = luisa::format("hlsl_output_{}.hlsl", dump_name);
+                auto f = fopen(hlsl_filename.c_str(), "wb");
+                if (f) {
+                    fwrite(code.result.view().data(), code.result.view().size(), 1, f);
+                    fclose(f);
+                }
             }
             auto comp_result = Device::compiler()->compile_compute(
                 code.result.view(),
@@ -1226,10 +1227,10 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             } else {
                 LUISA_VERBOSE("HLSL test compilation successful.");
                 {
-                    auto filename = luisa::format("spirv_output_hlsl_{}.spvasm", kernel.name().empty() ? "unnamed" : kernel.name());
-                    std::ofstream file(filename.c_str(), std::ios::app);
+                    auto filename = luisa::format("spv_code_hlsl_{}.spvasm", dump_name);
+                    std::ofstream file(filename.c_str());
                     if (file) {
-                        file << "\n; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
+                        file << "; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
                         auto &&blob = comp_result.force_get<lc::hlsl::ComUniquePtr<IDxcBlob>>();
                         std::vector<uint32_t> vec((blob->GetBufferSize() + sizeof(uint) - 1) / sizeof(uint));
                         std::memcpy(vec.data(), blob->GetBufferPointer(), blob->GetBufferSize());
@@ -1284,9 +1285,17 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             assert(!option.name.empty());
             info.invalidate();
             if (print_code()) {
-                auto f = fopen("hlsl_output.hlsl", "ab");
-                fwrite(code.result.view().data(), code.result.view().size(), 1, f);
-                fclose(f);
+                auto dump_name = [&]() -> luisa::string {
+                    if (!option.name.empty()) return option.name;
+                    if (!kernel.name().empty()) return luisa::string{kernel.name()};
+                    return luisa::format("{:x}", kernel.hash());
+                }();
+                auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+                auto f = fopen(dump_file_name.c_str(), "wb");
+                if (f) {
+                    fwrite(code.result.view().data(), code.result.view().size(), 1, f);
+                    fclose(f);
+                }
             }
             auto comp_result = Device::compiler()->compile_compute(
                 code.result.view(),

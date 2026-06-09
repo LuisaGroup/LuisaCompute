@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
     Buffer<float3> materials = device.create_buffer<float3>(8);
     stream << heap.update()
            << accel.build()
-           << materials.copy_from(materials_host)
+           << materials.copy_from(luisa::span<float3>{materials_host})
            << synchronize();
 
     

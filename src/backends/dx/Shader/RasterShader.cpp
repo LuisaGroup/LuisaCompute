@@ -5,16 +5,9 @@
 #include "../../common/hlsl/shader_compiler.h"
 #include <luisa/vstl/md5.h>
 #include <luisa/core/logging.h>
+#include "../../common/backend_print_code.h"
 namespace lc::dx {
 namespace RasterShaderDetail {
-static const bool RASTER_PRINT_CODE = ([] {
-    // read env LUISA_DUMP_SOURCE
-    auto env = std::getenv("LUISA_DUMP_SOURCE");
-    if (env == nullptr) {
-        return false;
-    }
-    return std::string_view{env} == "1";
-})();
 static vstd::vector<SavedArgument> GetKernelArgs(Function vertexKernel, Function pixelKernel) {
     if (vertexKernel.builder() == nullptr || pixelKernel.builder() == nullptr) {
         return {};
@@ -288,10 +281,18 @@ RasterShader *RasterShader::compile_raster(
         if (str.useBufferBindless) bdlsBufferCount++;
         if (str.useTex2DBindless) bdlsBufferCount++;
         if (str.useTex3DBindless) bdlsBufferCount++;
-        if (RasterShaderDetail::RASTER_PRINT_CODE) {
-            auto f = fopen("hlsl_output.hlsl", "wb");
-            fwrite(str.result.data(), str.result.size(), 1, f);
-            fclose(f);
+        if (luisa::compute::backend_print_code_enabled()) {
+            auto dump_name = [&]() -> luisa::string {
+                if (!fileName.empty()) return luisa::string{fileName.data(), fileName.size()};
+                if (!vertexKernel.name().empty()) return luisa::string{vertexKernel.name()};
+                return luisa::format("{:x}", vertexKernel.hash());
+            }();
+            auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+            auto f = fopen(dump_file_name.c_str(), "wb");
+            if (f) {
+                fwrite(str.result.data(), str.result.size(), 1, f);
+                fclose(f);
+            }
         }
         auto compResult = Device::compiler()->compile_raster(
             str.result.view(),
@@ -362,10 +363,18 @@ void RasterShader::save_raster(
     uint shaderModel,
     bool enableUnsafeMath,
     bool debug) {
-    if (RasterShaderDetail::RASTER_PRINT_CODE) {
-        auto f = fopen("hlsl_output.hlsl", "ab");
-        fwrite(result.result.data(), result.result.size(), 1, f);
-        fclose(f);
+    if (luisa::compute::backend_print_code_enabled()) {
+        auto dump_name = [&]() -> luisa::string {
+            if (!fileName.empty()) return luisa::string{fileName.data(), fileName.size()};
+            if (!vertexKernel.name().empty()) return luisa::string{vertexKernel.name()};
+            return luisa::format("{:x}", vertexKernel.hash());
+        }();
+        auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+        auto f = fopen(dump_file_name.c_str(), "wb");
+        if (f) {
+            fwrite(result.result.data(), result.result.size(), 1, f);
+            fclose(f);
+        }
     }
     if (ShaderSerializer::CheckMD5(fileName, md5, *file_io)) return;
     auto compiler = Device::compiler();

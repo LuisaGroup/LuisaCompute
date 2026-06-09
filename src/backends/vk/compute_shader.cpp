@@ -101,9 +101,17 @@ ComputeShader *ComputeShader::compile(
             }
         }
         if (Device::print_code()) {
-            auto f = fopen("hlsl_output.hlsl", "ab");
-            fwrite(str.result.data(), str.result.size(), 1, f);
-            fclose(f);
+            auto dump_name = [&]() -> luisa::string {
+                if (!file_name.empty()) return luisa::string{file_name.data(), file_name.size()};
+                auto code_md5 = vstd::MD5({reinterpret_cast<uint8_t const *>(str.result.data()), str.result.size()});
+                return luisa::string{code_md5.to_string(false)};
+            }();
+            auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+            auto f = fopen(dump_file_name.c_str(), "wb");
+            if (f) {
+                fwrite(str.result.data(), str.result.size(), 1, f);
+                fclose(f);
+            }
         }
         auto comp_result = Device::compiler()->compile_compute(
             str.result.view(),

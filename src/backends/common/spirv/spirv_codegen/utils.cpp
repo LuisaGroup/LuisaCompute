@@ -1,5 +1,6 @@
 #include "utils.h"
 
+#include "../../backend_print_code.h"
 #include <cstdlib>
 #include <fstream>
 #include <luisa/core/clock.h>
@@ -52,14 +53,6 @@ namespace luisa::compute::spirv {
 
 namespace {
 
-const bool LUISA_SPIRV_SHOULD_DUMP_XIR = [] {
-    if (auto env = getenv("LUISA_DUMP_SOURCE")) {
-        return luisa::string_view{env} == "1";
-    }
-    return false;
-}();
-
-
 const bool LUISA_XIR_DISABLE_NORMALIZE_CFG = [] {
     if (auto env = getenv("LUISA_XIR_DISABLE_NORMALIZE_CFG")) {
         return luisa::string_view{env} == "1";
@@ -97,7 +90,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     xir_module->set_name(luisa::format("kernel_{:016x}", kernel.hash()));
     if (!option.name.empty()) { xir_module->set_location(option.name); }
 
-    if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
+    if (luisa::compute::backend_print_code_enabled()) {
         auto filename = luisa::format("kernel.{:016x}.xir", kernel.hash());
         dump_xir_module(xir_module.get(), filename);
     }
@@ -322,20 +315,20 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
         LUISA_VERBOSE("SPIR-V CFG normalization done in {} ms.", norm_stats.total_ms);
         norm_stats.log("SPIR-V CFG normalization"); 
 
-        if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
+        if (luisa::compute::backend_print_code_enabled()) {
             auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());
             dump_xir_module(xir_module.get(), filename);
         }
     }
 
-    if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
+    if (luisa::compute::backend_print_code_enabled()) {
         auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
         dump_xir_module(xir_module.get(), filename);
     }
 
     LUISA_VERBOSE("XIR optimization done in {} ms.", opt_clk.toc());
 
-    if (LUISA_SPIRV_SHOULD_DUMP_XIR) {
+    if (luisa::compute::backend_print_code_enabled()) {
         auto filename = luisa::format("kernel.{:016x}.opt.rq.xir", kernel.hash());
         dump_xir_module(xir_module.get(), filename);
     }

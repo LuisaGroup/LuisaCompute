@@ -4,16 +4,8 @@
 #include "../../common/hlsl/shader_compiler.h"
 #include <luisa/core/logging.h>
 #include <luisa/vstl/md5.h>
+#include "../../common/backend_print_code.h"
 namespace lc::dx {
-namespace ComputeShaderDetail {
-static const bool PRINT_CODE = ([] {
-    auto env = std::getenv("LUISA_DUMP_SOURCE");
-    if (env == nullptr) {
-        return false;
-    }
-    return std::string_view{env} == "1";
-})();
-}// namespace ComputeShaderDetail
 class StringViewBinaryStream : public BinaryStream {
 
 public:
@@ -52,7 +44,6 @@ ComputeShader *ComputeShader::load_preset_compute(
     Device *device,
     vstd::span<Type const *const> types,
     vstd::string_view fileName) {
-    using namespace ComputeShaderDetail;
     auto pso_name = Shader::pso_name(device, fileName);
     bool old_deleted = false;
     auto result = ShaderSerializer::DeSerialize(
@@ -91,7 +82,6 @@ ComputeShader *ComputeShader::compile_compute(
     bool debug,
     uint validation_count) {
 
-    using namespace ComputeShaderDetail;
     auto compile_new_compute = [&](bool WriteCache, vstd::string_view pso_name) {
         auto str = codegen();
         vstd::MD5 md5;
@@ -103,9 +93,14 @@ ComputeShader *ComputeShader::compile_compute(
             }
         }
 
-        if (PRINT_CODE) {
-            vstd::string dump_file_name{"hlsl_output.hlsl"};
-            if (auto f = fopen(dump_file_name.c_str(), "ab")) {
+        if (luisa::compute::backend_print_code_enabled()) {
+            auto dump_name = [&]() -> luisa::string {
+                if (!fileName.empty()) return luisa::string{fileName.data(), fileName.size()};
+                if (!kernel.name().empty()) return luisa::string{kernel.name()};
+                return luisa::format("{:x}", kernel.hash());
+            }();
+            auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+            if (auto f = fopen(dump_file_name.c_str(), "wb")) {
                 fwrite(str.result.data(), str.result.size(), 1, f);
                 fclose(f);
             }
@@ -216,12 +211,19 @@ void ComputeShader::save_compute(
     vstd::string_view fileName,
     bool enableUnsafeMath,
     bool debug) {
-    using namespace ComputeShaderDetail;
     vstd::MD5 md5({reinterpret_cast<uint8_t const *>(str.result.data() + str.immutableHeaderSize), str.result.size() - str.immutableHeaderSize});
-    if (PRINT_CODE) {
-        auto f = fopen("hlsl_output.hlsl", "wb");
-        fwrite(str.result.data(), str.result.size(), 1, f);
-        fclose(f);
+    if (luisa::compute::backend_print_code_enabled()) {
+        auto dump_name = [&]() -> luisa::string {
+            if (!fileName.empty()) return luisa::string{fileName.data(), fileName.size()};
+            if (!kernel.name().empty()) return luisa::string{kernel.name()};
+            return luisa::format("{:x}", kernel.hash());
+        }();
+        auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+        auto f = fopen(dump_file_name.c_str(), "wb");
+        if (f) {
+            fwrite(str.result.data(), str.result.size(), 1, f);
+            fclose(f);
+        }
     }
     if (profiler) [[unlikely]] {
         profiler->before_load_shader_bytecode(fileName);

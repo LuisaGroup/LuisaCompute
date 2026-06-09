@@ -175,7 +175,14 @@ std::string_view code(static_cast<const char*>(header.ptr), header.size);
 Build: `.hlsl` → `.bytes`, shaders → `.dxil`, embedded via `bin2obj`.
 
 ### Codegen Debug
-1. Set env `LUISA_DUMP_SOURCE`
-2. Delete old `hlsl_output.hlsl` in binary dir (new results append)
-3. Run program
-4. Read `hlsl_output.hlsl`
+
+Set env `LUISA_DUMP_SOURCE=1` to dump generated HLSL to per-shader files.  
+Output: `hlsl_output_<shader_name>.hlsl` in the working directory.
+
+**Naming priority** (same across DX and VK backends):
+1. `ShaderOption::name` / `fileName` — user-provided name
+2. `Function::name()` — kernel/callable debug name
+3. `Function::hash()` formatted as hex — fallback (e.g. `hlsl_output_a1b2c3d4.hlsl`)
+
+Files are written with `"wb"` (overwrite) — no need to delete old files.  
+Each shader gets its own file; no more single `hlsl_output.hlsl` with appended content.

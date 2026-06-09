@@ -1,5 +1,6 @@
 #include "entry.h"
 #include "utils.h"
+#include "../../backend_print_code.h"
 #include <SPIRV/disassemble.h>
 #include <luisa/core/logging.h>
 #include <fstream>
@@ -118,7 +119,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     codegen.emit(xir_module.get(), kernel.bound_arguments(), {}, opt.native_include);
     std::vector<uint32_t> words;
     codegen._builder.dump(words);
-    if (std::getenv("LUISA_DUMP_SOURCE")) {
+    if (luisa::compute::backend_print_code_enabled()) {
         std::ostringstream disasm;
         spv::Disassemble(disasm, words);
         LUISA_VERBOSE("=== PRE-VALIDATION SPIR-V for {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
@@ -133,7 +134,7 @@ SpirvResult SpirvCodegenEntry::compile_spirv(Function kernel, const ShaderOption
     luisa_spirv_validate(words, "post-optimization");
     LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds",
                words.size(), codegen._properties.size());
-    if (std::getenv("LUISA_DUMP_SOURCE")) {
+    if (luisa::compute::backend_print_code_enabled()) {
         std::ostringstream disasm;
         spv::Disassemble(disasm, words);
         LUISA_INFO("=== Kernel: {} (size={}) ===\n{}", kernel.name(), words.size(), disasm.str());
