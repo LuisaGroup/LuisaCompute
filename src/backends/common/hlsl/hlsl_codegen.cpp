@@ -606,8 +606,6 @@ void StringStateVisitor::visit(const RayQueryStmt *stmt) {
 }
 void StringStateVisitor::visit(const SuspendStmt *) {
 }
-void StringStateVisitor::visit(const CoroBindStmt *) {
-}
 StringStateVisitor::StringStateVisitor(
     Function f,
     vstd::StringBuilder &str,

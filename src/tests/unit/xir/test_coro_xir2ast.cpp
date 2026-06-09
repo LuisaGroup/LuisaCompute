@@ -50,7 +50,6 @@ struct StatementCounter final : StmtVisitor {
         stmt->on_procedural_candidate()->accept(*this);
     }
     void visit(const SuspendStmt *) override {}
-    void visit(const CoroBindStmt *) override {}
     void visit(const AutoDiffStmt *stmt) override { stmt->body()->accept(*this); }
     void visit(const PrintStmt *) override {}
     void visit(const DebugBreakStmt *) override {}

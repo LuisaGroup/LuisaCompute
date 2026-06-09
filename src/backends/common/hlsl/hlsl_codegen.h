@@ -170,7 +170,7 @@ public:
     void visit(const CommentStmt *) override;
     void visit(const RayQueryStmt *) override;
     void visit(const SuspendStmt *) override;
-    void visit(const CoroBindStmt *) override;
+
     void visit(const AutoDiffStmt *stmt) override;
     void visit(const PrintStmt *stmt) override;
     void visit(const DebugBreakStmt *stmt) override { LUISA_NOT_IMPLEMENTED(); }

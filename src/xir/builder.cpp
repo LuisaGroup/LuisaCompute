@@ -205,10 +205,6 @@ CoroTerminateInst *XIRBuilder::coro_terminate() noexcept {
     return _create_and_append_instruction<CoroTerminateInst>(_insertion_point->parent_block());
 }
 
-CoroRegisterInst *XIRBuilder::coro_register(luisa::string name, Value *value, Value *frame) noexcept {
-    return _create_and_append_instruction<CoroRegisterInst>(_insertion_point->parent_block(), std::move(name), value, frame);
-}
-
 RayQueryLoopInst *XIRBuilder::ray_query_loop() noexcept {
     return _create_and_append_instruction<RayQueryLoopInst>(_insertion_point->parent_block());
 }

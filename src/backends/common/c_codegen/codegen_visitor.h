@@ -35,7 +35,7 @@ public:
     void visit(const CommentStmt *) override;
     void visit(const RayQueryStmt *) override;
     void visit(const SuspendStmt *) override;
-    void visit(const CoroBindStmt *) override;
+
     void visit(const PrintStmt *) override;
     CodegenVisitor(
         vstd::StringBuilder &sb,

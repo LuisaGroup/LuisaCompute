@@ -1187,12 +1187,6 @@ private:
                     b.coro_resume(ast_suspend->token(), nullptr);
                     break;
                 }
-                case Statement::Tag::CORO_BIND: {
-                    auto ast_bind = static_cast<const CoroBindStmt *>(car);
-                    auto value = _translate_expression(b, ast_bind->value(), true);
-                    _commented(b.coro_register(luisa::string{ast_bind->name()}, value, nullptr));
-                    break;
-                }
             }
             // update the statement list
             stmts = cdr;

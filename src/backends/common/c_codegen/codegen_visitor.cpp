@@ -494,8 +494,6 @@ void CodegenVisitor::visit(const RayQueryStmt *stmt) {
 }
 void CodegenVisitor::visit(const SuspendStmt *) {
 }
-void CodegenVisitor::visit(const CoroBindStmt *) {
-}
 void CodegenVisitor::visit(const PrintStmt *stmt) {
     sb << "{\nchar print_str[] = {";
     bool comma = false;

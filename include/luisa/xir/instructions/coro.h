@@ -81,35 +81,4 @@ public:
     [[nodiscard]] CoroTerminateInst *clone(XIRBuilder &b, InstructionCloneValueResolver &resolver) const noexcept override;
 };
 
-class LUISA_XIR_API CoroRegisterInst final : public DerivedInstruction<CoroRegisterInst, DerivedInstructionTag::CORO_REGISTER> {
-
-private:
-    luisa::string _name;
-
-public:
-    static constexpr size_t operand_index_value = 0u;
-    static constexpr size_t operand_index_frame = 1u;
-
-public:
-    CoroRegisterInst(BasicBlock *parent_block, luisa::string name, Value *value, Value *frame) noexcept;
-
-    [[nodiscard]] const luisa::string &name() const noexcept { return _name; }
-    [[nodiscard]] auto value() noexcept { return operand(operand_index_value); }
-    [[nodiscard]] auto value() const noexcept { return operand(operand_index_value); }
-    [[nodiscard]] auto frame() noexcept { return operand(operand_index_frame); }
-    [[nodiscard]] auto frame() const noexcept { return operand(operand_index_frame); }
-
-    template<typename Visitor>
-    decltype(auto) accept(Visitor &&visitor) noexcept {
-        return visitor(*this);
-    }
-
-    template<typename Visitor>
-    decltype(auto) accept(Visitor &&visitor) const noexcept {
-        return visitor(*this);
-    }
-
-    [[nodiscard]] CoroRegisterInst *clone(XIRBuilder &b, InstructionCloneValueResolver &resolver) const noexcept override;
-};
-
 }// namespace luisa::compute::xir

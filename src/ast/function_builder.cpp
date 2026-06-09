@@ -124,11 +124,6 @@ void FunctionBuilder::suspend_(uint32_t token, luisa::string name) noexcept {
     _create_and_append_statement<SuspendStmt>(token, std::move(name));
 }
 
-void FunctionBuilder::bind_promise_(luisa::string name, const Expression *value) noexcept {
-    value = _internalize(value);
-    _create_and_append_statement<CoroBindStmt>(std::move(name), value);
-}
-
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
     LUISA_ASSERT(query->builder() == this,
                  "Ray query must be created by the same function builder.");
