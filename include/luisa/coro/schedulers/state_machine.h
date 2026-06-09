@@ -36,14 +36,17 @@ private:
             $loop {
                 UInt token = frame.target_token;
                 $if(token == ~0u) { $break; };
+                Bool executed = false;
                 $switch(token) {
                     for (size_t i = 1u; i < coroutine.subroutine_count(); ++i) {
                         $case(i) {
                             coroutine[i](frame, args...);
+                            executed = true;
                         };
                     }
                     $default { $break; };
                 };
+                $if(!executed) { $break; };
             };
             frame.target_token = ~0u;
         };
