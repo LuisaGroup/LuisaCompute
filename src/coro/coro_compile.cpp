@@ -56,13 +56,14 @@ CoroutineCompileResult compile_coroutine_pipeline(
             "Coroutine compilation failed: no coroutine function found in XIR module");
     }
 
+    // Phase 1: Coroutine-specific passes (directly on AST→XIR output)
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
     if (cfg.scopes.empty()) {
         throw std::runtime_error(
             "Coroutine compilation failed: coro-cfg-distill found no scopes");
     }
 
-    auto split_count = xir::coro_split_pass_run_on_module(module.get());
+    auto split_count = xir::coro_split_pass_run_on_module_with_cfg(module.get(), cfg);
     if (split_count == 0u) {
         throw std::runtime_error(
             "Coroutine compilation failed: coro-split produced no callables");
@@ -76,10 +77,13 @@ CoroutineCompileResult compile_coroutine_pipeline(
 
     (void)xir::coro_reg2mem_pass_run_on_module(module.get());
 
+    // Phase 2: Destructure continuations
+    // (may have structured CFG after split's control flow reconstruction)
     (void)xir::destructure_cfg_pass_run_on_module(module.get());
     (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
 
+    // Phase 3: Restructure for xir2ast translation
     (void)xir::restructure_cfg_pass_run_on_module(module.get());
 
     (void)xir::dce_pass_run_on_module(module.get());
