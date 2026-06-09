@@ -32,22 +32,20 @@ private:
         Kernel3D kernel = [&coroutine, &config](Var<Args>... args) noexcept {
             set_block_size(config.block_size);
             auto frame = coroutine.instantiate(dispatch_id());
+            coroutine[0u](frame, args...);
             $loop {
                 UInt token = frame.target_token;
-                $if(token == ~0u) {
-                    $break;
-                };
+                $if(token == ~0u) { $break; };
                 $switch(token) {
                     for (size_t i = 1u; i < coroutine.subroutine_count(); ++i) {
                         $case(i) {
                             coroutine[i](frame, args...);
                         };
                     }
-                    $default {
-                        $break;
-                    };
+                    $default { $break; };
                 };
             };
+            frame.target_token = ~0u;
         };
         _shader = device.compile(kernel);
     }
