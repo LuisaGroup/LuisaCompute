@@ -10,16 +10,16 @@ using namespace boost::ut::literals;
 
 namespace {
 
-/// Concrete stub that records the last dispatch call.
 struct TestScheduler final : CoroScheduler<int, float> {
     bool called{false};
     uint3 last_size{};
     int last_int{0};
     float last_float{0.f};
 
-    using CoroScheduler::CoroScheduler;
-
-    void _dispatch(Stream &, uint3 size, const int &i, const float &f) noexcept override {
+    void _dispatch(
+        Stream &, uint3 size,
+        const int &i,
+        const float &f) noexcept override {
         called = true;
         last_size = size;
         last_int = i;
@@ -27,48 +27,36 @@ struct TestScheduler final : CoroScheduler<int, float> {
     }
 };
 
+Stream dummy_stream;
+
 }// namespace
 
 void reg_coro_scheduler_base() {
 
-    "constructor_stores_graph_and_frame_desc"_test = [] {
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        desc.add_field("value", Type::of<float>());
-
-        TestScheduler sched{graph, desc};
-
-        expect(&sched.graph() == &graph);
-        expect(&sched.frame_desc() == &desc);
-        expect(sched.frame_desc().field_count() == 1u);
-        expect(sched.frame_desc().total_size() > 0u);
+    "pure_virtual_prevents_instantiation"_test = [] {
+        static_assert(std::is_abstract_v<CoroScheduler<int, float>>);
+        static_assert(!std::is_abstract_v<TestScheduler>);
+        expect(true);
     };
 
-    "operator_paren_returns_coro_task_submitter"_test = [] {
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        TestScheduler sched{graph, desc};
-
-        auto submitter = sched(42, 3.14f);
-
-        // Verify the type name contains CoroTaskSubmitter
-        using SubmitterType = decltype(submitter);
-        static_assert(std::is_same_v<
-                          SubmitterType,
-                          CoroScheduler<int, float>::CoroTaskSubmitter>);
-        expect(true);// compile-time check passed
+    "operator_paren_returns_coro_scheduler_invoke"_test = [] {
+        TestScheduler sched;
+        auto invoke = sched(42, 3.14f);
+        using InvokeType = decltype(invoke);
+        static_assert(std::is_same_v<InvokeType,
+                                      coro::detail::CoroSchedulerInvoke<int, float>>);
+        expect(true);
     };
 
-    "dispatch_calls_underscore_dispatch"_test = [] {
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        TestScheduler sched{graph, desc};
-
-        Stream dummy_stream;
+    "dispatch_is_lazy_called_when_invoked_with_stream"_test = [] {
+        TestScheduler sched;
         uint3 size = make_uint3(16u, 8u, 1u);
+        auto dispatched = sched(42, 3.14f).dispatch(size);
 
-        auto dispatcher = sched(42, 3.14f).dispatch(size);
-        dispatcher(dummy_stream);
+        // _dispatch not called until invoked with a stream
+        expect(!sched.called);
+
+        dispatched(dummy_stream);
 
         expect(sched.called);
         expect(sched.last_size.x == 16u);
@@ -79,14 +67,8 @@ void reg_coro_scheduler_base() {
     };
 
     "dispatch_1d_convenience"_test = [] {
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        TestScheduler sched{graph, desc};
-
-        Stream dummy_stream;
-        auto dispatcher = sched(7, 2.71f).dispatch(32u);
-        dispatcher(dummy_stream);
-
+        TestScheduler sched;
+        sched(7, 2.71f).dispatch(32u)(dummy_stream);
         expect(sched.called);
         expect(sched.last_size.x == 32u);
         expect(sched.last_size.y == 1u);
@@ -96,14 +78,8 @@ void reg_coro_scheduler_base() {
     };
 
     "dispatch_2d_convenience"_test = [] {
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        TestScheduler sched{graph, desc};
-
-        Stream dummy_stream;
-        auto dispatcher = sched(-1, 0.5f).dispatch(8u, 4u);
-        dispatcher(dummy_stream);
-
+        TestScheduler sched;
+        sched(-1, 0.5f).dispatch(8u, 4u)(dummy_stream);
         expect(sched.called);
         expect(sched.last_size.x == 8u);
         expect(sched.last_size.y == 4u);
@@ -111,55 +87,29 @@ void reg_coro_scheduler_base() {
     };
 
     "dispatch_3d_convenience"_test = [] {
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        TestScheduler sched{graph, desc};
-
-        Stream dummy_stream;
-        auto dispatcher = sched(100, 9.99f).dispatch(2u, 3u, 4u);
-        dispatcher(dummy_stream);
-
+        TestScheduler sched;
+        sched(100, 9.99f).dispatch(2u, 3u, 4u)(dummy_stream);
         expect(sched.called);
         expect(sched.last_size.x == 2u);
         expect(sched.last_size.y == 3u);
         expect(sched.last_size.z == 4u);
     };
 
-    "dispatch_with_rvalue_args_moves_correctly"_test = [] {
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        TestScheduler sched{graph, desc};
-
-        Stream dummy_stream;
-        // rvalue arguments should be perfectly forwarded
-        auto dispatcher = sched(1 + 2, 3.0f + 0.14f).dispatch(1u);
-        dispatcher(dummy_stream);
-
+    "dispatch_with_rvalue_args"_test = [] {
+        TestScheduler sched;
+        sched(1 + 2, 3.0f + 0.14f).dispatch(1u)(dummy_stream);
         expect(sched.called);
         expect(sched.last_int == 3);
         expect(sched.last_float == 3.14_f);
     };
 
-    "pure_virtual_prevents_instantiation"_test = [] {
-        // CoroScheduler<int, float> itself is abstract
-        static_assert(std::is_abstract_v<CoroScheduler<int, float>>);
-        // Derived concrete type is not abstract
-        static_assert(!std::is_abstract_v<TestScheduler>);
-        expect(true);
-    };
-
     "stream_syntax_compiles"_test = [] {
-        // Verify that stream << sched(args).dispatch(size) compiles
-        // by checking the type of the dispatch callable is invocable with Stream&
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        TestScheduler sched{graph, desc};
-
+        TestScheduler sched;
         auto dispatched = sched(10, 1.0f).dispatch(make_uint3(1u));
-        using DispatchedType = decltype(dispatched);
+        expect(!sched.called);
 
-        static_assert(std::is_invocable_v<DispatchedType, Stream &>);
-        expect(true);
+        dummy_stream << dispatched;
+        expect(sched.called);
     };
 }
 

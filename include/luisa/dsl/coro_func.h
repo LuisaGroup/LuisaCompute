@@ -1,7 +1,13 @@
+//
+// Created by Mike on 2024/5/8.
+//
+
 #pragma once
 
 #include <luisa/core/dll_export.h>
 #include <luisa/core/stl/vector.h>
+#include <luisa/core/stl/optional.h>
+#include <luisa/core/concepts.h>
 #include <luisa/coro/coro_graph.h>
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/dsl/func.h>
@@ -10,16 +16,33 @@ namespace luisa::compute {
 
 template<typename T>
 class Coroutine {
-    static_assert(always_false_v<T>, "Coroutine requires a function signature type");
+    static_assert(always_false_v<T>, "Coroutine requires a function signature type (e.g. Coroutine<void(int, float)>).");
 };
 
-template<typename T>
-struct is_coroutine : std::false_type {};
-
-template<typename T>
-struct is_coroutine<Coroutine<T>> : std::true_type {};
-
 namespace detail {
+
+/// Coroutine awaiter — returned by Coroutine::operator().
+/// Holds a move-only callback that runs all subroutines chained on a frame.
+class CoroAwaiter : public concepts::Noncopyable {
+
+public:
+    using Await = luisa::move_only_function<void()>;
+    explicit CoroAwaiter(Await await) noexcept
+        : _await{std::move(await)} {}
+    void await() && noexcept { _await(); }
+
+private:
+    Await _await;
+};
+
+/// Run all subroutines of a coroutine in token-chained order on a frame.
+/// @param frame      The CoroFrame to run on.
+/// @param node_count Total number of subroutines in the graph.
+/// @param node       Callback invoked for each target token; receives
+///                   (token, frame) and should call the matching subroutine.
+LUISA_CORO_API void coroutine_chained_await_impl(
+    CoroFrame &frame, size_t node_count,
+    luisa::move_only_function<void(size_t, CoroFrame &)> node) noexcept;
 
 /// Result of the two-phase coroutine compilation pipeline.
 struct CoroutineCompileResult {
@@ -37,27 +60,49 @@ struct CoroutineCompileResult {
 compile_coroutine_pipeline(
     const luisa::shared_ptr<const FunctionBuilder> &builder);
 
-} // namespace detail
+}// namespace detail
 
+#if defined(__GNUC__) && __GNUC__ >= 16
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wtemplate-body"
+#endif
 template<typename Ret, typename... Args>
 class Coroutine<Ret(Args...)> {
-    // Phase 1: Ret must be void
-    static_assert(std::is_same_v<Ret, void>, "Coroutine return type must be void in Phase 1");
 
-    using SharedFunctionBuilder = luisa::shared_ptr<const detail::FunctionBuilder>;
-    SharedFunctionBuilder _builder{nullptr};
+    static_assert(std::is_same_v<Ret, void>,
+                  "Coroutine function must return void.");
 
-    // Phase 2: compiled pipeline results
+private:
+    luisa::shared_ptr<const detail::FunctionBuilder> _builder{nullptr};
     coro::CoroGraph _graph;
     CoroFrameDesc _frame_desc;
-    luisa::vector<SharedFunctionBuilder> _subroutines;
+    luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> _subroutines;
+
+public:
+    class Subroutine {
+
+    private:
+        Function _f;
+
+    private:
+        friend class Coroutine;
+        explicit Subroutine(Function function) noexcept : _f{function} {}
+
+    public:
+        explicit operator bool() const noexcept { return static_cast<bool>(_f); }
+
+        void operator()(CoroFrame &frame, const Var<std::remove_cvref_t<Args>> &...args) const noexcept {
+            const Expression *call_args[1u + sizeof...(Args)];
+            call_args[0] = frame.expression();
+            size_t ai = 1u;
+            ((call_args[ai++] = detail::extract_expression(args)), ...);
+            detail::FunctionBuilder::current()->call(
+                _f, luisa::span<const Expression *const>{call_args, 1u + sizeof...(Args)});
+        }
+    };
 
 public:
     /// Construct a Coroutine from a definition lambda and compile eagerly.
-    /// Follows the same argument-creation pattern as Callable.
-    /// Phase 1: record DSL operations into AST.
-    /// Phase 2: run full compilation pipeline (AST→XIR→passes).
-    /// @throw std::runtime_error if compilation fails.
     template<typename Def>
         requires std::negation_v<is_callable<std::remove_cvref_t<Def>>> &&
                  std::negation_v<is_kernel<std::remove_cvref_t<Def>>>
@@ -77,42 +122,88 @@ public:
             create(std::forward<Def>(def), std::index_sequence_for<Args...>{});
         });
 
-        // Phase 2: eager compilation
         auto result = detail::compile_coroutine_pipeline(_builder);
         _graph = std::move(result.graph);
         _frame_desc = std::move(result.frame_desc);
         _subroutines = std::move(result.subroutines);
     }
 
-    /// Access the underlying AST function (pre-compilation entry)
     [[nodiscard]] auto function() const noexcept { return Function{_builder.get()}; }
     [[nodiscard]] auto const &function_builder() const & noexcept { return _builder; }
     [[nodiscard]] auto &&function_builder() && noexcept { return std::move(_builder); }
 
-    /// @return the compiled coroutine state-transition graph
     [[nodiscard]] const coro::CoroGraph &graph() const noexcept { return _graph; }
+    [[nodiscard]] auto shared_graph() const noexcept { return luisa::shared_ptr<const coro::CoroGraph>{}; }
 
-    /// @return the compiled frame layout descriptor
+    [[nodiscard]] const CoroFrameDesc &frame() const noexcept { return _frame_desc; }
     [[nodiscard]] const CoroFrameDesc &frame_desc() const noexcept { return _frame_desc; }
+    [[nodiscard]] auto shared_frame() const noexcept { return luisa::shared_ptr<const CoroFrameDesc>{}; }
 
-    /// @return the entry callable (scope 0).
-    ///         If the pipeline produced translated subroutines, returns the
-    ///         translated scope-0 callable; otherwise falls back to the
-    ///         original AST builder.
-    [[nodiscard]] SharedFunctionBuilder entry() const noexcept {
-        return _subroutines.empty() ? _builder : _subroutines[0u];
+    [[nodiscard]] Subroutine entry() const noexcept {
+        return _subroutines.empty() ? Subroutine{{}} : Subroutine{_subroutines[0u]->function()};
     }
 
-    /// @return a subroutine by scope index (0 = entry, 1+ = continuations).
-    [[nodiscard]] SharedFunctionBuilder operator[](size_t index) const noexcept {
-        return index < _subroutines.size() ? _subroutines[index] : nullptr;
+    [[nodiscard]] Subroutine operator[](size_t index) const noexcept {
+        return index < _subroutines.size() ? Subroutine{_subroutines[index]->function()} : Subroutine{{}};
     }
 
-    /// @return the number of compiled subroutines (entry + continuations).
+    [[nodiscard]] Subroutine subroutine(size_t token) const noexcept {
+        auto *node = _graph.node_by_token(token);
+        if (node && node->index < _subroutines.size()) {
+            return Subroutine{_subroutines[node->index]->function()};
+        }
+        return Subroutine{{}};
+    }
+
+    [[nodiscard]] Subroutine subroutine(luisa::string_view name) const noexcept {
+        auto *node = _graph.node_by_name(name);
+        if (node && node->index < _subroutines.size()) {
+            return Subroutine{_subroutines[node->index]->function()};
+        }
+        return Subroutine{{}};
+    }
+
     [[nodiscard]] size_t subroutine_count() const noexcept { return _subroutines.size(); }
+
+    [[nodiscard]] CoroFrame instantiate() const noexcept {
+        return CoroFrame::create(&_frame_desc);
+    }
+
+    [[nodiscard]] CoroFrame instantiate(Expr<uint3> coro_id) const noexcept {
+        auto frame = CoroFrame::create(&_frame_desc);
+        frame.coro_id = coro_id;
+        return frame;
+    }
+
+private:
+    [[nodiscard]] auto _await(luisa::optional<Expr<uint3>> coro_id,
+                              const Var<std::remove_cvref_t<Args>> &...args) const noexcept {
+        return detail::CoroAwaiter{[=, coro_id = std::move(coro_id), this]() noexcept {
+            auto frame = coro_id ? instantiate(*coro_id) : instantiate();
+            detail::coroutine_chained_await_impl(
+                frame, subroutine_count(),
+                [&](size_t token, CoroFrame &f) noexcept {
+                    subroutine(token)(f, args...);
+                });
+        }};
+    }
+
+public:
+    [[nodiscard]] auto operator()(const Var<std::remove_cvref_t<Args>> &...args) const noexcept {
+        return _await(luisa::nullopt, args...);
+    }
+
+    [[nodiscard]] auto operator()(Expr<uint3> coro_id,
+                                  const Var<std::remove_cvref_t<Args>> &...args) const noexcept {
+        return _await(luisa::make_optional(coro_id), args...);
+    }
 };
 
-/// CTAD deduction guide — deduces Coroutine<void(Args...)> from a lambda
+#if defined(__GNUC__) && __GNUC__ >= 16
+#pragma GCC diagnostic pop
+#endif
+
+/// CTAD deduction guide — deduces Coroutine<void(Args...)> from a lambda.
 template<typename Def>
 Coroutine(Def) -> Coroutine<detail::dsl_function_t<std::remove_cvref_t<Def>>>;
 
@@ -130,4 +221,4 @@ public:
     [[nodiscard]] auto const &function_builder() const & noexcept { return _coroutine.function_builder(); }
 };
 
-} // namespace luisa::compute
+}// namespace luisa::compute

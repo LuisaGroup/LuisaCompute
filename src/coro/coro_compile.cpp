@@ -83,7 +83,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
     (void)xir::restructure_cfg_pass_run_on_module(module.get());
 
     (void)xir::dce_pass_run_on_module(module.get());
-    (void)xir::simplify_cfg_pass_run_on_module(module.get());
+    // NOTE: simplify_cfg_pass corrupts the structured CFG produced by
+    // restructure_cfg, causing XIR2AST translation to crash in _predeclare_allocas.
+    // Temporarily skipped until the root cause is resolved.
+    // (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
 
     result.graph = coro::CoroGraph::from_module(*module, materialize_info, cfg);
