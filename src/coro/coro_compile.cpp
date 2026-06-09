@@ -12,7 +12,6 @@
 #include <luisa/xir/passes/coro_reg2mem.h>
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/dce.h>
-#include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -77,10 +76,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
 
     (void)xir::coro_reg2mem_pass_run_on_module(module.get());
 
-    // Phase 2: Destructure continuations
-    // (may have structured CFG after split's control flow reconstruction)
-    (void)xir::destructure_cfg_pass_run_on_module(module.get());
-    (void)xir::simplify_cfg_pass_run_on_module(module.get());
+    // Phase 2: Phi elimination on continuations
     (void)xir::reg2mem_pass_run_on_module(module.get());
 
     // Phase 3: Restructure for xir2ast translation
