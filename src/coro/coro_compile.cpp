@@ -1,5 +1,6 @@
 #include <stdexcept>
 
+#include <luisa/core/logging.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
 #include <luisa/dsl/coro_func.h>
@@ -18,6 +19,7 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/coro_xir2ast.h>
+#include <luisa/xir/translators/xir2text.h>
 
 namespace luisa::compute::detail {
 
