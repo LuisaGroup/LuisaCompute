@@ -62,7 +62,6 @@ int main(int argc, char *argv[]) {
             UInt2 coord = dispatch_id().xy();
             $if (coord.x >= w | coord.y >= h) { return; };
 
-            // Camera
             Float2 resolution = make_float2(w.cast<float>(), h.cast<float>());
             Float fov = 0.23f;
             Float aspect = resolution.x / resolution.y;
@@ -72,7 +71,7 @@ int main(int argc, char *argv[]) {
                 2.f * fov * uv / resolution.y - fov * make_float2(aspect, 1.f) - 1e-5f,
                 -1.f));
 
-            // SDF ray-march (sphere + box + cylinder scene)
+            $suspend("setup");
             static constexpr float inf = 1e10f;
             Float t = def(0.f);
             $for (j, 100) {
@@ -90,9 +89,9 @@ int main(int argc, char *argv[]) {
                 Float s = min(ground, g);
                 $if (s <= 1e-6f | t >= inf) { $break; };
                 t += s;
+                $suspend("step");
             };
 
-            // Distance-based shading
             Float3 color;
             $if (t < inf) {
                 Float3 hit = ro + t * rd;
@@ -106,7 +105,7 @@ int main(int argc, char *argv[]) {
                              make_float3(0.3f, 0.5f, 0.8f), sky_t);
             };
 
-            // Progressive accumulation
+            $suspend("accumulate");
             $if (frame == 0u) {
                 accum.write(coord, make_float4(color, 1.f));
             } $else {
@@ -115,11 +114,7 @@ int main(int argc, char *argv[]) {
                 Float3 blended = lerp(prev.xyz(), color, wgt);
                 accum.write(coord, make_float4(blended, 1.f));
             };
-
-            // Suspend markers (continuations are empty — all work done above)
-            $suspend("1");
-            $suspend("2");
-            $suspend("3");
+            $suspend("done");
         });
 
     LUISA_INFO("Coroutine compiled: {} subroutines, {} graph nodes",

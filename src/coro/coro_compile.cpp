@@ -12,6 +12,7 @@
 #include <luisa/xir/passes/coro_reg2mem.h>
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/destructure_cfg.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -55,7 +56,21 @@ CoroutineCompileResult compile_coroutine_pipeline(
             "Coroutine compilation failed: no coroutine function found in XIR module");
     }
 
-    // Phase 1: Coroutine-specific passes (directly on AST→XIR output)
+    (void)xir::destructure_cfg_pass_run_on_module(module.get());
+
+    coro_func = nullptr;
+    for (auto *f : module->function_list()) {
+        if (f->isa<xir::CallableFunction>() && f->definition() != nullptr) {
+            auto *def = f->definition();
+            bool has_coro = false;
+            def->traverse_instructions([&](xir::Instruction *inst) noexcept {
+                if (inst->derived_instruction_tag() == xir::DerivedInstructionTag::CORO_SUSPEND) { has_coro = true; }
+            });
+            if (has_coro) { coro_func = f; break; }
+        }
+    }
+    if (!coro_func) { throw std::runtime_error("Coroutine compilation failed: coro_func lost after destructure_cfg"); }
+
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
     if (cfg.scopes.empty()) {
         throw std::runtime_error(
@@ -75,33 +90,21 @@ CoroutineCompileResult compile_coroutine_pipeline(
     }
 
     (void)xir::coro_reg2mem_pass_run_on_module(module.get());
-
-    // Phase 2: Phi elimination on continuations
+    (void)xir::destructure_cfg_pass_run_on_module(module.get());
+    (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
-
-    // Phase 3: Restructure for xir2ast translation
     (void)xir::restructure_cfg_pass_run_on_module(module.get());
-
     (void)xir::dce_pass_run_on_module(module.get());
-    // NOTE: simplify_cfg_pass corrupts the structured CFG produced by
-    // restructure_cfg, causing XIR2AST translation to crash in _predeclare_allocas.
-    // Temporarily skipped until the root cause is resolved.
-    // (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
 
     result.graph = coro::CoroGraph::from_module(*module, materialize_info, cfg);
     result.frame_desc.from_materialize_info(materialize_info);
 
-    // Translate each continuation callable from XIR back to AST.
-    // Nodes in the graph map 1:1 to the callables created by coro-split.
     for (size_t i = 0u; i < result.graph.node_count(); ++i) {
         auto &node = result.graph.node(i);
         if (node.callable != nullptr) {
-            auto ast = xir::xir_to_ast_translate_continuation(
-                *node.callable);
-            if (ast) {
-                result.subroutines.push_back(std::move(ast));
-            }
+            auto ast = xir::xir_to_ast_translate_continuation(*node.callable);
+            if (ast) { result.subroutines.push_back(std::move(ast)); }
         }
     }
 
