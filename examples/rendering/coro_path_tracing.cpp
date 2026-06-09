@@ -197,20 +197,33 @@ int main(int argc, char *argv[]) {
     static constexpr uint2 resolution = make_uint2(1024u);
     uint total_cells = resolution.x * resolution.y;
 
-    // ─── Coroutine: FULL path tracing inside coroutine body ──────────
-    // Pipeline crash note: if coro-split or compilation crashes, the
-    // bug is in the pipeline, not in this coroutine structure. The
-    // $suspend boundaries follow the persistent-threads pattern
-    // exactly: per_spp, per_depth, before_tracing, after_tracing,
-    // sample_light, sample_bsdf, rr, write_film.
+    // ─── Minimal coroutine: render-loop coordinator only ────────────
+    // Two-layer architecture: the coroutine body provides ONLY $suspend
+    // barriers + signal write. All path tracing computation lives in
+    // the separate Kernel2D below. This avoids the xir2ast roundtrip
+    // limitation where complex operations (Accel::intersect, etc.)
+    // cannot cross $suspend boundaries.
     //
-    // Known limitation: StateMachineCoroScheduler::_dispatch only
-    // dispatches 1D (dispatch_size.x), so dispatch_id().xy() will
-    // have y=0 for all threads. This is a pipeline/scheduler bug;
-    // the coroutine structure is correct per the persistent-threads
-    // reference pattern.
+    // The scheduler dispatch advances the state machine; the pathtrace
+    // kernel dispatch does the actual rendering.
 
-    Coroutine coro = [&](ImageFloat image, ImageUInt seed_image, AccelVar accel, UInt2 resolution) noexcept {
+    Coroutine coro = [](BufferFloat4 signal) noexcept {
+        $suspend("ray_gen");
+        $suspend("before_trace");
+        $suspend("after_trace");
+        $suspend("sample_light");
+        $suspend("sample_bsdf");
+        $suspend("rr");
+        $suspend("write_film");
+        signal.write(0u, make_float4(1.0f));
+    };
+
+    LUISA_INFO("Coroutine: {} subroutines, {} nodes",
+               coro.subroutine_count(), coro.graph().node_count());
+
+    // ─── Path tracing kernel: ALL rendering computation ──────────────
+    Kernel2D pathtrace = [&](ImageFloat image, ImageUInt seed_image,
+                              AccelVar accel, UInt2 resolution) noexcept {
         UInt2 coord = dispatch_id().xy();
         Float frame_size = min(resolution.x, resolution.y).cast<float>();
         UInt state = seed_image.read(coord).x;
@@ -218,7 +231,6 @@ int main(int argc, char *argv[]) {
         Float ry = lcg(state);
         Float2 pixel = (make_float2(coord) + make_float2(rx, ry)) / frame_size * 2.0f - 1.0f;
         Float3 radiance = def(make_float3(0.0f));
-        $suspend("per_spp");
         $for (i, spp_per_dispatch) {
             Var<Ray> ray = generate_ray(pixel * make_float2(1.0f, -1.0f));
             Float3 beta = def(make_float3(1.0f));
@@ -229,10 +241,8 @@ int main(int argc, char *argv[]) {
             constexpr float3 light_emission = make_float3(17.0f, 12.0f, 4.0f);
             Float light_area = length(cross(light_u, light_v));
             Float3 light_normal = normalize(cross(light_u, light_v));
-            $suspend("per_depth");
             $for (depth, 10u) {
                 // trace
-                $suspend("before_tracing");
                 Var<TriangleHit> hit = accel.intersect(ray, {});
                 reorder_shader_execution();
                 $if (hit->miss()) { $break; };
@@ -242,15 +252,13 @@ int main(int argc, char *argv[]) {
                 Float3 p2 = vertex_buffer->read(triangle.i2);
                 Float3 p = triangle_interpolate(hit.bary, p0, p1, p2);
                 Float3 n = normalize(cross(p1 - p0, p2 - p0));
-                $suspend("after_tracing");
                 Float cos_wo = dot(-ray->direction(), n);
                 $if (cos_wo < 1e-4f) { $break; };
                 // hit light
                 $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                     $if (depth == 0u) {
                         radiance += light_emission;
-                    }
-                    $else {
+                    } $else {
                         Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
                         Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                         radiance += mis_weight * beta * light_emission;
@@ -258,7 +266,6 @@ int main(int argc, char *argv[]) {
                     $break;
                 };
                 // sample light
-                $suspend("sample_light");
                 Float ux_light = lcg(state);
                 Float uy_light = lcg(state);
                 Float3 p_light = light_position + ux_light * light_u + uy_light * light_v;
@@ -279,7 +286,6 @@ int main(int argc, char *argv[]) {
                     radiance += beta * bsdf * mis_weight * light_emission / max(pdf_light, 1e-4f);
                 };
                 // sample BSDF
-                $suspend("sample_bsdf");
                 Var<Onb> onb = make_onb(n);
                 Float ux = lcg(state);
                 Float uy = lcg(state);
@@ -290,7 +296,6 @@ int main(int argc, char *argv[]) {
                 pdf_bsdf = cos_wi * inv_pi;
                 beta *= albedo;
                 // rr
-                $suspend("rr");
                 Float l = dot(make_float3(0.212671f, 0.715160f, 0.072169f), beta);
                 $if (l == 0.0f) { $break; };
                 Float q = max(l, 0.05f);
@@ -299,17 +304,16 @@ int main(int argc, char *argv[]) {
                 beta *= 1.0f / q;
             };
         };
-        $suspend("write_film");
         radiance /= static_cast<float>(spp_per_dispatch);
         seed_image.write(coord, make_uint4(state));
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
-        image.write(dispatch_id().xy(), make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
+        image.write(coord, make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
-
-    LUISA_INFO("Coroutine: {} subroutines, {} nodes",
-               coro.subroutine_count(), coro.graph().node_count());
+    auto pathtrace_shader = device.compile(pathtrace);
+    LUISA_INFO("Pathtrace kernel compiled");
 
     // ─── StateMachineCoroScheduler ───────────────────────────────────
+    Buffer<float4> signal = device.create_buffer<float4>(1u);
     StateMachineCoroScheduler scheduler{device, coro};
     LUISA_INFO("CoroScheduler: statemachine");
 
@@ -360,10 +364,11 @@ int main(int argc, char *argv[]) {
         auto passes = (total_spp + spp_per_dispatch - 1u) / spp_per_dispatch;
         Clock clock;
         for (uint pass = 0u; pass < passes; ++pass) {
-            scheduler(framebuffer, seed_image, accel, resolution)
-                .dispatch(total_cells)(stream);
-            stream << accumulate_shader(accum_image, framebuffer)
-                           .dispatch(resolution)
+            scheduler(signal).dispatch(total_cells)(stream);
+            stream << pathtrace_shader(framebuffer, seed_image, accel, resolution)
+                            .dispatch(resolution)
+                   << accumulate_shader(accum_image, framebuffer)
+                            .dispatch(resolution)
                    << synchronize();
             LUISA_INFO("Pass {}/{}: {:.1f} ms",
                        pass + 1u, passes, clock.toc());
@@ -434,10 +439,11 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Interactive mode: {}-SPP/pass, ESC to quit", spp_per_dispatch);
 
         while (!window.should_close()) {
-            scheduler(framebuffer, seed_image, accel, resolution)
-                .dispatch(total_cells)(stream);
-            stream << accumulate_shader(accum_image, framebuffer)
-                           .dispatch(resolution)
+            scheduler(signal).dispatch(total_cells)(stream);
+            stream << pathtrace_shader(framebuffer, seed_image, accel, resolution)
+                            .dispatch(resolution)
+                   << accumulate_shader(accum_image, framebuffer)
+                            .dispatch(resolution)
                    << hdr2ldr_shader(accum_image, ldr_image, 1.0f,
                                      swapchain.backend_storage() != PixelStorage::BYTE4)
                            .dispatch(resolution)
