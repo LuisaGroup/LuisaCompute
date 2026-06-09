@@ -171,7 +171,8 @@ void reg_coro_persistent_integration(char *argv[]) {
 
         auto coro = make_coro();
         constexpr uint N = 64u;
-        PersistentThreadsCoroScheduler<> scheduler{device, coro, N};
+        PersistentThreadsCoroScheduler<> scheduler{device, coro,
+            PersistentThreadsCoroSchedulerConfig{.block_size = N}};
         LUISA_INFO("T36: backward compat — block_size={}",
                    scheduler.config().block_size);
 

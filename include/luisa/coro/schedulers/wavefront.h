@@ -108,6 +108,8 @@ private:
     }
 
 public:
+    [[nodiscard]] const Config &config() const noexcept { return _config; }
+
     WavefrontCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept
         : _config{config} {
         _create_shader(device, coro);

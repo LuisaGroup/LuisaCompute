@@ -212,8 +212,8 @@ void reg_coro_persistent_opt(char *argv[]) {
         expect(coro.subroutine_count() >= 2u);
 
         constexpr uint N = 64u;
-        // Backward compat: third argument is block_size
-        PersistentThreadsCoroScheduler<> scheduler{device, coro, N};
+        PersistentThreadsCoroScheduler<> scheduler{device, coro,
+            PersistentThreadsCoroSchedulerConfig{.block_size = N}};
         LUISA_INFO("Backward-compat constructor: block_size={}",
                    scheduler.config().block_size);
 

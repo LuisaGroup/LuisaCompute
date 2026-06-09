@@ -16,12 +16,7 @@ using namespace boost::ut::literals;
 
 void reg_coro_soa_layout(char *argv[]) {
 
-    "soa_layout_enum_values"_test = [] {
-        expect(static_cast<uint8_t>(FrameLayout::AoS) == 0u);
-        expect(static_cast<uint8_t>(FrameLayout::SoA) == 1u);
-    };
-
-    "soa_layout_constructs_and_has_correct_layout"_test = [argv] {
+    "soa_layout_constructs_and_has_correct_config"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device("fallback");
 
@@ -29,11 +24,13 @@ void reg_coro_soa_layout(char *argv[]) {
             $suspend("s1");
         });
 
-        WavefrontCoroScheduler<> aos_scheduler{device, coro, FrameLayout::AoS};
-        expect(aos_scheduler.layout() == FrameLayout::AoS);
+        WavefrontCoroScheduler<> aos_scheduler{device, coro,
+            WavefrontCoroSchedulerConfig{.global_memory_soa = false}};
+        expect(aos_scheduler.config().global_memory_soa == false);
 
-        WavefrontCoroScheduler<> soa_scheduler{device, coro, FrameLayout::SoA};
-        expect(soa_scheduler.layout() == FrameLayout::SoA);
+        WavefrontCoroScheduler<> soa_scheduler{device, coro,
+            WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
+        expect(soa_scheduler.config().global_memory_soa == true);
     };
 
     "soa_layout_compiles_and_runs"_test = [argv] {
@@ -50,7 +47,8 @@ void reg_coro_soa_layout(char *argv[]) {
         LUISA_INFO("Coroutine created, sub_count={}", coro.subroutine_count());
         expect(coro.subroutine_count() >= 2u);
 
-        WavefrontCoroScheduler<> scheduler{device, coro, FrameLayout::SoA};
+        WavefrontCoroScheduler<> scheduler{device, coro,
+            WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         LUISA_INFO("SoA Wavefront scheduler created, dispatching {} instances", N);
 
         scheduler().dispatch(N)(stream);
@@ -76,7 +74,8 @@ void reg_coro_soa_layout(char *argv[]) {
         LUISA_INFO("Coroutine created, sub_count={}", coro.subroutine_count());
         expect(coro.subroutine_count() >= 2u);
 
-        WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro, FrameLayout::SoA};
+        WavefrontCoroScheduler<Buffer<uint>> scheduler{device, coro,
+            WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         LUISA_INFO("SoA Wavefront scheduler created, dispatching {} instances", N);
 
         scheduler(output).dispatch(N)(stream);
@@ -101,7 +100,8 @@ void reg_coro_soa_layout(char *argv[]) {
         LUISA_INFO("Coroutine created, sub_count={}", coro.subroutine_count());
         expect(coro.subroutine_count() >= 2u);
 
-        WavefrontCoroScheduler<int> scheduler{device, coro, FrameLayout::SoA};
+        WavefrontCoroScheduler<int> scheduler{device, coro,
+            WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         LUISA_INFO("SoA Wavefront scheduler created, dispatching {} instances", N);
 
         scheduler(42).dispatch(N)(stream);

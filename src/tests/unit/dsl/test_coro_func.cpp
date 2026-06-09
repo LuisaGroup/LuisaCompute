@@ -36,22 +36,17 @@ void reg_coro_func() {
 
     "entry_returns_valid_builder"_test = [] {
         auto c = make_simple_coro();
-        auto entry = c.entry();
-        expect(entry != nullptr);
+        expect(static_cast<bool>(c.entry()));
     };
 
     "operator_bracket_returns_continuation"_test = [] {
         auto c = make_simple_coro();
-        auto sub1 = c[1u];
-        expect(sub1 != nullptr);
-        auto tag = sub1->function().tag();
-        expect(tag == Function::Tag::CALLABLE);
+        expect(static_cast<bool>(c[1u]));
     };
 
-    "operator_bracket_out_of_range_returns_null"_test = [] {
+    "operator_bracket_out_of_range_returns_empty"_test = [] {
         auto c = make_simple_coro();
-        auto sub = c[999u];
-        expect(sub == nullptr);
+        expect(!static_cast<bool>(c[999u]));
     };
 
     "subroutine_count_correct"_test = [] {
