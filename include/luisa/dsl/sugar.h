@@ -11,6 +11,31 @@ namespace luisa::compute::dsl_detail {
 
 #include <luisa/dsl/syntax.h>
 
+namespace luisa::compute::dsl {
+
+struct CoroutineInvocationAwaiter {
+    template<typename F>
+    void operator%(F &&f) const {
+        // Phase 1 stub: invoke the callable, no await semantics
+        f();
+    }
+};
+
+inline void suspend_impl(uint32_t token) {
+    detail::FunctionBuilder::current()->suspend_(token);
+}
+
+inline void suspend_impl(uint32_t token, const char *name) {
+    detail::FunctionBuilder::current()->suspend_(token, luisa::string{name});
+}
+
+inline void bind_promise(luisa::string_view name, auto &&value) {
+    detail::FunctionBuilder::current()->bind_promise_(
+        luisa::string{name}, detail::extract_expression(value));
+}
+
+} // namespace luisa::compute::dsl
+
 #define $ ::luisa::compute::Var
 
 #define $thread_id ::luisa::compute::thread_id()
@@ -205,5 +230,14 @@ namespace luisa::compute::dsl_detail {
 
 #define $debug_break_on(...) \
     LUISA_COMPUTE_DSL_DEVICE_DEBUG_IMPL_REVERSE(LUISA_REVERSE(__VA_ARGS__))
+
+#define $suspend(...) ::luisa::compute::dsl::suspend_impl(__COUNTER__, ##__VA_ARGS__)
+
+#define $promise(name, value) \
+    ::luisa::compute::dsl::bind_promise(name, value)
+
+#define $yield(x) do { $promise("__yielded_value", (x)); $suspend; } while(0)
+
+#define $await ::luisa::compute::dsl::CoroutineInvocationAwaiter{} %
 
 #endif

@@ -1,0 +1,18 @@
+#pragma once
+
+#include <luisa/core/dll_export.h>
+#include <luisa/core/stl/vector.h>
+
+namespace luisa::compute::xir {
+
+class Module;
+
+struct CoroReg2MemInfo {
+    size_t callable_count{0u};
+    size_t lowered_phi_count{0u};
+    size_t lowered_cross_block_value_count{0u};
+};
+
+[[nodiscard]] LUISA_XIR_API CoroReg2MemInfo coro_reg2mem_pass_run_on_module(Module *m) noexcept;
+
+}// namespace luisa::compute::xir
