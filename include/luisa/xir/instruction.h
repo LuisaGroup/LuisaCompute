@@ -26,7 +26,6 @@ enum struct DerivedInstructionTag {
     CORO_SUSPEND,      // basic block terminator: coroutine suspension
     CORO_RESUME,       // basic block beginning: coroutine resumption
     CORO_TERMINATE,    // basic block terminator: coroutine termination
-    CORO_REGISTER,     // coroutine register save
 
     /* PHI nodes */
     PHI,// basic block beginning: phi nodes
@@ -118,7 +117,6 @@ enum struct DerivedInstructionTag {
         case DerivedInstructionTag::CORO_SUSPEND: return "coro_suspend"sv;
         case DerivedInstructionTag::CORO_RESUME: return "coro_resume"sv;
         case DerivedInstructionTag::CORO_TERMINATE: return "coro_terminate"sv;
-        case DerivedInstructionTag::CORO_REGISTER: return "coro_register"sv;
     }
     return "unknown"sv;
 }

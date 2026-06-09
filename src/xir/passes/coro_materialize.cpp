@@ -45,26 +45,8 @@ struct RegisterInfo {
     return true;
 }
 
-[[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(Module *m) noexcept {
-    luisa::unordered_map<luisa::string, RegisterInfo> reg_map;
-    for (auto *f : m->function_list()) {
-        if (!f->isa<CallableFunction>() || f->definition() == nullptr) { continue; }
-        auto *def = static_cast<FunctionDefinition *>(f);
-        def->traverse_instructions([&](Instruction *inst) noexcept {
-            if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_REGISTER) {
-                auto *reg = static_cast<CoroRegisterInst *>(inst);
-                auto name = luisa::string{reg->name()};
-                if (!reg_map.contains(name)) {
-                    reg_map.emplace(name, RegisterInfo{name, reg->value()->type()});
-                }
-            }
-        });
-    }
-    luisa::vector<RegisterInfo> result;
-    for (auto &[k, v] : reg_map) { result.push_back(std::move(v)); }
-    luisa::sort(result.begin(), result.end(),
-                [](auto &a, auto &b) noexcept { return a.name < b.name; });
-    return result;
+[[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(Module *) noexcept {
+    return {};
 }
 
 [[nodiscard]] static const Type *build_frame_type(const luisa::vector<RegisterInfo> &regs) noexcept {
@@ -136,15 +118,6 @@ static void process_callable(Module *mod, CallableFunction *func,
     if (frame_arg == nullptr) { return; }
 
     luisa::unordered_map<luisa::string, Value *> local_map;
-    func->traverse_instructions([&](Instruction *inst) noexcept {
-        if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_REGISTER) {
-            auto *reg = static_cast<CoroRegisterInst *>(inst);
-            auto name = luisa::string{reg->name()};
-            if (field_map.contains(name)) {
-                local_map.emplace(name, reg->value());
-            }
-        }
-    });
 
     XIRBuilder b;
 
@@ -230,15 +203,6 @@ static void process_callable(Module *mod, CallableFunction *func,
         info.resume_lowered_count++;
     }
 
-    luisa::vector<CoroRegisterInst *> registers_to_remove;
-    func->traverse_instructions([&](Instruction *inst) noexcept {
-        if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_REGISTER) {
-            registers_to_remove.push_back(static_cast<CoroRegisterInst *>(inst));
-        }
-    });
-    for (auto *reg : registers_to_remove) {
-        reg->remove_self();
-    }
 }
 
 }// namespace detail

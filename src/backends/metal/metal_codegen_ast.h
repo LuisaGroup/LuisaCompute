@@ -55,7 +55,7 @@ private:
     void visit(const CommentStmt *stmt) noexcept override;
     void visit(const RayQueryStmt *stmt) noexcept override;
     void visit(const SuspendStmt *stmt) noexcept override;
-    void visit(const CoroBindStmt *stmt) noexcept override;
+
     void visit(const PrintStmt *stmt) noexcept override;
     void visit(const CpuCustomOpExpr *expr) noexcept override;
     void visit(const GpuCustomOpExpr *expr) noexcept override;

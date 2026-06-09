@@ -419,8 +419,6 @@ public:
     void suspend_(luisa::string name) noexcept;
     /// Add suspend statement with token and name
     void suspend_(uint32_t token, luisa::string name) noexcept;
-    /// Add coro bind statement
-    void bind_promise_(luisa::string name, const Expression *value) noexcept;
     /// Add comment statement
     void comment_(luisa::string comment) noexcept;
     /// Add assign statement

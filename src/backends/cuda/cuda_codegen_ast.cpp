@@ -1451,9 +1451,6 @@ void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
 void CUDACodegenAST::visit(const SuspendStmt *) {
 }
 
-void CUDACodegenAST::visit(const CoroBindStmt *) {
-}
-
 void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
     stmt->body()->accept(*this);
 }

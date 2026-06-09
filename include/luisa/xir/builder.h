@@ -136,7 +136,7 @@ public:
     CoroSuspendInst *coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept;
     CoroResumeInst *coro_resume(uint32_t token, Value *frame) noexcept;
     CoroTerminateInst *coro_terminate() noexcept;
-    CoroRegisterInst *coro_register(luisa::string name, Value *value, Value *frame) noexcept;
+
 
     RayQueryLoopInst *ray_query_loop() noexcept;
     RayQueryDispatchInst *ray_query_dispatch(Value *query_object) noexcept;

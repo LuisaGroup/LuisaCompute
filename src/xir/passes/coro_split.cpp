@@ -6,9 +6,9 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/return.h>
-#include <luisa/xir/instructions/store.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
@@ -29,8 +29,15 @@ private:
     luisa::unordered_map<const Value *, Value *> _value_map;
     luisa::unordered_map<const BasicBlock *, BasicBlock *> _block_map;
     luisa::unordered_map<const Argument *, Argument *> _arg_map;
+    XIRBuilder *_builder{nullptr};
+    BasicBlock *_alloca_bb{nullptr};
 
 public:
+    void set_builder(XIRBuilder *b, BasicBlock *alloca_bb) noexcept {
+        _builder = b;
+        _alloca_bb = alloca_bb;
+    }
+
     void map_block(const BasicBlock *orig, BasicBlock *cloned) noexcept {
         _block_map.emplace(orig, cloned);
     }
@@ -63,13 +70,25 @@ public:
                 LUISA_DEBUG_ASSERT(it != _arg_map.end(), "Argument not found in resolver.");
                 return it->second;
             }
-            case DerivedValueTag::INSTRUCTION: {
-                auto it = _value_map.find(static_cast<const Instruction *>(value));
-                LUISA_DEBUG_ASSERT(it != _value_map.end(), "Instruction not found in resolver.");
-                return it->second;
+            case DerivedValueTag::INSTRUCTION:
+            default: {
+                const auto *inst = static_cast<const Instruction *>(value);
+                auto it = _value_map.find(inst);
+                if (it != _value_map.end()) { return it->second; }
+                if (inst->derived_instruction_tag() == DerivedInstructionTag::ALLOCA &&
+                    _builder != nullptr && _alloca_bb != nullptr) {
+                    auto *orig_alloca = static_cast<const AllocaInst *>(inst);
+                    auto *prev_ip = _builder->insertion_point();
+                    _builder->set_insertion_point(_alloca_bb);
+                    auto *cloned = _builder->alloca_(orig_alloca->type(), orig_alloca->op());
+                    _builder->set_insertion_point(prev_ip);
+                    _value_map.emplace(inst, cloned);
+                    return cloned;
+                }
+                LUISA_DEBUG_ASSERT(false, "Instruction not found in resolver.");
+                return nullptr;
             }
         }
-        return nullptr;
     }
 };
 
@@ -153,13 +172,28 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
 
     XIRBuilder b;
 
+    auto *first_cloned_bb = static_cast<BasicBlock *>(resolver.resolve(scope.blocks.front()));
+    resolver.set_builder(&b, first_cloned_bb);
+
     for (auto *orig_bb : scope.blocks) {
         auto *cloned_bb = static_cast<BasicBlock *>(resolver.resolve(orig_bb));
+
+        b.set_insertion_point(cloned_bb);
+        for (auto *inst : orig_bb->instructions()) {
+            if (inst->derived_instruction_tag() == DerivedInstructionTag::ALLOCA) {
+                auto *orig_alloca = static_cast<const AllocaInst *>(inst);
+                auto *cloned_alloca = b.alloca_(orig_alloca->type(), orig_alloca->op());
+                resolver.map_value(inst, cloned_alloca);
+            }
+        }
 
         for (auto *inst : orig_bb->instructions()) {
             auto tag = inst->derived_instruction_tag();
 
             switch (tag) {
+                case DerivedInstructionTag::ALLOCA: {
+                    break;// already cloned in pre-scan
+                }
                 case DerivedInstructionTag::CORO_SUSPEND: {
                     auto *s = static_cast<CoroSuspendInst *>(inst);
                     b.set_insertion_point(cloned_bb);
@@ -177,16 +211,6 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
                     auto *r = static_cast<CoroResumeInst *>(inst);
                     b.set_insertion_point(cloned_bb);
                     auto *cloned = b.coro_resume(r->token(), frame_arg);
-                    resolver.map_value(inst, cloned);
-                    break;
-                }
-                case DerivedInstructionTag::CORO_REGISTER: {
-                    auto *reg = static_cast<CoroRegisterInst *>(inst);
-                    b.set_insertion_point(cloned_bb);
-                    auto *cloned = b.coro_register(
-                        luisa::string{reg->name()},
-                        resolver.resolve(reg->value()),
-                        frame_arg);
                     resolver.map_value(inst, cloned);
                     break;
                 }

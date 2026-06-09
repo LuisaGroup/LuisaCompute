@@ -61,10 +61,6 @@ uint64_t SuspendStmt::_compute_hash() const noexcept {
     return hash_combine({static_cast<uint64_t>(_token), hash_value(_name)});
 }
 
-uint64_t CoroBindStmt::_compute_hash() const noexcept {
-    return hash_combine({hash_value(_name), _value->hash()});
-}
-
 uint64_t ExprStmt::_compute_hash() const noexcept {
     return _expr->hash();
 }

@@ -11,7 +11,11 @@
 #include <luisa/xir/passes/coro_materialize.h>
 #include <luisa/xir/passes/coro_reg2mem.h>
 #include <luisa/xir/passes/coro_split.h>
+#include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/coro_xir2ast.h>
 
@@ -72,9 +76,15 @@ CoroutineCompileResult compile_coroutine_pipeline(
 
     (void)xir::coro_reg2mem_pass_run_on_module(module.get());
 
-    // Run restructure_cfg to normalize the CFG of each continuation
-    // before translating back to AST (required by coro_xir2ast).
+    (void)xir::destructure_cfg_pass_run_on_module(module.get());
+    (void)xir::simplify_cfg_pass_run_on_module(module.get());
+    (void)xir::reg2mem_pass_run_on_module(module.get());
+
     (void)xir::restructure_cfg_pass_run_on_module(module.get());
+
+    (void)xir::dce_pass_run_on_module(module.get());
+    (void)xir::simplify_cfg_pass_run_on_module(module.get());
+    (void)xir::reg2mem_pass_run_on_module(module.get());
 
     result.graph = coro::CoroGraph::from_module(*module, materialize_info, cfg);
     result.frame_desc.from_materialize_info(materialize_info);

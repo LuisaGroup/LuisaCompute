@@ -28,13 +28,4 @@ CoroTerminateInst *CoroTerminateInst::clone(XIRBuilder &b, InstructionCloneValue
     return b.coro_terminate();
 }
 
-CoroRegisterInst::CoroRegisterInst(BasicBlock *parent_block, luisa::string name, Value *value, Value *frame) noexcept
-    : Super{parent_block, nullptr}, _name{std::move(name)} {
-    set_operands(std::array{value, frame});
-}
-
-CoroRegisterInst *CoroRegisterInst::clone(XIRBuilder &b, InstructionCloneValueResolver &resolver) const noexcept {
-    return b.coro_register(luisa::string{name()}, resolver.resolve(value()), resolver.resolve(frame()));
-}
-
 }
