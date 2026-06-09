@@ -140,6 +140,8 @@ luisa_compute_add_test(test_coro_graph unit/coro/test_coro_graph.cpp LABELS "uni
 luisa_compute_add_test(test_coro_scheduler_base unit/coro/test_coro_scheduler_base.cpp LABELS "unit;unit_coro")
 luisa_compute_add_test(test_coro_state_machine unit/coro/test_coro_state_machine.cpp)
 luisa_compute_add_test(test_coro_persistent    unit/coro/test_coro_persistent.cpp)
+luisa_compute_add_test(test_coro_persistent_opt unit/coro/test_coro_persistent_opt.cpp)
+luisa_compute_add_test(test_coro_persistent_integration unit/coro/test_coro_persistent_integration.cpp)
 luisa_compute_add_test(test_coro_soa_layout     unit/coro/test_coro_soa_layout.cpp)
 luisa_compute_add_test(test_coro_wavefront      unit/coro/test_coro_wavefront.cpp)
 luisa_compute_add_test(test_coro_all_schedulers unit/coro/test_coro_all_schedulers.cpp)
