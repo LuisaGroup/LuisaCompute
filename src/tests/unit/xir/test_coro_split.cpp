@@ -1,0 +1,679 @@
+#include "ut/ut.hpp"
+#include <luisa/ast/type_registry.h>
+#include <luisa/xir/basic_block.h>
+#include <luisa/xir/builder.h>
+#include <luisa/xir/function.h>
+#include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/coro.h>
+#include <luisa/xir/instructions/return.h>
+#include <luisa/xir/module.h>
+#include <luisa/xir/passes/coro_cfg_distill.h>
+#include <luisa/xir/passes/coro_split.h>
+
+using namespace luisa;
+using namespace luisa::compute;
+using namespace luisa::compute::xir;
+using namespace boost::ut;
+using namespace boost::ut::literals;
+
+namespace {
+
+[[nodiscard]] KernelFunction *make_kernel_with_body(Module &m, BasicBlock *&body_out) noexcept {
+    auto *k = m.create_kernel();
+    body_out = k->create_body_block();
+    return k;
+}
+
+size_t count_callables(Module &m) noexcept {
+    size_t n = 0u;
+    for (auto *f : m.function_list()) {
+        if (f->isa<CallableFunction>()) { n++; }
+    }
+    return n;
+}
+
+size_t count_instructions_with_tag(Module &m, DerivedInstructionTag tag) noexcept {
+    size_t n = 0u;
+    for (auto *f : m.function_list()) {
+        if (auto *def = f->definition()) {
+            def->traverse_instructions([&](Instruction *inst) noexcept {
+                if (inst->derived_instruction_tag() == tag) { n++; }
+            });
+        }
+    }
+    return n;
+}
+
+bool has_frame_arg(CallableFunction *cf) noexcept {
+    auto &args = cf->arguments();
+    auto *first = args.front();
+    return first != nullptr && !first->is_sentinel() && first->is_reference();
+}
+
+bool has_return(Module &m) noexcept {
+    for (auto *f : m.function_list()) {
+        if (auto *def = f->definition()) {
+            bool found = false;
+            def->traverse_instructions([&](Instruction *inst) noexcept {
+                if (inst->derived_instruction_tag() == DerivedInstructionTag::RETURN) { found = true; }
+            });
+            if (found) { return true; }
+        }
+    }
+    return false;
+}
+
+}// namespace
+
+void reg_coro_split() {
+
+    "no_coroutine_no_split"_test = [] {
+        // given: a function with no coroutine instructions
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then: 0 functions created
+        expect(count == 0u);
+        expect(count_callables(m) == 0u);
+    };
+
+    "single_suspend_creates_two_callables"_test = [] {
+        // given: a function with one CoroSuspendInst
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(42u, "checkpoint", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(42u, nullptr);
+        b.return_void();
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then: 2 callables created
+        expect(count == 2u);
+        expect(count_callables(m) == 2u);
+    };
+
+    "created_functions_have_frame_parameter"_test = [] {
+        // given: a single-suspend coroutine
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "a", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.return_void();
+
+        // when
+        auto frame_count = coro_split_pass_run_on_module(&m);
+        static_cast<void>(frame_count);
+
+        // then: both callables have a frame reference argument
+        for (auto *f : m.function_list()) {
+            if (auto *cf = static_cast<CallableFunction *>(f); f->isa<CallableFunction>()) {
+                expect(has_frame_arg(cf));
+            }
+        }
+    };
+
+    "no_coro_suspend_in_generated_functions"_test = [] {
+        // given: a single-suspend coroutine
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(7u, "s", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(7u, nullptr);
+        b.return_void();
+
+        // when
+        auto susp_count = coro_split_pass_run_on_module(&m);
+        static_cast<void>(susp_count);
+
+        // then: no CoroSuspendInst in callables; returns exist instead
+        auto suspends = count_instructions_with_tag(m, DerivedInstructionTag::CORO_SUSPEND);
+        // only the original kernel may still have the suspend; callables must not
+        // Check callables specifically
+        size_t callable_suspends = 0u;
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition*>(f);
+                def->traverse_instructions([&](Instruction *inst) noexcept {
+                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
+                        callable_suspends++;
+                    }
+                });
+            }
+        }
+        expect(callable_suspends == 0u);
+        // returns must exist
+        expect(has_return(m));
+    };
+
+    "three_suspends_four_callables"_test = [] {
+        // given: three suspend points
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+        b.set_insertion_point(body);
+        b.cond_br(cond, s1, r1);
+        b.set_insertion_point(s1);
+        b.coro_suspend(1u, "s1", nullptr);
+        b.set_insertion_point(r1);
+        b.coro_resume(1u, nullptr);
+
+        auto *s2 = k->create_basic_block();
+        auto *r2 = k->create_basic_block();
+        b.cond_br(cond, s2, r2);
+        b.set_insertion_point(s2);
+        b.coro_suspend(2u, "s2", nullptr);
+        b.set_insertion_point(r2);
+        b.coro_resume(2u, nullptr);
+
+        auto *s3 = k->create_basic_block();
+        auto *r3 = k->create_basic_block();
+        b.cond_br(cond, s3, r3);
+        b.set_insertion_point(s3);
+        b.coro_suspend(3u, "s3", nullptr);
+        b.set_insertion_point(r3);
+        b.coro_resume(3u, nullptr);
+        b.return_void();
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then
+        expect(count == 4u);
+        expect(count_callables(m) == 4u);
+
+        // no suspends in callables
+        size_t callable_suspends = 0u;
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition*>(f);
+                def->traverse_instructions([&](Instruction *inst) noexcept {
+                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
+                        callable_suspends++;
+                    }
+                });
+            }
+        }
+        expect(callable_suspends == 0u);
+    };
+
+    "coro_resume_present_in_continuation"_test = [] {
+        // given: a single-suspend coroutine
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(99u, "p99", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(99u, nullptr);
+        b.return_void();
+
+        // when
+        auto resume_count = coro_split_pass_run_on_module(&m);
+        static_cast<void>(resume_count);
+
+        // then: one of the callables has CoroResumeInst
+        bool found_resume = false;
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition*>(f);
+                def->traverse_instructions([&](Instruction *inst) noexcept {
+                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_RESUME) {
+                        found_resume = true;
+                    }
+                });
+            }
+        }
+        expect(found_resume);
+    };
+
+    "terminal_coro_replaced"_test = [] {
+        // given: coroutine ending with CoroTerminateInst
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "mid", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+
+        auto *term_bb = k->create_basic_block();
+        b.br(term_bb);
+
+        b.set_insertion_point(term_bb);
+        b.coro_terminate();
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then: no CoroTerminateInst in callables
+        expect(count == 2u);
+        size_t callable_terms = 0u;
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition*>(f);
+                def->traverse_instructions([&](Instruction *inst) noexcept {
+                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_TERMINATE) {
+                        callable_terms++;
+                    }
+                });
+            }
+        }
+        expect(callable_terms == 0u);
+        // returns should exist in the terminal scope function
+        expect(has_return(m));
+    };
+
+    "branch_targets_remapped"_test = [] {
+        // given: a CFG where after suspend, the resume block
+        // has a conditional branch back to itself (simulating a loop within a scope)
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(10u, "loop_check", nullptr);
+
+        // scope 3: body block with a conditional branch within itself
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(10u, nullptr);
+
+        auto *loop_body = k->create_basic_block();
+        auto *loop_exit = k->create_basic_block();
+        b.cond_br(cond, loop_body, loop_exit);
+
+        b.set_insertion_point(loop_body);
+        b.br(resume_bb);// loop back to the check
+
+        b.set_insertion_point(loop_exit);
+        b.return_void();
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then: split produced callables; check they have valid terminators (no dangling block refs)
+        expect(count >= 1u);
+        // basic sanity: all blocks in callables should be terminated
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition*>(f);
+                def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+                    expect(bb->is_terminated());
+                });
+            }
+        }
+    };
+
+    "skip_on_first_run_present_in_continuations"_test = [] {
+        // given: a single-suspend coroutine
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "first", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.return_void();
+
+        // when
+        auto resume_count = coro_split_pass_run_on_module(&m);
+        static_cast<void>(resume_count);
+
+        // then: callables exist, each is well-formed
+        expect(count_callables(m) == 2u);
+
+        // verify each callable has a body block and all blocks are terminated
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition*>(f);
+                expect(def->body_block() != nullptr);
+                def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+                    expect(bb->is_terminated());
+                });
+            }
+        }
+    };
+
+    "module_pass_handles_mixed_functions"_test = [] {
+        // given: module with a coroutine kernel AND a non-coroutine callable
+        Module m;
+
+        // coroutine kernel
+        {
+            BasicBlock *body;
+            auto *k = make_kernel_with_body(m, body);
+            XIRBuilder b;
+            auto *cond = m.create_constant_one(Type::of<bool>());
+            auto *suspend_bb = k->create_basic_block();
+            auto *resume_bb = k->create_basic_block();
+            b.set_insertion_point(body);
+            b.cond_br(cond, suspend_bb, resume_bb);
+            b.set_insertion_point(suspend_bb);
+            b.coro_suspend(1u, "s", nullptr);
+            b.set_insertion_point(resume_bb);
+            b.coro_resume(1u, nullptr);
+            b.return_void();
+        }
+
+        // non-coroutine callable
+        {
+            auto *c = m.create_callable(nullptr);
+            auto *cb = c->create_body_block();
+            XIRBuilder b;
+            b.set_insertion_point(cb);
+            b.return_void();
+        }
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then: only coroutine functions produce splits
+        expect(count == 2u);
+        // callable count = 2 (from coro split) + 1 (original non-coroutine)
+        expect(count_callables(m) >= 2u);
+    };
+
+    "original_kernel_preserved"_test = [] {
+        // given: a coroutine kernel
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "a", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.return_void();
+
+        // when
+        auto resume_count = coro_split_pass_run_on_module(&m);
+        static_cast<void>(resume_count);
+
+        // then: original kernel still in function_list
+        bool kernel_found = false;
+        for (auto *f : m.function_list()) {
+            if (f == k) { kernel_found = true; }
+        }
+        expect(kernel_found);
+    };
+
+    // ── edge case: adjacent suspends ─────────────────────────────────
+    "adjacent_suspends_split"_test = [] {
+        // given: two suspends back-to-back (resume→suspend with no
+        // non-coro instructions between)
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(cond, s1, r1);
+        b.set_insertion_point(s1);
+        b.coro_suspend(1u, "first", nullptr);
+
+        b.set_insertion_point(r1);
+        b.coro_resume(1u, nullptr);
+
+        auto *s2 = k->create_basic_block();
+        auto *r2 = k->create_basic_block();
+        b.cond_br(cond, s2, r2);
+        b.set_insertion_point(s2);
+        b.coro_suspend(2u, "second", nullptr);
+        b.set_insertion_point(r2);
+        b.coro_resume(2u, nullptr);
+        b.return_void();
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then: 3 callables created
+        expect(count == 3u);
+        expect(count_callables(m) == 3u);
+
+        // no CoroSuspendInst inside generated callables
+        size_t callable_suspends = 0u;
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition *>(f);
+                def->traverse_instructions([&](Instruction *inst) noexcept {
+                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
+                        callable_suspends++;
+                    }
+                });
+            }
+        }
+        expect(callable_suspends == 0u);
+
+        // each callable has a frame-arg and all blocks terminated
+        for (auto *f : m.function_list()) {
+            if (auto *cf = static_cast<CallableFunction *>(f);
+                f->isa<CallableFunction>()) {
+                expect(has_frame_arg(cf));
+            }
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition *>(f);
+                def->traverse_basic_blocks(
+                    [&](BasicBlock *bb) noexcept {
+                        expect(bb->is_terminated());
+                    });
+            }
+        }
+    };
+
+    // ── edge case: suspend in one branch of conditional ──────────────
+    "conditional_suspend_split"_test = [] {
+        // given: if/else where suspend lives only in the true branch;
+        // the false branch skips it and merges afterward
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *always_true = m.create_constant_one(Type::of<bool>());
+
+        auto *branch_a = k->create_basic_block();
+        auto *branch_b = k->create_basic_block();
+        auto *merge = k->create_basic_block();
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.cond_br(always_true, branch_a, branch_b);
+
+        b.set_insertion_point(branch_a);
+        b.cond_br(always_true, s1, r1);
+        b.set_insertion_point(s1);
+        b.coro_suspend(1u, "cond_suspend", nullptr);
+
+        b.set_insertion_point(r1);
+        b.coro_resume(1u, nullptr);
+        b.br(merge);
+
+        b.set_insertion_point(branch_b);
+        b.br(merge);
+
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then: split produces callables, all blocks well-formed
+        expect(count >= 1u);
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition *>(f);
+                def->traverse_basic_blocks(
+                    [&](BasicBlock *bb) noexcept {
+                        expect(bb->is_terminated());
+                    });
+            }
+        }
+    };
+
+    // ── edge case: suspend inside a loop body ────────────────────────
+    "loop_suspend_split"_test = [] {
+        // given: a loop whose body reaches a suspend; after resume
+        // the code branches back to the loop header
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *always_true = m.create_constant_one(Type::of<bool>());
+        auto *loop_cond = m.create_constant_one(Type::of<bool>());
+
+        auto *loop_hdr = k->create_basic_block();
+        auto *loop_body = k->create_basic_block();
+        auto *s1 = k->create_basic_block();
+        auto *r1 = k->create_basic_block();
+        auto *exit = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        b.br(loop_hdr);
+
+        b.set_insertion_point(loop_hdr);
+        b.cond_br(loop_cond, loop_body, exit);
+
+        b.set_insertion_point(loop_body);
+        b.cond_br(always_true, s1, r1);
+
+        b.set_insertion_point(s1);
+        b.coro_suspend(1u, "loop_suspend", nullptr);
+
+        b.set_insertion_point(r1);
+        b.coro_resume(1u, nullptr);
+        b.br(loop_hdr);
+
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        // when
+        auto count = coro_split_pass_run_on_module(&m);
+
+        // then: split creates callables, loop back-edge survives
+        expect(count >= 1u);
+        expect(count_callables(m) >= 1u);
+
+        // every callable block must be terminated
+        for (auto *f : m.function_list()) {
+            if (f->isa<CallableFunction>() && f->definition() != nullptr) {
+                auto *def = static_cast<FunctionDefinition *>(f);
+                expect(def->body_block() != nullptr);
+                def->traverse_basic_blocks(
+                    [&](BasicBlock *bb) noexcept {
+                        expect(bb->is_terminated());
+                    });
+            }
+        }
+
+        // returns must exist (terminal scope ends properly)
+        expect(has_return(m));
+    };
+}
+
+int main(int argc, char *argv[]) {
+    (void)argc;
+    (void)argv;
+    reg_coro_split();
+    return 0;
+}

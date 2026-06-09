@@ -108,6 +108,27 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
     }
 }
 
+void FunctionBuilder::suspend_() noexcept {
+    _create_and_append_statement<SuspendStmt>(0u, luisa::string{});
+}
+
+void FunctionBuilder::suspend_(uint32_t token) noexcept {
+    _create_and_append_statement<SuspendStmt>(token);
+}
+
+void FunctionBuilder::suspend_(luisa::string name) noexcept {
+    _create_and_append_statement<SuspendStmt>(std::move(name));
+}
+
+void FunctionBuilder::suspend_(uint32_t token, luisa::string name) noexcept {
+    _create_and_append_statement<SuspendStmt>(token, std::move(name));
+}
+
+void FunctionBuilder::bind_promise_(luisa::string name, const Expression *value) noexcept {
+    value = _internalize(value);
+    _create_and_append_statement<CoroBindStmt>(std::move(name), value);
+}
+
 RayQueryStmt *FunctionBuilder::ray_query_(const RefExpr *query) noexcept {
     LUISA_ASSERT(query->builder() == this,
                  "Ray query must be created by the same function builder.");
@@ -321,6 +342,8 @@ const RefExpr *FunctionBuilder::raster_object_id() noexcept { return _builtin(Ty
 const RefExpr *FunctionBuilder::raster_barycentrics() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::RASTER_BARYCENTRICS); }
 const RefExpr *FunctionBuilder::warp_lane_count() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_COUNT); }
 const RefExpr *FunctionBuilder::warp_lane_id() noexcept { return _builtin(Type::of<uint>(), Variable::Tag::WARP_LANE_ID); }
+
+const RefExpr *FunctionBuilder::coro_token() noexcept { return local(Type::of<uint>()); }
 
 inline const RefExpr *FunctionBuilder::_builtin(Type const *type, Variable::Tag tag) noexcept {
     if (auto iter = std::find_if(
@@ -644,6 +667,7 @@ luisa::string FunctionBuilder::debug_name() const noexcept {
             case Tag::CALLABLE: return "callable"sv;
             case Tag::KERNEL: return "kernel"sv;
             case Tag::RASTER_STAGE: return "raster_stage"sv;
+            case Tag::COROUTINE: return "coroutine"sv;
         }
         return "unknown"sv;
     }();

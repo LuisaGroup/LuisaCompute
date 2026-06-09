@@ -25,6 +25,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         instructions/break.cpp
         instructions/call.cpp
         instructions/cast.cpp
+        instructions/coro.cpp
         instructions/clock.cpp
         instructions/continue.cpp
         instructions/debug_break.cpp
@@ -65,6 +66,11 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/dom_tree.cpp
         passes/call_graph.cpp
         passes/convergence_region.cpp
+        passes/coro_cfg_distill.cpp
+        passes/coro_materialize.cpp
+        passes/dead_field_elimination.cpp
+        passes/coro_reg2mem.cpp
+        passes/coro_split.cpp
         passes/outline.cpp
         passes/dead_store_elimination.cpp
         passes/sroa.cpp

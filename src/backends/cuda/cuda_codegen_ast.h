@@ -72,6 +72,8 @@ private:
     void visit(const ConstantExpr *expr) override;
     void visit(const CommentStmt *stmt) override;
     void visit(const RayQueryStmt *stmt) override;
+    void visit(const SuspendStmt *stmt) override;
+    void visit(const CoroBindStmt *stmt) override;
     void visit(const AutoDiffStmt *stmt) override;
     void visit(const PrintStmt *stmt) override;
     void visit(const CpuCustomOpExpr *expr) override;

@@ -16,6 +16,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/load.h>
@@ -31,6 +32,10 @@
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
 #include <luisa/xir/passes/const_fold.h>
+#include <luisa/xir/passes/coro_cfg_distill.h>
+#include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/coro_reg2mem.h>
+#include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/dce.h>
@@ -49,6 +54,7 @@
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/xir2ast.h>
+#include <luisa/xir/translators/coro_xir2ast.h>
 
 #include <type_traits>
 
@@ -1032,6 +1038,27 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
                i.destructured_loop_count > 0u ||
                i.destructured_simple_loop_count > 0u;
     });
+    // Coroutine pipeline: runs only if module contains CoroSuspendInst.
+    // Must run after destructure_cfg (needs destructured CFG) but BEFORE
+    // mem2reg/ssa-opt which may eliminate dead resume blocks.
+    pipeline.add("coro-pipeline", [](Module *m, PassReport & /*r*/) {
+        bool has_coro = false;
+        for (auto *f : m->function_list()) {
+            if (auto *def = f->definition()) {
+                def->traverse_instructions([&](Instruction *inst) noexcept {
+                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
+                        has_coro = true;
+                    }
+                });
+            }
+            if (has_coro) { break; }
+        }
+        if (!has_coro) { return false; }
+        (void)coro_split_pass_run_on_module(m);
+        (void)coro_materialize_pass_run_on_module(m);
+        (void)coro_reg2mem_pass_run_on_module(m);
+        return true;
+    });
     pipeline.add("mem2reg", [](Module *m, PassReport &r) {
         auto i = mem2reg_pass_run_on_module(m, &r);
         return i.promoted_alloca_count > 0u;
@@ -1078,6 +1105,27 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
 }
 
 luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate(const FunctionDefinition &function, const XIR2ASTConfig &config) noexcept {
+    XIR2ASTContext ctx{config};
+    ctx.add_function(function);
+    return ctx.finalize();
+}
+
+[[nodiscard]] bool is_continuation(const FunctionDefinition &f) noexcept {
+    if (f.derived_function_tag() != DerivedFunctionTag::CALLABLE) { return false; }
+    for (auto *arg : f.arguments()) {
+        if (arg->is_reference()) { return true; }
+    }
+    return false;
+}
+
+[[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder>
+xir_to_ast_translate_continuation(const FunctionDefinition &function,
+                                  const XIR2ASTConfig &config) noexcept {
+    LUISA_ASSERT(function.derived_function_tag() == DerivedFunctionTag::CALLABLE,
+                 "xir_to_ast_translate_continuation requires a CallableFunction.");
+    LUISA_ASSERT(is_continuation(function),
+                 "xir_to_ast_translate_continuation requires a continuation "
+                 "(CallableFunction with a reference argument for the frame struct).");
     XIR2ASTContext ctx{config};
     ctx.add_function(function);
     return ctx.finalize();

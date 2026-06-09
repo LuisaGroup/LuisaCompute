@@ -492,6 +492,10 @@ void CodegenVisitor::visit(const CommentStmt *stmt) {
 void CodegenVisitor::visit(const RayQueryStmt *stmt) {
     LUISA_ERROR("Ray query not implemented.");
 }
+void CodegenVisitor::visit(const SuspendStmt *) {
+}
+void CodegenVisitor::visit(const CoroBindStmt *) {
+}
 void CodegenVisitor::visit(const PrintStmt *stmt) {
     sb << "{\nchar print_str[] = {";
     bool comma = false;

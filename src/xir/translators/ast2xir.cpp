@@ -1170,6 +1170,29 @@ private:
                     debug_break->set_operands(watches);
                     break;
                 }
+                case Statement::Tag::SUSPEND: {
+                    auto ast_suspend = static_cast<const SuspendStmt *>(car);
+                    auto *suspend_bb = _current.f->create_basic_block();
+                    auto *resume_bb = _current.f->create_basic_block();
+                    auto *parent_bb = b.insertion_point()->parent_block();
+
+                    b.set_insertion_point(suspend_bb);
+                    _commented(b.coro_suspend(ast_suspend->token(), luisa::string{ast_suspend->name()}, nullptr));
+
+                    auto *always_true = _module->create_constant_one(compute::Type::of<bool>());
+                    b.set_insertion_point(parent_bb);
+                    _commented(b.cond_br(always_true, suspend_bb, resume_bb));
+
+                    b.set_insertion_point(resume_bb);
+                    b.coro_resume(ast_suspend->token(), nullptr);
+                    break;
+                }
+                case Statement::Tag::CORO_BIND: {
+                    auto ast_bind = static_cast<const CoroBindStmt *>(car);
+                    auto value = _translate_expression(b, ast_bind->value(), true);
+                    _commented(b.coro_register(luisa::string{ast_bind->name()}, value, nullptr));
+                    break;
+                }
             }
             // update the statement list
             stmts = cdr;
@@ -1235,6 +1258,9 @@ public:
                     return kernel;
                 }
                 case ASTFunction::Tag::CALLABLE: {
+                    return _module->create_callable(f.return_type());
+                }
+                case ASTFunction::Tag::COROUTINE: {
                     return _module->create_callable(f.return_type());
                 }
                 case ASTFunction::Tag::RASTER_STAGE: LUISA_NOT_IMPLEMENTED();

@@ -33,6 +33,8 @@ public:
         FOR,
         COMMENT,
         RAY_QUERY,
+        SUSPEND,
+        CORO_BIND,
         AUTO_DIFF,
         PRINT,
         DEBUG_BREAK,
@@ -73,6 +75,8 @@ class AssignStmt;
 class ForStmt;
 class CommentStmt;
 class RayQueryStmt;
+class SuspendStmt;
+class CoroBindStmt;
 class AutoDiffStmt;
 
 class PrintStmt;
@@ -93,6 +97,8 @@ struct LUISA_AST_API StmtVisitor {
     virtual void visit(const ForStmt *) = 0;
     virtual void visit(const CommentStmt *) = 0;
     virtual void visit(const RayQueryStmt *) = 0;
+    virtual void visit(const SuspendStmt *) = 0;
+    virtual void visit(const CoroBindStmt *) = 0;
     virtual void visit(const AutoDiffStmt *stmt);
     virtual void visit(const PrintStmt *stmt);
     virtual void visit(const DebugBreakStmt *stmt);
@@ -243,6 +249,46 @@ public:
     LoopStmt() noexcept : Statement{Tag::LOOP} {}
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
+    LUISA_STATEMENT_COMMON()
+};
+
+/// Suspend statement
+class LUISA_AST_API SuspendStmt : public Statement {
+
+private:
+    uint32_t _token;
+    luisa::string _name;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit SuspendStmt(uint32_t token, luisa::string name = "") noexcept
+        : Statement{Tag::SUSPEND}, _token{token}, _name{std::move(name)} {}
+    explicit SuspendStmt(luisa::string name) noexcept
+        : Statement{Tag::SUSPEND}, _token{0u}, _name{std::move(name)} {}
+    [[nodiscard]] auto token() const noexcept { return _token; }
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
+    LUISA_STATEMENT_COMMON()
+};
+
+/// Coroutine bind statement
+class LUISA_AST_API CoroBindStmt : public Statement {
+
+private:
+    luisa::string _name;
+    const Expression *_value{};
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    CoroBindStmt(luisa::string name, const Expression *value) noexcept
+        : Statement{Tag::CORO_BIND}, _name{std::move(name)}, _value{value} {
+        _value->mark(Usage::READ);
+    }
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
+    [[nodiscard]] auto value() const noexcept { return _value; }
     LUISA_STATEMENT_COMMON()
 };
 
@@ -640,6 +686,12 @@ void traverse_expressions(
                 rq_stmt->on_triangle_candidate(), visit, enter_stmt, exit_stmt);
             traverse_expressions<recurse_subexpr>(
                 rq_stmt->on_procedural_candidate(), visit, enter_stmt, exit_stmt);
+            break;
+        }
+        case Statement::Tag::SUSPEND: break;
+        case Statement::Tag::CORO_BIND: {
+            auto coro_bind_stmt = static_cast<const CoroBindStmt *>(stmt);
+            do_visit(coro_bind_stmt->value());
             break;
         }
         case Statement::Tag::AUTO_DIFF: {
