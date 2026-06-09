@@ -120,30 +120,31 @@ private:
             auto fb = FB::current();
             args.emplace_back(fb->reference(cc.arguments().front().type()));
             for (auto arg_i = 0u; arg_i < coroutine.arguments().size(); arg_i++) {
-                auto def_arg = coroutine.arguments()[arg_i];
+                auto cc_arg = cc.arguments()[arg_i + 1u];
+                auto b = coroutine.bound_arguments()[arg_i];
                 auto internal_arg = luisa::visit(
                     [&]<typename T>(T b) noexcept -> const Expression * {
                         if constexpr (std::is_same_v<T, Function::BufferBinding>) {
-                            return fb->buffer_binding(def_arg.type(), b.handle, b.offset, b.size);
+                            return fb->buffer_binding(cc_arg.type(), b.handle, b.offset, b.size);
                         } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
-                            return fb->texture_binding(def_arg.type(), b.handle, b.level);
+                            return fb->texture_binding(cc_arg.type(), b.handle, b.level);
                         } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
                             return fb->bindless_array_binding(b.handle);
                         } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
                             return fb->accel_binding(b.handle);
                         } else {
                             static_assert(std::is_same_v<T, luisa::monostate>);
-                            switch (def_arg.tag()) {
-                                case Variable::Tag::REFERENCE: return fb->reference(def_arg.type());
-                                case Variable::Tag::BUFFER: return fb->buffer(def_arg.type());
-                                case Variable::Tag::TEXTURE: return fb->texture(def_arg.type());
+                            switch (cc_arg.tag()) {
+                                case Variable::Tag::REFERENCE: return fb->reference(cc_arg.type());
+                                case Variable::Tag::BUFFER: return fb->buffer(cc_arg.type());
+                                case Variable::Tag::TEXTURE: return fb->texture(cc_arg.type());
                                 case Variable::Tag::BINDLESS_ARRAY: return fb->bindless_array();
                                 case Variable::Tag::ACCEL: return fb->accel();
-                                default: return fb->argument(def_arg.type());
+                                default: return fb->argument(cc_arg.type());
                             }
                         }
                     },
-                    coroutine.bound_arguments()[arg_i]);
+                    b);
                 args.emplace_back(internal_arg);
             }
             fb->call(cc, args);
@@ -153,7 +154,10 @@ private:
     [[nodiscard]] Subroutine _get_wrapped_subroutine(size_t index) const noexcept {
         if (index >= _subroutines.size()) { return Subroutine{{}}; }
         if (!_wrapped_subroutines[index]) {
-            bool has_captures = !_coro_func.bound_arguments().empty();
+            bool has_captures = false;
+            for (auto &b : _coro_func.bound_arguments()) {
+                if (!luisa::holds_alternative<luisa::monostate>(b)) { has_captures = true; break; }
+            }
             _wrapped_subroutines[index] = has_captures
                 ? _make_subroutine_wrapper(_coro_func, _subroutines[index]->function())
                 : _subroutines[index];
