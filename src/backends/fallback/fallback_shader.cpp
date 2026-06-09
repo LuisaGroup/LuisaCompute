@@ -198,10 +198,10 @@ FallbackShader::FallbackShader(FallbackDevice *device, const ShaderOption &optio
         auto i = xir::dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
-    pre_cfg.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
-        return i.promoted_ref_arg_count > 0u;
-    });
+    // pre_cfg.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
+    //     auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
+    //     return i.promoted_ref_arg_count > 0u;
+    // });
     if (LUISA_XIR_ELIMINATE_EARLY_RETURN) {
         pre_cfg.add("early-return-elimination", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::early_return_elimination_pass_run_on_module(m, &r);
