@@ -19,6 +19,11 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             bindless_common.bytes
             auto_diff.bytes
             reduce.bytes
+            bindless_upload.bytes
+            bindless_upload_vk.bytes
+            accel_process.bytes
+            accel_process_vk.bytes
+            accel_process_vk_motion.bytes
             accel_process_vk.dxil
             load_bdls.dxil
             load_bdls_vk.dxil
