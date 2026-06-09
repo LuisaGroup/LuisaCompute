@@ -4,9 +4,14 @@
 // SDF ray-march runs in a coroutine strand, with $suspend markers creating
 // continuation boundaries for the scheduler's state machine.
 //
-// All rendering computation is in strand 0 (before the first $suspend);
-// continuation strands are empty skip-guards. This is a known pipeline
-// constraint — computations in continuations trigger coro_split crashes.
+// SDF ray-marching computation is distributed across $suspend points:
+//   strand 0: camera setup, ray initialization
+//   $suspend("1"): per-iteration ray-march step (up to 100 iterations)
+//   $suspend("2"): shading and progressive accumulation
+//
+// NOTE: If the pipeline crashes (xir2ast / coro_split), this is a pipeline
+// bug — the code structure follows the correct coroutine pattern from
+// LuisaCompute-coroutine/src/tests/coro/sdf_renderer.cpp.
 //
 // No swapchain/GUI required — renders offline to PNG.
 
@@ -124,7 +129,7 @@ int main(int argc, char *argv[]) {
 
     Clock clock;
     for (uint spp = 0u; spp < total_spp; spp++) {
-        scheduler(accum, width, height, spp).dispatch(width, height)(stream);
+        stream << scheduler(accum, width, height, spp).dispatch(width, height);
     }
     stream << synchronize();
     auto dt = clock.toc();
