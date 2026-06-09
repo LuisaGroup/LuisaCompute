@@ -1,6 +1,7 @@
 #include <stdexcept>
 
-#include <luisa/core/logging.h>
+#include <stdexcept>
+
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
 #include <luisa/dsl/coro_func.h>
@@ -106,7 +107,47 @@ CoroutineCompileResult compile_coroutine_pipeline(
         auto &node = result.graph.node(i);
         if (node.callable != nullptr) {
             auto ast = xir::xir_to_ast_translate_continuation(*node.callable);
-            if (ast) { result.subroutines.push_back(std::move(ast)); }
+            if (ast) {
+                auto wrapped = detail::FunctionBuilder::define_callable([&] {
+                    auto fb = detail::FunctionBuilder::current();
+                    auto coro_args = ast_func.arguments();
+                    auto coro_bound = ast_func.bound_arguments();
+                    LUISA_ASSERT(coro_args.size() == coro_bound.size(), "Bound args mismatch");
+                    auto sub_func = ast->function();
+                    auto sub_args = sub_func.arguments();
+                    luisa::vector<const Expression *> wrap_args;
+                    wrap_args.emplace_back(fb->reference(sub_args.front().type()));
+                    for (auto arg_i = 0u; arg_i < coro_args.size(); arg_i++) {
+                        auto def_arg = coro_args[arg_i];
+                        auto b = coro_bound[arg_i];
+                        const Expression *expr = nullptr;
+                        luisa::visit(
+                            [&]<typename T>(T binding) noexcept {
+                                if constexpr (std::is_same_v<T, Function::BufferBinding>)
+                                    expr = fb->buffer_binding(def_arg.type(), binding.handle, binding.offset, binding.size);
+                                else if constexpr (std::is_same_v<T, Function::TextureBinding>)
+                                    expr = fb->texture_binding(def_arg.type(), binding.handle, binding.level);
+                                else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>)
+                                    expr = fb->bindless_array_binding(binding.handle);
+                                else if constexpr (std::is_same_v<T, Function::AccelBinding>)
+                                    expr = fb->accel_binding(binding.handle);
+                                else {
+                                    switch (def_arg.tag()) {
+                                        case Variable::Tag::REFERENCE: expr = fb->reference(def_arg.type()); break;
+                                        case Variable::Tag::BUFFER: expr = fb->buffer(def_arg.type()); break;
+                                        case Variable::Tag::TEXTURE: expr = fb->texture(def_arg.type()); break;
+                                        case Variable::Tag::BINDLESS_ARRAY: expr = fb->bindless_array(); break;
+                                        case Variable::Tag::ACCEL: expr = fb->accel(); break;
+                                        default: expr = fb->argument(def_arg.type()); break;
+                                    }
+                                }
+                            }, b);
+                        wrap_args.emplace_back(expr);
+                    }
+                    fb->call(sub_func, wrap_args);
+                });
+                result.subroutines.push_back(std::move(wrapped));
+            }
         }
     }
 
