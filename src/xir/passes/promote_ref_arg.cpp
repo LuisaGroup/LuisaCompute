@@ -8,6 +8,8 @@
 #include <luisa/xir/passes/call_graph.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/metadata/comment.h>
+#include <luisa/xir/metadata/signature_constraint.h>
 
 namespace luisa::compute::xir {
 
@@ -17,6 +19,8 @@ namespace detail {
 [[nodiscard]] static auto is_promotable_callable(FunctionDefinition *f) noexcept {
     // we may not process non-callable functions as their signatures might be imported/exported
     if (!f->isa<CallableFunction>()) { return false; }
+    // if the function has a signature constraint, we cannot modify its signature
+    if (f->find_metadata<SignatureConstraintMD>() != nullptr) { return false; }
     // otherwise, we check if all users of the callable are CallInst (non-call instructions
     // such as RayQueryPipelineInst may not allow changes to callee functions' signatures)
     for (auto &&use : f->use_list()) {

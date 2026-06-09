@@ -146,8 +146,6 @@ private:
                     coroutine.bound_arguments()[arg_i]);
                 args.emplace_back(internal_arg);
             }
-            LUISA_ASSERT(cc.return_type() == nullptr,
-                         "Coroutine subroutines should not have return type.");
             fb->call(cc, args);
         });
     }

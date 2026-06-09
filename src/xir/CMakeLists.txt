@@ -50,6 +50,7 @@ set(LUISA_COMPUTE_XIR_SOURCES
         metadata/comment.cpp
         metadata/name.cpp
         metadata/curve_basis.cpp
+        metadata/signature_constraint.cpp
 
         # translators
         translators/ast2xir.cpp
