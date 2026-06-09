@@ -12,5 +12,6 @@ namespace luisa::compute::coro {
 // Explicit instantiations for common argument combinations.
 template class StateMachineCoroScheduler<Buffer<int>>;
 template class StateMachineCoroScheduler<int>;
+template class StateMachineCoroScheduler<Buffer<float4>, uint2>;
 
 }// namespace luisa::compute::coro
