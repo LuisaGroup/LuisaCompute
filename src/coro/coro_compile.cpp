@@ -4,6 +4,8 @@
 
 #include <luisa/core/logging.h>
 #include <luisa/xir/translators/xir2text.h>
+#include <luisa/core/logging.h>
+#include <luisa/xir/translators/xir2text.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
 #include <luisa/dsl/coro_func.h>
@@ -99,6 +101,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
     (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
     (void)xir::restructure_cfg_pass_run_on_module(module.get());
+    LUISA_INFO("=== SDF XIR after restructure ===\n{}", xir::xir_to_flat_text_translate(module.get(), false));
     (void)xir::dce_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
 
