@@ -17,11 +17,8 @@ using namespace boost::ut::literals;
 void reg_coro_state_machine(char *argv[]) {
 
     "state_machine_constructor_and_type_check"_test = [] {
-        // Verify the scheduler can be constructed and its type is correct.
-        // This is a compile-time + basic runtime check (no GPU needed).
-        CoroGraph graph;
-        CoroFrameDesc desc;
-        // StateMachineCoroScheduler inherits from CoroScheduler
+        // Verify the scheduler inherits from CoroScheduler and can be
+        // instantiated with compatible types (compile-time check).
         static_assert(std::is_base_of_v<CoroScheduler<Buffer<int>>,
                                         StateMachineCoroScheduler<Buffer<int>>>);
         expect(true);
@@ -42,8 +39,7 @@ void reg_coro_state_machine(char *argv[]) {
             LUISA_INFO("Basic kernel dispatch OK");
         }
 
-        // Coroutine with 3 suspends: each thread writes its dispatch
-        // ID to the output buffer after all suspends complete.
+        // Coroutine with 3 suspends
         Buffer<int> output = device.create_buffer<int>(N);
 
         auto coro = Coroutine<void(int)>([](Var<int> multiplier) {
@@ -56,9 +52,17 @@ void reg_coro_state_machine(char *argv[]) {
         expect(coro.subroutine_count() >= 2u);
         expect(coro.graph().node_count() >= 2u);
 
+        // Debug: print node tokens
+        for (size_t i = 0u; i < coro.graph().node_count(); ++i) {
+            auto &node = coro.graph().node(i);
+            LUISA_INFO("  Node[{}]: token={}, name='{}', terminal={}",
+                       i, node.token, node.name, node.is_terminal);
+        }
+
         StateMachineCoroScheduler<int> scheduler{device, coro};
         LUISA_INFO("Scheduler created, dispatching {} threads", N);
 
+        // Use explicit dispatch syntax: scheduler(args...).dispatch(size)(stream)
         scheduler(42).dispatch(N)(stream);
         stream << synchronize();
         LUISA_INFO("Dispatch complete");
