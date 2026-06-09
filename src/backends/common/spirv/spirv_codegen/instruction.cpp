@@ -1164,8 +1164,8 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
     }
     LUISA_ASSERT(prop_index < _property_ids.size(), "Resource argument property out of range.");
     auto id = _property_ids[prop_index];
-    if (prop_index < _properties.size()) {
-        auto &prop = _properties[prop_index];
+    if (prop_index > 0 && prop_index - 1 < _properties.size()) {
+        auto &prop = _properties[prop_index - 1];
         if (prop.type == ShaderVariableType::UAVTextureHeap) {
             _is_storage_image_map[id] = true;
         } else if (prop.type == ShaderVariableType::SRVTextureHeap) {

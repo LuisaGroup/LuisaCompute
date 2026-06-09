@@ -1,0 +1,1 @@
+{"rustc":7458672600737419911,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[13879398298569285152,"build_script_build",false,6653436125064416550]],"local":[{"RerunIfChanged":{"output":"debug/build/luisa_compute_ir-f119f0a8d491b7b0/output","paths":["cpp.toml","src"]}}],"rustflags":[],"config":0,"compile_kind":0}
