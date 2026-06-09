@@ -1166,13 +1166,15 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
     auto id = _property_ids[prop_index];
     // _property_ids includes a push constant at index 0 not present in _properties,
     // so we need to shift by 1 when indexing into _properties.
-    auto prop_idx_in_properties = prop_index - 1;
-    if (prop_idx_in_properties < _properties.size()) {
-        auto &prop = _properties[prop_idx_in_properties];
-        if (prop.type == ShaderVariableType::UAVTextureHeap) {
-            _is_storage_image_map[id] = true;
-        } else if (prop.type == ShaderVariableType::SRVTextureHeap) {
-            _is_storage_image_map[id] = false;
+    if (prop_index > 0) {
+        auto prop_idx_in_properties = prop_index - 1;
+        if (prop_idx_in_properties < _properties.size()) {
+            auto &prop = _properties[prop_idx_in_properties];
+            if (prop.type == ShaderVariableType::UAVTextureHeap) {
+                _is_storage_image_map[id] = true;
+            } else if (prop.type == ShaderVariableType::SRVTextureHeap) {
+                _is_storage_image_map[id] = false;
+            }
         }
     }
     if (arg->type()->tag() == Type::Tag::ACCEL && prop_index + 1 < _property_ids.size()) {
