@@ -309,10 +309,7 @@ int main(int argc, char *argv[]) {
         $if (any(dsl::isnan(radiance))) { radiance = make_float3(0.0f); };
         image.write(coord, make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
-    auto pathtrace_shader = device.compile(pathtrace);
-    LUISA_INFO("Pathtrace kernel compiled");
 
-    // ─── StateMachineCoroScheduler ───────────────────────────────────
     Buffer<float4> signal = device.create_buffer<float4>(1u);
     StateMachineCoroScheduler scheduler{device, coro};
     LUISA_INFO("CoroScheduler: statemachine");
@@ -364,9 +361,7 @@ int main(int argc, char *argv[]) {
         auto passes = (total_spp + spp_per_dispatch - 1u) / spp_per_dispatch;
         Clock clock;
         for (uint pass = 0u; pass < passes; ++pass) {
-            scheduler(signal).dispatch(total_cells)(stream);
-            stream << pathtrace_shader(framebuffer, seed_image, accel, resolution)
-                            .dispatch(resolution)
+            stream << scheduler(signal).dispatch(total_cells)
                    << accumulate_shader(accum_image, framebuffer)
                             .dispatch(resolution)
                    << synchronize();
@@ -439,9 +434,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Interactive mode: {}-SPP/pass, ESC to quit", spp_per_dispatch);
 
         while (!window.should_close()) {
-            scheduler(signal).dispatch(total_cells)(stream);
-            stream << pathtrace_shader(framebuffer, seed_image, accel, resolution)
-                            .dispatch(resolution)
+            stream << scheduler(signal).dispatch(total_cells)
                    << accumulate_shader(accum_image, framebuffer)
                             .dispatch(resolution)
                    << hdr2ldr_shader(accum_image, ldr_image, 1.0f,
