@@ -14,15 +14,13 @@ namespace detail {
 
     CoroCfgDistillResult result;
 
-    // collect all reachable blocks
     luisa::unordered_set<BasicBlock *> reachable;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         reachable.insert(bb);
     });
 
-    // build token → resume_block map
     luisa::unordered_map<uint32_t, BasicBlock *> token_to_resume;
-    for (auto *bb : reachable) {
+    for (auto *bb : def->basic_blocks()) {
         for (auto *inst : bb->instructions()) {
             if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_RESUME) {
                 auto *r = static_cast<CoroResumeInst *>(inst);

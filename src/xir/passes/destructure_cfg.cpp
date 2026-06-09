@@ -113,6 +113,8 @@ static void verify_terminators(Function *function) noexcept {
             case DerivedInstructionTag::UNREACHABLE:
             case DerivedInstructionTag::RASTER_DISCARD:
             case DerivedInstructionTag::RAY_QUERY_DISPATCH:
+            case DerivedInstructionTag::CORO_SUSPEND:
+            case DerivedInstructionTag::CORO_TERMINATE:
                 break;
             case DerivedInstructionTag::RETURN:
                 return_count += 1;
