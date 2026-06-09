@@ -244,8 +244,9 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
     }
 }
 
-[[nodiscard]] static size_t split_function(Module *mod, FunctionDefinition *def) noexcept {
-    auto result = coro_cfg_distill_pass_run_on_function(def);
+[[nodiscard]] static size_t split_function_with_cfg(
+    Module *mod, FunctionDefinition *def,
+    const CoroCfgDistillResult &result) noexcept {
     if (result.scopes.size() <= 1u) { return 0u; }
 
     size_t created = 0u;
@@ -288,6 +289,11 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
     return created;
 }
 
+[[nodiscard]] static size_t split_function(Module *mod, FunctionDefinition *def) noexcept {
+    auto result = coro_cfg_distill_pass_run_on_function(def);
+    return split_function_with_cfg(mod, def, result);
+}
+
 }// namespace detail
 
 size_t coro_split_pass_run_on_module(Module *m) noexcept {
@@ -302,6 +308,21 @@ size_t coro_split_pass_run_on_module(Module *m) noexcept {
         total += detail::split_function(m, def);
     }
     return total;
+}
+
+size_t coro_split_pass_run_on_module_with_cfg(
+    Module *m, const CoroCfgDistillResult &cfg) noexcept {
+    LUISA_DEBUG_ASSERT(!cfg.scopes.empty(), "CoroCfgDistillResult has no scopes.");
+    for (auto &scope : cfg.scopes) {
+        for (auto *bb : scope.blocks) {
+            auto *parent = bb->parent_function();
+            if (parent != nullptr && parent->is_definition()) {
+                return detail::split_function_with_cfg(
+                    m, static_cast<FunctionDefinition *>(parent), cfg);
+            }
+        }
+    }
+    return 0u;
 }
 
 }// namespace luisa::compute::xir
