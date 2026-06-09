@@ -103,7 +103,7 @@ void reg_coro_wavefront_integration(char *argv[]) {
 
         auto output = device.create_buffer<int>(1u);
         WavefrontCoroScheduler<Buffer<int>> scheduler{
-            device, coro, FrameLayout::AoS};
+            device, coro, WavefrontCoroSchedulerConfig{.global_memory_soa = false}};
         scheduler(output).dispatch(kTestInstances)(stream);
         stream << synchronize();
         LUISA_INFO("Wavefront AoS (no comp): dispatch complete — PASSED");
@@ -130,7 +130,7 @@ void reg_coro_wavefront_integration(char *argv[]) {
 
         auto output = device.create_buffer<int>(1u);
         WavefrontCoroScheduler<Buffer<int>> scheduler{
-            device, coro, FrameLayout::AoS};
+            device, coro, WavefrontCoroSchedulerConfig{.global_memory_soa = false}};
         scheduler(output).dispatch(kTestInstances)(stream);
         stream << synchronize();
         LUISA_INFO("Wavefront AoS (comp): dispatch complete — PASSED");
@@ -161,7 +161,7 @@ void reg_coro_wavefront_integration(char *argv[]) {
 
         auto output = device.create_buffer<int>(1u);
         WavefrontCoroScheduler<Buffer<int>> scheduler{
-            device, coro, FrameLayout::SoA};
+            device, coro, WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         scheduler(output).dispatch(kTestInstances)(stream);
         stream << synchronize();
         LUISA_INFO("Wavefront SoA (no comp): dispatch complete — PASSED");
@@ -188,7 +188,7 @@ void reg_coro_wavefront_integration(char *argv[]) {
 
         auto output = device.create_buffer<int>(1u);
         WavefrontCoroScheduler<Buffer<int>> scheduler{
-            device, coro, FrameLayout::SoA};
+            device, coro, WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         scheduler(output).dispatch(kTestInstances)(stream);
         stream << synchronize();
         LUISA_INFO("Wavefront SoA (comp): dispatch complete — PASSED");

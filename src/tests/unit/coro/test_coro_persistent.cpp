@@ -49,9 +49,10 @@ void reg_coro_persistent(char *argv[]) {
         expect(coro.subroutine_count() >= 2u);
         expect(coro.graph().node_count() >= 2u);
 
-        PersistentThreadsCoroScheduler<> scheduler{device, coro, N};
+        PersistentThreadsCoroScheduler<> scheduler{device, coro,
+            PersistentThreadsCoroSchedulerConfig{.block_size = N}};
         LUISA_INFO("Persistent scheduler created (block_size={}), dispatching 1 block",
-                   scheduler.block_size());
+                   scheduler.config().block_size);
 
         // Dispatch 1 block
         scheduler().dispatch(1u)(stream);
@@ -74,7 +75,8 @@ void reg_coro_persistent(char *argv[]) {
         LUISA_INFO("Coroutine created, sub_count={}", coro.subroutine_count());
         expect(coro.subroutine_count() >= 2u);
 
-        PersistentThreadsCoroScheduler<> scheduler{device, coro, N};
+        PersistentThreadsCoroScheduler<> scheduler{device, coro,
+            PersistentThreadsCoroSchedulerConfig{.block_size = N}};
         LUISA_INFO("Persistent 1-suspend scheduler created");
 
         scheduler().dispatch(1u)(stream);
@@ -99,7 +101,8 @@ void reg_coro_persistent(char *argv[]) {
         LUISA_INFO("Coroutine created, sub_count={}", coro.subroutine_count());
         expect(coro.subroutine_count() >= 2u);
 
-        PersistentThreadsCoroScheduler<int> scheduler{device, coro, N};
+        PersistentThreadsCoroScheduler<int> scheduler{device, coro,
+            PersistentThreadsCoroSchedulerConfig{.block_size = N}};
         LUISA_INFO("Persistent 3-suspend scheduler created");
 
         scheduler(42).dispatch(1u)(stream);
@@ -125,7 +128,8 @@ void reg_coro_persistent(char *argv[]) {
         LUISA_INFO("Coroutine created, sub_count={}", coro.subroutine_count());
         expect(coro.subroutine_count() >= 2u);
 
-        PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{device, coro, N};
+        PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{device, coro,
+            PersistentThreadsCoroSchedulerConfig{.block_size = N}};
         LUISA_INFO("Persistent with buffer scheduler created");
 
         scheduler(output).dispatch(1u)(stream);

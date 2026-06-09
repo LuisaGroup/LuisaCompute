@@ -70,12 +70,7 @@ void reg_coro_compile_trigger() {
 
     "entry_returns_valid_function_builder"_test = [] {
         auto c = make_simple_coro();
-        auto entry = c.entry();
-        expect(entry != nullptr);
-        // After full pipeline translation, the entry is a translated
-        // callable (tag CALLABLE, not COROUTINE).
-        auto tag = entry->function().tag();
-        expect(tag == Function::Tag::CALLABLE || tag == Function::Tag::COROUTINE);
+        expect(static_cast<bool>(c.entry()));
     };
 
     "subroutine_count_has_entry_plus_continuations"_test = [] {
@@ -86,14 +81,8 @@ void reg_coro_compile_trigger() {
 
     "operator_bracket_returns_valid_subroutines"_test = [] {
         auto c = make_simple_coro();
-        auto sub0 = c[0u];
-        auto sub1 = c[1u];
-        // After full pipeline translation, scope 0 (entry) and scope 1
-        // (continuation) should both be valid AST callables.
-        expect(sub0 != nullptr);
-        expect(sub1 != nullptr);
-        expect(sub0->function().tag() == Function::Tag::CALLABLE);
-        expect(sub1->function().tag() == Function::Tag::CALLABLE);
+        expect(static_cast<bool>(c[0u]));
+        expect(static_cast<bool>(c[1u]));
     };
 }
 

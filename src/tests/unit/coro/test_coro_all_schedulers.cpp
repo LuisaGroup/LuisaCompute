@@ -82,7 +82,8 @@ void reg_coro_all_schedulers(char *argv[]) {
         expect(coro.subroutine_count() >= 2u);
         expect(coro.graph().node_count() >= 2u);
 
-        PersistentThreadsCoroScheduler<> scheduler{device, coro, N};
+        PersistentThreadsCoroScheduler<> scheduler{device, coro,
+            PersistentThreadsCoroSchedulerConfig{.block_size = N}};
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatching 1 block of {} threads", N);
         scheduler().dispatch(1u)(stream);
         stream << synchronize();
@@ -161,7 +162,8 @@ void reg_coro_all_schedulers(char *argv[]) {
         expect(coro.subroutine_count() >= 2u);
         expect(coro.graph().node_count() >= 2u);
 
-        PersistentThreadsCoroScheduler<> scheduler{device, coro, N};
+        PersistentThreadsCoroScheduler<> scheduler{device, coro,
+            PersistentThreadsCoroSchedulerConfig{.block_size = N}};
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatching 1 block of {} threads", N);
         scheduler().dispatch(1u)(stream);
         stream << synchronize();

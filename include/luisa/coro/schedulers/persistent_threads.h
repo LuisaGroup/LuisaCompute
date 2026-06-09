@@ -108,6 +108,8 @@ private:
     }
 
 public:
+    [[nodiscard]] const Config &config() const noexcept { return _config; }
+
     PersistentThreadsCoroScheduler(Device &device, const Coro &coro, const Config &config) noexcept
         : _config{config} {
         _config.thread_count = luisa::align(_config.thread_count, _config.block_size);
