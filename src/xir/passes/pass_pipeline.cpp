@@ -225,6 +225,7 @@ PassPipeline create_basic_optimization_pipeline(OptimizationPipelineOptions opti
         auto i = dce_pass_run_on_module(m, &r);
         return i.removed_inst_count > 0u || i.removed_block_count > 0u;
     });
+    // coroutine frame references are protected by SignatureConstraint metadata
     p.add("promote-ref-arg", [](Module *m, PassReport &r) {
         auto i = promote_ref_arg_pass_run_on_module(m, &r);
         return i.promoted_ref_arg_count > 0u;

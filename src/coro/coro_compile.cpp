@@ -1,11 +1,5 @@
 #include <stdexcept>
 
-#include <stdexcept>
-
-#include <luisa/core/logging.h>
-#include <luisa/xir/translators/xir2text.h>
-#include <luisa/core/logging.h>
-#include <luisa/xir/translators/xir2text.h>
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
 #include <luisa/dsl/coro_func.h>
@@ -24,7 +18,6 @@
 #include <luisa/xir/passes/simplify_cfg.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/coro_xir2ast.h>
-#include <luisa/xir/translators/xir2text.h>
 
 namespace luisa::compute::detail {
 
@@ -38,7 +31,7 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto module = xir::ast_to_xir_translate(ast_func, config);
     if (!module) {
         throw std::runtime_error(
-            "Coroutine compilation failed: AST→XIR translation returned null module");
+            "Coroutine compilation failed: AST->XIR translation returned null module");
     }
 
     xir::Function *coro_func = nullptr;
@@ -47,20 +40,13 @@ CoroutineCompileResult compile_coroutine_pipeline(
             auto *def = f->definition();
             bool has_coro = false;
             def->traverse_instructions([&](xir::Instruction *inst) noexcept {
-                if (inst->derived_instruction_tag() ==
-                    xir::DerivedInstructionTag::CORO_SUSPEND) {
-                    has_coro = true;
-                }
+                if (inst->derived_instruction_tag() == xir::DerivedInstructionTag::CORO_SUSPEND) { has_coro = true; }
             });
-            if (has_coro) {
-                coro_func = f;
-                break;
-            }
+            if (has_coro) { coro_func = f; break; }
         }
     }
     if (!coro_func) {
-        throw std::runtime_error(
-            "Coroutine compilation failed: no coroutine function found in XIR module");
+        throw std::runtime_error("Coroutine compilation failed: no coroutine function found in XIR module");
     }
 
     (void)xir::destructure_cfg_pass_run_on_module(module.get());
@@ -76,32 +62,22 @@ CoroutineCompileResult compile_coroutine_pipeline(
             if (has_coro) { coro_func = f; break; }
         }
     }
-    if (!coro_func) { throw std::runtime_error("Coroutine compilation failed: coro_func lost after destructure_cfg"); }
+    if (!coro_func) { throw std::runtime_error("coro_func lost after destructure_cfg"); }
 
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
-    if (cfg.scopes.empty()) {
-        throw std::runtime_error(
-            "Coroutine compilation failed: coro-cfg-distill found no scopes");
-    }
+    if (cfg.scopes.empty()) { throw std::runtime_error("coro-cfg-distill found no scopes"); }
 
     auto split_count = xir::coro_split_pass_run_on_module_with_cfg(module.get(), cfg);
-    if (split_count == 0u) {
-        throw std::runtime_error(
-            "Coroutine compilation failed: coro-split produced no callables");
-    }
+    if (split_count == 0u) { throw std::runtime_error("coro-split produced no callables"); }
 
     auto materialize_info = xir::coro_materialize_pass_run_on_module(module.get());
-    if (materialize_info.callable_count == 0u) {
-        throw std::runtime_error(
-            "Coroutine compilation failed: coro-materialize found no callables");
-    }
+    if (materialize_info.callable_count == 0u) { throw std::runtime_error("coro-materialize found no callables"); }
 
     (void)xir::coro_reg2mem_pass_run_on_module(module.get());
     (void)xir::destructure_cfg_pass_run_on_module(module.get());
     (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
     (void)xir::restructure_cfg_pass_run_on_module(module.get());
-    LUISA_INFO("=== SDF XIR after restructure ===\n{}", xir::xir_to_flat_text_translate(module.get(), false));
     (void)xir::dce_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
 

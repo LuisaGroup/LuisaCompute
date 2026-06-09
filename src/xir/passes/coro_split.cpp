@@ -9,6 +9,7 @@
 #include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/return.h>
+#include <luisa/xir/metadata/signature_constraint.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/op.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
@@ -282,6 +283,8 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
             bool is_last = (i == result.scopes.size() - 1u);
             instrument_returns_with_skip_flag(mod, scope, frame_arg, resolver, is_last);
         }
+
+        static_cast<void>(new_func->create_metadata<SignatureConstraintMD>());
 
         created++;
     }
