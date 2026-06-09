@@ -5,9 +5,12 @@
 #pragma once
 
 #include <luisa/core/dll_export.h>
+#include <luisa/core/logging.h>
+#include <luisa/core/stl/variant.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/optional.h>
 #include <luisa/core/concepts.h>
+#include <luisa/ast/function_builder.h>
 #include <luisa/coro/coro_graph.h>
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/dsl/func.h>
@@ -77,6 +80,8 @@ private:
     coro::CoroGraph _graph;
     CoroFrameDesc _frame_desc;
     luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> _subroutines;
+    Function _coro_func;
+    mutable luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> _wrapped_subroutines;
 
 public:
     class Subroutine {
@@ -100,6 +105,61 @@ public:
                 _f, luisa::span<const Expression *const>{call_args, 1u + sizeof...(Args)});
         }
     };
+
+private:
+    /// Create a wrapper callable that fills in captured resource bindings
+    /// so the scheduler only needs to pass user-facing args.
+    [[nodiscard]] static auto _make_subroutine_wrapper(Function coroutine, Function cc) noexcept {
+        using FB = luisa::compute::detail::FunctionBuilder;
+        return FB::define_callable([&] {
+            luisa::vector<const Expression *> args;
+            args.reserve(1u + coroutine.arguments().size());
+            LUISA_ASSERT(coroutine.arguments().size() == coroutine.bound_arguments().size(),
+                         "Invalid capture list size (expected {}, got {}).",
+                         coroutine.arguments().size(), coroutine.bound_arguments().size());
+            auto fb = FB::current();
+            args.emplace_back(fb->reference(cc.arguments().front().type()));
+            for (auto arg_i = 0u; arg_i < coroutine.arguments().size(); arg_i++) {
+                auto def_arg = coroutine.arguments()[arg_i];
+                auto internal_arg = luisa::visit(
+                    [&]<typename T>(T b) noexcept -> const Expression * {
+                        if constexpr (std::is_same_v<T, Function::BufferBinding>) {
+                            return fb->buffer_binding(def_arg.type(), b.handle, b.offset, b.size);
+                        } else if constexpr (std::is_same_v<T, Function::TextureBinding>) {
+                            return fb->texture_binding(def_arg.type(), b.handle, b.level);
+                        } else if constexpr (std::is_same_v<T, Function::BindlessArrayBinding>) {
+                            return fb->bindless_array_binding(b.handle);
+                        } else if constexpr (std::is_same_v<T, Function::AccelBinding>) {
+                            return fb->accel_binding(b.handle);
+                        } else {
+                            static_assert(std::is_same_v<T, luisa::monostate>);
+                            switch (def_arg.tag()) {
+                                case Variable::Tag::REFERENCE: return fb->reference(def_arg.type());
+                                case Variable::Tag::BUFFER: return fb->buffer(def_arg.type());
+                                case Variable::Tag::TEXTURE: return fb->texture(def_arg.type());
+                                case Variable::Tag::BINDLESS_ARRAY: return fb->bindless_array();
+                                case Variable::Tag::ACCEL: return fb->accel();
+                                default: return fb->argument(def_arg.type());
+                            }
+                        }
+                    },
+                    coroutine.bound_arguments()[arg_i]);
+                args.emplace_back(internal_arg);
+            }
+            LUISA_ASSERT(cc.return_type() == nullptr,
+                         "Coroutine subroutines should not have return type.");
+            fb->call(cc, args);
+        });
+    }
+
+    [[nodiscard]] Subroutine _get_wrapped_subroutine(size_t index) const noexcept {
+        if (index >= _subroutines.size()) { return Subroutine{{}}; }
+        if (!_wrapped_subroutines[index]) {
+            _wrapped_subroutines[index] = _make_subroutine_wrapper(
+                _coro_func, _subroutines[index]->function());
+        }
+        return Subroutine{_wrapped_subroutines[index]->function()};
+    }
 
 public:
     /// Construct a Coroutine from a definition lambda and compile eagerly.
@@ -126,6 +186,8 @@ public:
         _graph = std::move(result.graph);
         _frame_desc = std::move(result.frame_desc);
         _subroutines = std::move(result.subroutines);
+        _coro_func = _builder->function();
+        _wrapped_subroutines.resize(_subroutines.size());
     }
 
     [[nodiscard]] auto function() const noexcept { return Function{_builder.get()}; }
@@ -140,27 +202,21 @@ public:
     [[nodiscard]] auto shared_frame() const noexcept { return luisa::shared_ptr<const CoroFrameDesc>{}; }
 
     [[nodiscard]] Subroutine entry() const noexcept {
-        return _subroutines.empty() ? Subroutine{{}} : Subroutine{_subroutines[0u]->function()};
+        return _get_wrapped_subroutine(0u);
     }
 
     [[nodiscard]] Subroutine operator[](size_t index) const noexcept {
-        return index < _subroutines.size() ? Subroutine{_subroutines[index]->function()} : Subroutine{{}};
+        return _get_wrapped_subroutine(index);
     }
 
     [[nodiscard]] Subroutine subroutine(size_t token) const noexcept {
         auto *node = _graph.node_by_token(token);
-        if (node && node->index < _subroutines.size()) {
-            return Subroutine{_subroutines[node->index]->function()};
-        }
-        return Subroutine{{}};
+        return node ? _get_wrapped_subroutine(node->index) : Subroutine{{}};
     }
 
     [[nodiscard]] Subroutine subroutine(luisa::string_view name) const noexcept {
         auto *node = _graph.node_by_name(name);
-        if (node && node->index < _subroutines.size()) {
-            return Subroutine{_subroutines[node->index]->function()};
-        }
-        return Subroutine{{}};
+        return node ? _get_wrapped_subroutine(node->index) : Subroutine{{}};
     }
 
     [[nodiscard]] size_t subroutine_count() const noexcept { return _subroutines.size(); }
