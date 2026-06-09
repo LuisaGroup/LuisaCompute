@@ -137,7 +137,11 @@ xcuserdata/
 *.xccheckout
 
 ## compatibility with Xcode 3 and earlier (ignoring not required starting Xcode 4)
-build/
+/build
+/build-*
+/build_*
+/*_build
+/*-build
 DerivedData/
 *.moved-aside
 *.pbxuser

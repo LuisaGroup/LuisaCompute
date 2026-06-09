@@ -141,6 +141,7 @@ luisa_compute_add_test(test_device_debugger         integration/runtime/test_dev
 luisa_compute_add_test(test_dstorage_decompression  integration/runtime/test_dstorage_decompression.cpp)
 luisa_compute_add_test(test_procedural_callable      integration/runtime/test_procedural_callable.cpp)
 luisa_compute_add_test(test_rtx                      integration/runtime/test_rtx.cpp)
+luisa_compute_add_test(test_aot                      integration/runtime/test_aot.cpp)
 luisa_compute_add_test(test_oso_parser               integration/runtime/test_oso_parser.cpp)
 
 if (LUISA_COMPUTE_ENABLE_GUI)

@@ -63,20 +63,145 @@ luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver
 
 **Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*`, `example_sdf_renderer[_ir]`, `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`.
 
-## Test File Template
+## C++ Test Templates & Style
+
+### Template 1: No-Device Unit Test (CTest-registered)
+
+For tests in `unit/core/`, `unit/ext/`, and `unit/xir/` — no GPU backend needed.
+
+**Option A — static registration with standalone test functions** (preferred for many small tests):
+
+```cpp
+// Test for <header>.h
+// This test covers: <list of features>
+
+#include "ut/ut.hpp"
+#include <luisa/core/<header>.h>
+
+using namespace boost::ut;
+using namespace boost::ut::literals;
+
+// Test functions: void test_<scenario>()
+void test_basic_construction() {
+    expect(true) << "description";
+}
+
+void test_edge_case() {
+    expect(condition) << "message on failure";
+}
+
+// Static registration + main for CLI filtering
+static auto test_<name>_registration = [] {
+    "<scenario_name>"_test = [] { test_basic_construction(); };
+    "<scenario_name2>"_test = [] { test_edge_case(); };
+    return 0;
+}();
+
+int main(int argc, char *argv[]) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc, const_cast<const char **>(argv));
+}
+```
+
+**Option B — `reg_` functions with explicit main** (preferred for XIR/pass tests):
 
 ```cpp
 #include "ut/ut.hpp"
+#include <luisa/xir/module.h>
+
+using namespace luisa;
+using namespace luisa::compute::xir;
+using namespace boost::ut;
+using namespace boost::ut::literals;
+
+void reg_feature_scenario() {
+    "feature_scenario"_test = [] {
+        Module m;
+        // ... build IR, run pass, verify
+        expect(condition);
+    };
+}
+
+int main(int argc, char *argv[]) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc, const_cast<const char **>(argv));
+    reg_feature_scenario();
+    // ... more reg_xxx() calls
+    return 0;
+}
+```
+
+**Option C — single static registration** (for single-cohesive-group tests like `test_clock.cpp`):
+
+```cpp
+#include "ut/ut.hpp"
+#include <luisa/core/clock.h>
+
+using namespace luisa;
+using namespace boost::ut;
+using namespace boost::ut::literals;
+
+static auto test_clock_registration = [] {
+    "test_clock"_test = [] {
+        Clock clock;
+        // ... multiple sub-tests in one lambda
+        expect(condition);
+    };
+    return 0;
+}();
+// No main() — Boost.UT auto-generates one
+```
+
+### Template 2: Device-Needed Test (manual backend arg)
+
+For tests in `unit/ast/`, `unit/dsl/`, `unit/runtime/`, `integration/` — GPU backend required.
+
+```cpp
+// Test for <feature>.
+// Features tested:
+// - <feature 1>
+// - <feature 2>
+
+#include "ut/ut.hpp"
 #include "test_device.h"
+
 #include <luisa/runtime/device.h>
+#include <luisa/runtime/stream.h>
+#include <luisa/runtime/buffer.h>
 #include <luisa/dsl/sugar.h>
 
+using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
+// Structs used in DSL kernels must be registered with LUISA_STRUCT
+struct MyData {
+    int a;
+    float b;
+};
+LUISA_STRUCT(MyData, a, b) {};
+
 void test_my_feature(Device &device) {
-    expect(true);
+    // Create buffers, streams, compile kernels, dispatch, validate
+    Buffer<float> buf = device.create_buffer<float>(1024u);
+    Stream stream = device.create_stream();
+
+    Kernel1D kernel = [&](BufferFloat b) noexcept {
+        b.write(dispatch_id().x, 1.0f);
+    };
+    auto shader = device.compile(kernel);
+
+    luisa::vector<float> host(1024u);
+    stream << shader(buf).dispatch(1024u)
+           << buf.copy_to(luisa::span{host})
+           << synchronize();
+
+    bool ok = true;
+    for (auto v : host) {
+        if (std::abs(v - 1.0f) > 1e-4f) { ok = false; break; }
+    }
+    expect(ok) << "kernel should fill buffer with 1.0f";
 }
 
 static inline const auto reg = [] {
@@ -89,6 +214,173 @@ static inline const auto reg = [] {
 }();
 
 int main() {}
+```
+
+**Alternate device pattern — `main()` calls test directly** (used by `test_callable.cpp`, `test_bindless.cpp`, `test_gemm.cpp`):
+
+```cpp
+void test_my_feature(Device &device) { /* ... */ }
+
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) return 0;
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    test_my_feature(device);
+}
+```
+
+---
+
+## C++ Style Conventions
+
+### Includes — canonical order
+
+1. Test framework: `"ut/ut.hpp"` and `"test_device.h"` (when needed)
+2. Project core headers: `<luisa/core/...>`
+3. Project runtime/DSL headers: `<luisa/runtime/...>`, `<luisa/dsl/...>`
+4. Project XIR headers: `<luisa/xir/...>`
+5. Standard library: `<cmath>`, `<vector>`, `<numeric>`, etc.
+
+Do **not** use `../../` relative paths. Include paths `src/tests/` and `src/tests/common/` are already exposed by the build system. Use `"ut/ut.hpp"`, `"test_device.h"`, `"cornell_box.h"`, `"reference_image.h"` directly.
+
+### Using declarations — always present
+
+```cpp
+// No-device tests:
+using namespace luisa;           // always
+using namespace boost::ut;
+using namespace boost::ut::literals;
+
+// Device tests — add:
+using namespace luisa::compute;
+
+// XIR tests — add:
+using namespace luisa::compute::xir;
+```
+
+### Naming conventions
+
+| Element | Convention | Example |
+|---|---|---|
+| Test source file | `test_<feature>.cpp` | `test_buffer.cpp` |
+| Test function | `test_<feature>()` or `test_<feature>(Device &)` | `test_basic_construction()` |
+| Registration function | `reg_<feature>()` | `reg_alloca()` |
+| Static registration lambda | `test_<feature>_registration` | `test_basic_types_registration` |
+| Test name string | `"<snake_case_description>"` | `"hash64_basic"`, `"xir_builder_alloca_local"` |
+| Test executable | `test_<feature>` | `test_dsl_mathematic` |
+
+### Assertions
+
+```cpp
+// Basic
+expect(condition);
+expect(condition) << "descriptive message on failure";
+expect(ptr != nullptr);
+expect(eq(a, b)) << "values should be equal";          // Boost.UT eq()
+
+// Complex expressions — wrap in static_cast<bool>
+expect(static_cast<bool>(a == 1 && b == 2));
+
+// Float comparison — always use epsilon, never direct ==
+expect(std::abs(result - expected) < 1e-4f);
+
+// For complex DSL validation — accumulate errors, expect once
+bool all_correct = true;
+for (size_t i = 0; i < n; i++) {
+    if (std::abs(results[i] - expected) > 1e-4f) {
+        LUISA_WARNING("Mismatch at [{}]: got {} expected {}", i, results[i], expected);
+        all_correct = false;
+    }
+}
+expect(all_correct) << "all elements must match expected values";
+```
+
+### LUISA_STRUCT registration
+
+Any struct used in `BufferVar<T>`, `Var<T>`, or kernel/callable signatures must be registered:
+
+```cpp
+struct MyType {
+    int x;
+    float3 v;
+};
+LUISA_STRUCT(MyType, x, v) {};
+
+// Template structs need LUISA_TEMPLATE_STRUCT:
+#define MY_PAIR_TEMPLATE() template<typename K, typename V>
+#define MY_PAIR() MyPair<K, V>
+LUISA_TEMPLATE_STRUCT(MY_PAIR_TEMPLATE, MY_PAIR, key, value) {};
+```
+
+### File header comment
+
+Every test file starts with a descriptive comment block:
+
+```cpp
+// Test for <module/feature>.
+// This test covers:
+// - <feature 1>
+// - <feature 2>
+```
+
+### Test organization within a file
+
+- Each test function covers one logical area
+- Test function bodies are self-contained: create their own objects, run, validate
+- Use scoped blocks `{ ... }` within a test lambda to isolate sub-tests
+- Prefer many small `"name"_test` lambdas over one giant test
+- Put `log_level_verbose()` at the top of device tests for debug output
+- Use `LUISA_INFO("...")` for progress messages; `LUISA_WARNING("...")` for non-fatal issues
+
+### `main()` function shape
+
+```cpp
+// For CTest-registered tests (Pattern 1):
+int main(int argc, char *argv[]) {
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc, const_cast<const char **>(argv));
+}
+
+// For device tests (Pattern 2, static reg style):
+int main() {}
+
+// For device tests (Pattern 2, explicit main style):
+int main(int argc, char *argv[]) {
+    auto dc = luisa::test::create_device_from_ut(argc, argv);
+    if (!dc) return 0;
+    boost::ut::detail::cfg::parse_arg_with_fallback(
+        argc, const_cast<const char **>(argv));
+    auto &device = dc->device;
+    test_xxx(device);
+}
+```
+
+### Build registration
+
+**CMake** (`src/tests/CMakeLists.txt`):
+```cmake
+# No-device, CTest auto-run:
+luisa_compute_add_test(test_name unit/core/test_name.cpp LABELS "unit;unit_core")
+
+# Device-needed, NOT auto-run:
+luisa_compute_add_test(test_name unit/runtime/test_name.cpp)
+
+# With extra link deps:
+luisa_compute_add_test(test_name unit/ext/test_name.cpp LABELS "unit;unit_ext")
+target_link_libraries(test_name PRIVATE some-lib)
+```
+
+**xmake** (`src/tests/xmake.lua`):
+```lua
+test_proj("test_name", "unit/core/test_name.cpp")
+-- With GUI dependency:
+test_proj("test_name", "integration/runtime/test_name.cpp", true)
+-- With extra config:
+test_proj("test_name", "unit/ext/test_name.cpp", false, function()
+    add_deps("lc-glslang")
+end)
 ```
 
 ## Device Helpers (`common/test_device.h`)

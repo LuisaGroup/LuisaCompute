@@ -122,6 +122,7 @@ if has_config("lc_enable_xir") then
 end
 
 -- integration/runtime
+test_proj("test_aot", "integration/runtime/test_aot.cpp", true)
 test_proj("test_device_debugger", "integration/runtime/test_device_debugger.cpp")
 test_proj("test_dstorage_decompression", "integration/runtime/test_dstorage_decompression.cpp", true)
 test_proj("test_procedural_callable", "integration/runtime/test_procedural_callable.cpp")
