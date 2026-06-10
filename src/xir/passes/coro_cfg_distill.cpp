@@ -30,6 +30,8 @@ namespace detail {
     }
 
     luisa::vector<luisa::unordered_set<BasicBlock *>> scope_visited;
+    luisa::unordered_set<BasicBlock *> resume_entries;
+    luisa::unordered_map<BasicBlock *, uint32_t> resume_trigger_token;
     luisa::deque<std::pair<BasicBlock *, int>> worklist;
 
     auto *body = def->body_block();
@@ -45,6 +47,15 @@ namespace detail {
         }
         while (scope_visited.size() <= static_cast<size_t>(sid)) {
             scope_visited.emplace_back();
+        }
+
+        if (!result.scopes[sid].trigger_token.has_value()) {
+            if (sid == 0) {
+                result.scopes[sid].trigger_token = 0u;
+            } else if (auto t = resume_trigger_token.find(bb);
+                       t != resume_trigger_token.end()) {
+                result.scopes[sid].trigger_token = t->second;
+            }
         }
 
         result.scopes[sid].blocks.emplace_back(bb);
@@ -63,6 +74,7 @@ namespace detail {
                 if (!scope_visited[sid].contains(resume_bb)) {
                 scope_visited[sid].insert(resume_bb);
                 auto new_sid = static_cast<int>(result.scopes.size());
+                resume_trigger_token[resume_bb] = s->token();
                 worklist.emplace_back(resume_bb, new_sid);
             }
             }
