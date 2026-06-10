@@ -34,8 +34,10 @@ private:
             coroutine[0u](frame, args...);
             $while (!frame.is_terminated()) {
                 for (size_t i = 1u; i < coroutine.subroutine_count(); ++i) {
-                    frame.skip_flag = 0u;
-                    coroutine[i](frame, args...);
+                    $if (frame.target_token == coroutine.trigger_token(i)) {
+                        frame.skip_flag = 0u;
+                        coroutine[i](frame, args...);
+                    };
                 }
             };
         };
