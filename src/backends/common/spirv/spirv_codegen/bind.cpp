@@ -461,7 +461,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             }
             dim = (elem_type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
         } else if (elem_type == nullptr) {
-            if (buffer_names[name_idx] == "tex3d_heap") {
+            if (buffer_names[name_idx + 1] == "tex3d_heap") {
                 dim = spv::Dim::Dim3D;
             }
         }
@@ -553,9 +553,9 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
-                    if (buffer_names[i] == "tex2d_heap") {
+                    if (buffer_names[i + 1] == "tex2d_heap") {
                         _tex2d_heap_id = var;
-                    } else if (buffer_names[i] == "tex3d_heap") {
+                    } else if (buffer_names[i + 1] == "tex3d_heap") {
                         _tex3d_heap_id = var;
                     }
                 }
@@ -585,7 +585,11 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
-                    _tex3d_heap_id = var;
+                    if (buffer_names[i + 1] == "tex2d_heap") {
+                        _tex2d_heap_id = var;
+                    } else if (buffer_names[i + 1] == "tex3d_heap") {
+                        _tex3d_heap_id = var;
+                    }
                 }
                 break;
             }

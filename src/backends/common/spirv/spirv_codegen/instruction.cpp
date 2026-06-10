@@ -1722,7 +1722,7 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto tex_ptr = _create_access_chain(spv::StorageClass::UniformConstant, heap_id, {tex_idx}, nonuniform);
             auto image = _builder.createLoad(tex_ptr, spv::NoPrecision);
             if (nonuniform) { _builder.addDecoration(image, spv::Decoration::NonUniformEXT); }
-            LUISA_ASSERT(_properties.size() >= 2 && _properties[1].type == ShaderVariableType::SamplerHeap,
+            LUISA_ASSERT(!_properties.empty() && _properties[0].type == ShaderVariableType::SamplerHeap,
                          "SPIR-V sampler heap not bound.");
             auto sampler_heap = _property_ids[1];
             auto samp_nonuniform = nonuniform || (is_sampler_variant && (!_uniformity.is_uniform(inst->operand(inst->operand_count() - 2)) || !_uniformity.is_uniform(inst->operand(inst->operand_count() - 1))));
