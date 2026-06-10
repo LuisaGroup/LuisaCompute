@@ -372,14 +372,11 @@ void reg_coro_state_machine(char *argv[]) {
         }
     };
 
-#if 0 // $for/$while+suspend, $suspend-inside-$if: needs per-scope cfg-distill + phi→alloca
     "state_machine_for_with_suspend_single"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device(argv[1]);
         Stream stream = device.create_stream();
-
         Buffer<int> output = device.create_buffer<int>(16);
-
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
             Var<int> acc = 100;
             $for (i, 2) {
@@ -388,16 +385,15 @@ void reg_coro_state_machine(char *argv[]) {
             };
             buf.write(0, acc);
         });
-
         LUISA_INFO("for_suspend scope_count={}", coro.subroutine_count());
-
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
-
         std::vector<int> host(16, -1);
         stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("for_suspend host[0]={}", host[0]);
         expect(host[0] == 102);
+
     };
 
     "state_machine_while_with_suspend"_test = [argv] {
@@ -427,6 +423,7 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 3);
     };
 
+#if 0
     "state_machine_suspend_inside_nested_if"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device(argv[1]);

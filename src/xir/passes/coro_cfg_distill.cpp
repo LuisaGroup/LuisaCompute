@@ -31,6 +31,7 @@ namespace detail {
 
     luisa::vector<luisa::unordered_set<BasicBlock *>> scope_visited;
     luisa::deque<std::pair<BasicBlock *, int>> worklist;
+    luisa::unordered_set<uint32_t> started_tokens;
 
     auto *body = def->body_block();
     worklist.emplace_back(body, 0);
@@ -64,6 +65,7 @@ namespace detail {
                                    result.scopes[sid].blocks.front() == resume_bb;
                 if (!scope_visited[sid].contains(resume_bb) && !is_self_loop) {
                 scope_visited[sid].insert(resume_bb);
+                started_tokens.insert(s->token());
                 auto new_sid = static_cast<int>(result.scopes.size());
                 worklist.emplace_back(resume_bb, new_sid);
             }
@@ -83,8 +85,14 @@ namespace detail {
             scope_visited[sid].insert(succ);
             auto *first = succ->instructions().front();
             if (first->derived_instruction_tag() == DerivedInstructionTag::CORO_RESUME) {
-                auto new_sid = static_cast<int>(result.scopes.size());
-                worklist.emplace_back(succ, new_sid);
+                auto *r = static_cast<CoroResumeInst *>(first);
+                if (started_tokens.contains(r->token())) {
+                    worklist.emplace_back(succ, sid);
+                } else {
+                    started_tokens.insert(r->token());
+                    auto new_sid = static_cast<int>(result.scopes.size());
+                    worklist.emplace_back(succ, new_sid);
+                }
             } else {
                 worklist.emplace_back(succ, sid);
             }
