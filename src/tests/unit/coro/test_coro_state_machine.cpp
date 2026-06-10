@@ -551,6 +551,64 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 42);
     };
 
+    "state_machine_5scope_with_var_in_loop"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+        Buffer<int> output = device.create_buffer<int>(16);
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            $suspend("setup");
+            $for (i, 2) {
+                Var<int> v = 0;
+                $suspend("step");
+            };
+            $suspend("accumulate");
+            buf.write(0, 42);
+            $suspend("done");
+        });
+        LUISA_INFO("var_in_loop scope_count={}", coro.subroutine_count());
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("var_in_loop host[0]={}", host[0]);
+        expect(host[0] == 42);
+    };
+
+    // NOTE: $if inside $for loop body with $suspend causes hang on all backends.
+    // The if_read_i variant ($if (i==0u) { v=1; } inside $for body) hangs
+    // during StateMachineCoroScheduler construction (shader compilation).
+    // This is the root cause of the SDF GPU hang — the SDF uses $if with
+    // $break inside the loop body. Disabled until fixed.
+#if 0
+    "state_machine_5scope_with_if_read_i"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+        Buffer<int> output = device.create_buffer<int>(16);
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            $suspend("setup");
+            $for (i, 2) {
+                Var<int> v = 0;
+                $if (i == 0u) { v = 1; };
+                $suspend("step");
+            };
+            $suspend("accumulate");
+            buf.write(0, 42);
+            $suspend("done");
+        });
+        LUISA_INFO("if_read_i scope_count={}", coro.subroutine_count());
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("if_read_i host[0]={}", host[0]);
+        expect(host[0] == 42);
+    };
+#endif
+
 }
 
 int main(int argc, char *argv[]) {
