@@ -39,35 +39,26 @@ void reg_coro_state_machine(char *argv[]) {
             LUISA_INFO("Basic kernel dispatch OK");
         }
 
-        // Coroutine with 3 suspends
         Buffer<int> output = device.create_buffer<int>(N);
 
-        auto coro = Coroutine<void(int)>([](Var<int> multiplier) {
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            buf.write(0, 42);
             $suspend("a");
-            $suspend("b");
-            $suspend("c");
+            buf.write(1, 99);
         });
 
         LUISA_INFO("Coroutine created, subroutine_count={}", coro.subroutine_count());
-        expect(coro.subroutine_count() >= 2u);
-        expect(coro.graph().node_count() >= 2u);
 
-        // Debug: print node tokens
-        for (size_t i = 0u; i < coro.graph().node_count(); ++i) {
-            auto &node = coro.graph().node(i);
-            LUISA_INFO("  Node[{}]: token={}, name='{}', terminal={}",
-                       i, node.token, node.name, node.is_terminal);
-        }
-
-        StateMachineCoroScheduler<int> scheduler{device, coro};
-        LUISA_INFO("Scheduler created, dispatching {} threads", N);
-
-        // Use explicit dispatch syntax: scheduler(args...).dispatch(size)(stream)
-        scheduler(42).dispatch(N)(stream);
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         LUISA_INFO("Dispatch complete");
 
-        expect(true);
+        std::vector<int> host(N, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("buf[0]={} buf[1]={}", host[0], host[1]);
+        expect(host[0] == 42);
+        expect(host[1] == 99);
     };
 }
 
