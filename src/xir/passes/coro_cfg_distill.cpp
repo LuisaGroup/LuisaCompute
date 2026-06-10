@@ -63,7 +63,7 @@ namespace detail {
                 auto *resume_bb = it->second;
                 bool is_self_loop = !result.scopes[sid].blocks.empty() &&
                                    result.scopes[sid].blocks.front() == resume_bb;
-                if (!scope_visited[sid].contains(resume_bb) && !is_self_loop) {
+                if (!scope_visited[sid].contains(resume_bb) && !is_self_loop && !started_tokens.contains(s->token())) {
                 scope_visited[sid].insert(resume_bb);
                 started_tokens.insert(s->token());
                 auto new_sid = static_cast<int>(result.scopes.size());
