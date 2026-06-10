@@ -457,6 +457,76 @@ void reg_coro_state_machine(char *argv[]) {
     };
 #endif
 
+    "state_machine_double_suspend_linear"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+        Buffer<int> output = device.create_buffer<int>(16);
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            Var<int> x = 10;
+            $suspend("a");
+            x = x + 30;
+            $suspend("b");
+            buf.write(0, x);
+        });
+        LUISA_INFO("double_suspend scope_count={}", coro.subroutine_count());
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("double_suspend host[0]={}", host[0]);
+        expect(host[0] == 40);
+    };
+
+    "state_machine_triple_suspend_with_loop"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+        Buffer<int> output = device.create_buffer<int>(16);
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            Var<int> acc = 10;
+            $suspend("setup");
+            $for (i, 2) {
+                acc = acc + 1;
+                $suspend("step");
+            };
+            $suspend("accumulate");
+            buf.write(0, acc);
+        });
+        LUISA_INFO("triple_suspend scope_count={}", coro.subroutine_count());
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("triple_suspend host[0]={}", host[0]);
+    };
+
+    "state_machine_for_suspend_plus_after_suspend"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+        Buffer<int> output = device.create_buffer<int>(16);
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            Var<int> acc = 100;
+            $for (i, 2) {
+                acc = acc + 1;
+                $suspend("iter");
+            };
+            $suspend("after");
+            buf.write(0, acc);
+        });
+        LUISA_INFO("for_plus_after scope_count={}", coro.subroutine_count());
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("for_plus_after host[0]={}", host[0]);
+        expect(host[0] == 102);
+    };
+
 }
 
 int main(int argc, char *argv[]) {
