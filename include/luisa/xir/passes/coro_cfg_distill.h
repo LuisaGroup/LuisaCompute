@@ -18,6 +18,7 @@ struct CoroCfgDistillResult {
         int scope_id{0};
         luisa::optional<uint32_t> suspend_token;
         luisa::optional<luisa::string> suspend_name;
+        luisa::optional<uint32_t> trigger_token;
         bool is_terminal{false};
     };
 

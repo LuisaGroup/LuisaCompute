@@ -888,7 +888,7 @@ private:
                         merge = false_block;
                     } else if (false_target != nullptr && false_target == true_block) {
                         merge = true_block;
-                    } else if (true_target != nullptr && true_target == false_target) {
+                    } else if (true_target == false_target) {
                         merge = true_target;
                     } else {
                         LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires structured control flow.");
