@@ -82,6 +82,8 @@ public:
                     auto *prev_ip = _builder->insertion_point();
                     _builder->set_insertion_point(_alloca_bb);
                     auto *cloned = _builder->alloca_(orig_alloca->type(), orig_alloca->op());
+                    auto name_opt = orig_alloca->name();
+                    if (name_opt.has_value()) { cloned->set_name(name_opt.value()); }
                     _builder->set_insertion_point(prev_ip);
                     _value_map.emplace(inst, cloned);
                     return cloned;
@@ -184,6 +186,8 @@ static void clone_scope(Module *mod, const CoroCfgDistillResult::Scope &scope,
             if (inst->derived_instruction_tag() == DerivedInstructionTag::ALLOCA) {
                 auto *orig_alloca = static_cast<const AllocaInst *>(inst);
                 auto *cloned_alloca = b.alloca_(orig_alloca->type(), orig_alloca->op());
+                auto name_opt = orig_alloca->name();
+                if (name_opt.has_value()) { cloned_alloca->set_name(name_opt.value()); }
                 resolver.map_value(inst, cloned_alloca);
             }
         }
@@ -247,15 +251,18 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
 
 [[nodiscard]] static size_t split_function_with_cfg(
     Module *mod, FunctionDefinition *def,
-    const CoroCfgDistillResult &result) noexcept {
+    const CoroCfgDistillResult &result,
+    const Type *frame_type = nullptr) noexcept {
     if (result.scopes.size() <= 1u) { return 0u; }
+
+    auto *actual_frame_type = frame_type ? frame_type : create_frame_type();
 
     size_t created = 0u;
     for (size_t i = 0; i < result.scopes.size(); ++i) {
         auto &scope = result.scopes[i];
 
         auto *new_func = mod->create_callable(nullptr);
-        auto *frame_arg = new_func->create_reference_argument(create_frame_type());
+        auto *frame_arg = new_func->create_reference_argument(actual_frame_type);
 
         CoroSplitValueResolver resolver;
 
@@ -322,6 +329,21 @@ size_t coro_split_pass_run_on_module_with_cfg(
             if (parent != nullptr && parent->is_definition()) {
                 return detail::split_function_with_cfg(
                     m, static_cast<FunctionDefinition *>(parent), cfg);
+            }
+        }
+    }
+    return 0u;
+}
+
+size_t coro_split_pass_run_on_module_with_cfg_and_frame(
+    Module *m, const CoroCfgDistillResult &cfg, const Type *frame_type) noexcept {
+    LUISA_DEBUG_ASSERT(!cfg.scopes.empty(), "CoroCfgDistillResult has no scopes.");
+    for (auto &scope : cfg.scopes) {
+        for (auto *bb : scope.blocks) {
+            auto *parent = bb->parent_function();
+            if (parent != nullptr && parent->is_definition()) {
+                return detail::split_function_with_cfg(
+                    m, static_cast<FunctionDefinition *>(parent), cfg, frame_type);
             }
         }
     }
