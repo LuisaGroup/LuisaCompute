@@ -250,9 +250,12 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
         auto *cloned_bb = static_cast<BasicBlock *>(resolver.resolve(orig_bb));
         auto *term = cloned_bb->terminator();
         if (term != nullptr && term->derived_instruction_tag() == DerivedInstructionTag::RETURN) {
+            auto *orig_term = orig_bb->terminator();
+            bool was_suspend = (orig_term != nullptr &&
+                               orig_term->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND);
             b.set_insertion_point(term->prev());
             store_skip_flag_true(b, frame_arg, mod);
-            if (is_last_scope) {
+            if (is_last_scope && !was_suspend) {
                 store_frame_token(b, frame_arg, mod, TERMINAL_TOKEN);
             }
         }
