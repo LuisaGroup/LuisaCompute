@@ -113,6 +113,8 @@ void lower_phi_node_to_local_variable(PhiInst *phi) noexcept {
         b.set_insertion_point(f->definition()->body_block()->instructions().head_sentinel());
         auto phi_alloca = b.alloca_local(phi->type());
         phi_alloca->add_comment("alloca to lower phi node");
+        static int phi_counter = 0;
+        phi_alloca->set_name(luisa::format("_phi_{}", ++phi_counter));
         if (auto m = f->parent_module()) {
             auto undef = m->create_undefined(phi->type());
             b.store(phi_alloca, undef);
