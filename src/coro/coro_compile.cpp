@@ -2,9 +2,13 @@
 
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
+#include <luisa/ast/type.h>
+#include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
@@ -67,7 +71,26 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
     if (cfg.scopes.empty()) { throw std::runtime_error("coro-cfg-distill found no scopes"); }
 
-    auto split_count = xir::coro_split_pass_run_on_module_with_cfg(module.get(), cfg);
+    luisa::unordered_set<luisa::string> seen;
+    luisa::vector<std::pair<luisa::string, const Type *>> regs;
+    coro_func->definition()->traverse_instructions([&](xir::Instruction *inst) noexcept {
+        if (inst->derived_instruction_tag() != xir::DerivedInstructionTag::ALLOCA) { return; }
+        auto *alloca = static_cast<xir::AllocaInst *>(inst);
+        if (!alloca->is_local()) { return; }
+        auto name_opt = alloca->name();
+        if (!name_opt.has_value()) { return; }
+        luisa::string name(name_opt.value());
+        if (seen.insert(name).second) {
+            regs.push_back({std::move(name), alloca->type()});
+        }
+    });
+    luisa::vector<const Type *> frame_fields;
+    frame_fields.push_back(Type::of<uint>());// [0] token
+    frame_fields.push_back(Type::of<uint>());// [1] skip_flag
+    for (auto &reg : regs) { frame_fields.push_back(reg.second); }
+    auto *frame_type = Type::structure(frame_fields);
+
+    auto split_count = xir::coro_split_pass_run_on_module_with_cfg_and_frame(module.get(), cfg, frame_type);
     if (split_count == 0u) { throw std::runtime_error("coro-split produced no callables"); }
 
     auto materialize_info = xir::coro_materialize_pass_run_on_module(module.get());

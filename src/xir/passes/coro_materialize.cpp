@@ -45,8 +45,26 @@ struct RegisterInfo {
     return true;
 }
 
-[[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(Module *) noexcept {
-    return {};
+[[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(Module *mod) noexcept {
+    luisa::unordered_set<luisa::string> seen;
+    luisa::vector<RegisterInfo> regs;
+
+    for (auto *f : mod->function_list()) {
+        if (!f->isa<CallableFunction>() || f->definition() == nullptr) { continue; }
+        auto *def = f->definition();
+        def->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->derived_instruction_tag() != DerivedInstructionTag::ALLOCA) { return; }
+            auto *alloca = static_cast<AllocaInst *>(inst);
+            if (!alloca->is_local()) { return; }
+            auto name_opt = alloca->name();
+            if (!name_opt.has_value()) { return; }
+            luisa::string name(name_opt.value());
+            if (seen.insert(name).second) {
+                regs.push_back({std::move(name), alloca->type()});
+            }
+        });
+    }
+    return regs;
 }
 
 [[nodiscard]] static const Type *build_frame_type(const luisa::vector<RegisterInfo> &regs) noexcept {
@@ -118,7 +136,16 @@ static void process_callable(Module *mod, CallableFunction *func,
     if (frame_arg == nullptr) { return; }
 
     luisa::unordered_map<luisa::string, Value *> local_map;
-
+    func->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->derived_instruction_tag() == DerivedInstructionTag::ALLOCA) {
+            auto *alloca = static_cast<AllocaInst *>(inst);
+            if (!alloca->is_local()) { return; }
+            auto name_opt = alloca->name();
+            if (name_opt.has_value()) {
+                local_map.emplace(name_opt.value(), alloca);
+            }
+        }
+    });
     XIRBuilder b;
 
     luisa::vector<CoroSuspendInst *> suspends;
@@ -169,6 +196,7 @@ static void process_callable(Module *mod, CallableFunction *func,
         info.terminal_lowered_count++;
     }
 
+    size_t token_store_count = 0;
     if (suspends.empty()) {
         luisa::vector<StoreInst *> token_stores;
         func->traverse_instructions([&](Instruction *inst) noexcept {

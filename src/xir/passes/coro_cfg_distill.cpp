@@ -29,22 +29,22 @@ namespace detail {
         }
     }
 
-    // assign blocks to scopes via BFS
-    luisa::unordered_map<BasicBlock *, int> block_to_scope;
+    luisa::vector<luisa::unordered_set<BasicBlock *>> scope_visited;
     luisa::deque<std::pair<BasicBlock *, int>> worklist;
 
     auto *body = def->body_block();
     worklist.emplace_back(body, 0);
-    block_to_scope[body] = 0;
 
     while (!worklist.empty()) {
         auto [bb, sid] = worklist.front();
         worklist.pop_front();
 
-        // ensure scope vector has enough entries
         while (result.scopes.size() <= static_cast<size_t>(sid)) {
             result.scopes.emplace_back();
             result.scopes.back().scope_id = static_cast<int>(result.scopes.size()) - 1;
+        }
+        while (scope_visited.size() <= static_cast<size_t>(sid)) {
+            scope_visited.emplace_back();
         }
 
         result.scopes[sid].blocks.emplace_back(bb);
@@ -60,11 +60,11 @@ namespace detail {
             // start new scope from matching resume block
             if (auto it = token_to_resume.find(s->token()); it != token_to_resume.end()) {
                 auto *resume_bb = it->second;
-                if (!block_to_scope.contains(resume_bb)) {
-                    auto new_sid = static_cast<int>(result.scopes.size());
-                    block_to_scope[resume_bb] = new_sid;
-                    worklist.emplace_back(resume_bb, new_sid);
-                }
+                if (!scope_visited[sid].contains(resume_bb)) {
+                scope_visited[sid].insert(resume_bb);
+                auto new_sid = static_cast<int>(result.scopes.size());
+                worklist.emplace_back(resume_bb, new_sid);
+            }
             }
             continue;
         }
@@ -77,21 +77,25 @@ namespace detail {
 
         // follow regular CFG successors
         bb->traverse_successors(true, [&](BasicBlock *succ) noexcept {
-            if (block_to_scope.contains(succ)) { return; }
-            // check if successor starts a new scope (has CoroResumeInst at beginning)
+            if (scope_visited[sid].contains(succ)) { return; }
+            scope_visited[sid].insert(succ);
             auto *first = succ->instructions().front();
             if (first->derived_instruction_tag() == DerivedInstructionTag::CORO_RESUME) {
                 auto new_sid = static_cast<int>(result.scopes.size());
-                block_to_scope[succ] = new_sid;
                 worklist.emplace_back(succ, new_sid);
             } else {
-                block_to_scope[succ] = sid;
                 worklist.emplace_back(succ, sid);
             }
         });
     }
 
-    // compute edges
+    // compute edges — rebuild block_to_scope mapping (last scope wins)
+    luisa::unordered_map<BasicBlock *, int> block_to_scope;
+    for (size_t i = 0; i < result.scopes.size(); ++i) {
+        for (auto *bb : result.scopes[i].blocks) {
+            block_to_scope[bb] = static_cast<int>(i);
+        }
+    }
     result.edges.resize(result.scopes.size());
     for (size_t i = 0; i < result.scopes.size(); ++i) {
         luisa::unordered_set<size_t> edge_set;
