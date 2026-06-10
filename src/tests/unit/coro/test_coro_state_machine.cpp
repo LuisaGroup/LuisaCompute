@@ -372,12 +372,10 @@ void reg_coro_state_machine(char *argv[]) {
         }
     };
 
-    // $for/$while+suspend and $suspend-inside-$if are disabled: state machine
-    // architecture does not support scope re-entry at mid-block — coro_split
-    // clones per-scope blocks but the sequential dispatch model resets entry
-    // scope variables. Requires scheduler-level fix (partial scope re-entry or
-    // PersistentThreadsCoroScheduler).
-#if 0
+#if 0  // $for/$while+suspend and $suspend-inside-$if disabled:
+         // state machine sequential dispatch resets entry-scope vars on
+         // re-entry. Needs scheduler-level fix (partial scope re-entry or
+         // PersistentThreadsCoroScheduler).
     "state_machine_for_with_suspend_single"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device(argv[1]);
