@@ -879,18 +879,8 @@ private:
                         auto term = block->terminator();
                         return term != nullptr && term->isa<BranchInst>() ? static_cast<const BranchInst *>(term)->target_block() : nullptr;
                     };
-                    auto follow_trivial = [&branch_target](const BasicBlock *block) noexcept -> const BasicBlock * {
-                        while (block != nullptr) {
-                            auto t = branch_target(block);
-                            if (t == nullptr) { break; }
-                            block = t;
-                        }
-                        return block;
-                    };
-                    auto true_final = follow_trivial(true_block);
-                    auto false_final = follow_trivial(false_block);
-                    auto true_target = true_final == stop ? stop : branch_target(true_final);
-                    auto false_target = false_final == stop ? stop : branch_target(false_final);
+                    auto true_target = true_block == stop ? stop : branch_target(true_block);
+                    auto false_target = false_block == stop ? stop : branch_target(false_block);
                     const BasicBlock *merge = nullptr;
                     if (true_block == stop || false_block == stop) {
                         merge = stop;
