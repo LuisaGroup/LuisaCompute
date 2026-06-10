@@ -372,10 +372,11 @@ void reg_coro_state_machine(char *argv[]) {
         }
     };
 
-#if 0  // $for/$while+suspend and $suspend-inside-$if disabled:
-         // state machine sequential dispatch resets entry-scope vars on
-         // re-entry. Needs scheduler-level fix (partial scope re-entry or
-         // PersistentThreadsCoroScheduler).
+#if 0  /* $for/$while+suspend and $suspend-inside-$if disabled:
+           scope 0 always runs (no skip check), resetting loop vars.
+           $for counters are phi nodes, not allocas — not promoted to frame.
+           Fix needs: phi→alloca conversion before materialize
+           + scope 0 token-based skip check + frame.token=0u init. */
     "state_machine_for_with_suspend_single"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device(argv[1]);
@@ -464,7 +465,6 @@ void reg_coro_state_machine(char *argv[]) {
 #endif
 
 }
-
 int main(int argc, char *argv[]) {
     reg_coro_state_machine(argv);
     return 0;
