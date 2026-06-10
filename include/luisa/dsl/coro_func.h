@@ -154,13 +154,8 @@ private:
     [[nodiscard]] Subroutine _get_wrapped_subroutine(size_t index) const noexcept {
         if (index >= _subroutines.size()) { return Subroutine{{}}; }
         if (!_wrapped_subroutines[index]) {
-            bool has_captures = false;
-            for (auto &b : _coro_func.bound_arguments()) {
-                if (!luisa::holds_alternative<luisa::monostate>(b)) { has_captures = true; break; }
-            }
-            _wrapped_subroutines[index] = has_captures
-                ? _make_subroutine_wrapper(_coro_func, _subroutines[index]->function())
-                : _subroutines[index];
+            _wrapped_subroutines[index] = _make_subroutine_wrapper(
+                _coro_func, _subroutines[index]->function());
         }
         return Subroutine{_wrapped_subroutines[index]->function()};
     }
