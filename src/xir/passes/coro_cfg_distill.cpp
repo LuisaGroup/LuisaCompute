@@ -63,7 +63,7 @@ namespace detail {
                 auto *resume_bb = it->second;
                 bool is_self_loop = !result.scopes[sid].blocks.empty() &&
                                    result.scopes[sid].blocks.front() == resume_bb;
-                if (!scope_visited[sid].contains(resume_bb) && !is_self_loop && !started_tokens.contains(s->token())) {
+                if (!scope_visited[sid].contains(resume_bb) && !is_self_loop) {
                 scope_visited[sid].insert(resume_bb);
                 started_tokens.insert(s->token());
                 auto new_sid = static_cast<int>(result.scopes.size());
@@ -103,6 +103,14 @@ namespace detail {
                 worklist.emplace_back(succ, sid);
             }
         });
+    }
+
+    // sort scopes by trigger_token so state machine dispatch order
+    // matches execution order regardless of BFS visitation order
+    std::sort(result.scopes.begin() + 1, result.scopes.end(),
+              [](const auto &a, const auto &b) { return a.trigger_token < b.trigger_token; });
+    for (size_t i = 0; i < result.scopes.size(); ++i) {
+        result.scopes[i].scope_id = static_cast<int>(i);
     }
 
     // compute edges — rebuild block_to_scope mapping (last scope wins)
