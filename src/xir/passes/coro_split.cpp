@@ -115,7 +115,7 @@ static void store_skip_flag_true(XIRBuilder &b, Value *frame_arg, Module *mod) n
 
 static void build_skip_check_entry(Module *mod, CallableFunction *func,
                                    Value *frame_arg, BasicBlock *body_entry,
-                                   uint32_t trigger_token) noexcept {
+                                   bool check_token = false) noexcept {
     auto *check_block = func->create_basic_block();
     auto *ret_block = func->create_basic_block();
     func->set_body_block(check_block);
@@ -123,12 +123,21 @@ static void build_skip_check_entry(Module *mod, CallableFunction *func,
     XIRBuilder b;
     b.set_insertion_point(check_block);
 
-    auto *field_zero = mod->create_constant_zero(Type::of<uint>());
-    auto *gep0 = b.gep(Type::of<uint>(), frame_arg, {field_zero});
-    auto *loaded_token = b.load(Type::of<uint>(), gep0);
-    auto *expected = mod->create_constant(Type::of<uint>(), &trigger_token);
-    auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {loaded_token, expected});
-    b.cond_br(cond, ret_block, body_entry);
+    if (check_token) {
+        auto *field_zero = mod->create_constant_zero(Type::of<uint>());
+        auto *gep0 = b.gep(Type::of<uint>(), frame_arg, {field_zero});
+        auto *loaded_token = b.load(Type::of<uint>(), gep0);
+        auto *zero = mod->create_constant_zero(Type::of<uint>());
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {loaded_token, zero});
+        b.cond_br(cond, ret_block, body_entry);
+    } else {
+        auto *field_one = mod->create_constant(Type::of<uint>(), &FRAME_FIELD_SKIP_FLAG);
+        auto *gep = b.gep(Type::of<uint>(), frame_arg, {field_one});
+        auto *loaded_flag = b.load(Type::of<uint>(), gep);
+        auto *zero = mod->create_constant_zero(Type::of<uint>());
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {loaded_flag, zero});
+        b.cond_br(cond, ret_block, body_entry);
+    }
 
     b.set_insertion_point(ret_block);
     b.return_void();
@@ -241,12 +250,9 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
         auto *cloned_bb = static_cast<BasicBlock *>(resolver.resolve(orig_bb));
         auto *term = cloned_bb->terminator();
         if (term != nullptr && term->derived_instruction_tag() == DerivedInstructionTag::RETURN) {
-            auto *orig_term = orig_bb->terminator();
-            bool was_suspend = (orig_term != nullptr &&
-                               orig_term->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND);
             b.set_insertion_point(term->prev());
             store_skip_flag_true(b, frame_arg, mod);
-            if (is_last_scope && !was_suspend) {
+            if (is_last_scope) {
                 store_frame_token(b, frame_arg, mod, TERMINAL_TOKEN);
             }
         }
@@ -282,8 +288,11 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
 
         auto *body_entry = static_cast<BasicBlock *>(resolver.resolve(scope.blocks.front()));
 
-        uint32_t trigger = result.scopes[i].trigger_token.value_or(0u);
-        build_skip_check_entry(mod, new_func, frame_arg, body_entry, trigger);
+        if (i > 0) {
+            build_skip_check_entry(mod, new_func, frame_arg, body_entry);
+        } else {
+            new_func->set_body_block(body_entry);
+        }
 
         clone_scope(mod, scope, new_func, frame_arg, resolver);
 
