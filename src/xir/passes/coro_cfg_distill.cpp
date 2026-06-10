@@ -67,6 +67,9 @@ namespace detail {
                 scope_visited[sid].insert(resume_bb);
                 started_tokens.insert(s->token());
                 auto new_sid = static_cast<int>(result.scopes.size());
+                result.scopes.emplace_back();
+                result.scopes.back().scope_id = new_sid;
+                result.scopes.back().trigger_token = s->token();
                 worklist.emplace_back(resume_bb, new_sid);
             }
             }
@@ -91,6 +94,9 @@ namespace detail {
                 } else {
                     started_tokens.insert(r->token());
                     auto new_sid = static_cast<int>(result.scopes.size());
+                    result.scopes.emplace_back();
+                    result.scopes.back().scope_id = new_sid;
+                    result.scopes.back().trigger_token = r->token();
                     worklist.emplace_back(succ, new_sid);
                 }
             } else {

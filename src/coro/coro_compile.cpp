@@ -115,6 +115,11 @@ CoroutineCompileResult compile_coroutine_pipeline(
         }
     }
 
+    result.trigger_tokens.resize(cfg.scopes.size(), 0u);
+    for (size_t i = 0u; i < cfg.scopes.size(); ++i) {
+        result.trigger_tokens[i] = cfg.scopes[i].trigger_token;
+    }
+
     return result;
 }
 

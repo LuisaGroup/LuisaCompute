@@ -52,6 +52,7 @@ struct CoroutineCompileResult {
     coro::CoroGraph graph;
     CoroFrameDesc frame_desc;
     luisa::vector<luisa::shared_ptr<const FunctionBuilder>> subroutines;
+    luisa::vector<uint32_t> trigger_tokens;
 };
 
 /// Run the full coroutine compilation pipeline on an AST function.
@@ -80,6 +81,7 @@ private:
     coro::CoroGraph _graph;
     CoroFrameDesc _frame_desc;
     luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> _subroutines;
+    luisa::vector<uint32_t> _trigger_tokens;
     Function _coro_func;
     mutable luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> _wrapped_subroutines;
 
@@ -185,6 +187,7 @@ public:
         _graph = std::move(result.graph);
         _frame_desc = std::move(result.frame_desc);
         _subroutines = std::move(result.subroutines);
+        _trigger_tokens = std::move(result.trigger_tokens);
         _coro_func = _builder->function();
         _wrapped_subroutines.resize(_subroutines.size());
     }
@@ -219,6 +222,10 @@ public:
     }
 
     [[nodiscard]] size_t subroutine_count() const noexcept { return _subroutines.size(); }
+
+    [[nodiscard]] uint32_t trigger_token(size_t index) const noexcept {
+        return index < _trigger_tokens.size() ? _trigger_tokens[index] : 0u;
+    }
 
     [[nodiscard]] CoroFrame instantiate() const noexcept {
         return CoroFrame::create(&_frame_desc);
