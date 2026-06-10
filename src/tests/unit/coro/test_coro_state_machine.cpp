@@ -576,12 +576,6 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 42);
     };
 
-    // NOTE: $if inside $for loop body with $suspend causes hang on all backends.
-    // The if_read_i variant ($if (i==0u) { v=1; } inside $for body) hangs
-    // during StateMachineCoroScheduler construction (shader compilation).
-    // This is the root cause of the SDF GPU hang — the SDF uses $if with
-    // $break inside the loop body. Disabled until fixed.
-#if 0
     "state_machine_5scope_with_if_read_i"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device(argv[1]);
@@ -607,8 +601,6 @@ void reg_coro_state_machine(char *argv[]) {
         LUISA_INFO("if_read_i host[0]={}", host[0]);
         expect(host[0] == 42);
     };
-#endif
-
 }
 
 int main(int argc, char *argv[]) {
