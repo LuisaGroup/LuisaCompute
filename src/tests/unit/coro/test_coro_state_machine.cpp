@@ -423,7 +423,7 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 3);
     };
 
-#if 0
+
     "state_machine_suspend_inside_nested_if"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device(argv[1]);
@@ -455,7 +455,6 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[2] == 222);
         expect(host[4] == 0);
     };
-#endif
 
     "state_machine_double_suspend_linear"_test = [argv] {
         Context ctx{argv[0]};

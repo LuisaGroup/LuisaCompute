@@ -299,9 +299,10 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
 
         clone_scope(mod, scope, new_func, frame_arg, resolver);
 
-        if (i > 0) {
+        {
+            bool is_first = (i == 0u);
             bool is_last = (i == result.scopes.size() - 1u);
-            instrument_returns_with_skip_flag(mod, scope, frame_arg, resolver, is_last);
+            instrument_returns_with_skip_flag(mod, scope, frame_arg, resolver, is_last || is_first);
         }
 
         static_cast<void>(new_func->create_metadata<SignatureConstraintMD>());
