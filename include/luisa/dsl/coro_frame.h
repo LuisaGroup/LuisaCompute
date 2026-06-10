@@ -120,13 +120,15 @@ public:
     static constexpr uint TERMINAL_TOKEN = 0xFFFFFFFFu;
     UInt3 coro_id;
     UInt target_token;
+    UInt skip_flag;
 
     explicit CoroFrame(const CoroFrameDesc *desc) noexcept
         : _desc{desc},
           _type{_frame_type(desc)},
           _expression{detail::FunctionBuilder::current()->local(_type)},
           coro_id{detail::FunctionBuilder::current()->local(Type::of<uint3>())},
-          target_token{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 0u)} {}
+          target_token{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 0u)},
+          skip_flag{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 1u)} {}
 
     [[nodiscard]] static auto create(const CoroFrameDesc *desc) noexcept {
         return CoroFrame{desc};
