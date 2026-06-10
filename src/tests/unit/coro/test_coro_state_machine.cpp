@@ -527,6 +527,30 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 102);
     };
 
+    "state_machine_sdf_pattern_5_scopes"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+        Buffer<int> output = device.create_buffer<int>(16);
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            $suspend("setup");
+            $for (i, 2) {
+                $suspend("step");
+            };
+            $suspend("accumulate");
+            buf.write(0, 42);
+            $suspend("done");
+        });
+        LUISA_INFO("sdf_5scope scope_count={}", coro.subroutine_count());
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("sdf_5scope host[0]={}", host[0]);
+        expect(host[0] == 42);
+    };
+
 }
 
 int main(int argc, char *argv[]) {
