@@ -52,15 +52,16 @@ int main(int argc, char *argv[]) {
     Device device = ctx.create_device(argv[1]);
     Stream stream = device.create_stream();
 
-    auto accum = device.create_image<float>(PixelStorage::FLOAT4, width, height);
+    auto accum = device.create_buffer<float4>(width * height);
 
     // Coroutine: per-pixel SDF ray-march, all computation in strand 0.
     // $suspend markers create continuation boundaries for the scheduler
     // but continuations are empty (skip-guard only).
-    auto coro = Coroutine<void(Image<float>, uint, uint, uint)>(
-        [](Var<Image<float>> accum, Var<uint> w, Var<uint> h, Var<uint> frame) noexcept {
+    auto coro = Coroutine<void(Buffer<float4>, uint, uint, uint)>(
+        [](Var<Buffer<float4>> accum, Var<uint> w, Var<uint> h, Var<uint> frame) noexcept {
             UInt2 coord = dispatch_id().xy();
             $if (coord.x >= w | coord.y >= h) { return; };
+            UInt idx = coord.y * w + coord.x;
 
             Float2 resolution = make_float2(w.cast<float>(), h.cast<float>());
             Float fov = 0.23f;
@@ -107,12 +108,12 @@ int main(int argc, char *argv[]) {
 
             $suspend("accumulate");
             $if (frame == 0u) {
-                accum.write(coord, make_float4(color, 1.f));
+                accum.write(idx, make_float4(color, 1.f));
             } $else {
-                Float4 prev = accum.read(coord);
+                Float4 prev = accum.read(idx);
                 Float wgt = 1.f / (frame.cast<float>() + 1.f);
                 Float3 blended = lerp(prev.xyz(), color, wgt);
-                accum.write(coord, make_float4(blended, 1.f));
+                accum.write(idx, make_float4(blended, 1.f));
             };
             $suspend("done");
         });
@@ -120,7 +121,7 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Coroutine compiled: {} subroutines, {} graph nodes",
                coro.subroutine_count(), coro.graph().node_count());
 
-    StateMachineCoroScheduler<Image<float>, uint, uint, uint> scheduler{device, coro};
+    StateMachineCoroScheduler<Buffer<float4>, uint, uint, uint> scheduler{device, coro};
 
     Clock clock;
     for (uint spp = 0u; spp < total_spp; spp++) {
