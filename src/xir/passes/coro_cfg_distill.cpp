@@ -60,7 +60,9 @@ namespace detail {
             // start new scope from matching resume block
             if (auto it = token_to_resume.find(s->token()); it != token_to_resume.end()) {
                 auto *resume_bb = it->second;
-                if (!scope_visited[sid].contains(resume_bb)) {
+                bool is_self_loop = !result.scopes[sid].blocks.empty() &&
+                                   result.scopes[sid].blocks.front() == resume_bb;
+                if (!scope_visited[sid].contains(resume_bb) && !is_self_loop) {
                 scope_visited[sid].insert(resume_bb);
                 auto new_sid = static_cast<int>(result.scopes.size());
                 worklist.emplace_back(resume_bb, new_sid);
