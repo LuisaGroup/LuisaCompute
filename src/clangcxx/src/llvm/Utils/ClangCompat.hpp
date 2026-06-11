@@ -14,7 +14,7 @@ namespace luisa::clangcxx::compat {
 
 template<typename DeclT>
 inline const clang::Type *get_type_for_decl(const DeclT *d) noexcept {
-#if CLANG_VERSION_MAJOR >= 21
+#if CLANG_VERSION_MAJOR >= 22
     if constexpr (std::is_base_of_v<clang::TagDecl, DeclT>) {
         return d->getASTContext().getCanonicalTagType(d).getTypePtr();
     } else {

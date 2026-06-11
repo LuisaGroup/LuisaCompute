@@ -1,7 +1,11 @@
 if (has_config("lc_vk_backend") or has_config("lc_dx_backend")) then
     includes("hlsl")
-    if has_config('lc_vk_backend_use_xir_spirv') then
+    local lc_vk_backend_use_ast_llvm_spirv = has_config('lc_vk_backend_use_ast_llvm_spirv')
+    if has_config('lc_vk_backend_use_xir_spirv') or lc_vk_backend_use_ast_llvm_spirv then
         includes('spirv')
+    end
+    if lc_vk_backend_use_ast_llvm_spirv then
+        includes("spirv_llvm")
     end
 end
 if has_config("lc_cuda_backend") then

@@ -30,7 +30,11 @@
 #ifdef LUISA_VULKAN_ENABLE_CUDA_INTEROP
 #include "vk_cuda_interop_ext.h"
 #endif
-#ifdef LUISA_XIR_TO_SPIRV
+#ifdef LUISA_AST_LLVM_TO_SPIRV
+#include <spirv_llvm/llvm_codegen_utility.h>
+#include <SPIRV/disassemble.h>
+#include <fstream>
+#elif defined(LUISA_XIR_TO_SPIRV)
 #include <spirv_codegen/entry.h>
 #include <spirv_codegen/utils.h>
 #include <SPIRV/disassemble.h>
@@ -1180,7 +1184,74 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
     } else {
-#ifdef LUISA_XIR_TO_SPIRV
+#ifdef LUISA_AST_LLVM_TO_SPIRV
+        // === AST LLVM → SPIR-V codegen path ===
+        auto llvm_result = lc::llvm_codegen::LLVMCodegenUtility::CompileSPIRV(kernel, option);
+        for (size_t i = 0; i < llvm_result.properties.size(); ++i) {
+            auto &p = llvm_result.properties[i];
+            LUISA_VERBOSE("  LLVM prop[{}]: type={}, space={}, reg={}, array_size={}",
+                         i, (int)p.type, p.space_index, p.register_index, p.array_size);
+        }
+        if (print_code()) [[unlikely]] {
+            auto dump_name = [&]() -> luisa::string {
+                if (!option.name.empty()) return option.name;
+                if (!kernel.name().empty()) return luisa::string{kernel.name()};
+                return luisa::format("{:x}", kernel.hash());
+            }();
+            {
+                auto filename = luisa::format("spv_code_llvm_{}.spvasm", dump_name);
+                std::ofstream file(filename.c_str());
+                if (file) {
+                    file << "; === LLVM KERNEL: " << kernel.name()
+                         << " hash=" << kernel.hash() << " ===\n";
+                    spv::Disassemble(file, std::vector<uint32_t>{llvm_result.spv_bin.begin(), llvm_result.spv_bin.end()});
+                }
+                LUISA_VERBOSE("SPIRV-LLVM printed to {}.", filename);
+            }
+        }
+        if (option.compile_only) {
+            assert(!option.name.empty());
+            info.invalidate();
+            ShaderSerializer::serialize_bytecode(
+                llvm_result.properties,
+                ShaderSerializer::serialize_saved_args(kernel),
+                vstd::MD5{vstd::span<const uint8_t>(
+                    reinterpret_cast<const uint8_t *>(llvm_result.spv_bin.data()),
+                    llvm_result.spv_bin.size() * sizeof(uint32_t))},
+                hlsl::CodegenUtility::GetTypeMD5(kernel),
+                kernel.block_size(),
+                option.name,
+                llvm_result.spv_bin,
+                SerdeType::kByteCode,
+                _binary_io,
+                llvm_result.useTex2DBindless,
+                llvm_result.useTex3DBindless,
+                llvm_result.useBufferBindless,
+                llvm_result.printers,
+                0);
+        } else {
+            auto shader = new ComputeShader(
+                this,
+                kernel.block_size(),
+                llvm_result.properties,
+                ShaderSerializer::serialize_saved_args(kernel),
+                {reinterpret_cast<const uint *>(llvm_result.spv_bin.data()),
+                 llvm_result.spv_bin.size()},
+                hlsl::binding_to_arg(kernel.bound_arguments()),
+                {},
+                llvm_result.useTex2DBindless,
+                llvm_result.useTex3DBindless,
+                llvm_result.useBufferBindless,
+                std::move(llvm_result.printers),
+                {llvm_result.constant_ubo_data.data(),
+                 llvm_result.constant_ubo_data.size()},
+                0);
+            LUISA_VERBOSE("ComputeShader (LLVM) created, pipeline: {}",
+                         reinterpret_cast<void *>(shader->pipeline()));
+            info.handle = reinterpret_cast<uint64_t>(shader);
+            info.native_handle = shader->pipeline();
+        }
+#elif defined(LUISA_XIR_TO_SPIRV)
         static constexpr uint32_t VK_VENDOR_ID_AMD = 0x1002u;
         static constexpr uint32_t VK_VENDOR_ID_NVIDIA = 0x10deu;
         static constexpr uint32_t VK_VENDOR_ID_INTEL = 0x8086u;

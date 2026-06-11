@@ -48,15 +48,21 @@ const llvm::Target *CUDACodegenLLVMImpl::_get_nvptx_target() noexcept {
     // initialize NVPTX target
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
+#if LLVM_VERSION_MAJOR < 22
         LLVMInitializeNVPTXTargetInfo();
         LLVMInitializeNVPTXTarget();
         LLVMInitializeNVPTXTargetMC();
         LLVMInitializeNVPTXAsmPrinter();
+#endif
     });
     // lookup target
     static auto target = [] {
         std::string error;
+#if LLVM_VERSION_MAJOR >= 22
+        if (auto target = llvm::TargetRegistry::lookupTarget(llvm::Triple(nvptx_target_triple), error)) {
+#else
         if (auto target = llvm::TargetRegistry::lookupTarget(nvptx_target_triple, error)) {
+#endif
             return target;
         }
         LUISA_ERROR_WITH_LOCATION("Failed to lookup target '{}': {}", nvptx_target_triple, error);
@@ -75,8 +81,10 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
 #if LLVM_VERSION_MAJOR < 22
             options.UnsafeFPMath = true;
 #endif
+#if LLVM_VERSION_MAJOR < 22
             options.NoInfsFPMath = true;
             options.NoNaNsFPMath = true;
+#endif
             options.NoSignedZerosFPMath = true;
 #if LLVM_VERSION_MAJOR < 22
             options.ApproxFuncFPMath = true;
@@ -86,8 +94,10 @@ inline void CUDACodegenLLVMImpl::_initialize() noexcept {
 #if LLVM_VERSION_MAJOR < 22
             options.UnsafeFPMath = false;
 #endif
+#if LLVM_VERSION_MAJOR < 22
             options.NoInfsFPMath = false;
             options.NoNaNsFPMath = false;
+#endif
             options.NoSignedZerosFPMath = false;
 #if LLVM_VERSION_MAJOR < 22
             options.ApproxFuncFPMath = false;
