@@ -576,15 +576,17 @@ void LLVMCodegenUtility::InitializeSPIRVModule() {
 
     // Look up the SPIR-V target
     std::string error;
-    auto *target = llvm::TargetRegistry::lookupTarget("spirv64", error);
+    auto *target = llvm::TargetRegistry::lookupTarget(llvm::Triple("spirv64"), error);
     if (!target) {
         LUISA_ERROR_WITH_LOCATION("LLVM SPIRV target not found: {}", error);
     }
 
     llvm::TargetOptions opt;
     _target_machine.reset(target->createTargetMachine(
-        "spirv64-unknown-unknown", "generic",
-        "", opt, llvm::Reloc::PIC_));
+        llvm::Triple("spirv64-unknown-unknown"), "generic",
+        "", opt, std::optional<llvm::Reloc::Model>(llvm::Reloc::PIC_),
+        std::optional<llvm::CodeModel::Model>(llvm::CodeModel::Small),
+        llvm::CodeGenOptLevel::Default, false));
 
     if (!_target_machine) {
         LUISA_ERROR_WITH_LOCATION(

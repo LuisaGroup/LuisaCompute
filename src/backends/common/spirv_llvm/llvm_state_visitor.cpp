@@ -519,7 +519,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- SQRT ---
         case CallOp::SQRT: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::sqrt, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -528,7 +528,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- RSQRT ---
         case CallOp::RSQRT: {
             auto *v = EvalExpr(args[0]);
-            auto *sqrt_intr = llvm::Intrinsic::getDeclaration(
+            auto *sqrt_intr = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::sqrt, {v->getType()});
             auto *sqrt_val = _builder.CreateCall(sqrt_intr, {v});
             auto *one = llvm::ConstantFP::get(v->getType(), 1.0);
@@ -539,7 +539,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- SIN ---
         case CallOp::SIN: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::sin, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -548,7 +548,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- COS ---
         case CallOp::COS: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::cos, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -557,7 +557,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- EXP ---
         case CallOp::EXP: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::exp, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -566,7 +566,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- EXP2 ---
         case CallOp::EXP2: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::exp2, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -575,7 +575,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- LOG ---
         case CallOp::LOG: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::log, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -584,7 +584,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- LOG2 ---
         case CallOp::LOG2: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::log2, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -594,7 +594,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         case CallOp::POW: {
             auto *a = EvalExpr(args[0]);
             auto *b = EvalExpr(args[1]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::pow, {a->getType()});
             _last_value = _builder.CreateCall(intrinsic, {a, b});
             break;
@@ -605,7 +605,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
             auto *a = EvalExpr(args[0]);
             auto *b = EvalExpr(args[1]);
             auto *c = EvalExpr(args[2]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::fma, {a->getType()});
             _last_value = _builder.CreateCall(intrinsic, {a, b, c});
             break;
@@ -615,7 +615,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         case CallOp::COPYSIGN: {
             auto *a = EvalExpr(args[0]);
             auto *b = EvalExpr(args[1]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::copysign, {a->getType()});
             _last_value = _builder.CreateCall(intrinsic, {a, b});
             break;
@@ -624,7 +624,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- FLOOR ---
         case CallOp::FLOOR: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::floor, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -633,7 +633,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- CEIL ---
         case CallOp::CEIL: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::ceil, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -642,7 +642,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- TRUNC ---
         case CallOp::TRUNC: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::trunc, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -651,7 +651,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- ROUND ---
         case CallOp::ROUND: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::round, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -730,28 +730,28 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         // --- CLZ / CTZ / POPCOUNT / REVERSE ---
         case CallOp::CLZ: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::ctlz, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v, _builder.getInt1(false)});
             break;
         }
         case CallOp::CTZ: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::cttz, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v, _builder.getInt1(false)});
             break;
         }
         case CallOp::POPCOUNT: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::ctpop, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
         }
         case CallOp::REVERSE: {
             auto *v = EvalExpr(args[0]);
-            auto *intrinsic = llvm::Intrinsic::getDeclaration(
+            auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
                 &_module, llvm::Intrinsic::bitreverse, {v->getType()});
             _last_value = _builder.CreateCall(intrinsic, {v});
             break;
@@ -919,7 +919,7 @@ void LLVMStateVisitor::_codegen_builtin_call(CallOp op, const CallExpr *expr) {
         case CallOp::FRACT: {
             auto *v = EvalExpr(args[0]);
             auto *floor_val = _builder.CreateCall(
-                llvm::Intrinsic::getDeclaration(&_module, llvm::Intrinsic::floor, {v->getType()}),
+                llvm::Intrinsic::getDeclarationIfExists(&_module, llvm::Intrinsic::floor, {v->getType()}),
                 {v});
             _last_value = _builder.CreateFSub(v, floor_val);
             break;
@@ -1298,7 +1298,7 @@ void LLVMStateVisitor::visit(const CallExpr *expr) {
 
 llvm::Value *LLVMStateVisitor::_emit_abs(llvm::Value *v, Type const &type) {
     if (type.is_float() || type.is_float_vector()) {
-        auto *intrinsic = llvm::Intrinsic::getDeclaration(
+        auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
             &_module, llvm::Intrinsic::fabs, {v->getType()});
         return _builder.CreateCall(intrinsic, {v});
     } else {
@@ -1312,7 +1312,7 @@ llvm::Value *LLVMStateVisitor::_emit_abs(llvm::Value *v, Type const &type) {
 
 llvm::Value *LLVMStateVisitor::_emit_min(llvm::Value *a, llvm::Value *b, Type const &type) {
     if (type.is_float() || type.is_float_vector()) {
-        auto *intrinsic = llvm::Intrinsic::getDeclaration(
+        auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
             &_module, llvm::Intrinsic::minnum, {a->getType()});
         return _builder.CreateCall(intrinsic, {a, b});
     } else if (type.is_int() || type.is_int_vector()) {
@@ -1326,7 +1326,7 @@ llvm::Value *LLVMStateVisitor::_emit_min(llvm::Value *a, llvm::Value *b, Type co
 
 llvm::Value *LLVMStateVisitor::_emit_max(llvm::Value *a, llvm::Value *b, Type const &type) {
     if (type.is_float() || type.is_float_vector()) {
-        auto *intrinsic = llvm::Intrinsic::getDeclaration(
+        auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
             &_module, llvm::Intrinsic::maxnum, {a->getType()});
         return _builder.CreateCall(intrinsic, {a, b});
     } else if (type.is_int() || type.is_int_vector()) {
@@ -1368,7 +1368,7 @@ llvm::Value *LLVMStateVisitor::_emit_dot(llvm::Value *a, llvm::Value *b) {
 
 llvm::Value *LLVMStateVisitor::_emit_length(llvm::Value *v) {
     auto *dot = _emit_dot(v, v);
-    auto *intrinsic = llvm::Intrinsic::getDeclaration(
+    auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
         &_module, llvm::Intrinsic::sqrt, {dot->getType()});
     return _builder.CreateCall(intrinsic, {dot});
 }
