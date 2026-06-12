@@ -109,18 +109,20 @@ void FunctionBuilder::return_(const Expression *expr) noexcept {
 }
 
 void FunctionBuilder::suspend_() noexcept {
-    _create_and_append_statement<SuspendStmt>(0u, luisa::string{});
+    _create_and_append_statement<SuspendStmt>(_next_suspend_token(), luisa::string{});
 }
 
 void FunctionBuilder::suspend_(uint32_t token) noexcept {
+    LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
     _create_and_append_statement<SuspendStmt>(token);
 }
 
 void FunctionBuilder::suspend_(luisa::string name) noexcept {
-    _create_and_append_statement<SuspendStmt>(std::move(name));
+    _create_and_append_statement<SuspendStmt>(_next_suspend_token(), std::move(name));
 }
 
 void FunctionBuilder::suspend_(uint32_t token, luisa::string name) noexcept {
+    LUISA_ASSERT(token != 0u, "Coroutine suspend token 0 is reserved for coroutine entry.");
     _create_and_append_statement<SuspendStmt>(token, std::move(name));
 }
 
@@ -326,6 +328,10 @@ uint32_t FunctionBuilder::_next_variable_uid() noexcept {
     auto uid = static_cast<uint32_t>(_variable_usages.size());
     _variable_usages.emplace_back(Usage::NONE);
     return uid;
+}
+
+uint32_t FunctionBuilder::_next_suspend_token() noexcept {
+    return _next_coro_suspend_token++;
 }
 
 const RefExpr *FunctionBuilder::thread_id() noexcept { return _builtin(Type::of<uint3>(), Variable::Tag::THREAD_ID); }

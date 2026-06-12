@@ -187,6 +187,40 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[3] == 35);
     };
 
+    "state_machine_ref_callable_update_across_suspend"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+
+        Buffer<int> output = device.create_buffer<int>(16);
+        Callable bump = [](Int &x) noexcept {
+            x = x * 3 + 7;
+            return x;
+        };
+
+        auto coro = Coroutine<void(Buffer<int>)>([&](Var<Buffer<int>> buf) {
+            Int state = 2;
+            $suspend("first");
+            Int a = bump(state);
+            $suspend("second");
+            Int b = bump(state);
+            buf.write(0, a);
+            buf.write(1, b);
+            buf.write(2, state);
+        });
+
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("ref_callable host[0..2]={}, {}, {}", host[0], host[1], host[2]);
+        expect(host[0] == 13);
+        expect(host[1] == 46);
+        expect(host[2] == 46);
+    };
+
     "state_machine_dispatch_id_across_suspend"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device(argv[1]);
@@ -625,6 +659,40 @@ void reg_coro_state_machine(char *argv[]) {
         stream << output.copy_to(host.data()) << synchronize();
         LUISA_INFO("if_read_i host[0]={}", host[0]);
         expect(host[0] == 42);
+    };
+
+    "state_machine_path_tracing_nested_break_pattern"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+        Buffer<int> output = device.create_buffer<int>(16);
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            Var<int> acc = 0;
+            $suspend("per_spp");
+            $for (i, 4u) {
+                acc = acc + 1;
+                $suspend("per_depth");
+                $for (depth, 3u) {
+                    $suspend("before");
+                    acc = acc + 10;
+                    $if (depth == 1u) {
+                        $break;
+                    };
+                    $suspend("after");
+                    acc = acc + 100;
+                };
+            };
+            $suspend("write");
+            buf.write(0, acc);
+        });
+        LUISA_INFO("nested_break scope_count={}", coro.subroutine_count());
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        LUISA_INFO("nested_break host[0]={}", host[0]);
+        expect(host[0] == 484);
     };
 }
 

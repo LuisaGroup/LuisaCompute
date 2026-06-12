@@ -53,6 +53,7 @@ int main() {
         auto *s = fst(body, Statement::Tag::SUSPEND);
         expect(s != nullptr);
         auto *sus = static_cast<const SuspendStmt *>(s);
+        expect(sus->token() != 0u);
         expect(sus->token() != 0xFFFFFFFFu);
     };
 
@@ -81,6 +82,7 @@ int main() {
         auto *s0 = static_cast<const SuspendStmt *>(stmts[0]);
         auto *s1 = static_cast<const SuspendStmt *>(stmts[1]);
         auto *s2 = static_cast<const SuspendStmt *>(stmts[2]);
+        expect(s0->token() != 0u);
         expect(s0->name() == "first");
         expect(s1->name() == "second");
         expect(s2->name() == "third");

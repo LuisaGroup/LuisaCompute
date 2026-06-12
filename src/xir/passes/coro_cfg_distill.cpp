@@ -6,6 +6,7 @@
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/instructions/call.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/load.h>
@@ -169,6 +170,11 @@ static void touch_value(Value *value, ScopeDataflowState &state) noexcept {
     state.touched.emplace(value);
 }
 
+static void may_touch_value(Value *value, ScopeDataflowState &state) noexcept {
+    if (value == nullptr) { return; }
+    state.touched.emplace(value);
+}
+
 static void use_value(Value *value, ScopeDataflowState &state) noexcept {
     if (is_always_available(value)) { return; }
     if (auto *frame_value = frame_value_for_operand(value)) {
@@ -190,10 +196,37 @@ static void use_pointer_indices(Value *value, ScopeDataflowState &state) noexcep
     }
 }
 
+static void transfer_call_instruction(CallInst *call, ScopeDataflowState &state) noexcept {
+    auto arg_iter = call->callee()->arguments().begin();
+    for (auto *arg_use : call->argument_uses()) {
+        auto *argument = arg_use->value();
+        if (arg_iter != call->callee()->arguments().end() &&
+            (*arg_iter)->is_reference()) {
+            use_pointer_indices(argument, state);
+            if (auto *alloca = trace_local_alloca(argument)) {
+                use_value(alloca, state);
+                may_touch_value(alloca, state);
+            } else {
+                use_value(argument, state);
+            }
+        } else {
+            use_value(argument, state);
+        }
+        if (arg_iter != call->callee()->arguments().end()) { ++arg_iter; }
+    }
+    if (call->type() != nullptr && !call->is_lvalue()) {
+        touch_value(call, state);
+    }
+}
+
 static void transfer_instruction(Instruction *inst, ScopeDataflowState &state) noexcept {
     switch (inst->derived_instruction_tag()) {
         case DerivedInstructionTag::ALLOCA:
             break;
+        case DerivedInstructionTag::CALL: {
+            transfer_call_instruction(static_cast<CallInst *>(inst), state);
+            break;
+        }
         case DerivedInstructionTag::LOAD: {
             auto *load = static_cast<LoadInst *>(inst);
             use_pointer_indices(load->variable(), state);
