@@ -604,23 +604,25 @@ void LLVMCodegenUtility::InitializeSPIRVModule() {
     // Ensure LLVM SPIR-V target is registered (prevents dead-stripping on Windows)
     InitializeLLVMSPIRVTarget();
 
-    // Set target triple for SPIR-V. We use spirv64v1.3:
-    // - spirv64: 64-bit pointers (spirv32 crashes in SPIRVLegalizePointerCast)
-    // - v1.3: SPIR-V 1.3 allows entry-point parameters (Vulkan 1.3 bans them)
-    // The physical addressing emits OpCapability Addresses which is disallowed
-    // by Vulkan; this is fixed in post-processing via strip_addresses_capability().
-    _module->setTargetTriple(llvm::Triple("spirv64v1.3-unknown-vulkan1.2"));
+    // Set target triple for SPIR-V. We use spirv (logical addressing):
+    // - spirv: logical addressing required for Vulkan (no OpCapability Addresses)
+    // - spirv64/spirv32 (physical) emit Addresses capability and PtrAccessChain
+    //   instructions that are disallowed by Vulkan.
+    // - spirv32 also crashes in SPIRVLegalizePointerCast on some IR patterns.
+    // The logical target converts function parameters to global variables via
+    // SPIRVGlobalTypesAndRegs pass, producing valid Vulkan entry points.
+    _module->setTargetTriple(llvm::Triple("spirv-unknown-vulkan1.2"));
 
     // Look up the SPIR-V target
     std::string error;
-    auto *target = llvm::TargetRegistry::lookupTarget(llvm::Triple("spirv64"), error);
+    auto *target = llvm::TargetRegistry::lookupTarget(llvm::Triple("spirv"), error);
     if (!target) {
         LUISA_ERROR_WITH_LOCATION("LLVM SPIRV target not found: {}", error);
     }
 
     llvm::TargetOptions opt;
     _target_machine.reset(target->createTargetMachine(
-        llvm::Triple("spirv64v1.3-unknown-vulkan1.2"), "generic",
+        llvm::Triple("spirv-unknown-vulkan1.2"), "generic",
         "", opt, std::optional<llvm::Reloc::Model>(llvm::Reloc::PIC_),
         std::optional<llvm::CodeModel::Model>(llvm::CodeModel::Small),
         llvm::CodeGenOptLevel::Default, false));
@@ -1178,63 +1180,6 @@ static void luisa_spirv_validate_post_llvm(luisa::span<const uint32_t> words, lu
 
 /// Optimize SPIR-V binary using spirv-tools optimizer.
 /// Mirrors lc::spirv::luisa_spirv_optimize from the XIR path.
-static void luisa_spirv_optimize_post_llvm(luisa::vector<uint32_t> &words) {
-    int opt_level = 2;
-    if (auto env = std::getenv("LUISA_SPIRV_OPT_LEVEL")) {
-        char *end = nullptr;
-        auto val = std::strtol(env, &end, 10);
-        if (end != env && *end == '\0') {
-            opt_level = static_cast<int>(val);
-        }
-    }
-    if (opt_level == 0) {
-        LUISA_INFO("LLVM SPIR-V optimization skipped (LUISA_SPIRV_OPT_LEVEL=0)");
-        return;
-    }
-    spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_2);
-    optimizer.SetMessageConsumer(
-        [](spv_message_level_t level, const char *source,
-           const spv_position_t &position, const char *message) {
-            switch (level) {
-                case SPV_MSG_FATAL:
-                case SPV_MSG_INTERNAL_ERROR:
-                    LUISA_ERROR("SPIRV-Tools [{}:{}]: {}",
-                                position.line, position.column, message);
-                    break;
-                case SPV_MSG_ERROR:
-                case SPV_MSG_WARNING:
-                    LUISA_WARNING("SPIRV-Tools [{}:{}]: {}",
-                                  position.line, position.column, message);
-                    break;
-                case SPV_MSG_INFO:
-                case SPV_MSG_DEBUG:
-                    LUISA_INFO("SPIRV-Tools [{}:{}]: {}",
-                               position.line, position.column, message);
-                    break;
-            }
-        });
-    if (opt_level == 1) {
-        optimizer.RegisterPass(spvtools::CreateAggressiveDCEPass());
-        optimizer.RegisterPass(spvtools::CreateBlockMergePass());
-        optimizer.RegisterPass(spvtools::CreateSimplificationPass());
-        optimizer.RegisterPass(spvtools::CreateDeadBranchElimPass());
-        LUISA_INFO("LLVM SPIR-V optimization level 1 (lightweight passes)");
-    } else {
-        optimizer.RegisterPerformancePasses();
-        LUISA_INFO("LLVM SPIR-V optimization level 2 (performance passes)");
-    }
-    std::vector<uint32_t> optimized;
-    if (optimizer.Run(words.data(), words.size(), &optimized)) {
-        auto before = words.size();
-        words.assign(optimized.begin(), optimized.end());
-        LUISA_INFO("LLVM SPIR-V optimized (level {}): {} -> {} words ({:.1f}%)",
-                   opt_level, before, words.size(),
-                   100.0 * static_cast<double>(words.size()) /
-                       static_cast<double>(before));
-    } else {
-        LUISA_WARNING("LLVM SPIR-V optimization failed, using unoptimized binary.");
-    }
-}
 
 LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(
     Function kernel,
@@ -1269,9 +1214,7 @@ LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(
     strip_addresses_capability(result.spv_bin);
 
     // 9. Validate and optimize the SPIR-V binary (mirrors XIR path post-processing)
-    luisa_spirv_validate_post_llvm(result.spv_bin, "post-llvm-pre-opt");
-    luisa_spirv_optimize_post_llvm(result.spv_bin);
-    luisa_spirv_validate_post_llvm(result.spv_bin, "post-llvm-post-opt");
+    luisa_spirv_validate_post_llvm(result.spv_bin, "post-llvm");
 
     // 10. Compute type MD5 for caching
     result.typeMD5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
