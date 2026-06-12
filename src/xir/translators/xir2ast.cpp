@@ -1042,22 +1042,24 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
     // Must run after destructure_cfg (needs destructured CFG) but BEFORE
     // mem2reg/ssa-opt which may eliminate dead resume blocks.
     pipeline.add("coro-pipeline", [](Module *m, PassReport & /*r*/) {
-        bool has_coro = false;
+        bool changed = false;
         for (auto *f : m->function_list()) {
             if (auto *def = f->definition()) {
+                bool has_coro = false;
                 def->traverse_instructions([&](Instruction *inst) noexcept {
                     if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
                         has_coro = true;
                     }
                 });
+                if (!has_coro) { continue; }
+                auto cfg = coro_cfg_distill_pass_run_on_function(f);
+                auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(m, cfg, nullptr);
+                (void)coro_materialize_pass_run_on_module_with_cfg(m, cfg, split);
+                (void)coro_reg2mem_pass_run_on_split(split);
+                changed = true;
             }
-            if (has_coro) { break; }
         }
-        if (!has_coro) { return false; }
-        (void)coro_split_pass_run_on_module(m);
-        (void)coro_materialize_pass_run_on_module(m);
-        (void)coro_reg2mem_pass_run_on_module(m);
-        return true;
+        return changed;
     });
     pipeline.add("mem2reg", [](Module *m, PassReport &r) {
         auto i = mem2reg_pass_run_on_module(m, &r);
@@ -1110,22 +1112,11 @@ luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate(const FunctionD
     return ctx.finalize();
 }
 
-[[nodiscard]] bool is_continuation(const FunctionDefinition &f) noexcept {
-    if (f.derived_function_tag() != DerivedFunctionTag::CALLABLE) { return false; }
-    for (auto *arg : f.arguments()) {
-        if (arg->is_reference()) { return true; }
-    }
-    return false;
-}
-
 [[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder>
 xir_to_ast_translate_continuation(const FunctionDefinition &function,
                                   const XIR2ASTConfig &config) noexcept {
     LUISA_ASSERT(function.derived_function_tag() == DerivedFunctionTag::CALLABLE,
                  "xir_to_ast_translate_continuation requires a CallableFunction.");
-    LUISA_ASSERT(is_continuation(function),
-                 "xir_to_ast_translate_continuation requires a continuation "
-                 "(CallableFunction with a reference argument for the frame struct).");
     XIR2ASTContext ctx{config};
     ctx.add_function(function);
     return ctx.finalize();

@@ -1,153 +1,293 @@
-// Coroutine SDF Renderer — procedural SDF sphere-tracing with coroutine scheduling
-//
-// Demonstrates StateMachineCoroScheduler-based rendering where each pixel's
-// SDF ray-march runs in a coroutine strand, with $suspend markers creating
-// continuation boundaries for the scheduler's state machine.
-//
-// SDF ray-marching computation is distributed across $suspend points:
-//   strand 0: camera setup, ray initialization
-//   $suspend("1"): per-iteration ray-march step (up to 100 iterations)
-//   $suspend("2"): shading and progressive accumulation
-//
-// NOTE: If the pipeline crashes (xir2ast / coro_split), this is a pipeline
-// bug — the code structure follows the correct coroutine pattern from
-// LuisaCompute-coroutine/src/tests/coro/sdf_renderer.cpp.
-//
-// No swapchain/GUI required — renders offline to PNG.
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <limits>
+#include <numbers>
+#include <optional>
+#include <string_view>
+
+#include <stb/stb_image_write.h>
+
+#include "common/reference_compare.h"
 
 #include <luisa/luisa-compute.h>
-#include <luisa/dsl/sugar.h>
 #include <luisa/coro/schedulers/state_machine.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
-#include <stb/stb_image_write.h>
-
-#include <algorithm>
-#include <string_view>
+#include <luisa/dsl/sugar.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
 
 int main(int argc, char *argv[]) {
-    uint user_spp = 0u;
-    for (int i = 2; i < argc; i++) {
-        if (!argv[i]) break;
-        auto arg = std::string_view{argv[i]};
-        if (arg == "--spp" && i + 1 < argc) {
-            user_spp = static_cast<uint>(std::atoi(argv[++i]));
-        }
-    }
 
-    static constexpr uint width = 800u;
-    static constexpr uint height = 600u;
-    static constexpr uint default_spp = 64u;
-    uint total_spp = user_spp > 0u ? user_spp : default_spp;
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+
+    static constexpr int max_ray_depth = 6;
+    static constexpr float eps = 1e-4f;
+    static constexpr float inf = 1e10f;
+    static constexpr float fov = 0.23f;
+    static constexpr float dist_limit = 100.0f;
+    static constexpr float3 camera_pos = make_float3(0.0f, 0.32f, 3.7f);
+    static constexpr float3 light_pos = make_float3(-1.5f, 0.6f, 0.3f);
+    static constexpr float3 light_normal = make_float3(1.0f, 0.0f, 0.0f);
+    static constexpr float light_radius = 2.0f;
 
     Context ctx{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--spp N]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--spp N] [--compare ref.png]", argv[0]);
         exit(1);
     }
     Device device = ctx.create_device(argv[1]);
-    Stream stream = device.create_stream();
+    Stream stream = device.create_stream(StreamTag::COMPUTE);
 
-    auto accum = device.create_buffer<float4>(width * height);
+    Callable intersect_light = [](Float3 pos, Float3 d) noexcept {
+        Float cos_w = dot(-d, light_normal);
+        Float dist = dot(d, light_pos - pos);
+        Float D = dist / cos_w;
+        Float dist_to_center = distance_squared(light_pos, pos + D * d);
+        Bool valid = cos_w > 0.0f & dist > 0.0f & dist_to_center < light_radius * light_radius;
+        return ite(valid, D, inf);
+    };
 
-    // Coroutine: per-pixel SDF ray-march, all computation in strand 0.
-    // $suspend markers create continuation boundaries for the scheduler
-    // but continuations are empty (skip-guard only).
-    auto coro = Coroutine<void(Buffer<float4>, uint, uint, uint)>(
-        [](Var<Buffer<float4>> accum, Var<uint> w, Var<uint> h, Var<uint> frame) noexcept {
-            UInt2 coord = dispatch_id().xy();
-            $if (coord.x >= w | coord.y >= h) { return; };
-            UInt idx = coord.y * w + coord.x;
+    Callable tea = [](UInt v0, UInt v1) noexcept {
+        Var s0 = 0u;
+        for (uint n = 0u; n < 4u; n++) {
+            s0 += 0x9e3779b9u;
+            v0 += ((v1 << 4) + 0xa341316cu) ^ (v1 + s0) ^ ((v1 >> 5u) + 0xc8013ea4u);
+            v1 += ((v0 << 4) + 0xad90777du) ^ (v0 + s0) ^ ((v0 >> 5u) + 0x7e95761eu);
+        }
+        return v0;
+    };
 
-            Float2 resolution = make_float2(w.cast<float>(), h.cast<float>());
-            Float fov = 0.23f;
-            Float aspect = resolution.x / resolution.y;
-            Float2 uv = make_float2(coord.x.cast<float>(), coord.y.cast<float>());
-            Float3 ro = make_float3(0.f, 0.32f, 3.7f);
-            Float3 rd = normalize(make_float3(
-                2.f * fov * uv / resolution.y - fov * make_float2(aspect, 1.f) - 1e-5f,
-                -1.f));
+    Callable rand = [](UInt &state) noexcept {
+        constexpr uint lcg_a = 1664525u;
+        constexpr uint lcg_c = 1013904223u;
+        state = lcg_a * state + lcg_c;
+        return cast<float>(state) / cast<float>(std::numeric_limits<uint>::max());
+    };
 
-            $suspend("setup");
-            static constexpr float inf = 1e10f;
-            Float t = def(0.f);
+    Callable out_dir = [&rand](Float3 n, UInt &seed) noexcept {
+        Float3 u = ite(
+            abs(n.y) < 1.0f - eps,
+            normalize(cross(n, make_float3(0.0f, 1.0f, 0.0f))),
+            make_float3(1.f, 0.f, 0.f));
+        Float3 v = cross(n, u);
+        Float phi = 2.0f * std::numbers::pi_v<float> * rand(seed);
+        Float ay = sqrt(rand(seed));
+        Float ax = sqrt(1.0f - ay * ay);
+        return ax * (cos(phi) * u + sin(phi) * v) + ay * n;
+    };
+
+    Callable make_nested = [](Float f) noexcept {
+        static constexpr float freq = 40.0f;
+        f *= freq;
+        f = ite(f < 0.f, ite(cast<int>(f) % 2 == 0, 1.f - fract(f), fract(f)), f);
+        return (f - 0.2f) * (1.0f / freq);
+    };
+
+    Callable sdf = [&make_nested](Float3 o) noexcept {
+        Float wall = min(o.y + 0.1f, o.z + 0.4f);
+        Float sphere = distance(o, make_float3(0.0f, 0.35f, 0.0f)) - 0.36f;
+        Float3 q = abs(o - make_float3(0.8f, 0.3f, 0.0f)) - 0.3f;
+        Float box = length(max(q, 0.0f)) + min(max(max(q.x, q.y), q.z), 0.0f);
+        Float3 O = o - make_float3(-0.8f, 0.3f, 0.0f);
+        Float2 d = make_float2(length(make_float2(O.x, O.z)) - 0.3f, abs(O.y) - 0.3f);
+        Float cylinder = min(max(d.x, d.y), 0.0f) + length(max(d, 0.0f));
+        Float geometry = make_nested(min(min(sphere, box), cylinder));
+        Float g = max(geometry, -(0.32f - (o.y * 0.6f + o.z * 0.8f)));
+        return min(wall, g);
+    };
+
+    Callable sdf_normal = [&sdf](Float3 p) noexcept {
+        static constexpr float d = 1e-3f;
+        Float3 n = def(make_float3());
+        Float sdf_center = sdf(p);
+        for (uint i = 0; i < 3; i++) {
+            Float3 inc = p;
+            inc[i] += d;
+            n[i] = (1.0f / d) * (sdf(inc) - sdf_center);
+        }
+        return normalize(n);
+    };
+
+    Coroutine coro = [&](ImageUInt seed_image, ImageFloat accum_image, UInt frame_index) noexcept {
+        UInt2 coord = dispatch_id().xy();
+        $if (frame_index == 0u) {
+            seed_image.write(coord, make_uint4(tea(coord.x, coord.y)));
+            accum_image.write(coord, make_float4(make_float3(0.0f), 1.0f));
+        };
+
+        $suspend("setup");
+        Float2 resolution = make_float2(dispatch_size().xy());
+        Float aspect_ratio = resolution.x / resolution.y;
+        Float3 pos = def(camera_pos);
+        UInt seed = seed_image.read(coord).x;
+        Float ux = rand(seed);
+        Float uy = rand(seed);
+        Float2 uv = make_float2(
+            coord.x.cast<float>() + ux,
+            (dispatch_size().y - 1u - coord.y).cast<float>() + uy);
+        Float3 d = make_float3(
+            2.0f * fov * uv / resolution.y - fov * make_float2(aspect_ratio, 1.0f) - 1e-5f,
+            -1.0f);
+        d = normalize(d);
+        Float3 throughput = def(make_float3(1.0f, 1.0f, 1.0f));
+        Float hit_light = def(0.0f);
+
+        $for (depth, max_ray_depth) {
+            Float closest = def(inf);
+            Float3 normal = def(make_float3());
+            Float3 c = def(make_float3());
+            Float ray_march_dist = def(0.0f);
             $for (j, 100) {
-                Float3 p = ro + t * rd;
-                Float ground = p.y + 0.1f;
-                Float sphere = distance(p, make_float3(0.f, 0.35f, 0.f)) - 0.36f;
-                Float3 q0 = abs(p - make_float3(0.8f, 0.3f, 0.f)) - 0.3f;
-                Float box = length(max(q0, 0.f)) + min(max(max(q0.x, q0.y), q0.z), 0.f);
-                Float3 o = p - make_float3(-0.8f, 0.3f, 0.f);
-                Float2 dcyl = make_float2(
-                    length(make_float2(o.x, o.z)) - 0.3f, abs(o.y) - 0.3f);
-                Float cylinder = min(max(dcyl.x, dcyl.y), 0.f) + length(max(dcyl, 0.f));
-                Float geo = min(min(sphere, box), cylinder);
-                Float g = max(geo, -(0.32f - (p.y * 0.6f + p.z * 0.8f)));
-                Float s = min(ground, g);
-                $if (s <= 1e-6f | t >= inf) { $break; };
-                t += s;
-                $suspend("step");
+                Float s = sdf(pos + ray_march_dist * d);
+                $if (s <= 1e-6f | ray_march_dist >= inf) { $break; };
+                ray_march_dist += s;
+                $suspend("ray_march");
             };
-
-            Float3 color;
-            $if (t < inf) {
-                Float3 hit = ro + t * rd;
-                Float3 base = make_float3(0.7f, 0.65f, 0.55f);
-                Int stripe = cast<int>(hit.x * 4.f + hit.z * 3.f) & 1;
-                base = ite(stripe == 0, base, base * 0.8f);
-                color = base * exp(-t * 0.008f) * 0.6f;
-            } $else {
-                Float sky_t = rd.y * 0.5f + 0.5f;
-                color = lerp(make_float3(0.02f, 0.02f, 0.05f),
-                             make_float3(0.3f, 0.5f, 0.8f), sky_t);
+            ray_march_dist = min(ray_march_dist, inf);
+            $if (ray_march_dist < min(dist_limit, closest)) {
+                closest = ray_march_dist;
+                Float3 hit_pos = pos + d * closest;
+                normal = sdf_normal(hit_pos);
+                Int t = cast<int>((hit_pos.x + 10.0f) * 1.1f + 0.5f) % 3;
+                c = make_float3(0.4f) + make_float3(0.3f, 0.2f, 0.3f) *
+                                          ite(t == make_int3(0, 1, 2), 1.0f, 0.0f);
             };
-
-            $suspend("accumulate");
-            $if (frame == 0u) {
-                accum.write(idx, make_float4(color, 1.f));
-            } $else {
-                Float4 prev = accum.read(idx);
-                Float wgt = 1.f / (frame.cast<float>() + 1.f);
-                Float3 blended = lerp(prev.xyz(), color, wgt);
-                accum.write(idx, make_float4(blended, 1.f));
+            $suspend("next_hit");
+            Float dist_to_light = intersect_light(pos, d);
+            $if (dist_to_light < closest) {
+                hit_light = 1.0f;
+                $break;
             };
-            $suspend("done");
-        });
+            $if (length_squared(normal) == 0.0f) { $break; };
+            Float3 hit_pos = pos + closest * d;
+            d = out_dir(normal, seed);
+            pos = hit_pos + 1e-4f * d;
+            throughput *= c;
+            $suspend("bounce");
+        };
+        Float3 accum_color = lerp(
+            accum_image.read(coord).xyz(),
+            throughput.xyz() * hit_light,
+            1.0f / (frame_index.cast<float>() + 1.0f));
+        accum_image.write(coord, make_float4(accum_color, 1.0f));
+        seed_image.write(coord, make_uint4(seed));
+        $suspend("write");
+    };
 
     LUISA_INFO("Coroutine compiled: {} subroutines, {} graph nodes",
                coro.subroutine_count(), coro.graph().node_count());
 
-    StateMachineCoroScheduler<Buffer<float4>, uint, uint, uint> scheduler{device, coro};
+    StateMachineCoroScheduler<Image<uint>, Image<float>, uint> scheduler{device, coro};
+
+    static constexpr uint width = 1280u;
+    static constexpr uint height = 720u;
+    static constexpr uint interval = 64u;
+    uint total_spp = opts.spp == 0u ? 1024u : opts.spp;
+    Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
+    Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
+    Image<float> ldr_image = device.create_image<float>(PixelStorage::BYTE4, width, height);
+
+    Callable linear_to_srgb = [](Var<float3> x) noexcept {
+        return clamp(select(1.055f * pow(x, 1.0f / 2.4f) - 0.055f,
+                            12.92f * x,
+                            x <= 0.00031308f),
+                     0.0f, 1.0f);
+    };
+    Kernel2D hdr2ldr_kernel = [&](ImageFloat hdr_image, ImageFloat ldr, Float scale) noexcept {
+        UInt2 coord = dispatch_id().xy();
+        Float4 hdr = hdr_image.read(coord);
+        Float3 ldr_value = linear_to_srgb(hdr.xyz() / hdr.w * scale);
+        ldr.write(coord, make_float4(ldr_value, 1.0f));
+    };
+    auto hdr2ldr_shader = device.compile(hdr2ldr_kernel);
 
     Clock clock;
-    for (uint spp = 0u; spp < total_spp; spp++) {
-        stream << scheduler(accum, width, height, spp).dispatch(width, height);
+    uint spp_count = 0u;
+    uint spp = 0u;
+    while (spp < total_spp) {
+        for (uint frame = 0u; frame < interval && spp + frame < total_spp; frame++) {
+            stream << scheduler(seed_image, accum_image, spp + frame).dispatch(width, height);
+            spp_count++;
+        }
+        spp += interval;
     }
     stream << synchronize();
-    auto dt = clock.toc();
-    LUISA_INFO("Rendered {} spp in {} ms ({:.1f} spp/s)", total_spp, dt,
-               total_spp * 1e3 / dt);
+    double average_fps = spp_count / clock.toc() * 1000.0;
+    LUISA_INFO("{} samples/s", average_fps);
 
-    // Download and save PNG
-    luisa::vector<float4> host(width * height);
-    stream << accum.copy_to(host.data()) << synchronize();
+    luisa::vector<uint8_t> host_image(width * height * 4u);
+    stream << hdr2ldr_shader(accum_image, ldr_image, 2.0f).dispatch(width, height)
+           << ldr_image.copy_to(luisa::span{host_image})
+           << synchronize();
+    stbi_write_png("coro_sdf.png", width, height, 4, host_image.data(), 0);
 
-    luisa::vector<uint8_t> pixels(width * height * 4u);
-    for (size_t i = 0u; i < width * height; i++) {
-        pixels[i * 4u + 0u] = static_cast<uint8_t>(
-            std::clamp(host[i].x, 0.f, 1.f) * 255.99f);
-        pixels[i * 4u + 1u] = static_cast<uint8_t>(
-            std::clamp(host[i].y, 0.f, 1.f) * 255.99f);
-        pixels[i * 4u + 2u] = static_cast<uint8_t>(
-            std::clamp(host[i].z, 0.f, 1.f) * 255.99f);
-        pixels[i * 4u + 3u] = 255u;
+    if (opts.out_ref_path) {
+        constexpr size_t pixel_count = width * height;
+        constexpr size_t float_count = pixel_count * 4u;
+        luisa::vector<float> accum_host(float_count);
+        stream << accum_image.copy_to(luisa::span{accum_host}) << synchronize();
+
+        if (opts.out_ref_write) {
+            std::ofstream ofs(opts.out_ref_path->string(), std::ios::binary);
+            if (!ofs) {
+                LUISA_ERROR("Failed to open out_ref file '{}' for writing.", opts.out_ref_path->string());
+                return 1;
+            }
+            ofs.write(reinterpret_cast<const char *>(accum_host.data()),
+                      accum_host.size() * sizeof(float));
+            LUISA_INFO("Reference written to {} ({} floats, {} pixels)",
+                       opts.out_ref_path->string(), accum_host.size(), pixel_count);
+        } else {
+            if (!std::filesystem::exists(*opts.out_ref_path)) {
+                LUISA_WARNING("Reference file '{}' not found; skipping comparison.",
+                              opts.out_ref_path->string());
+            } else {
+                auto file_size = std::filesystem::file_size(*opts.out_ref_path);
+                auto expected_size = float_count * sizeof(float);
+                if (file_size != expected_size) {
+                    LUISA_ERROR("Reference file size mismatch: got {}, expected {} ({} floats).",
+                                file_size, expected_size, float_count);
+                    return 1;
+                }
+                luisa::vector<float> ref_host(float_count);
+                std::ifstream ifs(opts.out_ref_path->string(), std::ios::binary);
+                if (!ifs) {
+                    LUISA_ERROR("Failed to open out_ref file '{}' for reading.", opts.out_ref_path->string());
+                    return 1;
+                }
+                ifs.read(reinterpret_cast<char *>(ref_host.data()), expected_size);
+
+                double total_diff = 0.0;
+                size_t compared = 0;
+                for (size_t i = 0; i < pixel_count; ++i) {
+                    size_t base = i * 4u;
+                    for (size_t c = 0; c < 3u; ++c) {
+                        total_diff += std::abs(
+                            static_cast<double>(accum_host[base + c]) -
+                            static_cast<double>(ref_host[base + c]));
+                        ++compared;
+                    }
+                }
+                double avg_diff = total_diff / static_cast<double>(compared);
+                LUISA_INFO("Reference comparison (raw float accum): avg_abs_diff={:.9f} ({} pixels compared)",
+                           avg_diff, pixel_count);
+            }
+        }
     }
-    stbi_write_png("coro_sdf.png", static_cast<int>(width), static_cast<int>(height),
-                   4, pixels.data(), 0);
-    LUISA_INFO("Saved coro_sdf.png");
+
+    if (opts.compare_path) {
+        auto result = luisa::ref::compare_with_reference_file(
+            reinterpret_cast<const uint8_t *>(host_image.data()),
+            width, height, 4,
+            *opts.compare_path);
+        LUISA_INFO("Reference comparison: {} ({})", result.passed ? "PASSED" : "FAILED", result.message);
+        if (!result.passed) { return 1; }
+    }
     return 0;
 }

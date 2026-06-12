@@ -8,6 +8,7 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_reg2mem.h>
+#include <luisa/xir/passes/coro_split.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -34,6 +35,17 @@ namespace {
         });
     }
     return n;
+}
+
+[[nodiscard]] CoroSplitInfo make_split_info(CallableFunction *cf, Value *frame_arg) noexcept {
+    CoroSplitInfo split;
+    split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
+        .scope_index = 0u,
+        .trigger_token = 0u,
+        .callable = cf,
+        .frame_argument = frame_arg,
+    });
+    return split;
 }
 
 }// namespace
@@ -73,7 +85,7 @@ void reg_coro_reg2mem() {
         expect(count_phi(m) == 1u);
 
         // when
-        auto info = coro_reg2mem_pass_run_on_module(&m);
+        auto info = coro_reg2mem_pass_run_on_split(make_split_info(cf, frame_arg));
 
         // then
         expect(info.callable_count == 1u);
@@ -114,7 +126,7 @@ void reg_coro_reg2mem() {
         // when
         auto info = coro_reg2mem_pass_run_on_module(&m);
 
-        // then: not processed - no frame arg
+        // then: not processed - not in explicit split info
         expect(info.callable_count == 0u);
         expect(info.lowered_phi_count == 0u);
         // phi still present (not a coroutine continuation)
@@ -162,7 +174,7 @@ void reg_coro_reg2mem() {
     };
 
     "multiple_continuations_all_processed"_test = [] {
-        // given: two callables with frame args and phi nodes
+        // given: two split callables with phi nodes
         Module m;
         Value *frame_arg1;
         BasicBlock *body1;
@@ -208,7 +220,20 @@ void reg_coro_reg2mem() {
         expect(count_phi(m) == 2u);
 
         // when
-        auto info = coro_reg2mem_pass_run_on_module(&m);
+        CoroSplitInfo split;
+        split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
+            .scope_index = 0u,
+            .trigger_token = 0u,
+            .callable = cf1,
+            .frame_argument = frame_arg1,
+        });
+        split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
+            .scope_index = 1u,
+            .trigger_token = 1u,
+            .callable = cf2,
+            .frame_argument = frame_arg2,
+        });
+        auto info = coro_reg2mem_pass_run_on_split(split);
 
         // then
         expect(info.callable_count == 2u);
@@ -244,8 +269,8 @@ void reg_coro_reg2mem() {
         // when
         auto info = coro_reg2mem_pass_run_on_module(&m);
 
-        // then: processed but no phi lowered
-        expect(info.callable_count == 1u);
+        // then: not processed by module scan, because reference args alone do not identify coroutine subroutines
+        expect(info.callable_count == 0u);
         expect(info.lowered_phi_count == 0u);
         expect(count_phi(m) == 0u);
     };

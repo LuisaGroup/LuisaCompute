@@ -11,7 +11,9 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/coro_split.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -114,14 +116,14 @@ void reg_coro_materialize() {
 
         XIRBuilder b;
         b.set_insertion_point(body);
-        b.coro_terminate();
+        b.coro_suspend(7u, "before_term", frame_arg);
 
         // when
         auto info = coro_materialize_pass_run_on_module(&m);
 
-        // then: CoroTerminateInst removed, store+return inserted
-        expect(count_inst_tag(m, DerivedInstructionTag::CORO_TERMINATE) == 0u);
-        expect(info.terminal_lowered_count == 1u);
+        // then: CoroSuspendInst removed, store+return inserted
+        expect(count_inst_tag(m, DerivedInstructionTag::CORO_SUSPEND) == 0u);
+        expect(info.suspend_lowered_count == 1u);
     };
 
     "suspend_and_terminate_both_lowered"_test = [] {
@@ -133,16 +135,22 @@ void reg_coro_materialize() {
 
         XIRBuilder b;
         b.set_insertion_point(body);
-        b.coro_suspend(1u, "s1", frame_arg);
-        // CoroTerminateInst would be in a different scope/block in reality;
-        // just test that both can exist and get lowered
         b.coro_terminate();
 
         // when
-        auto info = coro_materialize_pass_run_on_module(&m);
+        CoroSplitInfo split;
+        split.subroutines.emplace_back(CoroSplitInfo::Subroutine{
+            .scope_index = 0u,
+            .trigger_token = 0u,
+            .callable = cf,
+            .frame_argument = frame_arg,
+        });
+        CoroCfgDistillResult cfg;
+        cfg.scopes.emplace_back();
+        auto info = coro_materialize_pass_run_on_module_with_cfg(&m, cfg, split);
 
-        // then: both lowered
-        expect(info.suspend_lowered_count >= 1u);
+        // then: terminal-only split-aware callable lowered
+        expect(count_inst_tag(m, DerivedInstructionTag::CORO_TERMINATE) == 0u);
         expect(info.terminal_lowered_count >= 1u);
     };
 

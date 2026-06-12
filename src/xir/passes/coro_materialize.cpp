@@ -12,7 +12,9 @@
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/coro_split.h>
 
 namespace luisa::compute::xir {
 
@@ -25,11 +27,23 @@ struct RegisterInfo {
     const Type *type;
 };
 
-[[nodiscard]] static Value *get_frame_arg(CallableFunction *func) noexcept {
-    for (auto *arg : func->arguments()) {
-        if (arg->is_reference()) { return arg; }
-    }
-    return nullptr;
+[[nodiscard]] static Value *find_frame_operand(CallableFunction *func) noexcept {
+    if (func == nullptr || func->definition() == nullptr) { return nullptr; }
+    Value *frame = nullptr;
+    func->traverse_instructions([&](Instruction *inst) noexcept {
+        if (frame != nullptr) { return; }
+        switch (inst->derived_instruction_tag()) {
+            case DerivedInstructionTag::CORO_SUSPEND:
+                frame = static_cast<CoroSuspendInst *>(inst)->frame();
+                break;
+            case DerivedInstructionTag::CORO_RESUME:
+                frame = static_cast<CoroResumeInst *>(inst)->frame();
+                break;
+            default:
+                break;
+        }
+    });
+    return frame;
 }
 
 [[nodiscard]] static bool is_token_store(Value *frame_arg, StoreInst *store) noexcept {
@@ -45,7 +59,8 @@ struct RegisterInfo {
     return true;
 }
 
-[[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(Module *mod) noexcept {
+[[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(
+    Module *mod, const luisa::unordered_set<luisa::string> *filter = nullptr) noexcept {
     luisa::unordered_set<luisa::string> seen;
     luisa::vector<RegisterInfo> regs;
 
@@ -59,11 +74,15 @@ struct RegisterInfo {
             auto name_opt = alloca->name();
             if (!name_opt.has_value()) { return; }
             luisa::string name(name_opt.value());
+            if (filter != nullptr && !filter->contains(name)) { return; }
             if (seen.insert(name).second) {
                 regs.push_back({std::move(name), alloca->type()});
             }
         });
     }
+    luisa::sort(regs.begin(), regs.end(), [](auto &a, auto &b) noexcept {
+        return a.name < b.name;
+    });
     return regs;
 }
 
@@ -89,8 +108,10 @@ static void store_user_vars_to_frame(XIRBuilder &b, Module *mod, Value *frame_ar
                                      const luisa::vector<RegisterInfo> &regs,
                                      const luisa::unordered_map<luisa::string, size_t> &field_map,
                                      const luisa::unordered_map<luisa::string, Value *> &local_map,
+                                     const luisa::unordered_set<luisa::string> *live_filter,
                                      size_t &count) noexcept {
     for (auto &reg : regs) {
+        if (live_filter != nullptr && !live_filter->contains(reg.name)) { continue; }
         auto it = local_map.find(reg.name);
         if (it == local_map.end()) { continue; }
         auto *local_val = it->second;
@@ -111,8 +132,10 @@ static void load_user_vars_from_frame(XIRBuilder &b, Module *mod, Value *frame_a
                                       const luisa::vector<RegisterInfo> &regs,
                                       const luisa::unordered_map<luisa::string, size_t> &field_map,
                                       const luisa::unordered_map<luisa::string, Value *> &local_map,
+                                      const luisa::unordered_set<luisa::string> *live_filter,
                                       size_t &count) noexcept {
     for (auto &reg : regs) {
+        if (live_filter != nullptr && !live_filter->contains(reg.name)) { continue; }
         auto it = local_map.find(reg.name);
         if (it == local_map.end()) { continue; }
         auto *local_val = it->second;
@@ -127,13 +150,15 @@ static void load_user_vars_from_frame(XIRBuilder &b, Module *mod, Value *frame_a
     }
 }
 
-static void process_callable(Module *mod, CallableFunction *func,
+static void process_callable(Module *mod, CallableFunction *func, Value *frame_arg,
                              const luisa::vector<RegisterInfo> &regs,
                              const luisa::unordered_map<luisa::string, size_t> &field_map,
+                             const luisa::unordered_set<luisa::string> *live_in,
+                             const luisa::unordered_set<luisa::string> *live_out,
+                             bool materialize_user_vars,
                              CoroMaterializeInfo &info) noexcept {
 
-    auto *frame_arg = get_frame_arg(func);
-    if (frame_arg == nullptr) { return; }
+    if (func == nullptr || func->definition() == nullptr || frame_arg == nullptr) { return; }
 
     luisa::unordered_map<luisa::string, Value *> local_map;
     func->traverse_instructions([&](Instruction *inst) noexcept {
@@ -162,7 +187,10 @@ static void process_callable(Module *mod, CallableFunction *func,
         } else {
             b.set_insertion_point(s->parent_block());
         }
-        store_user_vars_to_frame(b, mod, frame_arg, regs, field_map, local_map, info.store_inserted_count);
+        if (materialize_user_vars) {
+            store_user_vars_to_frame(b, mod, frame_arg, regs, field_map, local_map,
+                                     live_out, info.store_inserted_count);
+        }
 
         auto *field_zero = mod->create_constant_zero(Type::of<uint32_t>());
         auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_zero});
@@ -214,7 +242,10 @@ static void process_callable(Module *mod, CallableFunction *func,
             } else {
                 b.set_insertion_point(ts->parent_block());
             }
-            store_user_vars_to_frame(b, mod, frame_arg, regs, field_map, local_map, info.store_inserted_count);
+            if (materialize_user_vars) {
+                store_user_vars_to_frame(b, mod, frame_arg, regs, field_map, local_map,
+                                         live_out, info.store_inserted_count);
+            }
         }
     }
 
@@ -226,11 +257,100 @@ static void process_callable(Module *mod, CallableFunction *func,
     });
     for (auto *r : resumes) {
         b.set_insertion_point(r);
-        load_user_vars_from_frame(b, mod, frame_arg, regs, field_map, local_map, info.load_inserted_count);
+        if (materialize_user_vars) {
+            load_user_vars_from_frame(b, mod, frame_arg, regs, field_map, local_map,
+                                      live_in, info.load_inserted_count);
+        }
         r->remove_self();
         info.resume_lowered_count++;
     }
 
+}
+
+[[nodiscard]] static luisa::unordered_set<luisa::string> collect_live_register_names(
+    const CoroCfgDistillResult *cfg) noexcept {
+    luisa::unordered_set<luisa::string> names;
+    if (cfg == nullptr) { return names; }
+    for (auto &scope : cfg->scopes) {
+        for (auto &name : scope.live_in_variables) { names.emplace(name); }
+        for (auto &name : scope.live_out_variables) { names.emplace(name); }
+    }
+    return names;
+}
+
+static void append_field_indices(luisa::vector<size_t> &dst,
+                                 const luisa::vector<luisa::string> &names,
+                                 const luisa::unordered_map<luisa::string, size_t> &field_map) noexcept {
+    luisa::unordered_set<size_t> seen;
+    for (auto &name : names) {
+        if (auto it = field_map.find(name); it != field_map.end()) {
+            if (seen.emplace(it->second).second) {
+                dst.emplace_back(it->second);
+            }
+        }
+    }
+    luisa::sort(dst.begin(), dst.end());
+}
+
+static void populate_transition_edges(CoroMaterializeInfo &info,
+                                      const CoroCfgDistillResult *cfg,
+                                      const luisa::unordered_map<luisa::string, size_t> &field_map) noexcept {
+    if (cfg == nullptr) { return; }
+    info.edges.clear();
+    for (size_t from = 0u; from < cfg->edges.size(); ++from) {
+        for (auto to : cfg->edges[from]) {
+            if (to >= cfg->scopes.size()) { continue; }
+            CoroMaterializeInfo::TransitionEdge edge;
+            edge.from_scope = from;
+            edge.to_scope = to;
+            append_field_indices(edge.store_fields, cfg->scopes[from].live_out_variables, field_map);
+            append_field_indices(edge.load_fields, cfg->scopes[to].live_in_variables, field_map);
+            info.edges.emplace_back(std::move(edge));
+        }
+    }
+}
+
+static void append_value_field_indices(luisa::vector<size_t> &dst,
+                                       const luisa::vector<Value *> &values,
+                                       const luisa::unordered_map<Value *, size_t> &field_map) noexcept {
+    luisa::unordered_set<size_t> seen;
+    for (auto *value : values) {
+        if (auto it = field_map.find(value); it != field_map.end()) {
+            auto field_index = it->second;
+            if (seen.emplace(field_index).second) {
+                dst.emplace_back(field_index);
+            }
+        }
+    }
+    luisa::sort(dst.begin(), dst.end());
+}
+
+static void populate_value_transition_edges(CoroMaterializeInfo &info,
+                                            const CoroCfgDistillResult &cfg,
+                                            const luisa::unordered_map<Value *, size_t> &field_map) noexcept {
+    info.edges.clear();
+    for (auto &transition : cfg.transition_edges) {
+        if (transition.to_scope >= cfg.scopes.size()) { continue; }
+        CoroMaterializeInfo::TransitionEdge edge;
+        edge.from_scope = transition.from_scope;
+        edge.to_scope = transition.to_scope;
+        append_value_field_indices(edge.store_fields, transition.store_values, field_map);
+        append_value_field_indices(edge.load_fields, cfg.scopes[transition.to_scope].live_in_values, field_map);
+        info.edges.emplace_back(std::move(edge));
+    }
+}
+
+[[nodiscard]] static luisa::vector<luisa::unordered_set<luisa::string>> make_scope_live_sets(
+    const CoroCfgDistillResult *cfg, bool live_in) noexcept {
+    luisa::vector<luisa::unordered_set<luisa::string>> sets;
+    if (cfg == nullptr) { return sets; }
+    sets.reserve(cfg->scopes.size());
+    for (auto &scope : cfg->scopes) {
+        auto &set = sets.emplace_back();
+        auto &names = live_in ? scope.live_in_variables : scope.live_out_variables;
+        for (auto &name : names) { set.emplace(name); }
+    }
+    return sets;
 }
 
 }// namespace detail
@@ -247,7 +367,7 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
     luisa::vector<CallableFunction *> callables;
     for (auto *f : m->function_list()) {
         if (f->isa<CallableFunction>() && f->definition() != nullptr) {
-            if (detail::get_frame_arg(static_cast<CallableFunction *>(f)) != nullptr) {
+            if (detail::find_frame_operand(static_cast<CallableFunction *>(f)) != nullptr) {
                 callables.push_back(static_cast<CallableFunction *>(f));
             }
         }
@@ -258,7 +378,45 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
     info.frame_field_count = 2u + regs.size();
 
     for (auto *func : callables) {
-        detail::process_callable(m, func, regs, field_map, info);
+        detail::process_callable(m, func, detail::find_frame_operand(func), regs, field_map, nullptr, nullptr, true, info);
+        info.callable_count++;
+    }
+
+    return info;
+}
+
+CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
+    Module *m, const CoroCfgDistillResult &cfg) noexcept {
+    return coro_materialize_pass_run_on_module(m);
+}
+
+CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
+    Module *m, const CoroCfgDistillResult &cfg, const CoroSplitInfo &split) noexcept {
+    CoroMaterializeInfo info;
+
+    luisa::vector<const CoroSplitInfo::Subroutine *> subroutines(cfg.scopes.size(), nullptr);
+    for (auto &subroutine : split.subroutines) {
+        if (subroutine.scope_index < subroutines.size()) {
+            subroutines[subroutine.scope_index] = &subroutine;
+        }
+    }
+
+    luisa::unordered_map<Value *, size_t> value_field_map;
+    info.register_count = cfg.frame_values.size();
+    info.frame_field_count = 2u + cfg.frame_values.size();
+    for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
+        auto &value = cfg.frame_values[i];
+        auto field_index = i + 2u;
+        info.name_to_field.emplace(value.name, field_index);
+        info.name_to_type.emplace(value.name, value.type);
+        value_field_map.emplace(value.value, field_index);
+    }
+    detail::populate_value_transition_edges(info, cfg, value_field_map);
+
+    for (auto *subroutine : subroutines) {
+        if (subroutine == nullptr) { continue; }
+        detail::process_callable(m, subroutine->callable, subroutine->frame_argument,
+                                 {}, {}, nullptr, nullptr, false, info);
         info.callable_count++;
     }
 

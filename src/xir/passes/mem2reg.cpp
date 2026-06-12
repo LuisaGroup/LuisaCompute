@@ -31,6 +31,7 @@ struct AllocaAnalysis {
     const DomTree &dom;
     const luisa::unordered_map<Instruction *, uint32_t> &inst_indices;
     const luisa::unordered_map<BasicBlock *, uint32_t> &block_indices;
+    const luisa::unordered_set<BasicBlock *> &reachable_blocks;
 
     luisa::unordered_map<BasicBlock *, StoreInst *> def_blocks;
     luisa::unordered_map<BasicBlock *, luisa::vector<LoadInst *>> use_blocks;
@@ -47,11 +48,13 @@ struct AllocaAnalysis {
                 switch (auto user_inst = static_cast<Instruction *>(user); user_inst->derived_instruction_tag()) {
                     case DerivedInstructionTag::LOAD: {
                         LUISA_DEBUG_ASSERT(user_inst->parent_block() != nullptr, "Invalid parent.");
+                        if (!reachable_blocks.contains(user_inst->parent_block())) { break; }
                         use_blocks[user_inst->parent_block()].emplace_back(static_cast<LoadInst *>(user_inst));
                         break;
                     }
                     case DerivedInstructionTag::STORE: {
                         LUISA_DEBUG_ASSERT(user_inst->parent_block() != nullptr, "Invalid parent.");
+                        if (!reachable_blocks.contains(user_inst->parent_block())) { break; }
                         auto [_, success] = def_blocks.try_emplace(user_inst->parent_block(), static_cast<StoreInst *>(user_inst));
                         LUISA_DEBUG_ASSERT(success, "Invalid state.");
                         break;
@@ -194,6 +197,7 @@ struct PhiInsertionAndRenaming {
         for (auto &&use : inst->use_list()) {
             if (auto user = use->user()) {
                 if (user->isa<Instruction>() &&
+                    analysis.reachable_blocks.contains(static_cast<Instruction *>(user)->parent_block()) &&
                     !static_cast<Instruction *>(user)->isa<StoreInst>()) {
                     LUISA_ERROR("Invalid user.");
                 }
@@ -212,6 +216,25 @@ struct PhiInsertionAndRenaming {
         // remove the stores
         for (auto [def_block, store_inst] : analysis.def_blocks) {
             remove_store(store_inst, ctx, info);
+        }
+        luisa::vector<Instruction *> unreachable_users;
+        for (auto &&use : inst->use_list()) {
+            if (auto user = use->user(); user != nullptr && user->isa<Instruction>()) {
+                auto *user_inst = static_cast<Instruction *>(user);
+                auto *parent = user_inst->parent_block();
+                if (parent != nullptr && !analysis.reachable_blocks.contains(parent)) {
+                    unreachable_users.emplace_back(user_inst);
+                }
+            }
+        }
+        for (auto *user_inst : unreachable_users) {
+            if (user_inst->isa<LoadInst>()) {
+                ctx.mark_as_removed(user_inst->remove_self());
+                info.removed_load_count++;
+            } else if (user_inst->isa<StoreInst>()) {
+                ctx.mark_as_removed(user_inst->remove_self());
+                info.removed_store_count++;
+            }
         }
         // remove the local variable (which should have no uses now) and record the promotion
         LUISA_ASSERT(inst->use_list().empty(), "Invalid state.");
@@ -235,6 +258,7 @@ using AllocaStoreLoadSequence = luisa::unordered_map<BasicBlock *, std::vector<I
 // alloca, and the load instruction must precede the store instruction if both exist
 static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSequence &seq,
                                              const luisa::unordered_map<Instruction *, uint32_t> &inst_indices,
+                                             const luisa::unordered_set<BasicBlock *> &reachable_blocks,
                                              Mem2RegPassContext &ctx, Mem2RegInfo &info) noexcept {
     // collect load/store instructions concerning the alloca
     seq.clear();
@@ -244,6 +268,7 @@ static void simplify_single_block_store_load(AllocaInst *inst, AllocaStoreLoadSe
                 auto user_inst = static_cast<Instruction *>(user);
                 auto parent_block = user_inst->parent_block();
                 LUISA_DEBUG_ASSERT(parent_block != nullptr, "Invalid parent.");
+                if (!reachable_blocks.contains(parent_block)) { continue; }
                 seq[parent_block].emplace_back(user_inst);
             }
         }
@@ -327,7 +352,9 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
         luisa::vector<AllocaInst *> promotable;
         luisa::unordered_map<Instruction *, uint32_t> inst_indices;
         luisa::unordered_map<BasicBlock *, uint32_t> block_indices;
+        luisa::unordered_set<BasicBlock *> reachable_blocks;
         def->traverse_basic_blocks(BasicBlockTraversalOrder::REVERSE_POST_ORDER, [&](BasicBlock *block) noexcept {
+            reachable_blocks.emplace(block);
             block_indices.emplace(block, static_cast<uint32_t>(block_indices.size()));
             block->traverse_instructions([&](Instruction *inst) noexcept {
                 switch (inst->derived_instruction_tag()) {
@@ -351,7 +378,7 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
         if (!promotable.empty()) {
             AllocaStoreLoadSequence seq;
             for (auto inst : promotable) {
-                simplify_single_block_store_load(inst, seq, inst_indices, ctx, info);
+                simplify_single_block_store_load(inst, seq, inst_indices, reachable_blocks, ctx, info);
             }
             // erase the alloca instructions that are already removed
             promotable.erase(
@@ -365,7 +392,8 @@ static void promote_alloca_instructions_in_function(Function *f, Mem2RegInfo &in
             auto dom = compute_dom_tree(def);
             AllocaAnalysis analysis{.dom = dom,
                                     .inst_indices = inst_indices,
-                                    .block_indices = block_indices};
+                                    .block_indices = block_indices,
+                                    .reachable_blocks = reachable_blocks};
             PhiInsertionAndRenaming insertion{.ctx = ctx};
             for (auto inst : promotable) {
                 // Skip allocas with multiple direct stores in the same block.

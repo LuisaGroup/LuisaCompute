@@ -4,6 +4,7 @@
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/coro_split.h>
 
 namespace luisa::compute::coro {
 
@@ -42,48 +43,35 @@ namespace luisa::compute::coro {
     xir::Module &m, const xir::CoroMaterializeInfo &info,
     const xir::CoroCfgDistillResult &cfg) noexcept {
 
+    static_cast<void>(m);
+    xir::CoroSplitInfo split;
+    return from_module(m, info, cfg, split);
+}
+
+[[nodiscard]] CoroGraph CoroGraph::from_module(
+    xir::Module &m, const xir::CoroMaterializeInfo &info,
+    const xir::CoroCfgDistillResult &cfg,
+    const xir::CoroSplitInfo &split) noexcept {
+
+    static_cast<void>(m);
     CoroGraph graph;
 
-    // --- Collect callables with frame args from the module ---
-    // After coro-split, callables are created in scope order and appended to the function list.
-    luisa::vector<const xir::CallableFunction *> callables;
-    for (auto *f : m.function_list()) {
-        if (!f->isa<xir::CallableFunction>() || f->definition() == nullptr) { continue; }
-        auto *cf = static_cast<const xir::CallableFunction *>(f);
-        // Check for frame arg (reference argument)
-        bool has_frame = false;
-        for (auto *arg : cf->arguments()) {
-            if (arg->is_reference()) {
-                has_frame = true;
-                break;
-            }
+    luisa::vector<const xir::CallableFunction *> callables(cfg.scopes.size(), nullptr);
+    for (auto &subroutine : split.subroutines) {
+        if (subroutine.scope_index < callables.size()) {
+            callables[subroutine.scope_index] = subroutine.callable;
         }
-        if (has_frame) { callables.push_back(cf); }
     }
 
     // --- Build nodes from cfg-distill scopes ---
-    // Scope semantics:
-    //   scope[0] is the entry (token=0). It may contain a suspend point with
-    //   token T and name N.
-    //   scope[i] (i>0) resumes at token = scope[i-1].suspend_token, and its
-    //   node is named after scope[i-1].suspend_name.
     for (size_t i = 0u; i < cfg.scopes.size(); ++i) {
         auto &scope = cfg.scopes[i];
         Node node;
         node.index = i;
         node.is_terminal = scope.is_terminal;
         node.callable = (i < callables.size()) ? callables[i] : nullptr;
-
-        if (i == 0u) {
-            // Entry node: token=0, no name
-            node.token = 0u;
-            node.name = luisa::string{};
-        } else {
-            // Continuation node: token and name come from the PREVIOUS scope's suspend
-            auto &prev = cfg.scopes[i - 1u];
-            node.token = prev.suspend_token.has_value() ? *prev.suspend_token : 0u;
-            node.name = prev.suspend_name.has_value() ? *prev.suspend_name : luisa::string{};
-        }
+        node.token = scope.trigger_token;
+        node.name = scope.trigger_name.has_value() ? *scope.trigger_name : luisa::string{};
 
         graph._nodes.push_back(std::move(node));
 

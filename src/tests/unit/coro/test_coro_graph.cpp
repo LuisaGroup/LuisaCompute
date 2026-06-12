@@ -55,11 +55,11 @@ void reg_coro_graph() {
         auto cfg = coro_cfg_distill_pass_run_on_function(k);
 
         // Run the coroutine pipeline
-        (void)coro_split_pass_run_on_module(&m);
-        auto info = coro_materialize_pass_run_on_module(&m);
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(&m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(&m, cfg, split);
 
         // when: build CoroGraph
-        auto graph = CoroGraph::from_module(m, info, cfg);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
 
         // then: 2 nodes, 1 edge
         expect(graph.node_count() == 2u);
@@ -141,11 +141,11 @@ void reg_coro_graph() {
 
         // Run passes
         auto cfg = coro_cfg_distill_pass_run_on_function(k);
-        (void)coro_split_pass_run_on_module(&m);
-        auto info = coro_materialize_pass_run_on_module(&m);
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(&m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(&m, cfg, split);
 
         // when
-        auto graph = CoroGraph::from_module(m, info, cfg);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
 
         // then: 4 nodes, 3 edges
         expect(graph.node_count() == 4u);
@@ -226,11 +226,11 @@ void reg_coro_graph() {
 
         // Run passes
         auto cfg = coro_cfg_distill_pass_run_on_function(k);
-        (void)coro_split_pass_run_on_module(&m);
-        auto info = coro_materialize_pass_run_on_module(&m);
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(&m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(&m, cfg, split);
 
         // when
-        auto graph = CoroGraph::from_module(m, info, cfg);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
 
         // then: last scope is terminal
         expect(graph.node_count() >= 1u);
@@ -272,11 +272,11 @@ void reg_coro_graph() {
 
         // Run passes
         auto cfg = coro_cfg_distill_pass_run_on_function(k);
-        (void)coro_split_pass_run_on_module(&m);
-        auto info = coro_materialize_pass_run_on_module(&m);
+        auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(&m, cfg, nullptr);
+        auto info = coro_materialize_pass_run_on_module_with_cfg(&m, cfg, split);
 
         // when
-        auto graph = CoroGraph::from_module(m, info, cfg);
+        auto graph = CoroGraph::from_module(m, info, cfg, split);
 
         // then: find nodes by their suspend names
         auto *first = graph.node_by_name("first_half");

@@ -42,6 +42,9 @@ private:
     spv::Builder &_builder; // reference to *_builder_ptr
 
     luisa::unordered_map<const Type *, spv::Id> _type_map;
+    luisa::unordered_map<const Type *, spv::Id> _sampled_image_type_map;
+    luisa::unordered_map<const Type *, spv::Id> _storage_image_type_map;
+    luisa::unordered_set<const Type *> _storage_texture_types;
     luisa::unordered_map<const xir::Value *, spv::Id> _value_map;
     luisa::unordered_map<const xir::Function *, spv::Function *> _function_map;
     luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _block_map;
@@ -79,6 +82,7 @@ private:
     luisa::unordered_map<spv::Id, spv::Id> _accel_instance_buffer_map;
     luisa::unordered_map<spv::Id, spv::Id> _rq_proceed_result;// rq object SSA id -> last OpRayQueryProceedKHR result SSA id
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
+    luisa::unordered_map<const xir::Function *, luisa::vector<Usage>> _function_argument_usage;
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
     luisa::unordered_map<const Type *, spv::Id> _laid_out_type_map;
     luisa::compute::xir::UniformityAnalysis _uniformity;
@@ -106,12 +110,17 @@ private:
     void _mark_8bit_storage_usage(const Type *type, spv::StorageClass storage) noexcept;
     spv::Id _emit_literal(const Type *type, const void *data) noexcept;
     spv::Id _emit_constant(const xir::Constant *c) noexcept;
+    spv::Id _emit_alloca(const xir::AllocaInst *alloca) noexcept;
     spv::Id _emit_value(const xir::Value *value) noexcept;
     spv::Block *_get_or_create_block(const xir::BasicBlock *bb) noexcept;
 
+    void _predeclare_allocas(const xir::FunctionDefinition *def) noexcept;
     void _pre_register_merge_blocks(const xir::FunctionDefinition *def) noexcept;
     void _emit_kernel(const xir::KernelFunction *kernel) noexcept;
     void _emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept;
+    void _analyze_function_argument_usage(const xir::Module *module) noexcept;
+    Usage _function_argument_usage_of(const xir::Function *function,
+                                      const xir::Argument *argument) const noexcept;
     void _emit_block(const xir::BasicBlock *bb) noexcept;
     void _emit_instruction(const xir::Instruction *inst) noexcept;
 

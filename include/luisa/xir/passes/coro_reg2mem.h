@@ -6,6 +6,7 @@
 namespace luisa::compute::xir {
 
 class Module;
+struct CoroSplitInfo;
 
 struct CoroReg2MemInfo {
     size_t callable_count{0u};
@@ -14,5 +15,6 @@ struct CoroReg2MemInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API CoroReg2MemInfo coro_reg2mem_pass_run_on_module(Module *m) noexcept;
+[[nodiscard]] LUISA_XIR_API CoroReg2MemInfo coro_reg2mem_pass_run_on_split(const CoroSplitInfo &split) noexcept;
 
 }// namespace luisa::compute::xir
