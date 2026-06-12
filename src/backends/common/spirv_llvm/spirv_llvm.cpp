@@ -4,20 +4,19 @@
 #include "llvm_codegen_utility.h"
 #include <luisa/core/logging.h>
 
-// LLVM SPIRV target initialization
-// These symbols come from the LLVM SPIRV target libraries (LLVMSPIRVCodeGen, etc.)
-namespace {
-struct SPIRVLLVMInit {
-    SPIRVLLVMInit() {
-        extern void LLVMInitializeSPIRVTarget();
-        extern void LLVMInitializeSPIRVTargetInfo();
-        extern void LLVMInitializeSPIRVTargetMC();
-        extern void LLVMInitializeSPIRVAsmPrinter();
-        LLVMInitializeSPIRVTarget();
-        LLVMInitializeSPIRVTargetInfo();
-        LLVMInitializeSPIRVTargetMC();
-        LLVMInitializeSPIRVAsmPrinter();
-    }
-};
-[[maybe_unused]] static SPIRVLLVMInit s_spirv_init;
-} // namespace
+// LLVM SPIRV target initialization symbols (global namespace, from LLVMSPIRVCodeGen etc.)
+extern void LLVMInitializeSPIRVTarget();
+extern void LLVMInitializeSPIRVTargetInfo();
+extern void LLVMInitializeSPIRVTargetMC();
+extern void LLVMInitializeSPIRVAsmPrinter();
+
+namespace lc::llvm_codegen {
+
+void InitializeLLVMSPIRVTarget() {
+    LLVMInitializeSPIRVTarget();
+    LLVMInitializeSPIRVTargetInfo();
+    LLVMInitializeSPIRVTargetMC();
+    LLVMInitializeSPIRVAsmPrinter();
+}
+
+} // namespace lc::llvm_codegen

@@ -31,6 +31,9 @@
 
 namespace lc::llvm_codegen {
 
+/// Explicitly initialize LLVM's SPIR-V target (prevents linker dead-stripping).
+void InitializeLLVMSPIRVTarget();
+
 using namespace luisa;
 using namespace luisa::compute;
 

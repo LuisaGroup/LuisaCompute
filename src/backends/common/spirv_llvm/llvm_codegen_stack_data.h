@@ -67,6 +67,9 @@ struct LLVMCodegenStackData : public vstd::IOperatorNewBase {
     };
     luisa::vector<LoopContext> loop_stack;
 
+    // --- Break target stack for break statements (loops + switches) ---
+    luisa::vector<llvm::BasicBlock *> break_stack;
+
     // --- Switch state ---
     llvm::SwitchInst *current_switch{nullptr};
     llvm::BasicBlock *switch_merge_block{nullptr};

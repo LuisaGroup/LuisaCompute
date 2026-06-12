@@ -112,7 +112,6 @@ before_check(function(option)
 
     -- AST LLVM codegen forces LLVM path and XIR, disables XIR→SPIR-V
     if lc_vk_backend_use_ast_llvm_spirv:enabled() then
-        lc_llvm_path:enable(true, {force = true})
         lc_enable_xir:enable(true, {force = true})
         lc_vk_backend_use_xir_spirv:enable(false, {force = true})
     end
@@ -621,7 +620,7 @@ after_build(function(target)
     local jobs = jobgraph.new()
 
     for __, filepath in ipairs(os.files(path.join(llvm_build_dir, "bin/*.dll"))) do
-        jobs.add(filepath, function()
+        jobs:add(filepath, function()
             copy(filepath, path.join(dst_path, path.filename(filepath)))
         end)
     end
