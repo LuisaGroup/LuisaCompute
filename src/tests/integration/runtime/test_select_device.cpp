@@ -12,9 +12,8 @@ using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-void test_select_device(Device &device) {
-    auto argv = boost::ut::detail::cfg::largv;
-    Context context{argv[0]};
+void test_select_device(Device &device, const char *exe_path) {
+    Context context{exe_path == nullptr ? "" : exe_path};
 
     // Get hardware device names for the specified backend
     luisa::vector<luisa::string> device_names = context.backend_device_names(device.backend_name());
@@ -54,5 +53,6 @@ int main(int argc, char *argv[]) {
     }
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
     auto &device = dc->device;
-    test_select_device(device);
+    auto *exe = argc > 0 && argv != nullptr ? argv[0] : luisa::test::safe_argv0();
+    test_select_device(device, exe);
 }

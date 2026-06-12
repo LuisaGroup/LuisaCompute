@@ -15,13 +15,8 @@ if (LUISA_COMPUTE_ENABLE_DX OR LUISA_COMPUTE_ENABLE_VULKAN)
             indirect.bytes
             resource_size.bytes
             accel_header.bytes
-            accel_process.bytes
-            accel_process_vk.bytes
-            accel_process_vk_motion.bytes
             copy_sign.bytes
             bindless_common.bytes
-            bindless_upload.bytes
-            bindless_upload_vk.bytes
             auto_diff.bytes
             reduce.bytes
             bindless_upload.bytes

@@ -1498,7 +1498,21 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
             luisa::unordered_map<BasicBlock *, uint32_t> exit_target_id;
             luisa::vector<BasicBlock *> used_exit_targets;
 
+            BasicBlock *direct_header_exit_target = nullptr;
             for (auto &[src, tgt] : exit_edges) {
+                if (src == header) {
+                    direct_header_exit_target = tgt;
+                    exit_target_id.emplace(tgt, sel_id++);
+                    used_exit_targets.emplace_back(tgt);
+                    break;
+                }
+            }
+
+            for (auto &[src, tgt] : exit_edges) {
+                if (src == header && tgt == direct_header_exit_target) {
+                    retarget_terminator(src->terminator(), tgt, loop_merge);
+                    continue;
+                }
                 auto *stub = def->create_basic_block();
                 auto changed = retarget_terminator(src->terminator(), tgt, stub);
                 if (!changed) {
