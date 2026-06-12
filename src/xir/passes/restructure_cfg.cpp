@@ -1,4 +1,5 @@
 #include <luisa/core/logging.h>
+#include <luisa/core/clock.h>
 #include <luisa/core/stl/unordered_map.h>
 #include <luisa/core/stl/vector.h>
 #include <luisa/core/stl/algorithm.h>
@@ -22,6 +23,25 @@
 namespace luisa::compute::xir {
 
 namespace {
+
+struct ScopedTimer {
+#ifndef NDEBUG
+    Clock clock;
+    const char *name;
+#endif
+    ScopedTimer(const char *n) noexcept
+#ifndef NDEBUG
+        : name(n)
+#endif
+    {
+    }
+    ~ScopedTimer() noexcept {
+#ifndef NDEBUG
+        auto ms = clock.toc();
+        LUISA_VERBOSE_WITH_LOCATION("[restructure_cfg] {}: {:.3f} ms", name, ms);
+#endif
+    }
+};
 
 void check_phi_free(FunctionDefinition *def) noexcept {
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
@@ -48,6 +68,7 @@ struct PostDomInfo {
 };
 
 [[nodiscard]] PostDomInfo compute_post_dom(FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_pdom("compute_post_dom");
     luisa::vector<BasicBlock *> all_blocks;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         all_blocks.emplace_back(bb);
@@ -57,6 +78,13 @@ struct PostDomInfo {
     for (auto *bb : all_blocks) {
         if (is_sink(bb)) { sinks.emplace_back(bb); }
     }
+
+    // Assign dense block IDs for O(1) array indexing.
+    luisa::unordered_map<BasicBlock *, size_t> block_id;
+    for (size_t i = 0; i < all_blocks.size(); i++) {
+        block_id[all_blocks[i]] = i;
+    }
+    size_t n = all_blocks.size();
 
     luisa::unordered_map<BasicBlock *, luisa::vector<BasicBlock *>> pred_map;
     for (auto *bb : all_blocks) {
@@ -96,18 +124,61 @@ struct PostDomInfo {
         }
     }
 
-    luisa::unordered_map<BasicBlock *, size_t> rpo_index;
-    for (size_t i = 0; i < rpo.size(); i++) { rpo_index[rpo[i]] = i; }
-    rpo_index[nullptr] = SIZE_MAX;
+    // Dense RPO index — array lookup instead of hash map.
+    luisa::vector<size_t> rpo_idx_vec(n, SIZE_MAX);
+    for (size_t i = 0; i < rpo.size(); i++) {
+        if (rpo[i] != virt) {
+            auto it = block_id.find(rpo[i]);
+            if (it != block_id.end()) {
+                rpo_idx_vec[it->second] = i;
+            }
+        }
+    }
+    // virt is always last in RPO; use rpo.size()-1 for its index.
+    const size_t virt_rpo_idx = rpo.size() - 1;
 
-    PostDomInfo result;
-    result.virtual_exit = virt;
-    auto &ipostdom = result.ipostdom;
-    for (auto *bb : rpo) { ipostdom[bb] = nullptr; }
-    ipostdom[virt] = virt;
+    // Dense ipostdom — array lookup instead of hash map.
+    luisa::vector<BasicBlock *> ipostdom_vec(n, nullptr);
 
-    luisa::unordered_set<BasicBlock *> processed;
-    processed.emplace(virt);
+    // Dense processed flag.
+    luisa::vector<bool> processed_vec(n, false);
+
+    // Helpers for dense lookups.
+    auto get_rpo_idx = [&](BasicBlock *b) noexcept -> size_t {
+        if (b == virt) { return virt_rpo_idx; }
+        if (b == nullptr) { return SIZE_MAX; }
+        auto it = block_id.find(b);
+        if (it == block_id.end()) { return SIZE_MAX; }
+        return rpo_idx_vec[it->second];
+    };
+    auto get_ipostdom = [&](BasicBlock *b) noexcept -> BasicBlock * {
+        if (b == virt) { return virt; }
+        if (b == nullptr) { return nullptr; }
+        auto it = block_id.find(b);
+        if (it == block_id.end()) { return nullptr; }
+        return ipostdom_vec[it->second];
+    };
+    auto set_ipostdom = [&](BasicBlock *b, BasicBlock *val) noexcept {
+        if (b == virt || b == nullptr) { return; }
+        auto it = block_id.find(b);
+        if (it != block_id.end()) {
+            ipostdom_vec[it->second] = val;
+        }
+    };
+    auto is_processed = [&](BasicBlock *b) noexcept -> bool {
+        if (b == virt) { return true; }
+        if (b == nullptr) { return false; }
+        auto it = block_id.find(b);
+        if (it == block_id.end()) { return false; }
+        return processed_vec[it->second];
+    };
+    auto set_processed = [&](BasicBlock *b) noexcept {
+        if (b == virt || b == nullptr) { return; }
+        auto it = block_id.find(b);
+        if (it != block_id.end()) {
+            processed_vec[it->second] = true;
+        }
+    };
 
     auto intersect = [&](BasicBlock *b1, BasicBlock *b2) noexcept -> BasicBlock * {
         if (b1 == nullptr) { return b2; }
@@ -115,17 +186,18 @@ struct PostDomInfo {
         auto f1 = b1;
         auto f2 = b2;
         while (f1 != f2) {
-            if (!rpo_index.count(f1) || !rpo_index.count(f2)) { return nullptr; }
-            auto i1 = rpo_index[f1];
-            auto i2 = rpo_index[f2];
-            if (i1 == i2) { LUISA_ERROR_WITH_LOCATION("intersect: RPO index collision — corrupted RPO computation"); }
-            while (rpo_index.count(f1) && rpo_index.count(f2) && rpo_index[f1] < rpo_index[f2]) {
-                f1 = ipostdom[f1];
+            auto i1 = get_rpo_idx(f1);
+            auto i2 = get_rpo_idx(f2);
+            if (i1 == SIZE_MAX || i2 == SIZE_MAX) { return nullptr; }
+            while (i1 < i2) {
+                f1 = get_ipostdom(f1);
                 if (f1 == nullptr) { return nullptr; }
+                i1 = get_rpo_idx(f1);
             }
-            while (rpo_index.count(f1) && rpo_index.count(f2) && rpo_index[f2] < rpo_index[f1]) {
-                f2 = ipostdom[f2];
+            while (i2 < i1) {
+                f2 = get_ipostdom(f2);
                 if (f2 == nullptr) { return nullptr; }
+                i2 = get_rpo_idx(f2);
             }
         }
         return f1;
@@ -147,17 +219,27 @@ struct PostDomInfo {
 
             BasicBlock *new_ipostdom = nullptr;
             for (auto *s : succs) {
-                if (processed.contains(s)) {
+                if (is_processed(s)) {
                     new_ipostdom = intersect(new_ipostdom, s);
                 }
             }
-            if (ipostdom[bb] != new_ipostdom) {
-                ipostdom[bb] = new_ipostdom;
+            if (get_ipostdom(bb) != new_ipostdom) {
+                set_ipostdom(bb, new_ipostdom);
                 changed = true;
             }
-            if (new_ipostdom != nullptr) { processed.emplace(bb); }
+            if (new_ipostdom != nullptr) { set_processed(bb); }
         }
     }
+
+    // Convert dense results back to hash map for API compatibility.
+    PostDomInfo result;
+    result.virtual_exit = virt;
+    for (auto *bb : rpo) {
+        if (bb != virt) {
+            result.ipostdom[bb] = get_ipostdom(bb);
+        }
+    }
+    result.ipostdom[virt] = virt;
 
     return result;
 }
@@ -272,14 +354,15 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
 
 // Forward declaration.
 [[nodiscard]] bool clone_subgraph_to_target(FunctionDefinition *def,
-                                                    BasicBlock *E, BasicBlock *P,
-                                                    BasicBlock *target,
-                                                    BasicBlock *new_target) noexcept;
+                                            BasicBlock *E, BasicBlock *P,
+                                            BasicBlock *target,
+                                            BasicBlock *new_target) noexcept;
 
 [[nodiscard]] bool try_restructure_loop(FunctionDefinition *def,
-                                               const DomTree &dom,
-                                               const PostDomInfo &pdom,
-                                               RestructureCFGInfo &info) noexcept {
+                                        const DomTree &dom,
+                                        const PostDomInfo &pdom,
+                                        RestructureCFGInfo &info) noexcept {
+    ScopedTimer _timer_try_loop("try_restructure_loop");
     luisa::vector<BasicBlock *> all_blocks;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept { all_blocks.emplace_back(bb); });
 
@@ -345,272 +428,305 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
         return a.depth > b.depth;
     });
 
-    auto &cand = candidates[0];
-    auto *header = cand.header;
-    auto &latches = cand.latches;
+    bool any = false;
+    luisa::unordered_set<BasicBlock *> newly_restructured_headers;
 
-    for (auto *latch : latches) {
-        if (!dom.dominates(header, latch)) {
-            LUISA_WARNING_WITH_LOCATION("restructure_cfg: irreducible back-edge from block to non-dominating header; skipping region");
-            info.irreducible_region_count++;
-            return false;
-        }
-    }
+    for (auto &cand : candidates) {
+        auto *header = cand.header;
+        auto &latches = cand.latches;
 
-    luisa::unordered_set<BasicBlock *> loop_blocks;
-    BasicBlock *loop_scope_boundary = nullptr;
-    if (auto it = pdom.ipostdom.find(header);
-        it != pdom.ipostdom.end() && it->second != pdom.virtual_exit) {
-        loop_scope_boundary = it->second;
-    }
-    loop_blocks.emplace(header);
-    luisa::vector<BasicBlock *> fwd_work{header};
-    while (!fwd_work.empty()) {
-        auto *cur = fwd_work.back();
-        fwd_work.pop_back();
-        if (!cur->is_terminated()) { continue; }
-        cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-            if (succ == loop_scope_boundary) { return; }
-            if (!dom.contains(succ)) { return; }
-            if (!dom.strictly_dominates(header, succ)) { return; }
-            if (loop_blocks.emplace(succ).second) {
-                fwd_work.emplace_back(succ);
-            }
-        });
-    }
-    for (auto *latch : latches) {
-        if (!loop_blocks.contains(latch)) {
-            info.irreducible_region_count++;
-            return false;
-        }
-    }
+        // Re-validate: header may have been restructured by a previous candidate in this batch.
+        if (!header->is_terminated()) { continue; }
+        if (already_loop_headers.contains(header)) { continue; }
+        if (newly_restructured_headers.contains(header)) { continue; }
+        auto *header_term = header->terminator();
+        if (header_term->isa<LoopInst>() || header_term->isa<SimpleLoopInst>()) { continue; }
 
-    luisa::vector<std::pair<BasicBlock *, BasicBlock *>> pre_exit_edges;
-    for (auto *lb : loop_blocks) {
-        if (!lb->is_terminated()) { continue; }
-        lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-            if (succ == header) { return; }
-            if (loop_blocks.contains(succ)) { return; }
-            pre_exit_edges.emplace_back(lb, succ);
-        });
-    }
-    luisa::unordered_set<BasicBlock *> pre_exit_targets_set;
-    for (auto &[src, tgt] : pre_exit_edges) { pre_exit_targets_set.emplace(tgt); }
-    luisa::vector<BasicBlock *> pre_exit_targets{pre_exit_targets_set.begin(), pre_exit_targets_set.end()};
-
-    BasicBlock *dispatch_merge_or_null = nullptr;
-    if (pre_exit_targets.size() > 1) {
-        dispatch_merge_or_null = common_postdom(pdom, luisa::span<BasicBlock *const>{pre_exit_targets});
-        if (dispatch_merge_or_null == pdom.virtual_exit) {
-            dispatch_merge_or_null = nullptr;
-        }
-        // Always create a fresh merge block so the switch merge is never
-        // one of the exit targets. The fresh merge branches to the common
-        // post-dominator (or is unreachable if none was found).
-        auto *fresh_merge = def->create_basic_block();
-        XIRBuilder mb;
-        mb.set_insertion_point(fresh_merge);
-        if (dispatch_merge_or_null) {
-            mb.br(dispatch_merge_or_null);
-        } else {
-            mb.unreachable_();
-        }
-        dispatch_merge_or_null = fresh_merge;
-    }
-
-    BasicBlock *canonical_latch = nullptr;
-    if (latches.size() == 1) {
-        canonical_latch = latches[0];
-    } else {
-        canonical_latch = def->create_basic_block();
+        // Re-validate latches: they may have been modified by earlier restructuring.
+        luisa::vector<BasicBlock *> valid_latches;
+        bool latches_ok = true;
         for (auto *latch : latches) {
-            if (!latch->is_terminated()) { continue; }
-            retarget_terminator(latch->terminator(), header, canonical_latch);
+            if (!dom.dominates(header, latch)) {
+                LUISA_WARNING_WITH_LOCATION("restructure_cfg: irreducible back-edge from block to non-dominating header; skipping region");
+                info.irreducible_region_count++;
+                latches_ok = false;
+                break;
+            }
+            if (!latch->is_terminated()) {
+                latches_ok = false;
+                break;
+            }
+            auto *lt = latch->terminator();
+            bool has_back_edge = false;
+            if (lt->isa<BranchInst>()) {
+                has_back_edge = (static_cast<BranchInst *>(lt)->target_block() == header);
+            } else if (lt->isa<ConditionalBranchInst>()) {
+                auto *cb = static_cast<ConditionalBranchInst *>(lt);
+                has_back_edge = (cb->true_block() == header || cb->false_block() == header);
+            }
+            if (!has_back_edge) {
+                latches_ok = false;
+                break;
+            }
+            valid_latches.emplace_back(latch);
         }
-        XIRBuilder b;
-        b.set_insertion_point(canonical_latch);
-        b.br(header);
-        loop_blocks.emplace(canonical_latch);
-    }
+        if (!latches_ok || valid_latches.empty()) { continue; }
 
-    luisa::vector<BasicBlock *> entry_preds;
-    header->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-        if (!dom.contains(pred)) { return; }
-        if (!loop_blocks.contains(pred)) { entry_preds.emplace_back(pred); }
-    });
+        luisa::unordered_set<BasicBlock *> loop_blocks;
+        BasicBlock *loop_scope_boundary = nullptr;
+        if (auto it = pdom.ipostdom.find(header);
+            it != pdom.ipostdom.end() && it->second != pdom.virtual_exit) {
+            loop_scope_boundary = it->second;
+        }
+        loop_blocks.emplace(header);
+        luisa::vector<BasicBlock *> fwd_work{header};
+        while (!fwd_work.empty()) {
+            auto *cur = fwd_work.back();
+            fwd_work.pop_back();
+            if (!cur->is_terminated()) { continue; }
+            cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (succ == loop_scope_boundary) { return; }
+                if (!dom.contains(succ)) { return; }
+                if (!dom.strictly_dominates(header, succ)) { return; }
+                if (loop_blocks.emplace(succ).second) {
+                    fwd_work.emplace_back(succ);
+                }
+            });
+        }
+        for (auto *latch : valid_latches) {
+            if (!loop_blocks.contains(latch)) {
+                info.irreducible_region_count++;
+                latches_ok = false;
+                break;
+            }
+        }
+        if (!latches_ok) { continue; }
 
-    auto *preheader = def->create_basic_block();
-    if (def->body_block() == header) { def->set_body_block(preheader); }
-    for (auto *pred : entry_preds) {
-        if (!pred->is_terminated()) { continue; }
-        retarget_terminator(pred->terminator(), header, preheader);
-    }
-    {
-        XIRBuilder b;
-        b.set_insertion_point(preheader);
-        b.br(header);
-    }
+        luisa::vector<std::pair<BasicBlock *, BasicBlock *>> pre_exit_edges;
+        for (auto *lb : loop_blocks) {
+            if (!lb->is_terminated()) { continue; }
+            lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (succ == header) { return; }
+                if (loop_blocks.contains(succ)) { return; }
+                pre_exit_edges.emplace_back(lb, succ);
+            });
+        }
+        luisa::unordered_set<BasicBlock *> pre_exit_targets_set;
+        for (auto &[src, tgt] : pre_exit_edges) { pre_exit_targets_set.emplace(tgt); }
+        luisa::vector<BasicBlock *> pre_exit_targets{pre_exit_targets_set.begin(), pre_exit_targets_set.end()};
 
-    auto *loop_merge = def->create_basic_block();
+        BasicBlock *dispatch_merge_or_null = nullptr;
+        if (pre_exit_targets.size() > 1) {
+            dispatch_merge_or_null = common_postdom(pdom, luisa::span<BasicBlock *const>{pre_exit_targets});
+            if (dispatch_merge_or_null == pdom.virtual_exit) {
+                dispatch_merge_or_null = nullptr;
+            }
+            auto *fresh_merge = def->create_basic_block();
+            XIRBuilder mb;
+            mb.set_insertion_point(fresh_merge);
+            if (dispatch_merge_or_null) {
+                mb.br(dispatch_merge_or_null);
+            } else {
+                mb.unreachable_();
+            }
+            dispatch_merge_or_null = fresh_merge;
+        }
 
-    luisa::vector<std::pair<BasicBlock *, BasicBlock *>> exit_edges;
-    for (auto *lb : loop_blocks) {
-        if (!lb->is_terminated()) { continue; }
-        lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-            if (succ == loop_merge) { return; }
-            if (succ == header) { return; }
-            if (loop_blocks.contains(succ)) { return; }
-            exit_edges.emplace_back(lb, succ);
+        BasicBlock *canonical_latch = nullptr;
+        if (valid_latches.size() == 1) {
+            canonical_latch = valid_latches[0];
+        } else {
+            canonical_latch = def->create_basic_block();
+            for (auto *latch : valid_latches) {
+                if (!latch->is_terminated()) { continue; }
+                retarget_terminator(latch->terminator(), header, canonical_latch);
+            }
+            XIRBuilder b;
+            b.set_insertion_point(canonical_latch);
+            b.br(header);
+            loop_blocks.emplace(canonical_latch);
+        }
+
+        luisa::vector<BasicBlock *> entry_preds;
+        header->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+            if (!dom.contains(pred)) { return; }
+            if (!loop_blocks.contains(pred)) { entry_preds.emplace_back(pred); }
         });
-    }
 
-    luisa::unordered_set<BasicBlock *> exit_targets_set;
-    for (auto &[src, tgt] : exit_edges) { exit_targets_set.emplace(tgt); }
-    luisa::vector<BasicBlock *> exit_targets{exit_targets_set.begin(), exit_targets_set.end()};
-
-    auto *mod = def->parent_module();
-
-    if (exit_targets.size() <= 1) {
-        for (auto &[src, tgt] : exit_edges) {
-            retarget_terminator(src->terminator(), tgt, loop_merge);
+        auto *preheader = def->create_basic_block();
+        if (def->body_block() == header) { def->set_body_block(preheader); }
+        for (auto *pred : entry_preds) {
+            if (!pred->is_terminated()) { continue; }
+            retarget_terminator(pred->terminator(), header, preheader);
         }
         {
             XIRBuilder b;
+            b.set_insertion_point(preheader);
+            b.br(header);
+        }
+
+        auto *loop_merge = def->create_basic_block();
+
+        luisa::vector<std::pair<BasicBlock *, BasicBlock *>> exit_edges;
+        for (auto *lb : loop_blocks) {
+            if (!lb->is_terminated()) { continue; }
+            lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (succ == loop_merge) { return; }
+                if (succ == header) { return; }
+                if (loop_blocks.contains(succ)) { return; }
+                exit_edges.emplace_back(lb, succ);
+            });
+        }
+
+        luisa::unordered_set<BasicBlock *> exit_targets_set;
+        for (auto &[src, tgt] : exit_edges) { exit_targets_set.emplace(tgt); }
+        luisa::vector<BasicBlock *> exit_targets{exit_targets_set.begin(), exit_targets_set.end()};
+
+        auto *mod = def->parent_module();
+
+        if (exit_targets.size() <= 1) {
+            for (auto &[src, tgt] : exit_edges) {
+                retarget_terminator(src->terminator(), tgt, loop_merge);
+            }
+            {
+                XIRBuilder b;
+                b.set_insertion_point(loop_merge);
+                if (!exit_targets.empty()) {
+                    b.br(exit_targets[0]);
+                } else {
+                    b.unreachable_();
+                }
+            }
+        } else {
+            auto *dispatch_merge = dispatch_merge_or_null;
+            if (dispatch_merge == nullptr) {
+                dispatch_merge = def->create_basic_block();
+                XIRBuilder mb;
+                mb.set_insertion_point(dispatch_merge);
+                mb.unreachable_();
+            }
+
+            XIRBuilder b;
+            auto *entry_bb = def->body_block();
+            b.set_insertion_point(entry_bb->instructions().front());
+            auto *exit_sel = b.alloca_local(Type::of<uint32_t>());
+            b.set_insertion_point(preheader);
+            auto *preheader_br = preheader->terminator();
+            preheader_br->remove_self();
+            b.set_insertion_point(preheader);
+            auto *zero_const = mod->create_constant_zero(Type::of<uint32_t>());
+            b.store(exit_sel, zero_const);
+            b.br(header);
+
+            uint32_t sel_id = 0;
+            luisa::unordered_map<BasicBlock *, uint32_t> exit_target_id;
+            luisa::vector<BasicBlock *> used_exit_targets;
+
+            for (auto &[src, tgt] : exit_edges) {
+                auto *stub = def->create_basic_block();
+                auto changed = retarget_terminator(src->terminator(), tgt, stub);
+                if (!changed) {
+                    stub->remove_self();
+                    continue;
+                }
+                auto id_it = exit_target_id.find(tgt);
+                uint32_t id;
+                if (id_it == exit_target_id.end()) {
+                    id = sel_id++;
+                    exit_target_id.emplace(tgt, id);
+                    used_exit_targets.emplace_back(tgt);
+                } else {
+                    id = id_it->second;
+                }
+                auto *id_const = mod->create_constant(Type::of<uint32_t>(), &id);
+                b.set_insertion_point(stub);
+                b.store(exit_sel, id_const);
+                b.br(loop_merge);
+            }
+
             b.set_insertion_point(loop_merge);
-            if (!exit_targets.empty()) {
-                b.br(exit_targets[0]);
-            } else {
+            if (used_exit_targets.empty()) {
                 b.unreachable_();
-            }
-        }
-    } else {
-        auto *dispatch_merge = dispatch_merge_or_null;
-        if (dispatch_merge == nullptr) {
-            dispatch_merge = def->create_basic_block();
-            XIRBuilder mb;
-            mb.set_insertion_point(dispatch_merge);
-            mb.unreachable_();
-        }
-
-        XIRBuilder b;
-        auto *entry_bb = def->body_block();
-        b.set_insertion_point(entry_bb->instructions().front());
-        auto *exit_sel = b.alloca_local(Type::of<uint32_t>());
-        b.set_insertion_point(preheader);
-        auto *preheader_br = preheader->terminator();
-        preheader_br->remove_self();
-        b.set_insertion_point(preheader);
-        auto *zero_const = mod->create_constant_zero(Type::of<uint32_t>());
-        b.store(exit_sel, zero_const);
-        b.br(header);
-
-        uint32_t sel_id = 0;
-        luisa::unordered_map<BasicBlock *, uint32_t> exit_target_id;
-        luisa::vector<BasicBlock *> used_exit_targets;
-
-        for (auto &[src, tgt] : exit_edges) {
-            auto *stub = def->create_basic_block();
-            auto changed = retarget_terminator(src->terminator(), tgt, stub);
-            if (!changed) {
-                stub->remove_self();
-                continue;
-            }
-            auto id_it = exit_target_id.find(tgt);
-            uint32_t id;
-            if (id_it == exit_target_id.end()) {
-                id = sel_id++;
-                exit_target_id.emplace(tgt, id);
-                used_exit_targets.emplace_back(tgt);
+            } else if (used_exit_targets.size() == 1) {
+                b.br(used_exit_targets[0]);
             } else {
-                id = id_it->second;
-            }
-            auto *id_const = mod->create_constant(Type::of<uint32_t>(), &id);
-            b.set_insertion_point(stub);
-            b.store(exit_sel, id_const);
-            b.br(loop_merge);
-        }
+                auto *loaded_sel = b.load(Type::of<uint32_t>(), exit_sel);
+                auto *dispatch_bb = def->create_basic_block();
+                b.br(dispatch_bb);
 
-        b.set_insertion_point(loop_merge);
-        if (used_exit_targets.empty()) {
-            b.unreachable_();
-        } else if (used_exit_targets.size() == 1) {
-            b.br(used_exit_targets[0]);
-        } else {
-            auto *loaded_sel = b.load(Type::of<uint32_t>(), exit_sel);
-            auto *dispatch_bb = def->create_basic_block();
-            b.br(dispatch_bb);
-
-            b.set_insertion_point(dispatch_bb);
-            auto *sw = b.switch_(loaded_sel);
-            sw->set_merge_block(dispatch_merge);
-            sw->set_default_block(used_exit_targets[0]);
-            for (size_t i = 1; i < used_exit_targets.size(); i++) {
-                auto *tgt = used_exit_targets[i];
-                auto id = static_cast<SwitchInst::case_value_type>(exit_target_id[tgt]);
-                sw->add_case(id, tgt);
+                b.set_insertion_point(dispatch_bb);
+                auto *sw = b.switch_(loaded_sel);
+                sw->set_merge_block(dispatch_merge);
+                sw->set_default_block(used_exit_targets[0]);
+                for (size_t i = 1; i < used_exit_targets.size(); i++) {
+                    auto *tgt = used_exit_targets[i];
+                    auto id = static_cast<SwitchInst::case_value_type>(exit_target_id[tgt]);
+                    sw->add_case(id, tgt);
+                }
             }
         }
-    }
 
-    if (canonical_latch->is_terminated()) {
-        canonical_latch->terminator()->remove_self();
-    }
-    {
-        XIRBuilder b;
-        b.set_insertion_point(canonical_latch);
-        b.br(header);
-    }
+        if (canonical_latch->is_terminated()) {
+            canonical_latch->terminator()->remove_self();
+        }
+        {
+            XIRBuilder b;
+            b.set_insertion_point(canonical_latch);
+            b.br(header);
+        }
 
-    if (preheader->is_terminated()) {
-        preheader->terminator()->remove_self();
-    }
+        if (preheader->is_terminated()) {
+            preheader->terminator()->remove_self();
+        }
 
-    BasicBlock *loop_body_succ = nullptr;
-    if (header->is_terminated()) {
-        auto *ht = header->terminator();
-        if (ht->isa<ConditionalBranchInst>()) {
-            auto *cb = static_cast<ConditionalBranchInst *>(ht);
-            auto *tb = cb->true_block();
-            auto *fb = cb->false_block();
-            bool true_in_loop = loop_blocks.contains(tb);
-            bool false_in_loop = loop_blocks.contains(fb);
-            // The loop body successor is the target that remains in the loop.
-            // This handles both single-exit (where the other target is loop_merge)
-            // and multi-exit (where the other target is a stub that exits).
-            if (true_in_loop && !false_in_loop) {
-                loop_body_succ = tb;
-            } else if (!true_in_loop && false_in_loop) {
-                loop_body_succ = fb;
+        BasicBlock *loop_body_succ = nullptr;
+        if (header->is_terminated()) {
+            auto *ht = header->terminator();
+            if (ht->isa<ConditionalBranchInst>()) {
+                auto *cb = static_cast<ConditionalBranchInst *>(ht);
+                auto *tb = cb->true_block();
+                auto *fb = cb->false_block();
+                bool true_in_loop = loop_blocks.contains(tb);
+                bool false_in_loop = loop_blocks.contains(fb);
+                if (true_in_loop && !false_in_loop) {
+                    loop_body_succ = tb;
+                } else if (!true_in_loop && false_in_loop) {
+                    loop_body_succ = fb;
+                }
             }
         }
-    }
 
-    {
-        XIRBuilder b;
-        b.set_insertion_point(preheader);
-        if (loop_body_succ != nullptr && loop_body_succ != canonical_latch) {
-            auto *li = b.loop();
-            li->set_prepare_block(header);
-            li->set_body_block(loop_body_succ);
-            li->set_update_block(canonical_latch);
-            li->set_merge_block(loop_merge);
-        } else {
-            auto *sl = b.simple_loop();
-            sl->set_body_block(header);
-            sl->set_merge_block(loop_merge);
+        {
+            XIRBuilder b;
+            b.set_insertion_point(preheader);
+            if (loop_body_succ != nullptr && loop_body_succ != canonical_latch) {
+                auto *li = b.loop();
+                li->set_prepare_block(header);
+                li->set_body_block(loop_body_succ);
+                li->set_update_block(canonical_latch);
+                li->set_merge_block(loop_merge);
+            } else {
+                auto *sl = b.simple_loop();
+                sl->set_body_block(header);
+                sl->set_merge_block(loop_merge);
+            }
         }
+
+        newly_restructured_headers.emplace(header);
+        info.restructured_loop_count++;
+        any = true;
     }
 
-    info.restructured_loop_count++;
-    return true;
+    return any;
 }
 
 [[nodiscard]] bool try_restructure_if_batch(FunctionDefinition *def,
-                                                     const DomTree &dom,
-                                                     const PostDomInfo &pdom,
-                                                     RestructureCFGInfo &info,
-                                                     luisa::unordered_set<BasicBlock *> &all_created_structural_merges,
-                                                     luisa::unordered_map<BasicBlock *, BasicBlock *> &sm_to_header) noexcept {
+                                            const DomTree &dom,
+                                            const PostDomInfo &pdom,
+                                            RestructureCFGInfo &info,
+                                            luisa::unordered_set<BasicBlock *> &all_created_structural_merges,
+                                            luisa::unordered_map<BasicBlock *, BasicBlock *> &sm_to_header) noexcept {
+    ScopedTimer _timer_try_if("try_restructure_if_batch");
     // Collect merge blocks and headers of already-structured loops.
     luisa::unordered_map<BasicBlock *, BasicBlock *> loop_merge_to_header;
     luisa::unordered_set<BasicBlock *> loop_headers;
@@ -693,191 +809,190 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     bool any = false;
     auto &created_structural_merges = all_created_structural_merges;
 
-    // Process only the innermost candidate per call. This lets the outer loop
-    // recompute the dominator tree before handling the next candidate, avoiding
-    // stale-dominance bugs when retargeting across multiple ifs in one batch.
-    if (!candidates.empty()) {
-        auto &cand = candidates.front();
+    // Process all candidates from innermost to outermost.
+    // Since we process innermost first, restructuring an inner if does not
+    // invalidate the dom/pdom for outer if-candidates. We re-validate each
+    // candidate before processing to guard against stale state.
+    for (auto &cand : candidates) {
         auto *found_header = cand.header;
         auto *found_cbr = cand.cbr;
         auto *found_merge = cand.merge;
         auto *enclosing_loop_continue = cand.enclosing_loop_continue;
-        (void)cand;
 
-        // Skip if already restructured
+        // Re-validate: header may have been restructured by a previous candidate in this batch.
+        if (!found_header->is_terminated()) { continue; }
+        auto *check_term = found_header->terminator();
+        if (!check_term->isa<ConditionalBranchInst>()) { continue; }
+        if (static_cast<ConditionalBranchInst *>(check_term) != found_cbr) { continue; }
+
+        auto *true_bb = found_cbr->true_block();
+        auto *false_bb = found_cbr->false_block();
+        auto *cond = found_cbr->condition();
+
+        // If found_merge is a structural_merge created earlier,
+        // follow its unique successor chain to find the real merge point.
+        while (created_structural_merges.contains(found_merge)) {
+            auto *term = found_merge->terminator();
+            if (term != nullptr && term->isa<BranchInst>()) {
+                auto *br = static_cast<BranchInst *>(term);
+                if (auto *target = br->target_block(); target != nullptr) {
+                    found_merge = target;
+                    continue;
+                }
+            }
+            break;
+        }
+
+        BasicBlock *structural_merge = nullptr;
+        if (loop_headers.contains(found_merge) && found_header == found_merge) {
+            structural_merge = found_merge;
+        } else {
+            structural_merge = def->create_basic_block();
+            created_structural_merges.emplace(structural_merge);
+            sm_to_header.emplace(structural_merge, found_header);
+            {
+                XIRBuilder mb;
+                mb.set_insertion_point(structural_merge);
+                mb.br(found_merge);
+            }
+        }
+
+        luisa::unordered_set<BasicBlock *> allowed_outside_targets;
+        for (auto &[loop_merge, loop_header] : loop_merge_to_header) {
+            if (dom.dominates(loop_header, found_header)) {
+                allowed_outside_targets.emplace(loop_merge);
+                allowed_outside_targets.emplace(loop_header);
+                auto *loop_term = loop_header->terminator();
+                if (loop_term->isa<LoopInst>()) {
+                    auto *li = static_cast<LoopInst *>(loop_term);
+                    if (li->prepare_block() != nullptr) {
+                        allowed_outside_targets.emplace(li->prepare_block());
+                    }
+                    if (li->update_block() != nullptr) {
+                        allowed_outside_targets.emplace(li->update_block());
+                    }
+                } else if (loop_term->isa<SimpleLoopInst>()) {
+                    auto *sl = static_cast<SimpleLoopInst *>(loop_term);
+                    allowed_outside_targets.emplace(sl->body_block());
+                }
+            }
+        }
+
+        // Compute all blocks reachable from structural_merge.
+        luisa::unordered_set<BasicBlock *> reachable_from_sm;
+        {
+            luisa::vector<BasicBlock *> sm_work;
+            sm_work.push_back(structural_merge);
+            while (!sm_work.empty()) {
+                auto *bb = sm_work.back();
+                sm_work.pop_back();
+                if (!reachable_from_sm.emplace(bb).second) { continue; }
+                if (!bb->is_terminated()) { continue; }
+                bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    sm_work.emplace_back(succ);
+                });
+            }
+        }
+
+        // Compute the set of blocks inside the current if's scope.
+        luisa::unordered_set<BasicBlock *> if_scope_blocks;
+        {
+            luisa::vector<BasicBlock *> scope_work;
+            if (true_bb != found_merge && true_bb != structural_merge) {
+                scope_work.push_back(true_bb);
+            }
+            if (false_bb != found_merge && false_bb != structural_merge) {
+                scope_work.push_back(false_bb);
+            }
+            while (!scope_work.empty()) {
+                auto *bb = scope_work.back();
+                scope_work.pop_back();
+                if (bb == found_merge || bb == structural_merge) { continue; }
+                if (!if_scope_blocks.emplace(bb).second) { continue; }
+                if (!bb->is_terminated()) { continue; }
+                bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    scope_work.emplace_back(succ);
+                });
+            }
+        }
+
+        // Walk the dominator-tree subtree rooted at found_header.
+        // Only retarget unstructured cbr/br blocks that are actually inside
+        // the if's scope. Skip IfInst/SwitchInst/LoopInst terminators to avoid
+        // corrupting already-structured inner constructs.
+        auto header_node = dom.node_or_null(found_header);
+        if (header_node != nullptr) {
+            luisa::vector<const DomTreeNode *> work;
+            work.push_back(header_node);
+            while (!work.empty()) {
+                auto *node = work.back();
+                work.pop_back();
+                auto *bb = node->block();
+                if (bb != structural_merge && bb != found_header && bb != found_merge &&
+                    bb->is_terminated() && if_scope_blocks.contains(bb) &&
+                    !allowed_outside_targets.contains(bb)) {
+                    auto *term = bb->terminator();
+                    if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
+                        bool is_loop_update_backedge = false;
+                        if (auto it = loop_update_to_prepare.find(bb);
+                            it != loop_update_to_prepare.end() && it->second == found_merge) {
+                            is_loop_update_backedge = true;
+                        }
+                        if (!is_loop_update_backedge) {
+                            if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
+                                retarget_terminator(term, found_merge, structural_merge);
+                            } else if (dom.contains(found_merge) && dom.strictly_dominates(found_merge, bb) && dom.strictly_dominates(found_header, bb)) {
+                                retarget_terminator(term, found_merge, structural_merge);
+                            }
+                        }
+                        fix_degenerate_terminator(bb);
+                    }
+                }
+                for (auto *child : node->children()) {
+                    work.push_back(child);
+                }
+            }
+        }
+
+        if (true_bb == found_merge) { true_bb = structural_merge; }
+        if (false_bb == found_merge) { false_bb = structural_merge; }
+
+        // Sanity check: retargeting must not have removed the header's terminator.
         if (found_header->is_terminated() &&
             found_header->terminator()->isa<ConditionalBranchInst>() &&
             found_header->terminator() == found_cbr) {
 
-            auto *true_bb = found_cbr->true_block();
-            auto *false_bb = found_cbr->false_block();
-            auto *cond = found_cbr->condition();
+            found_cbr->remove_self();
 
-            // If found_merge is a structural_merge created earlier,
-            // follow its unique successor chain to find the real merge point.
-            while (created_structural_merges.contains(found_merge)) {
-                auto *term = found_merge->terminator();
-                if (term != nullptr && term->isa<BranchInst>()) {
-                    auto *br = static_cast<BranchInst *>(term);
-                    if (auto *target = br->target_block(); target != nullptr) {
-                        found_merge = target;
-                        continue;
-                    }
-                }
-                break;
-            }
+            XIRBuilder b;
+            b.set_insertion_point(found_header);
+            auto *if_inst = b.if_(cond);
+            if_inst->set_true_target(true_bb);
+            if_inst->set_false_target(false_bb);
+            if_inst->set_merge_block(structural_merge);
 
-            BasicBlock *structural_merge = nullptr;
-            if (loop_headers.contains(found_merge) && found_header == found_merge) {
-                structural_merge = found_merge;
-            } else {
-                structural_merge = def->create_basic_block();
-                created_structural_merges.emplace(structural_merge);
-                sm_to_header.emplace(structural_merge, found_header);
-                {
-                    XIRBuilder mb;
-                    mb.set_insertion_point(structural_merge);
-                    mb.br(found_merge);
+            for (auto *arm_bb : {true_bb, false_bb}) {
+                if (arm_bb == nullptr) { continue; }
+                if (!arm_bb->is_terminated()) { continue; }
+                luisa::vector<BasicBlock *> bad_succs;
+                arm_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    if (succ == structural_merge) { return; }
+                    if (succ == found_merge) { return; }
+                    if (succ == enclosing_loop_continue) { return; }
+                    if (allowed_outside_targets.contains(succ)) { return; }
+                    if (!dom.contains(succ)) { return; }
+                    if (dom.dominates(found_header, succ)) { return; }
+                    bad_succs.emplace_back(succ);
+                });
+                luisa::sort(bad_succs.begin(), bad_succs.end());
+                bad_succs.erase(std::unique(bad_succs.begin(), bad_succs.end()), bad_succs.end());
+                for (auto *succ : bad_succs) {
+                    (void)clone_subgraph_to_target(def, succ, arm_bb, found_merge, structural_merge);
                 }
             }
 
-            luisa::unordered_set<BasicBlock *> allowed_outside_targets;
-            for (auto &[loop_merge, loop_header] : loop_merge_to_header) {
-                if (dom.dominates(loop_header, found_header)) {
-                    allowed_outside_targets.emplace(loop_merge);
-                    allowed_outside_targets.emplace(loop_header);
-                    auto *loop_term = loop_header->terminator();
-                    if (loop_term->isa<LoopInst>()) {
-                        auto *li = static_cast<LoopInst *>(loop_term);
-                        if (li->prepare_block() != nullptr) {
-                            allowed_outside_targets.emplace(li->prepare_block());
-                        }
-                        if (li->update_block() != nullptr) {
-                            allowed_outside_targets.emplace(li->update_block());
-                        }
-                    } else if (loop_term->isa<SimpleLoopInst>()) {
-                        auto *sl = static_cast<SimpleLoopInst *>(loop_term);
-                        allowed_outside_targets.emplace(sl->body_block());
-                    }
-                }
-            }
-
-            // Compute all blocks reachable from structural_merge.
-            luisa::unordered_set<BasicBlock *> reachable_from_sm;
-            {
-                luisa::vector<BasicBlock *> sm_work;
-                sm_work.push_back(structural_merge);
-                while (!sm_work.empty()) {
-                    auto *bb = sm_work.back();
-                    sm_work.pop_back();
-                    if (!reachable_from_sm.emplace(bb).second) { continue; }
-                    if (!bb->is_terminated()) { continue; }
-                    bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                        sm_work.emplace_back(succ);
-                    });
-                }
-            }
-
-            // Compute the set of blocks inside the current if's scope.
-            luisa::unordered_set<BasicBlock *> if_scope_blocks;
-            {
-                luisa::vector<BasicBlock *> scope_work;
-                if (true_bb != found_merge && true_bb != structural_merge) {
-                    scope_work.push_back(true_bb);
-                }
-                if (false_bb != found_merge && false_bb != structural_merge) {
-                    scope_work.push_back(false_bb);
-                }
-                while (!scope_work.empty()) {
-                    auto *bb = scope_work.back();
-                    scope_work.pop_back();
-                    if (bb == found_merge || bb == structural_merge) { continue; }
-                    if (!if_scope_blocks.emplace(bb).second) { continue; }
-                    if (!bb->is_terminated()) { continue; }
-                    bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                        scope_work.emplace_back(succ);
-                    });
-                }
-            }
-
-            // Walk the dominator-tree subtree rooted at found_header.
-            // Only retarget unstructured cbr/br blocks that are actually inside
-            // the if's scope. Skip IfInst/SwitchInst/LoopInst terminators to avoid
-            // corrupting already-structured inner constructs.
-            auto header_node = dom.node_or_null(found_header);
-            if (header_node != nullptr) {
-                luisa::vector<const DomTreeNode *> work;
-                work.push_back(header_node);
-                while (!work.empty()) {
-                    auto *node = work.back();
-                    work.pop_back();
-                    auto *bb = node->block();
-                    if (bb != structural_merge && bb != found_header && bb != found_merge &&
-                        bb->is_terminated() && if_scope_blocks.contains(bb) &&
-                        !allowed_outside_targets.contains(bb)) {
-                        auto *term = bb->terminator();
-                        if (term->isa<ConditionalBranchInst>() || term->isa<BranchInst>()) {
-                            bool is_loop_update_backedge = false;
-                            if (auto it = loop_update_to_prepare.find(bb);
-                                it != loop_update_to_prepare.end() && it->second == found_merge) {
-                                is_loop_update_backedge = true;
-                            }
-                            if (!is_loop_update_backedge) {
-                                if (dom.contains(found_merge) && !dom.strictly_dominates(found_merge, bb)) {
-                                    retarget_terminator(term, found_merge, structural_merge);
-                                } else if (dom.contains(found_merge) && dom.strictly_dominates(found_merge, bb) && dom.strictly_dominates(found_header, bb)) {
-                                    retarget_terminator(term, found_merge, structural_merge);
-                                }
-                            }
-                            fix_degenerate_terminator(bb);
-                        }
-                    }
-                    for (auto *child : node->children()) {
-                        work.push_back(child);
-                    }
-                }
-            }
-
-            if (true_bb == found_merge) { true_bb = structural_merge; }
-            if (false_bb == found_merge) { false_bb = structural_merge; }
-
-            // Sanity check: retargeting must not have removed the header's terminator.
-            if (found_header->is_terminated() &&
-                found_header->terminator()->isa<ConditionalBranchInst>() &&
-                found_header->terminator() == found_cbr) {
-
-                found_cbr->remove_self();
-
-                XIRBuilder b;
-                b.set_insertion_point(found_header);
-                auto *if_inst = b.if_(cond);
-                if_inst->set_true_target(true_bb);
-                if_inst->set_false_target(false_bb);
-                if_inst->set_merge_block(structural_merge);
-
-                for (auto *arm_bb : {true_bb, false_bb}) {
-                    if (arm_bb == nullptr) { continue; }
-                    if (!arm_bb->is_terminated()) { continue; }
-                    luisa::vector<BasicBlock *> bad_succs;
-                    arm_bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                        if (succ == structural_merge) { return; }
-                        if (succ == found_merge) { return; }
-                        if (succ == enclosing_loop_continue) { return; }
-                        if (allowed_outside_targets.contains(succ)) { return; }
-                        if (!dom.contains(succ)) { return; }
-                        if (dom.dominates(found_header, succ)) { return; }
-                        bad_succs.emplace_back(succ);
-                    });
-                    luisa::sort(bad_succs.begin(), bad_succs.end());
-                    bad_succs.erase(std::unique(bad_succs.begin(), bad_succs.end()), bad_succs.end());
-                    for (auto *succ : bad_succs) {
-                        (void)clone_subgraph_to_target(def, succ, arm_bb, found_merge, structural_merge);
-                    }
-                }
-
-                info.restructured_if_count++;
-                any = true;
-            }
+            info.restructured_if_count++;
+            any = true;
         }
     }
 
@@ -889,7 +1004,7 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
 // authorized internal back-edges, e.g. the update block of a loop), and NEVER from
 // sibling arms. Returns nullptr-free, possibly-duplicate-free list.
 void collect_construct_entries(BasicBlock *header_bb,
-                                      luisa::vector<BasicBlock *> &entries) noexcept {
+                               luisa::vector<BasicBlock *> &entries) noexcept {
     entries.clear();
     auto *term = header_bb->terminator();
     if (term == nullptr) { return; }
@@ -937,9 +1052,9 @@ struct CloneRemap final : public InstructionCloneValueResolver {
 // For a construct C with header H and one of its entries E, decide whether predecessor
 // P of E is "authorized" per the XIR invariant.
 [[nodiscard]] bool is_authorized_construct_pred(Instruction *header_term,
-                                                       BasicBlock * /*entry*/,
-                                                       BasicBlock *header_bb,
-                                                       BasicBlock *pred) noexcept {
+                                                BasicBlock * /*entry*/,
+                                                BasicBlock *header_bb,
+                                                BasicBlock *pred) noexcept {
     if (pred == header_bb) { return true; }
     if (header_term == nullptr) { return false; }
     switch (header_term->derived_instruction_tag()) {
@@ -963,10 +1078,10 @@ struct CloneRemap final : public InstructionCloneValueResolver {
 // construct C (with header H). Frontier blocks are NOT cloned; edges into them from
 // cloned blocks remain pointing at the original block.
 [[nodiscard]] bool is_clone_boundary(BasicBlock *S, BasicBlock *E,
-                                            BasicBlock *header_bb,
-                                            luisa::span<BasicBlock *const> entries,
-                                            BasicBlock *merge_bb,
-                                            const DomTree &dom) noexcept {
+                                     BasicBlock *header_bb,
+                                     luisa::span<BasicBlock *const> entries,
+                                     BasicBlock *merge_bb,
+                                     const DomTree &dom) noexcept {
     if (S == nullptr) { return true; }
     if (S == header_bb) { return true; }
     if (S == merge_bb) { return true; }
@@ -981,10 +1096,11 @@ struct CloneRemap final : public InstructionCloneValueResolver {
 // Walk forward from E, collecting all blocks owned by E that are not boundary.
 // Blocks are recorded in deterministic DFS discovery order in `ordered`.
 void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
-                                 luisa::span<BasicBlock *const> entries,
-                                 BasicBlock *merge_bb, const DomTree &dom,
-                                 luisa::unordered_set<BasicBlock *> &region,
-                                 luisa::vector<BasicBlock *> &ordered) noexcept {
+                          luisa::span<BasicBlock *const> entries,
+                          BasicBlock *merge_bb, const DomTree &dom,
+                          luisa::unordered_set<BasicBlock *> &region,
+                          luisa::vector<BasicBlock *> &ordered) noexcept {
+    ScopedTimer _timer_collect_region("collect_owned_region");
     region.clear();
     ordered.clear();
     luisa::vector<BasicBlock *> work;
@@ -1008,11 +1124,12 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 // Clone the owned subgraph rooted at E. P (with its terminator) is rerouted via a
 // fresh relay block to the clone of E. Returns true on success.
 [[nodiscard]] bool clone_owned_subgraph_for_edge(FunctionDefinition *def,
-                                                        BasicBlock *header_bb,
-                                                        BasicBlock *E, BasicBlock *P,
-                                                        luisa::span<BasicBlock *const> entries,
-                                                        BasicBlock *merge_bb,
-                                                        const DomTree &dom) noexcept {
+                                                 BasicBlock *header_bb,
+                                                 BasicBlock *E, BasicBlock *P,
+                                                 luisa::span<BasicBlock *const> entries,
+                                                 BasicBlock *merge_bb,
+                                                 const DomTree &dom) noexcept {
+    ScopedTimer _timer_clone_edge("clone_owned_subgraph_for_edge");
     luisa::unordered_set<BasicBlock *> region;
     luisa::vector<BasicBlock *> ordered;
     collect_owned_region(E, header_bb, entries, merge_bb, dom, region, ordered);
@@ -1057,9 +1174,10 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 // Any terminators in the cloned region that point to target are retargeted to new_target.
 // P's terminator edge to E is rerouted through a fresh relay to clone(E).
 [[nodiscard]] bool clone_subgraph_to_target(FunctionDefinition *def,
-                                                    BasicBlock *E, BasicBlock *P,
-                                                    BasicBlock *target,
-                                                    BasicBlock *new_target) noexcept {
+                                            BasicBlock *E, BasicBlock *P,
+                                            BasicBlock *target,
+                                            BasicBlock *new_target) noexcept {
+    ScopedTimer _timer_clone_subgraph("clone_subgraph_to_target");
     // Defensive: all parameters must be non-null.
     if (E == nullptr || P == nullptr || target == nullptr || new_target == nullptr) {
         return false;
@@ -1130,8 +1248,9 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 
 // Per-construct entry-uniqueness fix. Returns true if any edges were rewritten.
 [[nodiscard]] bool enforce_construct_entries(FunctionDefinition *def,
-                                                    BasicBlock *header_bb,
-                                                    BasicBlock *merge_bb) noexcept {
+                                             BasicBlock *header_bb,
+                                             BasicBlock *merge_bb) noexcept {
+    ScopedTimer _timer_enforce_entries("enforce_construct_entries");
     luisa::vector<BasicBlock *> entries;
     collect_construct_entries(header_bb, entries);
     if (entries.size() <= 1) { return false; }
@@ -1177,6 +1296,7 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
 // Visit each structured construct (If/Switch/Loop/SimpleLoop) and enforce the
 // invariant. We rescan after each change because the BB list has grown.
 void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_enforce_unique("enforce_unique_construct_entries");
     size_t outer_guard = 64;
     while (outer_guard-- > 0) {
         bool changed = false;
@@ -1212,6 +1332,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
 // If multiple cases branch to the same block, a proxy block is inserted.
 // Ported from LLVM SPIRVStructurizer::splitSwitchCases.
 [[nodiscard]] static bool split_switch_cases(FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_split_switch("split_switch_cases");
     bool modified = false;
     def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
         if (!bb->is_terminated()) { return; }
@@ -1250,6 +1371,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
     DomTree &dom,
     PostDomInfo &pdom,
     RestructureCFGInfo &info) noexcept {
+    ScopedTimer _timer_add_header("add_header_to_remaining_divergent");
 
     // Recompute structured metadata fresh.
     luisa::unordered_set<BasicBlock *> merge_set;
@@ -1417,6 +1539,7 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
     FunctionDefinition *def,
     DomTree &dom,
     PostDomInfo &pdom) noexcept {
+    ScopedTimer _timer_fixup_exits("fixup_construct_exits");
 
     bool modified = false;
     size_t max_iters = 64;
@@ -1484,11 +1607,19 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
                 luisa::vector<BasicBlock *> ord;
                 for (auto &[src, dst] : exits) {
                     auto *stub = def->create_basic_block();
-                    if (!retarget_terminator(src->terminator(), dst, stub)) { stub->remove_self(); continue; }
+                    if (!retarget_terminator(src->terminator(), dst, stub)) {
+                        stub->remove_self();
+                        continue;
+                    }
                     auto it = tid_map.find(dst);
                     uint32_t v;
-                    if (it == tid_map.end()) { v = id++; tid_map.emplace(dst, v); ord.emplace_back(dst); }
-                    else { v = it->second; }
+                    if (it == tid_map.end()) {
+                        v = id++;
+                        tid_map.emplace(dst, v);
+                        ord.emplace_back(dst);
+                    } else {
+                        v = it->second;
+                    }
                     b.set_insertion_point(stub);
                     b.store(sel, def->parent_module()->create_constant(Type::of<uint32_t>(), &v));
                     b.br(new_exit);
@@ -1503,11 +1634,15 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
                 auto *cm = common_postdom(pdom, luisa::span<BasicBlock *const>{ord});
                 if (cm == pdom.virtual_exit || cm == nullptr) {
                     auto *um = def->create_basic_block();
-                    XIRBuilder ub; ub.set_insertion_point(um); ub.unreachable_();
+                    XIRBuilder ub;
+                    ub.set_insertion_point(um);
+                    ub.unreachable_();
                     sw->set_merge_block(um);
                 } else {
                     auto *sm = def->create_basic_block();
-                    XIRBuilder sb; sb.set_insertion_point(sm); sb.br(cm);
+                    XIRBuilder sb;
+                    sb.set_insertion_point(sm);
+                    sb.br(cm);
                     sw->set_merge_block(sm);
                 }
                 for (size_t i = 1; i < ord.size(); ++i) {
@@ -1536,15 +1671,31 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
 }
 
 [[nodiscard]] RestructureCFGInfo restructure_cfg_on_definition(FunctionDefinition *def) noexcept {
+    ScopedTimer _timer_overall("restructure_cfg_on_definition");
     check_phi_free(def);
     RestructureCFGInfo info{};
     luisa::unordered_set<BasicBlock *> all_created_structural_merges;
     luisa::unordered_map<BasicBlock *, BasicBlock *> sm_to_header;
     size_t max_iters = 10000;
     while (max_iters-- > 0) {
+        ScopedTimer _timer_main_iter("main_loop_iteration");
         auto dom = compute_dom_tree(def);
         auto pdom = compute_post_dom(def);
-        if (try_restructure_loop(def, dom, pdom, info)) { continue; }
+        if (try_restructure_loop(def, dom, pdom, info)) {
+            // Fast path: if no conditional branches remain after restructuring
+            // all loops, there are no if-candidates either — break early.
+            bool has_cbr = false;
+            def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+                if (has_cbr) { return; }
+                if (bb->is_terminated()) {
+                    if (bb->terminator()->isa<ConditionalBranchInst>()) {
+                        has_cbr = true;
+                    }
+                }
+            });
+            if (!has_cbr) { break; }
+            continue;
+        }
         if (try_restructure_if_batch(def, dom, pdom, info, all_created_structural_merges, sm_to_header)) {
             // Fast path: if no conditional branches remain, we can skip the
             // expensive dom/pdom recomputation and break out early.
@@ -1570,9 +1721,11 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
     // after each pass modifies the CFG.
     size_t post_iters = 16;
     {
+        ScopedTimer _timer_post("post_restructure_fixed_point");
         auto dom = compute_dom_tree(def);
         auto pdom = compute_post_dom(def);
         while (post_iters-- > 0) {
+            ScopedTimer _timer_post_iter("post_restructure_iteration");
             bool local = false;
             if (add_header_to_remaining_divergent(def, dom, pdom, info)) {
                 local = true;
