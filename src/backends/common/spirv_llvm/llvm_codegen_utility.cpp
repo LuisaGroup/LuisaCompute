@@ -14,12 +14,18 @@
 #include <spirv-tools/libspirv.hpp>
 #include <spirv-tools/optimizer.hpp>
 
+// SPIR-V specific LLVM intrinsics (llvm.spv.thread.id, etc.)
+#include "include/llvm/IR/IntrinsicsSPIRV.h"
+
 #include "../hlsl/shader_property.h"
 #include "../hlsl/hlsl_codegen.h"
 
 #include <luisa/ast/variable.h>
 #include <luisa/ast/usage.h>
 #include <luisa/runtime/rhi/resource.h>
+#ifdef alloca
+#undef alloca
+#endif
 
 namespace lc::llvm_codegen {
 
@@ -417,13 +423,15 @@ llvm::Function *LLVMCodegenUtility::CodegenFunction(Function func) {
     // Build function type
     auto *ret_type = func.return_type() ? ToLLVMType(*func.return_type()) : _builder->getVoidTy();
     luisa::vector<llvm::Type *> param_types;
-    for (auto &arg : func.arguments()) {
-        param_types.push_back(ToLLVMType(*arg.type()));
-    }
-    // Add builtin variable parameters for kernel
-    if (func.tag() == Function::Tag::KERNEL) {
-        for (auto &bv : func.builtin_variables()) {
-            param_types.push_back(ToLLVMType(*bv.type()));
+    // Vulkan SPIR-V requires entry point functions to have zero parameters
+    // (VUID-StandaloneSpirv-None-04633). For kernel entry points:
+    //   - Resource arguments  → addrspace(1)/addrspace(2) GlobalVariable
+    //   - Non-resource args   → _Global cbuffer in addrspace(1)
+    //   - Builtin variables   → @llvm.spv.thread.id / .thread.id.in.group / .group.id intrinsics
+    // For callables, all arguments remain as function parameters.
+    if (func.tag() != Function::Tag::KERNEL) {
+        for (auto &arg : func.arguments()) {
+            param_types.push_back(ToLLVMType(*arg.type()));
         }
     }
 
@@ -431,6 +439,9 @@ llvm::Function *LLVMCodegenUtility::CodegenFunction(Function func) {
 
     // Create function name — use "main" for kernel entry points
     // to match the hardcoded entry point name in ComputeShader.
+    // Resource arguments are global variables, arithmetic arguments are
+    // packed into a cbuffer-like global structured buffer _Global
+    // (mirroring src/backends/common/hlsl/codegen_utils/cbuffer.cpp).
     vstd::StringBuilder name_builder;
     if (func.tag() == Function::Tag::KERNEL) {
         name_builder << "main";
@@ -458,13 +469,15 @@ llvm::Function *LLVMCodegenUtility::CodegenFunction(Function func) {
 
     opt->func_types[hash] = llvm_func;
 
-    // Set argument names
+    // Set argument names (only for callables with params)
     size_t arg_idx = 0;
-    for (auto &arg : func.arguments()) {
-        vstd::StringBuilder arg_name;
-        GetVariableName(func, arg, arg_name);
-        llvm_func->getArg(arg_idx)->setName(arg_name.data());
-        arg_idx++;
+    if (func.tag() != Function::Tag::KERNEL) {
+        for (auto &arg : func.arguments()) {
+            vstd::StringBuilder arg_name;
+            GetVariableName(func, arg, arg_name);
+            llvm_func->getArg(arg_idx)->setName(arg_name.data());
+            arg_idx++;
+        }
     }
 
     // Create entry basic block
@@ -494,39 +507,118 @@ llvm::Function *LLVMCodegenUtility::CodegenFunction(Function func) {
         opt->shared_variable_uids.insert(v.uid());
     }
 
-    // Map arguments
-    arg_idx = 0;
-    for (auto &arg : func.arguments()) {
-        auto *param = llvm_func->getArg(static_cast<unsigned>(arg_idx));
-        if (arg.tag() == Variable::Tag::REFERENCE) {
-            // Store reference parameter into alloca
-            std::string ref_name = "_R" + std::to_string(arg.uid()) + "_ptr";
-            auto *alloca = _builder->CreateAlloca(
-                param->getType(), nullptr, ref_name);
-            _builder->CreateStore(param, alloca);
-            opt->variables[arg.uid()] = alloca;
-        } else if (arg.is_resource()) {
-            // Resources are passed as opaque pointers
-            opt->variables[arg.uid()] = param;
-        } else {
-            // Regular arguments: store into alloca
-            auto *alloca = _builder->CreateAlloca(
-                param->getType(), nullptr);
-            _builder->CreateStore(param, alloca);
-            opt->variables[arg.uid()] = alloca;
-        }
-        arg_idx++;
-    }
-
-    // Handle builtin variables for kernels
+    // For kernel entry points, create global variables for all arguments
+    // (resources + cbuffer) and emit intrinsics for builtins.
     if (func.tag() == Function::Tag::KERNEL) {
+        // --- Resource arguments: create GlobalVariable in addrspace(1) ---
+        // The LLVM SPIR-V backend converts these to OpVariable with
+        // CrossWorkgroup storage class and adds them to the entry point interface.
+        for (auto &arg : func.arguments()) {
+            if (arg.is_resource()) {
+                vstd::StringBuilder var_name;
+                GetVariableName(func, arg, var_name);
+                auto *global = new llvm::GlobalVariable(
+                    *_module, ToLLVMType(*arg.type()), false,
+                    llvm::GlobalValue::ExternalLinkage, nullptr,
+                    llvm::StringRef(var_name.data(), var_name.size()),
+                    nullptr, llvm::GlobalVariable::NotThreadLocal,
+                    1u); // addrspace(1) = CrossWorkgroup/StorageBuffer
+                opt->variables[arg.uid()] = global;
+            } else if (arg.tag() == Variable::Tag::REFERENCE) {
+                // Reference arguments: create GlobalVariable in addrspace(1)
+                vstd::StringBuilder var_name;
+                GetVariableName(func, arg, var_name);
+                auto *global = new llvm::GlobalVariable(
+                    *_module, ToLLVMType(*arg.type()), false,
+                    llvm::GlobalValue::ExternalLinkage, nullptr,
+                    llvm::StringRef(var_name.data(), var_name.size()),
+                    nullptr, llvm::GlobalVariable::NotThreadLocal,
+                    1u);
+                opt->variables[arg.uid()] = global;
+            }
+        }
+
+        // --- Non-resource (arithmetic) arguments: cbuffer _Global in addrspace(1) ---
+        luisa::vector<const Variable *> value_args;
+        for (auto &arg : func.arguments()) {
+            if (!arg.is_resource() && arg.tag() != Variable::Tag::REFERENCE) {
+                value_args.push_back(&arg);
+            }
+        }
+        if (!value_args.empty()) {
+            luisa::vector<llvm::Type *> arg_llvm_types;
+            for (auto *arg : value_args) {
+                arg_llvm_types.push_back(ToLLVMType(*arg->type()));
+            }
+            auto *args_struct_type = llvm::StructType::create(
+                *_context, arg_llvm_types, "_Args");
+            auto *args_global = new llvm::GlobalVariable(
+                *_module, args_struct_type, false,
+                llvm::GlobalValue::ExternalLinkage, nullptr,
+                "_Global", nullptr,
+                llvm::GlobalVariable::NotThreadLocal,
+                1u); // addrspace(1) = CrossWorkgroup/StorageBuffer
+
+            for (size_t i = 0; i < value_args.size(); i++) {
+                auto *gep = _builder->CreateStructGEP(
+                    args_struct_type, args_global,
+                    static_cast<unsigned>(i));
+                auto *loaded = _builder->CreateLoad(
+                    arg_llvm_types[i], gep);
+                auto *alloca = _builder->CreateAlloca(
+                    arg_llvm_types[i], nullptr);
+                _builder->CreateStore(loaded, alloca);
+                opt->variables[value_args[i]->uid()] = alloca;
+            }
+        }
+
+        // --- Builtin variables: use LLVM SPIR-V intrinsics ---
+        // @llvm.spv.thread.id         → GlobalInvocationId (SV_DispatchThreadID)
+        // @llvm.spv.thread.id.in.group → LocalInvocationId (SV_GroupThreadId)
+        // @llvm.spv.group.id          → WorkgroupId (SV_GroupId)
         for (auto &bv : func.builtin_variables()) {
-            auto *param = llvm_func->getArg(static_cast<unsigned>(arg_idx));
-            auto *alloca = _builder->CreateAlloca(
-                param->getType(), nullptr);
-            _builder->CreateStore(param, alloca);
-            opt->variables[bv.uid()] = alloca;
-            arg_idx++;
+            llvm::Intrinsic::ID intrinsic_id;
+            switch (bv.tag()) {
+                case Variable::Tag::DISPATCH_ID:
+                    intrinsic_id = llvm::Intrinsic::spv_thread_id;
+                    break;
+                case Variable::Tag::THREAD_ID:
+                    intrinsic_id = llvm::Intrinsic::spv_thread_id_in_group;
+                    break;
+                case Variable::Tag::BLOCK_ID:
+                    intrinsic_id = llvm::Intrinsic::spv_group_id;
+                    break;
+                default:
+                    // Other builtins (DISPATCH_SIZE, KERNEL_ID, etc.)
+                    // fall back to an alloca with undef
+                    {
+                        auto *alloca = _builder->CreateAlloca(
+                            ToLLVMType(*bv.type()), nullptr);
+                        _builder->CreateStore(
+                            llvm::UndefValue::get(ToLLVMType(*bv.type())), alloca);
+                        opt->variables[bv.uid()] = alloca;
+                    }
+                    continue;
+            }
+            // Declare and call the intrinsic
+            auto *intr_type = llvm::FunctionType::get(
+                ToLLVMType(*bv.type()), {_builder->getInt32Ty()}, false);
+            auto *intr = llvm::Intrinsic::getDeclarationIfExists(
+                _module.get(), intrinsic_id, {ToLLVMType(*bv.type())});
+            if (intr) {
+                auto *call = _builder->CreateCall(intr, {_builder->getInt32(0)});
+                auto *alloca = _builder->CreateAlloca(
+                    ToLLVMType(*bv.type()), nullptr);
+                _builder->CreateStore(call, alloca);
+                opt->variables[bv.uid()] = alloca;
+            } else {
+                // Intrinsic not available, use undef
+                auto *alloca = _builder->CreateAlloca(
+                    ToLLVMType(*bv.type()), nullptr);
+                _builder->CreateStore(
+                    llvm::UndefValue::get(ToLLVMType(*bv.type())), alloca);
+                opt->variables[bv.uid()] = alloca;
+            }
         }
     }
 
@@ -604,25 +696,25 @@ void LLVMCodegenUtility::InitializeSPIRVModule() {
     // Ensure LLVM SPIR-V target is registered (prevents dead-stripping on Windows)
     InitializeLLVMSPIRVTarget();
 
-    // Set target triple for SPIR-V. We use spirv (logical addressing):
-    // - spirv: logical addressing required for Vulkan (no OpCapability Addresses)
-    // - spirv64/spirv32 (physical) emit Addresses capability and PtrAccessChain
-    //   instructions that are disallowed by Vulkan.
-    // - spirv32 also crashes in SPIRVLegalizePointerCast on some IR patterns.
-    // The logical target converts function parameters to global variables via
-    // SPIRVGlobalTypesAndRegs pass, producing valid Vulkan entry points.
-    _module->setTargetTriple(llvm::Triple("spirv-unknown-vulkan1.2"));
+    // Set target triple for SPIR-V. We use spirv64 (physical 64-bit):
+    // - spirv64: 64-bit pointers (spirv32 crashes in SPIRVLegalizePointerCast)
+    // - Physical addressing emits OpCapability Addresses and OpPtrAccessChain
+    //   which are disallowed by Vulkan; fixed in post-processing via
+    //   strip_addresses_capability().
+    // - Entry point functions are emitted with parameters; also fixed in
+    //   post-processing via fix_entry_point_parameters().
+    _module->setTargetTriple(llvm::Triple("spirv64-unknown-vulkan1.2"));
 
     // Look up the SPIR-V target
     std::string error;
-    auto *target = llvm::TargetRegistry::lookupTarget(llvm::Triple("spirv"), error);
+    auto *target = llvm::TargetRegistry::lookupTarget(llvm::Triple("spirv64"), error);
     if (!target) {
         LUISA_ERROR_WITH_LOCATION("LLVM SPIRV target not found: {}", error);
     }
 
     llvm::TargetOptions opt;
     _target_machine.reset(target->createTargetMachine(
-        llvm::Triple("spirv-unknown-vulkan1.2"), "generic",
+        llvm::Triple("spirv64-unknown-vulkan1.2"), "generic",
         "", opt, std::optional<llvm::Reloc::Model>(llvm::Reloc::PIC_),
         std::optional<llvm::CodeModel::Model>(llvm::CodeModel::Small),
         llvm::CodeGenOptLevel::Default, false));
@@ -1177,9 +1269,6 @@ static void luisa_spirv_validate_post_llvm(luisa::span<const uint32_t> words, lu
         LUISA_ERROR("LLVM SPIR-V validation failed at {} stage:\n{}", stage, message);
     }
 }
-
-/// Optimize SPIR-V binary using spirv-tools optimizer.
-/// Mirrors lc::spirv::luisa_spirv_optimize from the XIR path.
 
 LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(
     Function kernel,
