@@ -329,7 +329,7 @@ int main(int argc, char *argv[]) {
                                                        Float scale, Bool is_hdr) noexcept {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
-        Float3 ldr = hdr.xyz() / hdr.w * scale;
+        Float3 ldr = clamp(hdr.xyz() / hdr.w * scale, 0.0f, 1.0f);
         $if (!is_hdr) {
             ldr = linear_to_srgb(ldr);
         };
@@ -407,8 +407,7 @@ int main(int argc, char *argv[]) {
             stream << scheduler(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                    << accumulate_shader(accum_image, framebuffer)
                             .dispatch(resolution)
-                   << hdr2ldr_shader(accum_image, ldr_image, 2.0f,
-                                     swapchain.backend_storage() != PixelStorage::BYTE4)
+                   << hdr2ldr_shader(accum_image, ldr_image, 2.0f, false)
                            .dispatch(resolution)
                    << swapchain.present(ldr_image)
                    << synchronize();

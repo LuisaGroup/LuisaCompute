@@ -28,6 +28,40 @@ namespace detail {
     return luisa::nullopt;
 }
 
+[[nodiscard]] static luisa::unordered_set<BasicBlock *> collect_coro_reachable_blocks(
+    FunctionDefinition *def,
+    const luisa::unordered_map<uint32_t, BasicBlock *> &token_to_resume) noexcept {
+    luisa::unordered_set<BasicBlock *> reachable;
+    luisa::deque<BasicBlock *> worklist;
+    worklist.emplace_back(def->body_block());
+    while (!worklist.empty()) {
+        auto *bb = worklist.front();
+        worklist.pop_front();
+        if (bb == nullptr) { continue; }
+        if (!reachable.emplace(bb).second) { continue; }
+        if (!bb->is_terminated()) { continue; }
+        auto *term = bb->terminator();
+        switch (term->derived_instruction_tag()) {
+            case DerivedInstructionTag::CORO_SUSPEND: {
+                auto *suspend = static_cast<CoroSuspendInst *>(term);
+                if (auto it = token_to_resume.find(suspend->token());
+                    it != token_to_resume.end()) {
+                    worklist.emplace_back(it->second);
+                }
+                break;
+            }
+            case DerivedInstructionTag::CORO_TERMINATE:
+                break;
+            default:
+                bb->traverse_successors(true, [&](BasicBlock *succ) noexcept {
+                    worklist.emplace_back(succ);
+                });
+                break;
+        }
+    }
+    return reachable;
+}
+
 [[nodiscard]] static AllocaInst *trace_local_alloca(Value *value) noexcept {
     while (value != nullptr && value->isa<Instruction>()) {
         auto *inst = static_cast<Instruction *>(value);
@@ -507,15 +541,9 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     CoroCfgDistillResult result;
     if (def == nullptr || def->body_block() == nullptr) { return result; }
 
-    luisa::unordered_set<BasicBlock *> reachable;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        reachable.insert(bb);
-    });
-
     luisa::unordered_map<uint32_t, BasicBlock *> token_to_resume;
     luisa::unordered_map<uint32_t, luisa::string> token_to_name;
     for (auto *bb : def->basic_blocks()) {
-        if (!reachable.contains(bb)) { continue; }
         for (auto *inst : bb->instructions()) {
             switch (inst->derived_instruction_tag()) {
                 case DerivedInstructionTag::CORO_RESUME: {
@@ -534,6 +562,8 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
         }
     }
 
+    auto reachable = collect_coro_reachable_blocks(def, token_to_resume);
+
     struct Root {
         BasicBlock *block;
         uint32_t token;
@@ -544,7 +574,7 @@ static void analyze_live_variables(CoroCfgDistillResult &result, FunctionDefinit
     luisa::vector<uint32_t> resume_tokens;
     resume_tokens.reserve(token_to_resume.size());
     for (auto &[token, bb] : token_to_resume) {
-        static_cast<void>(bb);
+        if (!reachable.contains(bb)) { continue; }
         resume_tokens.emplace_back(token);
     }
     std::sort(resume_tokens.begin(), resume_tokens.end());

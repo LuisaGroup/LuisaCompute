@@ -3,6 +3,7 @@
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
+#include <luisa/xir/instructions/alloca.h>
 #include <luisa/xir/instructions/branch.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/module.h>
@@ -519,6 +520,83 @@ void reg_coro_cfg_distill() {
             total_blocks += scope.blocks.size();
         }
         expect(total_blocks >= 6u);// body, loop_hdr, loop_body, s1, r1, exit
+    };
+
+    "for_if_suspend_liveness"_test = [] {
+        // given: for (...) { if (...) { suspend } } with a local updated
+        // before the suspend and used after resume
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *loop_cond = m.create_constant_one(Type::of<bool>());
+        auto *if_cond = m.create_constant_one(Type::of<bool>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+
+        auto *loop_hdr = k->create_basic_block();
+        auto *loop_body = k->create_basic_block();
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+        auto *after_if = k->create_basic_block();
+        auto *exit = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        state->set_name("state");
+        b.store(state, zero);
+        b.br(loop_hdr);
+
+        b.set_insertion_point(loop_hdr);
+        b.cond_br(loop_cond, loop_body, exit);
+
+        b.set_insertion_point(loop_body);
+        auto *old_state = b.load(Type::of<int>(), state);
+        auto *new_state = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {old_state, one});
+        b.store(state, new_state);
+        b.cond_br(if_cond, suspend_bb, after_if);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "in_for_if", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.br(after_if);
+
+        b.set_insertion_point(after_if);
+        auto *reloaded_state = b.load(Type::of<int>(), state);
+        auto *next_state = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {reloaded_state, one});
+        b.store(state, next_state);
+        b.br(loop_hdr);
+
+        b.set_insertion_point(exit);
+        b.return_void();
+
+        // when
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+
+        // then: the updated local is stored on suspend edges into the
+        // continuation scope, including the loop-carried self edge
+        expect(result.scopes.size() == 2u);
+        auto has_state_store = [](const CoroCfgDistillResult::Edge &edge) noexcept {
+            for (auto &name : edge.store_variables) {
+                if (name == "state") { return true; }
+            }
+            return false;
+        };
+        bool entry_edge_ok = false;
+        bool loop_edge_ok = false;
+        for (auto &edge : result.transition_edges) {
+            if (edge.token != 1u) { continue; }
+            if (edge.from_scope == 0u && edge.to_scope == 1u) {
+                entry_edge_ok = has_state_store(edge);
+            }
+            if (edge.from_scope == 1u && edge.to_scope == 1u) {
+                loop_edge_ok = has_state_store(edge);
+            }
+        }
+        expect(entry_edge_ok);
+        expect(loop_edge_ok);
     };
 }
 
