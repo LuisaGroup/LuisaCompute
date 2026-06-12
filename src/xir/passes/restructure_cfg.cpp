@@ -364,6 +364,17 @@ void fix_degenerate_terminator(BasicBlock *bb) noexcept {
     return static_cast<BranchInst *>(bb->terminator())->target_block();
 }
 
+[[nodiscard]] BasicBlock *trivial_branch_chain_target(BasicBlock *bb) noexcept {
+    luisa::unordered_set<BasicBlock *> visited;
+    auto *cur = bb;
+    while (cur != nullptr && visited.emplace(cur).second) {
+        auto *next = trivial_branch_target(cur);
+        if (next == nullptr) { break; }
+        cur = next;
+    }
+    return cur;
+}
+
 [[nodiscard]] bool replace_branch_with_continue(BasicBlock *bb, BasicBlock *from, BasicBlock *continue_target) noexcept {
     if (!bb->is_terminated()) { return false; }
     auto *term = bb->terminator();
@@ -523,13 +534,12 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
                                            BasicBlock *continue_target,
                                            BasicBlock *loop_entry) noexcept {
     if (target == nullptr || continue_target == nullptr || loop_entry == nullptr) { return false; }
-    if (target == continue_target) { return true; }
-    if (auto *proxy_target = trivial_branch_target(target);
-        proxy_target == continue_target || proxy_target == loop_entry) {
+    auto *resolved = trivial_branch_chain_target(target);
+    if (resolved == continue_target || resolved == loop_entry) {
         return true;
     }
-    if (has_only_terminator(target) && target->terminator()->isa<ContinueInst>()) {
-        auto *continue_inst = static_cast<ContinueInst *>(target->terminator());
+    if (has_only_terminator(resolved) && resolved->terminator()->isa<ContinueInst>()) {
+        auto *continue_inst = static_cast<ContinueInst *>(resolved->terminator());
         return continue_inst->target_block() == continue_target ||
                continue_inst->target_block() == loop_entry;
     }
@@ -539,12 +549,73 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
 [[nodiscard]] bool is_loop_break_target(BasicBlock *target,
                                         BasicBlock *merge) noexcept {
     if (target == nullptr || merge == nullptr) { return false; }
-    if (target == merge) { return true; }
-    if (trivial_branch_target(target) == merge) { return true; }
-    if (has_only_terminator(target) && target->terminator()->isa<BreakInst>()) {
-        return static_cast<BreakInst *>(target->terminator())->target_block() == merge;
+    auto *resolved = trivial_branch_chain_target(target);
+    if (resolved == merge) { return true; }
+    if (has_only_terminator(resolved) && resolved->terminator()->isa<BreakInst>()) {
+        return static_cast<BreakInst *>(resolved->terminator())->target_block() == merge;
     }
     return false;
+}
+
+enum struct LoopBoundaryTargetKind {
+    NONE,
+    BREAK,
+    CONTINUE,
+};
+
+[[nodiscard]] LoopBoundaryTargetKind classify_loop_boundary_path(BasicBlock *target,
+                                                                 BasicBlock *continue_target,
+                                                                 BasicBlock *loop_entry,
+                                                                 BasicBlock *merge) noexcept {
+    if (target == nullptr || continue_target == nullptr || loop_entry == nullptr || merge == nullptr) {
+        return LoopBoundaryTargetKind::NONE;
+    }
+    LoopBoundaryTargetKind kind = LoopBoundaryTargetKind::NONE;
+    auto add_kind = [&](LoopBoundaryTargetKind k) noexcept {
+        if (k == LoopBoundaryTargetKind::NONE) { return false; }
+        if (kind == LoopBoundaryTargetKind::NONE) {
+            kind = k;
+            return true;
+        }
+        return kind == k;
+    };
+    luisa::unordered_set<BasicBlock *> visited;
+    luisa::vector<BasicBlock *> work{target};
+    while (!work.empty()) {
+        auto *bb = work.back();
+        work.pop_back();
+        if (bb == nullptr || !visited.emplace(bb).second) { continue; }
+        if (bb == merge) {
+            if (!add_kind(LoopBoundaryTargetKind::BREAK)) { return LoopBoundaryTargetKind::NONE; }
+            continue;
+        }
+        if (bb == continue_target || bb == loop_entry) {
+            if (!add_kind(LoopBoundaryTargetKind::CONTINUE)) { return LoopBoundaryTargetKind::NONE; }
+            continue;
+        }
+        if (!bb->is_terminated()) { return LoopBoundaryTargetKind::NONE; }
+        auto *term = bb->terminator();
+        if (term->isa<BreakInst>()) {
+            auto *br = static_cast<BreakInst *>(term);
+            if (br->target_block() != merge) { return LoopBoundaryTargetKind::NONE; }
+            if (!add_kind(LoopBoundaryTargetKind::BREAK)) { return LoopBoundaryTargetKind::NONE; }
+            continue;
+        }
+        if (term->isa<ContinueInst>()) {
+            auto *cont = static_cast<ContinueInst *>(term);
+            auto *cont_target = cont->target_block();
+            if (cont_target != continue_target && cont_target != loop_entry) { return LoopBoundaryTargetKind::NONE; }
+            if (!add_kind(LoopBoundaryTargetKind::CONTINUE)) { return LoopBoundaryTargetKind::NONE; }
+            continue;
+        }
+        if (term->isa<ReturnInst>() || term->isa<UnreachableInst>() || term->isa<RasterDiscardInst>()) {
+            return LoopBoundaryTargetKind::NONE;
+        }
+        traverse_structured_successors(bb, [&](BasicBlock *succ) noexcept {
+            if (succ != nullptr) { work.emplace_back(succ); }
+        });
+    }
+    return kind;
 }
 
 [[nodiscard]] bool normalize_loop_boundary_conditional_branches(FunctionDefinition *def) noexcept {
@@ -599,10 +670,12 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
                 auto *cbr = static_cast<ConditionalBranchInst *>(term);
                 auto *t = cbr->true_block();
                 auto *f = cbr->false_block();
-                auto true_is_continue = is_loop_continue_target(t, site.continue_target, site.entry);
-                auto false_is_continue = is_loop_continue_target(f, site.continue_target, site.entry);
-                auto true_is_break = is_loop_break_target(t, site.merge);
-                auto false_is_break = is_loop_break_target(f, site.merge);
+                auto true_kind = classify_loop_boundary_path(t, site.continue_target, site.entry, site.merge);
+                auto false_kind = classify_loop_boundary_path(f, site.continue_target, site.entry, site.merge);
+                auto true_is_continue = true_kind == LoopBoundaryTargetKind::CONTINUE;
+                auto false_is_continue = false_kind == LoopBoundaryTargetKind::CONTINUE;
+                auto true_is_break = true_kind == LoopBoundaryTargetKind::BREAK;
+                auto false_is_break = false_kind == LoopBoundaryTargetKind::BREAK;
                 if (true_is_break && false_is_continue) {
                     candidates.emplace_back(Candidate{bb, t, f, site.continue_target, site.merge, site.selection_merge, cbr->condition()});
                     break;
@@ -625,31 +698,36 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
     if (cand.branch_block == nullptr || !cand.branch_block->is_terminated()) { return false; }
     auto *old_term = cand.branch_block->terminator();
     if (!old_term->isa<ConditionalBranchInst>()) { return false; }
-    auto true_is_break = is_loop_break_target(cand.true_target, cand.merge);
-    auto false_is_break = is_loop_break_target(cand.false_target, cand.merge);
+    auto true_kind = classify_loop_boundary_path(cand.true_target, cand.continue_target, cand.continue_target, cand.merge);
+    auto false_kind = classify_loop_boundary_path(cand.false_target, cand.continue_target, cand.continue_target, cand.merge);
+    auto true_is_break = true_kind == LoopBoundaryTargetKind::BREAK;
+    auto false_is_break = false_kind == LoopBoundaryTargetKind::BREAK;
     if (true_is_break == false_is_break) { return false; }
 
     old_term->remove_self();
     XIRBuilder b;
     b.set_insertion_point(cand.branch_block);
     auto *if_inst = b.if_(cand.condition);
-    auto *true_block = def->create_basic_block();
-    auto *false_block = def->create_basic_block();
+    auto create_boundary_block = [&](bool break_arm) noexcept {
+        auto *block = def->create_basic_block();
+        XIRBuilder bb;
+        bb.set_insertion_point(block);
+        if (break_arm) {
+            bb.break_(cand.merge);
+        } else {
+            bb.continue_(cand.continue_target);
+        }
+        return block;
+    };
+    auto *true_block = true_is_break ?
+                           (is_loop_break_target(cand.true_target, cand.merge) ? create_boundary_block(true) : cand.true_target) :
+                           (is_loop_continue_target(cand.true_target, cand.continue_target, cand.continue_target) ? create_boundary_block(false) : cand.true_target);
+    auto *false_block = false_is_break ?
+                            (is_loop_break_target(cand.false_target, cand.merge) ? create_boundary_block(true) : cand.false_target) :
+                            (is_loop_continue_target(cand.false_target, cand.continue_target, cand.continue_target) ? create_boundary_block(false) : cand.false_target);
     if_inst->set_true_target(true_block);
     if_inst->set_false_target(false_block);
     if_inst->set_merge_block(cand.selection_merge);
-    b.set_insertion_point(true_block);
-    if (true_is_break) {
-        b.break_(cand.merge);
-    } else {
-        b.continue_(cand.continue_target);
-    }
-    b.set_insertion_point(false_block);
-    if (false_is_break) {
-        b.break_(cand.merge);
-    } else {
-        b.continue_(cand.continue_target);
-    }
     return true;
 }
 
@@ -682,14 +760,16 @@ void traverse_structured_successors(BasicBlock *bb, Visitor &&visit) noexcept {
 [[nodiscard]] bool block_terminates_with_loop_continue(BasicBlock *bb,
                                                        BasicBlock *continue_target,
                                                        BasicBlock *loop_entry) noexcept {
-    if (!has_only_terminator(bb) || !bb->terminator()->isa<ContinueInst>()) { return false; }
-    auto *target = static_cast<ContinueInst *>(bb->terminator())->target_block();
+    auto *resolved = trivial_branch_chain_target(bb);
+    if (!has_only_terminator(resolved) || !resolved->terminator()->isa<ContinueInst>()) { return false; }
+    auto *target = static_cast<ContinueInst *>(resolved->terminator())->target_block();
     return target == continue_target || target == loop_entry;
 }
 
 [[nodiscard]] bool block_terminates_with_loop_break(BasicBlock *bb, BasicBlock *merge) noexcept {
-    if (!has_only_terminator(bb) || !bb->terminator()->isa<BreakInst>()) { return false; }
-    return static_cast<BreakInst *>(bb->terminator())->target_block() == merge;
+    auto *resolved = trivial_branch_chain_target(bb);
+    if (!has_only_terminator(resolved) || !resolved->terminator()->isa<BreakInst>()) { return false; }
+    return static_cast<BreakInst *>(resolved->terminator())->target_block() == merge;
 }
 
 [[nodiscard]] bool is_loop_boundary_if(IfInst *if_inst,

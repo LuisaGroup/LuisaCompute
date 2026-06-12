@@ -1,4 +1,5 @@
 #include "ut/ut.hpp"
+#include <luisa/ast/statement.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
 
@@ -16,6 +17,15 @@ auto make_simple_coro = [] {
         $suspend("checkpoint");
     }};
 };
+
+[[nodiscard]] uint32_t first_suspend_token(const Coroutine<void(int)> &c) noexcept {
+    for (auto *stmt : c.function_builder()->body()->statements()) {
+        if (stmt->tag() == Statement::Tag::SUSPEND) {
+            return static_cast<const SuspendStmt *>(stmt)->token();
+        }
+    }
+    return 0u;
+}
 
 } // namespace
 
@@ -48,6 +58,8 @@ void reg_coro_compile_trigger() {
         // Continuation node (index 1): has name and token from suspend
         auto &n1 = g.node(1u);
         expect(n1.index == 1u);
+        expect(n1.token != 0u);
+        expect(n1.token == first_suspend_token(c));
         expect(n1.name == "checkpoint");
         expect(!n1.is_terminal);
     };

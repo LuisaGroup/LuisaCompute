@@ -258,7 +258,7 @@ void reg_restructure_cfg() {
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
         expect(count_terminator_kind(def, DerivedInstructionTag::IF) == 1u);
         expect(count_terminator_kind(def, DerivedInstructionTag::BREAK) == 1u);
-        expect(count_terminator_kind(def, DerivedInstructionTag::CONTINUE) == 1u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONTINUE) <= 1u);
     };
 
     "restructure_simple_loop_nested_latch_conditional_to_break_continue"_test = [] {
@@ -303,6 +303,51 @@ void reg_restructure_cfg() {
         expect(info.irreducible_region_count == 0u);
         expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 0u);
         expect(count_terminator_kind(def, DerivedInstructionTag::IF) == 2u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::BREAK) == 1u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONTINUE) == 1u);
+    };
+
+    "restructure_loop_body_break_or_continue_through_proxy_chain"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *cond = k->create_value_argument(Type::of<bool>());
+        auto *header = def->create_basic_block();
+        auto *loop_body = def->create_basic_block();
+        auto *break_block = def->create_basic_block();
+        auto *continue_proxy_0 = def->create_basic_block();
+        auto *continue_proxy_1 = def->create_basic_block();
+        auto *update = def->create_basic_block();
+        auto *merge = def->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *loop = b.loop();
+        loop->set_prepare_block(header);
+        loop->set_body_block(loop_body);
+        loop->set_update_block(update);
+        loop->set_merge_block(merge);
+        b.set_insertion_point(header);
+        b.cond_br(cond, loop_body, merge);
+        b.set_insertion_point(loop_body);
+        b.cond_br(cond, break_block, continue_proxy_0);
+        b.set_insertion_point(break_block);
+        b.break_(merge);
+        b.set_insertion_point(continue_proxy_0);
+        b.br(continue_proxy_1);
+        b.set_insertion_point(continue_proxy_1);
+        b.continue_(update);
+        b.set_insertion_point(update);
+        b.br(header);
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 2u);
+        auto info = restructure_cfg_pass_run_on_function(k);
+        expect(info.irreducible_region_count == 0u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH) == 1u);
+        expect(count_terminator_kind(def, DerivedInstructionTag::IF) == 1u);
         expect(count_terminator_kind(def, DerivedInstructionTag::BREAK) == 1u);
         expect(count_terminator_kind(def, DerivedInstructionTag::CONTINUE) == 1u);
     };

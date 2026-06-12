@@ -123,6 +123,7 @@ private:
     bool _requires_atomic_float{false};
     bool _requires_printing{false};
     bool _use_cooperative_operations{false};
+    uint32_t _next_coro_suspend_token{1u};
     // Codegen Comment
     mutable luisa::string _name;
     mutable luisa::vector<luisa::string> _variables_names;
@@ -130,6 +131,7 @@ private:
 protected:
     [[nodiscard]] static luisa::vector<FunctionBuilder *> &_function_stack() noexcept;
     [[nodiscard]] uint32_t _next_variable_uid() noexcept;
+    [[nodiscard]] uint32_t _next_suspend_token() noexcept;
     [[nodiscard]] const Expression *_internalize(const Expression *expr) noexcept;
     void _append(const Statement *statement) noexcept;
 
