@@ -5,6 +5,7 @@
 // Usage: coro_path_tracing <backend> [--offline] [--spp N]
 //   backend: cuda, dx, cpu, metal, fallback
 
+#include <array>
 #include <cstdlib>
 #include <string_view>
 
@@ -14,8 +15,8 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/coro/schedulers/state_machine.h>
-#include <luisa/gui/window.h>
 
+#include "common/reference_compare.h"
 #include "cornell_box.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -24,6 +25,18 @@
 using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
+
+#ifndef ENABLE_DISPLAY
+#ifdef LUISA_ENABLE_GUI
+#define ENABLE_DISPLAY 1
+#else
+#define ENABLE_DISPLAY 0
+#endif
+#endif
+
+#if ENABLE_DISPLAY
+#include <luisa/gui/window.h>
+#endif
 
 struct Onb {
     float3 tangent;
@@ -50,15 +63,14 @@ int main(int argc, char *argv[]) {
     std::string_view backend_name{argv[1]};
     Device device = context.create_device(backend_name);
 
-    bool offline = false;
-    uint total_spp = 64u;
-    for (int i = 2; i < argc; i++) {
-        if (std::string_view{argv[i]} == "--offline") {
-            offline = true;
-        } else if (std::string_view{argv[i]} == "--spp" && i + 1 < argc) {
-            total_spp = static_cast<uint>(std::atoi(argv[++i]));
-        }
+    auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    bool offline = opts.offline;
+#if !ENABLE_DISPLAY
+    if (!offline) {
+        LUISA_WARNING("GUI support is disabled. Running in offline mode.");
+        offline = true;
     }
+#endif
 
     // ─── Load Cornell Box OBJ ────────────────────────────────────────
     tinyobj::ObjReaderConfig obj_reader_config;
@@ -86,7 +98,7 @@ int main(int argc, char *argv[]) {
         obj_reader.GetShapes().size(), vertices.size());
 
     BindlessArray heap = device.create_bindless_array();
-    Stream stream = device.create_stream(StreamTag::GRAPHICS);
+    Stream stream = device.create_stream(offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
     stream << vertex_buffer.copy_from(vertices.data());
     luisa::vector<Mesh> meshes;
@@ -196,6 +208,7 @@ int main(int argc, char *argv[]) {
 
     static constexpr uint2 resolution = make_uint2(1024u);
     uint total_cells = resolution.x * resolution.y;
+    uint total_spp = opts.spp == 0u ? 1024u : opts.spp;
 
     Coroutine coro = [&](ImageFloat image, ImageUInt seed_image,
                           AccelVar accel, UInt2 resolution) noexcept {
@@ -326,6 +339,7 @@ int main(int argc, char *argv[]) {
     // ─── Resources ───────────────────────────────────────────────────
     Image<float> framebuffer = device.create_image<float>(PixelStorage::HALF4, resolution);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, resolution);
+    Image<float> ldr_image = device.create_image<float>(PixelStorage::BYTE4, resolution);
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, resolution);
 
     // Init accum + seeds
@@ -347,48 +361,27 @@ int main(int argc, char *argv[]) {
         }
         double total_ms = clock.toc();
 
-        // Read back and save PNG
-        luisa::vector<float4> host_image(total_cells);
-        stream << accum_image.copy_to(host_image.data()) << synchronize();
-
-        // Host-side tone mapping and sRGB conversion (DSL Callables not usable on host)
-        auto host_aces = [](float3 v) noexcept {
-            constexpr float a = 2.51f, b2 = 0.03f, c2 = 2.43f, d = 0.59f, e = 0.14f;
-            auto r = (v * (a * v + b2)) / (v * (c2 * v + d) + e);
-            return luisa::clamp(r, 0.0f, 1.0f);
-        };
-        auto host_srgb = [](float3 v) noexcept {
-            auto c = luisa::clamp(v, 0.0f, 1.0f);
-            constexpr float inv_gamma = 1.0f / 2.4f;
-            auto srgb_core = [](float x) noexcept {
-                return x <= 0.0031308f ? 12.92f * x
-                                       : 1.055f * powf(x, inv_gamma) - 0.055f;
-            };
-            return make_float3(srgb_core(c.x), srgb_core(c.y), srgb_core(c.z));
-        };
-
-        // Normalize by accumulation count (accum.w stores sample count per pass)
-        float inv_passes = 1.0f / static_cast<float>(passes);
-        luisa::vector<uint8_t> png_data(total_cells * 4u);
-        for (uint i = 0u; i < total_cells; ++i) {
-            auto hdr = host_image[i];
-            float3 rgb = make_float3(hdr.x, hdr.y, hdr.z) / max(hdr.w, 1e-4f) * inv_passes;
-            rgb = host_aces(rgb);
-            rgb = host_srgb(rgb);
-            rgb = clamp(rgb, 0.0f, 1.0f);
-            png_data[i * 4 + 0] = static_cast<uint8_t>(rgb.x * 255.0f);
-            png_data[i * 4 + 1] = static_cast<uint8_t>(rgb.y * 255.0f);
-            png_data[i * 4 + 2] = static_cast<uint8_t>(rgb.z * 255.0f);
-            png_data[i * 4 + 3] = 255u;
-        }
-
+        luisa::vector<std::array<uint8_t, 4u>> host_image(total_cells);
+        stream << hdr2ldr_shader(accum_image, ldr_image, 2.0f, false).dispatch(resolution)
+               << ldr_image.copy_to(luisa::span{host_image})
+               << synchronize();
         stbi_write_png("coro_path_tracing.png",
                        resolution.x, resolution.y, 4,
-                       png_data.data(), resolution.x * 4);
+                       host_image.data(), 0);
 
         LUISA_INFO("Rendered {} passes in {:.1f} ms total ({:.1f} ms/pass)",
                    passes, total_ms, total_ms / passes);
+        if (opts.compare_path) {
+            auto result = luisa::ref::compare_with_reference_file(
+                reinterpret_cast<const uint8_t *>(host_image.data()),
+                resolution.x, resolution.y, 4,
+                *opts.compare_path);
+            LUISA_INFO("Reference comparison: {} ({})",
+                       result.passed ? "PASSED" : "FAILED", result.message);
+            if (!result.passed) { return 1; }
+        }
     } else {
+#if ENABLE_DISPLAY
         // ─── Interactive mode ────────────────────────────────────────
         Window window{"Coroutine Path Tracing", resolution};
         Swapchain swapchain = device.create_swapchain(
@@ -414,7 +407,7 @@ int main(int argc, char *argv[]) {
             stream << scheduler(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                    << accumulate_shader(accum_image, framebuffer)
                             .dispatch(resolution)
-                   << hdr2ldr_shader(accum_image, ldr_image, 1.0f,
+                   << hdr2ldr_shader(accum_image, ldr_image, 2.0f,
                                      swapchain.backend_storage() != PixelStorage::BYTE4)
                            .dispatch(resolution)
                    << swapchain.present(ldr_image)
@@ -436,6 +429,9 @@ int main(int argc, char *argv[]) {
         stbi_write_png("coro_path_tracing.png",
                        resolution.x, resolution.y, 4,
                        host_image.data(), 0);
+#else
+        LUISA_ERROR("GUI support is disabled. Use --offline.");
+#endif
     }
 
     return 0;

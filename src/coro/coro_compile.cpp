@@ -9,6 +9,8 @@
 #include <luisa/dsl/coro_frame.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/alloca.h>
+#include <luisa/xir/passes/algebraic_simplify.h>
+#include <luisa/xir/passes/const_fold.h>
 #include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
@@ -17,6 +19,9 @@
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/local_load_elimination.h>
+#include <luisa/xir/passes/local_store_forward.h>
+#include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
@@ -24,6 +29,23 @@
 #include <luisa/xir/translators/coro_xir2ast.h>
 
 namespace luisa::compute::detail {
+
+namespace {
+
+[[nodiscard]] xir::PassPipeline create_coro_pre_distill_pipeline() noexcept {
+    xir::PassPipeline p;
+    p.add("algebraic-simplify", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::algebraic_simplify_pass_run_on_module(m, {}, &r);
+        return i.simplified_inst_count > 0u;
+    });
+    p.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::const_fold_pass_run_on_module(m, &r);
+        return i.folded_inst_count > 0u;
+    });
+    return p;
+}
+
+}// namespace
 
 CoroutineCompileResult compile_coroutine_pipeline(
     const luisa::shared_ptr<const FunctionBuilder> &builder) {
@@ -54,6 +76,9 @@ CoroutineCompileResult compile_coroutine_pipeline(
     }
 
     (void)xir::destructure_cfg_pass_run_on_module(module.get());
+    auto pre_distill_pipeline = create_coro_pre_distill_pipeline();
+    auto pre_distill_stats = pre_distill_pipeline.run(module.get());
+    pre_distill_stats.log("Coroutine pre-distill optimization");
 
     coro_func = nullptr;
     for (auto *f : module->function_list()) {
@@ -70,33 +95,19 @@ CoroutineCompileResult compile_coroutine_pipeline(
 
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
     if (cfg.scopes.empty()) { throw std::runtime_error("coro-cfg-distill found no scopes"); }
-
-    luisa::unordered_set<luisa::string> seen;
-    luisa::vector<std::pair<luisa::string, const Type *>> regs;
-    coro_func->definition()->traverse_instructions([&](xir::Instruction *inst) noexcept {
-        if (inst->derived_instruction_tag() != xir::DerivedInstructionTag::ALLOCA) { return; }
-        auto *alloca = static_cast<xir::AllocaInst *>(inst);
-        if (!alloca->is_local()) { return; }
-        auto name_opt = alloca->name();
-        if (!name_opt.has_value()) { return; }
-        luisa::string name(name_opt.value());
-        if (seen.insert(name).second) {
-            regs.push_back({std::move(name), alloca->type()});
-        }
-    });
     luisa::vector<const Type *> frame_fields;
     frame_fields.push_back(Type::of<uint>());// [0] token
     frame_fields.push_back(Type::of<uint>());// [1] skip_flag
-    for (auto &reg : regs) { frame_fields.push_back(reg.second); }
+    for (auto &value : cfg.frame_values) { frame_fields.push_back(value.type); }
     auto *frame_type = Type::structure(frame_fields);
 
-    auto split_count = xir::coro_split_pass_run_on_module_with_cfg_and_frame(module.get(), cfg, frame_type);
-    if (split_count == 0u) { throw std::runtime_error("coro-split produced no callables"); }
+    auto split_info = xir::coro_split_pass_run_on_module_with_cfg_and_frame_info(module.get(), cfg, frame_type);
+    if (split_info.subroutines.empty()) { throw std::runtime_error("coro-split produced no callables"); }
 
-    auto materialize_info = xir::coro_materialize_pass_run_on_module(module.get());
+    auto materialize_info = xir::coro_materialize_pass_run_on_module_with_cfg(module.get(), cfg, split_info);
     if (materialize_info.callable_count == 0u) { throw std::runtime_error("coro-materialize found no callables"); }
 
-    (void)xir::coro_reg2mem_pass_run_on_module(module.get());
+    (void)xir::coro_reg2mem_pass_run_on_split(split_info);
     (void)xir::destructure_cfg_pass_run_on_module(module.get());
     (void)xir::simplify_cfg_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
@@ -104,13 +115,12 @@ CoroutineCompileResult compile_coroutine_pipeline(
     (void)xir::dce_pass_run_on_module(module.get());
     (void)xir::reg2mem_pass_run_on_module(module.get());
 
-    result.graph = coro::CoroGraph::from_module(*module, materialize_info, cfg);
+    result.graph = coro::CoroGraph::from_module(*module, materialize_info, cfg, split_info);
     result.frame_desc.from_materialize_info(materialize_info);
 
-    for (size_t i = 0u; i < result.graph.node_count(); ++i) {
-        auto &node = result.graph.node(i);
-        if (node.callable != nullptr) {
-            auto ast = xir::xir_to_ast_translate_continuation(*node.callable);
+    for (auto &subroutine : split_info.subroutines) {
+        if (subroutine.callable != nullptr) {
+            auto ast = xir::xir_to_ast_translate_continuation(*subroutine.callable);
             if (ast) { result.subroutines.push_back(std::move(ast)); }
         }
     }

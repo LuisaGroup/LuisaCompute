@@ -9,13 +9,14 @@ namespace luisa::compute::xir {
 class Module;
 struct CoroMaterializeInfo;
 struct CoroCfgDistillResult;
+struct CoroSplitInfo;
 class CallableFunction;
 }// namespace luisa::compute::xir
 
 namespace luisa::compute::coro {
 
 /// Token-based transition graph between continuation scopes.
-/// Built from the output of the coro-materialize pass.
+/// Built from coro CFG analysis, split feedback, and materialization feedback.
 class LUISA_CORO_API CoroGraph {
 
 public:
@@ -76,12 +77,16 @@ public:
 
     /// Build a CoroGraph from a post-materialize module and analysis results.
     ///
-    /// @param m         Module containing callables with frame args (post-split + post-materialize).
+    /// @param m         Module after coro-split and coro-materialize.
     /// @param info      CoroMaterializeInfo with TransitionEdge data and name_to_field map.
     /// @param cfg       CoroCfgDistillResult with scope/token/name/terminal info.
     [[nodiscard]] static CoroGraph from_module(
         xir::Module &m, const xir::CoroMaterializeInfo &info,
         const xir::CoroCfgDistillResult &cfg) noexcept;
+    [[nodiscard]] static CoroGraph from_module(
+        xir::Module &m, const xir::CoroMaterializeInfo &info,
+        const xir::CoroCfgDistillResult &cfg,
+        const xir::CoroSplitInfo &split) noexcept;
 };
 
 }// namespace luisa::compute::coro

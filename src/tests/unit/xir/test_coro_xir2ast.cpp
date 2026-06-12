@@ -67,28 +67,6 @@ struct StatementCounter final : StmtVisitor {
 
 void reg_coro_xir2ast() {
 
-    "is_continuation_detects_callable_with_frame_arg"_test = [] {
-        Module m;
-        Value *frame_arg;
-        BasicBlock *body;
-        auto *cf = make_continuation(m, frame_arg, body);
-        expect(is_continuation(*cf));
-    };
-
-    "is_continuation_rejects_kernel"_test = [] {
-        Module m;
-        auto *k = m.create_kernel();
-        expect(!is_continuation(*k));
-    };
-
-    "is_continuation_rejects_callable_without_frame_arg"_test = [] {
-        Module m;
-        auto *cf = m.create_callable(nullptr);
-        cf->create_value_argument(Type::of<float>());
-        cf->create_body_block();
-        expect(!is_continuation(*cf));
-    };
-
     "simple_continuation_translates_to_callable_ast"_test = [] {
         // given: a continuation with frame load/store patterns and no phi nodes
         Module m;
@@ -237,8 +215,7 @@ void reg_coro_xir2ast() {
         auto *k = m.create_kernel();
         k->create_body_block();
 
-        // is_continuation should return false for kernels
-        expect(!is_continuation(*k));
+        expect(k->derived_function_tag() == DerivedFunctionTag::KERNEL);
     };
 }
 

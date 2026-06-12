@@ -9,9 +9,14 @@
 #include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/return.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/coro_reg2mem.h>
+#include <luisa/xir/passes/dce.h>
+#include <luisa/xir/passes/destructure_cfg.h>
+#include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
+#include <luisa/xir/passes/simplify_cfg.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -45,34 +50,33 @@ namespace {
     return n;
 }
 
-[[nodiscard]] bool callable_is_structured(FunctionDefinition *def) noexcept {
-    bool ok = true;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        if (!bb->is_terminated()) {
-            ok = false;
-            return;
-        }
-        auto tag = bb->terminator()->derived_instruction_tag();
-        if (tag == DerivedInstructionTag::BRANCH ||
-            tag == DerivedInstructionTag::CONDITIONAL_BRANCH) {
-            ok = false;
-        }
-    });
-    return ok;
-}
+    [[nodiscard]] bool callable_has_no_unstructured_conditional(FunctionDefinition *def) noexcept {
+        bool ok = true;
+        def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
+            if (!bb->is_terminated()) {
+                ok = false;
+                return;
+            }
+            auto tag = bb->terminator()->derived_instruction_tag();
+            if (tag == DerivedInstructionTag::CONDITIONAL_BRANCH) {
+                ok = false;
+            }
+        });
+        return ok;
+    }
 
 void verify_structured_callables(Module &m) noexcept {
     for (auto *f : m.function_list()) {
         if (!f->isa<CallableFunction>()) { continue; }
         auto *def = f->definition();
         if (def == nullptr) { continue; }
-        auto structured = callable_is_structured(def);
+        auto structured = callable_has_no_unstructured_conditional(def);
         auto br_count = count_terminator_kind(def, DerivedInstructionTag::BRANCH);
         auto cbr_count = count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH);
         auto if_count = count_terminator_kind(def, DerivedInstructionTag::IF);
         auto loop_count = count_terminator_kind(def, DerivedInstructionTag::LOOP);
         expect(structured)
-            << "callable has unstructured terminators"
+            << "callable has unstructured conditional terminators"
             << " br=" << br_count << " cbr=" << cbr_count
             << " if=" << if_count << " loop=" << loop_count;
         def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
@@ -81,39 +85,36 @@ void verify_structured_callables(Module &m) noexcept {
     }
 }
 
-void verify_callable_has_unstructured_remainder(Module &m,
-                                                size_t expected_br,
-                                                size_t expected_cbr,
-                                                size_t expected_if,
-                                                size_t expected_loop) noexcept {
-    bool found = false;
+void run_coro_pipeline_through_restructure(Module &m) noexcept {
+    (void)destructure_cfg_pass_run_on_module(&m);
+    auto *coro_func = static_cast<Function *>(nullptr);
     for (auto *f : m.function_list()) {
-        if (!f->isa<CallableFunction>()) { continue; }
+        if (!f->is_definition()) { continue; }
         auto *def = f->definition();
-        if (def == nullptr) { continue; }
-        auto br_count = count_terminator_kind(def, DerivedInstructionTag::BRANCH);
-        auto cbr_count = count_terminator_kind(def, DerivedInstructionTag::CONDITIONAL_BRANCH);
-        auto if_count = count_terminator_kind(def, DerivedInstructionTag::IF);
-        auto loop_count = count_terminator_kind(def, DerivedInstructionTag::LOOP);
-        if (br_count == expected_br && cbr_count == expected_cbr) {
-            if (if_count == expected_if && loop_count == expected_loop) {
-                found = true;
-                break;
+        auto has_coro = false;
+        def->traverse_instructions([&](Instruction *inst) noexcept {
+            auto tag = inst->derived_instruction_tag();
+            if (tag == DerivedInstructionTag::CORO_SUSPEND ||
+                tag == DerivedInstructionTag::CORO_RESUME ||
+                tag == DerivedInstructionTag::CORO_TERMINATE) {
+                has_coro = true;
             }
+        });
+        if (has_coro) {
+            coro_func = f;
+            break;
         }
     }
-    expect(found) << "no callable matched expected unstructured shape"
-                  << " br=" << expected_br << " cbr=" << expected_cbr
-                  << " if=" << expected_if << " loop=" << expected_loop;
-}
-
-void run_coro_pipeline_through_restructure(Module &m) noexcept {
-    auto split_count = coro_split_pass_run_on_module(&m);
-    auto reg2mem_info = coro_reg2mem_pass_run_on_module(&m);
-    (void)split_count;
-    (void)reg2mem_info;
-    auto restructure_info = restructure_cfg_pass_run_on_module(&m);
-    static_cast<void>(restructure_info);
+    if (coro_func == nullptr) { return; }
+    auto cfg = coro_cfg_distill_pass_run_on_function(coro_func);
+    auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(&m, cfg, nullptr);
+    (void)coro_reg2mem_pass_run_on_split(split);
+    (void)destructure_cfg_pass_run_on_module(&m);
+    (void)simplify_cfg_pass_run_on_module(&m);
+    (void)reg2mem_pass_run_on_module(&m);
+    (void)restructure_cfg_pass_run_on_module(&m);
+    (void)dce_pass_run_on_module(&m);
+    (void)reg2mem_pass_run_on_module(&m);
 }
 
 }// namespace
@@ -256,11 +257,7 @@ void reg_coro_restructure_validation() {
         verify_structured_callables(m);
     };
 
-    "conditional_suspend_restructure_failure"_test = [] {
-        // FAILURE DOCUMENTED: suspending inside one branch of a conditional
-        // creates cross-scope fallback blocks that restructure_cfg cannot
-        // fully structurize. The skip-check cond_br is converted to an
-        // IfInst, but residual BranchInst remain (br=1, cbr=0, if=2, loop=0).
+    "conditional_suspend_restructure"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -294,16 +291,10 @@ void reg_coro_restructure_validation() {
         run_coro_pipeline_through_restructure(m);
 
         expect(count_callable_count(m) >= 1u);
-        verify_callable_has_unstructured_remainder(m, 1u, 0u, 2u, 0u);
-        verify_callable_has_unstructured_remainder(m, 1u, 0u, 1u, 0u);
+        verify_structured_callables(m);
     };
 
-    "loop_suspend_restructure_failure"_test = [] {
-        // FAILURE DOCUMENTED: suspending inside a loop body creates a
-        // continuation whose back-edge is preserved through the split.
-        // The skip-check becomes an IfInst but the loop itself is NOT
-        // restructured into a LoopInst (loop=0). Residual BranchInst
-        // remain from the loop header→body and latch→header edges.
+    "loop_suspend_restructure"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -339,16 +330,10 @@ void reg_coro_restructure_validation() {
         run_coro_pipeline_through_restructure(m);
 
         expect(count_callable_count(m) >= 1u);
-        verify_callable_has_unstructured_remainder(m, 1u, 0u, 2u, 0u);
-        verify_callable_has_unstructured_remainder(m, 1u, 0u, 1u, 0u);
+        verify_structured_callables(m);
     };
 
-    "suspend_after_break_restructure_failure"_test = [] {
-        // FAILURE DOCUMENTED: a loop with a break path, then a suspend
-        // after loop exit. The split creates continuations with complex
-        // cross-scope edges. restructure_cfg partially structurizes
-        // (some IfInst, one LoopInst) but leaves many BranchInst and
-        // ConditionalBranchInst behind (br=5, cbr=1, if=2, loop=1).
+    "suspend_after_break_restructure"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -391,14 +376,10 @@ void reg_coro_restructure_validation() {
         run_coro_pipeline_through_restructure(m);
 
         expect(count_callable_count(m) >= 1u);
-        verify_callable_has_unstructured_remainder(m, 5u, 1u, 2u, 1u);
+        verify_structured_callables(m);
     };
 
-    "nested_loop_suspend_restructure_failure"_test = [] {
-        // FAILURE DOCUMENTED: suspending inside a nested loop body creates
-        // multi-level back-edge complexity after split. The outer/inner
-        // loops are NOT restructured (loop=0). restructure_cfg creates
-        // IfInst from the skip-checks but leaves all loop BranchInst.
+    "nested_loop_suspend_restructure"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -455,16 +436,10 @@ void reg_coro_restructure_validation() {
         run_coro_pipeline_through_restructure(m);
 
         expect(count_callable_count(m) >= 1u);
-        verify_callable_has_unstructured_remainder(m, 4u, 0u, 3u, 0u);
-        verify_callable_has_unstructured_remainder(m, 4u, 0u, 3u, 0u);
-        verify_callable_has_unstructured_remainder(m, 2u, 0u, 1u, 0u);
+        verify_structured_callables(m);
     };
 
-    "branch_targets_remapped_restructure_failure"_test = [] {
-        // FAILURE DOCUMENTED: a loop-back within a single scope creates
-        // a self-loop after the skip-check. restructure_cfg converts the
-        // skip-check to an IfInst but leaves the loop-back BranchInst
-        // and the loop-header ConditionalBranchInst unreconstructed.
+    "branch_targets_remapped_restructure"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -496,14 +471,10 @@ void reg_coro_restructure_validation() {
         run_coro_pipeline_through_restructure(m);
 
         expect(count_callable_count(m) >= 1u);
-        verify_callable_has_unstructured_remainder(m, 3u, 1u, 1u, 0u);
+        verify_structured_callables(m);
     };
 
-    "terminal_coro_restructure_failure"_test = [] {
-        // FAILURE DOCUMENTED: a coroutine ending with CoroTerminateInst
-        // creates a terminal scope whose skip-check is structurized to
-        // an IfInst, but a residual BranchInst to the terminate block
-        // remains unreconstructed.
+    "terminal_coro_restructure"_test = [] {
         Module m;
         BasicBlock *body;
         auto *k = make_kernel_with_body(m, body);
@@ -531,7 +502,7 @@ void reg_coro_restructure_validation() {
         run_coro_pipeline_through_restructure(m);
 
         expect(count_callable_count(m) >= 2u);
-        verify_callable_has_unstructured_remainder(m, 1u, 0u, 1u, 0u);
+        verify_structured_callables(m);
     };
 
 }

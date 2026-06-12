@@ -2970,14 +2970,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
     };
     switch (inst->derived_instruction_tag()) {
         case xir::DerivedInstructionTag::ALLOCA: {
-            auto alloca = static_cast<const xir::AllocaInst *>(inst);
-            auto type = _convert_type(alloca->type(), Usage::READ);
-            auto storage = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
-            auto var = _builder.createVariable(spv::NoPrecision, storage, type, "alloca");
-            if (storage == spv::StorageClass::Workgroup && _entry_point_inst != nullptr) {
-                _entry_point_inst->addIdOperand(var);
-            }
-            set_result(var);
+            static_cast<void>(_emit_alloca(static_cast<const xir::AllocaInst *>(inst)));
             break;
         }
         case xir::DerivedInstructionTag::LOAD: {
@@ -3275,7 +3268,11 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         }
         case xir::DerivedInstructionTag::CONTINUE: {
             auto cont = static_cast<const xir::ContinueInst *>(inst);
-            _builder.createBranch(false, _get_or_create_block(cont->target_block()));
+            auto target = cont->target_block();
+            auto it = _loop_header_redirect.find(target);
+            _builder.createBranch(false, it == _loop_header_redirect.end() ?
+                                             _get_or_create_block(target) :
+                                             it->second);
             break;
         }
         case xir::DerivedInstructionTag::RETURN: {

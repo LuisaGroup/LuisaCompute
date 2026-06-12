@@ -90,7 +90,7 @@ private:
     const Expression *_expression{nullptr};
 
     [[nodiscard]] static auto _frame_alignment(const CoroFrameDesc *desc) noexcept -> size_t {
-        auto alignment = std::max(Type::of<uint3>()->alignment(), Type::of<uint>()->alignment());
+        auto alignment = Type::of<uint>()->alignment();
         for (auto i = 0u; i < desc->field_count(); i++) {
             alignment = std::max(alignment, desc->field(i).type->alignment());
         }

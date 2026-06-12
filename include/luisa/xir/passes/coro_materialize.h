@@ -13,6 +13,8 @@ namespace luisa::compute::xir {
 
 class Module;
 class Value;
+struct CoroCfgDistillResult;
+struct CoroSplitInfo;
 
 struct CoroMaterializeInfo {
     size_t register_count{0u};
@@ -36,5 +38,9 @@ struct CoroMaterializeInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept;
+[[nodiscard]] LUISA_XIR_API CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
+    Module *m, const CoroCfgDistillResult &cfg) noexcept;
+[[nodiscard]] LUISA_XIR_API CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
+    Module *m, const CoroCfgDistillResult &cfg, const CoroSplitInfo &split) noexcept;
 
 }// namespace luisa::compute::xir

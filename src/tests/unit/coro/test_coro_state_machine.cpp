@@ -396,6 +396,32 @@ void reg_coro_state_machine(char *argv[]) {
 
     };
 
+    "state_machine_for_if_suspend_branch"_test = [argv] {
+        Context ctx{argv[0]};
+        Device device = ctx.create_device(argv[1]);
+        Stream stream = device.create_stream();
+        Buffer<int> output = device.create_buffer<int>(16);
+        auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
+            Var<int> acc = 0;
+            $for (i, 4u) {
+                acc = acc + 1;
+                $if ((i & 1u) == 0u) {
+                    acc = acc + 10;
+                    $suspend("even");
+                } $else {
+                    acc = acc + 100;
+                };
+            };
+            buf.write(0, acc);
+        });
+        StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
+        scheduler(output).dispatch(1)(stream);
+        stream << synchronize();
+        std::vector<int> host(16, -1);
+        stream << output.copy_to(host.data()) << synchronize();
+        expect(host[0] == 224);
+    };
+
     "state_machine_while_with_suspend"_test = [argv] {
         Context ctx{argv[0]};
         Device device = ctx.create_device(argv[1]);

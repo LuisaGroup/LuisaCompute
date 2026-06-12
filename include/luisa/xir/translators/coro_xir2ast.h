@@ -6,11 +6,6 @@
 
 namespace luisa::compute::xir {
 
-/// Check whether a function definition represents a coroutine continuation.
-/// A continuation is a CallableFunction whose first argument is a reference
-/// (the frame struct passed by the caller).
-[[nodiscard]] LUISA_XIR_API bool is_continuation(const FunctionDefinition &f) noexcept;
-
 /// Translate a coroutine continuation function from restructured XIR back
 /// to an AST Callable. The function must already have been through the
 /// coroutine pipeline (coro-cfg-distill → coro-split → coro-materialize →

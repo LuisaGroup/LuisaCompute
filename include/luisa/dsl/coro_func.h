@@ -148,6 +148,10 @@ private:
                     },
                     b);
                 args.emplace_back(internal_arg);
+                auto usage = cc.variable_usage(cc_arg.uid());
+                if (usage != Usage::NONE) {
+                    internal_arg->mark(usage);
+                }
             }
             fb->call(cc, args);
         });
