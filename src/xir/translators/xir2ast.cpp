@@ -594,6 +594,13 @@ private:
         return _current_builder()->call(inst->type(), detail::xir2ast_atomic_op(inst->op()), args);
     }
 
+    template<typename F>
+    void _with_value_map_checkpoint(F &&f) noexcept {
+        auto value_map = _value_map;
+        f();
+        _value_map = std::move(value_map);
+    }
+
     template<typename T>
     [[nodiscard]] const Expression *_assert_or_assume(const T *inst) noexcept {
         auto b = _current_builder();
@@ -894,23 +901,37 @@ private:
                         LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires structured control flow.");
                     }
                     auto ast_if = _current_builder()->if_(_expr(br->condition()));
-                    if (true_block != merge) { _current_builder()->with(ast_if->true_branch(), [&] { _emit_block(true_block, merge); }); }
-                    if (false_block != merge) { _current_builder()->with(ast_if->false_branch(), [&] { _emit_block(false_block, merge); }); }
+                    if (true_block != merge) {
+                        _current_builder()->with(ast_if->true_branch(), [&] {
+                            _with_value_map_checkpoint([&] { _emit_block(true_block, merge); });
+                        });
+                    }
+                    if (false_block != merge) {
+                        _current_builder()->with(ast_if->false_branch(), [&] {
+                            _with_value_map_checkpoint([&] { _emit_block(false_block, merge); });
+                        });
+                    }
                     if (merge != stop) { _emit_block(merge, stop); }
                     return;
                 }
                 case DerivedInstructionTag::IF: {
                     auto if_inst = static_cast<const IfInst *>(inst);
                     auto ast_if = _current_builder()->if_(_expr(if_inst->condition()));
-                    _current_builder()->with(ast_if->true_branch(), [&] { _emit_block(if_inst->true_block(), if_inst->merge_block()); });
-                    _current_builder()->with(ast_if->false_branch(), [&] { _emit_block(if_inst->false_block(), if_inst->merge_block()); });
+                    _current_builder()->with(ast_if->true_branch(), [&] {
+                        _with_value_map_checkpoint([&] { _emit_block(if_inst->true_block(), if_inst->merge_block()); });
+                    });
+                    _current_builder()->with(ast_if->false_branch(), [&] {
+                        _with_value_map_checkpoint([&] { _emit_block(if_inst->false_block(), if_inst->merge_block()); });
+                    });
                     _emit_block(if_inst->merge_block(), stop);
                     return;
                 }
                 case DerivedInstructionTag::SIMPLE_LOOP: {
                     auto loop = static_cast<const SimpleLoopInst *>(inst);
                     auto ast_loop = _current_builder()->loop_();
-                    _current_builder()->with(ast_loop->body(), [&] { _emit_block(loop->body_block(), loop->merge_block()); });
+                    _current_builder()->with(ast_loop->body(), [&] {
+                        _with_value_map_checkpoint([&] { _emit_block(loop->body_block(), loop->merge_block()); });
+                    });
                     _emit_block(loop->merge_block(), stop);
                     return;
                 }
@@ -921,10 +942,14 @@ private:
                         for (auto i = 0u; i < sw->case_count(); i++) {
                             auto case_expr = _current_builder()->literal(Type::of<int>(), sw->case_value(i));
                             auto ast_case = _current_builder()->case_(case_expr);
-                            _current_builder()->with(ast_case->body(), [&] { _emit_block(sw->case_block(i), sw->merge_block()); });
+                            _current_builder()->with(ast_case->body(), [&] {
+                                _with_value_map_checkpoint([&] { _emit_block(sw->case_block(i), sw->merge_block()); });
+                            });
                         }
                         auto ast_default = _current_builder()->default_();
-                        _current_builder()->with(ast_default->body(), [&] { _emit_block(sw->default_block(), sw->merge_block()); });
+                        _current_builder()->with(ast_default->body(), [&] {
+                            _with_value_map_checkpoint([&] { _emit_block(sw->default_block(), sw->merge_block()); });
+                        });
                     });
                     _emit_block(sw->merge_block(), stop);
                     return;
@@ -933,24 +958,28 @@ private:
                     auto loop = static_cast<const LoopInst *>(inst);
                     if (auto for_loop = _match_for_loop(loop)) {
                         auto ast_for = _current_builder()->for_(_expr(for_loop->variable), _expr(for_loop->condition), _expr(for_loop->step));
-                        _current_builder()->with(ast_for->body(), [&] { _emit_block(loop->body_block(), loop->update_block()); });
+                        _current_builder()->with(ast_for->body(), [&] {
+                            _with_value_map_checkpoint([&] { _emit_block(loop->body_block(), loop->update_block()); });
+                        });
                         _emit_block(loop->merge_block(), stop);
                         return;
                     }
                     auto ast_loop = _current_builder()->loop_();
                     _current_builder()->with(ast_loop->body(), [&] {
-                        _emit_loop_prepare_prefix(loop->prepare_block());
-                        auto term = loop->prepare_block()->terminator();
-                        if (term != nullptr && term->isa<ConditionalBranchInst>()) {
-                            auto cond_br = static_cast<const ConditionalBranchInst *>(term);
-                            if (cond_br->true_block() != loop->body_block() || cond_br->false_block() != loop->merge_block()) {
-                                LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires canonical LoopInst prepare cond_br targets.");
+                        _with_value_map_checkpoint([&] {
+                            _emit_loop_prepare_prefix(loop->prepare_block());
+                            auto term = loop->prepare_block()->terminator();
+                            if (term != nullptr && term->isa<ConditionalBranchInst>()) {
+                                auto cond_br = static_cast<const ConditionalBranchInst *>(term);
+                                if (cond_br->true_block() != loop->body_block() || cond_br->false_block() != loop->merge_block()) {
+                                    LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires canonical LoopInst prepare cond_br targets.");
+                                }
+                                auto break_if = _current_builder()->if_(_current_builder()->unary(Type::of<bool>(), UnaryOp::NOT, _expr(cond_br->condition())));
+                                _current_builder()->with(break_if->true_branch(), [&] { _current_builder()->break_(); });
                             }
-                            auto break_if = _current_builder()->if_(_current_builder()->unary(Type::of<bool>(), UnaryOp::NOT, _expr(cond_br->condition())));
-                            _current_builder()->with(break_if->true_branch(), [&] { _current_builder()->break_(); });
-                        }
-                        _emit_block(loop->body_block(), loop->update_block());
-                        _emit_block(loop->update_block(), loop->prepare_block());
+                            _emit_block(loop->body_block(), loop->update_block());
+                            _emit_block(loop->update_block(), loop->prepare_block());
+                        });
                     });
                     _emit_block(loop->merge_block(), stop);
                     return;
