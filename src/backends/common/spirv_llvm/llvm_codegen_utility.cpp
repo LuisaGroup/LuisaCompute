@@ -15,7 +15,7 @@
 #include <spirv-tools/optimizer.hpp>
 
 // SPIR-V specific LLVM intrinsics (llvm.spv.thread.id, etc.)
-#include "include/llvm/IR/IntrinsicsSPIRV.h"
+#include <llvm/IR/IntrinsicsSPIRV.h>
 
 #include "../hlsl/shader_property.h"
 #include "../hlsl/hlsl_codegen.h"

@@ -64,19 +64,36 @@ Auto-finds `cmake` and `ninja` (PATH → `.deps/` → pip). Auto-prepares MSVC e
 
 | Option | Default | Description |
 |---|---|---|
-| `CMAKE_BUILD_TYPE` | - | `Release` / `Debug` |
+| `CMAKE_BUILD_TYPE` | - | `Release` / `Debug` / `RelWithDebInfo` / `MinSizeRel` |
 | `LUISA_COMPUTE_ENABLE_DSL` | ON | C++ DSL |
 | `LUISA_COMPUTE_ENABLE_CUDA` | ON | CUDA backend |
-| `LUISA_COMPUTE_ENABLE_METAL` | ON | Metal (macOS) |
-| `LUISA_COMPUTE_ENABLE_DX` | ON | DirectX (Windows) |
+| `LUISA_COMPUTE_ENABLE_METAL` | ON | Metal backend (macOS only) |
+| `LUISA_COMPUTE_ENABLE_DX` | ON | DirectX backend (Windows only) |
 | `LUISA_COMPUTE_ENABLE_VULKAN` | ON | Vulkan backend |
-| `LUISA_COMPUTE_ENABLE_CPU` | ON | CPU backend |
-| `LUISA_COMPUTE_ENABLE_REMOTE` | ON | Remote backend |
-| `LUISA_COMPUTE_ENABLE_FALLBACK` | ON | Fallback backend |
-| `LUISA_COMPUTE_ENABLE_GUI` | ON | GUI support |
+| `LUISA_COMPUTE_ENABLE_HIP` | OFF | HIP backend (work in progress) |
+| `LUISA_COMPUTE_ENABLE_CPU` | ON | CPU backend (requires Rust) |
+| `LUISA_COMPUTE_ENABLE_REMOTE` | ON | Remote backend (requires Rust) |
+| `LUISA_COMPUTE_ENABLE_FALLBACK` | ON | Fallback backend (requires LLVM + Embree) |
+| `LUISA_COMPUTE_ENABLE_GUI` | ON | GUI support (GLFW/ImGui) |
+| `LUISA_COMPUTE_ENABLE_TENSOR` | OFF | C++ DSL tensor extension |
+| `LUISA_COMPUTE_ENABLE_CUDA_EXT_LCUB` | OFF | CUDA extension: LCUB |
+| `LUISA_COMPUTE_ENABLE_CLANG_CXX` | OFF | ClangTooling-based C++ shading language |
+| `LUISA_COMPUTE_ENABLE_RUST` | ON if cargo found, else OFF | Rust/IR support; required for CPU/Remote |
+| `LUISA_COMPUTE_ENABLE_VK_XIR_SPIRV` | ON | XIR-to-SPIR-V codegen path for Vulkan |
+| `LUISA_COMPUTE_ENABLE_VK_AST_LLVM_SPIRV` | OFF | AST LLVM codegen for Vulkan SPIR-V |
+| `LUISA_COMPUTE_BUILD_TESTS` | ON in master project | Build tests, examples and tutorials |
+| `LUISA_COMPUTE_ENABLE_SAFE_MODE` | OFF | Runtime safe mode |
 | `LUISA_COMPUTE_ENABLE_UNITY_BUILD` | OFF | Unity build |
 | `LUISA_COMPUTE_ENABLE_SANITIZERS` | OFF | Address/UB sanitizers |
-| `LUISA_COMPUTE_USE_SYSTEM_LIBS` | OFF | Prefer system libs |
+| `LUISA_COMPUTE_ENABLE_LTO` | OFF | Link-time optimization (release builds only) |
+| `LUISA_COMPUTE_ENABLE_SCCACHE` | ON (non-MSVC) | Use `sccache` compiler launcher |
+| `LUISA_COMPUTE_CHECK_BACKEND_DEPENDENCIES` | ON | Auto-disable backends with missing dependencies |
+| `LUISA_COMPUTE_ENABLE_WAYLAND` | OFF (Linux) | Wayland support in GUI/Vulkan swapchains |
+| `LUISA_COMPUTE_USE_SYSTEM_LIBS` | OFF | Prefer system libraries; also enables per-lib `USE_SYSTEM_*` overrides |
+| `LUISA_COMPUTE_DOWNLOAD_OIDN` | OFF | Download OpenImageDenoise |
+| `LUISA_COMPUTE_DOWNLOAD_NVCOMP` | OFF (if CUDA) | Download nvCOMP for CUDA decompression |
+
+`LUISA_COMPUTE_USE_SYSTEM_*` options exist for `STL`, `GLFW`, `LMDB`, `REPROC`, `SPDLOG`, `XXHASH`, `YYJSON`, `MAGIC_ENUM`, and `MARL`.
 
 **CI minimal build**:
 ```bash
@@ -101,16 +118,20 @@ cmake --build build
 luisa-compute-include (INTERFACE, header-only)
   → luisa-compute-ext (INTERFACE, third-party deps)
     → luisa-compute-core (SHARED)
-      → luisa-compute-ast (SHARED) → luisa-compute-xir (SHARED)
-        → luisa-compute-runtime (SHARED)
-          → luisa-compute-dsl, luisa-compute-gui, luisa-compute-ir
-            → luisa-compute-backends (INTERFACE aggregator)
+      → luisa-compute-ast (SHARED)
+        → luisa-compute-xir (SHARED)
+        → luisa-compute-ir (SHARED when Rust enabled)
+      → luisa-compute-runtime (SHARED)
+        → luisa-compute-dsl, luisa-compute-gui, luisa-compute-ir
+          → luisa-compute-backends (INTERFACE aggregator)
 ```
+
+Additional modules linked by the umbrella target `luisa::compute` include `luisa-compute-vstl` (object helper), `luisa-compute-osl`, `luisa-compute-api`, and `luisa-compute-clangcxx`.
 
 ## Custom CMake Functions
 
-### `luisa_compute_add_backend(name)`
-Creates backend plugin MODULE target. Links `ast`, `runtime`, `gui`. Output name: `luisa-backend-<name>`. Installed to `bin/`, not `lib/`.
+### `luisa_compute_add_backend(name [SOURCES ...] [SUPPORT_DIR dir])`
+Creates a backend plugin `MODULE` target. Links `luisa-compute-ast`, `luisa-compute-runtime`, and `luisa-compute-gui`. Output name is `luisa-backend-<name>` and runtime artifacts are installed to `bin/`. If `SUPPORT_DIR` is given, its contents are copied next to the runtime outputs and installed to `bin/`.
 ```cmake
 luisa_compute_add_backend(cuda SOURCES ${LUISA_COMPUTE_CUDA_SOURCES})
 ```
@@ -161,7 +182,7 @@ Key: output renamed to `luisa-backend-<name>`, installed to `bin/`, supports `lu
 
 **File**: `src/rust/CMakeLists.txt`
 
-Custom command invokes `cargo build` (profile: `dev` for Debug, `release` for Release). CMake targets:
+Rust support is auto-enabled when a Rust toolchain is found (unless `LUISA_COMPUTE_ENABLE_RUST=OFF` is passed); the CPU and Remote backends require it. The custom command invokes `cargo build` (profile: `dev` for Debug, `release` for Release). CMake targets:
 - `luisa-compute-rust-meta` (INTERFACE): static Rust libs
 - `luisa_compute_backend_impl` (INTERFACE): shared Rust backend
 
