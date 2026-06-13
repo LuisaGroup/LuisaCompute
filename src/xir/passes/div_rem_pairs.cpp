@@ -5,6 +5,7 @@
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/arithmetic.h>
 #include <luisa/xir/module.h>
+#include <luisa/xir/passes/dom_tree.h>
 #include <luisa/xir/passes/div_rem_pairs.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 
@@ -24,8 +25,11 @@ struct DivModKey {
 static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &info) noexcept {
     luisa::unordered_map<DivModKey, ArithmeticInst *> div_map;
     luisa::unordered_map<DivModKey, ArithmeticInst *> mod_map;
+    luisa::unordered_map<Instruction *, size_t> instruction_indices;
+    auto index = 0u;
 
     def->traverse_instructions([&](Instruction *inst) noexcept {
+        instruction_indices.emplace(inst, index++);
         if (!inst->isa<ArithmeticInst>()) return;
         auto ari = static_cast<ArithmeticInst *>(inst);
         auto op = ari->op();
@@ -38,16 +42,24 @@ static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &
         }
     });
 
+    auto dom_tree = compute_dom_tree(def);
+    auto dominates_inst = [&](Instruction *div_inst, Instruction *mod_inst) noexcept {
+        auto div_block = div_inst->parent_block();
+        auto mod_block = mod_inst->parent_block();
+        if (div_block == mod_block) {
+            return instruction_indices.at(div_inst) < instruction_indices.at(mod_inst);
+        }
+        return dom_tree.dominates(div_block, mod_block);
+    };
+
     for (auto &[key, mod_inst] : mod_map) {
         auto it = div_map.find(key);
         if (it == div_map.end()) continue;
         auto div_inst = it->second;
+        if (!dominates_inst(div_inst, mod_inst)) continue;
 
-        // Insert the replacement at the end of the block so that it
-        // comes after both div_inst and mod_inst, avoiding use-before-def
-        // when div_inst appears after mod_inst in the same block.
         XIRBuilder b;
-        b.set_insertion_point(mod_inst->parent_block());
+        b.set_insertion_point(mod_inst->prev());
         auto mul = b.call(div_inst->type(), ArithmeticOp::BINARY_MUL, {div_inst, key.y});
         auto sub = b.call(mod_inst->type(), ArithmeticOp::BINARY_SUB, {key.x, mul});
 
