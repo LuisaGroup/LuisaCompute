@@ -7,6 +7,13 @@ description: High-performance C JSON parsing, creation, and modification with yy
 
 Single-header ANSI C (`yyjson.h` + `yyjson.c`). Two data models: immutable (`yyjson_doc`/`yyjson_val`) and mutable (`yyjson_mut_doc`/`yyjson_mut_val`). Free the doc to free all values. Arrays/objects are linked lists; index/key lookup is O(n) — prefer iterators.
 
+## Project Notes
+
+- The bundled copy is in `src/ext/yyjson` (currently **0.12.0**). The build option `lc_yyjson_use_xrepo` switches to the xmake-repo package.
+- Luisa code commonly supplies a custom `yyjson_alc` that forwards to `luisa::detail::allocator_allocate/reallocate/deallocate` with 16-byte alignment.
+- `yyjson_write()` / `yyjson_mut_write()` / `yyjson_val_write()` allocate their output string with the default allocator. Use the `_opts` variants and pass an allocator if the output must use the same allocator as the document.
+- The bundled target compiles `yyjson.c` with `/utf-8` on MSVC.
+
 ## Read JSON
 
 ```c
@@ -21,7 +28,7 @@ yyjson_doc *doc = yyjson_incr_read(s, read_len, &err);
 yyjson_incr_free(s);
 ```
 
-**Read flags**: `YYJSON_READ_NOFLAG` (RFC 8259), `ALLOW_COMMENTS`, `ALLOW_TRAILING_COMMAS`, `ALLOW_INF_AND_NAN`, `ALLOW_INVALID_UNICODE`, `NUMBER_AS_RAW`, `BIGNUM_AS_RAW`, `INSITU` (modify input buffer; pad with `YYJSON_PADDING_SIZE` zeros), `STOP_WHEN_DONE` (NDJSON), `JSON5`.
+**Read flags**: `YYJSON_READ_NOFLAG` (RFC 8259), `ALLOW_COMMENTS`, `ALLOW_TRAILING_COMMAS`, `ALLOW_INF_AND_NAN`, `ALLOW_INVALID_UNICODE`, `NUMBER_AS_RAW`, `BIGNUM_AS_RAW` (overridden by `NUMBER_AS_RAW`), `ALLOW_BOM`, `ALLOW_EXT_NUMBER`, `ALLOW_EXT_ESCAPE`, `ALLOW_EXT_WHITESPACE`, `ALLOW_SINGLE_QUOTED_STR`, `ALLOW_UNQUOTED_KEY`, `INSITU` (modify input buffer; pad with `YYJSON_PADDING_SIZE` zeros), `STOP_WHEN_DONE` (NDJSON), `JSON5`.
 
 **Error**: `yyjson_read_err err;` → `err.code`, `err.msg`, `err.pos`. `yyjson_locate_pos(dat, len, err.pos, &line, &col, &chr)` for line/col.
 
@@ -126,7 +133,7 @@ yyjson_write_fp(fp, doc, flg, alc, &err);
 size_t n = yyjson_write_buf(buf, buf_len, doc, flg, &err);
 ```
 
-**Write flags**: `YYJSON_WRITE_NOFLAG` (minified), `PRETTY` (4-space), `PRETTY_TWO_SPACES`, `ESCAPE_UNICODE`, `ESCAPE_SLASHES`, `ALLOW_INF_AND_NAN`, `INF_AND_NAN_AS_NULL`, `ALLOW_INVALID_UNICODE`, `NEWLINE_AT_END`, `FP_TO_FLOAT`, `FP_TO_FIXED(prec)` (1..15).
+**Write flags**: `YYJSON_WRITE_NOFLAG` (minified), `PRETTY` (4-space), `PRETTY_TWO_SPACES`, `ESCAPE_UNICODE`, `ESCAPE_SLASHES`, `ALLOW_INF_AND_NAN`, `INF_AND_NAN_AS_NULL`, `ALLOW_INVALID_UNICODE`, `LOWERCASE_HEX`, `NEWLINE_AT_END`, `FP_TO_FLOAT`, `FP_TO_FIXED(prec)` (1..15).
 
 ## JSON Pointer / Patch (RFC 6901/6902/7386)
 
@@ -139,7 +146,7 @@ yyjson_mut_doc_ptr_set(doc, "/a", yyjson_mut_int(doc, 9));
 yyjson_mut_doc_ptr_add(doc, "/b/-", val);    // "-" appends to array
 yyjson_mut_doc_ptr_remove(doc, "/b");
 
-// Error variants: _getx/_setx with yyjson_ptr_ctx + yyjson_ptr_err
+// Error variants: _getx takes yyjson_ptr_err; _setx/_addx/_removex take yyjson_ptr_ctx + yyjson_ptr_err
 
 // Patch
 yyjson_mut_val *out = yyjson_patch(doc, orig, patch, &err);     // RFC 6902
@@ -159,9 +166,11 @@ yyjson_alc *alc = yyjson_alc_dyn_new();
 // ...
 yyjson_alc_dyn_free(alc);
 
-// Custom
-static const yyjson_alc MY_ALC = { my_malloc, my_realloc, my_free, ctx };
+// Custom (malloc/realloc/free signatures match yyjson_alc)
+yyjson_alc MY_ALC = { my_malloc, my_realloc, my_free, NULL };
 ```
+
+A custom allocator applies to the document and its values. The output string from `yyjson_write()` / `yyjson_mut_write()` / `yyjson_val_write()` uses the default allocator; use the `_opts` variants to route it through the same allocator.
 
 ## Number & Compile-time
 
@@ -171,7 +180,7 @@ yyjson_mut_set_fp_to_float(val, true);
 yyjson_mut_set_fp_to_fixed(val, 6);
 ```
 
-Compile-time defines: `YYJSON_DISABLE_READER`, `YYJSON_DISABLE_WRITER`, `YYJSON_DISABLE_INCR_READER`, `YYJSON_DISABLE_UTILS` (Pointer/Patch), `YYJSON_DISABLE_FAST_FP_CONV`, `YYJSON_DISABLE_NON_STANDARD`, `YYJSON_DISABLE_UTF8_VALIDATION`. `YYJSON_READER_DEPTH_LIMIT`.
+Compile-time defines: `YYJSON_DISABLE_READER`, `YYJSON_DISABLE_WRITER`, `YYJSON_DISABLE_INCR_READER`, `YYJSON_DISABLE_UTILS` (Pointer/Patch), `YYJSON_DISABLE_FAST_FP_CONV`, `YYJSON_DISABLE_NON_STANDARD`, `YYJSON_DISABLE_UTF8_VALIDATION`, `YYJSON_DISABLE_UNALIGNED_MEMORY_ACCESS`. `YYJSON_READER_DEPTH_LIMIT`.
 
 ## Null Safety
 

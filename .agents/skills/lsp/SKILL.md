@@ -16,9 +16,9 @@ Provides clangd-powered syntax checks and symbol queries over an HTTP bridge.
 
 1. **Start the server in the background** before any C++ editing session:
    ```bash
-   python scripts/cpp_lsp_server.py --project-root . --port 8000 &
+   python scripts/cpp_lsp_server.py --project-root . --port 8000
    ```
-   The server auto-discovers `compile_commands.json` in `.vscode/`, `build/`, or project root.
+   The server auto-discovers `compile_commands.json` in `.vscode/`, `build/`, or project root. If none is found, it falls back to the project root.
 
 2. **Use the client** to query information. Common commands:
 
@@ -31,7 +31,7 @@ python scripts/cpp_lsp_client.py check src/foo.cpp --content "int main() { retur
 
 ### Symbol Navigation
 ```bash
-# Go to definition at line 10, character 5
+# Go to definition at line 10, character 5 (0-based)
 python scripts/cpp_lsp_client.py symbol src/foo.cpp 10 5 --action definition
 
 # Hover info
@@ -42,6 +42,11 @@ python scripts/cpp_lsp_client.py symbol src/foo.cpp --action documentSymbol
 ```
 
 Available actions: `definition`, `declaration`, `typeDefinition`, `implementation`, `references`, `hover`, `documentSymbol`.
+
+You can also override file content for symbol queries:
+```bash
+python scripts/cpp_lsp_client.py symbol src/foo.cpp 10 5 --action hover --content "int x = 0;"
+```
 
 ### Server Health
 ```bash
@@ -54,7 +59,7 @@ curl http://127.0.0.1:8000/health
 |-------------|---------|-------------|
 | `--server` | `http://127.0.0.1:8000` | Server base URL |
 | `--timeout` | `3.0` | HTTP request timeout (s) |
-| `--lsp-timeout` | `10.0` | Internal clangd timeout (s) |
+| `--lsp-timeout` | `10.0` | Internal clangd timeout (s) passed to the server |
 
 | Server flag | Default | Description |
 |-------------|---------|-------------|
@@ -64,13 +69,20 @@ curl http://127.0.0.1:8000/health
 | `--compile-commands-dir` | auto | Override `compile_commands.json` location |
 | `--verbose` | off | Print LSP traffic |
 
+## Exit Codes
+
+- `check` subcommand: `0` (no issues), `1` (errors found), `2` (connection/server error).
+- `symbol` subcommand: `0` (result returned), `1` (no result), `2` (connection/server error).
+
 ## Requirements
 
 - `clangd` in PATH
-- `compile_commands.json` generated (e.g., via `xmake project -k compile_commands` or CMake)
+- `compile_commands.json` generated, e.g.:
+  - XMake: `xmake project -k compile_commands --lsp=clangd .vscode`
+  - CMake: `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`
 - Python packages: `fastapi`, `uvicorn`, `httpx`, `pydantic`
 
 ## Notes
 
 - The server holds a single clangd process. Restart it if `compile_commands.json` changes.
-- Client exits with code `0` (clean), `1` (issues found), or `2` (connection/server error).
+- `line` and `character` are 0-based, matching the LSP protocol and clangd's expectations.

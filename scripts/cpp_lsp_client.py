@@ -22,7 +22,7 @@ def check_syntax(client: httpx.Client, args) -> int:
         "file_path": str(file_path),
         "content": args.content,
         "verbose": args.verbose,
-        "timeout": args.timeout,
+        "timeout": args.lsp_timeout,
     }
     try:
         r = client.post("/check_syntax", json=payload)
@@ -68,7 +68,7 @@ def symbol(client: httpx.Client, args) -> int:
         "line": args.line,
         "character": args.character,
         "action": args.action,
-        "timeout": args.timeout,
+        "timeout": args.lsp_timeout,
     }
     try:
         r = client.post("/symbol", json=payload)
@@ -129,7 +129,7 @@ def main() -> int:
         "--lsp-timeout",
         type=float,
         default=10.0,
-        dest="timeout",
+        dest="lsp_timeout",
         help="LSP internal timeout",
     )
 
@@ -172,7 +172,7 @@ def main() -> int:
         "--lsp-timeout",
         type=float,
         default=10.0,
-        dest="timeout",
+        dest="lsp_timeout",
         help="LSP internal timeout",
     )
 

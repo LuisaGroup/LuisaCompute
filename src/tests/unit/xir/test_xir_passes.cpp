@@ -1412,6 +1412,22 @@ void reg_div_rem_pairs() {
         expect(info.merged_pair_count == 0u);
     };
 
+    "div_rem_pairs_mod_before_div_no_change"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        int32_t a_v = 10, b_v = 3;
+        auto *a = m.create_constant(Type::of<int>(), &a_v);
+        auto *bv = m.create_constant(Type::of<int>(), &b_v);
+        b.call(Type::of<int>(), ArithmeticOp::BINARY_MOD, {a, bv});
+        b.call(Type::of<int>(), ArithmeticOp::BINARY_DIV, {a, bv});
+        b.return_void();
+        auto info = div_rem_pairs_pass_run_on_function(k);
+        expect(info.merged_pair_count == 0u);
+    };
+
     "div_rem_pairs_module_runs_all_functions"_test = [] {
         Module m;
         for (int i = 0; i < 2; ++i) {
