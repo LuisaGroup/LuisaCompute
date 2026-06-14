@@ -804,7 +804,7 @@ void CodegenUtility::GetFunctionName(CallExpr const *expr, vstd::StringBuilder &
             str << ',';
             args[1]->accept(vis); // ray
             str << ',';
-            args[2]->accept(vis); // time (原被忽略)
+            args[2]->accept(vis); // time argument (was previously ignored)
             str << ',';
             args[3]->accept(vis); // mask
             str << ')';

@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <chrono>
 #include <vector>
+#include <cstdarg> // va_start
 
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
