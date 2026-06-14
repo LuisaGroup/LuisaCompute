@@ -77,6 +77,7 @@ private:
     luisa::unordered_map<spv::BuiltIn, spv::Id> _builtin_var_map;
     luisa::unordered_map<spv::Id, bool> _is_storage_image_map;
     luisa::unordered_map<spv::Id, spv::Id> _accel_instance_buffer_map;
+    luisa::unordered_map<spv::Id, spv::Id> _accel_motion_buffer_map;
     luisa::unordered_map<spv::Id, spv::Id> _rq_proceed_result;// rq object SSA id -> last OpRayQueryProceedKHR result SSA id
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;

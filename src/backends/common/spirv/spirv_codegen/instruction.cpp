@@ -1158,7 +1158,15 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
         if (a->is_resource()) {
             ++prop_index;
             if (a->type()->tag() == Type::Tag::ACCEL) {
-                ++prop_index;
+                // Determine extra property count based on binding type:
+                // Read-only ACCEL: SPIRVAccel + instance + motion = 3 props total (+2 extra)
+                // Writable ACCEL: instance + motion = 2 props total (+1 extra)
+                auto p = prop_index - 1;// Index into _properties (without push constant)
+                if (p < _properties.size() && _properties[p].type == ShaderVariableType::SPIRVAccel) {
+                    prop_index += 2;// read-only: skip instance + motion
+                } else {
+                    prop_index += 1;// writable: skip motion
+                }
             }
         }
     }
@@ -1175,8 +1183,25 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
             _is_storage_image_map[id] = false;
         }
     }
-    if (arg->type()->tag() == Type::Tag::ACCEL && prop_index + 1 < _property_ids.size()) {
-        _accel_instance_buffer_map.emplace(id, _property_ids[prop_index + 1]);
+    if (arg->type()->tag() == Type::Tag::ACCEL) {
+        // Map accel id → instance buffer and motion buffer
+        auto p = prop_index - 1;
+        if (p < _properties.size() && _properties[p].type == ShaderVariableType::SPIRVAccel) {
+            // Read-only: [prop_index]=accel, [+1]=instance, [+2]=motion
+            if (prop_index + 1 < _property_ids.size()) {
+                _accel_instance_buffer_map.emplace(id, _property_ids[prop_index + 1]);
+            }
+            if (prop_index + 2 < _property_ids.size()) {
+                _accel_motion_buffer_map.emplace(id, _property_ids[prop_index + 2]);
+            }
+        } else {
+            // Writable: [prop_index]=instance, [+1]=motion
+            // For writable accel, the primary id IS the instance buffer
+            _accel_instance_buffer_map.emplace(id, id);
+            if (prop_index + 1 < _property_ids.size()) {
+                _accel_motion_buffer_map.emplace(id, _property_ids[prop_index + 1]);
+            }
+        }
     }
     _value_map.emplace(arg, id);
     return id;
@@ -1192,7 +1217,12 @@ spv::Id SpirvCodegenEntry::_resolve_accel_instance_buffer(const xir::Argument *a
         if (a->is_resource()) {
             ++prop_index;
             if (a->type()->tag() == Type::Tag::ACCEL) {
-                ++prop_index;
+                auto p = prop_index - 1;
+                if (p < _properties.size() && _properties[p].type == ShaderVariableType::SPIRVAccel) {
+                    prop_index += 2;
+                } else {
+                    prop_index += 1;
+                }
             }
         }
     }
@@ -1923,6 +1953,62 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
             auto col3 = _builder.createCompositeConstruct(float4_type, {p0_w, p1_w, p2_w, one});
             auto mat_type = _convert_type(inst->type(), Usage::READ);
             id = _builder.createCompositeConstruct(mat_type, {col0, col1, col2, col3});
+            break;
+        }
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_MATRIX: {
+            // Operands: (Accel, index: uint, key: uint): float4x4
+            // Reads from the motion buffer: stride=160 bytes (40 words),
+            // keyframe at word offset 2 + key*12 (VkTransformMatrixKHR: row-major float[3][4])
+            auto accel_ptr = _emit_value(inst->operand(0));
+            auto motion_it = _accel_motion_buffer_map.find(accel_ptr);
+            LUISA_ASSERT(motion_it != _accel_motion_buffer_map.end(),
+                         "SPIR-V ray_tracing_instance_motion_matrix: motion buffer not found.");
+            auto motion_buffer = motion_it->second;
+            auto instance_index = _emit_value(inst->operand(1));
+            auto key = _emit_value(inst->operand(2));
+            auto uint_type = _builder.makeUintType(32);
+            auto float_type = _builder.makeFloatType(32);
+            auto float4_type = _builder.makeVectorType(float_type, 4);
+            auto f32v4 = Type::vector(Type::of<float>(), 4);
+            // motion_base = index * 40 (words)
+            auto motion_base = _builder.createBinOp(spv::Op::OpIMul, uint_type, instance_index, _builder.makeUintConstant(40u));
+            // kf_base = motion_base + 2 + key * 12
+            auto key_word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, key, _builder.makeUintConstant(12u));
+            auto kf_base = _builder.createBinOp(spv::Op::OpIAdd, uint_type, motion_base, _builder.makeUintConstant(2u));
+            kf_base = _builder.createBinOp(spv::Op::OpIAdd, uint_type, kf_base, key_word_offset);
+            // Read 3 rows of float4 (row-major: row0=[col0.row0, col1.row0, col2.row0, col3.row0])
+            auto row0_offset = kf_base;
+            auto row0 = _emit_buffer_read_impl(motion_buffer, row0_offset, f32v4);
+            auto row1_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, kf_base, _builder.makeUintConstant(4u));
+            auto row1 = _emit_buffer_read_impl(motion_buffer, row1_offset, f32v4);
+            auto row2_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, kf_base, _builder.makeUintConstant(8u));
+            auto row2 = _emit_buffer_read_impl(motion_buffer, row2_offset, f32v4);
+            // Reconstruct column-major float4x4 from row-major float[3][4]
+            auto r0_x = _builder.createCompositeExtract(row0, float_type, 0);
+            auto r0_y = _builder.createCompositeExtract(row0, float_type, 1);
+            auto r0_z = _builder.createCompositeExtract(row0, float_type, 2);
+            auto r0_w = _builder.createCompositeExtract(row0, float_type, 3);
+            auto r1_x = _builder.createCompositeExtract(row1, float_type, 0);
+            auto r1_y = _builder.createCompositeExtract(row1, float_type, 1);
+            auto r1_z = _builder.createCompositeExtract(row1, float_type, 2);
+            auto r1_w = _builder.createCompositeExtract(row1, float_type, 3);
+            auto r2_x = _builder.createCompositeExtract(row2, float_type, 0);
+            auto r2_y = _builder.createCompositeExtract(row2, float_type, 1);
+            auto r2_z = _builder.createCompositeExtract(row2, float_type, 2);
+            auto r2_w = _builder.createCompositeExtract(row2, float_type, 3);
+            auto zero = _builder.makeFloatConstant(0.0f);
+            auto one = _builder.makeFloatConstant(1.0f);
+            auto col0 = _builder.createCompositeConstruct(float4_type, {r0_x, r1_x, r2_x, zero});
+            auto col1 = _builder.createCompositeConstruct(float4_type, {r0_y, r1_y, r2_y, zero});
+            auto col2 = _builder.createCompositeConstruct(float4_type, {r0_z, r1_z, r2_z, zero});
+            auto col3 = _builder.createCompositeConstruct(float4_type, {r0_w, r1_w, r2_w, one});
+            auto mat_type = _convert_type(inst->type(), Usage::READ);
+            id = _builder.createCompositeConstruct(mat_type, {col0, col1, col2, col3});
+            break;
+        }
+        case xir::ResourceQueryOp::RAY_TRACING_INSTANCE_MOTION_SRT: {
+            // SRT motion read is not yet supported in SPIR-V path
+            LUISA_NOT_IMPLEMENTED("SPIR-V resource query op ray_tracing_instance_motion_srt.");
             break;
         }
         default:
@@ -2684,6 +2770,70 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
                 }
                 default: break;
             }
+            break;
+        }
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX: {
+            // Operands: (Accel, index: uint, key: uint, transform: float4x4)
+            auto buffer = _emit_value(inst->operand(0));
+            auto index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
+            auto key = _ensure_type(_emit_value(inst->operand(2)), uint_type);
+            auto mat = _emit_value(inst->operand(3));
+            auto float_type = _builder.makeFloatType(32);
+            auto vec4_type = _builder.makeVectorType(float_type, 4);
+            auto f32v4 = Type::vector(Type::of<float>(), 4);
+
+            // 1. Write transform to instance buffer (same as SET_INSTANCE_TRANSFORM)
+            auto inst_base_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(16u));
+            for (auto row = 0u; row < 3u; ++row) {
+                std::vector<spv::Id> comps;
+                comps.reserve(4);
+                for (auto col = 0u; col < 4u; ++col) {
+                    auto col_vec = _builder.createCompositeExtract(mat, vec4_type, col);
+                    auto comp = _builder.createCompositeExtract(col_vec, float_type, row);
+                    comps.push_back(comp);
+                }
+                auto row_vec = _builder.createCompositeConstruct(vec4_type, comps);
+                auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, inst_base_offset,
+                                                        _builder.makeUintConstant(row * 4u));
+                _emit_buffer_write_impl(buffer, word_offset, row_vec, f32v4);
+            }
+
+            // 2. Write to motion buffer
+            // Layout: stride=160 bytes (40 words) per instance
+            // Word 0: type (1 = MATRIX_MOTION), Word 1: flags (0)
+            // Keyframe at byte offset 8 + key*48 = word offset 2 + key*12
+            auto motion_it = _accel_motion_buffer_map.find(buffer);
+            LUISA_ASSERT(motion_it != _accel_motion_buffer_map.end(),
+                         "SPIR-V ray_tracing_set_instance_motion_matrix: motion buffer not found.");
+            auto motion_buffer = motion_it->second;
+            auto motion_base = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(40u));
+            // Write type = 1 (MATRIX_MOTION)
+            _emit_buffer_write_impl(motion_buffer, motion_base, _builder.makeUintConstant(1u), Type::of<uint>());
+            // Write flags = 0
+            auto flags_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, motion_base, _builder.makeUintConstant(1u));
+            _emit_buffer_write_impl(motion_buffer, flags_offset, _builder.makeUintConstant(0u), Type::of<uint>());
+            // Write VkTransformMatrixKHR (row-major float[3][4]) at word offset 2 + key*12
+            auto key_word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, key, _builder.makeUintConstant(12u));
+            auto kf_base = _builder.createBinOp(spv::Op::OpIAdd, uint_type, motion_base, _builder.makeUintConstant(2u));
+            kf_base = _builder.createBinOp(spv::Op::OpIAdd, uint_type, kf_base, key_word_offset);
+            for (auto row = 0u; row < 3u; ++row) {
+                std::vector<spv::Id> comps;
+                comps.reserve(4);
+                for (auto col = 0u; col < 4u; ++col) {
+                    auto col_vec = _builder.createCompositeExtract(mat, vec4_type, col);
+                    auto comp = _builder.createCompositeExtract(col_vec, float_type, row);
+                    comps.push_back(comp);
+                }
+                auto row_vec = _builder.createCompositeConstruct(vec4_type, comps);
+                auto word_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, kf_base,
+                                                        _builder.makeUintConstant(row * 4u));
+                _emit_buffer_write_impl(motion_buffer, word_offset, row_vec, f32v4);
+            }
+            break;
+        }
+        case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT: {
+            // Operands: (Accel, index: uint, key: uint, srt: SRT)
+            // SRT motion is not yet supported in SPIR-V path (matches HLSL no-op placeholder)
             break;
         }
         default:
