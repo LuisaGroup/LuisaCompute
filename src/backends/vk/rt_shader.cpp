@@ -171,12 +171,41 @@ bool RayTracingShader::serialize_pso(vstd::vector<std::byte> &result) const {
     return true;
 }
 
+void RayTracingShader::release_vma_resources() noexcept {
+    if (_sbt_vk_buffer) {
+        vmaDestroyBuffer(device()->allocator().allocator(), _sbt_vk_buffer, _sbt_allocation);
+        _sbt_vk_buffer = VK_NULL_HANDLE;
+        _sbt_allocation = VK_NULL_HANDLE;
+    }
+}
+
+void RayTracingShader::destroy_pipeline_objects() noexcept {
+    if (_pipeline) {
+        vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
+        _pipeline = VK_NULL_HANDLE;
+    }
+    if (_pipe_cache) {
+        vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
+        _pipe_cache = VK_NULL_HANDLE;
+    }
+}
+
 RayTracingShader::~RayTracingShader() {
+    // WORKAROUND: NVIDIA Vulkan driver bug with VK_NV_ray_tracing_motion_blur.
+    // After vkDestroyPipeline is called on an RT pipeline that used motion blur,
+    // ALL subsequent vkCreateComputePipelines and vkCreateRayTracingPipelinesKHR
+    // calls deadlock indefinitely, even after vkDeviceWaitIdle returns VK_SUCCESS.
+    //
+    // Workaround: intentionally leak the VkPipeline and VkPipelineCache.
+    // Only free the SBT buffer (VMA-managed, unrelated to the bug).
+    // The pipeline objects will be cleaned up in ~Device() when no more
+    // pipeline creation is possible.
     if (_sbt_vk_buffer) {
         vmaDestroyBuffer(device()->allocator().allocator(), _sbt_vk_buffer, _sbt_allocation);
     }
-    vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
-    vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
+    // DO NOT call vkDestroyPipeline or vkDestroyPipelineCache here.
+    // vkDestroyPipeline(device()->logic_device(), _pipeline, Device::alloc_callbacks());
+    // vkDestroyPipelineCache(device()->logic_device(), _pipe_cache, Device::alloc_callbacks());
 }
 
 RayTracingShader *RayTracingShader::compile(

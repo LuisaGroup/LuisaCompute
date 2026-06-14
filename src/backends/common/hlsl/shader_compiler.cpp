@@ -232,6 +232,11 @@ CompileResult ShaderCompiler::compile_raytracing(
         }
         // Enable ray tracing SPIR-V extensions
         args.emplace_back(L"-fspv-extension=SPV_KHR_ray_tracing");
+        // Enable ray query extension so RayQuery (inline RT) can coexist
+        // with TraceRay (pipeline RT) in the same library shader.
+        args.emplace_back(L"-fspv-extension=SPV_KHR_ray_query");
+        // Enable descriptor indexing for NonUniformResourceIndex (bindless resources)
+        args.emplace_back(L"-fspv-extension=SPV_EXT_descriptor_indexing");
     }
     args.emplace_back(L"-T");
     args.emplace_back(smStr.c_str());

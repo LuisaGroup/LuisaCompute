@@ -145,7 +145,11 @@ size_t AddHeader(CallOpSet const &ops, vstd::StringBuilder &builder, bool isRast
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_TRANSFORM) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_OPACITY) ||
         ops.test(CallOp::RAY_TRACING_SET_INSTANCE_USER_ID) ||
-        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY)) {
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_VISIBILITY) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_MATRIX) ||
+        ops.test(CallOp::RAY_TRACING_SET_INSTANCE_MOTION_SRT) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_MOTION_MATRIX) ||
+        ops.test(CallOp::RAY_TRACING_INSTANCE_MOTION_SRT)) {
         builder << CodegenUtility::ReadInternalHLSLFile("accel_header");
     }
     if (ops.test(CallOp::COPYSIGN)) {
@@ -173,6 +177,15 @@ bool IsCBuffer(Variable::Tag t);
 // Main compute kernel codegen
 CodegenResult CodegenUtility::Codegen(Function kernel, luisa::string_view native_code, uint custom_mask, bool isSpirV, bool noRegister, bool enable_debug_info) {
     opt = CodegenStackData::Allocate(this);
+    // CodegenStackData objects are pooled and reused. Clear() is called on
+    // deallocation but does NOT reset every flag. RayTracingCodegen() sets
+    // `isRayTracing = true` and leaves it dirty, which causes a subsequent
+    // compute-shader Codegen() (running on the recycled object) to take the
+    // RT-pipeline branches inside CodegenFunction -> wrong HLSL -> compile
+    // crash. Explicitly initialize the flags we care about here so we don't
+    // depend on Clear() covering every field.
+    opt->isRayTracing = false;
+    opt->funcType = CodegenStackData::FuncType::Kernel;
     opt->isSpirv = isSpirV;
     opt->noRegister = noRegister;
     opt->enable_debug_info = enable_debug_info;
@@ -285,6 +298,9 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
     if (enable_debug_info) {
         finalResult << "#define LUISA_DEBUG_INFO 1\n";
     }
+    // Define _RT_PIPELINE_MODE so raytracing_header skips its _TraceClosest/_TraceAny.
+    // raytracing_motion_header provides RayQuery-based _TraceClosest/_TraceAny instead.
+    finalResult << "#define _RT_PIPELINE_MODE\n"sv;
     uint64 immutableHeaderSize = detail::AddHeader(kernel.propagated_builtin_callables(), finalResult, false, isSpirV, noRegister, kernel.use_cooperative_operations());
     // Add motion blur ray tracing header (miss/closesthit entry points + _TraceClosestMotion)
     finalResult << ReadInternalHLSLFile("raytracing_motion_header");
@@ -348,7 +364,8 @@ CodegenResult CodegenUtility::RayTracingCodegen(Function kernel, luisa::string_v
         opt->useBufferBindless,
         validation_count,
         immutableHeaderSize,
-        GetTypeMD5(kernel)};
+        GetTypeMD5(kernel)
+    };
 }
 
 // Main rasterization pipeline codegen

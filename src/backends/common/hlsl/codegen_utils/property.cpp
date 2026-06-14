@@ -243,15 +243,30 @@ void CodegenUtility::CodegenProperties(
             GetVariableName(kernel, i, varData);
             varData << "Inst"sv;
         };
-        auto genArg = [&]<RegisterType regisT, bool rtBuffer = false, bool writable = false>(ShaderVariableType sT, char v) {
+        // Motion instance buffer for Vulkan motion blur SRT keyframes.
+        // Each instance occupies 160 bytes (VkAccelerationStructureMotionInstanceNV
+        // padded to 16-byte alignment). SRT keyframe 0 starts at offset +8 (16
+        // floats = 64 bytes = VkSRTDataNV), keyframe 1 at offset +72.
+        // Non-vulkan backends (DX) bind a 16-byte dummy buffer; since DX doesn't
+        // support motion blur, _MakeSRTFromMatrix won't be called through meaningful
+        // data on DX.
+        auto printMotionBuffer = [&](bool rw = false) {
+            varData << (rw ? "RWByteAddressBuffer "sv : "ByteAddressBuffer "sv);
+            GetVariableName(kernel, i, varData);
+            varData << "Motion"sv;
+        };
+        auto genArg = [&]<RegisterType regisT, int rtBufferKind = 0, bool writable = false>(ShaderVariableType sT, char v) {
             auto &&r = registerCount.get((uint8_t)regisT);
             Property prop = {
                 .type = sT,
                 .space_index = 0,
                 .register_index = r,
                 .array_size = 1};
-            if constexpr (rtBuffer) {
+            if constexpr (rtBufferKind == 1) {
                 printInstBuffer.operator()<writable>();
+                properties.emplace_back(prop);
+            } else if constexpr (rtBufferKind == 2) {
+                printMotionBuffer(writable);
                 properties.emplace_back(prop);
             } else {
                 print();
@@ -304,10 +319,19 @@ void CodegenUtility::CodegenProperties(
                 break;
             case Type::Tag::ACCEL:
                 if (Writable(i)) {
-                    genArg.operator()<RegisterType::UAV, true, true>(ShaderVariableType::RWStructuredBuffer, 'u');
+                    genArg.operator()<RegisterType::UAV, 1, true>(ShaderVariableType::RWStructuredBuffer, 'u');
+                    // Writable-accel motion buffer: RWByteAddressBuffer so
+                    // _SetAccelMotionMatrix can write keyframes directly.
+                    genArg.operator()<RegisterType::UAV, 2, true>(ShaderVariableType::RWStructuredBuffer, 'u');
                 } else {
                     genArg.operator()<RegisterType::SRV>(opt->isSpirv ? ShaderVariableType::SPIRVAccel : ShaderVariableType::StructuredBuffer, 't');
-                    genArg.operator()<RegisterType::SRV, true>(ShaderVariableType::StructuredBuffer, 't');
+                    genArg.operator()<RegisterType::SRV, 1>(ShaderVariableType::StructuredBuffer, 't');
+                    // Motion instance buffer: 160-byte stride for vulkan motion
+                    // SRT keyframes. Bound by stream.cpp during dispatch.
+                    // For shaders that don't use motion blur (or DX backend),
+                    // a tiny dummy buffer is bound; _MakeSRTFromMatrix is only
+                    // called when the kernel actually uses motion blur.
+                    genArg.operator()<RegisterType::SRV, 2>(ShaderVariableType::StructuredBuffer, 't');
                 }
                 break;
             case Type::Tag::CUSTOM: {
