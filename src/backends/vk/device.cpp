@@ -3,10 +3,6 @@
 #include "log.h"
 #include <luisa/vstl/config.h>
 #include <luisa/core/binary_file_stream.h>
-#ifndef _WIN32
-#include <pthread.h>
-#endif
-
 #include "compute_shader.h"
 #include "../common/hlsl/hlsl_codegen.h"
 #include "serde_type.h"
@@ -401,50 +397,51 @@ Device::Device(Context &&ctx_arg, DeviceConfig const *configs)
         _default_file_io = vstd::make_unique<DefaultBinaryIO>(context(), headless, use_lmdb);
         _binary_io = _default_file_io.get();
     }
-    if (!headless) {
-        // init instance
-        {
-            std::lock_guard lck{detail::instance_mtx};
-            if (!detail::vk_instance || external_instance) {
-#ifdef NDEBUG
-                constexpr bool enable_validation = false;
-#else
-                constexpr bool enable_validation = true;
-#endif
-                luisa::vector<luisa::string> extra_exts = [&]() {
-                    if (_config_ext) {
-                        return _config_ext->extra_instance_exts();
-                    } else {
-                        return luisa::vector<luisa::string>{};
-                    }
-                }();
-                bool enable_surface = surface_enabled;
-                detail::create_instance(enable_validation, enable_surface, detail::vk_instance, custom_path, lib_name, extra_exts);
-                surface_enabled = enable_surface;
-            }
-        }
-#ifndef LUISA_VULKAN_ENABLE_CUDA_INTEROP
-        interop_enabled = false;
-#endif
-        _init_device(ext_phy_device, ext_device, device_idx);
-
-        if (_config_ext) {
-            _config_ext->init_volk(vkGetInstanceProcAddr);
-            _config_ext->readback_vulkan_device(instance(), physical_device(), logic_device(), alloc_callbacks(), _pso_header, _graphics_queue, _compute_queue, _copy_queue, graphics_queue_index(), compute_queue_index(), copy_queue_index(), g_dxc_compiler->compiler(), g_dxc_compiler->library(), g_dxc_compiler->utils());
-        }
-        _exts.try_emplace(
-#ifdef LUISA_USE_SYSTEM_STL
-            luisa::string{PinnedMemoryExt::name},
-#else
-            PinnedMemoryExt::name,
-#endif
-            [](Device *device) -> DeviceExtension * {
-                return new VkPinnedMemoryExt(device);
-            },
-            [](DeviceExtension *ext) {
-                delete static_cast<VkPinnedMemoryExt *>(ext);
-            });
+    if (headless) {
+        surface_enabled = false;
     }
+    // init instance
+    {
+        std::lock_guard lck{detail::instance_mtx};
+        if (!detail::vk_instance || external_instance) {
+#ifdef NDEBUG
+            constexpr bool enable_validation = false;
+#else
+            constexpr bool enable_validation = true;
+#endif
+            luisa::vector<luisa::string> extra_exts = [&]() {
+                if (_config_ext) {
+                    return _config_ext->extra_instance_exts();
+                } else {
+                    return luisa::vector<luisa::string>{};
+                }
+            }();
+            bool enable_surface = surface_enabled;
+            detail::create_instance(enable_validation, enable_surface, detail::vk_instance, custom_path, lib_name, extra_exts);
+            surface_enabled = enable_surface;
+        }
+    }
+#ifndef LUISA_VULKAN_ENABLE_CUDA_INTEROP
+    interop_enabled = false;
+#endif
+    _init_device(ext_phy_device, ext_device, device_idx);
+
+    if (_config_ext) {
+        _config_ext->init_volk(vkGetInstanceProcAddr);
+        _config_ext->readback_vulkan_device(instance(), physical_device(), logic_device(), alloc_callbacks(), _pso_header, _graphics_queue, _compute_queue, _copy_queue, graphics_queue_index(), compute_queue_index(), copy_queue_index(), g_dxc_compiler->compiler(), g_dxc_compiler->library(), g_dxc_compiler->utils());
+    }
+    _exts.try_emplace(
+#ifdef LUISA_USE_SYSTEM_STL
+        luisa::string{PinnedMemoryExt::name},
+#else
+        PinnedMemoryExt::name,
+#endif
+        [](Device *device) -> DeviceExtension * {
+            return new VkPinnedMemoryExt(device);
+        },
+        [](DeviceExtension *ext) {
+            delete static_cast<VkPinnedMemoryExt *>(ext);
+        });
     _exts.try_emplace(
 #ifdef LUISA_USE_SYSTEM_STL
         luisa::string{RasterExt::name},
@@ -563,10 +560,12 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         LUISA_ERROR("Necessary extension \"VK_KHR_synchronization2\" is unsupported.");
     }
     bool enable_16bit = false;
+    bool enable_8bit = false;
     bool enable_atomic64_bit = false;
     bool enable_barycentric = false;
     bool enable_motion_blur = false;
     bool enable_float_atomic_add = false;
+    bool enable_float_shared_atomic = false;
     if (supported_ext.find(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) != supported_ext.end()) {
         _enable_device_exts.emplace_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
         enable_barycentric = true;
@@ -583,6 +582,10 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         _enable_device_exts.emplace_back(VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME);
         enable_16bit = true;
     }
+    if (supported_ext.find(VK_KHR_8BIT_STORAGE_EXTENSION_NAME) != supported_ext.end()) {
+        _enable_device_exts.emplace_back(VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
+        enable_8bit = true;
+    }
     if (supported_ext.find(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME) != supported_ext.end()) {
         VkPhysicalDeviceShaderAtomicFloatFeaturesEXT float_atomic_features{
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
@@ -593,9 +596,18 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
         features2.pNext = &float_atomic_features;
         vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        bool needs_float_atomic_ext = false;
         if (float_atomic_features.shaderBufferFloat32AtomicAdd == VK_TRUE) {
-            _enable_device_exts.emplace_back(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
+            needs_float_atomic_ext = true;
             enable_float_atomic_add = true;
+        }
+        if (float_atomic_features.shaderSharedFloat32Atomics == VK_TRUE ||
+            float_atomic_features.shaderSharedFloat32AtomicAdd == VK_TRUE) {
+            needs_float_atomic_ext = true;
+            enable_float_shared_atomic = true;
+        }
+        if (needs_float_atomic_ext) {
+            _enable_device_exts.emplace_back(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
         }
     }
     _enable_device_exts.emplace_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
@@ -672,14 +684,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         feature_next = &raster_bary;
     }
 
-    VkPhysicalDevice16BitStorageFeatures bit16_feature{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
-        .pNext = feature_next,
-        .storageBuffer16BitAccess = VK_TRUE,
-        .uniformAndStorageBuffer16BitAccess = VK_TRUE};
-    if (enable_16bit) {
-        feature_next = &bit16_feature;
-    }
+    // 16-bit storage features are set in VkPhysicalDeviceVulkan11Features below
     VkPhysicalDeviceRayQueryFeaturesKHR enable_rayquery_features{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
         .pNext = feature_next,
@@ -711,34 +716,46 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         enable_float_atomic_add ? VK_TRUE : VK_FALSE,
         VK_FALSE,
         VK_FALSE,
-        VK_FALSE,
-        VK_FALSE,
+        enable_float_shared_atomic ? VK_TRUE : VK_FALSE,
+        enable_float_shared_atomic ? VK_TRUE : VK_FALSE,
         VK_FALSE,
         VK_FALSE,
         VK_FALSE,
         VK_FALSE,
         VK_FALSE,
         VK_FALSE};
-    if (enable_float_atomic_add) {
+    if (enable_float_atomic_add || enable_float_shared_atomic) {
         feature_next = &float_atomic_feature;
     }
     VkPhysicalDeviceSynchronization2Features barrier_feature{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
         feature_next,
         true};
+    VkPhysicalDeviceVulkan11Features vk11_feature{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &barrier_feature,
+        .storageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
+        .uniformAndStorageBuffer16BitAccess = enable_16bit ? VK_TRUE : VK_FALSE,
+        .variablePointersStorageBuffer = VK_TRUE};
+    auto vk_bindless_enabled = bindless_enabled ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceVulkan12Features vk12_feature{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-        .pNext = &barrier_feature,
+        .pNext = &vk11_feature,
+        .storageBuffer8BitAccess = enable_8bit ? VK_TRUE : VK_FALSE,
         .shaderBufferInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderSharedInt64Atomics = enable_atomic64_bit ? VK_TRUE : VK_FALSE,
         .shaderFloat16 = enable_16bit ? VK_TRUE : VK_FALSE,
-        .descriptorIndexing = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .shaderSampledImageArrayNonUniformIndexing = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .shaderStorageImageArrayNonUniformIndexing = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .descriptorBindingSampledImageUpdateAfterBind = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .descriptorBindingStorageImageUpdateAfterBind = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .descriptorBindingStorageBufferUpdateAfterBind = bindless_enabled ? VK_TRUE : VK_FALSE,
-        .runtimeDescriptorArray = bindless_enabled ? VK_TRUE : VK_FALSE,
+        .shaderInt8 = enable_8bit ? VK_TRUE : VK_FALSE,
+        .descriptorIndexing = vk_bindless_enabled,
+        .shaderUniformBufferArrayNonUniformIndexing = vk_bindless_enabled,
+        .shaderSampledImageArrayNonUniformIndexing = vk_bindless_enabled,
+        .shaderStorageBufferArrayNonUniformIndexing = vk_bindless_enabled,
+        .shaderStorageImageArrayNonUniformIndexing = vk_bindless_enabled,
+        .descriptorBindingUniformBufferUpdateAfterBind = vk_bindless_enabled,
+        .descriptorBindingSampledImageUpdateAfterBind = vk_bindless_enabled,
+        .descriptorBindingStorageImageUpdateAfterBind = vk_bindless_enabled,
+        .descriptorBindingStorageBufferUpdateAfterBind = vk_bindless_enabled,
+        .runtimeDescriptorArray = vk_bindless_enabled,
 
         .shaderSubgroupExtendedTypes = (enable_atomic64_bit || enable_16bit) ? VK_TRUE : VK_FALSE,
 
@@ -962,15 +979,6 @@ bool Device::is_pso_same(VkPipelineCacheHeaderVersionOne const &pso) {
     return std::memcmp(&pso, &_pso_header, sizeof(VkPipelineCacheHeaderVersionOne)) == 0;
 }
 Device::~Device() {
-    // Clean up RT shaders that were intentionally leaked during normal operation
-    // to work around an NVIDIA driver deadlock.  At this point no more pipeline
-    // creation can happen, so it is safe to destroy the VkPipeline / VkPipelineCache
-    // objects.
-    for (auto *rt : _leaked_rt_shaders) {
-        rt->destroy_pipeline_objects();
-        delete rt;
-    }
-    _leaked_rt_shaders.clear();
     if (_vk_device) {
         vkDestroyDescriptorSetLayout(logic_device(), _sampler_set_layout, alloc_callbacks());
         vkDestroyDescriptorSetLayout(logic_device(), _bdls_buffer_set_layout, alloc_callbacks());
@@ -1116,16 +1124,8 @@ void Device::present_display_in_stream(uint64_t stream_handle, uint64_t swapchai
     reinterpret_cast<Stream *>(stream_handle)->present(reinterpret_cast<Texture const *>(image_handle), 0, reinterpret_cast<Swapchain *>(swapchain_handle), _inqueue_limit);
 }
 
-static const bool kComputePrintCode = ([] {
-    // read env LUISA_DUMP_SOURCE
-    auto env = std::getenv("LUISA_DUMP_SOURCE");
-    if (env == nullptr) {
-        return false;
-    }
-    return std::string_view{env} == "1";
-})();
 bool Device::print_code() {
-    return kComputePrintCode;
+    return luisa::compute::backend_print_code_enabled();
 }
 // kernel
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function kernel) noexcept {
@@ -1152,53 +1152,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
         if (option.compile_only) {
             LUISA_ERROR("compile_only is not yet supported for motion blur shaders.");
         }
-        // Run RayTracingCodegen with a large stack (128MB) to avoid stack overflow
-        // when processing complex kernels. The AST visitor uses deep recursion
-        // that can exceed the default thread stack size for large kernels.
-        // Note: 16MB was insufficient for mega-kernels with motion blur enabled
-        // (6000+ local variables and deeply nested AST bodies).
-        hlsl::CodegenResult *code_ptr = nullptr;
-        volatile bool codegen_completed = false;
-        auto codegen_func = [&]() {
-            code_ptr = new hlsl::CodegenResult(hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true));
-            codegen_completed = true;
-        };
-#ifdef _WIN32
-        static constexpr size_t kStackSize = 128u * 1024u * 1024u;// 128MB
-        HANDLE thread = CreateThread(nullptr, kStackSize,
-            [](LPVOID param) -> DWORD {
-                (*static_cast<decltype(codegen_func)*>(param))();
-                return 0;
-            }, &codegen_func, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-        if (thread) {
-            WaitForSingleObject(thread, INFINITE);
-            DWORD exit_code = 0;
-            GetExitCodeThread(thread, &exit_code);
-            CloseHandle(thread);
-        } else {
-            codegen_func();// fallback: run in current thread
-        }
-#else
-        {
-            pthread_t tid;
-            pthread_attr_t attr;
-            pthread_attr_init(&attr);
-            pthread_attr_setstacksize(&attr, 128u * 1024u * 1024u);// 128MB
-            int rc = pthread_create(&tid, &attr, [](void *param) -> void* {
-                (*static_cast<decltype(codegen_func)*>(param))();
-                return nullptr;
-            }, &codegen_func);
-            pthread_attr_destroy(&attr);
-            if (rc == 0) {
-                pthread_join(tid, nullptr);
-            } else {
-                codegen_func();// fallback
-            }
-        }
-#endif
-
-        auto &code = *code_ptr;
-        auto code_guard = vstd::scope_exit([&] { delete code_ptr; });
+        // Use ray tracing pipeline for motion blur shaders
+        auto code = hlsl::CodegenUtility{}.RayTracingCodegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
         vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
 
         vstd::string_view file_name;
@@ -1225,33 +1180,111 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             serde_type,
             kShaderModel,
             option.enable_fast_math,
-            option.enable_debug_info
-        );
+            option.enable_debug_info);
         info.handle = reinterpret_cast<uint64_t>(shader);
         info.native_handle = shader->pipeline();
     } else {
-#ifdef LUISA_XIR_TO_SPIRV
-        auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option);
-        LUISA_INFO("SPIR-V compilation successful, binary size: {} words, properties: {} binds", spv_result.spv_bin.size(), spv_result.properties.size());
+#ifdef LUISA_AST_LLVM_TO_SPIRV
+        // === AST LLVM → SPIR-V codegen path ===
+        auto llvm_result = lc::llvm_codegen::LLVMCodegenUtility::CompileSPIRV(kernel, option);
+        for (size_t i = 0; i < llvm_result.properties.size(); ++i) {
+            auto &p = llvm_result.properties[i];
+            LUISA_VERBOSE("  LLVM prop[{}]: type={}, space={}, reg={}, array_size={}",
+                         i, (int)p.type, p.space_index, p.register_index, p.array_size);
+        }
+        if (print_code()) [[unlikely]] {
+            auto dump_name = [&]() -> luisa::string {
+                if (!option.name.empty()) return option.name;
+                if (!kernel.name().empty()) return luisa::string{kernel.name()};
+                return luisa::format("{:x}", kernel.hash());
+            }();
+            {
+                auto filename = luisa::format("spv_code_llvm_{}.spvasm", dump_name);
+                std::ofstream file(filename.c_str());
+                if (file) {
+                    file << "; === LLVM KERNEL: " << kernel.name()
+                         << " hash=" << kernel.hash() << " ===\n";
+                    spv::Disassemble(file, std::vector<uint32_t>{llvm_result.spv_bin.begin(), llvm_result.spv_bin.end()});
+                }
+                LUISA_VERBOSE("SPIRV-LLVM printed to {}.", filename);
+            }
+        }
+        if (option.compile_only) {
+            assert(!option.name.empty());
+            info.invalidate();
+            ShaderSerializer::serialize_bytecode(
+                llvm_result.properties,
+                ShaderSerializer::serialize_saved_args(kernel),
+                vstd::MD5{vstd::span<const uint8_t>(
+                    reinterpret_cast<const uint8_t *>(llvm_result.spv_bin.data()),
+                    llvm_result.spv_bin.size() * sizeof(uint32_t))},
+                hlsl::CodegenUtility::GetTypeMD5(kernel),
+                kernel.block_size(),
+                option.name,
+                llvm_result.spv_bin,
+                SerdeType::kByteCode,
+                _binary_io,
+                llvm_result.useTex2DBindless,
+                llvm_result.useTex3DBindless,
+                llvm_result.useBufferBindless,
+                llvm_result.printers,
+                0);
+        } else {
+            auto shader = new ComputeShader(
+                this,
+                kernel.block_size(),
+                llvm_result.properties,
+                ShaderSerializer::serialize_saved_args(kernel),
+                {reinterpret_cast<const uint *>(llvm_result.spv_bin.data()),
+                 llvm_result.spv_bin.size()},
+                hlsl::binding_to_arg(kernel.bound_arguments()),
+                {},
+                llvm_result.useTex2DBindless,
+                llvm_result.useTex3DBindless,
+                llvm_result.useBufferBindless,
+                std::move(llvm_result.printers),
+                {llvm_result.constant_ubo_data.data(),
+                 llvm_result.constant_ubo_data.size()},
+                0);
+            LUISA_VERBOSE("ComputeShader (LLVM) created, pipeline: {}",
+                         reinterpret_cast<void *>(shader->pipeline()));
+            info.handle = reinterpret_cast<uint64_t>(shader);
+            info.native_handle = shader->pipeline();
+        }
+#elif defined(LUISA_XIR_TO_SPIRV)
+        static constexpr uint32_t VK_VENDOR_ID_AMD = 0x1002u;
+        static constexpr uint32_t VK_VENDOR_ID_NVIDIA = 0x10deu;
+        static constexpr uint32_t VK_VENDOR_ID_INTEL = 0x8086u;
+        bool use_native_float_atomics = _vk_device->properties.vendorID == VK_VENDOR_ID_NVIDIA;
+        auto spv_result = lc::spirv::SpirvCodegenEntry::compile_spirv(kernel, option, use_native_float_atomics);
         for (size_t i = 0; i < spv_result.properties.size(); ++i) {
             auto &p = spv_result.properties[i];
-            LUISA_INFO("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
+            LUISA_VERBOSE("  prop[{}]: type={}, space={}, reg={}, array_size={}", i, (int)p.type, p.space_index, p.register_index, p.array_size);
         }
-        if (print_code()) {
+        if (print_code()) [[unlikely]] {
+            auto dump_name = [&]() -> luisa::string {
+                if (!option.name.empty()) return option.name;
+                if (!kernel.name().empty()) return luisa::string{kernel.name()};
+                return luisa::format("{:x}", kernel.hash());
+            }();
             {
-                std::ofstream file("spirv_output.spvasm", std::ios::out);
+                auto filename = luisa::format("spv_code_{}.spvasm", dump_name);
+                std::ofstream file(filename.c_str());
                 if (file) {
-                    file << "; ==SPIRV==\n";
+                    file << "; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
                     spv::Disassemble(file, spv_result.spv_bin);
                 }
-                LUISA_INFO("SPIRV printed to spirv_output.spvasm.");
+                LUISA_VERBOSE("SPIRV printed to {}.", filename);
             }
             // Test HLSL
-            auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
-            auto f = fopen("hlsl_output.hlsl", "ab");
-            if (f) {
-                fwrite(code.result.view().data(), code.result.view().size(), 1, f);
-                fclose(f);
+            auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
+            {
+                auto hlsl_filename = luisa::format("hlsl_output_{}.hlsl", dump_name);
+                auto f = fopen(hlsl_filename.c_str(), "wb");
+                if (f) {
+                    fwrite(code.result.view().data(), code.result.view().size(), 1, f);
+                    fclose(f);
+                }
             }
             auto comp_result = Device::compiler()->compile_compute(
                 code.result.view(),
@@ -1263,46 +1296,77 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
             if (comp_result.is_type_of<vstd::string>()) [[unlikely]] {
                 LUISA_ERROR("HLSL test compilation error: {}", *comp_result.try_get<vstd::string>());
             } else {
-                LUISA_INFO("HLSL test compilation successful.");
+                LUISA_VERBOSE("HLSL test compilation successful.");
                 {
-                    std::ofstream file("spirv_output_hlsl.spvasm", std::ios::out);
+                    auto filename = luisa::format("spv_code_hlsl_{}.spvasm", dump_name);
+                    std::ofstream file(filename.c_str());
                     if (file) {
-                        file << "; ==SPIRV==\n";
+                        file << "; === KERNEL: " << kernel.name() << " hash=" << kernel.hash() << " ===\n";
                         auto &&blob = comp_result.force_get<lc::hlsl::ComUniquePtr<IDxcBlob>>();
                         std::vector<uint32_t> vec((blob->GetBufferSize() + sizeof(uint) - 1) / sizeof(uint));
                         std::memcpy(vec.data(), blob->GetBufferPointer(), blob->GetBufferSize());
                         spv::Disassemble(file, vec);
                     }
+                    LUISA_VERBOSE("SPIRV-HLSL printed to {}.", filename);
                 }
-                LUISA_INFO("SPIRV-HLSL printed to spirv_output_hlsl.spvasm.");
             }
         }
-        auto shader = new ComputeShader(
-            this,
-            kernel.block_size(),
-            spv_result.properties,
-            ShaderSerializer::serialize_saved_args(kernel),
-            {reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size()},
-            hlsl::binding_to_arg(kernel.bound_arguments()),
-            {},
-            spv_result.useTex2DBindless,
-            spv_result.useTex3DBindless,
-            spv_result.useBufferBindless,
-            std::move(spv_result.printers));
-        LUISA_INFO("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
-        info.handle = reinterpret_cast<uint64_t>(shader);
-        info.native_handle = shader->pipeline();
+        if (option.compile_only) {
+            assert(!option.name.empty());
+            info.invalidate();
+            ShaderSerializer::serialize_bytecode(
+                spv_result.properties,
+                ShaderSerializer::serialize_saved_args(kernel),
+                vstd::MD5{vstd::span<const uint8_t>(reinterpret_cast<const uint8_t *>(spv_result.spv_bin.data()), spv_result.spv_bin.size() * sizeof(uint32_t))},
+                hlsl::CodegenUtility::GetTypeMD5(kernel),
+                kernel.block_size(),
+                option.name,
+                spv_result.spv_bin,
+                SerdeType::kByteCode,
+                _binary_io,
+                spv_result.useTex2DBindless,
+                spv_result.useTex3DBindless,
+                spv_result.useBufferBindless,
+                spv_result.printers,
+                0);
+        } else {
+            auto shader = new ComputeShader(
+                this,
+                kernel.block_size(),
+                spv_result.properties,
+                ShaderSerializer::serialize_saved_args(kernel),
+                {reinterpret_cast<const uint *>(spv_result.spv_bin.data()), spv_result.spv_bin.size()},
+                hlsl::binding_to_arg(kernel.bound_arguments()),
+                {},
+                spv_result.useTex2DBindless,
+                spv_result.useTex3DBindless,
+                spv_result.useBufferBindless,
+                std::move(spv_result.printers),
+                {spv_result.constant_ubo_data.data(), spv_result.constant_ubo_data.size()},
+                0);
+            LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
+            info.handle = reinterpret_cast<uint64_t>(shader);
+            info.native_handle = shader->pipeline();
+        }
 
 #else
-        auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true);
+        auto code = hlsl::CodegenUtility{}.Codegen(kernel, option.native_include, mask, true, false, option.enable_debug_info);
         vstd::MD5 check_md5({reinterpret_cast<uint8_t const *>(code.result.data() + code.immutableHeaderSize), code.result.size() - code.immutableHeaderSize});
         if (option.compile_only) {
             assert(!option.name.empty());
             info.invalidate();
             if (print_code()) {
-                auto f = fopen("hlsl_output.hlsl", "ab");
-                fwrite(code.result.view().data(), code.result.view().size(), 1, f);
-                fclose(f);
+                auto dump_name = [&]() -> luisa::string {
+                    if (!option.name.empty()) return option.name;
+                    if (!kernel.name().empty()) return luisa::string{kernel.name()};
+                    return luisa::format("{:x}", kernel.hash());
+                }();
+                auto dump_file_name = luisa::format("hlsl_output_{}.hlsl", dump_name);
+                auto f = fopen(dump_file_name.c_str(), "wb");
+                if (f) {
+                    fwrite(code.result.view().data(), code.result.view().size(), 1, f);
+                    fclose(f);
+                }
             }
             auto comp_result = Device::compiler()->compile_compute(
                 code.result.view(),
@@ -1326,7 +1390,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                         _binary_io, code.useTex2DBindless,
                         code.useTex3DBindless,
                         code.useBufferBindless,
-                        code.printers);
+                        code.printers,
+                        code.validation_count);
                 },
                 [](auto &&err) {
                     LUISA_ERROR("Compile Error: {}", err);
@@ -1358,12 +1423,14 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 file_name,
                 serde_type,
                 kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
-                option.enable_fast_math);
+                option.enable_fast_math,
+                code.validation_count);
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
         }
 #endif
     }// end else (non-motion-blur path)
+    info.block_size = kernel.block_size();
     return info;
 }
 ShaderCreationInfo Device::create_shader(const ShaderOption &option, const ir::KernelModule *kernel) noexcept { return ShaderCreationInfo::make_invalid(); }
@@ -1390,25 +1457,7 @@ Usage Device::shader_argument_usage(uint64_t handle, size_t index) noexcept {
     return shader->saved_arguments()[index].var_usage;
 }
 void Device::destroy_shader(uint64_t handle) noexcept {
-    // Use base class Shader* for deletion to correctly handle both
-    // ComputeShader and RayTracingShader via virtual destructor.
-    auto shader = reinterpret_cast<Shader *>(handle);
-    if (shader) {
-        auto tag = shader->shader_tag();
-        // WORKAROUND: NVIDIA Vulkan driver bug with VK_NV_ray_tracing_motion_blur.
-        // Destroying ANY part of an RT motion blur shader (pipeline, pipeline layout,
-        // descriptor set layouts) causes all subsequent pipeline creation calls to deadlock.
-        // We intentionally leak the entire RayTracingShader object to avoid this.
-        if (tag == Shader::ShaderTag::kRayTracingShader) {
-            // Free VMA-managed resources (SBT buffer) to avoid assertion in
-            // vmaDestroyAllocator() during device teardown.
-            auto rt = static_cast<RayTracingShader *>(shader);
-            rt->release_vma_resources();
-            _leaked_rt_shaders.emplace_back(rt);
-            return; // Do NOT delete now — deferred to ~Device()
-        }
-    }
-    delete shader;
+    delete reinterpret_cast<ComputeShader *>(handle);
 }
 
 // event

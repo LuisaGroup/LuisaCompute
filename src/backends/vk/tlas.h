@@ -51,7 +51,6 @@ public:
     ~Tlas() override;
     [[nodiscard]] auto &accel() const { return _accel; }
     [[nodiscard]] auto instance_buffer() const { return _instance_buffer.get(); }
-    [[nodiscard]] auto motion_instance_buffer() const { return _motion_instance_buffer.get(); }
     [[nodiscard]] auto accel_buffer() const { return _accel_buffer.get(); }
     [[nodiscard]] bool has_motion() const noexcept { return _has_motion; }
 };

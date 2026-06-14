@@ -351,16 +351,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             1});
                     buffer_elem_types.push_back(nullptr);
                     buffer_names.emplace_back(luisa::string("_accel_rw_") + vstd::to_string(arg.uid()));
-                    // Motion buffer for writable accel (RWByteAddressBuffer for keyframe writes)
-                    _properties.emplace_back(
-                        Property{
-                            ShaderVariableType::RWStructuredBuffer,
-                            0,
-                            next_reg(RegType::UAV),
-                            1});
-                    buffer_elem_types.push_back(nullptr);
-                    buffer_names.emplace_back(luisa::string("_accel_motion_rw_") + vstd::to_string(arg.uid()));
-                    bind_count += 4;
+                    bind_count += 2;
                 } else {
                     _properties.emplace_back(
                         Property{
@@ -374,20 +365,11 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                             0,
                             next_reg(RegType::SRV),
                             1});
-                    // Motion buffer for read-only accel (160-byte stride for motion keyframes)
-                    _properties.emplace_back(
-                        Property{
-                            ShaderVariableType::StructuredBuffer,
-                            0,
-                            next_reg(RegType::SRV),
-                            1});
-                    buffer_elem_types.push_back(nullptr);
                     buffer_elem_types.push_back(nullptr);
                     buffer_elem_types.push_back(nullptr);
                     buffer_names.emplace_back(luisa::string("_accel_") + vstd::to_string(arg.uid()));
                     buffer_names.emplace_back(luisa::string("_accel_inst_") + vstd::to_string(arg.uid()));
-                    buffer_names.emplace_back(luisa::string("_accel_motion_") + vstd::to_string(arg.uid()));
-                    bind_count += 4;
+                    bind_count += 3;
                 }
                 break;
             case Type::Tag::CUSTOM:

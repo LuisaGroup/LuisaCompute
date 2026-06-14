@@ -44,22 +44,27 @@ void Tlas::pre_build(
     using namespace tlas_detail;
     _resize_instance(instance_count);
 
-    // Pre-scan modifications to detect motion before calculating buffer sizes
-    if (!_has_motion && !(modifications.empty() && _set_map.empty())) {
-        for (auto &&i : modifications) {
-            if (i.flags & AccelBuildCommand::Modification::flag_primitive) {
-                auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
-                if (prim) {
-                    if (prim->is_motion_instance()) {
-                        _has_motion = true;
-                        break;
-                    }
-                    auto blas = tlas_detail::resolve_to_blas(i.primitive);
-                    if (blas && blas->has_motion()) {
-                        _has_motion = true;
-                        break;
-                    }
-                }
+    // Recompute motion state from current modifications and existing instances
+    _has_motion = false;
+    for (auto &&i : modifications) {
+        if (i.flags & AccelBuildCommand::Modification::flag_primitive) {
+            auto prim = reinterpret_cast<PrimitiveBase *>(i.primitive);
+            if (prim && prim->is_motion_instance()) {
+                _has_motion = true;
+                break;
+            }
+            auto blas = tlas_detail::resolve_to_blas(i.primitive);
+            if (blas && blas->has_motion()) {
+                _has_motion = true;
+                break;
+            }
+        }
+    }
+    if (!_has_motion) {
+        for (auto &i : _set_map) {
+            if (i.second->mesh && i.second->mesh->has_motion()) {
+                _has_motion = true;
+                break;
             }
         }
     }
@@ -121,15 +126,7 @@ void Tlas::pre_build(
         }
         if (!_motion_instance_buffer) {
             update = false;
-            _motion_instance_buffer = vstd::make_unique<DefaultBuffer>(
-                device(),
-                motion_buf_size,
-                false,
-                static_cast<VkBufferUsageFlagBits>(
-                    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR
-                    | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-                )
-            );
+            _motion_instance_buffer = vstd::make_unique<DefaultBuffer>(device(), motion_buf_size, false, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR);
         }
     }
     if (!(modifications.empty() && _set_map.empty())) {
@@ -183,7 +180,7 @@ void Tlas::pre_build(
             memset(motion_data, 0, motion_upload_size);
             memset(std_data, 0, std_inst_size_bytes);
 
-            // Fill each instance from modifications
+            // Fill each instance
             for (size_t idx = 0; idx < modifications.size(); idx++) {
                 auto &&i = modifications[idx];
                 if (i.index >= instance_count) continue;
@@ -241,44 +238,7 @@ void Tlas::pre_build(
                 std_inst->accelerationStructureReference = accel_ref;
 
                 // Fill motion instance buffer (for TLAS build)
-                if (mi && mi->mode() == AccelMotionMode::MATRIX && mi->keyframe_count() >= 2) {
-                    // Matrix Motion Instance: type = VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_MATRIX_MOTION_NV (1)
-                    *reinterpret_cast<uint32_t *>(inst_base + 0) = VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_MATRIX_MOTION_NV;
-                    *reinterpret_cast<uint32_t *>(inst_base + 4) = 0u; // flags = 0
-
-                    // VkAccelerationStructureMatrixMotionInstanceNV layout:
-                    //   transformT0 (VkTransformMatrixKHR, 48 bytes) at offset 8
-                    //   transformT1 (VkTransformMatrixKHR, 48 bytes) at offset 56
-                    //   instanceCustomIndex:24 | mask:8 at offset 104
-                    //   instanceShaderBindingTableRecordOffset:24 | flags:8 at offset 108
-                    //   accelerationStructureReference (uint64) at offset 112
-                    auto &keyframes = mi->keyframes();
-                    auto &mat0 = keyframes[0].as_matrix();
-                    auto &mat1 = keyframes[mi->keyframe_count() - 1].as_matrix();
-
-                    // Write VkTransformMatrixKHR (row-major float[3][4]) from float4x4 (column-major)
-                    auto write_vk_matrix = [](uint8_t *dst, const float4x4 &m) {
-                        auto *f = reinterpret_cast<float *>(dst);
-                        // Row 0
-                        f[0] = m[0][0]; f[1] = m[1][0]; f[2] = m[2][0]; f[3] = m[3][0];
-                        // Row 1
-                        f[4] = m[0][1]; f[5] = m[1][1]; f[6] = m[2][1]; f[7] = m[3][1];
-                        // Row 2
-                        f[8] = m[0][2]; f[9] = m[1][2]; f[10] = m[2][2]; f[11] = m[3][2];
-                    };
-
-                    write_vk_matrix(inst_base + 8, mat0);       // transformT0
-                    write_vk_matrix(inst_base + 8 + 48, mat1);  // transformT1
-
-                    // Instance fields after the two matrix transforms
-                    auto *mat_inst_fields = inst_base + 8 + 48 + 48; // offset 104
-                    *reinterpret_cast<uint32_t *>(mat_inst_fields + 0) =
-                        (custom_index & 0x00FFFFFFu) | (static_cast<uint32_t>(mask) << 24u);
-                    *reinterpret_cast<uint32_t *>(mat_inst_fields + 4) =
-                        (0u & 0x00FFFFFFu) | (static_cast<uint32_t>(geom_flags) << 24u);
-                    *reinterpret_cast<uint64_t *>(mat_inst_fields + 8) = accel_ref;
-
-                } else if (mi && mi->mode() == AccelMotionMode::SRT && mi->keyframe_count() >= 2) {
+                if (mi && mi->mode() == AccelMotionMode::SRT && mi->keyframe_count() >= 2) {
                     // SRT Motion Instance: type = VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_SRT_MOTION_NV (2)
                     *reinterpret_cast<uint32_t *>(inst_base + 0) = VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_SRT_MOTION_NV;
                     *reinterpret_cast<uint32_t *>(inst_base + 4) = 0u; // flags = 0
@@ -346,42 +306,6 @@ void Tlas::pre_build(
                     motion_inst->flags = geom_flags;
                     motion_inst->accelerationStructureReference = accel_ref;
                 }
-            }
-
-            // Also process remaining _set_map entries (BLAS updates not covered by modifications).
-            // Without this, when a BLAS is rebuilt (address changes) and notifies the TLAS via
-            // _update_mesh/_set_map, the motion instance buffer would retain stale BLAS addresses,
-            // causing GPU hangs on the next TraceRay.
-            for (auto &[set_idx, handle] : _set_map) {
-                if (set_idx >= instance_count) continue;
-                auto *mesh = handle->mesh;
-                if (!mesh) continue;
-                uint64_t accel_ref = mesh->get_accel_device_address();
-                resource_barrier->record(BufferView{mesh->_accel_buffer.get()},
-                                         ResourceBarrier::Usage::kAccelInstanceBuffer);
-
-                // Update accelerationStructureReference in motion instance buffer
-                auto inst_base = motion_data + static_cast<size_t>(set_idx) * kMotionInstanceStride;
-                uint32_t motion_type = *reinterpret_cast<uint32_t *>(inst_base + 0);
-                if (motion_type == VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_SRT_MOTION_NV) {
-                    // SRT motion instance: accel ref at offset 8 + 64 + 64 + 8 = 144
-                    *reinterpret_cast<uint64_t *>(inst_base + 8 + 64 + 64 + 8) = accel_ref;
-                } else if (motion_type == VK_ACCELERATION_STRUCTURE_MOTION_INSTANCE_TYPE_MATRIX_MOTION_NV) {
-                    // Matrix motion instance: accel ref at offset 8 + 48 + 48 + 8 = 112
-                    *reinterpret_cast<uint64_t *>(inst_base + 8 + 48 + 48 + 8) = accel_ref;
-                } else {
-                    // Static motion instance: accel ref at offset 8 + offsetof(VkAccelerationStructureInstanceKHR, accelerationStructureReference)
-                    auto motion_inst = reinterpret_cast<VkAccelerationStructureInstanceKHR *>(inst_base + 8);
-                    motion_inst->accelerationStructureReference = accel_ref;
-                }
-
-                // Update accelerationStructureReference in standard instance buffer
-                auto std_inst = reinterpret_cast<VkAccelerationStructureInstanceKHR *>(
-                    std_data + static_cast<size_t>(set_idx) * sizeof(VkAccelerationStructureInstanceKHR));
-                std_inst->accelerationStructureReference = accel_ref;
-
-                _set_mesh(mesh, set_idx);
-                update = false;
             }
 
             // Copy motion instances to _motion_instance_buffer (for TLAS build)

@@ -11,7 +11,6 @@ ray.TMin=rayDesc.v1;
 ray.TMax=rayDesc.v3;
 return ray;
 }
-#ifndef _RT_PIPELINE_MODE
 template<typename T>
 _Hit1 _TraceClosest(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray=_toRay(rayDesc);
@@ -29,7 +28,6 @@ pl.v0=4294967295;
 }
 return pl;
 }
-#endif
 
 #define _QueryAll(accel,rayDesc,mask,q)\
 {RayDesc ray=_toRay(rayDesc);\
@@ -97,7 +95,6 @@ void _CommitProcedural(Q q,float dist){
 if(dist<q.CommittedRayT())
 q.CommitProceduralPrimitiveHit(dist);
 }
-#ifndef _RT_PIPELINE_MODE
 template<typename T>
 bool _TraceAny(RaytracingAccelerationStructure accel,T rayDesc,uint mask){
 RayDesc ray=_toRay(rayDesc);
@@ -106,4 +103,3 @@ q.TraceRayInline(accel,_ANY_HIT_RAY_FLAG,mask,ray);
 q.Proceed();
 return q.CommittedStatus()!=COMMITTED_NOTHING;
 }
-#endif

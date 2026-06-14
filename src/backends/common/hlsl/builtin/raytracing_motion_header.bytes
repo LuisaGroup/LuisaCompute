@@ -1,11 +1,12 @@
 // Motion blur ray tracing header for VK_NV_ray_tracing_motion_blur
-// Uses ray tracing pipeline with TraceRay for motion blur tracing only.
-// Non-motion _TraceClosest/_TraceAny use inline RayQuery to avoid
-// generating OpTraceRayKHR that could be incorrectly patched.
+// Uses ray tracing pipeline with TraceRay for closest-hit tracing.
+// The time parameter is stored in the payload struct before TraceRay.
 // A SPIR-V post-processing pass replaces OpTraceRayKHR with OpTraceRayMotionNV,
 // extracting the time value from the payload's time field.
 
 // Payload structure matching _Hit1 layout, with extra time field for SPIR-V patching.
+// The time field is stored before TraceRay and read by the SPIR-V patcher.
+// It occupies payload location 5 (after v0-v3 which use locations 0-4).
 struct _MotionPayload {
     uint inst_idx;   // v0: instance index (0xFFFFFFFF = miss)
     uint prim_idx;   // v1: primitive index
@@ -29,52 +30,6 @@ void main_closesthit(inout _MotionPayload payload, BuiltInTriangleIntersectionAt
     payload.ray_t = RayTCurrent();
 }
 
-// _TraceClosest uses inline RayQuery (no OpTraceRayKHR emitted).
-// This avoids the SPIR-V patcher incorrectly converting it to OpTraceRayMotionNV
-// which would cause a GPU hang when tracing against a non-motion TLAS.
-template<typename T>
-_Hit1 _TraceClosest(RaytracingAccelerationStructure accel, T rayDesc, uint mask) {
-    RayDesc ray = _toRay(rayDesc);
-    RayQuery<RAY_FLAG_FORCE_OPAQUE> q;
-    q.TraceRayInline(accel, RAY_FLAG_FORCE_OPAQUE, mask, ray);
-    q.Proceed();
-    _Hit1 pl = (_Hit1)0;
-    if (q.CommittedStatus() == COMMITTED_TRIANGLE_HIT) {
-        pl.v0 = q.CommittedInstanceIndex();
-        pl.v1 = q.CommittedPrimitiveIndex();
-        pl.v2 = q.CommittedTriangleBarycentrics();
-        pl.v3 = q.CommittedRayT();
-    } else {
-        pl.v0 = 4294967295;
-    }
-    return pl;
-}
-
-// _TraceAny uses inline RayQuery (no OpTraceRayKHR emitted).
-template<typename T>
-bool _TraceAny(RaytracingAccelerationStructure accel, T rayDesc, uint mask) {
-    RayDesc ray = _toRay(rayDesc);
-    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE> q;
-    q.TraceRayInline(accel, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE, mask, ray);
-    q.Proceed();
-    return q.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
-}
-
-template<typename T>
-bool _TraceAnyMotion(RaytracingAccelerationStructure accel, T rayDesc, float time, uint mask) {
-    RayDesc ray = _toRay(rayDesc);
-    _MotionPayload payload;
-    payload.inst_idx = 4294967295u;
-    payload.prim_idx = 0u;
-    payload.bary = float2(0, 0);
-    payload.ray_t = 0.0f;
-    payload.time = time;
-    TraceRay(accel,
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_FORCE_OPAQUE,
-        mask, 0, 0, 0, ray, payload);
-    return payload.inst_idx != 4294967295u;
-}
-
 template<typename T>
 _Hit1 _TraceClosestMotion(RaytracingAccelerationStructure accel, T rayDesc, float time, uint mask) {
     RayDesc ray = _toRay(rayDesc);
@@ -83,6 +38,10 @@ _Hit1 _TraceClosestMotion(RaytracingAccelerationStructure accel, T rayDesc, floa
     payload.prim_idx = 0u;
     payload.bary = float2(0, 0);
     payload.ray_t = 0.0f;
+    // Store time in payload for SPIR-V post-processor.
+    // The patcher finds the OpStore to the time field of the payload
+    // variable preceding OpTraceRayKHR and uses it as the time operand
+    // for OpTraceRayMotionNV.
     payload.time = time;
     TraceRay(accel,
         RAY_FLAG_FORCE_OPAQUE,
@@ -94,3 +53,4 @@ _Hit1 _TraceClosestMotion(RaytracingAccelerationStructure accel, T rayDesc, floa
     result.v3 = payload.ray_t;
     return result;
 }
+
