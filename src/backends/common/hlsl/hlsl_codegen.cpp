@@ -533,7 +533,12 @@ void StringStateVisitor::visit(const AssignStmt *state) {
     auto is_rayquery = [&]() {
         if (state->rhs()->tag() != Expression::Tag::CALL) return false;
         auto s = static_cast<CallExpr const *>(state->rhs());
-        return (s->op() == CallOp::RAY_TRACING_QUERY_ANY || s->op() == CallOp::RAY_TRACING_QUERY_ALL);
+        return (
+            s->op() == CallOp::RAY_TRACING_QUERY_ANY
+            || s->op() == CallOp::RAY_TRACING_QUERY_ALL
+            || s->op() == CallOp::RAY_TRACING_QUERY_ANY_MOTION_BLUR
+            || s->op() == CallOp::RAY_TRACING_QUERY_ALL_MOTION_BLUR
+        );
     };
     if (is_custom(state->lhs(), rqVar)) {
         auto iter = lazyDeclVars.find(rqVar);

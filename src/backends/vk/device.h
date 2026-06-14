@@ -15,6 +15,7 @@ static constexpr uint kShaderModel = 65u;
 static constexpr uint kHighShaderModel = 66u;
 static constexpr uint kTensorShaderModel = 69u;
 class ComputeShader;
+class RayTracingShader;
 using namespace luisa;
 using namespace luisa::compute;
 static constexpr size_t kSparseBufferSize = 65536ull;
@@ -65,6 +66,9 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     BinaryIO const *_binary_io{};
     vstd::unique_ptr<DefaultBinaryIO> _default_file_io;
     bool _inqueue_limit = true;// TODO
+    // RT shaders intentionally leaked to work around NVIDIA driver deadlock
+    // (VK_NV_ray_tracing_motion_blur). Cleaned up in ~Device().
+    vstd::vector<RayTracingShader *> _leaked_rt_shaders;
     void _init_device(VkPhysicalDevice external_physical_device, VkDevice external_device, uint32_t selected_device);
 public:
     struct HeapAlloc {

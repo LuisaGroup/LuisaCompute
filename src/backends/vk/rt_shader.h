@@ -57,6 +57,11 @@ public:
         vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers);
     ~RayTracingShader();
 
+    // Release VMA-managed resources (SBT buffer) without touching pipeline objects.
+    void release_vma_resources() noexcept;
+    // Destroy VkPipeline and VkPipelineCache (only safe when no more pipeline creation will happen).
+    void destroy_pipeline_objects() noexcept;
+
     static RayTracingShader *compile(
         BinaryIO const *bin_io,
         Device *device,
