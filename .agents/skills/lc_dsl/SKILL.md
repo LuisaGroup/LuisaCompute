@@ -5,12 +5,12 @@ description: DSL kernels, callables, structs, buffers, atomics, control flow, an
 
 # LuisaCompute DSL Usage Guide
 
-Based on test cases in `src/tests/test_dsl.cpp`, `test_dsl_sugar.cpp`, `test_path_tracing.cpp`, `test_atomic.cpp`.
+Based on test cases in `src/tests/unit/dsl/test_dsl.cpp`, `test_dsl_sugar.cpp`, `test_var.cpp`, `test_callable.cpp` and `src/tests/unit/runtime/test_atomic.cpp`, `test_warp.cpp`, plus `src/tests/integration/runtime/test_rtx.cpp` and `test_indirect.cpp`.
 
 ## Headers
 
 ```cpp
-#include <luisa/dsl/syntax.h>   // core DSL
+#include <luisa/dsl/syntax.h>   // core DSL (includes func, buffers, textures, RTX, indirect dispatch, ...)
 #include <luisa/dsl/sugar.h>    // syntactic sugar macros
 #include <luisa/dsl/struct.h>   // struct registration
 using namespace luisa;
@@ -40,6 +40,10 @@ Kernel3D k3d = [](VolumeFloat vol) noexcept {
 auto shader = device.compile(kernel);
 stream << shader(buf, count).dispatch(1024u);            // 1D
 stream << shader2d(img).dispatch(width, height);         // 2D
+
+// Compile a raw lambda directly as a 2D kernel
+auto shader2 = device.compile<2>(kernel_lambda);
+
 kernel.function_builder()->set_name("my_kernel");        // debug name
 // Or inline:
 Kernel2D k = []() noexcept { set_name("my_kernel"); /* ... */ };
@@ -48,6 +52,8 @@ Kernel2D k = []() noexcept { set_name("my_kernel"); /* ... */ };
 ### Block Size
 ```cpp
 Kernel2D k = []() noexcept { set_block_size(16u, 16u, 1u); /* ... */ };
+// Equivalent shorthand:
+set_block_size(make_uint2(16u, 16u));
 ```
 
 ## Callable Functions
@@ -123,6 +129,10 @@ Var<float> f; Var<int3> iv; Var<float4x4> m;
 Var v = 10;                    // Var<int>
 Var v2 = make_float3(1.0f);    // Var<float3>
 
+// Explicit construction from an expression or C++ value
+Float x = def(1.0f);
+Float3 y = def<float3>(1.0f, 2.0f, 3.0f);
+
 // Aliases
 using Float = Var<float>; using Float3 = Var<float3>; using Int = Var<int>;
 using UInt = Var<uint>; using UInt2 = Var<uint2>; using Bool = Var<bool>;
@@ -161,7 +171,9 @@ switch_(val).case_(1, [] {}).case_(2, [] {}).default_([] {});
 
 // Loops
 loop([] { if_(true, break_); });
-for (auto v : dynamic_range(count)) { /* v is Var<int> */ }
+for (auto v : dynamic_range(count)) { /* v is Var<int>, 0..count-1 */ }
+for (auto v : dynamic_range(begin, end, step)) { /* begin..end-1 with step */ }
+loop(begin, end, step, [](auto i) { /* body */ });
 
 // Ternary & min/max
 Var vv = ite(t == 10, 1, 2);
@@ -356,6 +368,10 @@ Var<float> f = cast<float>(i);
 Var<int> i = cast<int>(f);
 Var<int> r = cast<int>(buf->read(a + b));
 Var<float> m = i.cast<float>();  // method syntax
+
+// Bitwise reinterpretation (same size)
+UInt bits = as<uint>(f);
+UInt2 u2 = as<uint2>(make_float2(1.0f, 2.0f));
 ```
 
 ## Sugar Syntax
@@ -368,7 +384,7 @@ $int a; $float b; $float3 c; $uint2 d;
 $ v = 10;          // $int
 $ f = 1.0f;        // $float
 
-// $constant, $shared, $array, $buffer
+// $constant, $shared, $array, $buffer, $image, $volume, $bindless, $accel, $atomic
 $constant floats = {1.0f, 2.0f};
 $shared<float4> s{16};
 $array<float, 5> arr;
@@ -377,8 +393,15 @@ Kernel1D k = &[$]($buffer<float> buf, $uint count) { /* ... */ };
 // Control flow
 $if (w.x < 5) { } $elif (w.x > 0) { } $else { };
 $loop { $break; };
+$while (i > 0u) { i = i / b; };
 $switch (123) { $case (1) { }; $default { }; };
 $for (x, n) { /* x is Var<uint>, 0..n-1 */ };
+$for (i, 0, n, 2) { /* i is Var<int>, step 2 */ };
+
+// Return/break/continue/unreachable
+$return(x + y);
+$continue;
+unreachable();            // or unreachable("reason")
 ```
 
 ## Dispatch & Thread IDs
@@ -395,6 +418,83 @@ UInt3 coord = dispatch_id().xyz();
 UInt tx = thread_id().x;       // or thread_x()
 UInt bx = block_id().x;
 UInt bs = block_size().x;
+
+// Which kernel in an indirect dispatch packet
+UInt kid = kernel_id();
+```
+
+## Bindless Arrays
+
+```cpp
+Kernel1D k = [](Var<BindlessArray> heap, BufferVar<float4> out) noexcept {
+    // Bindless buffer
+    $float4 v = heap.buffer<float4>(0u).read(0u);
+    // Bindless 2D texture
+    $float4 t = heap.tex2d(1u).read(make_uint2(0u));
+    out.write(0u, v + t);
+};
+```
+
+## Ray-Tracing DSL
+
+`syntax.h` pulls in `<luisa/dsl/rtx/*.h>`. Example:
+
+```cpp
+#include <luisa/dsl/sugar.h>
+
+Kernel2D raytrace = [&](BufferFloat4 image, AccelVar accel, UInt frame) noexcept {
+    UInt2 coord = dispatch_id().xy();
+    Var<Ray> ray = make_ray(make_float3(0.0f), make_float3(0.0f, 0.0f, -1.0f));
+    Var<TriangleHit> hit = accel.intersect(ray, {});
+    $if (!hit->miss()) {
+        Float3 color = triangle_interpolate(hit.bary,
+                                            make_float3(1.0f, 0.0f, 0.0f),
+                                            make_float3(0.0f, 1.0f, 0.0f),
+                                            make_float3(0.0f, 0.0f, 1.0f));
+        image.write(coord.y * dispatch_size_x() + coord.x, make_float4(color, 1.0f));
+    };
+};
+```
+
+## Indirect Dispatch
+
+```cpp
+#include <luisa/dsl/dispatch_indirect.h>
+#include <luisa/runtime/dispatch_buffer.h>
+
+Kernel1D clear = [](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
+    dispatch_buffer.set_dispatch_count(16u);
+};
+Kernel1D emplace = [](Var<IndirectDispatchBuffer> dispatch_buffer) noexcept {
+    dispatch_buffer.set_kernel(dispatch_id().x,
+                               make_uint3(64u, 1u, 1u),
+                               make_uint3(dispatch_id().x, 1u, 1u),
+                               dispatch_id().x);
+};
+Kernel1D work = [](BufferVar<uint> buf) noexcept {
+    set_block_size(64u, 1u, 1u);
+    buf.atomic(kernel_id()).fetch_add(dispatch_size().x);
+};
+
+IndirectDispatchBuffer idb = device.create_indirect_dispatch_buffer(16u);
+auto clear_s = device.compile(clear);
+auto emplace_s = device.compile(emplace);
+auto work_s = device.compile(work);
+stream << clear_s(idb).dispatch(1u)
+       << emplace_s(idb).dispatch(16u)
+       << work_s(buf).dispatch(idb)
+       << synchronize();
+```
+
+## Hints & Device Debug
+
+```cpp
+assume(index >= 0 & index < size);    // optimizer hint (use bitwise & for scalar bools)
+device_assert(x > 0.0f);             // device-side assertion
+device_assert(x > 0.0f, "x must be positive");
+
+// Clock
+ULong t = device_clock();
 ```
 
 ## Complete Example
@@ -413,7 +513,7 @@ int main(int argc, char *argv[]) {
     Stream stream = device.create_stream();
     Buffer<Particle> particles = device.create_buffer<Particle>(1024);
 
-    Callable update = []($Particle p, $float dt) noexcept {
+    Callable update = [](Var<Particle> p, $float dt) noexcept {
         p.position = p.position + p.velocity * dt;
         return p;
     };
@@ -434,21 +534,24 @@ int main(int argc, char *argv[]) {
 
 | Feature | Syntax |
 |---|---|
-| Kernel1D/2D/3D | `Kernel1D k = [](...) { ... };` |
+| Kernel1D/2D/3D | `Kernel1D k = [](...) { ... };` / `device.compile<N>(lambda)` |
 | Callable | `Callable c = [](...) { ... };` / `Callable<Ret(Args...)>` |
 | Struct | `LUISA_STRUCT(Name, m1, m2) {}` |
 | Template Struct | `LUISA_TEMPLATE_STRUCT(TMPL_DEF, TMPL_USE, members) {}` |
-| Variable | `Var<T> v` / `$T v` |
+| Variable | `Var<T> v` / `$T v` / `def<T>(...)` |
 | Buffer Read/Write | `buf.read(idx)` / `buf.write(idx, val)` |
 | Atomic | `buf.atomic(idx).fetch_add(val)` / `.compare_exchange(exp, new)` |
 | Shared | `Shared<T> s{n}` |
 | Constant | `Constant c = { ... }` |
-| Cast | `cast<T>(val)` / `val.cast<T>()` |
-| If | `if_(cond, [] {})` / `.elif_(cond, [] {})` / `.else_([] {})` |
-| Switch | `switch_(val).case_(v, [] {})...default_([] {})` |
-| Loop | `loop([] {})` / `$for (i, n) {}` |
+| Cast | `cast<T>(val)` / `val.cast<T>()` / `as<T>(val)` |
+| If | `if_(cond, [] {})` / `.elif_(cond, [] {})` / `.else_([] {})` / `$if ... $elif ... $else` |
+| Switch | `switch_(val).case_(v, [] {})...default_([] {})` / `$switch ... $case ... $default` |
+| Loop | `loop([] {})` / `$loop` / `$while` / `$for (i, n)` / `$for (i, begin, end, step)` |
 | Dispatch ID | `dispatch_id().xy()` / `dispatch_x()` |
 | Thread ID | `thread_id().x` / `thread_x()` |
+| Bindless | `heap.buffer<T>(slot).read(idx)` / `heap.tex2d(slot).read(uv)` |
+| RTX | `make_ray(...)`, `accel.intersect(ray, {})`, `TriangleHit` |
+| Indirect | `Var<IndirectDispatchBuffer>` / `.set_dispatch_count` / `.set_kernel` |
 | Compose | `compose(v1, v2)` → `.get<0>()`, `.get<1>()` |
 | Warp Config | `set_warp_size(32)` / `warp_lane_id()` / `warp_lane_count()` |
 | Warp Vote | `warp_active_all(pred)` / `warp_active_any(pred)` / `warp_active_bit_mask(pred)` |
@@ -460,3 +563,4 @@ int main(int argc, char *argv[]) {
 | Warp Equal | `warp_active_all_equal(v)` |
 | Warp First Lane | `warp_is_first_active_lane()` / `warp_first_active_lane()` |
 | Block Barrier | `sync_block()` |
+| Hints | `assume(pred)` / `device_assert(pred, msg)` / `unreachable()` |

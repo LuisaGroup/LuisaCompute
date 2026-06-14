@@ -53,11 +53,15 @@ void GetFunctionDecl(Function func, vstd::StringBuilder &str) {
     if (func.return_type()) CodegenUtility::GetTypeName(*func.return_type(), data, Usage::READ);
     else data += "void"sv;
     data += " "sv;
-    GetFunctionName(func, data);
+    CodegenUtility::GetFunctionName(func, data);
     data += '(';
     for (auto &&arg : func.arguments()) {
-        GetTypeName(arg.type(), data);
-        data << ' ' << arg.name() << ',';
+        Usage usage = func.variable_usage(arg.uid());
+        CodegenUtility::GetTypeName(*arg.type(), data, usage);
+        data << ' ';
+        vstd::StringBuilder varName;
+        CodegenUtility::GetVariableName(func, arg, varName);
+        data << varName << ',';
     }
     if (!func.arguments().empty()) data[data.size() - 1] = ')';
     else data += ')';
@@ -143,8 +147,11 @@ std::string_view code(static_cast<const char*>(header.ptr), header.size);
 |---|---|
 | `hlsl_header` | Main HLSL header |
 | `hlsl_header_fallback` | Fallback header |
-| `work_graph` | Work graph shaders |
 | `spv_alias` | SPIR-V aliases |
+| `bindless_upload.bytes` / `bindless_upload_vk.bytes` | Bindless upload helpers |
+| `accel_process.bytes` / `accel_process_vk.bytes` | Acceleration-structure processing |
+| `accel_process_vk_motion.bytes` | Acceleration-structure processing with motion blur |
+| `raytracing_motion_header` | Ray tracing motion blur |
 | `dx_linalg` | Linear algebra utils |
 | `raytracing_header` | Ray tracing |
 | `tex2d_bindless` / `tex3d_bindless` | Bindless textures |
@@ -179,10 +186,19 @@ Build: `.hlsl` → `.bytes`, shaders → `.dxil`, embedded via `bin2obj`.
 Set env `LUISA_DUMP_SOURCE=1` to dump generated HLSL to per-shader files.  
 Output: `hlsl_output_<shader_name>.hlsl` in the working directory.
 
-**Naming priority** (same across DX and VK backends):
+**Naming priority** depends on the backend and shader path:
+
+*DX compute / raster / save paths, and VK `compile_only` / test paths:*
 1. `ShaderOption::name` / `fileName` — user-provided name
 2. `Function::name()` — kernel/callable debug name
 3. `Function::hash()` formatted as hex — fallback (e.g. `hlsl_output_a1b2c3d4.hlsl`)
+
+*VK runtime compute path (`ComputeShader::create`):*
+1. `file_name` — user-provided / cached name
+2. Generated HLSL MD5 — fallback
+
+*VK raster (`VkRasterExt`):*
+`ShaderOption::name` is always required, so the dump file uses that name.
 
 Files are written with `"wb"` (overwrite) — no need to delete old files.  
 Each shader gets its own file; no more single `hlsl_output.hlsl` with appended content.
