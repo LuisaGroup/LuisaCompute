@@ -1,13 +1,24 @@
 #include "ut/ut.hpp"
 #include "test_device.h"
-// Test for batched matrix multiplication with neural network training.
+// Tests for matrix multiply and XIR pass corner cases.
 //
-// This test implements:
+// Original test:
 // 1. GEMM (General Matrix Multiply) kernel with configurable batch sizes
 // 2. A simple 2-layer neural network with backpropagation
 // 3. LCG random number generation for weight initialization
-//
 // The network learns the identity function using gradient descent.
+//
+// Corner-case tests that exercise XIR passes (utils.cpp):
+// - control_flow_corners: destructure_cfg, restructure_cfg, simplify_cfg,
+//   if_conversion, lower_break_continue, early_return_elimination, phi_cleanup
+// - memory_pass_corners: mem2reg, dead_store_elimination, local_store_forward,
+//   local_load_elimination, sroa, reg2mem
+// - callable_inline_corners: inline, dead_arg_elim, unused_callable_removal,
+//   promote_ref_arg
+// - loop_pass_corners: loop_unroll, indvar_simplify, licm, loop_rotation
+// - algebraic_pass_corners: algebraic_simplify, const_fold, simplify_libcalls,
+//   reassociate, div_rem_pairs, gvn, sccp, cvp
+// - scalarize_gep_corners: scalarizer, trace_gep, transpose_gep
 
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
@@ -387,6 +398,476 @@ Kernel2D<void(Buffer<float>, Buffer<float>, Buffer<float>)> last_layer_err(uint 
     };
 }
 
+// ============================================================================
+// Corner-case kernels that exercise XIR passes from
+// src/backends/common/spirv/spirv_codegen/utils.cpp
+// ============================================================================
+
+// --- Structs for scalarizer / sroa / trace_gep / fix_self_referential tests ---
+struct VecStruct {
+    float3 v;
+    float s;
+};
+LUISA_STRUCT(VecStruct, v, s) {};
+
+struct NestedArr {
+    float arr[3][2];
+};
+LUISA_STRUCT(NestedArr, arr) {};
+
+struct InnerStruct {
+    float x;
+    float2 y;
+};
+struct OuterStruct {
+    InnerStruct inner;
+    float z;
+    float3 w;
+};
+LUISA_STRUCT(InnerStruct, x, y) {};
+LUISA_STRUCT(OuterStruct, inner, z, w) {};
+
+// ---------------------------------------------------------------------------
+// Test 1: nested if-elif-else, switch, break in loops, while-loop, early return
+// Passes exercised:
+//   destructure_cfg, restructure_cfg, simplify_cfg, if_conversion,
+//   lower_break_continue, early_return_elimination, phi_cleanup
+// ---------------------------------------------------------------------------
+void test_control_flow_corners(Device &device) {
+    auto stream = device.create_stream();
+    auto buf = device.create_buffer<float>(64);
+    auto result = device.create_buffer<float>(1);
+
+    Kernel1D k = [](BufferVar<float> buf, BufferVar<float> result) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = 0.0f;
+
+        // Nested if-elif-else with 4-way branch (tests destructure/restructure)
+        $if (idx < 16) {
+            val = 1.0f;
+        } $elif (idx < 32) {
+            val = 2.0f;
+        } $elif (idx < 48) {
+            val = 3.0f;
+        } $else {
+            val = 4.0f;
+        };
+
+        // Loop with conditional break (tests lower_break_continue)
+        Float acc = 0.0f;
+        $for (i, 10) {
+            acc += val;
+            $if (acc > 20.0f) {
+                $break;
+            };
+        };
+
+        // Diamond if-else assigning to same variable (tests if_conversion, phi_cleanup)
+        Float diamond;
+        $if (idx % 2 == 0) {
+            diamond = val;
+        } $else {
+            diamond = val;  // both branches assign same value -> phi_cleanup
+        };
+
+        // Switch with multiple non-default cases (tests simplify_cfg)
+        Float sw_val = 0.0f;
+        $switch (idx % 4) {
+            $case (0) { sw_val = 1.0f; };
+            $case (1) { sw_val = 2.0f; };
+            $case (2) { sw_val = 4.0f; };
+            $default { sw_val = 8.0f; };
+        };
+
+        // While loop pattern (tests loop_rotation)
+        Float counter = 0.0f;
+        Float target = (idx % 8).cast<float>() + 1.0f;
+        $while (counter < target) {
+            counter += 1.0f;
+        };
+
+        // Nested if inside loop (tests destructure with inner control)
+        Float nested = 0.0f;
+        $for (j, 5) {
+            $if (j < 3) {
+                nested += 1.0f;
+            } $else {
+                nested += 2.0f;
+            };
+        };
+
+        buf.write(idx, val + acc + diamond + sw_val + counter + nested);
+
+        // Early return style: only thread 0 does final reduction
+        $if (idx == 0) {
+            Float total = 0.0f;
+            $for (k, 64) {
+                total += buf.read(k);
+            };
+            result.write(0, total);
+        };
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    luisa::vector<float> host_result(1, 0.0f);
+    stream << shader(buf, result).dispatch(64)
+           << buf.copy_to(luisa::span{host})
+           << result.copy_to(luisa::span{host_result})
+           << synchronize();
+
+    LUISA_INFO("Control-flow corner result: {:f}", host_result[0]);
+    expect(host_result[0] > 0.0f) << "control flow corner sum should be positive";
+    // Quick sanity: first element must be > 0
+    expect(host[0] > 0.0f) << "first element should be positive";
+}
+
+// ---------------------------------------------------------------------------
+// Test 2: conditional stores, dead stores, struct access, store-forwarding
+// Passes exercised:
+//   mem2reg, dead_store_elimination, local_store_forward,
+//   local_load_elimination, sroa, reg2mem
+// ---------------------------------------------------------------------------
+void test_memory_pass_corners(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+
+        // Conditional store to local var (tests mem2reg, reg2mem)
+        Float val;
+        $if (idx < 32) {
+            val = 1.0f;
+        } $else {
+            val = 2.0f;
+        };
+
+        // Dead store chain (tests dead_store_elimination)
+        Float dead = 0.0f;
+        dead = idx.cast<float>();   // dead: overwritten before read
+        dead = val;                 // dead: overwritten before read
+        dead = 42.0f;              // only this one matters
+
+        // Store-forward: store then immediately load (tests local_store_forward)
+        Float fwd = val * 2.0f;
+        Float loaded = fwd;       // should forward val*2.0f directly
+        loaded += 1.0f;
+
+        // Redundant load elimination (tests local_load_elimination)
+        Float rle1 = loaded;
+        Float rle2 = loaded;      // should use rle1 directly
+
+        // Partial struct write/read (tests sroa)
+        Var<VecStruct> vs;
+        vs.v = make_float3(val, val + 1.0f, val + 2.0f);
+        vs.s = val + 10.0f;
+
+        // Access individual vector lanes (tests scalarizer on struct member)
+        Float vs_sum = vs.v.x + vs.v.y + vs.v.z + vs.s;
+
+        // Nested struct (tests deeper sroa / trace_gep)
+        Var<OuterStruct> os;
+        os.inner.x = val;
+        os.inner.y = make_float2(val, val + 1.0f);
+        os.z = val + 3.0f;
+        os.w = make_float3(val, val, val);
+        Float os_sum = os.inner.x + os.inner.y.x + os.inner.y.y + os.z + os.w.x + os.w.y + os.w.z;
+
+        out.write(idx, dead + fwd + loaded + rle1 + rle2 + vs_sum + os_sum);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Memory-pass corner: host[0]={:f}, host[33]={:f}", host[0], host[33]);
+    expect(host[0] != host[33]) << "values should differ across conditional boundary";
+    bool all_pos = true;
+    for (auto v : host) {
+        if (v <= 0.0f) { all_pos = false; break; }
+    }
+    expect(all_pos) << "all outputs should be positive";
+}
+
+// ---------------------------------------------------------------------------
+// Test 3: deeply nested callables, unused params, compose multi-return
+// Passes exercised:
+//   inline, dead_arg_elim, unused_callable_removal, promote_ref_arg
+// ---------------------------------------------------------------------------
+void test_callable_inline_corners(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    // Callable with unused parameter (tests dead_arg_elim)
+    Callable add_with_extra = [](Var<float> a, Var<float> b, Var<float> unused) noexcept {
+        return a + b;  // 'unused' should be eliminated by dead_arg_elim
+    };
+
+    // Multi-return via compose (tests inline with tuple)
+    Callable mult_ret = [](Var<float> a, Var<float> b) noexcept {
+        return compose(a + b, a * b, a - b);
+    };
+
+    // Nested callable chain of depth 3 (tests inline with deep nesting)
+    Callable leaf = [](Var<float> x) noexcept { return x + 1.0f; };
+    Callable mid = [&leaf](Var<float> x) noexcept { return leaf(x) * 2.0f; };
+    Callable root = [&mid](Var<float> x) noexcept { return mid(x) + 3.0f; };
+
+    // An intentionally unused callable (tests unused_callable_removal)
+    Callable ghost = [](Var<float> x) noexcept { return x * 999.0f; };
+
+    Kernel1D k = [&](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>();
+
+        Float r1 = add_with_extra(val, 2.0f, 999.0f);
+
+        auto t = mult_ret(val, 3.0f);
+        Float r2 = t.get<0>() + t.get<1>() + t.get<2>();
+
+        Float r3 = root(val);   // should inline mid->leaf chain
+
+        // ghost is captured but never called -> tests unused_callable_removal
+        out.write(idx, r1 + r2 + r3);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Callable-inline corner: host[0]={:f}", host[0]);
+    // r1 = val+2, r2 = (val+3)+(val*3)+(val-3), r3 = (val+1)*2+3
+    // For val=0: r1=2, r2=3+0+(-3)=0, r3=1*2+3=5 -> total=7
+    float expected_0 = 2.0f + (3.0f + 0.0f - 3.0f) + 5.0f;
+    expect(std::abs(host[0] - expected_0) < 1e-4f) << "callable inline result mismatch at idx 0";
+}
+
+// ---------------------------------------------------------------------------
+// Test 4: small loops, non-unit strides, loop-invariant code, while loops
+// Passes exercised:
+//   loop_unroll, indvar_simplify, licm, loop_rotation
+// ---------------------------------------------------------------------------
+void test_loop_pass_corners(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+
+        // Small constant-trip loop (loop_unroll candidate)
+        Float sum1 = 0.0f;
+        $for (i, 4) {
+            sum1 += i.cast<float>();
+        };
+
+        // Loop with non-unit stride (indvar_simplify candidate)
+        Float sum2 = 0.0f;
+        $for (i, 0, 20, 2) {
+            sum2 += i.cast<float>();
+        };
+
+        // Loop-invariant code inside loop (licm candidate)
+        Float invariant = idx.cast<float>() * 0.5f;
+        Float acc = 0.0f;
+        $for (k, 8) {
+            acc += invariant;
+        };
+
+        // While-loop (loop_rotation candidate - tests while->do-while)
+        Float ctr = 0.0f;
+        $while (ctr < 5.0f) {
+            ctr += 1.0f;
+        };
+
+        // Nested loop with different bounds
+        Float nested_sum = 0.0f;
+        $for (outer, 3) {
+            $for (inner, 2) {
+                nested_sum += (outer * 2 + inner).cast<float>();
+            };
+        };
+
+        out.write(idx, sum1 + sum2 + acc + ctr + nested_sum);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Loop-pass corner: host[0]={:f}, host[10]={:f}", host[0], host[10]);
+    // sum1 = 0+1+2+3 = 6
+    // sum2 = 0+2+4+...+18 = 90
+    // acc = invariant*8, so for idx=0 -> 0, for idx=10 -> 5*8=40
+    // ctr = 5
+    // nested_sum = 0+1+2+3+4+5 = 15
+    // idx=0 total = 6+90+0+5+15 = 116
+    expect(std::abs(host[0] - 116.0f) < 1e-4f) << "loop pass result mismatch at idx 0";
+    // idx=10 total = 6+90+40+5+15 = 156
+    expect(std::abs(host[10] - 156.0f) < 1e-4f) << "loop pass result mismatch at idx 10";
+}
+
+// ---------------------------------------------------------------------------
+// Test 5: algebraic identities, constant folding, libcall simplify, div/rem, GVN
+// Passes exercised:
+//   algebraic_simplify, const_fold, simplify_libcalls, reassociate,
+//   div_rem_pairs, gvn, sccp, cvp
+// ---------------------------------------------------------------------------
+void test_algebraic_pass_corners(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>() + 1.0f;  // avoid val==0
+
+        // Identity patterns (algebraic_simplify)
+        Float a1 = val + 0.0f;  // x+0 -> x
+        Float a2 = val * 1.0f;  // x*1 -> x
+        Float a3 = val - 0.0f;  // x-0 -> x
+
+        // Constant expressions (const_fold)
+        Float c1 = 2.0f * 3.0f + 4.0f;  // -> 10.0f
+        Float c2 = 10.0f / 2.0f;         // -> 5.0f
+
+        // Library call simplifications (simplify_libcalls)
+        Float lc_exp = exp(0.0f);        // exp(0) -> 1.0
+        Float lc_cos = cos(0.0f);        // cos(0) -> 1.0
+        Float lc_pow0 = pow(val, 0.0f);  // pow(x,0) -> 1.0
+
+        // Div/rem pair: compute both quotient and remainder-like value
+        Float dividend = val + 10.0f;
+        Float divisor = 3.0f;
+        Float quot = dividend / divisor;
+        Float rem = dividend - quot * divisor;  // should pair with div
+
+        // GVN: common subexpression used in two branches
+        Float common = val * 2.0f + 1.0f;
+        Float branch_result;
+        $if (idx < 32) {
+            branch_result = common + 1.0f;
+        } $else {
+            branch_result = common + 2.0f;  // 'common' GVN candidate
+        };
+
+        // Reassociate: expression chain that could be rebalanced
+        Float rea = val + 2.0f + 3.0f + 4.0f;  // -> val + 9.0f
+
+        // CVP/SCCP: condition on constant; dead branch elimination
+        Float cvp_val = 100.0f;
+        Float cvp_result;
+        $if (cvp_val > 0.0f) {  // always true
+            cvp_result = cvp_val;
+        } $else {
+            cvp_result = 0.0f;  // dead code, should be eliminated
+        };
+
+        out.write(idx,
+            a1 + a2 + a3 +
+            c1 + c2 +
+            lc_exp + lc_cos + lc_pow0 +
+            quot * divisor + rem +
+            branch_result + rea + cvp_result);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Algebraic-pass corner: host[0]={:f}, host[40]={:f}", host[0], host[40]);
+    // Verify a few elements
+    float val0 = 1.0f;
+    float expected_a = val0 * 3.0f;  // a1+a2+a3 = val+val+val = 3*val
+    float expected_c = 15.0f;         // c1+c2
+    float expected_lc = 3.0f;         // 1+1+1
+    float d0 = val0 + 10.0f;          // 11
+    float expected_dr = 3.0f * (d0 / 3.0f) + (d0 - (d0 / 3.0f) * 3.0f);  // = d0 = 11.0
+    float common0 = val0 * 2.0f + 1.0f;  // 3
+    float expected_br = common0 + 1.0f;  // 4 (idx 0 < 32)
+    float expected_rea = val0 + 9.0f;    // 10
+    float expected_cvp = 100.0f;
+    float expected_0 = expected_a + expected_c + expected_lc + d0 + expected_br + expected_rea + expected_cvp;
+    expect(std::abs(host[0] - expected_0) < 1e-4f) << "algebraic pass result mismatch at idx 0";
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: scalarize vectors, trace/transpose GEP on nested arrays
+// Passes exercised: scalarizer, trace_gep, transpose_gep
+// ---------------------------------------------------------------------------
+void test_scalarize_gep_corners(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>() + 1.0f;
+
+        // Scalarize: struct with float3 member - partial access
+        Var<VecStruct> vs;
+        vs.v = make_float3(val, val * 2.0f, val * 3.0f);
+        vs.s = val * 4.0f;
+        Float vs_x = vs.v.x;
+        Float vs_y = vs.v.y;
+        Float vs_z = vs.v.z;
+
+        // Struct with nested struct - exercises GEP and scalarizer
+        Var<OuterStruct> os;
+        os.inner.x = val;
+        os.inner.y = make_float2(val + 1.0f, val + 2.0f);
+        os.z = val + 3.0f;
+        os.w = make_float3(val, val * 2.0f, 0.0f);
+        // Read back via GEP chain: outer->inner->y->x
+        Float os_sum = os.inner.x + os.inner.y.x + os.inner.y.y + os.z
+                     + os.w.x + os.w.y + os.w.z;
+
+        // Scalarize: float3 arithmetic then extract component
+        Float3 v3 = make_float3(val, 2.0f, 3.0f);
+        Float3 v3_scaled = v3 * 2.0f;
+        Float v3x = v3_scaled.x;
+        Float v3y = v3_scaled.y;
+
+        out.write(idx, vs_x + vs_y + vs_z + vs.s + os_sum + v3x + v3y);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Scalarize/GEP corner: host[0]={:f}, host[10]={:f}", host[0], host[10]);
+    // idx=0: val=1
+    //   vs_sum = 1+2+3+4 = 10
+    //   os_sum = 1 + 2+3 + 4 + 1+2+0 = 13
+    //   v3 = (1,2,3)*2 = (2,4,6); v3x+v3y = 2+4 = 6
+    //   total = 10 + 13 + 6 = 29
+    expect(std::abs(host[0] - 29.0f) < 1e-4f) << "scalarize/gep mismatch at idx 0";
+    // idx=1: val=2
+    //   vs_sum = 2+4+6+8 = 20
+    //   os_sum = 2 + 3+4 + 5 + 2+4+0 = 20
+    //   v3 = (2,2,3)*2 = (4,4,6); v3x+v3y = 4+4 = 8
+    //   total = 20 + 20 + 8 = 48
+    expect(std::abs(host[1] - 48.0f) < 1e-4f) << "scalarize/gep mismatch at idx 1";
+}
+
+// ============================================================================
+// Original test
+// ============================================================================
+
 void test_matrix_multiply(Device &device) {
     auto stream = device.create_stream();
 
@@ -509,5 +990,11 @@ int main(int argc, char *argv[]) {
     boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
 
     auto &device = dc->device;
+    test_control_flow_corners(device);
+    test_memory_pass_corners(device);
+    test_callable_inline_corners(device);
+    test_loop_pass_corners(device);
+    test_algebraic_pass_corners(device);
+    test_scalarize_gep_corners(device);
     test_matrix_multiply(device);
 }

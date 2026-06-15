@@ -211,6 +211,7 @@ static void eliminate_early_return_in_function(Function *function, EarlyReturnEl
                 early_returns.emplace_back(static_cast<ReturnInst *>(terminator));
             }
         });
+        if (final_return == nullptr) { return; }
         if (!early_returns.empty()) {
             XIRBuilder b;
             b.set_insertion_point(def->body_block()->instructions().head_sentinel());
