@@ -1448,6 +1448,9 @@ void CUDACodegenAST::visit(const RayQueryStmt *stmt) {
     _ray_query_lowering->lower(stmt);
 }
 
+void CUDACodegenAST::visit(const SuspendStmt *) {
+}
+
 void CUDACodegenAST::visit(const AutoDiffStmt *stmt) {
     stmt->body()->accept(*this);
 }

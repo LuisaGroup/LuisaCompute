@@ -6,6 +6,7 @@
 #include <luisa/xir/constant.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/instructions/branch.h>
+#include <luisa/xir/instructions/loop.h>
 #include <luisa/xir/instructions/phi.h>
 #include <luisa/xir/instructions/switch.h>
 #include <luisa/xir/module.h>
@@ -97,6 +98,40 @@ static bool fold_constant_cond_br(FunctionDefinition *def, SimplifyCFGInfo &info
         default: break;
     }
     return luisa::nullopt;
+}
+
+template<typename Visit>
+static void traverse_structural_successors(BasicBlock *block, Visit &&visit) noexcept {
+    if (block == nullptr || !block->is_terminated()) { return; }
+    auto *term = block->terminator();
+    for (auto use : term->operand_uses()) {
+        if (auto *value = use->value(); value != nullptr && value->isa<BasicBlock>()) {
+            visit(static_cast<BasicBlock *>(value));
+        }
+    }
+    if (auto *merge = term->control_flow_merge(); merge != nullptr) {
+        if (auto *merge_block = merge->merge_block(); merge_block != nullptr) { visit(merge_block); }
+    }
+    if (term->isa<LoopInst>()) {
+        auto *loop = static_cast<LoopInst *>(term);
+        if (auto *body = loop->body_block(); body != nullptr) { visit(body); }
+        if (auto *update = loop->update_block(); update != nullptr) { visit(update); }
+    }
+}
+
+static luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(FunctionDefinition *def) noexcept {
+    luisa::unordered_set<BasicBlock *> reachable;
+    luisa::vector<BasicBlock *> work;
+    auto add = [&](BasicBlock *block) noexcept {
+        if (block != nullptr && reachable.emplace(block).second) { work.emplace_back(block); }
+    };
+    add(def->body_block());
+    while (!work.empty()) {
+        auto *block = work.back();
+        work.pop_back();
+        traverse_structural_successors(block, add);
+    }
+    return reachable;
 }
 
 static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
@@ -236,10 +271,7 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
 static bool remove_unreachable_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) noexcept {
     auto entry = def->body_block();
     if (entry == nullptr) return false;
-    luisa::unordered_set<BasicBlock *> reachable;
-    def->traverse_basic_blocks([&](BasicBlock *bb) noexcept {
-        reachable.insert(bb);
-    });
+    auto reachable = collect_structurally_reachable_blocks(def);
     luisa::vector<BasicBlock *> dead;
     for (auto bb : def->basic_blocks()) {
         if (bb == entry) continue;

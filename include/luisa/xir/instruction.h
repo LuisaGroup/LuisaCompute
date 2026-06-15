@@ -23,6 +23,9 @@ enum struct DerivedInstructionTag {
     CONTINUE,          // basic block terminator: continue (removed after control flow normalization)
     RETURN,            // basic block terminator: return (early returns are removed after control flow normalization)
     RASTER_DISCARD,    // basic block terminator: raster discard
+    CORO_SUSPEND,      // basic block terminator: coroutine suspension
+    CORO_RESUME,       // basic block beginning: coroutine resumption
+    CORO_TERMINATE,    // basic block terminator: coroutine termination
 
     /* PHI nodes */
     PHI,// basic block beginning: phi nodes
@@ -111,6 +114,9 @@ enum struct DerivedInstructionTag {
         case DerivedInstructionTag::OUTLINE: return "outline"sv;
         case DerivedInstructionTag::AUTODIFF_SCOPE: return "autodiff_scope"sv;
         case DerivedInstructionTag::AUTODIFF_INTRINSIC: return "autodiff_intrinsic"sv;
+        case DerivedInstructionTag::CORO_SUSPEND: return "coro_suspend"sv;
+        case DerivedInstructionTag::CORO_RESUME: return "coro_resume"sv;
+        case DerivedInstructionTag::CORO_TERMINATE: return "coro_terminate"sv;
     }
     return "unknown"sv;
 }

@@ -13,35 +13,52 @@ All test source files live in `src/tests/` under one of the directories below. N
 
 | Directory | Content | Needs Device |
 |---|---|---|
-| `unit/core/` | basic_types, traits, io, math, logging, containers, hash | No (CTest-registered) |
+| `unit/core/` | core library units: types/traits, math, IO, containers, hash, logging, platform utilities, fiber, dynamic module, pool, spin mutex, etc. | No (CTest-registered) |
 | `unit/ext/` | external integrations (e.g. glslang/SPIR-V) | No (CTest-registered) |
-| `unit/ast/` | AST construction, manual AST, builtin kernels | Yes |
-| `unit/dsl/` | DSL sugar, structs, callables, autodiff, polymorphic, SoA, mathematics | Yes |
-| `unit/runtime/` | buffer, texture, stream, warp, atomics, FP4/FP8 quantization, gemm | Yes |
-| `unit/xir/` | XIR builder, translators, passes | No (CTest-registered) |
-| `integration/runtime/` | bindless, curves, rtx, motion blur, swapchain, denoiser, dstorage | Yes |
-| `integration/ir/` | autodiff, AST↔IR roundtrip, kernel-IR (gated `LUISA_COMPUTE_ENABLE_RUST`) | Yes |
+| `unit/ast/` | AST construction, builtin kernels, manual AST | Yes |
+| `unit/dsl/` | DSL syntax/sugar, structs, callables, SoA, polymorphic, autodiff, device math, variables, matrices, 8-bit/quantization, normal encoding, etc. | Yes |
+| `unit/runtime/` | buffers, textures, streams, copy, atomics, warp operations, printer, sampler, pinned memory, mipmap, bindless, matrix multiply, softmax, buffer/byte IO, external buffers, FP4/FP8 quantization, etc. | Yes |
+| `unit/xir/` | XIR builder, module, translators, and pass tests (early-cse, licm, simplify-cfg, restructure-cfg, etc.) | No (CTest-registered) |
+| `integration/runtime/` | bindless, curves, RTX, motion blur, AOT, indirect, denoiser, dstorage, present/swapchain, select device, runtime, texture3d, native include, procedural callable, device debugger, mesh tests, transient resource, plus backend-specific tests (CUDA graph, raster, memory compact, HIPRT) | Yes |
+| `integration/ir/` | autodiff, AST↔IR roundtrip, kernel-IR, XIR↔AST roundtrip (gated by `LUISA_COMPUTE_ENABLE_RUST`/XIR options) | Yes |
 | `common/` | shared headers: `test_device.h`, `ut/` (Boost.UT), `cornell_box.h`, `tinyexr.h`, `tiny_obj_loader.h`, `projection.hpp`, `spectrum_data.h`, `reference_image.h` | — |
-| `python/` | Python frontend tests (run via `pytest` or directly with `python`) | — |
-| `cxx_shaders/` | `clangcxx` source shaders consumed by tests | — |
+| `python/` | Python frontend tests (run directly with `python src/tests/python/test_xxx.py [backend]`) | — |
+| `cxx_shaders/` | `clangcxx` source shaders consumed by tests/extension examples | — |
 
 Include path setup (in both CMakeLists.txt and xmake.lua) exposes `src/tests/` and `src/tests/common/`, so test sources just write `#include "test_device.h"`, `#include "ut/ut.hpp"`, `#include "reference_image.h"`, `#include "cornell_box.h"`, etc. Do **not** use `../../` relative paths and do **not** wrap includes in `__has_include` guards — `ut/ut.hpp` and the `common/` headers are vendored and always present.
+
+Some integration and XIR/IR tests are only built when the corresponding option is enabled (e.g. `LUISA_COMPUTE_ENABLE_GUI`, `LUISA_COMPUTE_ENABLE_RUST`, `LUISA_COMPUTE_ENABLE_XIR`, `lc_enable_xir`, `lc_enable_ir`).
 
 ## Adding a Test
 
 CMake (`src/tests/CMakeLists.txt`) — use the `luisa_compute_add_test` helper:
 ```cmake
+# Signature: luisa_compute_add_test(name source [LABELS "label1;label2"] [ARGS arg1 ...])
 # Standalone GPU-using test, NOT auto-run via CTest:
 luisa_compute_add_test(test_my_feature unit/runtime/test_my_feature.cpp)
 
 # CPU-only test, auto-registered with CTest under the given labels:
 luisa_compute_add_test(test_my_pure unit/core/test_my_pure.cpp LABELS "unit;unit_core")
+
+# Passing fixed arguments to CTest (e.g. forcing the DX backend):
+luisa_compute_add_test(test_raster integration/runtime/test_raster.cpp ARGS dx)
 ```
 
 xmake (`src/tests/xmake.lua`):
 ```lua
+-- Signature: test_proj(name, source, gui_dep, callable, kind)
+--   gui_dep:  if true, built only when lc_enable_gui=true and defines LUISA_ENABLE_GUI
+--   callable: optional config callback for deps/includes/defines
+--   kind:     optional target kind (default "binary")
 test_proj("test_my_feature", "unit/runtime/test_my_feature.cpp")
--- 3rd arg = gui_dep: if true, only built when lc_enable_gui=true, and defines LUISA_ENABLE_GUI
+
+-- With GUI dependency:
+test_proj("test_name", "integration/runtime/test_name.cpp", true)
+
+-- With extra config:
+test_proj("test_with_dep", "unit/ext/test_with_dep.cpp", false, function()
+    add_deps("lc-glslang")
+end)
 ```
 
 ## Example ↔ Test Mirror Targets
@@ -61,7 +78,9 @@ luisa_example_pair_link(example_cuda_lcub PRIVATE CUDA::cudart CUDA::cuda_driver
 
 **Do NOT mirror**: GUI toolkit demos (`swapchain*`, `imgui`, `mnist`, Qt, wxWidgets, `win_hdr`) and extension/interop demos. Correctness can't be auto-checked for interactive windows.
 
-**Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*`, `example_sdf_renderer[_ir]`, `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_procedural`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`.
+**Mirrored set** (rendering + simulation + headless compute): all `example_path_tracing*` (including `example_path_tracing_ir` when Rust IR is enabled, and `example_path_tracing_xir2ast` when XIR is enabled), `example_sdf_renderer[_ir]` (IR variant gated by Rust), `example_sdf_renderer_xir2ast` (gated by XIR), `example_photon_mapping`, `example_blackhole`, `example_voxel_raytracer`, `example_shader_toy[_spacex]`, `example_shader_visuals_present`, all simulations (`fire_simulation`, `game_of_life`, `mpm3d`, `mpm88`, `nbody_simulation`, `wave_equation`), `example_image_processing`, `example_helloworld`, `example_multi_head_attention`.
+
+`example_procedural` and all GUI toolkit demos (`imgui`, `swapchain*`, `win_hdr`, Qt, wxWidgets), extension/interop demos, and `example_bindless_mip` are **not** mirrored because they are interactive or lack deterministic offline validation.
 
 ## C++ Test Templates & Style
 
@@ -370,6 +389,15 @@ luisa_compute_add_test(test_name unit/runtime/test_name.cpp)
 # With extra link deps:
 luisa_compute_add_test(test_name unit/ext/test_name.cpp LABELS "unit;unit_ext")
 target_link_libraries(test_name PRIVATE some-lib)
+
+# Multi-source test: use luisa_compute_add_executable directly and add includes:
+luisa_compute_add_executable(test_transient_resource
+    integration/runtime/test_transient_resource.cpp
+    integration/runtime/transient_resource_device/managed_first_fit.cpp
+    integration/runtime/transient_resource_device/managed_first_fit.h
+    integration/runtime/transient_resource_device/transient_resource_device.cpp
+    integration/runtime/transient_resource_device/transient_resource_device.h)
+target_include_directories(test_transient_resource PRIVATE ./ ./common)
 ```
 
 **xmake** (`src/tests/xmake.lua`):
@@ -388,7 +416,7 @@ end)
 - `luisa::test::create_device(argc, argv)` — call from `main()`; prints usage and exits on missing backend arg.
 - `luisa::test::create_device_from_ut()` — call from a UT registration lambda; returns `std::nullopt` when no backend was passed so the test is silently skipped.
 
-Backend is passed as the first positional arg: `cuda`, `dx`, `cpu`, `metal`, `vulkan`, `hip`, `metal`, `fallback`.
+Backend is passed as the first positional arg: `cuda`, `dx`, `cpu`, `metal`, `vk`. The exact set available depends on which backends were built (e.g. `LUISA_COMPUTE_ENABLE_CUDA`, `LUISA_COMPUTE_ENABLE_DX`, etc.).
 
 ## Assertions
 
@@ -404,16 +432,22 @@ For floats: `expect(std::abs(a - b) < eps)` or use the helpers in `common/test_d
 CMake build:
 ```bash
 cmake --build cmake-build-debug --target test_dsl_mathematic
-./cmake-build-debug/bin/test_dsl_mathematic cuda
+./cmake-build-debug/bin/test_dsl_mathematic dx
 ctest --test-dir cmake-build-debug -L unit_core    # run CTest-registered unit tests
 ```
 
 xmake build:
 ```bash
-xmake -g tests                     # build all tests
-xmake run test_dsl_mathematic cuda
-./bin/test_dsl_mathematic dx
-./bin/test_basic_types "vector*"   # filter by name (Boost.UT CLI)
+xmake                              # build all enabled targets (tests included when lc_enable_tests=true)
+xmake build test_dsl_mathematic
+xmake run test_dsl_mathematic dx
+./build/bin/test_dsl_mathematic dx
+./build/bin/test_basic_types "vector*"   # filter by name (Boost.UT CLI)
+```
+
+Python tests:
+```bash
+python src/tests/python/test-helloworld.py dx
 ```
 
 ## Dependencies
@@ -447,8 +481,12 @@ If a reference PNG is missing, the comparison is a real failure and should be re
 Examples-side header: `examples/common/reference_compare.h` (namespace `luisa::ref`).
 - `luisa::ref::parse_compare_arg(argc, argv) -> std::optional<std::filesystem::path>`
 - `luisa::ref::compare_with_reference_file(pixels, w, h, channels, ref_path, threshold=30.0) -> CompareResult`
+- `luisa::ref::ExampleOptions::parse(argc, argv)` parses `--offline`, `--compare <path.png>` / `-c <path.png>`, `--spp <n>`, and `--out_ref write <path.png>` / `--out_ref read <path.png>`.
 
-Tests-side header: `src/tests/common/reference_image.h` (namespace `luisa::test`) follows the same opt-in contract.
+Tests-side header: `src/tests/common/reference_image.h` (namespace `luisa::test`) follows the same opt-in contract:
+- `luisa::test::parse_compare_arg(argc, argv) -> std::optional<std::filesystem::path>`
+- `luisa::test::compare_with_reference_file(..., threshold=30.0) -> ReferenceCompareResult`
+- `luisa::test::ImageTestOptions::parse(argc, argv)` parses `--offline`, `--compare <path.png>`, and `--output-dir <dir>`.
 
 Typical usage:
 ```cpp
@@ -462,7 +500,7 @@ if (auto ref = luisa::ref::parse_compare_arg(argc, argv)) {
 
 Reference PNGs live under `docs/gallery/<test_name>.png` in the repo. Always pass the absolute or repo-relative path explicitly — never rely on cwd or executable-relative walking.
 
-**NEVER regenerate or overwrite reference images unless the user explicitly asks you to.** Reference images are ground truth — if a test fails against the reference, the code is wrong, not the reference. When regeneration IS requested, always use the `fallback` (CPU) backend for determinism across GPU vendors. Regenerating from a broken GPU backend will bake bugs into the reference.
+**NEVER regenerate or overwrite reference images unless the user explicitly asks you to.** Reference images are ground truth — if a test fails against the reference, the code is wrong, not the reference. When regeneration IS requested, always use the `fallback` (CPU) backend for determinism across GPU vendors. Regenerating from a broken GPU backend will bake bugs into the reference. Examples support `--out_ref write <path>` for explicit regeneration; tests-side code should follow the same explicit opt-in model.
 
 ## What Not to Do
 
@@ -470,4 +508,5 @@ Reference PNGs live under `docs/gallery/<test_name>.png` in the repo. Always pas
 - Do not create ad-hoc top-level folders (e.g. `for_agent/`, `next/`, `tmp/`). The layout above is the entire test taxonomy.
 - Do not reintroduce doctest. The framework is Boost.UT only.
 - Do not delete or `// skip` failing tests to make a build pass — fix the code under test instead.
+- Do not pass `vulkan` as a backend name; the CLI name is `vk`.
 - Do not duplicate headers between `src/tests/` root and `src/tests/common/`. The canonical copy lives in `common/`.

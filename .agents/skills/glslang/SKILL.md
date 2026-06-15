@@ -14,6 +14,8 @@ Located in `src/ext/glslang/SPIRV`. Headers:
 #include "SPIRV/disassemble.h"
 ```
 
+> Code snippets follow glslang's own conventions (e.g. `camelCase` builder methods). LuisaCompute project style rules apply to project code, while `src/ext/glslang` is third-party code.
+
 ## SpvBuilder Lifecycle
 
 `spv::Builder` owns one SPIR-V module. Thread-safe internal IR.
@@ -33,6 +35,7 @@ builder.dump(spirv);
 
 ```cpp
 builder.setSource(spv::SourceLanguage::GLSL, 450);
+builder.setEmitSpirvDebugInfo();                    // required before setting debug locations
 builder.setDebugMainSourceFile("shader.frag");
 builder.setDebugSourceLocation(10, "shader.frag");
 builder.addCapability(spv::Capability::Shader);
@@ -62,10 +65,13 @@ spv::Id arrTy    = builder.makeArrayType(floatTy, builder.makeUintConstant(16), 
 spv::Id runArrTy = builder.makeRuntimeArray(floatTy);
 
 std::vector<spv::Id> members = {floatTy, int32Ty};
+// Second argument is member debug info; use {} when no per-member debug data is needed.
 spv::Id structTy = builder.makeStructType(members, {}, "MyStruct", false);
 
 spv::Id ptrTy     = builder.makePointer(spv::StorageClass::Function, floatTy);
-spv::Id fwdPtrTy  = builder.makeForwardPointer(spv::StorageClass::PhysicalStorageBufferEXT);
+spv::Id fwdPtrTy  = builder.makeForwardPointer(spv::StorageClass::PhysicalStorageBuffer);
+// Resolve a forward pointer to its pointee type once the pointee is known.
+spv::Id resolvedPtrTy = builder.makePointerFromForwardPointer(spv::StorageClass::PhysicalStorageBuffer, fwdPtrTy, floatTy);
 spv::Id untypedPtr= builder.makeUntypedPointer(spv::StorageClass::StorageBuffer);
 spv::Id fnTy      = builder.makeFunctionType(voidTy, {floatTy, int32Ty});
 
@@ -127,7 +133,7 @@ spv::Id vec4 = builder.makeCompositeConstant(vec4Ty, {f32, f32, f32, f32});
 
 // Spec constants
 spv::Id specI32 = builder.makeIntConstant(builder.makeIntType(32), 10, true);
-spv::Id specVec = builder.makeCompositeConstant(vec4Ty, comps, true);
+spv::Id specVec = builder.makeCompositeConstant(vec4Ty, {f32, f32, f32, f32}, true);
 ```
 
 ## Variables
@@ -191,11 +197,13 @@ builder.endSwitch(segmentBB);
 ```cpp
 spv::Builder::LoopBlocks& loop = builder.makeNewLoop();
 builder.setBuildPoint(&loop.head);
-builder.createBranch(false, &loop.body);
+builder.createLoopMerge(&loop.merge, &loop.continue_target, spv::LoopControlMask::MaskNone, {});
+builder.createConditionalBranch(cond, &loop.body, &loop.merge);
 builder.setBuildPoint(&loop.body);
 // loop body
 builder.createLoopContinue();
 builder.setBuildPoint(&loop.continue_target);
+// loop increment (optional)
 builder.createBranch(false, &loop.head);
 builder.setBuildPoint(&loop.merge);
 builder.closeLoop();
@@ -271,9 +279,11 @@ builder.accessChainPushSwizzle(channels, preSwizzleBaseType, coherentFlags, alig
 builder.accessChainPushComponent(componentId, preSwizzleBaseType, coherentFlags, alignment);
 
 spv::Id result = builder.accessChainLoad(precision, lvalNonUniform, rvalNonUniform, resultType, memAccess, scope, n);
-builder.accessChainStore(valueId, nonUniform);
+builder.accessChainStore(valueId, spv::Decoration::NonUniform,
+                         spv::MemoryAccessMask::MaskNone, spv::Scope::Max, 0);
 spv::Id lval = builder.accessChainGetLValue();
 spv::Id inferred = builder.accessChainGetInferredType();
+bool canBeLvalue = builder.isSpvLvalue();  // false for multi-component swizzles like .yx
 
 // Save/restore
 spv::Builder::AccessChain saved = builder.getAccessChain();
@@ -324,7 +334,7 @@ builder.createMemoryBarrier(spv::Scope::Device, spv::MemorySemanticsMask::ImageM
 
 ### SPIR-V Standard (OpLine/OpSource)
 ```cpp
-builder.setEmitSpirvDebugInfo();
+builder.setEmitSpirvDebugInfo();  // enables OpLine/OpSource tracking
 builder.setDebugMainSourceFile("shader.glsl");
 builder.setDebugSourceLocation(42, "shader.glsl");
 builder.setSourceText(sourceText);
@@ -332,7 +342,7 @@ builder.setSourceText(sourceText);
 
 ### NonSemantic Shader Debug Info
 ```cpp
-builder.setEmitNonSemanticShaderDebugInfo(true);
+builder.setEmitNonSemanticShaderDebugInfo(true);  // also enables OpLine-style tracking
 spv::Id debugType = builder.getDebugType(spirvTypeId);
 builder.enterLexicalBlock(line, column);
 builder.leaveLexicalBlock();
@@ -412,7 +422,9 @@ From `TGlslangToSpvTraverser` (`src/ext/glslang/SPIRV/GlslangToSpv.cpp`). Common
 ### visitSymbol
 ```cpp
 builder.clearAccessChain();
-if (isRValue || !builder.isPointerType(builder.getTypeId(id)))
+// Treat spec constants, r-value parameters, and non-pointer/untyped values as r-values.
+if (isRValue || rValueParameters.count(symbolId) ||
+    (!builder.isPointerType(builder.getTypeId(id)) && !builder.isUntypedPointer(id)))
     builder.setAccessChainRValue(id);
 else
     builder.setAccessChainLValue(id);
@@ -511,10 +523,20 @@ builder.enterLexicalBlock(loc.line, loc.column); /* body */ builder.leaveLexical
 ### visitSelection
 ```cpp
 // Scalar ternary
-spv::Id result = builder.createTriOp(spv::Op::OpSelect, resultType(), cond, trueVal, falseVal);
-// Vector selection via smeared scalar cond
-spv::Id condVec = builder.smearScalar(precision, cond, builder.makeVectorType(boolTy, components));
-spv::Id result  = builder.createUnaryOp(spv::Op::OpCopyLogical, resultType(), ...);
+spv::Id result = builder.createTriOp(spv::Op::OpSelect, resultType, cond, trueVal, falseVal);
+// Vector selection: for SPIR-V < 1.4 smear the scalar condition to the vector width;
+// for SPIR-V >= 1.4 OpSelect accepts a scalar condition directly.
+if (builder.getSpvVersion() < spv::Spv_1_4 && builder.isVector(trueVal)) {
+    cond = builder.smearScalar(precision, cond,
+                               builder.makeVectorType(builder.makeBoolType(),
+                                                      builder.getNumComponents(trueVal)));
+}
+// If aggregate decorations cause type mismatches, normalize with OpCopyLogical.
+if (builder.getTypeId(trueVal) != resultType)
+    trueVal = builder.createUnaryOp(spv::Op::OpCopyLogical, resultType, trueVal);
+if (builder.getTypeId(falseVal) != resultType)
+    falseVal = builder.createUnaryOp(spv::Op::OpCopyLogical, resultType, falseVal);
+spv::Id result = builder.createTriOp(spv::Op::OpSelect, resultType, cond, trueVal, falseVal);
 ```
 
 ### visitSwitch

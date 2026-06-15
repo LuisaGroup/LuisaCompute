@@ -97,6 +97,14 @@ void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) 
     _builder.createLoopMerge(merge, continue_block, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, body);
     _emit_block(inst->body_block());
+    while (!_pending_blocks.empty()) {
+        auto *bb = _pending_blocks.back();
+        _pending_blocks.pop_back();
+        if (bb == inst->merge_block()) {
+            continue;
+        }
+        _emit_block(bb);
+    }
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, continue_block);
     }
@@ -141,13 +149,32 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     auto *switch_xir_bb = inst->parent_block();
     bool needs_loop_wrapper = false;
     {
-        // Collect all segment entry blocks (case bodies + default)
         luisa::unordered_set<const xir::BasicBlock *> segment_entries;
         for (uint i = 0u; i < case_count; ++i) {
             segment_entries.emplace(inst->case_block(i));
         }
         segment_entries.emplace(inst->default_block());
-        // For each segment, traverse and check for cross-segment branches
+        luisa::unordered_set<const xir::BasicBlock *> structural_exits;
+        auto *def = switch_xir_bb == nullptr ? nullptr : switch_xir_bb->parent_function();
+        if (def != nullptr) {
+            for (auto *bb : def->basic_blocks()) {
+                if (!bb->is_terminated()) { continue; }
+                auto *term = bb->terminator();
+                if (auto *cfm = term->control_flow_merge(); cfm != nullptr) {
+                    if (auto *merge = cfm->merge_block(); merge != nullptr) {
+                        structural_exits.emplace(merge);
+                    }
+                }
+                if (term->isa<xir::LoopInst>()) {
+                    auto *loop = static_cast<const xir::LoopInst *>(term);
+                    if (auto *prepare = loop->prepare_block(); prepare != nullptr) { structural_exits.emplace(prepare); }
+                    if (auto *update = loop->update_block(); update != nullptr) { structural_exits.emplace(update); }
+                } else if (term->isa<xir::SimpleLoopInst>()) {
+                    auto *loop = static_cast<const xir::SimpleLoopInst *>(term);
+                    if (auto *body = loop->body_block(); body != nullptr) { structural_exits.emplace(body); }
+                }
+            }
+        }
         for (uint i = 0u; i <= case_count && !needs_loop_wrapper; ++i) {
             auto *start = i < case_count ? inst->case_block(i) : inst->default_block();
             luisa::unordered_set<const xir::BasicBlock *> visited;
@@ -164,8 +191,11 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
                 if (bb != start && segment_entries.contains(bb)) {
                     needs_loop_wrapper = true; break;
                 }
+                if (bb != start && structural_exits.contains(bb)) { continue; }
                 if (bb->is_terminated()) {
                     bb->traverse_successors(false, [&](const xir::BasicBlock *succ) noexcept {
+                        if (succ != switch_xir_bb && !segment_entries.contains(succ) &&
+                            succ != start && structural_exits.contains(succ)) { return; }
                         work.push_back(succ);
                     });
                     if (auto *cfm = bb->terminator()->control_flow_merge()) {
@@ -247,100 +277,6 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
         _builder.createBranch(false, merge_block);
     }
     if (merge_fresh) { function.addBlock(merge_block); _added_blocks.emplace(merge_block); }
-
-    // Fix up branches from within case/default blocks that don't target
-    // the selection merge, another case/default, or an outer loop construct.
-    // This handles structured terminators (IfInst, LoopInst) inside cases
-    // whose internal blocks may branch through intermediate forwarding blocks
-    // that SPIR-V validation rejects as invalid switch exit targets.
-    {
-        // Valid exit targets for switch case bodies.
-        luisa::unordered_set<spv::Block *> valid_targets;
-        valid_targets.emplace(selection_merge_target);
-        for (uint i = 0u; i <= case_count; ++i) {
-            valid_targets.emplace(segment_blocks[i]);
-        }
-        if (needs_loop_wrapper) {
-            valid_targets.emplace(loop_continue);
-            valid_targets.emplace(loop_merge);
-        }
-
-        // BFS to find all blocks reachable from case/default entries.
-        luisa::unordered_set<spv::Block *> reachable;
-        luisa::vector<spv::Block *> work;
-        for (uint i = 0u; i <= case_count; ++i) {
-            reachable.emplace(segment_blocks[i]);
-            work.push_back(segment_blocks[i]);
-        }
-        while (!work.empty()) {
-            auto *blk = work.back();
-            work.pop_back();
-            if (!blk->isTerminated()) { continue; }
-            auto &insts = blk->getInstructions();
-            auto *term = insts.back().get();
-            auto op = term->getOpCode();
-            if (op == spv::Op::OpBranch) {
-                auto target_id = term->getIdOperand(0);
-                for (auto *b : function.getBlocks()) {
-                    if (b->getId() == target_id) {
-                        if (reachable.emplace(b).second) { work.push_back(b); }
-                        break;
-                    }
-                }
-            } else if (op == spv::Op::OpBranchConditional) {
-                for (int j = 1; j <= 2; ++j) {
-                    auto target_id = term->getIdOperand(j);
-                    for (auto *b : function.getBlocks()) {
-                        if (b->getId() == target_id) {
-                            if (reachable.emplace(b).second) { work.push_back(b); }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Redirect branches from reachable blocks that target non-valid blocks.
-        // Skip the case/default entry blocks themselves — only redirect from
-        // blocks internal to structured constructs (IfInst, LoopInst) within
-        // the case bodies. The case body blocks' own branches are part of the
-        // normal CFG and should not be redirected.
-        luisa::unordered_set<spv::Block *> segment_set;
-        for (uint i = 0u; i <= case_count; ++i) {
-            segment_set.emplace(segment_blocks[i]);
-        }
-        for (auto *blk : reachable) {
-            if (!blk->isTerminated()) { continue; }
-            if (blk == selection_merge_target) { continue; }
-            if (segment_set.contains(blk)) { continue; }
-            auto &insts = blk->getInstructions();
-            auto *term = insts.back().get();
-            auto op = term->getOpCode();
-            if (op == spv::Op::OpBranch) {
-                auto target_id = term->getIdOperand(0);
-                for (auto *b : function.getBlocks()) {
-                    if (b->getId() == target_id) {
-                        if (!valid_targets.contains(b)) {
-                            term->setIdOperand(0, selection_merge_target->getId());
-                        }
-                        break;
-                    }
-                }
-            } else if (op == spv::Op::OpBranchConditional) {
-                for (int j = 1; j <= 2; ++j) {
-                    auto target_id = term->getIdOperand(j);
-                    for (auto *b : function.getBlocks()) {
-                        if (b->getId() == target_id) {
-                            if (!valid_targets.contains(b)) {
-                                term->setIdOperand(j, selection_merge_target->getId());
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     if (needs_loop_wrapper) {
         _builder.setBuildPoint(loop_continue);

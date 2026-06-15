@@ -3,6 +3,16 @@
 test_*.png
 result.png
 sdf-renderer.png
+coro_path_tracing.png
+coro_sdf.png
+
+# Local debug/build artifacts
+/build-debug/
+/.bak
+/.omo/
+/hlsl_output.hlsl
+/spirv_output*.spvasm
+/kernel.*.xir*
 
 # Benchmark / profiling artifacts
 /archlinux-desktop/

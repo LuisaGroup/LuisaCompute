@@ -1166,13 +1166,15 @@ spv::Id SpirvCodegenEntry::_resolve_resource_argument(const xir::Argument *arg) 
     auto id = _property_ids[prop_index];
     // _property_ids includes a push constant at index 0 not present in _properties,
     // so we need to shift by 1 when indexing into _properties.
-    auto prop_idx_in_properties = prop_index - 1;
-    if (prop_idx_in_properties < _properties.size()) {
-        auto &prop = _properties[prop_idx_in_properties];
-        if (prop.type == ShaderVariableType::UAVTextureHeap) {
-            _is_storage_image_map[id] = true;
-        } else if (prop.type == ShaderVariableType::SRVTextureHeap) {
-            _is_storage_image_map[id] = false;
+    if (prop_index > 0) {
+        auto prop_idx_in_properties = prop_index - 1;
+        if (prop_idx_in_properties < _properties.size()) {
+            auto &prop = _properties[prop_idx_in_properties];
+            if (prop.type == ShaderVariableType::UAVTextureHeap) {
+                _is_storage_image_map[id] = true;
+            } else if (prop.type == ShaderVariableType::SRVTextureHeap) {
+                _is_storage_image_map[id] = false;
+            }
         }
     }
     if (arg->type()->tag() == Type::Tag::ACCEL && prop_index + 1 < _property_ids.size()) {
@@ -3094,14 +3096,7 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
     };
     switch (inst->derived_instruction_tag()) {
         case xir::DerivedInstructionTag::ALLOCA: {
-            auto alloca = static_cast<const xir::AllocaInst *>(inst);
-            auto type = _convert_type(alloca->type(), Usage::READ);
-            auto storage = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
-            auto var = _builder.createVariable(spv::NoPrecision, storage, type, "alloca");
-            if (storage == spv::StorageClass::Workgroup && _entry_point_inst != nullptr) {
-                _entry_point_inst->addIdOperand(var);
-            }
-            set_result(var);
+            static_cast<void>(_emit_alloca(static_cast<const xir::AllocaInst *>(inst)));
             break;
         }
         case xir::DerivedInstructionTag::LOAD: {
@@ -3399,7 +3394,11 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         }
         case xir::DerivedInstructionTag::CONTINUE: {
             auto cont = static_cast<const xir::ContinueInst *>(inst);
-            _builder.createBranch(false, _get_or_create_block(cont->target_block()));
+            auto target = cont->target_block();
+            auto it = _loop_header_redirect.find(target);
+            _builder.createBranch(false, it == _loop_header_redirect.end() ?
+                                             _get_or_create_block(target) :
+                                             it->second);
             break;
         }
         case xir::DerivedInstructionTag::RETURN: {

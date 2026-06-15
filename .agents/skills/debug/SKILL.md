@@ -92,7 +92,11 @@ stream << shader().dispatch(128u, 128u) << synchronize();
 ```cpp
 // Example pattern from test_printer_custom_callback.cpp
 #define DEVICE_INFO(FMT, ...) \
-    device_log(luisa::format("I" FMT), __VA_ARGS__)
+    device_log(luisa::format("I" FMT) __VA_OPT__(, ) __VA_ARGS__)
+#define DEVICE_WARNING(FMT, ...) \
+    device_log(luisa::format("W" FMT) __VA_OPT__(, ) __VA_ARGS__)
+#define DEVICE_ERROR(FMT, ...) \
+    device_log(luisa::format("E" FMT) __VA_OPT__(, ) __VA_ARGS__)
 
 stream.set_log_callback([](luisa::string_view msg) {
     if (!msg.empty()) {
@@ -106,19 +110,26 @@ stream.set_log_callback([](luisa::string_view msg) {
 });
 ```
 
-**Important:** Device logs are asynchronous. Always `synchronize()` the stream before assuming all logs have arrived.
+**Important:** Device logs are asynchronous. Always `synchronize()` the stream before assuming all logs have arrived. If a kernel hangs, the callback may never fire for logs buffered inside the failing dispatch.
 
-## 5. Using Printer and Buffer for DSL Debug
+## 5. Using Buffer for DSL Debug
 
 When you need to inspect many values or avoid per-thread log flooding, write results into a `Buffer` and read back on the host.
 
 **Buffer-based inspection:**
 ```cpp
+#include <luisa/core/stl/vector.h>
+#include <luisa/dsl/syntax.h>
+#include <luisa/dsl/sugar.h>
+
 Buffer<float4> debug_buf = device.create_buffer<float4>(1024);
 
-Kernel1D k = [&debug_buf](BufferVar<float4> out) noexcept {
+Kernel1D k = [](BufferVar<float4> out) noexcept {
     UInt idx = dispatch_id().x;
-    Float4 v = make_float4(idx, idx * 2.0f, idx * 3.0f, 0.0f);
+    Float4 v = make_float4(cast<float>(idx),
+                           cast<float>(idx) * 2.0f,
+                           cast<float>(idx) * 3.0f,
+                           0.0f);
     out.write(idx, v);
 };
 
@@ -128,7 +139,7 @@ stream << shader(debug_buf).dispatch(1024)
 
 // Read back
 luisa::vector<float4> host(1024);
-stream << debug_buf.copy_to(host.data()) << synchronize();
+stream << debug_buf.copy_to(luisa::span{host}) << synchronize();
 for (size_t i = 0; i < 8; ++i) {
     LUISA_INFO("host[{}] = {}", i, host[i]);
 }
@@ -143,10 +154,24 @@ for (size_t i = 0; i < 8; ++i) {
 
 | Variable | Effect |
 |---|---|
-| `LUISA_DUMP_SOURCE=1` | Dumps SPIR-V assembly to `bin/debug/spirv_output.spvasm` and HLSL to `bin/debug/hlsl_output.hlsl`. |
+| `LUISA_DUMP_SOURCE=1` | Dumps generated shader sources/bytecode for the active backend. |
 | `LUISA_LOG_LEVEL=verbose` | Equivalent to `log_level_verbose()` at startup. |
+| `LUISA_ENABLE_VALIDATION=1` | Wraps the device in the validation layer (catches API misuse, out-of-bounds accesses, etc.). |
+| `LUISA_OPTIX_VALIDATION=1` | Enables OptiX validation on the CUDA backend. |
 
 Use `LUISA_DUMP_SOURCE=1` when you suspect a code-generation bug (wrong instruction, missing binding, incorrect type).
+
+**Where to find the dumps:**
+- **DirectX / Vulkan (XIR→SPIR-V path):** per-shader files in the current working directory:
+  - `hlsl_output_<name>.hlsl`
+  - `spv_code_<name>.spvasm`
+  - `spv_code_hlsl_<name>.spvasm`
+- **Vulkan (LLVM path):** `spv_code_llvm_<name>.spvasm`.
+- **CUDA:** `.cu` source in the runtime `.cache` directory; PTX/metadata in the runtime `.data` directory.
+- **Metal:** `.metal` source in the runtime `.cache` directory.
+- **Fallback/CPU:** CPU backend also respects `LUISA_DUMP_SOURCE` and may dump intermediate sources.
+
+The runtime directories are printed by `LUISA_INFO` at context creation; they default to the executable directory. When running under `xmake run`, dumps written directly to the current working directory will appear in the project root.
 
 ## 7. Decision Checklist
 
@@ -156,6 +181,7 @@ Use `LUISA_DUMP_SOURCE=1` when you suspect a code-generation bug (wrong instruct
 | Silent wrong result | Add `LUISA_INFO` at host entry points | Use buffer read-back to inspect values |
 | Kernel dispatch hangs | Check `synchronize()` and stream callback | Add minimal `device_log` at start of kernel |
 | Backend compilation error | Set `LUISA_DUMP_SOURCE=1` | Inspect generated `.spvasm` or `.hlsl` |
+| Suspected API/resource misuse | Set `LUISA_ENABLE_VALIDATION=1` | Re-run and read validation messages |
 | Test timeout | Read build file for target entry | Narrow phase with host logging |
 
 ## Summary
@@ -164,3 +190,4 @@ Use `LUISA_DUMP_SOURCE=1` when you suspect a code-generation bug (wrong instruct
 - **Always plan** before editing; `StepMemory` saves failed attempts.
 - **No trace** → read `CMakeLists.txt`/`xmake.lua`, add `LUISA_INFO`/`LUISA_VERBOSE`, then `device_log`.
 - **DSL values** → prefer `Buffer` write + host read-back for bulk inspection; use `device_log` for targeted per-thread messages.
+- **Backend/codegen issues** → set `LUISA_DUMP_SOURCE=1` to inspect generated shaders and `LUISA_ENABLE_VALIDATION=1` to catch API/resource misuse.

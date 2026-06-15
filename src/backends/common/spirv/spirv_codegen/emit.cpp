@@ -56,6 +56,9 @@ SpirvCodegenEntry::SpirvCodegenEntry(StringScratch &scratch, bool allow_indirect
 SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _is_storage_image_map.clear();
     _type_map.clear();
+    _sampled_image_type_map.clear();
+    _storage_image_type_map.clear();
+    _storage_texture_types.clear();
     _value_map.clear();
     _function_map.clear();
     _block_map.clear();
@@ -239,6 +242,18 @@ spv::Id SpirvCodegenEntry::_emit_constant(const xir::Constant *c) noexcept {
     return id;
 }
 
+spv::Id SpirvCodegenEntry::_emit_alloca(const xir::AllocaInst *alloca) noexcept {
+    if (auto iter = _value_map.find(alloca); iter != _value_map.end()) { return iter->second; }
+    auto type = _convert_type(alloca->type(), Usage::READ);
+    auto storage = alloca->is_shared() ? spv::StorageClass::Workgroup : spv::StorageClass::Function;
+    auto var = _builder.createVariable(spv::NoPrecision, storage, type, "alloca");
+    if (storage == spv::StorageClass::Workgroup && _entry_point_inst != nullptr) {
+        _entry_point_inst->addIdOperand(var);
+    }
+    _value_map.emplace(alloca, var);
+    return var;
+}
+
 spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
     if (auto it = _value_map.find(value); it != _value_map.end()) { return it->second; }
     spv::Id id = spv::NoResult;
@@ -367,12 +382,21 @@ spv::Id SpirvCodegenEntry::_create_access_chain(spv::StorageClass storage, spv::
     return id;
 }
 
+void SpirvCodegenEntry::_predeclare_allocas(const xir::FunctionDefinition *def) noexcept {
+    for (auto *bb : def->basic_blocks()) {
+        for (auto *inst : bb->instructions()) {
+            if (inst->isa<xir::AllocaInst>()) {
+                _emit_alloca(static_cast<const xir::AllocaInst *>(inst));
+            }
+        }
+    }
+}
+
 spv::Block *SpirvCodegenEntry::_get_or_create_block(const xir::BasicBlock *bb) noexcept {
     if (bb == nullptr) { return nullptr; }
     if (auto it = _block_map.find(bb); it != _block_map.end()) { return it->second; }
-    auto block = &_builder.makeNewBlock();
-    // Track this block as added to the function
-    _added_blocks.emplace(block);
+    auto &function = _builder.getBuildPoint()->getParent();
+    auto block = new spv::Block(_builder.getUniqueId(), function);
     _block_map.emplace(bb, block);
     return block;
 }
@@ -381,6 +405,10 @@ void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb) noexcept {
     if (bb == nullptr) { return; }
     if (!_emitted_blocks.emplace(bb).second) { return; }
     auto spv_block = _get_or_create_block(bb);
+    if (!_added_blocks.contains(spv_block)) {
+        spv_block->getParent().addBlock(spv_block);
+        _added_blocks.emplace(spv_block);
+    }
     _builder.setBuildPoint(spv_block);
     for (auto inst : bb->instructions()) {
         _emit_instruction(inst);
@@ -428,6 +456,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
                                            spv::LinkageType::Max, {}, {}, &entry);
     _value_map.emplace(kernel, func->getId());
     _function_map.emplace(kernel, func);
+    _added_blocks.emplace(entry);
     _block_map.emplace(kernel->body_block(), entry);
 
     // Load non-resource arguments from the cbuffer (StructuredBuffer at property index 2)
@@ -578,6 +607,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
     }
 
     _pre_register_merge_blocks(kernel);
+    _predeclare_allocas(kernel);
     _emit_block(kernel->body_block());
     while (!_pending_blocks.empty()) {
         auto *bb = _pending_blocks.back();
@@ -589,6 +619,124 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
         _builder.makeReturn(false);
     }
     _builder.leaveFunction();
+}
+
+void SpirvCodegenEntry::_analyze_function_argument_usage(const xir::Module *module) noexcept {
+    _function_argument_usage.clear();
+    _storage_texture_types.clear();
+    auto merge_usage = [](Usage lhs, Usage rhs) noexcept {
+        return static_cast<Usage>(luisa::to_underlying(lhs) | luisa::to_underlying(rhs));
+    };
+    luisa::unordered_map<const xir::Function *, luisa::unordered_map<const xir::Argument *, size_t>> arg_indices;
+    for (auto function : module->function_list()) {
+        if (!function->is_definition()) { continue; }
+        auto count = 0u;
+        luisa::unordered_map<const xir::Argument *, size_t> indices;
+        for (auto arg : function->arguments()) {
+            indices.emplace(arg, count++);
+        }
+        _function_argument_usage.emplace(function, luisa::vector<Usage>(count, Usage::NONE));
+        arg_indices.emplace(function, std::move(indices));
+    }
+    auto add_usage = [&](const xir::Function *function, const xir::Value *value, Usage usage) noexcept {
+        if (value == nullptr || value->derived_value_tag() != xir::DerivedValueTag::ARGUMENT) { return false; }
+        auto *arg = static_cast<const xir::Argument *>(value);
+        if (arg->parent_function() != function) { return false; }
+        auto fit = arg_indices.find(function);
+        if (fit == arg_indices.end()) { return false; }
+        auto ait = fit->second.find(arg);
+        if (ait == fit->second.end()) { return false; }
+        auto &slot = _function_argument_usage.at(function)[ait->second];
+        auto merged = merge_usage(slot, usage);
+        if (merged == slot) { return false; }
+        slot = merged;
+        return true;
+    };
+    for (auto function : module->function_list()) {
+        if (!function->is_definition()) { continue; }
+        auto def = function->definition();
+        def->traverse_instructions([&](const xir::Instruction *inst) noexcept {
+            switch (inst->derived_instruction_tag()) {
+                case xir::DerivedInstructionTag::RESOURCE_READ: {
+                    auto read = static_cast<const xir::ResourceReadInst *>(inst);
+                    if (read->operand_count() > 0u) {
+                        static_cast<void>(add_usage(function, read->operand(0u), Usage::READ));
+                    }
+                    break;
+                }
+                case xir::DerivedInstructionTag::RESOURCE_WRITE: {
+                    auto write = static_cast<const xir::ResourceWriteInst *>(inst);
+                    if (write->operand_count() > 0u) {
+                        if (auto type = write->operand(0u)->type(); type != nullptr && type->is_texture()) {
+                            _storage_texture_types.emplace(type);
+                        }
+                        static_cast<void>(add_usage(function, write->operand(0u), Usage::WRITE));
+                    }
+                    break;
+                }
+                default: break;
+            }
+        });
+    }
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (auto function : module->function_list()) {
+            if (!function->is_definition()) { continue; }
+            auto def = function->definition();
+            def->traverse_instructions([&](const xir::Instruction *inst) noexcept {
+                if (inst->derived_instruction_tag() != xir::DerivedInstructionTag::CALL) { return; }
+                auto call = static_cast<const xir::CallInst *>(inst);
+                auto callee = call->callee();
+                if (callee == nullptr || !callee->is_definition()) { return; }
+                auto cit = _function_argument_usage.find(callee);
+                if (cit == _function_argument_usage.end()) { return; }
+                auto index = 0u;
+                for (auto callee_arg : callee->arguments()) {
+                    if (index >= call->argument_count() || index >= cit->second.size()) { break; }
+                    auto callee_usage = cit->second[index];
+                    if (callee_usage != Usage::NONE) {
+                        changed |= add_usage(function, call->argument(index), callee_usage);
+                    }
+                    auto value = call->argument(index);
+                    if (value != nullptr && value->derived_value_tag() == xir::DerivedValueTag::ARGUMENT) {
+                        auto *caller_arg = static_cast<const xir::Argument *>(value);
+                        if (caller_arg->parent_function() == function) {
+                            auto fit = arg_indices.find(function);
+                            if (fit != arg_indices.end()) {
+                                auto ait = fit->second.find(caller_arg);
+                                if (ait != fit->second.end()) {
+                                auto caller_usage = _function_argument_usage.at(function)[ait->second];
+                                changed |= add_usage(callee, callee_arg, caller_usage);
+                                }
+                            }
+                        }
+                    }
+                    index++;
+                }
+            });
+        }
+    }
+    for (auto &[function, usages] : _function_argument_usage) {
+        for (auto &usage : usages) {
+            if (usage == Usage::NONE) { usage = Usage::READ; }
+        }
+    }
+}
+
+Usage SpirvCodegenEntry::_function_argument_usage_of(
+    const xir::Function *function,
+    const xir::Argument *argument) const noexcept {
+    auto fit = _function_argument_usage.find(function);
+    if (fit == _function_argument_usage.end()) { return Usage::READ; }
+    auto index = 0u;
+    for (auto arg : function->arguments()) {
+        if (arg == argument) {
+            return index < fit->second.size() ? fit->second[index] : Usage::READ;
+        }
+        index++;
+    }
+    return Usage::READ;
 }
 
 void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept {
@@ -606,26 +754,31 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
             // sampled/storage qualifiers) and callable parameters.
             continue;
         }
+        auto usage = _function_argument_usage_of(callable, arg);
+        if (arg->type()->is_texture() && _storage_texture_types.contains(arg->type())) {
+            usage = static_cast<Usage>(
+                luisa::to_underlying(usage) | luisa::to_underlying(Usage::WRITE));
+        }
         if (arg->is_resource()) {
             auto type = arg->type();
             spv::Id pointee_type = spv::NoResult;
             spv::StorageClass storage = spv::StorageClass::Max;
             switch (type->tag()) {
                 case Type::Tag::BUFFER:
-                    pointee_type = _convert_type(type, Usage::READ);
+                    pointee_type = _convert_type(type, usage);
                     storage = spv::StorageClass::StorageBuffer;
                     _builder.addIncorporatedExtension("SPV_KHR_variable_pointers", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
                     break;
                 case Type::Tag::BINDLESS_ARRAY:
-                    pointee_type = _convert_type(type, Usage::READ);
+                    pointee_type = _convert_type(type, usage);
                     storage = spv::StorageClass::StorageBuffer;
                     _builder.addIncorporatedExtension("SPV_KHR_variable_pointers", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::VariablePointersStorageBuffer);
                     break;
                 case Type::Tag::ACCEL:
                 case Type::Tag::TEXTURE:
-                    pointee_type = _convert_type(type, Usage::READ);
+                    pointee_type = _convert_type(type, usage);
                     storage = spv::StorageClass::UniformConstant;
                     break;
                 default:
@@ -648,15 +801,21 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
                                            param_types, {}, &entry);
     _value_map.emplace(callable, func->getId());
     _function_map.emplace(callable, func);
+    _added_blocks.emplace(entry);
 
     int32_t i = 0;
     for (auto arg : emitted_args) {
         auto param_id = func->getParamId(i);
         _value_map.emplace(arg, param_id);
         if (arg->type()->tag() == Type::Tag::TEXTURE) {
-            // Callable texture parameters are always created as sampled images
-            // (Usage::READ in _convert_type), so they are not storage images.
-            _is_storage_image_map.emplace(param_id, false);
+            auto usage = _function_argument_usage_of(callable, arg);
+            if (_storage_texture_types.contains(arg->type())) {
+                usage = static_cast<Usage>(
+                    luisa::to_underlying(usage) | luisa::to_underlying(Usage::WRITE));
+            }
+            _is_storage_image_map.emplace(
+                param_id,
+                (luisa::to_underlying(usage) & luisa::to_underlying(Usage::WRITE)) != 0u);
         }
         ++i;
     }
@@ -665,6 +824,7 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
     _builder.setBuildPoint(entry);
     _block_map.emplace(callable->body_block(), entry);
     _pre_register_merge_blocks(callable);
+    _predeclare_allocas(callable);
     _emit_block(callable->body_block());
     while (!_pending_blocks.empty()) {
         auto *bb = _pending_blocks.back();
@@ -682,6 +842,9 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     _print_formats.clear();
     _requires_printing = false;
     auto analysis = _analyze_module_usage(module);
+    _mark_atomic_buffer_types(analysis);
+    _analyze_function_argument_usage(module);
+
     for (auto type : analysis.used_types) {
         if (type != nullptr) { _convert_type(type, Usage::READ); }
     }

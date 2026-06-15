@@ -1,3 +1,4 @@
+#include <luisa/core/stl/format.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/instructions/phi.h>
@@ -70,6 +71,8 @@ static void lower_cross_block_uses_in_function(FunctionDefinition *def, Reg2MemI
         b.set_insertion_point(entry_head);
         auto slot = b.alloca_local(inst->type());
         slot->add_comment("alloca to lower cross-block value");
+        static int xblock_counter = 0;
+        slot->set_name(luisa::format("_xblock_{}", ++xblock_counter));
         b.set_insertion_point(inst);
         b.store(slot, inst);
         luisa::vector<Use *> cross_block_uses;

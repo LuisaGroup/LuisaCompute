@@ -33,6 +33,7 @@ public:
         FOR,
         COMMENT,
         RAY_QUERY,
+        SUSPEND,
         AUTO_DIFF,
         PRINT,
         DEBUG_BREAK,
@@ -73,6 +74,7 @@ class AssignStmt;
 class ForStmt;
 class CommentStmt;
 class RayQueryStmt;
+class SuspendStmt;
 class AutoDiffStmt;
 
 class PrintStmt;
@@ -93,6 +95,7 @@ struct LUISA_AST_API StmtVisitor {
     virtual void visit(const ForStmt *) = 0;
     virtual void visit(const CommentStmt *) = 0;
     virtual void visit(const RayQueryStmt *) = 0;
+    virtual void visit(const SuspendStmt *) = 0;
     virtual void visit(const AutoDiffStmt *stmt);
     virtual void visit(const PrintStmt *stmt);
     virtual void visit(const DebugBreakStmt *stmt);
@@ -243,6 +246,26 @@ public:
     LoopStmt() noexcept : Statement{Tag::LOOP} {}
     [[nodiscard]] auto body() noexcept { return &_body; }
     [[nodiscard]] auto body() const noexcept { return &_body; }
+    LUISA_STATEMENT_COMMON()
+};
+
+/// Suspend statement
+class LUISA_AST_API SuspendStmt : public Statement {
+
+private:
+    uint32_t _token;
+    luisa::string _name;
+
+private:
+    [[nodiscard]] uint64_t _compute_hash() const noexcept override;
+
+public:
+    explicit SuspendStmt(uint32_t token, luisa::string name = "") noexcept
+        : Statement{Tag::SUSPEND}, _token{token}, _name{std::move(name)} {}
+    explicit SuspendStmt(luisa::string name) noexcept
+        : Statement{Tag::SUSPEND}, _token{0u}, _name{std::move(name)} {}
+    [[nodiscard]] auto token() const noexcept { return _token; }
+    [[nodiscard]] auto name() const noexcept { return luisa::string_view{_name}; }
     LUISA_STATEMENT_COMMON()
 };
 
@@ -642,6 +665,7 @@ void traverse_expressions(
                 rq_stmt->on_procedural_candidate(), visit, enter_stmt, exit_stmt);
             break;
         }
+        case Statement::Tag::SUSPEND: break;
         case Statement::Tag::AUTO_DIFF: {
             auto ad_stmt = static_cast<const AutoDiffStmt *>(stmt);
             traverse_expressions<recurse_subexpr>(

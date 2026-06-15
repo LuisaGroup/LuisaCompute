@@ -932,6 +932,43 @@ void reg_dce() {
         auto info = dce_pass_run_on_module(&m);
         expect(info.removed_inst_count == 2u);
     };
+
+    "dce_repairs_phi_after_unreachable_predecessor_removed"_test = [] {
+        Module m;
+        auto *f = m.create_callable(Type::of<int>());
+        auto *entry = f->create_body_block();
+        auto *live = f->create_basic_block();
+        auto *dead = f->create_basic_block();
+        auto *merge = f->create_basic_block();
+
+        XIRBuilder b;
+        b.set_insertion_point(entry);
+        b.br(live);
+
+        b.set_insertion_point(live);
+        int32_t live_v = 1;
+        auto *live_c = m.create_constant(Type::of<int>(), &live_v);
+        auto *live_value = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {live_c, live_c});
+        b.br(merge);
+
+        b.set_insertion_point(dead);
+        int32_t dead_v = 2;
+        auto *dead_c = m.create_constant(Type::of<int>(), &dead_v);
+        auto *dead_value = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {dead_c, dead_c});
+        b.br(merge);
+
+        b.set_insertion_point(merge);
+        auto *phi = b.phi(Type::of<int>());
+        phi->add_incoming(live_value, live);
+        phi->add_incoming(dead_value, dead);
+        b.return_(phi);
+
+        auto info = dce_pass_run_on_function(f);
+        expect(info.removed_block_count >= 1u);
+        expect(phi->incoming_count() == 1u);
+        expect(phi->incoming(0u).block == live);
+        expect(phi->incoming(0u).value == live_value);
+    };
 }
 
 // ---- gvn ----
@@ -1369,6 +1406,22 @@ void reg_div_rem_pairs() {
         int32_t a_v = 10, b_v = 3;
         auto *a = m.create_constant(Type::of<int>(), &a_v);
         auto *bv = m.create_constant(Type::of<int>(), &b_v);
+        b.call(Type::of<int>(), ArithmeticOp::BINARY_DIV, {a, bv});
+        b.return_void();
+        auto info = div_rem_pairs_pass_run_on_function(k);
+        expect(info.merged_pair_count == 0u);
+    };
+
+    "div_rem_pairs_mod_before_div_no_change"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        int32_t a_v = 10, b_v = 3;
+        auto *a = m.create_constant(Type::of<int>(), &a_v);
+        auto *bv = m.create_constant(Type::of<int>(), &b_v);
+        b.call(Type::of<int>(), ArithmeticOp::BINARY_MOD, {a, bv});
         b.call(Type::of<int>(), ArithmeticOp::BINARY_DIV, {a, bv});
         b.return_void();
         auto info = div_rem_pairs_pass_run_on_function(k);
@@ -2098,6 +2151,30 @@ void reg_mem2reg() {
         b.return_void();
         auto info = mem2reg_pass_run_on_function(k);
         expect(info.promoted_alloca_count == 0u);
+    };
+
+    "mem2reg_ignores_unreachable_alloca_users"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *def = k->definition();
+        auto *dead = def->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *alloca = b.alloca_local(Type::of<int>());
+        int32_t val_v = 42;
+        auto *val = m.create_constant(Type::of<int>(), &val_v);
+        b.store(alloca, val);
+        auto *ld = b.load(Type::of<int>(), alloca);
+        b.return_(ld);
+        b.set_insertion_point(dead);
+        auto *dead_load = b.load(Type::of<int>(), alloca);
+        b.store(alloca, dead_load);
+        b.unreachable_();
+        auto info = mem2reg_pass_run_on_function(k);
+        expect(info.promoted_alloca_count == 1u);
+        expect(info.removed_load_count >= 2u);
+        expect(info.removed_store_count >= 2u);
     };
 }
 

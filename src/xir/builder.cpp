@@ -193,6 +193,18 @@ AutodiffScopeInst *XIRBuilder::autodiff_scope() noexcept {
     return _create_and_append_instruction<AutodiffScopeInst>(_insertion_point->parent_block());
 }
 
+CoroSuspendInst *XIRBuilder::coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept {
+    return _create_and_append_instruction<CoroSuspendInst>(_insertion_point->parent_block(), token, std::move(name), frame);
+}
+
+CoroResumeInst *XIRBuilder::coro_resume(uint32_t token, Value *frame) noexcept {
+    return _create_and_append_instruction<CoroResumeInst>(_insertion_point->parent_block(), token, frame);
+}
+
+CoroTerminateInst *XIRBuilder::coro_terminate() noexcept {
+    return _create_and_append_instruction<CoroTerminateInst>(_insertion_point->parent_block());
+}
+
 RayQueryLoopInst *XIRBuilder::ray_query_loop() noexcept {
     return _create_and_append_instruction<RayQueryLoopInst>(_insertion_point->parent_block());
 }

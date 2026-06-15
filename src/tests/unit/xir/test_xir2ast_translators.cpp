@@ -52,6 +52,7 @@ struct StatementCounter final : StmtVisitor {
         stmt->on_triangle_candidate()->accept(*this);
         stmt->on_procedural_candidate()->accept(*this);
     }
+    void visit(const SuspendStmt *) override {}
     void visit(const AutoDiffStmt *stmt) override { stmt->body()->accept(*this); }
     void visit(const PrintStmt *) override { prints++; }
     void visit(const DebugBreakStmt *) override {}

@@ -11,6 +11,18 @@ namespace luisa::compute::dsl_detail {
 
 #include <luisa/dsl/syntax.h>
 
+namespace luisa::compute::dsl {
+
+inline void suspend_impl(uint32_t token) {
+    detail::FunctionBuilder::current()->suspend_(token);
+}
+
+inline void suspend_impl(uint32_t token, const char *name) {
+    detail::FunctionBuilder::current()->suspend_(token, luisa::string{name});
+}
+
+} // namespace luisa::compute::dsl
+
 #define $ ::luisa::compute::Var
 
 #define $thread_id ::luisa::compute::thread_id()
@@ -205,5 +217,7 @@ namespace luisa::compute::dsl_detail {
 
 #define $debug_break_on(...) \
     LUISA_COMPUTE_DSL_DEVICE_DEBUG_IMPL_REVERSE(LUISA_REVERSE(__VA_ARGS__))
+
+#define $suspend(...) ::luisa::compute::dsl::suspend_impl(__COUNTER__ + 1u __VA_OPT__(,) __VA_ARGS__)
 
 #endif

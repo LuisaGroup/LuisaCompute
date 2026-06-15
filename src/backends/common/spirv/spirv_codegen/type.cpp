@@ -4,6 +4,13 @@
 namespace lc::spirv {
 spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept {
     if (type == nullptr) { return _builder.makeVoidType(); }
+    if (type->tag() == Type::Tag::TEXTURE) {
+        auto &image_type_map =
+            (luisa::to_underlying(usage) & luisa::to_underlying(Usage::WRITE)) != 0u ?
+                _storage_image_type_map :
+                _sampled_image_type_map;
+        if (auto it = image_type_map.find(type); it != image_type_map.end()) { return it->second; }
+    }
     if (auto it = _type_map.find(type); it != _type_map.end()) { return it->second; }
     spv::Id id = spv::NoResult;
     switch (type->tag()) {
@@ -88,21 +95,17 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
                          "SPIR-V texture element must be float32, int32, or uint32, got {}.",
                          type->description());
             spv::Id sampled_type;
-            spv::ImageFormat storage_format;
             if (elem->is_float32()) {
                 sampled_type = _builder.makeFloatType(32);
-                storage_format = spv::ImageFormat::Rgba32f;
             } else if (elem->is_int32()) {
                 sampled_type = _builder.makeIntType(32);
-                storage_format = spv::ImageFormat::Rgba32i;
             } else {
                 sampled_type = _builder.makeUintType(32);
-                storage_format = spv::ImageFormat::Rgba32ui;
             }
             spv::Dim dim = (type->dimension() == 3) ? spv::Dim::Dim3D : spv::Dim::Dim2D;
             bool is_writable = (static_cast<uint>(usage) & static_cast<uint>(Usage::WRITE)) != 0;
             uint32_t sampled = is_writable ? 2 : 1;
-            spv::ImageFormat fmt = is_writable ? storage_format : spv::ImageFormat::Unknown;
+            spv::ImageFormat fmt = spv::ImageFormat::Unknown;
             id = _builder.makeImageType(sampled_type, dim, false, false, false,
                                         sampled, fmt, "image");
             break;
@@ -144,7 +147,15 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
         }
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to convert type {}.", type->description());
-    _type_map.emplace(type, id);
+    if (type->tag() == Type::Tag::TEXTURE) {
+        auto &image_type_map =
+            (luisa::to_underlying(usage) & luisa::to_underlying(Usage::WRITE)) != 0u ?
+                _storage_image_type_map :
+                _sampled_image_type_map;
+        image_type_map.emplace(type, id);
+    } else {
+        _type_map.emplace(type, id);
+    }
     return id;
 }
 

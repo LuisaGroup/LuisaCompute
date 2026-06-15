@@ -24,10 +24,49 @@ struct FooPassInfo {
 };
 
 [[nodiscard]] LUISA_XIR_API FooPassInfo foo_pass_run_on_function(Function *function) noexcept;
-[[nodiscard]] LUISA_XIR_API FooPassInfo foo_pass_run_on_module(Module *module) noexcept;
+[[nodiscard]] LUISA_XIR_API FooPassInfo foo_pass_run_on_module(Module *module, PassReport *report = nullptr) noexcept;
 ```
 
-The module entry point iterates `module->functions()` and dispatches by `func->is_definition()`.
+The function-level entry point should accept `Function *` (so it also works on external declarations) and use `function->definition()` to obtain a `FunctionDefinition *` before touching basic blocks. The module entry point iterates `module->function_list()` and dispatches by `function->definition()`:
+
+```cpp
+FooPassInfo foo_pass_run_on_module(Module *module, PassReport *report) noexcept {
+    FooPassInfo info;
+    for (auto *func : module->function_list()) {
+        if (auto def = func->definition()) {
+            info = foo_pass_run_on_function(func); // or operate directly on def
+        }
+    }
+    if (report != nullptr) {
+        report->set("did_something", info.did_something_count);
+    }
+    return info;
+}
+```
+
+Some passes (e.g., `sroa_pass_run_on_module`, `algebraic_simplify_pass_run_on_module`) also take an options struct before `PassReport *`. Always consult the header for the exact signature.
+
+### PassPipeline and PassReport
+
+Most module-level passes can write statistics into a `PassReport`:
+
+```cpp
+PassReport report;
+auto info = dce_pass_run_on_module(&m, &report);
+for (auto &e : report.entries()) {
+    // e.key, e.value
+}
+```
+
+For end-to-end pipelines, prefer the canned pipelines in `pass_pipeline.h`:
+
+```cpp
+auto pipeline = create_basic_optimization_pipeline({.enable_fast_math = false});
+auto stats = pipeline.run(&m);
+stats.log("my-pipeline");
+```
+
+Custom pipelines can be built with `PassPipeline::add` (single run) and `PassPipeline::add_fixed_point` (fixed-point sub-pipeline).
 
 ## Hook Rules (project priority-3)
 
@@ -42,8 +81,9 @@ The module entry point iterates `module->functions()` and dispatches by `func->i
 
 ```cpp
 module->function_list()                          // iterable (NOT `functions()`)
-func->is_definition()                            // gate before downcast
-auto def = static_cast<FunctionDefinition*>(f);  // NEVER cast_or_null — no such template in XIR
+func->is_definition()                            // true for kernel/callable, false for external
+auto def = func->definition();                   // returns FunctionDefinition* (nullptr for external)
+if (auto def = func->definition()) { ... }       // preferred pattern; never cast_or_null
 def->body_block()                                // entry block (NEVER remove)
 def->create_basic_block()                        // orphan block
 def->basic_blocks()                              // ManagedIntrusiveList<BasicBlock>
@@ -56,7 +96,8 @@ def->traverse_basic_blocks(visitor)              // walks only reachable blocks 
 block->instructions()                                  // ManagedIntrusiveList<Instruction>
 block->instructions().empty()                          // always false if terminator present
 block->instructions().front()                          // first inst
-block->terminator()                                    // last inst (may be nullptr if malformed)
+block->is_terminated()                                 // true when the last instruction is a terminator
+block->terminator()                                    // last inst (may be nullptr if malformed/unterminated)
 block->traverse_instructions(visitor)
 block->traverse_predecessors(exclude_self, visit)      // visits via use list
 block->traverse_successors(exclude_self, visit)        // visits terminator's target operands
@@ -66,11 +107,13 @@ block->remove_self()                                   // returns ManagedPtr<Bas
 ### Constant detection
 
 ```cpp
-if (auto v = inst->cond(); v->isa<Constant>()) {
+if (auto v = inst->condition(); v->isa<Constant>()) {
     auto c = static_cast<Constant*>(v);
     bool b = c->as<bool>();    // checks size; safe for bool
 }
 ```
+
+`condition()` is the getter on `ConditionalBranchInst` / `IfInst`. For other instruction kinds use the appropriate value getter (`value()`, `operand(i)`, etc.).
 
 ### Cast pattern
 
@@ -243,13 +286,19 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 | Pass | Status | File |
 |---|---|---|
 | Pipeline A `lower_break_continue` | ✅ done (12 tests) | `lower_break_continue.{h,cpp}` |
-| Pipeline A `lower_ray_query_loop` | ✅ existing (lowers to `RayQueryPipelineInst` — **NOT** reusable for Pipeline B) | `lower_ray_query_loop.cpp` |
+| Pipeline A `lower_ray_query_loop` | ✅ existing (lowers to `RayQueryPipelineInst` — **NOT** reusable for Pipeline B) | `lower_ray_query_loop.{h,cpp}` |
 | Pipeline A `lower_ray_query_loop_to_loop` | ✅ done (lowers to structured `LoopInst` + nested `IfInst` dispatch) | `lower_ray_query_loop_to_loop.{h,cpp}` |
-| Pipeline A `early_return_elimination` | ⏳ stub (low pri) | `early_return_elimination.cpp` |
+| Pipeline A `early_return_elimination` | ✅ done (implemented + unit tests) | `early_return_elimination.{h,cpp}` |
 | Pipeline B Pass 1 `destructure_cfg` | ✅ done (12 tests, 46 asserts) | `destructure_cfg.{h,cpp}` |
 | Pipeline B Pass 2 `simplify_cfg` | ✅ done (8 tests, 22 asserts) | `simplify_cfg.{h,cpp}` |
-| Pipeline B Pass 3 `restructure_cfg` | ✅ done | `restructure_cfg.{h,cpp}` |
+| Pipeline B Pass 3 `restructure_cfg` | ✅ done (unit tests) | `restructure_cfg.{h,cpp}` |
+| `lower_switch` | ✅ done (lowers `SwitchInst` to cascaded `IfInst`) | `lower_switch.{h,cpp}` |
+| `convergence_region` | ✅ done (region analysis used by `restructure_cfg`) | `convergence_region.{h,cpp}` |
+| `early_cse` | ✅ done (local common subexpression elimination) | `early_cse.{h,cpp}` |
+| `pass_pipeline` | ✅ done (driver + canned pipelines) | `pass_pipeline.{h,cpp}` |
 | Round-trip Pipeline B test | ✅ verified (path_tracing_cutout PSNR>30) | via `test_path_tracing_cutout vk` |
+
+Note: `src/xir/passes/CFG_NORMALIZATION_PLAN.md` is the historical master plan; the table above reflects the current implementation state.
 
 ### `destructure_cfg` lowerings (reference)
 
@@ -273,6 +322,9 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 - ❌ `cast_or_null<T>(v)` — doesn't exist. Use `isa<T>` + `static_cast`.
 - ❌ `set_true_block` / `set_false_block` on ConditionalBranchInst — wrong names. Asymmetric: getters are `true_block()` / `false_block()`, setters are `set_true_target` / `set_false_target`.
 - ❌ `module->functions()` — wrong. Use `module->function_list()`.
+- ❌ Assuming every `Function *` is a definition and casting with `static_cast<FunctionDefinition*>(func)` — unsafe. Use `func->definition()`; it returns `nullptr` for external functions.
+- ❌ Forgetting `PassReport *report` on module entry points — most passes now take `Module *module, PassReport *report = nullptr`. Omitting it compiles, but pass pipelines and tests may expect report entries.
+- ❌ `inst->cond()` — does not exist. The condition getter is `condition()` (on `ConditionalBranchInst` / `IfInst`).
 - ❌ `b.ray_query_loop(query)` — wrong; takes 0 args. Pass query to `ray_query_dispatch`.
 - ❌ Mutating instructions while iterating — always two-phase collect-rewrite.
 - ❌ Removing `body_block()` — never. Even if empty, it must stay.
@@ -283,8 +335,9 @@ Master plan: `src/xir/passes/CFG_NORMALIZATION_PLAN.md`.
 - ❌ Calling `LoopInst::condition()` — **does not exist**. The loop condition is the terminating `cond_br(cond, body, merge)` of `prepare_block()`. To read the condition: `static_cast<ConditionalBranchInst*>(loop->prepare_block()->terminator())->condition()`. Likewise no `set_condition`; rewrite the prepare-block terminator instead.
 - ❌ Restructuring CFG with live `PhiInst` nodes — splitting/inserting blocks (preheaders, latches, exit stubs) invalidates phi `incoming_blocks`. Run `reg2mem_pass_run_on_module` before `restructure_cfg_pass_run_on_module` so the input is phi-free; assert this as a precondition.
 - ❌ Computing post-dominators without a virtual exit — multi-sink CFGs (`ReturnInst`, `UnreachableInst`, `RasterDiscardInst` in different blocks) yield wrong/null ipostdoms for blocks whose successors reach different sinks. Add a synthetic virtual exit that all sinks point to before running the iterative ipostdom algorithm.
-- ❌ Running `reg2mem` immediately after `restructure_cfg` without DCE — restructure_cfg may leave orphan blocks not reachable from `body_block()`. These blocks are absent from the dom tree, causing assertion failures in reg2mem. Always run `dce_pass_run_on_module` between `restructure_cfg` and `reg2mem`.
+- ❌ Running `reg2mem` immediately after `restructure_cfg` without DCE — `restructure_cfg` may leave orphan blocks not reachable from `body_block()`. These blocks are absent from the dom tree, causing assertion failures in `reg2mem`. Always run `dce_pass_run_on_module` between `restructure_cfg` and `reg2mem`.
 - ❌ Using `OpCopyMemory` on `OpTypeRayQueryKHR` in SPIR-V emission — forbidden since Rev 15. Instead, remap `_value_map[store->variable()] = val` so subsequent loads resolve to the source variable directly.
+- ❌ Trusting `src/xir/passes/CFG_NORMALIZATION_PLAN.md` as a task tracker — it is the historical design doc and contains unchecked items that are already implemented (e.g., `early_return_elimination`, `restructure_cfg`). Use the table above and the actual headers/sources as the source of truth.
 
 ## Memory Effects & Instruction Purity
 
@@ -298,7 +351,7 @@ Optimization passes (GVN, DCE, SCCP) must respect memory effects. Instructions f
 | `CAST` | all cast ops |
 | `GEP` | pointer arithmetic only, no dereference |
 | `RESOURCE_QUERY` | `buffer_size`, `texture_size` — read-only metadata |
-| `CLOCK` | technically pure but non-deterministic |
+| `CLOCK` | hardware timer read — treated as a memory read (non-deterministic, not safe to value-number or reorder across loop iterations) |
 
 ### Memory-reading (safe to DCE if unused, NOT safe to reorder past writes or value-number without alias analysis)
 
@@ -359,21 +412,29 @@ Two instructions with different scopes cannot alias. Two LOCAL instructions alia
 
 ## Build & Test Commands
 
+Create the build directory with the project's bootstrap script if it does not exist:
+
+```bash
+python bootstrap.py cmake -f cuda -c -o cmake-build-release
+```
+
+Then use the CMake build directory:
+
 ```bash
 # Build XIR library only (fast iteration)
 cmake --build cmake-build-release --target luisa-compute-xir -j
 
-# Build one specific test
+# Build one specific pass test
 cmake --build cmake-build-release --target test_xir_pass_destructure_cfg -j
 
-# Run test
+# Run the test binary directly
 cmake-build-release/bin/test_xir_pass_destructure_cfg
 
-# Or via ctest filter
-ctest --test-dir cmake-build-release -R destructure_cfg --output-on-failure
+# Or run all XIR pass tests via ctest
+ctest --test-dir cmake-build-release -R xir_pass --output-on-failure
 ```
 
-Build dir convention: `cmake-build-release`.
+Build dir convention: `cmake-build-release`. On CI you may see `build-cmake-verify`; the commands above work there too if you substitute the directory name.
 
 ## LLVM Equivalents
 
@@ -387,6 +448,7 @@ When debugging or implementing an XIR pass, the LLVM project has similar passes 
 | `autodiff` | — | XIR-specific autodiff pass. |
 | `call_graph` | `llvm/lib/Analysis/CallGraph.cpp` | Call-graph construction and SCC passes. |
 | `const_fold` | `llvm/lib/Analysis/ConstantFolding.cpp` | Constant folding of instructions and intrinsics. |
+| `convergence_region` | — | XIR-specific convergence-region / region-of-interest analysis used by `restructure_cfg`. |
 | `cvp` | `llvm/lib/Transforms/Scalar/CorrelatedValuePropagation.cpp` | Correlated value propagation (range/branch info). |
 | `dce` | `llvm/lib/Transforms/Scalar/DCE.cpp` | Standard dead-code elimination. Also see `ADCE.cpp`, `BDCE.cpp`, `GlobalDCE.cpp`. |
 | `dead_arg_elim` | `llvm/lib/Transforms/IPO/DeadArgumentElimination.cpp` | Remove unused arguments from internal functions. |
@@ -394,6 +456,7 @@ When debugging or implementing an XIR pass, the LLVM project has similar passes 
 | `destructure_cfg` | `llvm/lib/Transforms/Scalar/StructurizeCFG.cpp` | XIR: structured → unstructured. LLVM `StructurizeCFG` does the inverse (unstructured → structured). Also see `FixIrreducible.cpp`. |
 | `div_rem_pairs` | `llvm/lib/Transforms/Scalar/DivRemPairs.cpp` | Combine div/rem into a single instruction. |
 | `dom_tree` | `llvm/lib/IR/Dominators.cpp` | Dominator tree construction. |
+| `early_cse` | `llvm/lib/Transforms/Scalar/EarlyCSE.cpp` | Local common subexpression elimination. |
 | `early_return_elimination` | `llvm/lib/Transforms/Utils/UnifyFunctionExitNodes.cpp` | XIR-specific early-return elimination for structured CFG. |
 | `fix_self_referential` | — | XIR-specific fix for self-referential `INSERT` operands after buggy optimizations. |
 | `gvn` | `llvm/lib/Transforms/Scalar/GVN.cpp` / `NewGVN.cpp` | Global value numbering and redundant-load elimination. |
@@ -409,6 +472,7 @@ When debugging or implementing an XIR pass, the LLVM project has similar passes 
 | `lower_break_continue` | — | XIR-specific lowering of structured `BreakInst`/`ContinueInst`. |
 | `lower_ray_query_loop` | — | XIR-specific ray-query pipeline lowering. |
 | `lower_ray_query_loop_to_loop` | — | XIR-specific ray-query → structured `LoopInst` lowering. |
+| `lower_switch` | `llvm/lib/Transforms/Utils/LowerSwitch.cpp` | Lower `switch` to cascaded branches / if-else chains. |
 | `mem2reg` | `llvm/lib/Transforms/Utils/Mem2Reg.cpp` | Promote memory to registers (alloca → SSA). Also see `PromoteMemToReg.h`. |
 | `outline` | `llvm/lib/Transforms/IPO/IROutliner.cpp` | Outlining similar instruction sequences. |
 | `pass_pipeline` | — | XIR pass pipeline driver. |

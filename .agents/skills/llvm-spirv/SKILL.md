@@ -7,7 +7,7 @@ description: LLVM SPIR-V codegen backend in src/backends/common/spirv_llvm/ — 
 
 **Location**: `src/backends/common/spirv_llvm/` (4 C++ files, 4 headers, xmake.lua)
 
-Pipeline: `Function` (Luisa AST) → `LLVMStateVisitor` builds `llvm::IRBuilder<>` IR → `llvm::Module` → legalization passes → `legacy::PassManager` emits SPIR-V binary via `spirv64-unknown-vulkan1.3` TargetMachine.
+Pipeline: `Function` (Luisa AST) → `LLVMStateVisitor` builds `llvm::IRBuilder<>` IR → `llvm::Module` → aggregate legalization passes → `legacy::PassManager` emits SPIR-V binary via `spirv64-unknown-vulkan1.2` TargetMachine → post-process (strip `Addresses`/`Linkage` capabilities, validate with SPIR-V Tools).
 
 ## Files
 
@@ -18,7 +18,7 @@ Pipeline: `Function` (Luisa AST) → `LLVMStateVisitor` builds `llvm::IRBuilder<
 | `src/backends/common/spirv_llvm/llvm_codegen_utility.h` / `.cpp` | `LLVMCodegenUtility` — type mapping, constants, function codegen, SPIR-V emission |
 | `src/backends/common/spirv_llvm/llvm_state_visitor.h` / `.cpp` | `LLVMStateVisitor` — AST visitor (StmtVisitor + ExprVisitor) |
 | `src/backends/common/spirv_llvm/spirv_llvm.cpp` | LLVM SPIR-V target initialization, `InitializeLLVMSPIRVTarget()` |
-| `src/backends/common/spirv_llvm/xmake.lua` | Static lib `lc-spirv-llvm`, links `LLVM*.lib` |
+| `src/backends/common/spirv_llvm/xmake.lua` | Static lib `lc-spirv-llvm`, links `LLVM*.lib` + `spirv-tools` |
 
 ## LLVMCodegenResult
 
@@ -40,7 +40,7 @@ struct LLVMCodegenResult {
 
 ## LLVMCodegenStackData
 
-`src/backends/common/spirv_llvm/llvm_codegen_stack_data.h` lines 30–113:
+`src/backends/common/spirv_llvm/llvm_codegen_stack_data.h` lines 30–113 (abridged):
 
 ```cpp
 struct LLVMCodegenStackData : public vstd::IOperatorNewBase {
@@ -66,6 +66,11 @@ struct LLVMCodegenStackData : public vstd::IOperatorNewBase {
     size_t switch_case_counter{0};
     luisa::unordered_map<uint64_t, llvm::Function *> atomic_funcs;
 
+    // --- Helper state ---
+    uint arg_offset{0};
+    int64_t scope_count{-1};
+
+    // --- Bindless tracking ---
     bool useTex2DBindless{false}, useTex3DBindless{false}, useBufferBindless{false};
     vstd::vector<std::pair<vstd::string, Type const *>> printers;
     luisa::vector<std::byte> constant_ubo_data;
@@ -84,22 +89,36 @@ struct LLVMCodegenStackData : public vstd::IOperatorNewBase {
 
 ## LLVMCodegenUtility
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.h` lines 50–144:
+`src/backends/common/spirv_llvm/llvm_codegen_utility.h` lines 50–144 (abridged):
 
 ```cpp
 class LLVMCodegenUtility {
 public:
     vstd::unique_ptr<LLVMCodegenStackData> opt{};
-    [[nodiscard]] static LLVMCodegenResult CompileSPIRV(Function kernel, const ShaderOption &option);
+
+    /// Main entry point for VK backend: codegen Function → SPIR-V result.
+    [[nodiscard]] static LLVMCodegenResult CompileSPIRV(
+        Function kernel,
+        const ShaderOption &option);
 
 private:
     std::unique_ptr<llvm::LLVMContext> _context;
     std::unique_ptr<llvm::Module> _module;
     std::unique_ptr<llvm::IRBuilder<>> _builder;
-    std::unique_ptr<llvm::TargetMachine> _target_machine;
     llvm::Function *_current_function{nullptr};
+    std::unique_ptr<llvm::TargetMachine> _target_machine;
 
 public:
+    LLVMCodegenUtility();
+    ~LLVMCodegenUtility();
+
+    // Accessors
+    llvm::LLVMContext &context();
+    llvm::Module &module();
+    llvm::IRBuilder<> &builder();
+    llvm::Function *current_function();
+    void set_current_function(llvm::Function *f);
+
     // Type mapping
     [[nodiscard]] llvm::Type *ToLLVMType(Type const &type);
     [[nodiscard]] llvm::StructType *RegistStructType(Type const *type);
@@ -107,7 +126,9 @@ public:
 
     // Naming
     void GetVariableName(Function func, Variable const &v, vstd::StringBuilder &str);
+    void GetVariableName(Function func, Variable::Tag tag, uint32_t id, vstd::StringBuilder &str);
     void GetFunctionName(Function callable, vstd::StringBuilder &result);
+    void GetFunctionName(CallExpr const *expr, vstd::StringBuilder &result, LLVMStateVisitor &visitor);
 
     // Constants
     [[nodiscard]] llvm::Constant *CreateConstant(ConstantData const &data, llvm::Type *type);
@@ -118,6 +139,9 @@ public:
     [[nodiscard]] llvm::Function *GetOrDeclareFunction(Function func);
     [[nodiscard]] llvm::Function *CodegenKernelEntry(Function kernel);
 
+    // Temp variable name
+    vstd::StringBuilder GetNewTempVarName();
+
     // Module
     [[nodiscard]] luisa::string ToString() const;
     void WriteBitcodeToFile(luisa::string_view path) const;
@@ -126,35 +150,61 @@ public:
     // SPIR-V
     void InitializeSPIRVModule();
     [[nodiscard]] luisa::vector<uint32_t> EmitSPIRV();
-    void GenerateProperties(Function kernel, LLVMCodegenResult::Properties &properties);
+    void GenerateProperties(Function kernel,
+                           LLVMCodegenResult::Properties &properties);
 };
 ```
 
 ### CompileSPIRV (main entry)
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 1032–1065:
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 1273–1312:
 
 ```cpp
-LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(Function kernel, const ShaderOption &option) {
+LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(
+    Function kernel,
+    const ShaderOption &option) {
+
     LLVMCodegenResult result;
+    // 1. Create utility and initialize SPIR-V module
     LLVMCodegenUtility util;
-    util.InitializeSPIRVModule();                              // 1. spirv64 triple + target machine
-    util.CodegenFunction(kernel);                              // 2. AST → llvm::Function
-    util.GenerateProperties(kernel, result.properties);        // 3. binding properties
-    result.useTex2DBindless = util.opt->useTex2DBindless;      // 4–6. copy flags
+    util.InitializeSPIRVModule();
+
+    // 2. Codegen the kernel function into LLVM IR
+    util.CodegenFunction(kernel);
+
+    // 3. Generate binding properties from kernel arguments
+    util.GenerateProperties(kernel, result.properties);
+
+    // 4. Collect bindless usage flags from stack data
+    result.useTex2DBindless = util.opt->useTex2DBindless;
     result.useTex3DBindless = util.opt->useTex3DBindless;
     result.useBufferBindless = util.opt->useBufferBindless;
+
+    // 5. Collect printer info
     result.printers = std::move(util.opt->printers);
+
+    // 6. Collect constant UBO data
     result.constant_ubo_data = std::move(util.opt->constant_ubo_data);
-    result.spv_bin = util.EmitSPIRV();                         // 7. module → SPIR-V binary
-    result.typeMD5 = hlsl::CodegenUtility::GetTypeMD5(kernel); // 8. type checksum
+
+    // 7. Emit SPIR-V binary via LLVM SPIRV target
+    result.spv_bin = util.EmitSPIRV();
+
+    // 8. Strip Addresses/Linkage capabilities and convert PtrAccessChain
+    strip_addresses_capability(result.spv_bin);
+
+    // 9. Validate and optimize the SPIR-V binary (mirrors XIR path post-processing)
+    luisa_spirv_validate_post_llvm(result.spv_bin, "post-llvm");
+
+    // 10. Compute type MD5 for caching
+    result.typeMD5 = hlsl::CodegenUtility::GetTypeMD5(kernel);
+
     return result;
 }
 ```
 
 ## Type Mapping
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 50–133:
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 59–142:
 
 | Luisa Type::Tag | LLVM Type |
 |---|---|
@@ -177,11 +227,11 @@ LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(Function kernel, const Shader
 
 ### RegistStructType
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 135–162. Creates a named struct type, caches in `opt->struct_types`, sets body from type members.
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 144–171. Creates a named struct type, caches in `opt->struct_types`, sets body from type members.
 
 ## Variable Naming
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 220–268:
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 225–277:
 
 | Variable::Tag | Name |
 |---|---|
@@ -202,22 +252,27 @@ LLVMCodegenResult LLVMCodegenUtility::CompileSPIRV(Function kernel, const Shader
 
 ## Function Codegen
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 400–548:
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 409–653:
 
 1. Dedup via `opt->func_types` hash map
-2. Save/restore `_builder` IP and `opt->variables` (enables recursive callable codegen)
-3. Build `llvm::FunctionType` from return type + arguments (+ builtin variables for kernels)
-4. Create `llvm::Function` — `ExternalLinkage` for kernels, `InternalLinkage` for callables
-5. Kernels get `addFnAttr("hlsl.shader", "compute")`
-6. Create entry BB, allocate locals + shared vars via `CreateAlloca`, map arguments (store to alloca for value types, direct for resources)
+2. Save/restore `_builder` IP, `_current_function`, and `opt->variables` (enables recursive callable codegen)
+3. Build `llvm::FunctionType` from return type + arguments. For kernels, arguments are **not** function parameters (Vulkan requires entry points with no parameters); they are emitted as global variables.
+4. Create `llvm::Function` — `ExternalLinkage` for kernels, `InternalLinkage` for callables. Kernel entry is named `main` and gets:
+   - `addFnAttr("hlsl.shader", "compute")`
+   - `addFnAttr("hlsl.numthreads", "{x},{y},{z}")` from `func.block_size()`
+5. Create entry BB, allocate locals + shared vars via `CreateAlloca`
+6. **Kernel-specific argument lowering** (lines 512–623):
+   - Resource arguments (`BUFFER`, `TEXTURE`, `BINDLESS_ARRAY`, `ACCEL`) and `REFERENCE` → `GlobalVariable` in addrspace(1)
+   - Non-resource value arguments → packed into a struct `_Global` in addrspace(1), loaded into allocas
+   - Builtin variables (`DISPATCH_ID`, `THREAD_ID`, `BLOCK_ID`) → `@llvm.spv.thread.id` / `@llvm.spv.thread.id.in.group` / `@llvm.spv.group.id` intrinsics; other builtins get undef allocas
 7. Create `LLVMStateVisitor` → `VisitFunction(func)` to walk the AST body
 8. If missing terminator: `RetVoid` or `Ret(UndefValue)`
 9. `verifyFunction()` (warns on failure)
-10. Restore saved IP and variable map
+10. Restore saved state
 
 ## LLVMStateVisitor
 
-`src/backends/common/spirv_llvm/llvm_state_visitor.h` lines 41–126. Inherits `StmtVisitor` + `ExprVisitor`. Expression visitors set `_last_value`; statement visitors emit IR directly.
+`src/backends/common/spirv_llvm/llvm_state_visitor.h` lines 41–126 (abridged). Inherits `StmtVisitor` + `ExprVisitor`. Expression visitors set `_last_value`; statement visitors emit IR directly.
 
 ```cpp
 class LLVMStateVisitor final : public StmtVisitor, public ExprVisitor {
@@ -245,6 +300,9 @@ public:
     void visit(const CallExpr *) override;
     void visit(const TypeIDExpr *) override;
     void visit(const StringIDExpr *) override;
+    void visit(const FuncRefExpr *) override { LUISA_NOT_IMPLEMENTED(); }
+    void visit(const CpuCustomOpExpr *) override { LUISA_NOT_IMPLEMENTED(); }
+    void visit(const GpuCustomOpExpr *) override { LUISA_NOT_IMPLEMENTED(); }
 
     // Statement visitors
     void visit(const BreakStmt *) override;
@@ -254,12 +312,20 @@ public:
     void visit(const IfStmt *) override;
     void visit(const LoopStmt *) override;
     void visit(const ForStmt *) override;
+    void visit(const ExprStmt *) override;
     void visit(const SwitchStmt *) override;
+    void visit(const SwitchCaseStmt *) override;
+    void visit(const SwitchDefaultStmt *) override;
     void visit(const AssignStmt *) override;
-    // ... CommentStmt, RayQueryStmt, AutoDiffStmt, PrintStmt, DebugBreakStmt
+    void visit(const CommentStmt *) override;
+    void visit(const RayQueryStmt *) override;
+    void visit(const AutoDiffStmt *) override;
+    void visit(const PrintStmt *) override;
+    void visit(const DebugBreakStmt *) override;
 
     // Helpers
     [[nodiscard]] llvm::Value *EvalExpr(Expression const *expr);
+    [[nodiscard]] llvm::Type *ToLLVMType(Type const &type);
     [[nodiscard]] llvm::Value *GetVariable(uint32_t uid, Type const *type);
     void StoreVariable(uint32_t uid, llvm::Value *value);
 
@@ -284,7 +350,7 @@ private:
 
 ### Variable Access
 
-`src/backends/common/spirv_llvm/llvm_state_visitor.cpp` lines 48–73:
+`src/backends/common/spirv_llvm/llvm_state_visitor.cpp` lines 48–73 (abridged):
 
 ```cpp
 // GetVariable: loads from AllocaInst, returns direct Value for resources
@@ -313,7 +379,7 @@ void LLVMStateVisitor::StoreVariable(uint32_t uid, llvm::Value *value) {
 
 ### BinaryExpr Scalar Broadcast
 
-`src/backends/common/spirv_llvm/llvm_state_visitor.cpp` lines 192–210: when one operand is scalar and the other is vector, the scalar is broadcast via `insertelement` chain before the operation.
+`src/backends/common/spirv_llvm/llvm_state_visitor.cpp` lines 192–210: when one operand is scalar and the other is vector, the scalar is broadcast via `insertelement` chain before the operation. The helper `broadcast_scalar` builds a `UndefValue` vector and inserts the scalar into every element.
 
 ### Builtin Call Codegen
 
@@ -321,29 +387,61 @@ void LLVMStateVisitor::StoreVariable(uint32_t uid, llvm::Value *value) {
 
 | Category | CallOp examples | IR strategy |
 |---|---|---|
-| Math intrinsics | `SQRT`, `SIN`, `COS`, `EXP`, `EXP2`, `LOG`, `LOG2`, `POW`, `FMA`, `COPYSIGN`, `FLOOR`, `CEIL`, `TRUNC`, `ROUND` | `llvm::Intrinsic::getDeclarationIfExists()` |
+| Math intrinsics | `SQRT`, `RSQRT`, `SIN`, `COS`, `EXP`, `EXP2`, `LOG`, `LOG2`, `POW`, `FMA`, `COPYSIGN`, `FLOOR`, `CEIL`, `TRUNC`, `ROUND`, `FRACT` | `llvm::Intrinsic::getDeclarationIfExists()` (RSQRT = `1/sqrt`) |
 | Bit intrinsics | `CLZ`, `CTZ`, `POPCOUNT`, `REVERSE` | `llvm::Intrinsic::getDeclarationIfExists()` |
 | Manual math | `ABS` | `fabs` intrinsic or `select(neg, v, v<0)` |
 | | `MIN`/`MAX` | `minnum`/`maxnum` intrinsic, or `select` for ints |
 | | `CLAMP` | `max(min(v,hi), lo)` |
+| | `SATURATE` | `clamp(v, 0, 1)` |
 | | `LERP` | `a + t*(b-a)` |
 | | `STEP` | `x>=edge ? 1.0 : 0.0` |
 | | `SMOOTHSTEP` | `t*t*(3-2*t)` with `t=clamp((x-e0)/(e1-e0),0,1)` |
 | | `DOT` | element-wise `fmul` + `fadd` chain |
 | | `CROSS` | float3 formula |
 | | `LENGTH` | `sqrt(dot(v,v))` |
+| | `LENGTH_SQUARED` | `dot(v,v)` |
 | | `NORMALIZE` | `v / sqrt(dot(v,v))` |
 | | `REFLECT` | `i - 2*dot(n,i)*n` |
 | | `ALL`/`ANY` | `and`/`or` reduce chain |
-| Vector make | `MAKE_FLOAT2..4`, `MAKE_INT2..4`, etc. | `insertelement` chain, supports sub-vector args and single-scalar broadcast |
+| Float tests | `ISINF`, `ISNAN` | `FCmpOEQ(abs(v), inf)` / `FCmpUNO(v, v)` |
+| Linear algebra | `DETERMINANT` (2x2 only), `TRANSPOSE`, `INVERSE`, `OUTER_PRODUCT`, `MATRIX_COMPONENT_WISE_MULTIPLICATION`, `FACEFORWARD` | Implemented or stubbed |
+| Vector make | `MAKE_FLOAT2..4`, `MAKE_INT2..4`, `MAKE_UINT2..4`, `MAKE_BOOL2..4`, `MAKE_SHORT2..4`, `MAKE_USHORT2..4`, `MAKE_LONG2..4`, `MAKE_ULONG2..4`, `MAKE_HALF2..4`, `MAKE_DOUBLE2..4`, `MAKE_BYTE2..4`, `MAKE_UBYTE2..4` | `insertelement` chain, supports sub-vector args and single-scalar broadcast |
 | Matrix make | `MAKE_FLOAT2X2`, `3X3`, `4X4` | `insertvalue` chain |
-| Select | `SELECT` | `CreateSelect(cond, true_val, false_val)` |
+| Reduce | `REDUCE_SUM` | element-wise `fadd` reduce |
+| Select | `SELECT` | `CreateSelect(cond, true_val, false_val)` (AST order: false, true, cond) |
 | Atomic | `ATOMIC_EXCHANGE`, `ATOMIC_FETCH_{ADD\|SUB\|AND\|OR\|XOR\|MIN\|MAX}` | `CreateAtomicRMW()` |
 | | `ATOMIC_COMPARE_EXCHANGE` | `CreateAtomicCmpXchg()` |
-| Buffer | `BUFFER_{READ\|WRITE}` | `InBoundsGEP` + `Load`/`Store` |
-| | `BYTE_BUFFER_{READ\|WRITE}` | Stub: zero/null for read, no-op for write (SPIR-V logical addressing) |
+| Buffer | `BUFFER_{READ\|WRITE}` (incl. `*_VOLATILE_*`) | `InBoundsGEP` + `Load`/`Store` |
+| | `BYTE_BUFFER_{READ\|WRITE}` (incl. `*_VOLATILE_*`) | Stub: zero/null for read, no-op for write (SPIR-V logical addressing) |
+| | `BUFFER_SIZE` | Stub: returns `0` |
+| Bindless | `BINDLESS_BUFFER_READ`/`WRITE`, `TEXTURE_READ`/`WRITE` | Minimal stub; sets bindless flag, evaluates args, returns null |
 | Sync | `SYNCHRONIZE_BLOCK` | `llvm.nvvm.barrier0` call |
-| Stubs | `WARP_*`, `DDX`, `DDY`, `TRANSPOSE`, `INVERSE`, `ACOS`, `ASIN`, `ATAN`, `ATAN2`, `TAN`, `COSH`, `SINH`, `TANH`, `CLOCK`, `RAY_QUERY`, `PRINT`, `DEBUG_BREAK` | `LUISA_NOT_IMPLEMENTED()` |
+| Control flow hints | `UNREACHABLE`, `ASSUME` | `CreateUnreachable()` / no-op |
+| Constants | `ZERO`, `ONE` | `Constant::getNullValue` / `ConstantFP::get(ty, 1.0)` |
+| Stubs | `WARP_*`, `DDX`, `DDY`, `CLOCK`, `ACOS`, `ASIN`, `ATAN`, `ATAN2`, `TAN`, `COSH`, `SINH`, `TANH`, `TRANSPOSE`, `INVERSE`, `RAY_QUERY_*`, `PRINT`, `DEBUG_BREAK` | `LUISA_NOT_IMPLEMENTED()` (returns null/undef) |
+
+### Adding a new builtin
+
+Typical steps in `llvm_state_visitor.cpp` `_codegen_builtin_call`:
+
+1. Add a `case CallOp::YOUR_OP:` block.
+2. Evaluate arguments with `EvalExpr(args[i])`.
+3. Emit LLVM IR via `_builder` or `llvm::Intrinsic::getDeclarationIfExists(&_module, llvm::Intrinsic::..., {types})`.
+4. Set `_last_value` to the result (or `nullptr` for void ops).
+5. If the op affects binding properties (e.g. bindless), set the corresponding `opt->use*Bindless` flag.
+6. For unimplemented ops, use `LUISA_NOT_IMPLEMENTED()` and return a safe null/undef value so compilation tests can still pass.
+
+Example pattern for a unary float intrinsic:
+
+```cpp
+case CallOp::YOUR_OP: {
+    auto *v = EvalExpr(args[0]);
+    auto *intrinsic = llvm::Intrinsic::getDeclarationIfExists(
+        &_module, llvm::Intrinsic::your_llvm_intrinsic, {v->getType()});
+    _last_value = _builder.CreateCall(intrinsic, {v});
+    break;
+}
+```
 
 ### Statement Visitors
 
@@ -355,11 +453,14 @@ void LLVMStateVisitor::StoreVariable(uint32_t uid, llvm::Value *value) {
 | `ContinueStmt` | 1532–1537 | `CreateBr(loop_stack.back().continue_target)` |
 | `ReturnStmt` | 1539–1546 | `CreateRet(val)` or `CreateRetVoid()` |
 | `ScopeStmt` | 1548–1556 | Iterate children, stop if block has terminator |
-| `IfStmt` | 1681–1721 | `then_bb` + optional `else_bb` + `merge_bb`, `CreateCondBr` |
+| `ExprStmt` | 1558–1560 | `EvalExpr(expr)` and discard result |
+| `AssignStmt` | 1562–1679 | Resolves RefExpr/MemberExpr/AccessExpr LHS, issues `CreateStore` |
+| `IfStmt` | 1681–1721 | `then_bb` + optional `else_bb` + `merge_bb`, `CreateCondBr`; normalizes cond to i1 |
 | `LoopStmt` | 1723–1744 | `header`/`body`/`exit` BBs, `_push_loop`/`_pop_loop` |
 | `ForStmt` | 1746–1790 | `for_cond`/`for_body`/`for_step`/`for_exit`, evaluates step into loop var |
 | `SwitchStmt` | 1792–1860 | Collects `CaseInfo` from body, `CreateSwitch(expr, default_bb)`, pushes merge to `break_stack` |
-| `AssignStmt` | 1562–1679 | Resolves RefExpr/MemberExpr/AccessExpr LHS, issues `CreateStore` |
+| `SwitchCaseStmt` | 1862–1867 | Iterates case body, stops at terminator |
+| `SwitchDefaultStmt` | 1869–1874 | Iterates default body, stops at terminator |
 
 ## SPIR-V Emission
 
@@ -385,11 +486,11 @@ These symbols (from `LLVMSPIRVCodeGen`, `LLVMSPIRVTargetInfo`, `LLVMSPIRVTargetM
 
 ### InitializeSPIRVModule
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 590–619: Sets `spirv64-unknown-vulkan1.3` triple, looks up target via `TargetRegistry`, creates `TargetMachine` with `Reloc::PIC_`, `CodeModel::Small`, `CodeGenOptLevel::Default`. Sets data layout from target machine.
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 695–729: Sets `spirv64-unknown-vulkan1.2` triple, looks up target via `TargetRegistry` ("spirv64"), creates `TargetMachine` with `Reloc::PIC_`, `CodeModel::Small`, `CodeGenOptLevel::Default`. Sets data layout from target machine. `spirv64` is used because `spirv32` crashes in `SPIRVLegalizePointerCast`.
 
 ### EmitSPIRV
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 839–909:
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 948–1018:
 
 1. `ScalarizeAggregateMemOps(module)` — LLVM SPIR-V backend cannot legalize aggregate loads/stores
 2. `LowerAggregateReturns(module)` — LLVM's `SPIRVPrepareFunctions` pass mutates aggregate returns to i32, breaking IR; proactively convert to void + out-param
@@ -397,47 +498,83 @@ These symbols (from `LLVMSPIRVCodeGen`, `LLVMSPIRVTargetInfo`, `LLVMSPIRVTargetM
 4. `legacy::PassManager` + `addPassesToEmitFile(ObjectFile)` → run
 5. Check for ELF magic (`.spv` section extraction not implemented — raw buffer returned)
 
+The emitted binary is then post-processed by `CompileSPIRV` (see below), not inside `EmitSPIRV`.
+
+### SPIR-V Post-Processing
+
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 1145–1271:
+
+After `EmitSPIRV`, `CompileSPIRV` runs two post-processing steps before returning the result:
+
+1. **`strip_addresses_capability(spv_bin)`** (lines 1149–1239)
+   - Removes `OpCapability Addresses` and `OpCapability Linkage`
+   - Strips `OpDecorate LinkageAttributes`
+   - Converts `OpPtrAccessChain`/`OpInBoundsPtrAccessChain` to `OpAccessChain`/`OpInBoundsAccessChain` by dropping the Element operand
+   - This fixes the physical addressing emitted by the LLVM `spirv64` target so the binary conforms to Vulkan logical addressing.
+
+2. **`luisa_spirv_validate_post_llvm(spv_bin, "post-llvm")`** (lines 1243–1271)
+   - Uses `spvtools::SpirvTools` with `SPV_ENV_VULKAN_1_2`
+   - Mirrors the XIR path validation; fails with a detailed message if the binary is invalid
+
 ### ScalarizeAggregateMemOps
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 675–706. Iterates all `LoadInst`/`StoreInst` with aggregate types, replaces with recursive `BuildAggregateLoad`/`StoreAggregateValue` (lines 624–670).
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 784–815. Iterates all `LoadInst`/`StoreInst` with aggregate types, replaces with recursive `BuildAggregateLoad`/`StoreAggregateValue` (lines 733–779).
 
 ### LowerAggregateReturns
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 712–836. Three-pass transform:
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 821–946. Three-pass transform:
 1. Create new functions with added `ptr` out-parameter
 2. `CloneFunctionInto` body, replace `ret {agg}` → `store {agg}, ret_ptr; ret void`
 3. Update call sites: pass existing alloca or allocate temp + load
 
 ## Binding Properties
 
-`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 911–1029:
+`src/backends/common/spirv_llvm/llvm_codegen_utility.cpp` lines 1020–1139:
 
 Walks kernel arguments, emits `hlsl::Property` entries:
-- Non-resource arguments → CBuffer at `register_index=0`
+- Non-resource arguments → `_Global` structured buffer at `register_index=0`
 - `BUFFER` (writable → `RWStructuredBuffer`, readable → `StructuredBuffer`)
 - `TEXTURE` (writable → `UAVTextureHeap`, readable → `SRVTextureHeap`)
 - `BINDLESS_ARRAY` → `StructuredBuffer`
 - `ACCEL` → `SPIRVAccel`
 
-Bindless flags set from `propagated_builtin_callables` (BINDLESS_BUFFER_*, BINDLESS_TEXTURE2D_*, BINDLESS_TEXTURE3D_*).
+Bindless flags are detected from `propagated_builtin_callables` using a broad set of `CallOp` values (e.g. `BINDLESS_BUFFER_READ`/`WRITE`, `UNIFORM_BINDLESS_BUFFER_*`, `TYPED_BINDLESS_BUFFER_*`, `BINDLESS_TEXTURE2D_*`, `BINDLESS_TEXTURE3D_*`, and their `UNIFORM_`/`TYPED_` variants).
 
 ## Build
 
-`src/backends/common/spirv_llvm/xmake.lua`: static lib `lc-spirv-llvm`, depends on `lc-vstl` + `lc-runtime`. Links all `LLVM*.lib` from LLVM build dir (configured via `lc_llvm_path`). On Windows: `syslinks` `Version`, `advapi32`, `Shcore`, `user32`, `shell32`, `Ole32`, `Ws2_32`, `ntdll`.
+`src/backends/common/spirv_llvm/xmake.lua`: static lib `lc-spirv-llvm`, depends on `lc-vstl`, `lc-runtime`, and `spirv-tools`. Links all `LLVM*.lib` from LLVM build dir (configured via `lc_llvm_path`), excluding `LLVM-C`. Platform syslinks:
+- Windows: `Version`, `advapi32`, `Shcore`, `user32`, `shell32`, `Ole32`, `Ws2_32`, `ntdll`
+- Linux: `uuid`
+- macOS: `CoreFoundation`
 
 ## Debugging
 
-- `LUISA_DUMP_SOURCE=1`: dumps `llvm_ir_debug.ll` (LLVM IR text) before SPIR-V emission
-- `verifyFunction()` / `verifyModule()` called during codegen and before emission
+- The backend always writes `llvm_ir_debug.ll` in the working directory before running the SPIR-V emission passes (lines 976–981). Read this file to inspect the LLVM IR handed to the LLVM SPIR-V backend.
+- `verifyFunction()` is called after each function is codegen'd; `verifyModule()` is called before the emission pass manager runs and errors out on failure.
+- After emission, `luisa_spirv_validate_post_llvm()` validates the binary with SPIR-V Tools and prints a detailed message on failure.
+
+### Common debugging workflow
+
+1. Run the failing kernel compile; the backend writes `llvm_ir_debug.ll` next to the executable.
+2. Open `llvm_ir_debug.ll` and search for the kernel name (`main`) or the last `_V{uid}` variable before the crash.
+3. Run `llvm-as llvm_ir_debug.ll` to sanity-check the IR if you have LLVM tools available.
+4. If the crash happens inside the LLVM SPIR-V backend, look for:
+   - Aggregate loads/stores that were not scalarized.
+   - Functions returning structs/arrays that were not lowered.
+   - `ptr` operands in contexts where logical addressing is required.
+5. If the crash is a SPIR-V validation error after emission, the validator message points to the offending instruction and rule (e.g. missing `Addresses` capability stripping).
 
 ## Pitfalls
 
 1. **Aggregate load/store**: SPIR-V Vulkan backend crashes on aggregate memory ops — always run `ScalarizeAggregateMemOps` before emission.
-2. **Aggregate returns**: `SPIRVPrepareFunctions` breaks IR by mutating return type to i32 — run `LowerAggregateReturns` first.
+2. **Aggregate returns**: `SPIRVPrepareFunctions` breaks IR by mutating return type to i32 — run `LowerAggregateReturns` first, then scalarize again.
 3. **spirv32**: Crashes in `SPIRVLegalizePointerCast` — always use `spirv64`.
-4. **BYTE_BUFFER ops**: Not supported in logical addressing — reads return zero, writes are no-op.
-5. **Intrinsics**: Use `getDeclarationIfExists()`, not `getDeclaration()` — some may be absent.
-6. **Recursive callables**: `CodegenFunction` saves/restores `_builder` IP and `opt->variables`.
+4. **BYTE_BUFFER ops**: Not supported in logical addressing — reads return zero/null, writes are no-op.
+5. **Intrinsics**: Use `getDeclarationIfExists()`, not `getDeclaration()` — some may be absent; the code does not null-check before calling, so missing intrinsics will assert.
+6. **Recursive callables**: `CodegenFunction` saves/restores `_builder` IP, `_current_function`, and `opt->variables`.
+7. **Kernel entry points**: Vulkan requires entry functions to have no parameters. The backend lowers resources/value args to addrspace(1) globals and builtins to SPIR-V intrinsics; do not add kernel args as `llvm::Function` parameters.
+8. **Post-processing is mandatory**: Raw output from the LLVM `spirv64` target uses physical addressing (`OpCapability Addresses`). `CompileSPIRV` must run `strip_addresses_capability()` and `luisa_spirv_validate_post_llvm()`; calling `EmitSPIRV()` alone does not produce valid Vulkan SPIR-V.
+9. **Bindless detection**: Bindless flags are set both during property generation (`GenerateProperties`) and at codegen sites (`BUFFER_READ`/`WRITE` on a `BINDLESS_ARRAY`, explicit `BINDLESS_BUFFER_*` calls). Keep both in sync when adding new bindless ops.
 
 
 ## LLVM API Cheatsheet
@@ -485,8 +622,8 @@ The main instruction factory. All methods return the created instruction.
 | | `CreateInsertElement(Value* Vec, Value* Elt, Value* Idx)` | Insert vector element |
 | **Other** | `CreateSelect(Value* Cond, Value* T, Value* F)` | `cond ? T : F` |
 | | `CreateCall(FunctionType*, Value* Callee, Args)` | Function call |
-| | `CreateAtomicRMW(Op, Ptr, Val, Align, Ordering)` | Atomic read-modify-write |
-| | `CreateAtomicCmpXchg(Ptr, Expected, Desired, Align, Succ, Fail)` | Atomic CAS |
+| | `CreateAtomicRMW(Op, Ptr, Val, MaybeAlign, Ordering)` | Atomic read-modify-write |
+| | `CreateAtomicCmpXchg(Ptr, Expected, Desired, MaybeAlign, Succ, Fail)` | Atomic CAS |
 | **Type getters** | `getInt1Ty()`, `getInt8Ty()`, `getInt16Ty()`, `getInt32Ty()`, `getInt64Ty()` | Integer types |
 | | `getHalfTy()`, `getFloatTy()`, `getDoubleTy()`, `getVoidTy()` | FP/void types |
 | | `getPtrTy(unsigned AddrSpace=0)` | Opaque pointer |
@@ -522,6 +659,7 @@ llvm::FunctionType::get(Type* Ret, ArrayRef<Type*> Params, bool VarArg);
 
 ```cpp
 llvm::Function::Create(FunctionType*, Linkage, StringRef, Module*);
+llvm::Function::Create(FunctionType*, Linkage, unsigned AddressSpace, StringRef, Module*); // with addr space
 void func->addFnAttr(StringRef Key, StringRef Value);      // e.g. "hlsl.shader", "compute"
 Argument* func->getArg(unsigned N);                        // get N-th argument
 ```
@@ -547,7 +685,7 @@ llvm::Function *f = llvm::Intrinsic::getDeclarationIfExists(Module*, Intrinsic::
 
 ```cpp
 llvm::Function *m->getFunction(StringRef Name);            // lookup by name
-void m->setTargetTriple(llvm::Triple);                     // e.g. "spirv64-unknown-vulkan1.3"
+void m->setTargetTriple(llvm::Triple);                     // e.g. "spirv64-unknown-vulkan1.2"
 void m->setDataLayout(DataLayout);
 void m->print(raw_ostream&, ...);                          // dump IR text
 ```
@@ -557,7 +695,9 @@ void m->print(raw_ostream&, ...);                          // dump IR text
 ```cpp
 auto *t = llvm::TargetRegistry::lookupTarget("spirv64", ErrorStr);
 auto *tm = t->createTargetMachine(Triple, CPU, Features, TargetOptions,
-                                   Reloc::Model, CodeModel::Model, CodeGenOptLevel, JIT);
+                                   std::optional<Reloc::Model>(Reloc::PIC_),
+                                   std::optional<CodeModel::Model>(CodeModel::Small),
+                                   CodeGenOptLevel::Default, false);
 DataLayout dl = tm->createDataLayout();
 bool failed = tm->addPassesToEmitFile(PassManager&, raw_ostream&, nullptr, CodeGenFileType);
 ```
@@ -663,17 +803,21 @@ Usage variable_usage(uint32_t uid);   bool requires_atomic();
 
 `CastOp`: `STATIC`, `BITWISE`
 
-`CallOp`: 507 values (see `include/luisa/ast/op.h` lines 79–507). Key groups:
+`CallOp`: ~430+ values (see `include/luisa/ast/op.h` lines 79–507). Key groups used/mentioned by this backend:
 - **Math**: `ABS`, `MIN`, `MAX`, `CLAMP`, `SATURATE`, `LERP`, `STEP`, `SMOOTHSTEP`
-- **Trig/Exp**: `SQRT`, `RSQRT`, `SIN`, `COS`, `EXP`, `EXP2`, `LOG`, `LOG2`, `POW`, `FMA`, `COPYSIGN`, `FLOOR`, `CEIL`, `TRUNC`, `ROUND`, `FRACT`
+- **Trig/Exp**: `SQRT`, `RSQRT`, `SIN`, `COS`, `EXP`, `EXP2`, `EXP10`, `LOG`, `LOG2`, `LOG10`, `POW`, `FMA`, `COPYSIGN`, `FLOOR`, `CEIL`, `TRUNC`, `ROUND`, `FRACT`
+- **Float tests**: `ISINF`, `ISNAN`
 - **Bit**: `CLZ`, `CTZ`, `POPCOUNT`, `REVERSE`
-- **Vector**: `DOT`, `CROSS`, `LENGTH`, `LENGTH_SQUARED`, `NORMALIZE`, `ALL`, `ANY`, `REFLECT`, `REDUCE_SUM`
-- **Make**: `MAKE_FLOAT2..4`, `MAKE_INT2..4`, `MAKE_UINT2..4`, etc., `MAKE_FLOAT2X2/3X3/4X4`
+- **Vector**: `DOT`, `CROSS`, `LENGTH`, `LENGTH_SQUARED`, `NORMALIZE`, `ALL`, `ANY`, `REFLECT`, `FACEFORWARD`, `REDUCE_SUM`
+- **Linear algebra**: `DETERMINANT`, `TRANSPOSE`, `INVERSE`, `OUTER_PRODUCT`, `MATRIX_COMPONENT_WISE_MULTIPLICATION`
+- **Make**: `MAKE_FLOAT2..4`, `MAKE_INT2..4`, `MAKE_UINT2..4`, `MAKE_BOOL2..4`, `MAKE_SHORT2..4`, `MAKE_USHORT2..4`, `MAKE_LONG2..4`, `MAKE_ULONG2..4`, `MAKE_HALF2..4`, `MAKE_DOUBLE2..4`, `MAKE_BYTE2..4`, `MAKE_UBYTE2..4`, `MAKE_FLOAT2X2/3X3/4X4`
 - **Select**: `SELECT`
 - **Atomic**: `ATOMIC_EXCHANGE`, `ATOMIC_FETCH_{ADD|SUB|AND|OR|XOR|MIN|MAX}`, `ATOMIC_COMPARE_EXCHANGE`
-- **Buffer**: `BUFFER_{READ|WRITE}`, `BYTE_BUFFER_{READ|WRITE}`, `BUFFER_SIZE`
+- **Buffer**: `BUFFER_{READ|WRITE}` (and `BUFFER_VOLATILE_*`), `BYTE_BUFFER_{READ|WRITE}` (and `BYTE_BUFFER_VOLATILE_*`), `BUFFER_SIZE`
+- **Bindless/Texture**: `BINDLESS_BUFFER_READ`/`WRITE`, `TEXTURE_READ`/`WRITE`; many `BINDLESS_TEXTURE2D_*`, `BINDLESS_TEXTURE3D_*`, `UNIFORM_BINDLESS_*`, `TYPED_BINDLESS_*`, `TYPED_UNIFORM_BINDLESS_*` variants used for property detection
 - **Sync**: `SYNCHRONIZE_BLOCK`
-- **Stubs**: `WARP_*`, `DDX`, `DDY`, `CLOCK`, `ACOS`, `ASIN`, `ATAN`, `ATAN2`, `TAN`, `COSH`, `SINH`, `TANH`, `TRANSPOSE`, `INVERSE`, `RAY_QUERY_*`, `PRINT`, `DEBUG_BREAK`
+- **Hints/Utility**: `UNREACHABLE`, `ASSUME`, `ZERO`, `ONE`
+- **Stubs**: `WARP_*`, `DDX`, `DDY`, `CLOCK`, `ACOS`, `ACOSH`, `ASIN`, `ASINH`, `ATAN`, `ATAN2`, `ATANH`, `TAN`, `COSH`, `SINH`, `TANH`, `TRANSPOSE`, `INVERSE`, `RAY_QUERY_*`, `PRINT`, `DEBUG_BREAK`
 
 `CallOpSet`: bitset tracking which `CallOp` values are used. `test(CallOp)`, `mark(CallOp)`, `uses_atomic()`, `uses_raytracing()`, etc.
 
@@ -702,3 +846,11 @@ void VisitFunction(Function func);
 // Eval helper
 llvm::Value *EvalExpr(Expression const *expr);  // expr->accept(*this); return _last_value;
 ```
+
+## Related Skills
+
+- [`glslang`](glslang/SKILL.md) — SPIR-V builder API; useful for understanding SPIR-V instruction-level details and decorations.
+- [`hlsl`](hlsl/SKILL.md) — HLSL string backend that this LLVM backend mirrors (`CodegenUtility`, `CodegenStackData`, `Property` reuse).
+- [`spv-opt`](spv-opt/SKILL.md) — SPIRV-Tools optimizer passes; the validation/post-processing path here is conceptually related.
+- [`backend_architecture`](backend_architecture/SKILL.md) — Device interface, backend plugin loading, and command encoding; explains where `lc-spirv-llvm` fits in the backend stack.
+- [`xmake`](xmake/SKILL.md) — Build options and target patterns for LuisaCompute.

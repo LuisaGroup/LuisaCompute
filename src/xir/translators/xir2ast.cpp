@@ -16,6 +16,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/if.h>
 #include <luisa/xir/instructions/load.h>
@@ -31,6 +32,10 @@
 #include <luisa/xir/undefined.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
 #include <luisa/xir/passes/const_fold.h>
+#include <luisa/xir/passes/coro_cfg_distill.h>
+#include <luisa/xir/passes/coro_materialize.h>
+#include <luisa/xir/passes/coro_reg2mem.h>
+#include <luisa/xir/passes/coro_split.h>
 #include <luisa/xir/passes/gvn.h>
 #include <luisa/xir/passes/sccp.h>
 #include <luisa/xir/passes/dce.h>
@@ -49,6 +54,7 @@
 #include <luisa/xir/passes/sroa.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/xir/translators/xir2ast.h>
+#include <luisa/xir/translators/coro_xir2ast.h>
 
 #include <type_traits>
 
@@ -588,6 +594,13 @@ private:
         return _current_builder()->call(inst->type(), detail::xir2ast_atomic_op(inst->op()), args);
     }
 
+    template<typename F>
+    void _with_value_map_checkpoint(F &&f) noexcept {
+        auto value_map = _value_map;
+        f();
+        _value_map = std::move(value_map);
+    }
+
     template<typename T>
     [[nodiscard]] const Expression *_assert_or_assume(const T *inst) noexcept {
         auto b = _current_builder();
@@ -882,29 +895,43 @@ private:
                         merge = false_block;
                     } else if (false_target != nullptr && false_target == true_block) {
                         merge = true_block;
-                    } else if (true_target != nullptr && true_target == false_target) {
+                    } else if (true_target == false_target) {
                         merge = true_target;
                     } else {
                         LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires structured control flow.");
                     }
                     auto ast_if = _current_builder()->if_(_expr(br->condition()));
-                    if (true_block != merge) { _current_builder()->with(ast_if->true_branch(), [&] { _emit_block(true_block, merge); }); }
-                    if (false_block != merge) { _current_builder()->with(ast_if->false_branch(), [&] { _emit_block(false_block, merge); }); }
+                    if (true_block != merge) {
+                        _current_builder()->with(ast_if->true_branch(), [&] {
+                            _with_value_map_checkpoint([&] { _emit_block(true_block, merge); });
+                        });
+                    }
+                    if (false_block != merge) {
+                        _current_builder()->with(ast_if->false_branch(), [&] {
+                            _with_value_map_checkpoint([&] { _emit_block(false_block, merge); });
+                        });
+                    }
                     if (merge != stop) { _emit_block(merge, stop); }
                     return;
                 }
                 case DerivedInstructionTag::IF: {
                     auto if_inst = static_cast<const IfInst *>(inst);
                     auto ast_if = _current_builder()->if_(_expr(if_inst->condition()));
-                    _current_builder()->with(ast_if->true_branch(), [&] { _emit_block(if_inst->true_block(), if_inst->merge_block()); });
-                    _current_builder()->with(ast_if->false_branch(), [&] { _emit_block(if_inst->false_block(), if_inst->merge_block()); });
+                    _current_builder()->with(ast_if->true_branch(), [&] {
+                        _with_value_map_checkpoint([&] { _emit_block(if_inst->true_block(), if_inst->merge_block()); });
+                    });
+                    _current_builder()->with(ast_if->false_branch(), [&] {
+                        _with_value_map_checkpoint([&] { _emit_block(if_inst->false_block(), if_inst->merge_block()); });
+                    });
                     _emit_block(if_inst->merge_block(), stop);
                     return;
                 }
                 case DerivedInstructionTag::SIMPLE_LOOP: {
                     auto loop = static_cast<const SimpleLoopInst *>(inst);
                     auto ast_loop = _current_builder()->loop_();
-                    _current_builder()->with(ast_loop->body(), [&] { _emit_block(loop->body_block(), loop->merge_block()); });
+                    _current_builder()->with(ast_loop->body(), [&] {
+                        _with_value_map_checkpoint([&] { _emit_block(loop->body_block(), loop->merge_block()); });
+                    });
                     _emit_block(loop->merge_block(), stop);
                     return;
                 }
@@ -915,10 +942,14 @@ private:
                         for (auto i = 0u; i < sw->case_count(); i++) {
                             auto case_expr = _current_builder()->literal(Type::of<int>(), sw->case_value(i));
                             auto ast_case = _current_builder()->case_(case_expr);
-                            _current_builder()->with(ast_case->body(), [&] { _emit_block(sw->case_block(i), sw->merge_block()); });
+                            _current_builder()->with(ast_case->body(), [&] {
+                                _with_value_map_checkpoint([&] { _emit_block(sw->case_block(i), sw->merge_block()); });
+                            });
                         }
                         auto ast_default = _current_builder()->default_();
-                        _current_builder()->with(ast_default->body(), [&] { _emit_block(sw->default_block(), sw->merge_block()); });
+                        _current_builder()->with(ast_default->body(), [&] {
+                            _with_value_map_checkpoint([&] { _emit_block(sw->default_block(), sw->merge_block()); });
+                        });
                     });
                     _emit_block(sw->merge_block(), stop);
                     return;
@@ -927,24 +958,28 @@ private:
                     auto loop = static_cast<const LoopInst *>(inst);
                     if (auto for_loop = _match_for_loop(loop)) {
                         auto ast_for = _current_builder()->for_(_expr(for_loop->variable), _expr(for_loop->condition), _expr(for_loop->step));
-                        _current_builder()->with(ast_for->body(), [&] { _emit_block(loop->body_block(), loop->update_block()); });
+                        _current_builder()->with(ast_for->body(), [&] {
+                            _with_value_map_checkpoint([&] { _emit_block(loop->body_block(), loop->update_block()); });
+                        });
                         _emit_block(loop->merge_block(), stop);
                         return;
                     }
                     auto ast_loop = _current_builder()->loop_();
                     _current_builder()->with(ast_loop->body(), [&] {
-                        _emit_loop_prepare_prefix(loop->prepare_block());
-                        auto term = loop->prepare_block()->terminator();
-                        if (term != nullptr && term->isa<ConditionalBranchInst>()) {
-                            auto cond_br = static_cast<const ConditionalBranchInst *>(term);
-                            if (cond_br->true_block() != loop->body_block() || cond_br->false_block() != loop->merge_block()) {
-                                LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires canonical LoopInst prepare cond_br targets.");
+                        _with_value_map_checkpoint([&] {
+                            _emit_loop_prepare_prefix(loop->prepare_block());
+                            auto term = loop->prepare_block()->terminator();
+                            if (term != nullptr && term->isa<ConditionalBranchInst>()) {
+                                auto cond_br = static_cast<const ConditionalBranchInst *>(term);
+                                if (cond_br->true_block() != loop->body_block() || cond_br->false_block() != loop->merge_block()) {
+                                    LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires canonical LoopInst prepare cond_br targets.");
+                                }
+                                auto break_if = _current_builder()->if_(_current_builder()->unary(Type::of<bool>(), UnaryOp::NOT, _expr(cond_br->condition())));
+                                _current_builder()->with(break_if->true_branch(), [&] { _current_builder()->break_(); });
                             }
-                            auto break_if = _current_builder()->if_(_current_builder()->unary(Type::of<bool>(), UnaryOp::NOT, _expr(cond_br->condition())));
-                            _current_builder()->with(break_if->true_branch(), [&] { _current_builder()->break_(); });
-                        }
-                        _emit_block(loop->body_block(), loop->update_block());
-                        _emit_block(loop->update_block(), loop->prepare_block());
+                            _emit_block(loop->body_block(), loop->update_block());
+                            _emit_block(loop->update_block(), loop->prepare_block());
+                        });
                     });
                     _emit_block(loop->merge_block(), stop);
                     return;
@@ -1032,6 +1067,29 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
                i.destructured_loop_count > 0u ||
                i.destructured_simple_loop_count > 0u;
     });
+    // Coroutine pipeline: runs only if module contains CoroSuspendInst.
+    // Must run after destructure_cfg (needs destructured CFG) but BEFORE
+    // mem2reg/ssa-opt which may eliminate dead resume blocks.
+    pipeline.add("coro-pipeline", [](Module *m, PassReport & /*r*/) {
+        bool changed = false;
+        for (auto *f : m->function_list()) {
+            if (auto *def = f->definition()) {
+                bool has_coro = false;
+                def->traverse_instructions([&](Instruction *inst) noexcept {
+                    if (inst->derived_instruction_tag() == DerivedInstructionTag::CORO_SUSPEND) {
+                        has_coro = true;
+                    }
+                });
+                if (!has_coro) { continue; }
+                auto cfg = coro_cfg_distill_pass_run_on_function(f);
+                auto split = coro_split_pass_run_on_module_with_cfg_and_frame_info(m, cfg, nullptr);
+                (void)coro_materialize_pass_run_on_module_with_cfg(m, cfg, split);
+                (void)coro_reg2mem_pass_run_on_split(split);
+                changed = true;
+            }
+        }
+        return changed;
+    });
     pipeline.add("mem2reg", [](Module *m, PassReport &r) {
         auto i = mem2reg_pass_run_on_module(m, &r);
         return i.promoted_alloca_count > 0u;
@@ -1078,6 +1136,16 @@ void xir_to_ast_normalize_module(Module *module) noexcept {
 }
 
 luisa::shared_ptr<const ASTFunctionBuilder> xir_to_ast_translate(const FunctionDefinition &function, const XIR2ASTConfig &config) noexcept {
+    XIR2ASTContext ctx{config};
+    ctx.add_function(function);
+    return ctx.finalize();
+}
+
+[[nodiscard]] luisa::shared_ptr<const ASTFunctionBuilder>
+xir_to_ast_translate_continuation(const FunctionDefinition &function,
+                                  const XIR2ASTConfig &config) noexcept {
+    LUISA_ASSERT(function.derived_function_tag() == DerivedFunctionTag::CALLABLE,
+                 "xir_to_ast_translate_continuation requires a CallableFunction.");
     XIR2ASTContext ctx{config};
     ctx.add_function(function);
     return ctx.finalize();

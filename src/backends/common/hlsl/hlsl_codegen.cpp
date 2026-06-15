@@ -604,6 +604,8 @@ void StringStateVisitor::visit(const RayQueryStmt *stmt) {
     stmt->on_procedural_candidate()->accept(*this);
     str << "}}}\n"sv;
 }
+void StringStateVisitor::visit(const SuspendStmt *) {
+}
 StringStateVisitor::StringStateVisitor(
     Function f,
     vstd::StringBuilder &str,

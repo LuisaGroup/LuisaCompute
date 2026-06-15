@@ -3,6 +3,7 @@
 #include <luisa/xir/passes/dce.h>
 #include <luisa/xir/passes/pass_pipeline.h>
 #include <luisa/xir/builder.h>
+#include <luisa/xir/instructions/loop.h>
 
 #include "helpers.h"
 
@@ -115,6 +116,42 @@ static void eliminate_dead_alloca_in_function(Function *function, DCEInfo &info)
     return block->terminator()->isa<UnreachableInst>();
 }
 
+template<typename Visit>
+void traverse_structural_successors(BasicBlock *block, Visit &&visit) noexcept {
+    if (block == nullptr || !block->is_terminated()) { return; }
+    auto *term = block->terminator();
+    for (auto use : term->operand_uses()) {
+        if (auto *value = use->value(); value != nullptr && value->isa<BasicBlock>()) {
+            visit(static_cast<BasicBlock *>(value));
+        }
+    }
+    if (auto *merge = term->control_flow_merge(); merge != nullptr) {
+        if (auto *merge_block = merge->merge_block(); merge_block != nullptr) { visit(merge_block); }
+    }
+    if (term->isa<LoopInst>()) {
+        auto *loop = static_cast<LoopInst *>(term);
+        if (auto *body = loop->body_block(); body != nullptr) { visit(body); }
+        if (auto *update = loop->update_block(); update != nullptr) { visit(update); }
+    }
+}
+
+luisa::unordered_set<BasicBlock *> collect_structurally_reachable_blocks(FunctionDefinition *definition) noexcept {
+    luisa::unordered_set<BasicBlock *> reachable;
+    luisa::vector<BasicBlock *> work_list;
+    auto add_to_work_list = [&](BasicBlock *block) noexcept {
+        if (block != nullptr && reachable.emplace(block).second) {
+            work_list.emplace_back(block);
+        }
+    };
+    add_to_work_list(definition->body_block());
+    while (!work_list.empty()) {
+        auto *block = work_list.back();
+        work_list.pop_back();
+        traverse_structural_successors(block, add_to_work_list);
+    }
+    return reachable;
+}
+
 void eliminate_instructions_in_unreachable_blocks(const luisa::unordered_set<BasicBlock *> &blocks, DCEInfo &info) noexcept {
     for (auto b : blocks) {
         while (!b->instructions().empty()) {
@@ -131,6 +168,20 @@ void eliminate_instructions_in_unreachable_blocks(const luisa::unordered_set<Bas
         LUISA_DEBUG_ASSERT(b->terminator()->isa<UnreachableInst>(),
                            "Block should be terminated by UnreachableInst.");
     }
+}
+
+void remove_phi_incomings_from_blocks(FunctionDefinition *definition,
+                                      const luisa::unordered_set<BasicBlock *> &blocks) noexcept {
+    if (blocks.empty()) { return; }
+    definition->traverse_instructions([&](Instruction *inst) noexcept {
+        if (!inst->isa<PhiInst>()) { return; }
+        auto *phi = static_cast<PhiInst *>(inst);
+        for (size_t i = phi->incoming_count(); i-- > 0u;) {
+            if (blocks.contains(phi->incoming(i).block)) {
+                phi->remove_incoming(i);
+            }
+        }
+    });
 }
 
 void propagate_unreachable_marks_in_function(Function *function, DCEInfo &info) noexcept {
@@ -166,6 +217,7 @@ void propagate_unreachable_marks_in_function(Function *function, DCEInfo &info) 
             }
             if (unreachable.size() == prev_reachable_count) { break; }
         }
+        remove_phi_incomings_from_blocks(definition, unreachable);
         // eliminate unreachable blocks
         eliminate_instructions_in_unreachable_blocks(unreachable, info);
     }
@@ -201,30 +253,12 @@ void propagate_unreachable_marks_in_function(Function *function, DCEInfo &info) 
 
 void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info, luisa::vector<ManagedPtr<BasicBlock>> &removed_blocks) noexcept {
     if (auto definition = function->definition()) {
-        luisa::unordered_set<BasicBlock *> reachable;
-        luisa::unordered_set<BasicBlock *> visited;
+        auto reachable = collect_structurally_reachable_blocks(definition);
         luisa::unordered_set<BasicBlock *> unreachable;
-        luisa::vector<BasicBlock *> work_list;
-        auto add_to_work_list = [&](BasicBlock *block) noexcept {
-            if (block != nullptr && visited.emplace(block).second) {
-                work_list.emplace_back(block);
-            }
-        };
-        // Seed reachability from the entry block.
-        reachable.emplace(definition->body_block());
-        add_to_work_list(definition->body_block());
-        // Forward reachability analysis: propagate from entry block via successors.
-        while (!work_list.empty()) {
-            auto b = work_list.back();
-            work_list.pop_back();
-            // Traverse successors to discover transitively reachable blocks.
-            b->traverse_successors(true, [&](auto succ) noexcept {
-                if (reachable.emplace(succ).second) {
-                    add_to_work_list(succ);
-                }
-            });
-            // Also fold constant branches to identify statically dead successors.
-            switch (auto terminator = b->terminator(); terminator->derived_instruction_tag()) {
+        // Fold constant branches to identify statically dead successors.
+        for (auto *block : reachable) {
+            if (!block->is_terminated()) { continue; }
+            switch (auto terminator = block->terminator(); terminator->derived_instruction_tag()) {
                 case DerivedInstructionTag::IF: [[fallthrough]];
                 case DerivedInstructionTag::CONDITIONAL_BRANCH: {
                     auto cond_br_inst = static_cast<ConditionalBranchTerminatorInstruction *>(terminator);
@@ -256,28 +290,20 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
             }
         }
         // Any block not reached from the entry is unreachable.
-        definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+        for (auto *block : definition->basic_blocks()) {
             if (!reachable.contains(block)) {
                 unreachable.emplace(block);
             }
-        });
+        }
+        remove_phi_incomings_from_blocks(definition, unreachable);
         // Eliminate instructions in unreachable blocks.
         eliminate_instructions_in_unreachable_blocks(unreachable, info);
         // now we can remove non-entry blocks without users from the function
         {
-            // Collect blocks referenced as structural merge targets; these must survive
-            // for backends that require structured control flow (e.g., SPIR-V OpLoopMerge / OpSelectionMerge),
-            // even though merge pointers don't participate in the use-list.
-            luisa::unordered_set<BasicBlock *> structural_merges;
-            definition->traverse_basic_blocks([&](BasicBlock *block) noexcept {
-                if (auto merge = block->terminator()->control_flow_merge()) {
-                    if (auto mb = merge->merge_block()) { structural_merges.emplace(mb); }
-                }
-            });
-            work_list.clear();
+            luisa::vector<BasicBlock *> work_list;
             for (auto block : definition->basic_blocks()) {
                 if (block != definition->body_block() && block->use_list().empty() &&
-                    !structural_merges.contains(block)) {
+                    !reachable.contains(block)) {
                     work_list.emplace_back(block);
                 }
             }
@@ -291,28 +317,21 @@ void eliminate_unreachable_blocks_in_function(Function *function, DCEInfo &info,
 
 void fix_phi_nodes_in_function(Function *function, luisa::vector<PhiInst *> &phi_nodes) noexcept {
     if (auto definition = function->definition()) {
-        luisa::vector<PhiIncoming> valid_incomings;
         luisa::unordered_set<BasicBlock *> predecessors;
         definition->traverse_instructions([&](Instruction *inst) noexcept {
             if (inst->isa<PhiInst>()) {
-                valid_incomings.clear();
                 predecessors.clear();
                 auto phi = static_cast<PhiInst *>(inst);
                 phi_nodes.emplace_back(phi);
                 phi->parent_block()->traverse_predecessors(false, [&](auto block) noexcept {
                     predecessors.emplace(block);
                 });
-                for (size_t i = 0; i < phi->incoming_count(); i++) {
-                    if (auto incoming = phi->incoming(i); predecessors.contains(incoming.block)) {
-                        valid_incomings.emplace_back(incoming);
+                for (size_t i = phi->incoming_count(); i-- > 0u;) {
+                    if (auto incoming = phi->incoming(i); !predecessors.contains(incoming.block)) {
+                        phi->remove_incoming(i);
                     }
                 }
-                LUISA_ASSERT(valid_incomings.size() == predecessors.size());
-                phi->set_incoming_count(valid_incomings.size());
-                for (size_t i = 0; i < valid_incomings.size(); i++) {
-                    auto incoming = valid_incomings[i];
-                    phi->set_incoming(i, incoming.value, incoming.block);
-                }
+                LUISA_ASSERT(phi->incoming_count() == predecessors.size());
             }
         });
     }
