@@ -13,11 +13,10 @@ namespace lc::vk {
 //   3. Replace OpTraceRayKHR (4445) with OpTraceRayMotionNV (5339),
 //      inserting the time operand between rayTmax and payload.
 //
-// The HLSL code stores the time value as the last field of the
-// _MotionPayload struct. In SPIR-V, the payload is constructed via
-// OpCompositeConstruct before OpTraceRayKHR. The patcher extracts
-// the time value (last field) from the OpCompositeConstruct and
-// inserts it as the Time operand of OpTraceRayMotionNV.
+// The HLSL code stores the time value as field 4 of _MotionPayload.
+// The patcher recognizes either a field store through OpAccessChain or
+// a whole-payload store built from OpCompositeConstruct, and inserts
+// the recovered value as the Time operand of OpTraceRayMotionNV.
 //
 // Returns the patched SPIR-V binary. If no OpTraceRayKHR is found,
 // returns the input unchanged.
