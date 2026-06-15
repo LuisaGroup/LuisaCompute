@@ -40,6 +40,12 @@ if has_config('lc_vk_backend_use_xir_spirv') then
         add_deps("lc-glslang")
     end)
 end
+if has_config("lc_vk_backend") then
+    test_proj("test_spirv_motion_patch", "unit/ext/test_spirv_motion_patch.cpp", false, function()
+        add_files("../backends/vk/spirv_motion_patch.cpp")
+        add_includedirs("../backends/vk")
+    end)
+end
 test_proj("test_normal_encoding", "unit/dsl/test_normal_encoding.cpp", true)
 
 -- unit/ast

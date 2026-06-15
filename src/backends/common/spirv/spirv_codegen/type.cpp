@@ -2,6 +2,17 @@
 #include <luisa/core/logging.h>
 
 namespace lc::spirv {
+
+bool SpirvCodegenEntry::_buffer_uses_word_storage(const Type *type) noexcept {
+    if (type == nullptr || !type->is_buffer()) { return false; }
+    auto elem_type = type->element();
+    if (elem_type == nullptr) { return false; }
+    if (_type_contains_bool(elem_type)) { return true; }
+    if (!_needs_atomic_buffer_types.contains(type)) { return false; }
+    auto scalar_atomic_compatible = elem_type->is_scalar() && elem_type->size() >= 4u;
+    return !scalar_atomic_compatible || (elem_type->is_float32() && !_use_native_float_atomics);
+}
+
 spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept {
     if (type == nullptr) { return _builder.makeVoidType(); }
     if (type->tag() == Type::Tag::TEXTURE) {
@@ -51,16 +62,7 @@ spv::Id SpirvCodegenEntry::_convert_type(const Type *type, Usage usage) noexcept
         }
         case Type::Tag::BUFFER: {
             auto elem_type = type->element();
-            // Use typed arrays for all buffer element types.
-            // Fall back to uint32 only for buffers that need atomic access
-            // (since SPIR-V atomic ops require scalar integer types).
-            bool needs_atomic = _needs_atomic_buffer_types.contains(type);
-            bool contains_bool = elem_type != nullptr && _type_contains_bool(elem_type);
-            // Scalar types with native SPIR-V atomic support (32/64-bit int/uint/float)
-            // can remain typed even when used with atomics. Non-scalar or sub-word
-            // scalar buffers fall back to uint32 for word-level atomic access.
-            bool is_atomic_compatible_scalar = elem_type != nullptr && elem_type->is_scalar() && elem_type->size() >= 4u;
-            bool use_typed = elem_type != nullptr && (!needs_atomic || is_atomic_compatible_scalar) && !contains_bool;
+            bool use_typed = elem_type != nullptr && !_buffer_uses_word_storage(type);
             spv::Id spv_elem_type;
             if (use_typed && (elem_type->is_structure() || elem_type->is_array())) {
                 spv_elem_type = _convert_laid_out_type(elem_type);

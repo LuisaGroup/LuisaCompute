@@ -47,6 +47,9 @@ luisa_compute_add_test(test_fiber              unit/core/test_fiber.cpp         
 luisa_compute_add_test(test_platform_utils     unit/core/test_platform.cpp           LABELS "unit;unit_core")
 luisa_compute_add_test(test_glslang_spirv      unit/ext/test_glslang_spirv.cpp       LABELS "unit;unit_ext")
 target_link_libraries(test_glslang_spirv PRIVATE glslang-default-resource-limits)
+luisa_compute_add_test(test_spirv_motion_patch unit/ext/test_spirv_motion_patch.cpp  LABELS "unit;unit_ext")
+target_sources(test_spirv_motion_patch PRIVATE ../backends/vk/spirv_motion_patch.cpp)
+target_include_directories(test_spirv_motion_patch PRIVATE ../backends/vk)
 
 if (LUISA_COMPUTE_ENABLE_GUI)
 endif ()

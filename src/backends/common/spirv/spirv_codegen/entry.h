@@ -104,6 +104,7 @@ private:
                                     luisa::unordered_set<const xir::Function *> &visited) noexcept;
     [[nodiscard]] InstructionUsageAnalysis _analyze_module_usage(const xir::Module *module) noexcept;
     void _mark_atomic_buffer_types(const InstructionUsageAnalysis &analysis) noexcept;
+    [[nodiscard]] bool _buffer_uses_word_storage(const Type *type) noexcept;
 
     spv::Id _convert_type(const Type *type, Usage usage) noexcept;
     spv::Id _convert_laid_out_type(const Type *type) noexcept;

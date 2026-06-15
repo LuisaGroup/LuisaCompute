@@ -1339,7 +1339,9 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
     auto base_xir_type = inst->base()->type();
     size_t buffer_elem_word_count = 1;
     bool is_non_scalar_buffer = false;
+    bool uses_word_storage_buffer = false;
     if (base_xir_type != nullptr && base_xir_type->is_buffer() && base_xir_type->element() != nullptr) {
+        uses_word_storage_buffer = _buffer_uses_word_storage(base_xir_type);
         buffer_elem_word_count = std::max(size_t{1}, base_xir_type->element()->size() / 4u);
         is_non_scalar_buffer = buffer_elem_word_count > 1 && indices.size() > 1;
     }
@@ -1435,15 +1437,21 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
     switch (inst->op()) {
         case xir::AtomicOp::EXCHANGE: {
             auto val = _emit_value(values[0]->value());
-            id = _builder.createOp(spv::Op::OpAtomicExchange, type, {ptr, scope, semantics, val});
+            if (t->is_float() && uses_word_storage_buffer) {
+                auto uint_type = _builder.makeUintType(32);
+                auto val_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, val);
+                auto result = _builder.createOp(spv::Op::OpAtomicExchange, uint_type, {ptr, scope, semantics, val_uint});
+                id = _builder.createUnaryOp(spv::Op::OpBitcast, type, result);
+            } else {
+                id = _builder.createOp(spv::Op::OpAtomicExchange, type, {ptr, scope, semantics, val});
+            }
             break;
         }
         case xir::AtomicOp::COMPARE_EXCHANGE: {
             auto expected = _emit_value(values[0]->value());
             auto desired = _emit_value(values[1]->value());
             if (t->is_float()) {
-                if (is_non_scalar_buffer) {
-                    // Non-scalar buffer: ptr is uint32*, bitcast values to uint32
+                if (uses_word_storage_buffer) {
                     auto uint_type = _builder.makeUintType(32);
                     auto expected_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, expected);
                     auto desired_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, desired);
@@ -1465,7 +1473,7 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_ADD: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
-                if (!_use_native_float_atomics || (is_non_scalar_buffer && t->is_float32())) {
+                if (uses_word_storage_buffer && t->is_float32()) {
                     id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_ADD);
                 } else {
                     if (t->is_float16()) {
@@ -1488,7 +1496,7 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_SUB: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
-                if (!_use_native_float_atomics || (is_non_scalar_buffer && t->is_float32())) {
+                if (uses_word_storage_buffer && t->is_float32()) {
                     id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_SUB);
                 } else {
                     auto neg_val = _builder.createUnaryOp(spv::Op::OpFNegate, type, val);
@@ -1527,7 +1535,7 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_MIN: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
-                if (!_use_native_float_atomics || (is_non_scalar_buffer && t->is_float32())) {
+                if (uses_word_storage_buffer && t->is_float32()) {
                     id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_MIN);
                 } else {
                     if (t->is_float16()) {
@@ -1554,7 +1562,7 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         case xir::AtomicOp::FETCH_MAX: {
             auto val = _emit_value(values[0]->value());
             if (t->is_float()) {
-                if (!_use_native_float_atomics || (is_non_scalar_buffer && t->is_float32())) {
+                if (uses_word_storage_buffer && t->is_float32()) {
                     id = _emit_float_atomic_cas_loop(ptr, val, type, xir::AtomicOp::FETCH_MAX);
                 } else {
                     if (t->is_float16()) {
@@ -1997,8 +2005,12 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
             auto bit_shift = _builder.createBinOp(spv::Op::OpIMul, uint_type, byte_in_word, _builder.makeUintConstant(8u));
             raw = _builder.createBinOp(spv::Op::OpShiftRightLogical, uint_type, raw, bit_shift);
         }
+        auto bit_width = static_cast<int32_t>(elem_type->size() * 8);
+        if (bit_width < 32) {
+            auto mask = _builder.makeUintConstant(static_cast<uint32_t>((1ull << bit_width) - 1ull));
+            raw = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, mask);
+        }
         if (elem_type->is_bool()) {
-            // bool: compare low bit with 0
             return _builder.createBinOp(spv::Op::OpINotEqual, spv_type, raw, _builder.makeUintConstant(0u));
         }
         if (elem_type->is_float8()) {
@@ -2008,7 +2020,6 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
             return _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, u8);
         }
         // Other sub-word integer types: truncate
-        auto bit_width = static_cast<int32_t>(elem_type->size() * 8);
         auto is_signed = elem_type->is_int();
         auto trunc_type = _builder.makeIntegerType(bit_width, is_signed);
         auto truncated = _builder.createUnaryOp(is_signed ? spv::Op::OpSConvert : spv::Op::OpUConvert, trunc_type, raw);
@@ -2210,7 +2221,7 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
 
 spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, const Type *read_type, const Type *buffer_type, bool index_is_word_offset, spv::MemoryAccessMask memory_access) noexcept {
     auto uint_type = _builder.makeUintType(32);
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type) && !_type_contains_bool(buffer_type->element())) {
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_buffer_uses_word_storage(buffer_type)) {
         // Typed buffer: direct element access via SPIR-V type system.
         // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(_builder.getStorageClass(buffer), buffer, {_builder.makeUintConstant(0u), index});
@@ -2533,7 +2544,7 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
 
 void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::Id value, const Type *value_type, const Type *buffer_type, bool index_is_word_offset, spv::MemoryAccessMask memory_access) noexcept {
     auto uint_type = _builder.makeUintType(32);
-    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_needs_atomic_buffer_types.contains(buffer_type) && !_type_contains_bool(buffer_type->element())) {
+    if (buffer_type != nullptr && buffer_type->is_buffer() && buffer_type->element() != nullptr && !_buffer_uses_word_storage(buffer_type)) {
         // Typed buffer: direct element access via SPIR-V type system.
         // Works for scalar, vector, and matrix element types.
         auto ptr = _create_access_chain(_builder.getStorageClass(buffer), buffer, {_builder.makeUintConstant(0u), index});

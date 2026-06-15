@@ -40,6 +40,7 @@
 #include <SPIRV/disassemble.h>
 #include <fstream>
 #endif
+#include <algorithm>
 
 namespace lc::vk {
 using namespace std::string_literals;
@@ -610,28 +611,35 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             _enable_device_exts.emplace_back(VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
         }
     }
-    _enable_device_exts.emplace_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
-    _enable_device_exts.emplace_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+    auto enable_device_extension = [this](char const *name) noexcept {
+        if (std::find(_enable_device_exts.begin(), _enable_device_exts.end(), name) == _enable_device_exts.end()) {
+            _enable_device_exts.emplace_back(name);
+        }
+    };
+    enable_device_extension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+    enable_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if (bindless_enabled) {
         if (supported_ext.find(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) != supported_ext.end() &&
             supported_ext.find(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) != supported_ext.end()) {
-            _enable_device_exts.emplace_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
-            _enable_device_exts.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            enable_device_extension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+            enable_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
         } else {
             bindless_enabled = false;
         }
     }
     if (raytracing_enabled) {
         if (supported_ext.find(VK_KHR_RAY_QUERY_EXTENSION_NAME) != supported_ext.end() &&
-            supported_ext.find(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) != supported_ext.end()) {
-            _enable_device_exts.emplace_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
-            _enable_device_exts.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            supported_ext.find(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) != supported_ext.end() &&
+            supported_ext.find(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) != supported_ext.end()) {
+            enable_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+            enable_device_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            enable_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
             // Enable motion blur extension if available (NVIDIA only)
             // VK_NV_ray_tracing_motion_blur requires VK_KHR_ray_tracing_pipeline
             if (supported_ext.find(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME) != supported_ext.end() &&
                 supported_ext.find(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) != supported_ext.end()) {
-                _enable_device_exts.emplace_back(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME);
-                _enable_device_exts.emplace_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+                enable_device_extension(VK_NV_RAY_TRACING_MOTION_BLUR_EXTENSION_NAME);
+                enable_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
                 enable_motion_blur = true;
                 motion_blur_enabled = true;
             }
