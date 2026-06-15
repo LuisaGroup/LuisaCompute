@@ -336,6 +336,30 @@ bool retarget_terminator(Instruction *term, BasicBlock *from, BasicBlock *to) no
     return changed;
 }
 
+[[nodiscard]] bool retarget_loop_exit_to(Instruction *term, BasicBlock *from, BasicBlock *to) noexcept {
+    if (term == nullptr) { return false; }
+    switch (term->derived_instruction_tag()) {
+        case DerivedInstructionTag::BRANCH:
+        case DerivedInstructionTag::CONDITIONAL_BRANCH:
+        case DerivedInstructionTag::SWITCH:
+            return retarget_terminator(term, from, to);
+        case DerivedInstructionTag::IF: {
+            auto *if_inst = static_cast<IfInst *>(term);
+            bool changed = false;
+            if (if_inst->true_block() == from) {
+                if_inst->set_true_target(to);
+                changed = true;
+            }
+            if (if_inst->false_block() == from) {
+                if_inst->set_false_target(to);
+                changed = true;
+            }
+            return changed;
+        }
+        default: return false;
+    }
+}
+
 // After retargeting, a conditional branch may have both targets equal.
 // Replace it with an unconditional branch to avoid duplicate successors.
 void fix_degenerate_terminator(BasicBlock *bb) noexcept {
@@ -1349,12 +1373,46 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
         if (!latches_ok || valid_latches.empty()) { continue; }
 
         luisa::unordered_set<BasicBlock *> loop_blocks;
-        BasicBlock *loop_scope_boundary = nullptr;
-        if (auto it = pdom.ipostdom.find(header);
-            it != pdom.ipostdom.end() && it->second != pdom.virtual_exit) {
-            loop_scope_boundary = it->second;
-        }
         loop_blocks.emplace(header);
+        {
+            luisa::vector<BasicBlock *> work;
+            for (auto *latch : valid_latches) {
+                if (loop_blocks.emplace(latch).second) {
+                    work.emplace_back(latch);
+                }
+            }
+            while (!work.empty()) {
+                auto *cur = work.back();
+                work.pop_back();
+                if (cur == header) { continue; }
+                if (!cur->is_terminated()) { continue; }
+                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                    if (loop_blocks.emplace(pred).second) {
+                        work.emplace_back(pred);
+                    }
+                });
+            }
+        }
+
+        luisa::unordered_set<BasicBlock *> loop_exit_targets_set;
+        for (auto *bb : loop_blocks) {
+            if (!bb->is_terminated()) { continue; }
+            bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                if (succ == header) { return; }
+                if (loop_blocks.contains(succ)) { return; }
+                loop_exit_targets_set.emplace(succ);
+            });
+        }
+        luisa::vector<BasicBlock *> exit_targets_vec{loop_exit_targets_set.begin(), loop_exit_targets_set.end()};
+
+        BasicBlock *loop_scope_boundary = nullptr;
+        if (!exit_targets_vec.empty()) {
+            auto *boundary = common_postdom(pdom, luisa::span<BasicBlock *const>{exit_targets_vec});
+            if (boundary != pdom.virtual_exit) {
+                loop_scope_boundary = boundary;
+            }
+        }
+
         luisa::vector<BasicBlock *> fwd_work{header};
         while (!fwd_work.empty()) {
             auto *cur = fwd_work.back();
@@ -1462,7 +1520,7 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
 
         if (exit_targets.size() <= 1) {
             for (auto &[src, tgt] : exit_edges) {
-                retarget_terminator(src->terminator(), tgt, loop_merge);
+                retarget_loop_exit_to(src->terminator(), tgt, loop_merge);
             }
             {
                 XIRBuilder b;
@@ -1510,11 +1568,11 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
 
             for (auto &[src, tgt] : exit_edges) {
                 if (src == header && tgt == direct_header_exit_target) {
-                    retarget_terminator(src->terminator(), tgt, loop_merge);
+                    retarget_loop_exit_to(src->terminator(), tgt, loop_merge);
                     continue;
                 }
                 auto *stub = def->create_basic_block();
-                auto changed = retarget_terminator(src->terminator(), tgt, stub);
+                auto changed = retarget_loop_exit_to(src->terminator(), tgt, stub);
                 if (!changed) {
                     stub->remove_self();
                     continue;
@@ -1588,6 +1646,11 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
                     loop_body_succ = fb;
                     loop_exit_succ = tb;
                 }
+            } else if (ht->isa<BranchInst>()) {
+                auto *target = static_cast<BranchInst *>(ht)->target_block();
+                if (loop_blocks.contains(target)) {
+                    loop_body_succ = target;
+                }
             }
         }
 
@@ -1595,14 +1658,16 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
             XIRBuilder b;
             b.set_insertion_point(preheader);
             if (loop_body_succ != nullptr && loop_body_succ != canonical_latch) {
-                if (auto *cb = static_cast<ConditionalBranchInst *>(header->terminator());
-                    cb->true_block() != loop_body_succ) {
-                    XIRBuilder hb;
-                    hb.set_insertion_point(cb->prev());
-                    auto *not_cond = hb.call(Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT, {cb->condition()});
-                    cb->set_condition(not_cond);
-                    cb->set_true_target(loop_body_succ);
-                    cb->set_false_target(loop_exit_succ);
+                if (header->terminator()->isa<ConditionalBranchInst>()) {
+                    auto *cb = static_cast<ConditionalBranchInst *>(header->terminator());
+                    if (cb->true_block() != loop_body_succ) {
+                        XIRBuilder hb;
+                        hb.set_insertion_point(cb->prev());
+                        auto *not_cond = hb.call(Type::of<bool>(), ArithmeticOp::UNARY_BIT_NOT, {cb->condition()});
+                        cb->set_condition(not_cond);
+                        cb->set_true_target(loop_body_succ);
+                        cb->set_false_target(loop_exit_succ);
+                    }
                 }
                 for (auto *lb : loop_blocks) {
                     if (lb != canonical_latch) {
