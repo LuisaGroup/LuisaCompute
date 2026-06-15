@@ -1991,8 +1991,12 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
             auto bit_shift = _builder.createBinOp(spv::Op::OpIMul, uint_type, byte_in_word, _builder.makeUintConstant(8u));
             raw = _builder.createBinOp(spv::Op::OpShiftRightLogical, uint_type, raw, bit_shift);
         }
+        auto bit_width = static_cast<int32_t>(elem_type->size() * 8);
+        if (bit_width < 32) {
+            auto mask = _builder.makeUintConstant(static_cast<uint32_t>((1ull << bit_width) - 1ull));
+            raw = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, mask);
+        }
         if (elem_type->is_bool()) {
-            // bool: compare low bit with 0
             return _builder.createBinOp(spv::Op::OpINotEqual, spv_type, raw, _builder.makeUintConstant(0u));
         }
         if (elem_type->is_float8()) {
@@ -2002,7 +2006,6 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_o
             return _builder.createUnaryOp(spv::Op::OpBitcast, spv_type, u8);
         }
         // Other sub-word integer types: truncate
-        auto bit_width = static_cast<int32_t>(elem_type->size() * 8);
         auto is_signed = elem_type->is_int();
         auto trunc_type = _builder.makeIntegerType(bit_width, is_signed);
         auto truncated = _builder.createUnaryOp(is_signed ? spv::Op::OpSConvert : spv::Op::OpUConvert, trunc_type, raw);

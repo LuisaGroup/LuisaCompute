@@ -1372,47 +1372,13 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
         }
         if (!latches_ok || valid_latches.empty()) { continue; }
 
+        BasicBlock *loop_scope_boundary = nullptr;
+        if (auto it = pdom.ipostdom.find(header);
+            it != pdom.ipostdom.end() && it->second != pdom.virtual_exit) {
+            loop_scope_boundary = it->second;
+        }
         luisa::unordered_set<BasicBlock *> loop_blocks;
         loop_blocks.emplace(header);
-        {
-            luisa::vector<BasicBlock *> work;
-            for (auto *latch : valid_latches) {
-                if (loop_blocks.emplace(latch).second) {
-                    work.emplace_back(latch);
-                }
-            }
-            while (!work.empty()) {
-                auto *cur = work.back();
-                work.pop_back();
-                if (cur == header) { continue; }
-                if (!cur->is_terminated()) { continue; }
-                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
-                    if (loop_blocks.emplace(pred).second) {
-                        work.emplace_back(pred);
-                    }
-                });
-            }
-        }
-
-        luisa::unordered_set<BasicBlock *> loop_exit_targets_set;
-        for (auto *bb : loop_blocks) {
-            if (!bb->is_terminated()) { continue; }
-            bb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                if (succ == header) { return; }
-                if (loop_blocks.contains(succ)) { return; }
-                loop_exit_targets_set.emplace(succ);
-            });
-        }
-        luisa::vector<BasicBlock *> exit_targets_vec{loop_exit_targets_set.begin(), loop_exit_targets_set.end()};
-
-        BasicBlock *loop_scope_boundary = nullptr;
-        if (!exit_targets_vec.empty()) {
-            auto *boundary = common_postdom(pdom, luisa::span<BasicBlock *const>{exit_targets_vec});
-            if (boundary != pdom.virtual_exit) {
-                loop_scope_boundary = boundary;
-            }
-        }
-
         luisa::vector<BasicBlock *> fwd_work{header};
         while (!fwd_work.empty()) {
             auto *cur = fwd_work.back();
@@ -1520,7 +1486,7 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
 
         if (exit_targets.size() <= 1) {
             for (auto &[src, tgt] : exit_edges) {
-                retarget_loop_exit_to(src->terminator(), tgt, loop_merge);
+                (void)retarget_loop_exit_to(src->terminator(), tgt, loop_merge);
             }
             {
                 XIRBuilder b;
@@ -1568,7 +1534,7 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
 
             for (auto &[src, tgt] : exit_edges) {
                 if (src == header && tgt == direct_header_exit_target) {
-                    retarget_loop_exit_to(src->terminator(), tgt, loop_merge);
+                    (void)retarget_loop_exit_to(src->terminator(), tgt, loop_merge);
                     continue;
                 }
                 auto *stub = def->create_basic_block();
