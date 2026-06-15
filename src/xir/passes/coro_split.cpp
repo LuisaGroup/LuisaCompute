@@ -1,5 +1,7 @@
 #include <algorithm>
 
+#include "helpers.h"
+
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/unordered_map.h>
@@ -21,7 +23,6 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static constexpr uint32_t TERMINAL_TOKEN = 0xFFFFFFFFu;
 static constexpr uint32_t FRAME_FIELD_TOKEN = 0u;
 static constexpr uint32_t FRAME_FIELD_SKIP_FLAG = 1u;
 static constexpr uint32_t SKIP_FLAG_TRUE = 1u;

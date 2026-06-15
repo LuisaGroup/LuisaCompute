@@ -1,3 +1,5 @@
+#include "helpers.h"
+
 #include <luisa/ast/type.h>
 #include <luisa/core/logging.h>
 #include <luisa/core/stl/algorithm.h>
@@ -19,8 +21,6 @@
 namespace luisa::compute::xir {
 
 namespace detail {
-
-static constexpr uint32_t TERMINAL_TOKEN = 0xFFFFFFFFu;
 
 struct RegisterInfo {
     luisa::string name;

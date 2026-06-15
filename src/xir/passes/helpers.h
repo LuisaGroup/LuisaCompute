@@ -7,6 +7,9 @@
 
 namespace luisa::compute::xir {
 
+static constexpr uint32_t TERMINAL_TOKEN = 0xFFFFFFFFu;
+
+
 class AllocaInst;
 class PhiInst;
 class Value;
