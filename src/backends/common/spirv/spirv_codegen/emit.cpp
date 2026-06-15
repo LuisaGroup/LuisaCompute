@@ -682,8 +682,6 @@ void SpirvCodegenEntry::emit(const xir::Module *module,
     _print_formats.clear();
     _requires_printing = false;
     auto analysis = _analyze_module_usage(module);
-    _mark_atomic_buffer_types(analysis);
-
     for (auto type : analysis.used_types) {
         if (type != nullptr) { _convert_type(type, Usage::READ); }
     }

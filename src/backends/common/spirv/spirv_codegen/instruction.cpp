@@ -1932,26 +1932,63 @@ void SpirvCodegenEntry::_emit_resource_query_inst(const xir::ResourceQueryInst *
     _value_map.emplace(inst, id);
 }
 
-spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_offset, const Type *elem_type, spv::MemoryAccessMask memory_access) noexcept {
+spv::Id SpirvCodegenEntry::_emit_buffer_read_impl(spv::Id buffer, spv::Id word_offset, const Type *elem_type, spv::MemoryAccessMask memory_access,
+                                                   spv::Id byte_in_word) noexcept {
     auto uint_type = _builder.makeUintType(32);
     auto spv_type = _convert_type(elem_type, Usage::READ);
     auto word_count = elem_type->size() / 4u;
-    if (word_count == 0u) {
-        // Sub-word type (e.g., bool): read a full word and extract
-        // For vectors, decompose into components
-        if (elem_type->is_vector()) {
-            auto comp_type = _convert_type(elem_type->element(), Usage::READ);
-            auto dim = elem_type->dimension();
-            std::vector<spv::Id> comps;
-            comps.reserve(dim);
-            for (uint i = 0u; i < dim; ++i) {
-                auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
-                comps.push_back(_emit_buffer_read_impl(buffer, idx, elem_type->element(), memory_access));
-            }
-            return _builder.createCompositeConstruct(spv_type, comps);
+    auto is_subword_vector = elem_type->is_vector() && elem_type->element()->size() < 4u;
+    if (is_subword_vector) {
+        // Vector of sub-word elements: read each component individually so that
+        // arbitrary byte alignment (byte_in_word) is honored correctly.
+        auto comp_elem = elem_type->element();
+        auto comp_type = _convert_type(comp_elem, Usage::READ);
+        auto dim = elem_type->dimension();
+        auto comp_size = comp_elem->size();
+        auto biw = byte_in_word;
+        if (biw == spv::NoResult) { biw = _builder.makeUintConstant(0u); }
+        auto base_byte_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, word_offset, _builder.makeUintConstant(4u));
+        base_byte_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_byte_offset, biw);
+        std::vector<spv::Id> comps;
+        comps.reserve(dim);
+        for (uint i = 0u; i < dim; ++i) {
+            auto comp_byte_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_byte_offset,
+                                                         _builder.makeUintConstant(static_cast<uint32_t>(i * comp_size)));
+            auto comp_word_offset = _builder.createBinOp(spv::Op::OpUDiv, uint_type, comp_byte_offset, _builder.makeUintConstant(4u));
+            auto comp_biw = _builder.createBinOp(spv::Op::OpUMod, uint_type, comp_byte_offset, _builder.makeUintConstant(4u));
+            comps.push_back(_emit_buffer_read_impl(buffer, comp_word_offset, comp_elem, memory_access, comp_biw));
         }
+        return _builder.createCompositeConstruct(spv_type, comps);
+    }
+    if (elem_type->is_structure() && elem_type->size() < 4u) {
+        // Sub-word structure (e.g. FP16Quantized): read each member with per-member
+        // byte alignment so the recursive scalar sub-word path handles shifts/masks.
+        auto biw = byte_in_word;
+        if (biw == spv::NoResult) { biw = _builder.makeUintConstant(0u); }
+        auto base_byte_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, word_offset, _builder.makeUintConstant(4u));
+        base_byte_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_byte_offset, biw);
+        std::vector<spv::Id> fields;
+        size_t struct_offset = 0;
+        for (auto member : elem_type->members()) {
+            auto align = member->alignment();
+            struct_offset = (struct_offset + align - 1) & ~(align - 1);
+            auto member_byte_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_byte_offset,
+                                                           _builder.makeUintConstant(static_cast<uint32_t>(struct_offset)));
+            auto member_word_offset = _builder.createBinOp(spv::Op::OpUDiv, uint_type, member_byte_offset, _builder.makeUintConstant(4u));
+            auto member_biw = _builder.createBinOp(spv::Op::OpUMod, uint_type, member_byte_offset, _builder.makeUintConstant(4u));
+            fields.push_back(_emit_buffer_read_impl(buffer, member_word_offset, member, memory_access, member_biw));
+            struct_offset += member->size();
+        }
+        return _builder.createCompositeConstruct(spv_type, fields);
+    }
+    if (word_count == 0u) {
+        // Sub-word scalar type (e.g., bool, half, fp8): read a full word and extract
         auto ptr = _create_access_chain(_builder.getStorageClass(buffer), buffer, {_builder.makeUintConstant(0u), word_offset});
         auto raw = _builder.createLoad(ptr, spv::NoPrecision, memory_access);
+        if (byte_in_word != spv::NoResult) {
+            auto bit_shift = _builder.createBinOp(spv::Op::OpIMul, uint_type, byte_in_word, _builder.makeUintConstant(8u));
+            raw = _builder.createBinOp(spv::Op::OpShiftRightLogical, uint_type, raw, bit_shift);
+        }
         if (elem_type->is_bool()) {
             // bool: compare low bit with 0
             return _builder.createBinOp(spv::Op::OpINotEqual, spv_type, raw, _builder.makeUintConstant(0u));
@@ -2179,36 +2216,75 @@ spv::Id SpirvCodegenEntry::_emit_buffer_read(spv::Id buffer, spv::Id index, cons
     }
     // Byte buffer or bindless: word-level access
     auto word_count = read_type->size() / 4u;
+    auto is_subword_vector = read_type->is_vector() && read_type->element()->size() < 4u;
     spv::Id word_offset;
+    spv::Id byte_in_word = _builder.makeUintConstant(0u);
     if (index_is_word_offset) {
         // index is already a word offset (e.g., from BYTE_BUFFER_READ)
         word_offset = index;
-    } else if (word_count == 0u) {
-        // Sub-word types are stored as one word per element by _emit_buffer_read_impl
-        word_offset = index;
+    } else if (word_count == 0u || is_subword_vector) {
+        // Sub-word scalar or vector of sub-word elements: index is a byte offset
+        word_offset = _builder.createBinOp(spv::Op::OpUDiv, uint_type, index, _builder.makeUintConstant(4u));
+        byte_in_word = _builder.createBinOp(spv::Op::OpUMod, uint_type, index, _builder.makeUintConstant(4u));
     } else {
         word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
     }
-    return _emit_buffer_read_impl(buffer, word_offset, read_type, memory_access);
+    return _emit_buffer_read_impl(buffer, word_offset, read_type, memory_access, byte_in_word);
 }
 
-void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type, spv::MemoryAccessMask memory_access) noexcept {
+void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_offset, spv::Id value, const Type *elem_type, spv::MemoryAccessMask memory_access,
+                                                 spv::Id byte_in_word) noexcept {
     auto uint_type = _builder.makeUintType(32);
     auto spv_type = _convert_type(elem_type, Usage::READ);
     auto word_count = elem_type->size() / 4u;
-    if (word_count == 0u) {
-        // Sub-word type (e.g., bool): write a full word
-        // For vectors, decompose into components
-        if (elem_type->is_vector()) {
-            auto comp_type = _convert_type(elem_type->element(), Usage::READ);
-            auto dim = elem_type->dimension();
-            for (uint i = 0u; i < dim; ++i) {
-                auto comp = _builder.createCompositeExtract(value, comp_type, i);
-                auto idx = _builder.createBinOp(spv::Op::OpIAdd, uint_type, word_offset, _builder.makeUintConstant(i));
-                _emit_buffer_write_impl(buffer, idx, comp, elem_type->element(), memory_access);
-            }
-            return;
+    auto is_subword_vector = elem_type->is_vector() && elem_type->element()->size() < 4u;
+    if (is_subword_vector) {
+        // Vector of sub-word elements: write each component individually so that
+        // arbitrary byte alignment (byte_in_word) is honored correctly.
+        auto comp_elem = elem_type->element();
+        auto comp_type = _convert_type(comp_elem, Usage::READ);
+        auto dim = elem_type->dimension();
+        auto comp_size = comp_elem->size();
+        auto biw = byte_in_word;
+        if (biw == spv::NoResult) { biw = _builder.makeUintConstant(0u); }
+        auto base_byte_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, word_offset, _builder.makeUintConstant(4u));
+        base_byte_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_byte_offset, biw);
+        for (uint i = 0u; i < dim; ++i) {
+            auto comp = _builder.createCompositeExtract(value, comp_type, i);
+            auto comp_byte_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_byte_offset,
+                                                         _builder.makeUintConstant(static_cast<uint32_t>(i * comp_size)));
+            auto comp_word_offset = _builder.createBinOp(spv::Op::OpUDiv, uint_type, comp_byte_offset, _builder.makeUintConstant(4u));
+            auto comp_biw = _builder.createBinOp(spv::Op::OpUMod, uint_type, comp_byte_offset, _builder.makeUintConstant(4u));
+            _emit_buffer_write_impl(buffer, comp_word_offset, comp, comp_elem, memory_access, comp_biw);
         }
+        return;
+    }
+    if (elem_type->is_structure() && elem_type->size() < 4u) {
+        // Sub-word structure (e.g. FP16Quantized): write each member with per-member
+        // byte alignment so the recursive scalar sub-word path handles shifts/masks.
+        auto biw = byte_in_word;
+        if (biw == spv::NoResult) { biw = _builder.makeUintConstant(0u); }
+        auto base_byte_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, word_offset, _builder.makeUintConstant(4u));
+        base_byte_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_byte_offset, biw);
+        size_t struct_offset = 0;
+        auto members = elem_type->members();
+        for (auto j = 0u; j < members.size(); ++j) {
+            auto member = members[j];
+            auto align = member->alignment();
+            struct_offset = (struct_offset + align - 1) & ~(align - 1);
+            auto member_spv_type = _convert_type(member, Usage::READ);
+            auto field_val = _builder.createCompositeExtract(value, member_spv_type, j);
+            auto member_byte_offset = _builder.createBinOp(spv::Op::OpIAdd, uint_type, base_byte_offset,
+                                                           _builder.makeUintConstant(static_cast<uint32_t>(struct_offset)));
+            auto member_word_offset = _builder.createBinOp(spv::Op::OpUDiv, uint_type, member_byte_offset, _builder.makeUintConstant(4u));
+            auto member_biw = _builder.createBinOp(spv::Op::OpUMod, uint_type, member_byte_offset, _builder.makeUintConstant(4u));
+            _emit_buffer_write_impl(buffer, member_word_offset, field_val, member, memory_access, member_biw);
+            struct_offset += member->size();
+        }
+        return;
+    }
+    if (word_count == 0u) {
+        // Sub-word scalar type (e.g., bool, half, fp8): read-modify-write a full word
         auto ptr = _create_access_chain(_builder.getStorageClass(buffer), buffer, {_builder.makeUintConstant(0u), word_offset});
         spv::Id store_val = value;
         if (elem_type->is_bool()) {
@@ -2229,7 +2305,20 @@ void SpirvCodegenEntry::_emit_buffer_write_impl(spv::Id buffer, spv::Id word_off
             // Extend sub-word integer to 32 bits
             store_val = _builder.createUnaryOp(elem_type->is_int() ? spv::Op::OpSConvert : spv::Op::OpUConvert, uint_type, value);
         }
-        _builder.createStore(store_val, ptr, memory_access);
+        auto bit_width = static_cast<uint32_t>(elem_type->size() * 8u);
+        spv::Id bit_shift;
+        if (byte_in_word == spv::NoResult) {
+            bit_shift = _builder.makeUintConstant(0u);
+        } else {
+            bit_shift = _builder.createBinOp(spv::Op::OpIMul, uint_type, byte_in_word, _builder.makeUintConstant(8u));
+        }
+        auto raw = _builder.createLoad(ptr, spv::NoPrecision, memory_access);
+        auto shifted_mask = _builder.createBinOp(spv::Op::OpShiftLeftLogical, uint_type, _builder.makeUintConstant(static_cast<uint32_t>((1ull << bit_width) - 1ull)), bit_shift);
+        auto clear_mask = _builder.createUnaryOp(spv::Op::OpNot, uint_type, shifted_mask);
+        raw = _builder.createBinOp(spv::Op::OpBitwiseAnd, uint_type, raw, clear_mask);
+        store_val = _builder.createBinOp(spv::Op::OpShiftLeftLogical, uint_type, store_val, bit_shift);
+        raw = _builder.createBinOp(spv::Op::OpBitwiseOr, uint_type, raw, store_val);
+        _builder.createStore(raw, ptr, memory_access);
         return;
     }
     if (word_count == 1u) {
@@ -2451,17 +2540,20 @@ void SpirvCodegenEntry::_emit_buffer_write(spv::Id buffer, spv::Id index, spv::I
     }
     // Byte buffer or bindless: word-level access
     auto word_count = value_type->size() / 4u;
+    auto is_subword_vector = value_type->is_vector() && value_type->element()->size() < 4u;
     spv::Id word_offset;
+    spv::Id byte_in_word = _builder.makeUintConstant(0u);
     if (index_is_word_offset) {
         // index is already a word offset (e.g., from BYTE_BUFFER_WRITE)
         word_offset = index;
-    } else if (word_count == 0u) {
-        // Sub-word types are stored as one word per element by _emit_buffer_write_impl
-        word_offset = index;
+    } else if (word_count == 0u || is_subword_vector) {
+        // Sub-word scalar or vector of sub-word elements: index is a byte offset
+        word_offset = _builder.createBinOp(spv::Op::OpUDiv, uint_type, index, _builder.makeUintConstant(4u));
+        byte_in_word = _builder.createBinOp(spv::Op::OpUMod, uint_type, index, _builder.makeUintConstant(4u));
     } else {
         word_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, index, _builder.makeUintConstant(word_count));
     }
-    _emit_buffer_write_impl(buffer, word_offset, value, value_type, memory_access);
+    _emit_buffer_write_impl(buffer, word_offset, value, value_type, memory_access, byte_in_word);
 }
 
 void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *inst) noexcept {
@@ -2485,15 +2577,27 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
         case xir::ResourceReadOp::BYTE_BUFFER_READ: {
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
-            auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            id = _emit_buffer_read(buffer, word_index, inst->type(), nullptr, true);
+            auto read_type = inst->type();
+            auto is_subword_vector = read_type->is_vector() && read_type->element()->size() < 4u;
+            if (read_type->size() < 4u || is_subword_vector) {
+                id = _emit_buffer_read(buffer, byte_index, read_type, nullptr, false);
+            } else {
+                auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
+                id = _emit_buffer_read(buffer, word_index, read_type, nullptr, true);
+            }
             break;
         }
         case xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ: {
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
-            auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            id = _emit_buffer_read(buffer, word_index, inst->type(), nullptr, true, spv::MemoryAccessMask::Volatile);
+            auto read_type = inst->type();
+            auto is_subword_vector = read_type->is_vector() && read_type->element()->size() < 4u;
+            if (read_type->size() < 4u || is_subword_vector) {
+                id = _emit_buffer_read(buffer, byte_index, read_type, nullptr, false, spv::MemoryAccessMask::Volatile);
+            } else {
+                auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
+                id = _emit_buffer_read(buffer, word_index, read_type, nullptr, true, spv::MemoryAccessMask::Volatile);
+            }
             break;
         }
         case xir::ResourceReadOp::TEXTURE2D_READ:
@@ -2537,12 +2641,16 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             if (nonuniform) { _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT); }
             LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
             auto buffer_base = _create_access_chain(_builder.getStorageClass(_buffer_heap_id), _buffer_heap_id, {buffer_idx}, nonuniform);
-            auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            id = _emit_buffer_read(buffer_base, word_index, inst->type(), nullptr, true);
+            auto read_type = inst->type();
+            auto is_subword_vector = read_type->is_vector() && read_type->element()->size() < 4u;
+            if (read_type->size() < 4u || is_subword_vector) {
+                id = _emit_buffer_read(buffer_base, byte_index, read_type, nullptr, false);
+            } else {
+                auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
+                id = _emit_buffer_read(buffer_base, word_index, read_type, nullptr, true);
+            }
             break;
         }
-        default:
-            LUISA_NOT_IMPLEMENTED("SPIR-V resource read op {}.", xir::to_string(inst->op()));
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit resource read.");
     _value_map.emplace(inst, id);
@@ -2573,16 +2681,28 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto value = _emit_value(inst->operand(2));
-            auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            _emit_buffer_write(buffer, word_index, value, inst->operand(2)->type(), nullptr, true);
+            auto value_type = inst->operand(2)->type();
+            auto is_subword_vector = value_type->is_vector() && value_type->element()->size() < 4u;
+            if (value_type->size() < 4u || is_subword_vector) {
+                _emit_buffer_write(buffer, byte_index, value, value_type, nullptr, false);
+            } else {
+                auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
+                _emit_buffer_write(buffer, word_index, value, value_type, nullptr, true);
+            }
             break;
         }
         case xir::ResourceWriteOp::BYTE_BUFFER_VOLATILE_WRITE: {
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto value = _emit_value(inst->operand(2));
-            auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            _emit_buffer_write(buffer, word_index, value, inst->operand(2)->type(), nullptr, true, spv::MemoryAccessMask::Volatile);
+            auto value_type = inst->operand(2)->type();
+            auto is_subword_vector = value_type->is_vector() && value_type->element()->size() < 4u;
+            if (value_type->size() < 4u || is_subword_vector) {
+                _emit_buffer_write(buffer, byte_index, value, value_type, nullptr, false, spv::MemoryAccessMask::Volatile);
+            } else {
+                auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
+                _emit_buffer_write(buffer, word_index, value, value_type, nullptr, true, spv::MemoryAccessMask::Volatile);
+            }
             _builder.createMemoryBarrier(spv::Scope::Device,
                                          spv::MemorySemanticsAllMemory |
                                              spv::MemorySemanticsMask::AcquireRelease);
@@ -2622,6 +2742,7 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto slot_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto byte_index = _ensure_type(_emit_value(inst->operand(2)), uint_type);
             auto value = _emit_value(inst->operand(3));
+            auto value_type = inst->operand(3)->type();
             auto nonuniform = !_uniformity.is_uniform(inst->operand(1));
             auto slot_offset = _builder.createBinOp(spv::Op::OpIMul, uint_type, slot_index, _builder.makeUintConstant(3u));
             auto bdls_ptr = _create_access_chain(_builder.getStorageClass(bindless_array), bindless_array, {_builder.makeUintConstant(0u), slot_offset}, nonuniform);
@@ -2629,8 +2750,13 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             if (nonuniform) { _builder.addDecoration(buffer_idx, spv::Decoration::NonUniformEXT); }
             LUISA_ASSERT(_buffer_heap_id != spv::NoResult, "SPIR-V buffer heap not bound.");
             auto buffer_base = _create_access_chain(_builder.getStorageClass(_buffer_heap_id), _buffer_heap_id, {buffer_idx}, nonuniform);
-            auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
-            _emit_buffer_write(buffer_base, word_index, value, inst->operand(3)->type(), nullptr, true);
+            auto is_subword_vector = value_type->is_vector() && value_type->element()->size() < 4u;
+            if (value_type->size() < 4u || is_subword_vector) {
+                _emit_buffer_write(buffer_base, byte_index, value, value_type, nullptr, false);
+            } else {
+                auto word_index = _builder.createBinOp(spv::Op::OpUDiv, uint_type, byte_index, _builder.makeUintConstant(4u));
+                _emit_buffer_write(buffer_base, word_index, value, value_type, nullptr, true);
+            }
             break;
         }
         case xir::ResourceWriteOp::RAY_TRACING_SET_INSTANCE_TRANSFORM:
