@@ -401,10 +401,13 @@ spv::Block *SpirvCodegenEntry::_get_or_create_block(const xir::BasicBlock *bb) n
     return block;
 }
 
-void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb) noexcept {
+void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block) noexcept {
     if (bb == nullptr) { return; }
-    if (!_emitted_blocks.emplace(bb).second) { return; }
-    auto spv_block = _get_or_create_block(bb);
+    if (!_emitted_blocks.emplace(bb).second) {
+        LUISA_VERBOSE("_emit_block skip already-emitted {}", bb->name().value_or("?"));
+        return;
+    }
+    auto spv_block = override_spv_block != nullptr ? override_spv_block : _get_or_create_block(bb);
     if (!_added_blocks.contains(spv_block)) {
         spv_block->getParent().addBlock(spv_block);
         _added_blocks.emplace(spv_block);
@@ -440,7 +443,30 @@ void SpirvCodegenEntry::_pre_register_merge_blocks(const xir::FunctionDefinition
     }
 }
 
+void SpirvCodegenEntry::_reset_function_codegen_state() noexcept {
+    _emitted_blocks.clear();
+    _pending_blocks.clear();
+    _loop_header_redirect.clear();
+    _used_merge_blocks.clear();
+    _outer_merge_stack.clear();
+    _block_map.clear();
+    _added_blocks.clear();
+}
+
+void SpirvCodegenEntry::_emit_function_blocks(const xir::FunctionDefinition *def) noexcept {
+    luisa::vector<const xir::BasicBlock *> blocks;
+    blocks.reserve(64u);
+    def->traverse_basic_blocks(xir::BasicBlockTraversalOrder::REVERSE_POST_ORDER,
+                               [&](const xir::BasicBlock *bb) noexcept {
+                                   blocks.emplace_back(bb);
+                               });
+    for (auto bb : blocks) {
+        _emit_block(bb);
+    }
+}
+
 void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept {
+    _reset_function_codegen_state();
     _uniformity.analyze(kernel);
     auto ret_type = _builder.makeVoidType();
     std::vector<spv::Id> param_types;
@@ -608,12 +634,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 
     _pre_register_merge_blocks(kernel);
     _predeclare_allocas(kernel);
-    _emit_block(kernel->body_block());
-    while (!_pending_blocks.empty()) {
-        auto *bb = _pending_blocks.back();
-        _pending_blocks.pop_back();
-        _emit_block(bb);
-    }
+    _emit_function_blocks(kernel);
 
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.makeReturn(false);
@@ -740,6 +761,7 @@ Usage SpirvCodegenEntry::_function_argument_usage_of(
 }
 
 void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept {
+    _reset_function_codegen_state();
     _uniformity.analyze(callable);
     auto ret_type = _convert_type(callable->type(), Usage::READ);
     std::vector<spv::Id> param_types;
@@ -825,12 +847,7 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
     _block_map.emplace(callable->body_block(), entry);
     _pre_register_merge_blocks(callable);
     _predeclare_allocas(callable);
-    _emit_block(callable->body_block());
-    while (!_pending_blocks.empty()) {
-        auto *bb = _pending_blocks.back();
-        _pending_blocks.pop_back();
-        _emit_block(bb);
-    }
+    _emit_function_blocks(callable);
     _builder.leaveFunction();
 }
 

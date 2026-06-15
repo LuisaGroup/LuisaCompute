@@ -1101,9 +1101,15 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
                     id = _builder.createLoad(ptr, spv::NoPrecision);
                 }
-            } else {
-                LUISA_NOT_IMPLEMENTED("SPIR-V dynamic extract for type {}.", base_type->description());
-            }
+                } else if (base_type->is_structure()) {
+                    auto temp_var = _builder.createVariable(spv::NoPrecision, spv::StorageClass::Function,
+                                                            _convert_type(base_type, Usage::READ), "extract_tmp");
+                    _builder.createStore(v, temp_var);
+                    auto ptr = _create_access_chain(spv::StorageClass::Function, temp_var, dynamic_indices);
+                    id = _builder.createLoad(ptr, spv::NoPrecision);
+                } else {
+                    LUISA_NOT_IMPLEMENTED("SPIR-V dynamic extract for type {}.", base_type->description());
+                }
             break;
         }
 
@@ -3389,7 +3395,9 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::CONDITIONAL_BRANCH: _emit_conditional_branch_inst(static_cast<const xir::ConditionalBranchInst *>(inst)); break;
         case xir::DerivedInstructionTag::BREAK: {
             auto br = static_cast<const xir::BreakInst *>(inst);
-            _builder.createBranch(false, _get_or_create_block(br->target_block()));
+            auto tgt = br->target_block();
+            auto spv_tgt = _get_or_create_block(tgt);
+            _builder.createBranch(false, spv_tgt);
             break;
         }
         case xir::DerivedInstructionTag::CONTINUE: {

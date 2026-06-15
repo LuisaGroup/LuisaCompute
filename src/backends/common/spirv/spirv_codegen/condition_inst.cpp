@@ -1,6 +1,32 @@
 #include "entry.h"
+#include <luisa/core/logging.h>
 
 namespace lc::spirv {
+
+namespace {
+
+[[nodiscard]] bool block_reaches(const xir::BasicBlock *from,
+                                 const xir::BasicBlock *to) noexcept {
+    if (from == nullptr || to == nullptr) { return false; }
+    if (from == to) { return true; }
+    bool found = false;
+    from->traverse_successors(true, [&](const xir::BasicBlock *succ) noexcept {
+        if (succ == to) { found = true; }
+    });
+    return found;
+}
+
+[[nodiscard]] bool block_has_predecessors(const xir::BasicBlock *bb) noexcept {
+    if (bb == nullptr) { return false; }
+    bool has = false;
+    bb->traverse_predecessors(true, [&](const xir::BasicBlock *) noexcept {
+        has = true;
+    });
+    return has;
+}
+
+}// namespace
+
 void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     auto cond = _emit_value(inst->condition());
     auto &function = _builder.getBuildPoint()->getParent();
@@ -18,28 +44,67 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     auto true_block = bind_or_get(inst->true_block(), true_fresh);
     auto false_block = bind_or_get(inst->false_block(), false_fresh);
     auto merge_block = bind_or_get(inst->merge_block(), merge_fresh);
+    // Track this construct's merge so nested constructs can tell whether one of
+    // their arms is really an outer merge block.  Using an outer merge as an arm
+    // would place the outer merge after the inner construct in the binary while
+    // the inner construct's merge is dominated by that arm, causing a dominance
+    // ordering violation.  We avoid that by cloning the arm into a fresh block.
+    _outer_merge_stack.push_back(merge_block);
+
+    // If the merge block is not reachable from either arm (both arms exit the
+    // construct via break/continue/return), using it as the SPIR-V selection
+    // merge would force glslang's inReadableOrder() to emit the dead merge
+    // before any later block that dominates it.  Use a synthetic dead-end merge
+    // instead, and let the real merge block be emitted when it is actually
+    // reached via control flow.
+    bool merge_already_used = _used_merge_blocks.contains(merge_block->getId());
+    bool merge_reachable_from_arms = block_reaches(inst->true_block(), inst->merge_block()) ||
+                                     block_reaches(inst->false_block(), inst->merge_block());
+    bool needs_synthetic_merge = merge_already_used || !merge_reachable_from_arms;
+
     spv::Block *synthetic_merge = nullptr;
     spv::Block *selection_merge_target = merge_block;
-    if (_used_merge_blocks.contains(merge_block->getId())) {
+    if (needs_synthetic_merge) {
         synthetic_merge = new spv::Block(_builder.getUniqueId(), function);
         selection_merge_target = synthetic_merge;
     }
     _used_merge_blocks.emplace(selection_merge_target->getId());
+    if (synthetic_merge != nullptr) {
+        // Mark the real merge as used so no later construct picks it as its
+        // merge block while it is still waiting to be emitted.
+        _used_merge_blocks.emplace(merge_block->getId());
+    }
+    // If an arm coincides with an outer construct's merge block, emit its
+    // instructions into a fresh SPIR-V block instead.  This keeps the outer
+    // merge block free to be emitted after the inner construct, avoiding the
+    // dominance-ordering conflict described above.
+    auto make_arm_target = [&](spv::Block *arm_block, bool arm_fresh) -> spv::Block * {
+        bool is_outer_merge = std::find(_outer_merge_stack.begin(), _outer_merge_stack.end(), arm_block) !=
+                              _outer_merge_stack.end();
+        if (!is_outer_merge) { return arm_block; }
+        auto *synthetic = new spv::Block(_builder.getUniqueId(), function);
+        _added_blocks.emplace(synthetic);
+        function.addBlock(synthetic);
+        return synthetic;
+    };
+    auto true_target = make_arm_target(true_block, true_fresh);
+    auto false_target = make_arm_target(false_block, false_fresh);
+
     auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
     selection_merge->reserveOperands(2);
     selection_merge->addIdOperand(selection_merge_target->getId());
     selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
     _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
-    _builder.createConditionalBranch(cond, true_block, false_block);
-    if (true_fresh) { function.addBlock(true_block); _added_blocks.emplace(true_block); }
-    _builder.setBuildPoint(true_block);
-    _emit_block(inst->true_block());
+    _builder.createConditionalBranch(cond, true_target, false_target);
+    if (true_target != true_block || true_fresh) { function.addBlock(true_target); _added_blocks.emplace(true_target); }
+    _builder.setBuildPoint(true_target);
+    _emit_block(inst->true_block(), true_target);
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, selection_merge_target);
     }
-    if (false_fresh) { function.addBlock(false_block); _added_blocks.emplace(false_block); }
-    _builder.setBuildPoint(false_block);
-    _emit_block(inst->false_block());
+    if (false_target != false_block || false_fresh) { function.addBlock(false_target); _added_blocks.emplace(false_target); }
+    _builder.setBuildPoint(false_target);
+    _emit_block(inst->false_block(), false_target);
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, selection_merge_target);
     }
@@ -47,11 +112,33 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
         function.addBlock(synthetic_merge);
         _added_blocks.emplace(synthetic_merge);
         _builder.setBuildPoint(synthetic_merge);
-        _builder.createBranch(false, merge_block);
+        if (merge_already_used) {
+            // The real merge was already emitted as another construct's merge;
+            // forward to it so this selection still converges there.
+            _builder.createBranch(false, merge_block);
+        } else {
+            // The merge is unreachable from both arms; terminate the synthetic
+            // block so it does not pull the real merge forward in the binary.
+            _builder.createNoResultOp(spv::Op::OpUnreachable);
+        }
     }
-    if (merge_fresh) { function.addBlock(merge_block); _added_blocks.emplace(merge_block); }
-    _builder.setBuildPoint(merge_block);
-    _emit_block(inst->merge_block());
+    // Emit the real merge block now only if it is the actual continuation of
+    // this selection.  If it is unreachable from the arms but has other
+    // predecessors, it will be emitted when those predecessors are processed.
+    bool emit_real_merge = synthetic_merge == nullptr || merge_already_used ||
+                           !block_has_predecessors(inst->merge_block());
+    if (emit_real_merge) {
+        if (!_added_blocks.contains(merge_block)) {
+            function.addBlock(merge_block);
+            _added_blocks.emplace(merge_block);
+        }
+        _builder.setBuildPoint(merge_block);
+        _emit_block(inst->merge_block(), merge_block);
+        if (!_builder.getBuildPoint()->isTerminated()) {
+            _builder.createNoResultOp(spv::Op::OpUnreachable);
+        }
+    }
+    _outer_merge_stack.pop_back();
 }
 
 void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {

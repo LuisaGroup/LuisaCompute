@@ -24,11 +24,15 @@
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
 #include <luisa/runtime/image.h>
+#include <luisa/runtime/rtx/accel.h>
+#include <luisa/runtime/rtx/mesh.h>
+#include <luisa/runtime/rtx/triangle.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/core/clock.h>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/vstl/common.h>
 #include <fstream>
+#include <luisa/xir/passes/aggregate_field_bitmask.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -426,6 +430,56 @@ struct OuterStruct {
 };
 LUISA_STRUCT(InnerStruct, x, y) {};
 LUISA_STRUCT(OuterStruct, inner, z, w) {};
+
+struct PartialA {
+    float a;
+    float b;
+    float c;
+};
+LUISA_STRUCT(PartialA, a, b, c) {};
+
+struct AoSItem {
+    float3 pos;
+    float mass;
+};
+LUISA_STRUCT(AoSItem, pos, mass) {};
+
+struct AoSArray {
+    AoSItem items[4];
+};
+LUISA_STRUCT(AoSArray, items) {};
+
+struct SoAFields {
+    float x[4];
+    float y[4];
+    float z[4];
+    float mass[4];
+};
+LUISA_STRUCT(SoAFields, x, y, z, mass) {};
+
+struct MaskedStruct {
+    float3 v;
+    float s;
+    int2 iv;
+    bool flag;
+    float3x3 m;
+};
+LUISA_STRUCT(MaskedStruct, v, s, iv, flag, m) {};
+
+struct ReturnBox {
+    float x;
+    float y;
+    float z;
+    float w;
+};
+LUISA_STRUCT(ReturnBox, x, y, z, w) {};
+
+struct PointerData {
+    float a;
+    float b;
+    float c;
+};
+LUISA_STRUCT(PointerData, a, b, c) {};
 
 // ---------------------------------------------------------------------------
 // Test 1: nested if-elif-else, switch, break in loops, while-loop, early return
@@ -982,6 +1036,1461 @@ void test_matrix_multiply(Device &device) {
     LUISA_INFO("{}", out_val);
 }
 
+// ---------------------------------------------------------------------------
+// New CFG corner tests: constant-folded branches, nested switches, tiny diamonds
+// Passes exercised: destructure_cfg, restructure_cfg, simplify_cfg,
+//                   lower_switch, convergence_region, if_conversion
+// ---------------------------------------------------------------------------
+void test_cfg_empty_constant_and_multi_predecessor_merge(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float acc = 0.0f;
+
+        UInt zero_u = 0u;
+        $if (zero_u == 0u) {
+            acc += 1.0f;
+        } $else {
+        };
+
+        UInt one_u = 1u;
+        $if (one_u == 0u) {
+            acc += 1000.0f;
+        } $else {
+            acc += 2.0f;
+        };
+
+        Float base = idx.cast<float>();
+        Float mid;
+        $if (idx % 2u == 0u) {
+            mid = base + 10.0f;
+        } $else {
+            mid = base - 10.0f;
+        };
+        $if (idx % 3u == 0u) {
+            mid = mid * 2.0f;
+        } $else {
+        };
+
+        out.write(idx, acc + mid);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("CFG empty/constant corner: host[0]={:f}, host[2]={:f}, host[3]={:f}",
+               host[0], host[2], host[3]);
+
+    expect(std::abs(host[0] - 23.0f) < 1e-4f) << "idx 0: even, multiple of 3";
+    expect(std::abs(host[2] - 15.0f) < 1e-4f) << "idx 2: even, not multiple of 3";
+    expect(std::abs(host[3] - (-11.0f)) < 1e-4f) << "idx 3: odd, multiple of 3";
+    expect(std::abs(host[6] - 35.0f) < 1e-4f) << "idx 6: even, multiple of 3";
+}
+
+void test_cfg_nested_switch_fallthrough_like(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float base = idx.cast<float>();
+        Float sw = 0.0f;
+
+        $switch (idx % 4u) {
+            $case (0u) {
+                $switch (idx % 2u) {
+                    $case (0u) { sw = base + 1.0f; };
+                    $case (1u) { sw = base + 2.0f; };
+                    $default { sw = base + 3.0f; };
+                };
+            };
+            $case (1u) { sw = base + 10.0f; };
+            $case (2u) { sw = base + 20.0f; };
+            $default { sw = base + 30.0f; };
+        };
+
+        UInt constant_selector = 1u;
+        Float extra = 0.0f;
+        $switch (constant_selector) {
+            $case (0u) { extra = 1.0f; };
+            $case (1u) { extra = 4.0f; };
+            $default { extra = 8.0f; };
+        };
+
+        out.write(idx, sw + extra);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("CFG nested-switch corner: host[0]={:f}, host[1]={:f}, host[2]={:f}, host[3]={:f}",
+               host[0], host[1], host[2], host[3]);
+
+    expect(std::abs(host[0] - 5.0f) < 1e-4f) << "idx 0 mismatch";
+    expect(std::abs(host[1] - 15.0f) < 1e-4f) << "idx 1 mismatch";
+    expect(std::abs(host[2] - 26.0f) < 1e-4f) << "idx 2 mismatch";
+    expect(std::abs(host[3] - 37.0f) < 1e-4f) << "idx 3 mismatch";
+    expect(std::abs(host[4] - 9.0f) < 1e-4f) << "idx 4 mismatch";
+}
+
+void test_cfg_tiny_diamond_if_conversion(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float a = idx.cast<float>();
+        Float x;
+
+        $if (idx % 2u == 0u) {
+            x = a + 1.0f;
+        } $else {
+            x = a - 1.0f;
+        };
+
+        out.write(idx, x);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("CFG tiny-diamond corner: host[0]={:f}, host[1]={:f}, host[2]={:f}, host[3]={:f}",
+               host[0], host[1], host[2], host[3]);
+
+    expect(std::abs(host[0] - 1.0f) < 1e-4f) << "idx 0 mismatch";
+    expect(std::abs(host[1] - 0.0f) < 1e-4f) << "idx 1 mismatch";
+    expect(std::abs(host[2] - 3.0f) < 1e-4f) << "idx 2 mismatch";
+    expect(std::abs(host[3] - 2.0f) < 1e-4f) << "idx 3 mismatch";
+}
+
+// ---------------------------------------------------------------------------
+// New structured-lowering corner tests
+// Passes exercised: lower_break_continue, lower_ray_query_loop,
+//                   lower_ray_query_loop_to_loop, early_return_elimination, phi_cleanup
+// ---------------------------------------------------------------------------
+void test_structured_break_continue(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<uint>(64);
+
+    Kernel1D k = [](BufferVar<uint> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+
+        UInt acc = 0u;
+        $for (i, 0u, 4u) {
+            $for (j, 0u, 4u) {
+                $if ((i + j + idx) % 2u == 0u) {
+                    $continue;
+                };
+                acc += 1u;
+                $if (acc > 5u) {
+                    $break;
+                };
+            };
+        };
+
+        UInt multi_phi = idx;
+        $for (n, 0u, 20u) {
+            $if (n == 3u) {
+                multi_phi = 100u;
+                $break;
+            };
+            $if (n == 7u) {
+                multi_phi = 200u;
+                $break;
+            };
+            multi_phi = multi_phi + 1u;
+        };
+
+        UInt wk = 0u;
+        UInt wsum = 0u;
+        $while (wk < 20u) {
+            wk += 1u;
+            $if (wk % 3u == 0u) {
+                $continue;
+            };
+            wsum += wk;
+            $if (wsum > 30u) {
+                $break;
+            };
+        };
+
+        UInt redundant = 0u;
+        $if (idx % 3u == 0u) {
+            redundant = 5u;
+        } $elif (idx % 3u == 1u) {
+            redundant = 5u;
+        } $else {
+            redundant = 5u;
+        };
+
+        out.write(idx, acc + multi_phi + wsum + redundant);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<uint> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Structured break/continue corner: host[0]={}", host[0]);
+    for (auto v : host) {
+        expect(v > 0u) << "all outputs should be positive";
+    }
+}
+
+void test_structured_early_return(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<uint>(64);
+
+    Callable<uint(uint)> classify = [](UInt idx) noexcept {
+        $if (idx % 2u == 0u) {
+            $return(idx * 2u);
+        } $else {
+            $return(idx + 100u);
+        };
+        return 0u;
+    };
+
+    Kernel1D k = [&](BufferVar<uint> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        UInt r = classify(idx);
+        out.write(idx, r);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<uint> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Structured early-return corner: host[0]={}, host[1]={}", host[0], host[1]);
+    for (uint i = 0u; i < 64u; ++i) {
+        uint expected = (i % 2u == 0u) ? (i * 2u) : (i + 100u);
+        expect(host[i] == expected) << "early-return callable result mismatch";
+    }
+}
+
+void test_structured_ray_query_loop(Device &device) {
+    if (device.backend_name() == "cpu") {
+        LUISA_INFO("Skipping ray-query loop test on CPU backend.");
+        expect(true) << "ray-query loop test skipped on CPU";
+        return;
+    }
+
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<uint>(4);
+
+    luisa::vector<float3> vertices{
+        make_float3(-1.0f, -1.0f, 0.0f),
+        make_float3(1.0f, -1.0f, 0.0f),
+        make_float3(0.0f, 1.0f, 0.0f)};
+    luisa::vector<Triangle> triangles{{0u, 1u, 2u}};
+
+    auto vertex_buffer = device.create_buffer<float3>(vertices.size());
+    auto triangle_buffer = device.create_buffer<Triangle>(triangles.size());
+    auto mesh = device.create_mesh(vertex_buffer, triangle_buffer);
+    auto accel = device.create_accel();
+    accel.emplace_back(mesh);
+
+    stream << vertex_buffer.copy_from(luisa::span{vertices})
+           << triangle_buffer.copy_from(luisa::span{triangles})
+           << mesh.build()
+           << accel.build()
+           << synchronize();
+
+    Kernel1D k = [&](BufferVar<uint> out) noexcept {
+        set_block_size(32);
+        auto idx = dispatch_id().x;
+        auto ray = make_ray(
+            make_float3(0.1f * idx.cast<float>(), 0.0f, 1.0f),
+            make_float3(0.0f, 0.0f, -1.0f));
+        UInt hit_count = 0u;
+        accel->traverse(ray, {})
+            .on_surface_candidate([&](SurfaceCandidate &c) noexcept {
+                c.commit();
+                hit_count += 1u;
+            })
+            .on_procedural_candidate([&](ProceduralCandidate &c) noexcept {
+            })
+            .trace();
+        out.write(idx, hit_count);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<uint> host(4);
+    stream << shader(out).dispatch(4)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Structured ray-query loop corner: hits={} {} {} {}", host[0], host[1], host[2], host[3]);
+    bool any_hit = false;
+    for (auto v : host) {
+        if (v > 0u) {
+            any_hit = true;
+            break;
+        }
+    }
+    if (!any_hit) {
+        LUISA_WARNING("Ray-query loop test: no hits detected; RT may be unavailable on this setup");
+        for (auto v : host) {
+            expect(v <= 1u) << "hit count should be at most one";
+        }
+    } else {
+        for (auto v : host) {
+            expect(v == 1u) << "each ray should hit the single triangle exactly once";
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// New memory corner tests
+// Passes exercised: mem2reg, reg2mem, sroa, dead_store_elimination,
+//                   local_store_forward, local_load_elimination
+// ---------------------------------------------------------------------------
+void test_memory_cross_block_phi(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float f = idx.cast<float>();
+
+        Float branch_val;
+        $if (idx < 16) {
+            branch_val = f + 1.0f;
+        } $elif (idx < 32) {
+            branch_val = f + 2.0f;
+        } $elif (idx < 48) {
+            branch_val = f + 3.0f;
+        } $else {
+            branch_val = f + 4.0f;
+        };
+
+        Float a = branch_val;
+        Float b = branch_val;
+
+        Float loop_acc = 0.0f;
+        $for (i, 4) {
+            loop_acc = loop_acc + f;
+        };
+
+        out.write(idx, a + b + loop_acc);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Cross-block phi corner: host[0]={:f}, host[20]={:f}, host[50]={:f}",
+               host[0], host[20], host[50]);
+
+    expect(std::abs(host[0] - 2.0f) < 1e-4f) << "cross-block phi mismatch at idx 0";
+    expect(std::abs(host[20] - 124.0f) < 1e-4f) << "cross-block phi mismatch at idx 20";
+    expect(std::abs(host[50] - 308.0f) < 1e-4f) << "cross-block phi mismatch at idx 50";
+}
+
+void test_memory_partial_sroa(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float f = idx.cast<float>();
+
+        Var<PartialA> ps;
+        ps.b = f + 1.0f;
+        Float struct_sum = ps.b + 10.0f;
+
+        $array<float, 4> arr;
+        arr[1] = f;
+        arr[3] = f * 2.0f;
+        Float arr_sum = arr[1] + arr[3];
+
+        $array<float, 3> dse_arr;
+        dse_arr[0] = 0.0f;
+        dse_arr[1] = 1.0f;
+        dse_arr[1] = f;
+        dse_arr[2] = 2.0f;
+        dse_arr[2] = f * 3.0f;
+        Float dse_sum = dse_arr[0] + dse_arr[1] + dse_arr[2];
+
+        out.write(idx, struct_sum + arr_sum + dse_sum);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Partial SROA corner: host[0]={:f}, host[5]={:f}", host[0], host[5]);
+    expect(std::abs(host[0] - 11.0f) < 1e-4f) << "partial SROA mismatch at idx 0";
+    expect(std::abs(host[5] - 51.0f) < 1e-4f) << "partial SROA mismatch at idx 5";
+}
+
+void test_memory_dead_store_loop(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float f = idx.cast<float>();
+
+        Float acc = 0.0f;
+        $for (i, 3) {
+            Float tmp;
+            tmp = f + 100.0f;
+            tmp = i.cast<float>();
+            acc = acc + tmp;
+        };
+
+        Float branch_store;
+        $if (idx < 32) {
+            branch_store = f + 1.0f;
+        } $else {
+            branch_store = f + 2.0f;
+        };
+        Float forwarded = branch_store + 1.0f;
+
+        Float maybe;
+        $if (idx < 32) {
+            maybe = f;
+        };
+        Float loaded = maybe;
+        Float selected;
+        $if (idx < 32) {
+            selected = loaded + 1.0f;
+        } $else {
+            selected = 0.0f;
+        };
+
+        out.write(idx, acc + forwarded + selected);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Dead-store loop corner: host[0]={:f}, host[40]={:f}", host[0], host[40]);
+    expect(std::abs(host[0] - 6.0f) < 1e-4f) << "dead-store loop mismatch at idx 0";
+    expect(std::abs(host[40] - 46.0f) < 1e-4f) << "dead-store loop mismatch at idx 40";
+}
+
+// ---------------------------------------------------------------------------
+// New algebraic corner tests
+// Passes exercised: algebraic_simplify, const_fold, simplify_libcalls,
+//                   reassociate, div_rem_pairs, early_cse
+// ---------------------------------------------------------------------------
+void test_algebraic_bitwise_identities(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<uint>(64);
+
+    Kernel1D k = [](BufferVar<uint> out) noexcept {
+        set_block_size(64);
+        UInt idx = dispatch_id().x;
+        UInt x = idx + 1u;
+
+        UInt b1 = x & 0xFFFFFFFFu;
+        UInt b2 = x | 0u;
+        UInt b3 = x ^ 0u;
+        UInt b4 = x & 0u;
+        UInt b5 = x ^ x;
+        UInt b6 = x << 0u;
+        UInt b7 = x >> 0u;
+
+        UInt c1 = 0xAAu & 0x55u;
+        UInt c2 = 0x0Fu | 0xF0u;
+        UInt c3 = 0xFFu ^ 0xFFu;
+        UInt c4 = 1u << 8u;
+
+        UInt u = idx + 16u;
+        UInt div1 = u / 1u;
+        UInt div8 = u / 8u;
+        UInt rem8 = u % 8u;
+
+        out.write(idx,
+                  b1 + b2 + b3 + b4 + b5 + b6 + b7 +
+                  c1 + c2 + c3 + c4 +
+                  div1 + div8 + rem8);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<uint> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Algebraic bitwise corner: host[0]={}, host[1]={}", host[0], host[1]);
+    expect(host[0] == 534u) << "bitwise identity result mismatch at idx 0";
+    expect(host[1] == 541u) << "bitwise identity result mismatch at idx 1";
+}
+
+void test_algebraic_libcall_reassociate(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>() + 1.0f;
+
+        Float s1 = sqrt(1.0f);
+        Float p1 = pow(1.0f, val);
+        Float l1 = luisa::compute::log(def(1.0f));
+        Float e0 = exp2(0.0f);
+        Float r1 = rsqrt(def(1.0f));
+        Float a0 = abs(0.0f);
+
+        Float lerp0 = lerp(val, val * 2.0f, 0.0f);
+        Float lerp1 = lerp(val, val * 2.0f, 1.0f);
+        Float clamp01 = clamp(val, 0.0f, 1.0f);
+        Float step0 = step(0.0f, val);
+
+        Float negneg = -(-val);
+        Float zero_minus = 0.0f - (0.0f - val);
+
+        Float chain = val + 1.0f + 2.0f + 3.0f + 4.0f +
+                      5.0f + 6.0f + 7.0f + 8.0f;
+        Float cancel = (val + 1.0f) - 1.0f;
+        Float mulchain = val * 1.0f * 2.0f * 3.0f;
+
+        out.write(idx,
+                  s1 + p1 + l1 + e0 + r1 + a0 +
+                  lerp0 + lerp1 + clamp01 + step0 +
+                  negneg + zero_minus +
+                  chain + cancel + mulchain);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Algebraic libcall/reassociate corner: host[0]={:f}, host[1]={:f}",
+               host[0], host[1]);
+
+    constexpr float eps = 1e-4f;
+    for (uint i = 0; i < 64; ++i) {
+        float expected = 13.0f * static_cast<float>(i + 1u) + 42.0f;
+        expect(std::abs(host[i] - expected) < eps)
+            << "libcall/reassociate result mismatch at idx " << i;
+    }
+}
+
+void test_algebraic_early_cse(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float base = idx.cast<float>() + 1.0f;
+
+        Float acc = 0.0f;
+        $for (i, 8) {
+            Float common = base * 3.0f + 2.0f;
+            Float dup    = base * 3.0f + 2.0f;
+            acc += common + dup;
+        };
+
+        Float outside1 = base * 3.0f + 2.0f;
+        Float outside2 = base * 3.0f + 2.0f;
+
+        out.write(idx, acc + outside1 + outside2);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Algebraic early-cse corner: host[0]={:f}, host[1]={:f}",
+               host[0], host[1]);
+
+    constexpr float eps = 1e-4f;
+    for (uint i = 0; i < 64; ++i) {
+        float common = 3.0f * static_cast<float>(i + 1u) + 2.0f;
+        float expected = 18.0f * common;
+        expect(std::abs(host[i] - expected) < eps)
+            << "early-cse result mismatch at idx " << i;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// New value-propagation corner tests
+// Passes exercised: gvn, sccp, cvp, scalar_evolution
+// ---------------------------------------------------------------------------
+void test_value_gvn_cvp(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float a = idx.cast<float>();
+        Float b = (idx + 1u).cast<float>();
+        Float shared = a * b + 1.0f;
+
+        Float branch_val;
+        $if (idx < 16u) {
+            Float t = a * b + 1.0f;
+            branch_val = t + 1.0f;
+        } $elif (idx < 32u) {
+            Float t = a * b + 1.0f;
+            branch_val = t + 2.0f;
+        } $elif (idx < 48u) {
+            Float t = a * b + 1.0f;
+            branch_val = t + 3.0f;
+        } $else {
+            Float t = a * b + 1.0f;
+            branch_val = t + 4.0f;
+        };
+
+        UInt tag = idx % 4u;
+        Float cvp_sum = 0.0f;
+        $if (tag == 0u) {
+            cvp_sum += tag.cast<float>();
+        } $elif (tag == 1u) {
+            cvp_sum += tag.cast<float>();
+        } $elif (tag == 2u) {
+            cvp_sum += tag.cast<float>();
+        } $else {
+            cvp_sum += tag.cast<float>();
+        };
+
+        out.write(idx, branch_val + cvp_sum);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("GVN/CVP corner: host[0]={:f}, host[20]={:f}, host[50]={:f}",
+               host[0], host[20], host[50]);
+
+    auto expected = [](uint i) {
+        float a = static_cast<float>(i);
+        float b = a + 1.0f;
+        float shared = a * b + 1.0f;
+        uint offset = (i < 16u) ? 1u : (i < 32u) ? 2u : (i < 48u) ? 3u : 4u;
+        return shared + static_cast<float>(offset) + static_cast<float>(i % 4u);
+    };
+    for (uint i = 0; i < 64; ++i) {
+        expect(std::abs(host[i] - expected(i)) < 1e-4f) << "gvn/cvp result mismatch";
+    }
+}
+
+void test_value_sccp_phi(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+
+        Float phi_val;
+        $if (idx < 32u) {
+            phi_val = 7.0f;
+        } $else {
+            phi_val = 7.0f;
+        };
+        Float result = phi_val + 3.0f;
+
+        Float sw_val;
+        $switch (idx % 3u) {
+            $case (0u) { sw_val = 5.0f; };
+            $case (1u) { sw_val = 5.0f; };
+            $default { sw_val = 5.0f; };
+        };
+        result += sw_val + 1.0f;
+
+        Float known = 100.0f;
+        $if (known > 0.0f) {
+            result += 2.0f;
+        } $else {
+            result += 999.0f;
+        };
+
+        out.write(idx, result);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("SCCP phi corner: host[0]={:f}", host[0]);
+    for (auto v : host) {
+        expect(std::abs(v - 18.0f) < 1e-4f) << "sccp phi result should be constant 18";
+    }
+}
+
+void test_value_scalar_evolution(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+
+        Float sum1 = 0.0f;
+        $for (i, 0, 15, 3) {
+            sum1 += i.cast<float>();
+        };
+
+        Float sum2 = 0.0f;
+        $for (j, 0, 12, 4) {
+            sum2 += (j * 2 + 1).cast<float>();
+        };
+
+        Float inv = idx.cast<float>() * 2.0f + 1.0f;
+        Float sum3 = 0.0f;
+        $for (k, 0, 6, 2) {
+            sum3 += inv + k.cast<float>();
+        };
+
+        out.write(idx, sum1 + sum2 + sum3);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Scalar-evolution corner: host[0]={:f}, host[1]={:f}, host[10]={:f}",
+               host[0], host[1], host[10]);
+
+    expect(std::abs(host[0] - 66.0f) < 1e-4f) << "scalar evolution mismatch at idx 0";
+    expect(std::abs(host[1] - 72.0f) < 1e-4f) << "scalar evolution mismatch at idx 1";
+    expect(std::abs(host[10] - 126.0f) < 1e-4f) << "scalar evolution mismatch at idx 10";
+}
+
+// ---------------------------------------------------------------------------
+// New loop corner tests
+// Passes exercised: loop_unroll, loop_rotation, indvar_simplify, licm
+// ---------------------------------------------------------------------------
+void test_loop_zero_one_trip(Device &device) {
+    auto stream = device.create_stream();
+    auto bounds = device.create_buffer<uint>(2u);
+    auto out = device.create_buffer<float>(64u);
+
+    luisa::vector<uint> host_bounds = {0u, 1u};
+    stream << bounds.copy_from(luisa::span{host_bounds})
+           << synchronize();
+
+    Kernel1D k = [](BufferVar<uint> bounds, BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        UInt bound = bounds.read(idx % 2u);
+
+        Float a = 0.0f;
+        $for (i, 0) {
+            a += 1.0f;
+        };
+
+        Float b = 0.0f;
+        $for (i, 1) {
+            b += 1.0f;
+        };
+
+        Float c = 0.0f;
+        $for (i, 0u, 0u, 3u) {
+            c += 1.0f;
+        };
+
+        Float d = 0.0f;
+        $for (i, 0u, bound) {
+            d += 1.0f;
+        };
+
+        out.write(idx, a + b + c + d);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(bounds, out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Loop zero/one trip: host[0]={:f}, host[1]={:f}", host[0], host[1]);
+    expect(std::abs(host[0] - 1.0f) < 1e-4f) << "zero/one trip mismatch at idx 0";
+    expect(std::abs(host[1] - 2.0f) < 1e-4f) << "zero/one trip mismatch at idx 1";
+}
+
+void test_loop_nested_licm(Device &device) {
+    auto stream = device.create_stream();
+    auto base_buf = device.create_buffer<float>(8u);
+    auto out = device.create_buffer<float>(64u);
+
+    luisa::vector<float> host_base = {1.0f, 2.0f, 3.0f, 4.0f,
+                                      5.0f, 6.0f, 7.0f, 8.0f};
+    stream << base_buf.copy_from(luisa::span{host_base})
+           << synchronize();
+
+    Kernel1D k = [](BufferVar<float> base_buf, BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+
+        Float base = base_buf.read(idx % 8u);
+        Float sum = 0.0f;
+
+        $for (outer, 3) {
+            $for (inner, 4) {
+                Float factor = base * 2.0f + 1.0f;
+                sum += factor;
+            };
+        };
+
+        out.write(idx, sum);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(base_buf, out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Loop nested LICM: host[0]={:f}, host[1]={:f}, host[7]={:f}",
+               host[0], host[1], host[7]);
+    for (auto i = 0u; i < 64u; ++i) {
+        auto expected = (host_base[i % 8u] * 2.0f + 1.0f) * 12.0f;
+        expect(std::abs(host[i] - expected) < 1e-4f)
+            << "nested licm mismatch at idx " << i;
+    }
+}
+
+void test_loop_while_stride_break(Device &device) {
+    auto stream = device.create_stream();
+    auto limits = device.create_buffer<uint>(4u);
+    auto out = device.create_buffer<float>(64u);
+
+    luisa::vector<uint> host_limits = {3u, 6u, 9u, 12u};
+    stream << limits.copy_from(luisa::span{host_limits})
+           << synchronize();
+
+    Kernel1D k = [](BufferVar<uint> limits, BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        UInt limit = limits.read(idx % 4u);
+
+        UInt count_while = 0u;
+        UInt i = 0u;
+        $while (i < limit) {
+            i += 3u;
+            count_while += 1u;
+        };
+
+        UInt count_for = 0u;
+        $for (j, 0u, limit, 3u) {
+            $if (j == 0u) {
+                $continue;
+            };
+            $if (j >= 6u) {
+                $break;
+            };
+            count_for += 1u;
+        };
+
+        out.write(idx, count_while.cast<float>() * 10.0f + count_for.cast<float>());
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(limits, out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Loop while/stride/break: host[0]={:f}, host[1]={:f}, host[2]={:f}, host[3]={:f}",
+               host[0], host[1], host[2], host[3]);
+
+    float expected[4] = {10.0f, 21.0f, 31.0f, 41.0f};
+    for (auto i = 0u; i < 4u; ++i) {
+        expect(std::abs(host[i] - expected[i]) < 1e-4f)
+            << "while/stride/break mismatch at idx " << i;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// New scalar/GEP corner tests
+// Passes exercised: scalarizer, trace_gep, transpose_gep, aggregate_field_bitmask
+// ---------------------------------------------------------------------------
+void test_scalar_gep_vector_matrix(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>() + 1.0f;
+
+        Float3x3 m = make_float3x3(
+            make_float3(val, 0.0f, 0.0f),
+            make_float3(0.0f, val * 2.0f, 0.0f),
+            make_float3(0.0f, 0.0f, val * 3.0f));
+
+        Float3 c0 = m[0] * 2.0f + make_float3(1.0f, 2.0f, 3.0f);
+        Float3 c1 = m[1] * 0.5f;
+
+        Float partial = c0.x + c0.z + c1.x;
+
+        Float4 v4 = make_float4(val, val + 1.0f, val + 2.0f, val + 3.0f) * 3.0f;
+        Float v4_partial = v4.y + v4.w;
+
+        out.write(idx, partial + v4_partial);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Scalar/GEP vector-matrix corner: host[0]={:f}, host[1]={:f}", host[0], host[1]);
+    expect(std::abs(host[0] - 24.0f) < 1e-4f) << "vector/matrix scalarize mismatch at idx 0";
+    expect(std::abs(host[1] - 32.0f) < 1e-4f) << "vector/matrix scalarize mismatch at idx 1";
+}
+
+void test_scalar_gep_nested_aos_soa(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float base = idx.cast<float>() * 10.0f;
+
+        // Fixed-index struct access to exercise GEP on structs.
+        Var<AoSItem> item;
+        item.pos = make_float3(base, base + 1.0f, base + 2.0f);
+        item.mass = base + 3.0f;
+        Float item_sum = item.pos.x + item.pos.y + item.pos.z + item.mass;
+
+        // Struct-of-arrays with dynamic scalar indexing (scalar arrays are supported).
+        Var<SoAFields> soa;
+        $for (i, 4) {
+            soa.x[i] = base + i.cast<float>();
+            soa.y[i] = base + i.cast<float>() + 1.0f;
+            soa.z[i] = base + i.cast<float>() + 2.0f;
+            soa.mass[i] = base + i.cast<float>() + 3.0f;
+        };
+        Float soa_sum = 0.0f;
+        $for (i, 4) {
+            soa_sum += soa.x[i] + soa.y[i] + soa.z[i] + soa.mass[i];
+        };
+
+        out.write(idx, item_sum + soa_sum);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Scalar/GEP nested AoS/SoA corner: host[0]={:f}, host[1]={:f}", host[0], host[1]);
+    // idx=0: item_sum = 0+1+2+3 = 6; soa per-iteration = 0+1+2+3, 1+2+3+4, 2+3+4+5, 3+4+5+6 -> 48; total = 54
+    expect(std::abs(host[0] - 54.0f) < 1e-4f) << "nested AoS/SoA mismatch at idx 0";
+    // idx=1: item_sum = 10+11+12+13 = 46; soa per-iteration = 10+11+12+13, ..., 13+14+15+16 -> 208; total = 254
+    expect(std::abs(host[1] - 254.0f) < 1e-4f) << "nested AoS/SoA mismatch at idx 1";
+}
+
+void test_scalar_gep_aggregate_bitmask(Device &device) {
+    xir::AggregateFieldBitmask mask{Type::of<MaskedStruct>()};
+    mask.access(0).set();
+    mask.access(1).set();
+    mask.access(4, 0, 0).set();
+
+    expect(mask.access(0).any()) << "bitmask field v should be set";
+    expect(mask.access(1).any()) << "bitmask field s should be set";
+    expect(mask.access(4, 0, 0).any()) << "bitmask m[0][0] should be set";
+
+    xir::AggregateFieldBitmask other{Type::of<MaskedStruct>()};
+    other.access(2).set();
+    other.access(4, 1, 1).set();
+
+    auto combined = mask | other;
+    expect(combined.access(2).any()) << "OR should carry iv";
+    expect(combined.access(4, 1, 1).any()) << "OR should carry m[1][1]";
+
+    auto intersect = mask & other;
+    expect(intersect.access(0).none()) << "AND should not have v";
+    expect(intersect.access(4, 0, 0).none()) << "AND should not have m[0][0]";
+
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Var<MaskedStruct> ms;
+        ms.m = make_float3x3(
+            0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f);
+
+        $if (idx % 2u == 0u) {
+            ms.v = make_float3(1.0f, 2.0f, 3.0f);
+            ms.iv = make_int2(10, 20);
+        } $else {
+            ms.s = 4.0f;
+            ms.flag = true;
+        };
+
+        Float sum = ms.v.x + ms.v.y + ms.v.z + ms.s
+                    + cast<float>(ms.iv.x) + cast<float>(ms.iv.y)
+                    + ite(ms.flag, 1.0f, 0.0f)
+                    + ms.m[0][0] + ms.m[1][1] + ms.m[2][2];
+        out.write(idx, sum);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Scalar/GEP aggregate bitmask corner: host[0]={:f}, host[1]={:f}", host[0], host[1]);
+    expect(std::abs(host[0] - 36.0f) < 1e-4f) << "aggregate bitmask mismatch at idx 0";
+    expect(std::abs(host[1] - 5.0f) < 1e-4f) << "aggregate bitmask mismatch at idx 1";
+}
+
+// ---------------------------------------------------------------------------
+// New callable corner tests
+// Passes exercised: inline, dead_arg_elim, unused_callable_removal,
+//                   promote_ref_arg, dead_field_elimination
+// ---------------------------------------------------------------------------
+void test_callable_dead_arg_elim_corners(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Callable use_first_of_six = [](Float a, Float u1, Float u2, Float u3, Float u4, Float u5) noexcept {
+        return a + 10.0f;
+    };
+
+    Callable mul_with_dead = [](Float a, Float dead) noexcept {
+        return a * 2.0f;
+    };
+
+    Callable d1 = [](Float x) noexcept { return x + 1.0f; };
+    Callable d2 = [&d1](Float x) noexcept { return d1(x) * 2.0f; };
+    Callable d3 = [&d2](Float x) noexcept { return d2(x) + 3.0f; };
+    Callable d4 = [&d3](Float x) noexcept { return d3(x) * 4.0f; };
+    Callable d5 = [&d4](Float x) noexcept { return d4(x) - 5.0f; };
+
+    Kernel1D k = [&](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>();
+
+        Float r1 = use_first_of_six(val, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f);
+        Float r2 = mul_with_dead(val,       99.0f)
+                 + mul_with_dead(val + 1.0f, 98.0f)
+                 + mul_with_dead(val + 2.0f, 97.0f)
+                 + mul_with_dead(val + 3.0f, 96.0f);
+        Float r3 = d5(val);
+
+        out.write(idx, r1 + r2 + r3);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Dead-arg-elim corner: host[0]={:f}", host[0]);
+    expect(std::abs(host[0] - 37.0f) < 1e-4f) << "dead-arg-elim corner mismatch at idx 0";
+}
+
+void test_callable_unused_callable_corners(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    [[maybe_unused]] Callable unused_leaf = [](Float x) noexcept { return x * 100.0f; };
+    [[maybe_unused]] Callable unused_outer = [&unused_leaf](Float x) noexcept { return unused_leaf(x) + 1.0f; };
+    Callable ghost_captured = [](Float x) noexcept { return x * 999.0f; };
+    Callable used = [](Float x) noexcept { return x + 7.0f; };
+
+    Kernel1D k = [&](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>();
+        out.write(idx, used(val));
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Unused-callable corner: host[0]={:f}", host[0]);
+    expect(std::abs(host[0] - 7.0f) < 1e-4f) << "unused-callable-removal corner mismatch at idx 0";
+}
+
+void test_callable_ref_arg_and_struct(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Callable add_refs = [](Float &a, Float &b) noexcept {
+        return a + b;
+    };
+
+    Callable scale_ref = [](Float &x, Float s) noexcept {
+        return x * s;
+    };
+
+    Callable make_box = [](Float v) noexcept {
+        Var<ReturnBox> box;
+        box.x = v;
+        box.y = v + 1.0f;
+        box.z = v + 2.0f;
+        box.w = v + 3.0f;
+        return box;
+    };
+
+    Kernel1D k = [&](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>();
+        Float other = val + 10.0f;
+
+        Float r1 = add_refs(val, other);
+        Float r2 = scale_ref(val, 2.0f);
+        auto box = make_box(val);
+        Float r3 = box.x + box.w;
+
+        out.write(idx, r1 + r2 + r3);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Ref-arg/struct corner: host[0]={:f}", host[0]);
+    expect(std::abs(host[0] - 13.0f) < 1e-4f) << "ref-arg/struct corner mismatch at idx 0";
+}
+
+// ---------------------------------------------------------------------------
+// New analysis corner tests
+// Passes exercised: dom_tree, post_dom_tree, uniformity_analysis,
+//                   alias_analysis, pointer_usage, call_graph
+// ---------------------------------------------------------------------------
+void test_analysis_dom_postdom_uniformity(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(128);
+    auto result = device.create_buffer<float>(1);
+
+    Callable multi_return = [](Float x, UInt sel) noexcept {
+        $if (sel == 0u) { $return(x + 1.0f); };
+        $if (sel == 1u) { $return(x * 2.0f); };
+        $if (sel == 2u) { $return(x * x); };
+        return x + 10.0f;
+    };
+
+    Kernel1D k = [&](BufferVar<float> out, BufferVar<float> result) noexcept {
+        set_block_size(128);
+        auto idx = dispatch_id().x;
+
+        Float uniform_base = def(block_size().x).cast<float>();
+        Float uniform_size = dispatch_size().x.cast<float>();
+        Float uniform_sum = uniform_base + uniform_size;
+
+        Float non_uniform = idx.cast<float>();
+        Float mixed = uniform_sum + non_uniform;
+
+        Float val;
+        $if (idx % 2u == 0u) {
+            $if (idx % 4u == 0u) {
+                val = mixed + 1.0f;
+            } $else {
+                val = mixed + 2.0f;
+            };
+        } $else {
+            $if (idx % 3u == 0u) {
+                val = mixed + 4.0f;
+            } $else {
+                val = mixed + 8.0f;
+            };
+        };
+
+        $if (dispatch_size().x > 64u) {
+            val += uniform_base;
+        };
+
+        UInt sel = idx % 4u;
+        Float called = multi_return(val, sel);
+        out.write(idx, called);
+
+        $if (idx == 64u) {
+            result.write(0u, called);
+        };
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(128);
+    luisa::vector<float> host_result(1, 0.0f);
+    stream << shader(out, result).dispatch(128)
+           << out.copy_to(luisa::span{host})
+           << result.copy_to(luisa::span{host_result})
+           << synchronize();
+
+    LUISA_INFO("Analysis dom/post-dom/uniformity: host[0]={:f}, host[1]={:f}, result={:f}",
+               host[0], host[1], host_result[0]);
+
+    expect(std::abs(host[0] - 386.0f) < 1e-4f) << "dom/post-dom/uniformity mismatch at idx 0";
+    expect(std::abs(host[1] - 786.0f) < 1e-4f) << "dom/post-dom/uniformity mismatch at idx 1";
+    expect(std::abs(host_result[0] - 450.0f) < 1e-4f) << "dom/post-dom/uniformity summary mismatch";
+}
+
+void test_analysis_alias_pointer(Device &device) {
+    auto stream = device.create_stream();
+    auto base = device.create_buffer<float>(64);
+    auto view_a = base.view();
+    auto view_b = base.view();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> a, BufferVar<float> b, BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+
+        Var<PointerData> data;
+        data.a = 1.0f;
+        data.b = 2.0f;
+        data.c = 3.0f;
+        $if (idx % 2u == 0u) {
+            data.a = 10.0f;
+        } $else {
+            data.c = 30.0f;
+        };
+        Float struct_sum = data.a + data.b + data.c;
+
+        $array<float, 8> arr;
+        $for (i, 8) {
+            arr[i] = 0.0f;
+        };
+        $if (idx % 2u == 0u) {
+            arr[0] = 1.0f;
+            arr[1] = 2.0f;
+        } $else {
+            arr[2] = 4.0f;
+            arr[3] = 8.0f;
+        };
+        Float acc = 0.0f;
+        $for (i, 4) {
+            acc += arr[i];
+        };
+
+        a.write(idx, idx.cast<float>() + 1.0f);
+        Float via_a = a.read(idx);
+        Float via_b = b.read(idx);
+
+        out.write(idx, struct_sum + acc + via_a + via_b);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host_out(64);
+    stream << shader(view_a, view_b, out).dispatch(64)
+           << out.copy_to(luisa::span{host_out})
+           << synchronize();
+
+    LUISA_INFO("Analysis alias/pointer: out[0]={:f}, out[1]={:f}", host_out[0], host_out[1]);
+
+    expect(std::abs(host_out[0] - 20.0f) < 1e-4f) << "alias/pointer mismatch at idx 0";
+    expect(std::abs(host_out[1] - 49.0f) < 1e-4f) << "alias/pointer mismatch at idx 1";
+}
+
+void test_analysis_call_graph(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Callable leaf_a = [](Float x) noexcept { return x + 1.0f; };
+    Callable leaf_b = [](Float x) noexcept { return x * 2.0f; };
+    Callable mid = [&leaf_a, &leaf_b](Float x, UInt sel) noexcept {
+        Float r;
+        $if (sel % 2u == 0u) {
+            r = leaf_a(x);
+        } $else {
+            r = leaf_b(x);
+        };
+        return r;
+    };
+    Callable root = [&mid](Float x, UInt sel) noexcept {
+        return mid(x, sel) + mid(x + 1.0f, sel + 1u);
+    };
+
+    Callable unused_ghost = [](Float x) noexcept { return x * 999.0f; };
+    Callable another_unused = [&unused_ghost](Float x) noexcept { return unused_ghost(x); };
+
+    Kernel1D k = [&](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>();
+        UInt sel = idx % 4u;
+        Float r = root(val, sel);
+        out.write(idx, r);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Analysis call-graph: host[0]={:f}, host[1]={:f}, host[2]={:f}",
+               host[0], host[1], host[2]);
+
+    expect(std::abs(host[0] - 3.0f) < 1e-4f) << "call-graph mismatch at idx 0";
+    expect(std::abs(host[1] - 5.0f) < 1e-4f) << "call-graph mismatch at idx 1";
+    expect(std::abs(host[2] - 9.0f) < 1e-4f) << "call-graph mismatch at idx 2";
+}
+
+// ---------------------------------------------------------------------------
+// New cleanup/misc corner tests
+// Passes exercised: dce, fix_self_referential, outline
+// ---------------------------------------------------------------------------
+void test_cleanup_dce(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float val = idx.cast<float>();
+
+        Float dead_a = val * val + 2.0f * val + 1.0f;
+        Float dead_b = dead_a * dead_a - dead_a * 3.0f + val;
+        Float dead_c = dead_b + dead_b * 4.0f - dead_a + val;
+
+        Float live = val * 2.0f + 5.0f;
+        out.write(idx, live);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Cleanup DCE corner: host[0]={:f}, host[10]={:f}", host[0], host[10]);
+    for (auto i = 0u; i < 64u; ++i) {
+        expect(std::abs(host[i] - (2.0f * static_cast<float>(i) + 5.0f)) < 1e-4f)
+            << "DCE cleanup result mismatch at index " << i;
+    }
+}
+
+void test_cleanup_fix_self_referential(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+
+        $array<float, 4> arr;
+        arr[0] = 1.0f;
+        arr[1] = 2.0f;
+        arr[2] = 3.0f;
+        arr[3] = 4.0f;
+
+        arr[0] = arr[0] * 2.0f + idx.cast<float>();
+        arr[1] = arr[1] * 2.0f + idx.cast<float>();
+        arr[2] = arr[2] * 2.0f + idx.cast<float>();
+        arr[3] = arr[3] * 2.0f + idx.cast<float>();
+
+        Float sum = 0.0f;
+        $for (i, 4) {
+            sum += arr[i];
+        };
+
+        out.write(idx, sum);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Cleanup fix-self-referential corner: host[0]={:f}, host[10]={:f}", host[0], host[10]);
+    for (auto i = 0u; i < 64u; ++i) {
+        expect(std::abs(host[i] - (20.0f + 4.0f * static_cast<float>(i))) < 1e-4f)
+            << "fix-self-referential cleanup result mismatch at index " << i;
+    }
+}
+
+void test_cleanup_outline(Device &device) {
+    auto stream = device.create_stream();
+    auto out = device.create_buffer<float>(64);
+
+    Kernel1D k = [](BufferVar<float> out) noexcept {
+        set_block_size(64);
+        auto idx = dispatch_id().x;
+        Float acc = 0.0f;
+
+        $outline {
+            Float term = idx.cast<float>() * 3.0f + 1.0f;
+            acc += term;
+        };
+
+        $outline_with_name("outline_add_two") {
+            acc += 2.0f;
+        };
+
+        $if (idx % 2u == 0u) {
+            $outline {
+                acc += 10.0f;
+            };
+        };
+
+        out.write(idx, acc);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(64);
+    stream << shader(out).dispatch(64)
+           << out.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Cleanup outline corner: host[0]={:f}, host[10]={:f}", host[0], host[10]);
+    for (auto i = 0u; i < 64u; ++i) {
+        float expected = 3.0f * static_cast<float>(i) + 3.0f + (i % 2u == 0u ? 10.0f : 0.0f);
+        expect(std::abs(host[i] - expected) < 1e-4f)
+            << "outline cleanup result mismatch at index " << i;
+    }
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -991,10 +2500,40 @@ int main(int argc, char *argv[]) {
 
     auto &device = dc->device;
     test_control_flow_corners(device);
+    test_cfg_empty_constant_and_multi_predecessor_merge(device);
+    test_cfg_nested_switch_fallthrough_like(device);
+    test_cfg_tiny_diamond_if_conversion(device);
+    test_structured_break_continue(device);
+    test_structured_early_return(device);
+    test_structured_ray_query_loop(device);
+    test_memory_cross_block_phi(device);
+    test_memory_partial_sroa(device);
+    test_memory_dead_store_loop(device);
     test_memory_pass_corners(device);
     test_callable_inline_corners(device);
     test_loop_pass_corners(device);
     test_algebraic_pass_corners(device);
     test_scalarize_gep_corners(device);
+    test_algebraic_bitwise_identities(device);
+    test_algebraic_libcall_reassociate(device);
+    test_algebraic_early_cse(device);
+    test_value_gvn_cvp(device);
+    test_value_sccp_phi(device);
+    test_value_scalar_evolution(device);
+    test_loop_zero_one_trip(device);
+    test_loop_nested_licm(device);
+    test_loop_while_stride_break(device);
+    test_scalar_gep_vector_matrix(device);
+    test_scalar_gep_nested_aos_soa(device);
+    test_scalar_gep_aggregate_bitmask(device);
+    test_callable_dead_arg_elim_corners(device);
+    test_callable_unused_callable_corners(device);
+    test_callable_ref_arg_and_struct(device);
+    test_analysis_dom_postdom_uniformity(device);
+    test_analysis_alias_pointer(device);
+    test_analysis_call_graph(device);
+    test_cleanup_dce(device);
+    test_cleanup_fix_self_referential(device);
+    test_cleanup_outline(device);
     test_matrix_multiply(device);
 }

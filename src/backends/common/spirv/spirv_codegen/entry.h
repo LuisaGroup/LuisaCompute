@@ -52,6 +52,7 @@ private:
     luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _loop_header_redirect;
     luisa::unordered_set<const xir::BasicBlock *> _emitted_blocks;
     luisa::unordered_set<spv::Id> _used_merge_blocks;
+    luisa::vector<spv::Block *> _outer_merge_stack;
     luisa::vector<const xir::BasicBlock *> _pending_blocks;
     luisa::unordered_set<spv::Block *> _added_blocks;
 
@@ -118,10 +119,12 @@ private:
     void _pre_register_merge_blocks(const xir::FunctionDefinition *def) noexcept;
     void _emit_kernel(const xir::KernelFunction *kernel) noexcept;
     void _emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept;
+    void _reset_function_codegen_state() noexcept;
+    void _emit_function_blocks(const xir::FunctionDefinition *def) noexcept;
     void _analyze_function_argument_usage(const xir::Module *module) noexcept;
     Usage _function_argument_usage_of(const xir::Function *function,
                                       const xir::Argument *argument) const noexcept;
-    void _emit_block(const xir::BasicBlock *bb) noexcept;
+    void _emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block = nullptr) noexcept;
     void _emit_instruction(const xir::Instruction *inst) noexcept;
 
     void _emit_if_inst(const xir::IfInst *inst) noexcept;
