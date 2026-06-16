@@ -311,6 +311,14 @@ void test_autodiff_full(Device &device) {
         });
     }
 
+    // Test select operand gradient routing
+    {
+        auto options = AdCheckOptions{};
+        options.min_value = -2.0f;
+        options.max_value = 2.0f;
+        test_ad_helper<2>("select", device, [](auto a, auto b) { return select(a, b, a > 0.0f); }, options);
+    }
+
     // Test array operations
     {
         test_ad_helper<3>("array_sum", device, [](auto a, auto b, auto c) {
@@ -331,7 +339,7 @@ int main(int argc, char *argv[]) {
     if (!dc) {
         return 0;
     }
-    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char**>(argv));
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     auto &device = dc->device;
     test_autodiff_full(device);
 }

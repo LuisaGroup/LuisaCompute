@@ -106,233 +106,256 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     //   SPIR-V codegen now emits OpPhi directly; post-reg2mem no longer required.
 
     if (!LUISA_XIR_DISABLE_OPTIMIZATION) {
-    Clock opt_clk;
-    auto algebraic_options = xir::AlgebraicSimplifyOptions{.enable_fast_math = option.enable_fast_math};
-    auto opt_options = xir::OptimizationPipelineOptions{.enable_fast_math = option.enable_fast_math};
+        Clock opt_clk;
+        auto algebraic_options = xir::AlgebraicSimplifyOptions{.enable_fast_math = option.enable_fast_math};
+        auto opt_options = xir::OptimizationPipelineOptions{.enable_fast_math = option.enable_fast_math};
 
-    xir::PassPipeline phase_a;
-    phase_a.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::scalarizer_pass_run_on_module(m, &r);
-        return i.scalarized_inst_count > 0u;
-    });
-    phase_a.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::trace_gep_pass_run_on_module(m);
-        return i.traced_gep_count > 0u;
-    });
-    phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
-    });
-    phase_a.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::local_store_forward_pass_run_on_module(m, &r);
-        return i.removed_load_count > 0u;
-    });
-    phase_a.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
-        return i.removed_load_count > 0u;
-    });
-    phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
-    });
-    phase_a.add("algebraic-simplify", [algebraic_options](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options, &r);
-        return i.simplified_inst_count > 0u;
-    });
-    phase_a.add("simplify-libcalls", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::simplify_libcalls_pass_run_on_module(m, &r);
-        return i.simplified_count > 0u;
-    });
-    phase_a.add("reassociate", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::reassociate_pass_run_on_module(m, &r);
-        return i.reassociated_inst_count > 0u;
-    });
-    phase_a.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::const_fold_pass_run_on_module(m, &r);
-        return i.folded_inst_count > 0u;
-    });
-    phase_a.add("cvp", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::cvp_pass_run_on_module(m, &r);
-        return i.replaced_inst_count > 0u;
-    });
-    phase_a.add("div-rem-pairs", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::div_rem_pairs_pass_run_on_module(m, &r);
-        return i.merged_pair_count > 0u;
-    });
-    phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
-    });
-    phase_a.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
-        return i.promoted_ref_arg_count > 0u;
-    });
-    phase_a.add("sroa", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::sroa_pass_run_on_module(m, {}, &r);
-        return i.decomposed_alloca_count > 0u;
-    });
-    phase_a.add("gvn", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::gvn_pass_run_on_module(m, &r);
-        return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
-    });
-    phase_a.add("dead-store-elimination", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::dead_store_elimination_pass_run_on_module(m, &r);
-        return i.eliminated_store_count > 0u;
-    });
-    phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::dce_pass_run_on_module(m, &r);
-        return i.removed_inst_count > 0u || i.removed_block_count > 0u;
-    });
-    bool inlined_anything = false;
-    phase_a.add("inline", [&inlined_anything](xir::Module *m, xir::PassReport &r) {
-        auto i = xir::inline_pass_run_on_module(m, &r);
-        if (i.inlined_call_count > 0u) { inlined_anything = true; }
-        return i.inlined_call_count > 0u;
-    });
-    auto phase_a_stats = phase_a.run(xir_module.get());
-    LUISA_VERBOSE("SPIR-V Phase A done in {} ms.", phase_a_stats.total_ms);
-    phase_a_stats.log("SPIR-V Phase A");
-
-    if (inlined_anything) {
-        auto post_inline = xir::create_post_inline_cleanup_pipeline(opt_options);
-        auto post_inline_stats = post_inline.run(xir_module.get());
-        LUISA_VERBOSE("SPIR-V post-inline cleanup done in {} ms.", post_inline_stats.total_ms);
-        post_inline_stats.log("SPIR-V post-inline cleanup");
-
-        xir::PassPipeline post_inline_extra;
-        post_inline_extra.add("dead-arg-elim", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::dead_arg_elim_pass_run_on_module(m, &r);
-            return i.removed_arg_count > 0u;
+        xir::PassPipeline phase_a;
+        phase_a.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::scalarizer_pass_run_on_module(m, &r);
+            return i.scalarized_inst_count > 0u;
         });
-        post_inline_extra.add("dce", [](xir::Module *m, xir::PassReport &r) {
+        phase_a.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::trace_gep_pass_run_on_module(m);
+            return i.traced_gep_count > 0u;
+        });
+        phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::dce_pass_run_on_module(m, &r);
             return i.removed_inst_count > 0u || i.removed_block_count > 0u;
         });
-        auto post_inline_extra_stats = post_inline_extra.run(xir_module.get());
-        LUISA_VERBOSE("SPIR-V post-inline extra done in {} ms.", post_inline_extra_stats.total_ms);
-        post_inline_extra_stats.log("SPIR-V post-inline extra");
-    }
-
-    if (!LUISA_XIR_DISABLE_NORMALIZE_CFG) {
-        xir::PassPipeline norm;
-        norm.add("lower-ray-query-loop-to-loop", [](xir::Module *m, xir::PassReport &r) {
-            auto i = xir::lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
-            return i.lowered_ray_query_loop_count > 0u;
+        phase_a.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::local_store_forward_pass_run_on_module(m, &r);
+            return i.removed_load_count > 0u;
         });
+        phase_a.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
+            return i.removed_load_count > 0u;
+        });
+        phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        });
+        phase_a.add("algebraic-simplify", [algebraic_options](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options, &r);
+            return i.simplified_inst_count > 0u;
+        });
+        phase_a.add("simplify-libcalls", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::simplify_libcalls_pass_run_on_module(m, &r);
+            return i.simplified_count > 0u;
+        });
+        phase_a.add("reassociate", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::reassociate_pass_run_on_module(m, &r);
+            return i.reassociated_inst_count > 0u;
+        });
+        phase_a.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::const_fold_pass_run_on_module(m, &r);
+            return i.folded_inst_count > 0u;
+        });
+        phase_a.add("cvp", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::cvp_pass_run_on_module(m, &r);
+            return i.replaced_inst_count > 0u;
+        });
+        phase_a.add("div-rem-pairs", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::div_rem_pairs_pass_run_on_module(m, &r);
+            return i.merged_pair_count > 0u;
+        });
+        phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        });
+        phase_a.add("promote-ref-arg", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::promote_ref_arg_pass_run_on_module(m, &r);
+            return i.promoted_ref_arg_count > 0u;
+        });
+        phase_a.add("sroa", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::sroa_pass_run_on_module(m, {}, &r);
+            return i.decomposed_alloca_count > 0u;
+        });
+        phase_a.add("gvn", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::gvn_pass_run_on_module(m, &r);
+            return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+        });
+        phase_a.add("dead-store-elimination", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dead_store_elimination_pass_run_on_module(m, &r);
+            return i.eliminated_store_count > 0u;
+        });
+        phase_a.add("dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        });
+        bool inlined_anything = false;
+        phase_a.add("inline", [&inlined_anything](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::inline_pass_run_on_module(m, &r);
+            if (i.inlined_call_count > 0u) { inlined_anything = true; }
+            return i.inlined_call_count > 0u;
+        });
+        auto phase_a_stats = phase_a.run(xir_module.get());
+        LUISA_VERBOSE("SPIR-V Phase A done in {} ms.", phase_a_stats.total_ms);
+        phase_a_stats.log("SPIR-V Phase A");
 
-        if (!LUISA_XIR_DISABLE_RESTRUCTURE_CFG) {
-            norm.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
-                return i.destructured_if_count > 0u ||
-                       i.destructured_loop_count > 0u ||
-                       i.destructured_simple_loop_count > 0u;
+        if (inlined_anything) {
+            auto post_inline = xir::create_post_inline_cleanup_pipeline(opt_options);
+            auto post_inline_stats = post_inline.run(xir_module.get());
+            LUISA_VERBOSE("SPIR-V post-inline cleanup done in {} ms.", post_inline_stats.total_ms);
+            post_inline_stats.log("SPIR-V post-inline cleanup");
+
+            xir::PassPipeline post_inline_extra;
+            post_inline_extra.add("dead-arg-elim", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dead_arg_elim_pass_run_on_module(m, &r);
+                return i.removed_arg_count > 0u;
             });
-            norm.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::mem2reg_pass_run_on_module(m, &r);
-                return i.promoted_alloca_count > 0u;
-            });
-            norm.add("algebraic-simplify", [algebraic_options](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options, &r);
-                return i.simplified_inst_count > 0u;
-            });
-            norm.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::const_fold_pass_run_on_module(m, &r);
-                return i.folded_inst_count > 0u;
-            });
-            // SCCP: fixed loop-carried phi unsoundness (UNDEFINED was TOP,
-            // and visit_arithmetic had an operand-order bug that missed BOTTOM).
-            norm.add("sccp", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::sccp_pass_run_on_module(m, &r);
-                return i.folded_inst_count > 0u || i.removed_branch_count > 0u;
-            });
-            norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
+            post_inline_extra.add("dce", [](xir::Module *m, xir::PassReport &r) {
                 auto i = xir::dce_pass_run_on_module(m, &r);
                 return i.removed_inst_count > 0u || i.removed_block_count > 0u;
             });
-            norm.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::local_store_forward_pass_run_on_module(m, &r);
-                return i.removed_load_count > 0u;
-            });
-            norm.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
-                return i.removed_load_count > 0u;
-            });
-            norm.add("dead-store-elimination", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::dead_store_elimination_pass_run_on_module(m, &r);
-                return i.eliminated_store_count > 0u;
-            });
-            norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::dce_pass_run_on_module(m, &r);
-                return i.removed_inst_count > 0u || i.removed_block_count > 0u;
-            });
-            norm.add("gvn", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::gvn_pass_run_on_module(m, &r);
-                return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
-            });
-            norm.add("if-conversion", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::if_conversion_pass_run_on_module(m, &r);
-                return i.converted_diamond_count > 0u;
-            });
-            norm.add("phi-cleanup", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::phi_cleanup_pass_run_on_module(m, &r);
-                return i.removed_phi_count > 0u;
-            });
-            norm.add("unused-callable-removal", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::unused_callable_removal_pass_run_on_module(m, &r);
-                return i.removed_callable_count > 0u;
-            });
-            norm.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
-                return i.folded_constant_cond_br_count > 0u ||
-                       i.folded_switch_count > 0u ||
-                       i.threaded_empty_block_count > 0u ||
-                       i.merged_straight_line_count > 0u ||
-                       i.removed_unreachable_block_count > 0u;
-            });
-            norm.add("reg2mem-pre", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::reg2mem_pass_run_on_module(m, &r);
-                return i.lowered_phi_count > 0u;
-            });
-            norm.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
-                return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
-            });
-            norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::dce_pass_run_on_module(m, &r);
-                return i.removed_inst_count > 0u || i.removed_block_count > 0u;
-            });
-            norm.add("reg2mem-mid", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::reg2mem_pass_run_on_module(m, &r);
-                return i.lowered_phi_count > 0u;
-            });
-            norm.add_fixed_point("phase-c", xir::create_post_restructure_cleanup_pipeline(opt_options), 1u);
-            norm.add("fix-self-referential", [](xir::Module *m, xir::PassReport &r) {
-                auto i = xir::fix_self_referential_pass_run_on_module(m, &r);
-                return i.fixed_count > 0u;
-            });
+            auto post_inline_extra_stats = post_inline_extra.run(xir_module.get());
+            LUISA_VERBOSE("SPIR-V post-inline extra done in {} ms.", post_inline_extra_stats.total_ms);
+            post_inline_extra_stats.log("SPIR-V post-inline extra");
         }
-        auto norm_stats = norm.run(xir_module.get());
-        LUISA_VERBOSE("SPIR-V CFG normalization done in {} ms.", norm_stats.total_ms);
-        norm_stats.log("SPIR-V CFG normalization"); 
+
+        xir::PassPipeline autodiff;
+        autodiff.add("autodiff", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::autodiff_pass_run_on_module(m);
+            r.set("transformed_scope_count", i.transformed_scope_count);
+            r.set("removed_instruction_count", i.removed_instruction_count);
+            return i.transformed_scope_count > 0u || i.removed_instruction_count > 0u;
+        });
+        autodiff.add("scalarizer", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::scalarizer_pass_run_on_module(m, &r);
+            return i.scalarized_inst_count > 0u;
+        });
+        autodiff.add("sroa", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::sroa_pass_run_on_module(m, {}, &r);
+            return i.decomposed_alloca_count > 0u;
+        });
+        autodiff.add("dce", [](xir::Module *m, xir::PassReport &r) {
+            auto i = xir::dce_pass_run_on_module(m, &r);
+            return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+        });
+        auto autodiff_stats = autodiff.run(xir_module.get());
+        LUISA_VERBOSE("SPIR-V autodiff lowering done in {} ms.", autodiff_stats.total_ms);
+        autodiff_stats.log("SPIR-V autodiff");
+
+        if (!LUISA_XIR_DISABLE_NORMALIZE_CFG) {
+            xir::PassPipeline norm;
+            norm.add("lower-ray-query-loop-to-loop", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::lower_ray_query_loop_to_loop_pass_run_on_module(m, &r);
+                return i.lowered_ray_query_loop_count > 0u;
+            });
+
+            if (!LUISA_XIR_DISABLE_RESTRUCTURE_CFG) {
+                norm.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
+                    return i.destructured_if_count > 0u ||
+                           i.destructured_loop_count > 0u ||
+                           i.destructured_simple_loop_count > 0u;
+                });
+                norm.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::mem2reg_pass_run_on_module(m, &r);
+                    return i.promoted_alloca_count > 0u;
+                });
+                norm.add("algebraic-simplify", [algebraic_options](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options, &r);
+                    return i.simplified_inst_count > 0u;
+                });
+                norm.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::const_fold_pass_run_on_module(m, &r);
+                    return i.folded_inst_count > 0u;
+                });
+                // SCCP: fixed loop-carried phi unsoundness (UNDEFINED was TOP,
+                // and visit_arithmetic had an operand-order bug that missed BOTTOM).
+                norm.add("sccp", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::sccp_pass_run_on_module(m, &r);
+                    return i.folded_inst_count > 0u || i.removed_branch_count > 0u;
+                });
+                norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::dce_pass_run_on_module(m, &r);
+                    return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+                });
+                norm.add("local-store-forward", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::local_store_forward_pass_run_on_module(m, &r);
+                    return i.removed_load_count > 0u;
+                });
+                norm.add("local-load-elimination", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::local_load_elimination_pass_run_on_module(m, &r);
+                    return i.removed_load_count > 0u;
+                });
+                norm.add("dead-store-elimination", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::dead_store_elimination_pass_run_on_module(m, &r);
+                    return i.eliminated_store_count > 0u;
+                });
+                norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::dce_pass_run_on_module(m, &r);
+                    return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+                });
+                norm.add("gvn", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::gvn_pass_run_on_module(m, &r);
+                    return i.replaced_inst_count > 0u || i.removed_inst_count > 0u;
+                });
+                norm.add("if-conversion", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::if_conversion_pass_run_on_module(m, &r);
+                    return i.converted_diamond_count > 0u;
+                });
+                norm.add("phi-cleanup", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::phi_cleanup_pass_run_on_module(m, &r);
+                    return i.removed_phi_count > 0u;
+                });
+                norm.add("unused-callable-removal", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::unused_callable_removal_pass_run_on_module(m, &r);
+                    return i.removed_callable_count > 0u;
+                });
+                norm.add("simplify-cfg", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::simplify_cfg_pass_run_on_module(m, &r);
+                    return i.folded_constant_cond_br_count > 0u ||
+                           i.folded_switch_count > 0u ||
+                           i.threaded_empty_block_count > 0u ||
+                           i.merged_straight_line_count > 0u ||
+                           i.removed_unreachable_block_count > 0u;
+                });
+                norm.add("reg2mem-pre", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::reg2mem_pass_run_on_module(m, &r);
+                    return i.lowered_phi_count > 0u;
+                });
+                norm.add("restructure-cfg", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::restructure_cfg_pass_run_on_module(m, &r);
+                    return i.restructured_loop_count > 0u || i.restructured_if_count > 0u;
+                });
+                norm.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::dce_pass_run_on_module(m, &r);
+                    return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+                });
+                norm.add("reg2mem-mid", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::reg2mem_pass_run_on_module(m, &r);
+                    return i.lowered_phi_count > 0u;
+                });
+                norm.add_fixed_point("phase-c", xir::create_post_restructure_cleanup_pipeline(opt_options), 1u);
+                norm.add("fix-self-referential", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::fix_self_referential_pass_run_on_module(m, &r);
+                    return i.fixed_count > 0u;
+                });
+            }
+            auto norm_stats = norm.run(xir_module.get());
+            LUISA_VERBOSE("SPIR-V CFG normalization done in {} ms.", norm_stats.total_ms);
+            norm_stats.log("SPIR-V CFG normalization");
+
+            if (luisa::compute::backend_print_code_enabled()) {
+                auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());
+                dump_xir_module(xir_module.get(), filename);
+            }
+        }
 
         if (luisa::compute::backend_print_code_enabled()) {
-            auto filename = luisa::format("kernel.{:016x}.norm.xir", kernel.hash());
+            auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
             dump_xir_module(xir_module.get(), filename);
         }
-    }
 
-    if (luisa::compute::backend_print_code_enabled()) {
-        auto filename = luisa::format("kernel.{:016x}.opt.xir", kernel.hash());
-        dump_xir_module(xir_module.get(), filename);
-    }
+        LUISA_VERBOSE("XIR optimization done in {} ms.", opt_clk.toc());
 
-    LUISA_VERBOSE("XIR optimization done in {} ms.", opt_clk.toc());
-
-    if (luisa::compute::backend_print_code_enabled()) {
-        auto filename = luisa::format("kernel.{:016x}.opt.rq.xir", kernel.hash());
-        dump_xir_module(xir_module.get(), filename);
-    }
-    } // if (!LUISA_XIR_DISABLE_OPTIMIZATION)
+        if (luisa::compute::backend_print_code_enabled()) {
+            auto filename = luisa::format("kernel.{:016x}.opt.rq.xir", kernel.hash());
+            dump_xir_module(xir_module.get(), filename);
+        }
+    }// if (!LUISA_XIR_DISABLE_OPTIMIZATION)
     return xir_module;
 }
 

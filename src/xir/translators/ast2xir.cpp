@@ -26,8 +26,6 @@ public:
         BreakContinueTarget break_continue_target;
         luisa::unordered_map<Variable, Value *> variables;
         luisa::vector<const CommentStmt *> comments;
-        luisa::unordered_map<Variable, Value *> adjoint_variables;
-        luisa::unordered_set<Value *> initialized_adjoint_variables;
     };
 
     struct TypedLiteral {
@@ -308,62 +306,6 @@ private:
             iter->second = _module->create_constant(c.type(), c.raw());
         }
         return iter->second;
-    }
-
-    void _reset_adjoint_variable(XIRBuilder &b, Value *adjoint) noexcept {
-        auto zero = _module->create_constant_zero(adjoint->type());
-        auto store = b.store(adjoint, zero);
-        store->add_comment("reset adjoint variable");
-    }
-
-    [[nodiscard]] Value *_get_or_create_adjoint_variable(XIRBuilder &b, const Expression *expr) noexcept {
-        LUISA_ASSERT(expr->tag() == Expression::Tag::REF, "Unexpected expression tag.");
-        auto ast_var = static_cast<const RefExpr *>(expr)->variable();
-        auto [iter, just_inserted] = _current.adjoint_variables.try_emplace(ast_var, nullptr);
-        if (just_inserted) {
-            XIRBuilder bb;
-            bb.set_insertion_point(_current.f->body_block()->instructions().head_sentinel());
-            iter->second = bb.alloca_local(ast_var.type());
-            iter->second->add_comment("adjoint variable for autodiff");
-            _reset_adjoint_variable(bb, iter->second);
-        }
-        return iter->second;
-    }
-
-    void _accumulate_grad(XIRBuilder &b, Value *adjoint, Value *grad) noexcept {
-        LUISA_ASSERT(adjoint->type() == grad->type(), "Adjoint and gradient type mismatch.");
-        switch (auto type = adjoint->type(); type->tag()) {
-            case Type::Tag::FLOAT16: [[fallthrough]];
-            case Type::Tag::FLOAT32: [[fallthrough]];
-            case Type::Tag::FLOAT64: [[fallthrough]];
-            case Type::Tag::VECTOR: [[fallthrough]];
-            case Type::Tag::MATRIX: {
-                auto old_grad = b.load(type, adjoint);
-                auto new_grad = b.call(type, ArithmeticOp::BINARY_ADD, {old_grad, grad});
-                b.store(adjoint, new_grad);
-                break;
-            }
-            case Type::Tag::ARRAY: {
-                auto elem_type = type->element();
-                auto dim = type->dimension();
-                for (auto i = 0u; i < dim; i++) {
-                    auto adjoint_elem = b.gep(elem_type, adjoint, {_translate_constant_access_index(i)});
-                    auto grad_elem = b.call(elem_type, ArithmeticOp::EXTRACT, {grad, _translate_constant_access_index(i)});
-                    _accumulate_grad(b, adjoint_elem, grad_elem);
-                }
-                break;
-            }
-            case Type::Tag::STRUCTURE: {
-                auto member_types = type->members();
-                for (auto i = 0u; i < member_types.size(); i++) {
-                    auto adjoint_elem = b.gep(member_types[i], adjoint, {_translate_constant_access_index(i)});
-                    auto grad_elem = b.call(member_types[i], ArithmeticOp::EXTRACT, {grad, _translate_constant_access_index(i)});
-                    _accumulate_grad(b, adjoint_elem, grad_elem);
-                }
-                break;
-            }
-            default: break;
-        }
     }
 
     [[nodiscard]] Value *_translate_call_expr(XIRBuilder &b, const CallExpr *expr) noexcept {
@@ -743,27 +685,39 @@ private:
             case CallOp::UNPACK: LUISA_NOT_IMPLEMENTED();
             case CallOp::REQUIRES_GRADIENT: {
                 LUISA_ASSERT(expr->arguments().size() == 1u, "Requires gradient call requires exactly one argument.");
-                auto adjoint = _get_or_create_adjoint_variable(b, expr->arguments()[0]);
-                _reset_adjoint_variable(b, adjoint);
+                auto value = _translate_expression(b, expr->arguments()[0], false);
+                b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {value});
                 return nullptr;
             }
-            case CallOp::GRADIENT: LUISA_NOT_IMPLEMENTED();
-            case CallOp::GRADIENT_MARKER: LUISA_NOT_IMPLEMENTED();
+            case CallOp::GRADIENT: {
+                LUISA_ASSERT(expr->arguments().size() == 1u, "Gradient call requires exactly one argument.");
+                auto value = _translate_expression(b, expr->arguments()[0], false);
+                return b.call(expr->type(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {value});
+            }
+            case CallOp::GRADIENT_MARKER: {
+                LUISA_ASSERT(expr->arguments().size() == 2u, "Gradient marker call requires exactly two arguments.");
+                auto value = _translate_expression(b, expr->arguments()[0], false);
+                auto grad = _translate_expression(b, expr->arguments()[1], true);
+                b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {value, grad});
+                return nullptr;
+            }
             case CallOp::ACCUMULATE_GRADIENT: {
                 LUISA_ASSERT(expr->arguments().size() == 2u, "Accumulate gradient call requires exactly two arguments.");
-                auto adjoint = _translate_expression(b, expr->arguments()[0], false);// WHY???
-                if (_current.initialized_adjoint_variables.emplace(adjoint).second) {
-                    LUISA_ASSERT(adjoint->isa<AllocaInst>());
-                    XIRBuilder init_builder;
-                    init_builder.set_insertion_point(static_cast<AllocaInst *>(adjoint));
-                    _reset_adjoint_variable(init_builder, adjoint);
-                }
+                auto adjoint = _translate_expression(b, expr->arguments()[0], false);
                 auto grad = _translate_expression(b, expr->arguments()[1], true);
-                _accumulate_grad(b, adjoint, grad);
+                b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_ACCUMULATE_GRADIENT, {adjoint, grad});
                 return nullptr;
             }
-            case CallOp::BACKWARD: LUISA_NOT_IMPLEMENTED();
-            case CallOp::DETACH: LUISA_NOT_IMPLEMENTED();
+            case CallOp::BACKWARD: {
+                LUISA_ASSERT(expr->arguments().empty(), "Backward call takes no XIR operands; use gradient_marker for seed.");
+                b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+                return nullptr;
+            }
+            case CallOp::DETACH: {
+                LUISA_ASSERT(expr->arguments().size() == 1u, "Detach call requires exactly one argument.");
+                auto value = _translate_expression(b, expr->arguments()[0], true);
+                return b.call(expr->type(), AutodiffIntrinsicOp::AUTODIFF_DETACH, {value});
+            }
             case CallOp::RAY_TRACING_INSTANCE_TRANSFORM: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_TRANSFORM);
             case CallOp::RAY_TRACING_INSTANCE_USER_ID: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_USER_ID);
             case CallOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK: return resource_call(ResourceQueryOp::RAY_TRACING_INSTANCE_VISIBILITY_MASK);

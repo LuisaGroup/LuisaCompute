@@ -289,6 +289,13 @@ private:
         _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
     }
 
+    void _emit_autodiff_scope_inst(const AutodiffScopeInst *inst, int indent) noexcept {
+        _main << "autodiff entry ";
+        _flat_blocks ? _emit_basic_block_ref(inst->entry_block()) : _emit_basic_block(inst->entry_block(), indent);
+        _main << ", merge ";
+        _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);
+    }
+
     void _emit_switch_inst(const SwitchInst *inst, int indent) noexcept {
         _main << "switch " << _value_ident(inst->value()) << ", ";
         for (auto i = 0u; i < inst->case_count(); i++) {
@@ -541,7 +548,9 @@ private:
             case DerivedInstructionTag::OUTLINE:
                 _emit_outline_inst(static_cast<const OutlineInst *>(inst), indent);
                 break;
-            case DerivedInstructionTag::AUTODIFF_SCOPE: LUISA_NOT_IMPLEMENTED();
+            case DerivedInstructionTag::AUTODIFF_SCOPE:
+                _emit_autodiff_scope_inst(static_cast<const AutodiffScopeInst *>(inst), indent);
+                break;
             case DerivedInstructionTag::AUTODIFF_INTRINSIC:
                 _emit_autodiff_intrinsic_inst(static_cast<const AutodiffIntrinsicInst *>(inst));
                 break;
