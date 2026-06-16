@@ -9,11 +9,24 @@ namespace {
                                  const xir::BasicBlock *to) noexcept {
     if (from == nullptr || to == nullptr) { return false; }
     if (from == to) { return true; }
-    bool found = false;
-    from->traverse_successors(true, [&](const xir::BasicBlock *succ) noexcept {
-        if (succ == to) { found = true; }
-    });
-    return found;
+    luisa::unordered_set<const xir::BasicBlock *> visited;
+    luisa::vector<const xir::BasicBlock *> worklist;
+    worklist.emplace_back(from);
+    while (!worklist.empty()) {
+        auto *bb = worklist.back();
+        worklist.pop_back();
+        if (bb == nullptr || !visited.emplace(bb).second) { continue; }
+        bool found = false;
+        bb->traverse_successors(true, [&](const xir::BasicBlock *succ) noexcept {
+            if (succ == to) {
+                found = true;
+            } else if (!visited.contains(succ)) {
+                worklist.emplace_back(succ);
+            }
+        });
+        if (found) { return true; }
+    }
+    return false;
 }
 
 [[nodiscard]] bool block_has_predecessors(const xir::BasicBlock *bb) noexcept {
