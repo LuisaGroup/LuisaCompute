@@ -32,7 +32,9 @@
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/vstl/common.h>
 #include <fstream>
+#ifdef LUISA_ENABLE_XIR
 #include <luisa/xir/passes/aggregate_field_bitmask.h>
+#endif
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -2024,6 +2026,7 @@ void test_scalar_gep_nested_aos_soa(Device &device) {
 }
 
 void test_scalar_gep_aggregate_bitmask(Device &device) {
+#ifdef LUISA_ENABLE_XIR
     xir::AggregateFieldBitmask mask{Type::of<MaskedStruct>()};
     mask.access(0).set();
     mask.access(1).set();
@@ -2044,6 +2047,7 @@ void test_scalar_gep_aggregate_bitmask(Device &device) {
     auto intersect = mask & other;
     expect(intersect.access(0).none()) << "AND should not have v";
     expect(intersect.access(4, 0, 0).none()) << "AND should not have m[0][0]";
+#endif
 
     auto stream = device.create_stream();
     auto out = device.create_buffer<float>(64);
