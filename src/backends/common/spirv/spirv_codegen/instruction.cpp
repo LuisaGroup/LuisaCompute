@@ -3554,13 +3554,11 @@ void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatc
     // instead of the continue block, satisfying SPIR-V structured control flow rules.
     auto saved_redirect = _loop_header_redirect[dispatch_xir_block];
     _loop_header_redirect[dispatch_xir_block] = dispatch_merge_block;
-    if (surface_fresh) { function.addBlock(surface_block); }
     _builder.setBuildPoint(surface_block);
     _emit_block(inst->on_surface_candidate_block());
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, dispatch_merge_block);
     }
-    if (procedural_fresh) { function.addBlock(procedural_block); }
     _builder.setBuildPoint(procedural_block);
     _emit_block(inst->on_procedural_candidate_block());
     if (!_builder.getBuildPoint()->isTerminated()) {

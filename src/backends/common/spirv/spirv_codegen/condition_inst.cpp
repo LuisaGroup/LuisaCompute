@@ -57,13 +57,6 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     auto true_block = bind_or_get(inst->true_block(), true_fresh);
     auto false_block = bind_or_get(inst->false_block(), false_fresh);
     auto merge_block = bind_or_get(inst->merge_block(), merge_fresh);
-    // Track this construct's merge so nested constructs can tell whether one of
-    // their arms is really an outer merge block.  Using an outer merge as an arm
-    // would place the outer merge after the inner construct in the binary while
-    // the inner construct's merge is dominated by that arm, causing a dominance
-    // ordering violation.  We avoid that by cloning the arm into a fresh block.
-    _outer_merge_stack.push_back(merge_block);
-
     // If the merge block is not reachable from either arm (both arms exit the
     // construct via break/continue/return), using it as the SPIR-V selection
     // merge would force glslang's inReadableOrder() to emit the dead merge
@@ -91,17 +84,23 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     // instructions into a fresh SPIR-V block instead.  This keeps the outer
     // merge block free to be emitted after the inner construct, avoiding the
     // dominance-ordering conflict described above.
-    auto make_arm_target = [&](spv::Block *arm_block, bool arm_fresh) -> spv::Block * {
+    auto make_arm_target = [&](const xir::BasicBlock *xb, spv::Block *arm_block) -> spv::Block * {
+        if (xb == inst->merge_block()) { return selection_merge_target; }
         bool is_outer_merge = std::find(_outer_merge_stack.begin(), _outer_merge_stack.end(), arm_block) !=
                               _outer_merge_stack.end();
         if (!is_outer_merge) { return arm_block; }
         auto *synthetic = new spv::Block(_builder.getUniqueId(), function);
-        _added_blocks.emplace(synthetic);
-        function.addBlock(synthetic);
         return synthetic;
     };
-    auto true_target = make_arm_target(true_block, true_fresh);
-    auto false_target = make_arm_target(false_block, false_fresh);
+    auto true_target = make_arm_target(inst->true_block(), true_block);
+    auto false_target = make_arm_target(inst->false_block(), false_block);
+
+    // Track this construct's merge so nested constructs can tell whether one of
+    // their arms is really an outer merge block.  Using an outer merge as an arm
+    // would place the outer merge after the inner construct in the binary while
+    // the inner construct's merge is dominated by that arm, causing a dominance
+    // ordering violation.  We avoid that by cloning the arm into a fresh block.
+    _outer_merge_stack.push_back(merge_block);
 
     auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
     selection_merge->reserveOperands(2);
@@ -109,18 +108,20 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
     _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
     _builder.createConditionalBranch(cond, true_target, false_target);
-    if (true_target != true_block || true_fresh) { function.addBlock(true_target); _added_blocks.emplace(true_target); }
-    _builder.setBuildPoint(true_target);
-    _emit_block(inst->true_block(), true_target);
-    if (!_builder.getBuildPoint()->isTerminated()) {
-        _builder.createBranch(false, selection_merge_target);
-    }
-    if (false_target != false_block || false_fresh) { function.addBlock(false_target); _added_blocks.emplace(false_target); }
-    _builder.setBuildPoint(false_target);
-    _emit_block(inst->false_block(), false_target);
-    if (!_builder.getBuildPoint()->isTerminated()) {
-        _builder.createBranch(false, selection_merge_target);
-    }
+    auto emit_arm = [&](const xir::BasicBlock *xb, spv::Block *target) noexcept {
+        if (xb == inst->merge_block()) { return; }
+        if (!_added_blocks.contains(target)) {
+            function.addBlock(target);
+            _added_blocks.emplace(target);
+        }
+        _builder.setBuildPoint(target);
+        _emit_block(xb, target);
+        if (!_builder.getBuildPoint()->isTerminated()) {
+            _builder.createBranch(false, selection_merge_target);
+        }
+    };
+    emit_arm(inst->true_block(), true_target);
+    emit_arm(inst->false_block(), false_target);
     if (synthetic_merge != nullptr) {
         function.addBlock(synthetic_merge);
         _added_blocks.emplace(synthetic_merge);
@@ -160,6 +161,7 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
 }
 
 void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
+    auto pending_base = _pending_blocks.size();
     auto header = &_builder.makeNewBlock();
     _added_blocks.emplace(header);
     auto prepare = _get_or_create_block(inst->prepare_block());
@@ -175,7 +177,7 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     _builder.createBranch(false, prepare);
     _emit_block(inst->prepare_block());
     _emit_block(inst->body_block());
-    while (!_pending_blocks.empty()) {
+    while (_pending_blocks.size() > pending_base) {
         auto *bb = _pending_blocks.back();
         _pending_blocks.pop_back();
         if (bb == inst->update_block() || bb == inst->merge_block()) {
@@ -188,6 +190,7 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
 }
 
 void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) noexcept {
+    auto pending_base = _pending_blocks.size();
     auto header = &_builder.makeNewBlock();
     _added_blocks.emplace(header);
     auto continue_block = &_builder.makeNewBlock();
@@ -202,7 +205,7 @@ void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) 
     _builder.createLoopMerge(merge, continue_block, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, body);
     _emit_block(inst->body_block());
-    while (!_pending_blocks.empty()) {
+    while (_pending_blocks.size() > pending_base) {
         auto *bb = _pending_blocks.back();
         _pending_blocks.pop_back();
         if (bb == inst->merge_block()) {
@@ -322,6 +325,9 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
         loop_header = &_builder.makeNewBlock();
         loop_continue = &_builder.makeNewBlock();
         loop_merge = &_builder.makeNewBlock();
+        _added_blocks.emplace(loop_header);
+        _added_blocks.emplace(loop_continue);
+        _added_blocks.emplace(loop_merge);
 
         _builder.createBranch(false, loop_header);
         _block_map[switch_xir_bb] = loop_header;
@@ -363,6 +369,7 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     }
     _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(switch_inst));
     for (uint i = 0u; i < case_count; ++i) {
+        if (inst->case_block(i) == inst->merge_block()) { continue; }
         if (segment_fresh[i]) { function.addBlock(segment_blocks[i]); _added_blocks.emplace(segment_blocks[i]); }
         _builder.setBuildPoint(segment_blocks[i]);
         _emit_block(inst->case_block(i));
@@ -370,11 +377,13 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
             _builder.createBranch(false, selection_merge_target);
         }
     }
-    if (segment_fresh[case_count]) { function.addBlock(segment_blocks[case_count]); _added_blocks.emplace(segment_blocks[case_count]); }
-    _builder.setBuildPoint(segment_blocks[case_count]);
-    _emit_block(inst->default_block());
-    if (!_builder.getBuildPoint()->isTerminated()) {
-        _builder.createBranch(false, selection_merge_target);
+    if (inst->default_block() != inst->merge_block()) {
+        if (segment_fresh[case_count]) { function.addBlock(segment_blocks[case_count]); _added_blocks.emplace(segment_blocks[case_count]); }
+        _builder.setBuildPoint(segment_blocks[case_count]);
+        _emit_block(inst->default_block());
+        if (!_builder.getBuildPoint()->isTerminated()) {
+            _builder.createBranch(false, selection_merge_target);
+        }
     }
     while (_pending_blocks.size() > pending_base) {
         auto *bb = _pending_blocks.back();
@@ -393,7 +402,6 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     if (needs_loop_wrapper) {
         _builder.setBuildPoint(loop_continue);
         _builder.createBranch(false, loop_header);
-        function.addBlock(loop_merge);
         _builder.setBuildPoint(loop_merge);
         _builder.createNoResultOp(spv::Op::OpUnreachable);
     }

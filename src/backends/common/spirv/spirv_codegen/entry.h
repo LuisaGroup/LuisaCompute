@@ -44,7 +44,6 @@ private:
     luisa::unordered_map<const Type *, spv::Id> _type_map;
     luisa::unordered_map<const Type *, spv::Id> _sampled_image_type_map;
     luisa::unordered_map<const Type *, spv::Id> _storage_image_type_map;
-    luisa::unordered_set<const Type *> _storage_texture_types;
     luisa::unordered_map<const xir::Value *, spv::Id> _value_map;
     luisa::unordered_map<const xir::Function *, spv::Function *> _function_map;
     luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _block_map;

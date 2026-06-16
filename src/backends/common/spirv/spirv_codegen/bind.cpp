@@ -531,8 +531,10 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             }
             case ShaderVariableType::SRVTextureHeap: {
                 auto [sampled_type, dim] = get_image_sampled_type_and_dim(elem_type, i);
-                auto image_type = _builder.makeImageType(
-                    sampled_type, dim, false, false, false, 1, spv::ImageFormat::Unknown, "image");
+                auto image_type = elem_type == nullptr ?
+                                      _builder.makeImageType(sampled_type, dim, false, false, false,
+                                                             1, spv::ImageFormat::Unknown, "image") :
+                                      _convert_type(elem_type, Usage::READ);
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
                     _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::RuntimeDescriptorArray);
@@ -563,8 +565,10 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
             }
             case ShaderVariableType::UAVTextureHeap: {
                 auto [sampled_type, dim] = get_image_sampled_type_and_dim(elem_type, i);
-                auto image_type = _builder.makeImageType(
-                    sampled_type, dim, false, false, false, 2, spv::ImageFormat::Unknown, "image");
+                auto image_type = elem_type == nullptr ?
+                                      _builder.makeImageType(sampled_type, dim, false, false, false,
+                                                             2, spv::ImageFormat::Unknown, "image") :
+                                      _convert_type(elem_type, Usage::WRITE);
                 if (prop.array_size == std::numeric_limits<uint>::max()) {
                     _builder.addIncorporatedExtension("SPV_EXT_descriptor_indexing", spv::Spv_1_5);
                     _builder.addCapability(spv::Capability::RuntimeDescriptorArray);

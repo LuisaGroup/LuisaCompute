@@ -58,7 +58,6 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _type_map.clear();
     _sampled_image_type_map.clear();
     _storage_image_type_map.clear();
-    _storage_texture_types.clear();
     _value_map.clear();
     _function_map.clear();
     _block_map.clear();
@@ -404,7 +403,6 @@ spv::Block *SpirvCodegenEntry::_get_or_create_block(const xir::BasicBlock *bb) n
 void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block) noexcept {
     if (bb == nullptr) { return; }
     if (!_emitted_blocks.emplace(bb).second) {
-        LUISA_VERBOSE("_emit_block skip already-emitted {}", bb->name().value_or("?"));
         return;
     }
     auto spv_block = override_spv_block != nullptr ? override_spv_block : _get_or_create_block(bb);
@@ -644,7 +642,6 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
 
 void SpirvCodegenEntry::_analyze_function_argument_usage(const xir::Module *module) noexcept {
     _function_argument_usage.clear();
-    _storage_texture_types.clear();
     auto merge_usage = [](Usage lhs, Usage rhs) noexcept {
         return static_cast<Usage>(luisa::to_underlying(lhs) | luisa::to_underlying(rhs));
     };
@@ -688,9 +685,6 @@ void SpirvCodegenEntry::_analyze_function_argument_usage(const xir::Module *modu
                 case xir::DerivedInstructionTag::RESOURCE_WRITE: {
                     auto write = static_cast<const xir::ResourceWriteInst *>(inst);
                     if (write->operand_count() > 0u) {
-                        if (auto type = write->operand(0u)->type(); type != nullptr && type->is_texture()) {
-                            _storage_texture_types.emplace(type);
-                        }
                         static_cast<void>(add_usage(function, write->operand(0u), Usage::WRITE));
                     }
                     break;
@@ -777,10 +771,6 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
             continue;
         }
         auto usage = _function_argument_usage_of(callable, arg);
-        if (arg->type()->is_texture() && _storage_texture_types.contains(arg->type())) {
-            usage = static_cast<Usage>(
-                luisa::to_underlying(usage) | luisa::to_underlying(Usage::WRITE));
-        }
         if (arg->is_resource()) {
             auto type = arg->type();
             spv::Id pointee_type = spv::NoResult;
@@ -831,10 +821,6 @@ void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, co
         _value_map.emplace(arg, param_id);
         if (arg->type()->tag() == Type::Tag::TEXTURE) {
             auto usage = _function_argument_usage_of(callable, arg);
-            if (_storage_texture_types.contains(arg->type())) {
-                usage = static_cast<Usage>(
-                    luisa::to_underlying(usage) | luisa::to_underlying(Usage::WRITE));
-            }
             _is_storage_image_map.emplace(
                 param_id,
                 (luisa::to_underlying(usage) & luisa::to_underlying(Usage::WRITE)) != 0u);
