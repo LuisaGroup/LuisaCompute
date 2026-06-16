@@ -72,7 +72,7 @@ void test_byte_buffer_bool_read(Device &device) {
     auto stream = device.create_stream();
     stream << byte_buffer.copy_from(&input)
            << test_shader(byte_buffer, result_buffer).dispatch(1u)
-           << result_buffer.copy_to(&result)
+           << result_buffer.copy_to(luisa::span{&result, 1u})
            << synchronize();
     expect(result == 2u) << "byte_buffer_bool_read_must_ignore_neighboring_bytes";
 }
