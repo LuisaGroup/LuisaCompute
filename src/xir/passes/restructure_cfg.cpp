@@ -2134,7 +2134,6 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                           BasicBlock *merge_bb, const DomTree &dom,
                           luisa::unordered_set<BasicBlock *> &region,
                           luisa::vector<BasicBlock *> &ordered) noexcept {
-    ScopedTimer _timer_collect_region("collect_owned_region");
     region.clear();
     ordered.clear();
     luisa::vector<BasicBlock *> work;
@@ -2163,7 +2162,6 @@ void collect_owned_region(BasicBlock *E, BasicBlock *header_bb,
                                                  luisa::span<BasicBlock *const> entries,
                                                  BasicBlock *merge_bb,
                                                  const DomTree &dom) noexcept {
-    ScopedTimer _timer_clone_edge("clone_owned_subgraph_for_edge");
     luisa::unordered_set<BasicBlock *> region;
     luisa::vector<BasicBlock *> ordered;
     collect_owned_region(E, header_bb, entries, merge_bb, dom, region, ordered);
