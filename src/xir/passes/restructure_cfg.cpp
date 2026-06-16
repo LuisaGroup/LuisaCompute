@@ -1378,20 +1378,108 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
             loop_scope_boundary = it->second;
         }
         luisa::unordered_set<BasicBlock *> loop_blocks;
-        loop_blocks.emplace(header);
-        luisa::vector<BasicBlock *> fwd_work{header};
-        while (!fwd_work.empty()) {
-            auto *cur = fwd_work.back();
-            fwd_work.pop_back();
-            if (!cur->is_terminated()) { continue; }
-            cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
-                if (succ == loop_scope_boundary) { return; }
-                if (!dom.contains(succ)) { return; }
-                if (!dom.strictly_dominates(header, succ)) { return; }
-                if (loop_blocks.emplace(succ).second) {
-                    fwd_work.emplace_back(succ);
+        auto loop_scope_boundary_reaches_latch = [&]() noexcept {
+            if (loop_scope_boundary == nullptr || !dom.contains(loop_scope_boundary)) { return false; }
+            luisa::unordered_set<BasicBlock *> visited;
+            luisa::vector<BasicBlock *> work{loop_scope_boundary};
+            while (!work.empty()) {
+                auto *cur = work.back();
+                work.pop_back();
+                if (cur == nullptr || !visited.emplace(cur).second) { continue; }
+                for (auto *latch : valid_latches) {
+                    if (cur == latch) { return true; }
                 }
-            });
+                if (!cur->is_terminated()) { continue; }
+                cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    if (succ == header || (dom.contains(succ) && dom.dominates(header, succ))) {
+                        work.emplace_back(succ);
+                    }
+                });
+            }
+            return false;
+        };
+        auto boundary_is_loop_internal = loop_scope_boundary_reaches_latch();
+        auto collect_forward_loop_blocks = [&]() noexcept {
+            loop_blocks.clear();
+            loop_blocks.emplace(header);
+            luisa::vector<BasicBlock *> fwd_work{header};
+            while (!fwd_work.empty()) {
+                auto *cur = fwd_work.back();
+                fwd_work.pop_back();
+                if (!cur->is_terminated()) { continue; }
+                cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    if (succ == loop_scope_boundary && !boundary_is_loop_internal) { return; }
+                    if (!dom.contains(succ)) { return; }
+                    if (!dom.strictly_dominates(header, succ)) { return; }
+                    if (loop_blocks.emplace(succ).second) {
+                        fwd_work.emplace_back(succ);
+                    }
+                });
+            }
+        };
+        auto all_latches_in_loop = [&]() noexcept {
+            for (auto *latch : valid_latches) {
+                if (!loop_blocks.contains(latch)) { return false; }
+            }
+            return true;
+        };
+        auto reaches_latch_or_header = [&](BasicBlock *start) noexcept {
+            if (start == nullptr || !dom.contains(start)) { return false; }
+            luisa::unordered_set<BasicBlock *> visited;
+            luisa::vector<BasicBlock *> work{start};
+            while (!work.empty()) {
+                auto *cur = work.back();
+                work.pop_back();
+                if (cur == nullptr || !visited.emplace(cur).second) { continue; }
+                if (cur == header) { return true; }
+                for (auto *latch : valid_latches) {
+                    if (cur == latch) { return true; }
+                }
+                if (!cur->is_terminated()) { continue; }
+                cur->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    if (succ != nullptr && dom.contains(succ) && dom.dominates(header, succ)) {
+                        work.emplace_back(succ);
+                    }
+                });
+            }
+            return false;
+        };
+        auto loop_has_internal_exit = [&]() noexcept {
+            for (auto *lb : loop_blocks) {
+                if (!lb->is_terminated()) { continue; }
+                bool found = false;
+                lb->traverse_successors(false, [&](BasicBlock *succ) noexcept {
+                    if (found || succ == header || loop_blocks.contains(succ)) { return; }
+                    found = reaches_latch_or_header(succ);
+                });
+                if (found) { return true; }
+            }
+            return false;
+        };
+        auto collect_natural_loop_blocks = [&]() noexcept {
+            loop_blocks.clear();
+            loop_blocks.emplace(header);
+            luisa::vector<BasicBlock *> loop_work;
+            for (auto *latch : valid_latches) {
+                if (loop_blocks.emplace(latch).second) {
+                    loop_work.emplace_back(latch);
+                }
+            }
+            while (!loop_work.empty()) {
+                auto *cur = loop_work.back();
+                loop_work.pop_back();
+                cur->traverse_predecessors(false, [&](BasicBlock *pred) noexcept {
+                    if (pred == nullptr || !dom.contains(pred)) { return; }
+                    if (pred != header && !dom.dominates(header, pred)) { return; }
+                    if (loop_blocks.emplace(pred).second) {
+                        loop_work.emplace_back(pred);
+                    }
+                });
+            }
+        };
+        collect_forward_loop_blocks();
+        if (!all_latches_in_loop() || loop_has_internal_exit()) {
+            collect_natural_loop_blocks();
         }
         for (auto *latch : valid_latches) {
             if (!loop_blocks.contains(latch)) {
@@ -1401,6 +1489,10 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
             }
         }
         if (!latches_ok) { continue; }
+        if (loop_has_internal_exit()) {
+            info.irreducible_region_count++;
+            continue;
+        }
 
         luisa::vector<std::pair<BasicBlock *, BasicBlock *>> pre_exit_edges;
         for (auto *lb : loop_blocks) {
@@ -1656,6 +1748,7 @@ void append_unique_exit_edge(luisa::vector<SelectionExitEdge> &edges,
         newly_restructured_headers.emplace(header);
         info.restructured_loop_count++;
         any = true;
+        return true;
     }
 
     return any;
@@ -2673,6 +2766,11 @@ void enforce_unique_construct_entries(FunctionDefinition *def) noexcept {
         while (post_iters-- > 0) {
             ScopedTimer _timer_post_iter("post_restructure_iteration");
             bool local = false;
+            if (try_restructure_loop(def, dom, pdom, info)) {
+                local = true;
+                dom = compute_dom_tree(def);
+                pdom = compute_post_dom(def);
+            }
             if (add_header_to_remaining_divergent(def, dom, pdom, info)) {
                 local = true;
                 // dom/pdom already recomputed internally by add_header_to_remaining_divergent.

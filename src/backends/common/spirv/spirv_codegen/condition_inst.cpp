@@ -209,6 +209,7 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     auto selector = _emit_value(inst->value());
     auto case_count = inst->case_count();
     auto &function = _builder.getBuildPoint()->getParent();
+    auto pending_base = _pending_blocks.size();
     auto bind_or_get = [&](const xir::BasicBlock *xb, bool &is_fresh) -> spv::Block * {
         if (auto it = _block_map.find(xb); it != _block_map.end()) {
             is_fresh = false;
@@ -361,6 +362,12 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
     _emit_block(inst->default_block());
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, selection_merge_target);
+    }
+    while (_pending_blocks.size() > pending_base) {
+        auto *bb = _pending_blocks.back();
+        _pending_blocks.pop_back();
+        if (bb == inst->merge_block()) { continue; }
+        _emit_block(bb);
     }
     if (synthetic_merge != nullptr) {
         function.addBlock(synthetic_merge);

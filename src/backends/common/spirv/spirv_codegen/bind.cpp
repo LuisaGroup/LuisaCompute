@@ -523,7 +523,7 @@ void SpirvCodegenEntry::generate_binding(Function kernel) {
                 var = _builder.createVariable(spv::NoPrecision, storage, struct_type, var_name);
                 _builder.addDecoration(var, spv::Decoration::DescriptorSet, static_cast<int>(prop.space_index));
                 _builder.addDecoration(var, spv::Decoration::Binding, static_cast<int>(prop.register_index));
-                // Align with HLSL globallycoherent: Coherent on writable buffer variables
+                _builder.addDecoration(var, spv::Decoration::Aliased);
                 if (writable) {
                     _builder.addDecoration(var, spv::Decoration::Coherent);
                 }
