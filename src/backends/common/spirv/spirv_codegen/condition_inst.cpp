@@ -125,7 +125,12 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     // Emit the real merge block now only if it is the actual continuation of
     // this selection.  If it is unreachable from the arms but has other
     // predecessors, it will be emitted when those predecessors are processed.
-    bool emit_real_merge = synthetic_merge == nullptr || merge_already_used ||
+    // A block in _used_merge_blocks may only be reserved by an enclosing
+    // construct, such as a loop update block. Do not emit it here unless it has
+    // actually been emitted already; otherwise the merge/update block can read
+    // SSA values produced by pending loop-body blocks that are not mapped yet.
+    bool real_merge_already_emitted = _emitted_blocks.contains(inst->merge_block());
+    bool emit_real_merge = synthetic_merge == nullptr || real_merge_already_emitted ||
                            !block_has_predecessors(inst->merge_block());
     if (emit_real_merge) {
         if (!_added_blocks.contains(merge_block)) {
