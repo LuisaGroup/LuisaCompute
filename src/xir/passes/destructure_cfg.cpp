@@ -110,6 +110,7 @@ static void verify_terminators(Function *function) noexcept {
             case DerivedInstructionTag::BRANCH:
             case DerivedInstructionTag::CONDITIONAL_BRANCH:
             case DerivedInstructionTag::SWITCH:
+            case DerivedInstructionTag::AUTODIFF_SCOPE:
             case DerivedInstructionTag::UNREACHABLE:
             case DerivedInstructionTag::RASTER_DISCARD:
             case DerivedInstructionTag::RAY_QUERY_DISPATCH:

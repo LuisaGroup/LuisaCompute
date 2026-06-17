@@ -260,9 +260,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             break;
         case xir::ArithmeticOp::BINARY_MOD:
             if (is_float)
-                id = binary(spv::Op::OpFMod);
+                id = binary(spv::Op::OpFRem);
             else if (is_signed_int)
-                id = binary(spv::Op::OpSMod);
+                id = binary(spv::Op::OpSRem);
             else
                 id = binary(spv::Op::OpUMod);
             break;
@@ -768,19 +768,12 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
             auto b = operand(1);
             auto a_type = inst->operand(0)->type();
             auto b_type = inst->operand(1)->type();
-            auto a_dim = a_type->dimension();
-            auto b_dim = b_type->dimension();
-            auto elem_type = a_type->element();
-            auto elem_spv_type = _convert_type(elem_type, Usage::READ);
-            auto vec_type = _builder.makeVectorType(elem_spv_type, static_cast<int32_t>(b_dim));
-            std::vector<spv::Id> rows;
-            rows.reserve(a_dim);
-            for (uint i = 0u; i < a_dim; ++i) {
-                auto ai = _builder.createCompositeExtract(a, elem_spv_type, i);
-                auto row = _builder.createBinOp(spv::Op::OpVectorTimesScalar, vec_type, b, ai);
-                rows.push_back(row);
+            if (a_type->is_vector() && b_type->is_vector()) {
+                id = _builder.createBinOp(spv::Op::OpOuterProduct, type, a, b);
+            } else {
+                auto b_t = _builder.createUnaryOp(spv::Op::OpTranspose, type, b);
+                id = _builder.createBinOp(spv::Op::OpMatrixTimesMatrix, type, a, b_t);
             }
-            id = _builder.createCompositeConstruct(type, rows);
             break;
         }
 
@@ -876,6 +869,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
         case xir::ArithmeticOp::MATRIX_COMP_DIV: {
             auto a = operand(0);
             auto b = operand(1);
+            auto a_type = inst->operand(0)->type();
             auto b_type = inst->operand(1)->type();
             if (b_type->is_scalar()) {
                 auto rows = t->dimension();
@@ -894,7 +888,9 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                 std::vector<spv::Id> new_rows;
                 new_rows.reserve(rows);
                 for (uint i = 0u; i < rows; ++i) {
-                    auto row_a = _builder.createCompositeExtract(a, row_type, i);
+                    auto row_a = a_type->is_scalar() ?
+                                     _builder.smearScalar(spv::NoPrecision, a, row_type) :
+                                     _builder.createCompositeExtract(a, row_type, i);
                     auto row_b = _builder.createCompositeExtract(b, row_type, i);
                     new_rows.push_back(_builder.createBinOp(spv::Op::OpFDiv, row_type, row_a, row_b));
                 }

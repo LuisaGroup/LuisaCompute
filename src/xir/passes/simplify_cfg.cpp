@@ -177,12 +177,6 @@ static bool fold_switches(FunctionDefinition *def, SimplifyCFGInfo &info) noexce
     return true;
 }
 
-// Detect blocks that already have a back-edge predecessor (i.e., loop headers under any reasonable
-// dominance-aware analysis). A back-edge is a CFG edge p -> bb where bb dominates p; without a full
-// dominator computation here, we approximate using reverse-postorder index: any predecessor that
-// appears AFTER bb in RPO is a back-edge source. This is sufficient for guarding jump-threading of
-// blocks whose only successor is a loop header, where threading would collapse a structured if-merge
-// onto the loop's continue role (illegal in SPIR-V structured control flow).
 static luisa::unordered_set<BasicBlock *> collect_loop_headers(FunctionDefinition *def) noexcept {
     luisa::unordered_map<BasicBlock *, size_t> rpo_index;
     size_t idx = 0;
@@ -227,12 +221,7 @@ static bool thread_empty_blocks(FunctionDefinition *def, SimplifyCFGInfo &info) 
         if (t == nullptr || !t->isa<BranchInst>()) return;
         auto br = static_cast<BranchInst *>(t);
         if (br->target_block() == bb) return;
-        // Preserve trampoline blocks that sit immediately before a loop header.
-        // Threading them out would force a structured merge block (the predecessor of bb)
-        // to serve as the loop's continue target, which violates SPIR-V structured CF.
         if (br->target_block() != nullptr && loop_headers.contains(br->target_block())) return;
-        // Preserve merge blocks of structured constructs; threading them out would
-        // allow in-construct blocks to bypass the merge, breaking SPIR-V structured CF.
         if (structural_targets.contains(bb)) return;
         candidates.push_back(bb);
     });
@@ -379,11 +368,26 @@ SimplifyCFGInfo simplify_cfg_pass_run_on_function(Function *function) noexcept {
     bool changed = true;
     while (changed) {
         changed = false;
-        if (detail::fold_constant_cond_br(def, info)) { continue; }
-        if (detail::fold_switches(def, info)) { continue; }
-        if (detail::thread_empty_blocks(def, info)) { continue; }
-        if (detail::merge_straight_line_blocks(def, info)) { continue; }
-        if (detail::remove_unreachable_blocks(def, info)) { continue; }
+        if (detail::fold_constant_cond_br(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::fold_switches(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::thread_empty_blocks(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::merge_straight_line_blocks(def, info)) {
+            changed = true;
+            continue;
+        }
+        if (detail::remove_unreachable_blocks(def, info)) {
+            changed = true;
+            continue;
+        }
     }
     return info;
 }

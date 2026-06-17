@@ -131,7 +131,8 @@ public:
 
     OutlineInst *outline() noexcept;
 
-    AutodiffScopeInst *autodiff_scope() noexcept;
+    AutodiffScopeInst *autodiff_scope(bool forward = false, size_t n_forward_grads = 0u) noexcept;
+    AutodiffScopeInst *forward_autodiff_scope(size_t n_forward_grads) noexcept;
 
     CoroSuspendInst *coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept;
     CoroResumeInst *coro_resume(uint32_t token, Value *frame) noexcept;

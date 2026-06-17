@@ -159,6 +159,8 @@ enum class AutodiffIntrinsicOp {
     AUTODIFF_ACCUMULATE_GRADIENT,// (ref, expr) -> void
     AUTODIFF_BACKWARD,           // (expr) -> void
     AUTODIFF_DETACH,             // (expr) -> expr
+    AUTODIFF_PROPAGATE_GRADIENT, // (expr, grad...) -> void
+    AUTODIFF_OUTPUT_GRADIENT,    // (expr, index) -> expr
 };
 
 enum class CastOp {

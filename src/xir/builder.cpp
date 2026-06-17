@@ -189,8 +189,12 @@ OutlineInst *XIRBuilder::outline() noexcept {
     return _create_and_append_instruction<OutlineInst>(_insertion_point->parent_block());
 }
 
-AutodiffScopeInst *XIRBuilder::autodiff_scope() noexcept {
-    return _create_and_append_instruction<AutodiffScopeInst>(_insertion_point->parent_block());
+AutodiffScopeInst *XIRBuilder::autodiff_scope(bool forward, size_t n_forward_grads) noexcept {
+    return _create_and_append_instruction<AutodiffScopeInst>(_insertion_point->parent_block(), forward, n_forward_grads);
+}
+
+AutodiffScopeInst *XIRBuilder::forward_autodiff_scope(size_t n_forward_grads) noexcept {
+    return autodiff_scope(true, n_forward_grads);
 }
 
 CoroSuspendInst *XIRBuilder::coro_suspend(uint32_t token, luisa::string name, Value *frame) noexcept {

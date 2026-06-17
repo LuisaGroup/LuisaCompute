@@ -290,7 +290,11 @@ private:
     }
 
     void _emit_autodiff_scope_inst(const AutodiffScopeInst *inst, int indent) noexcept {
-        _main << "autodiff entry ";
+        if (inst->is_forward()) {
+            _main << "autodiff forward " << inst->n_forward_grads() << " entry ";
+        } else {
+            _main << "autodiff entry ";
+        }
         _flat_blocks ? _emit_basic_block_ref(inst->entry_block()) : _emit_basic_block(inst->entry_block(), indent);
         _main << ", merge ";
         _flat_blocks ? _emit_basic_block_ref(inst->merge_block()) : _emit_basic_block(inst->merge_block(), indent);

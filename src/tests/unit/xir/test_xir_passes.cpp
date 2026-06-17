@@ -2,6 +2,7 @@
 #include <luisa/xir/builder.h>
 #include <luisa/xir/module.h>
 #include <luisa/xir/passes/algebraic_simplify.h>
+#include <luisa/xir/passes/autodiff.h>
 #include <luisa/xir/passes/const_fold.h>
 #include <luisa/xir/passes/cvp.h>
 #include <luisa/xir/passes/dce.h>
@@ -40,6 +41,36 @@ static KernelFunction *make_kernel_with_body(Module &m, BasicBlock *&body_out) n
     auto *k = m.create_kernel();
     body_out = k->create_body_block();
     return k;
+}
+
+static size_t count_reachable_insts(FunctionDefinition *f, DerivedInstructionTag tag) noexcept {
+    size_t count = 0u;
+    f->traverse_instructions([&](Instruction *inst) noexcept {
+        if (inst->derived_instruction_tag() == tag) { count++; }
+    });
+    return count;
+}
+
+static size_t count_reachable_blocks(FunctionDefinition *f) noexcept {
+    size_t count = 0u;
+    f->traverse_basic_blocks([&](BasicBlock *) noexcept { count++; });
+    return count;
+}
+
+static StoreInst *find_store_before(Instruction *before, Value *variable, Value *value) noexcept {
+    auto *block = before == nullptr ? nullptr : before->parent_block();
+    if (block == nullptr) { return nullptr; }
+    for (auto *inst : block->instructions()) {
+        if (inst == before) { break; }
+        if (inst->isa<StoreInst>()) {
+            auto *store = static_cast<StoreInst *>(inst);
+            if ((variable == nullptr || store->variable() == variable) &&
+                (value == nullptr || store->value() == value)) {
+                return store;
+            }
+        }
+    }
+    return nullptr;
 }
 
 // ---- algebraic_simplify: integer identities ----
@@ -968,6 +999,68 @@ void reg_dce() {
         expect(phi->incoming_count() == 1u);
         expect(phi->incoming(0u).block == live);
         expect(phi->incoming(0u).value == live_value);
+    };
+
+    "dce_unreachable_block_cleanup_is_idempotent"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *dead = k->create_basic_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        b.return_void();
+        b.set_insertion_point(dead);
+        b.unreachable_();
+        auto first = dce_pass_run_on_function(k);
+        auto second = dce_pass_run_on_function(k);
+        expect(first.removed_inst_count == 0u);
+        expect(second.removed_inst_count == 0u);
+        expect(second.removed_block_count == 0u);
+    };
+
+    "dce_structured_reachability_keeps_merge_and_loop_side_blocks"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *true_c = m.create_constant_one(Type::of<bool>());
+        b.set_insertion_point(body);
+        auto *if_inst = b.if_(true_c);
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        auto *if_merge = if_inst->create_merge_block();
+        b.set_insertion_point(if_true);
+        b.br(if_merge);
+        b.set_insertion_point(if_false);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        int32_t selector_v = 1;
+        auto *selector = m.create_constant(Type::of<int>(), &selector_v);
+        auto *sw = b.switch_(selector);
+        auto *sw_default = sw->create_default_block();
+        auto *sw_case = sw->create_case_block(1);
+        auto *sw_merge = sw->create_merge_block();
+        b.set_insertion_point(sw_default);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_case);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_merge);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        b.cond_br(true_c, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        b.br(update);
+        b.set_insertion_point(update);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        b.return_void();
+        auto info = dce_pass_run_on_function(k);
+        expect(info.removed_block_count == 0u);
+        expect(count_reachable_blocks(k) == 11u);
     };
 }
 
@@ -2216,6 +2309,1738 @@ void reg_outline() {
     };
 }
 
+// ---- autodiff ----
+
+void reg_autodiff() {
+
+    "autodiff_options_run_both_modes_by_default"_test = [] {
+        AutodiffOptions options;
+        expect(options.run_forward);
+        expect(options.run_backward);
+    };
+
+    "autodiff_run_forward_false_leaves_forward_scope_unlowered"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.forward_autodiff_scope(1u);
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {x, m.create_constant_one(Type::of<float>())});
+        uint32_t zero = 0u;
+        auto *idx = m.create_constant(Type::of<uint32_t>(), &zero);
+        auto *gx = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {x, idx});
+        static_cast<void>(gx);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k, {.run_forward = false});
+        expect(info.transformed_scope_count == 0u);
+        expect(scope->is_forward());
+        expect(scope->n_forward_grads() == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 2u);
+    };
+
+    "autodiff_run_backward_false_leaves_scope_unlowered"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.call(Type::of<float>(), ArithmeticOp::SIN, {x});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {y, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k, {.run_backward = false});
+        expect(info.transformed_scope_count == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 3u);
+    };
+
+    "autodiff_forward_propagates_scalar_duals"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *y = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *dx_out = b.alloca_local(Type::of<float>());
+        auto *dy_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.forward_autodiff_scope(2u);
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        auto *zero_f = m.create_constant_zero(Type::of<float>());
+        auto *one_f = m.create_constant_one(Type::of<float>());
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {x, one_f, zero_f});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {y, zero_f, one_f});
+        auto *xy = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {x, y});
+        auto *sx = b.call(Type::of<float>(), ArithmeticOp::SIN, {x});
+        auto *z = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {xy, sx});
+        uint32_t zero = 0u;
+        uint32_t one = 1u;
+        auto *idx0 = m.create_constant(Type::of<uint32_t>(), &zero);
+        auto *idx1 = m.create_constant(Type::of<uint32_t>(), &one);
+        auto *dx = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {z, idx0});
+        auto *dy = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {z, idx1});
+        auto dx_lock = dx->lock();
+        auto dy_lock = dy->lock();
+        b.store(dx_out, dx);
+        b.store(dy_out, dy);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(dx_lock->use_list().empty());
+        expect(dy_lock->use_list().empty());
+        size_t cos_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>() &&
+                static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::COS) {
+                cos_count++;
+            }
+        });
+        expect(cos_count >= 1u);
+    };
+
+    "autodiff_forward_handles_binary_mod"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *y = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *dx_out = b.alloca_local(Type::of<float>());
+        auto *dy_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.forward_autodiff_scope(2u);
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        auto *zero_f = m.create_constant_zero(Type::of<float>());
+        auto *one_f = m.create_constant_one(Type::of<float>());
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {x, one_f, zero_f});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {y, zero_f, one_f});
+        auto *r = b.call(Type::of<float>(), ArithmeticOp::BINARY_MOD, {x, y});
+        uint32_t zero = 0u;
+        uint32_t one = 1u;
+        auto *idx0 = m.create_constant(Type::of<uint32_t>(), &zero);
+        auto *idx1 = m.create_constant(Type::of<uint32_t>(), &one);
+        auto *dx = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {r, idx0});
+        auto *dy = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {r, idx1});
+        b.store(dx_out, dx);
+        b.store(dy_out, dy);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t mod_count = 0u;
+        size_t trunc_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>()) {
+                auto op = static_cast<ArithmeticInst *>(inst)->op();
+                if (op == ArithmeticOp::BINARY_MOD) { mod_count++; }
+                if (op == ArithmeticOp::TRUNC) { trunc_count++; }
+            }
+        });
+        expect(mod_count >= 1u);
+        expect(trunc_count >= 1u);
+    };
+
+    "autodiff_forward_propagates_mutable_cfg_state"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *flag = k->create_argument(Type::of<bool>(), false);
+        auto *tag = k->create_argument(Type::of<int>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *grad_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.forward_autodiff_scope(1u);
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {x, m.create_constant_one(Type::of<float>())});
+        auto *y = b.alloca_local(Type::of<float>());
+        b.store(y, x);
+        auto *if_inst = b.if_(flag);
+        auto *if_merge = if_inst->create_merge_block();
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        b.set_insertion_point(if_true);
+        auto *t0 = b.load(Type::of<float>(), y);
+        auto *t1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {t0, t0});
+        b.store(y, t1);
+        b.br(if_merge);
+        b.set_insertion_point(if_false);
+        auto *f0 = b.load(Type::of<float>(), y);
+        auto *f1 = b.call(Type::of<float>(), ArithmeticOp::SIN, {f0});
+        b.store(y, f1);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        auto *sw = b.switch_(tag);
+        auto *sw_merge = sw->create_merge_block();
+        auto *sw_default = sw->create_default_block();
+        auto *sw_case = sw->create_case_block(1);
+        b.set_insertion_point(sw_default);
+        auto *d0 = b.load(Type::of<float>(), y);
+        auto *d1 = b.call(Type::of<float>(), ArithmeticOp::COS, {d0});
+        b.store(y, d1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_case);
+        auto *c0 = b.load(Type::of<float>(), y);
+        auto *c1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {c0, x});
+        b.store(y, c1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        uint32_t zero = 0u;
+        auto *idx = m.create_constant(Type::of<uint32_t>(), &zero);
+        auto *gout = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {out, idx});
+        b.store(grad_out, gout);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::IF) == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::SWITCH) == 1u);
+        size_t sin_count = 0u;
+        size_t cos_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>()) {
+                auto op = static_cast<ArithmeticInst *>(inst)->op();
+                if (op == ArithmeticOp::SIN) { sin_count++; }
+                if (op == ArithmeticOp::COS) { cos_count++; }
+            }
+        });
+        expect(sin_count >= 2u);
+        expect(cos_count >= 2u);
+    };
+
+    "autodiff_forward_propagates_structured_loop_state"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *grad_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.forward_autodiff_scope(1u);
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {x, m.create_constant_one(Type::of<float>())});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t three = 3;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *three_c = m.create_constant(Type::of<int>(), &three);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, three_c});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *yv = b.load(Type::of<float>(), y);
+        auto *s = b.call(Type::of<float>(), ArithmeticOp::SIN, {yv});
+        auto *sum = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {s, x});
+        b.store(y, sum);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        uint32_t grad_index = 0u;
+        auto *idx = m.create_constant(Type::of<uint32_t>(), &grad_index);
+        auto *gout = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {out, idx});
+        b.store(grad_out, gout);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 1u);
+        size_t cos_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>() &&
+                static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::COS) {
+                cos_count++;
+            }
+        });
+        expect(cos_count >= 1u);
+    };
+
+    "autodiff_forward_handles_matrix_linalg"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto matrix_type = Type::of<float2x2>();
+        auto vector_type = Type::of<float2>();
+        auto *mat = k->create_argument(matrix_type, false);
+        auto *vec = k->create_argument(vector_type, false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *matrix_grad_out = b.alloca_local(matrix_type);
+        auto *vector_grad_out = b.alloca_local(vector_type);
+        auto *scalar_grad_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.forward_autodiff_scope(2u);
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        auto *zero_m = m.create_constant_zero(matrix_type);
+        auto *one_m = m.create_constant_one(matrix_type);
+        auto *zero_v = m.create_constant_zero(vector_type);
+        auto *one_v = m.create_constant_one(vector_type);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {mat, one_m, zero_m});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {vec, zero_v, one_v});
+        auto *mv = b.call(vector_type, ArithmeticOp::MATRIX_LINALG_MUL, {mat, vec});
+        auto *outer = b.call(matrix_type, ArithmeticOp::OUTER_PRODUCT, {mv, vec});
+        auto *inv = b.call(matrix_type, ArithmeticOp::MATRIX_INVERSE, {mat});
+        auto *det = b.call(Type::of<float>(), ArithmeticOp::MATRIX_DETERMINANT, {mat});
+        auto *combined = b.call(matrix_type, ArithmeticOp::MATRIX_COMP_ADD, {outer, inv});
+        uint32_t zero = 0u;
+        uint32_t one = 1u;
+        auto *idx0 = m.create_constant(Type::of<uint32_t>(), &zero);
+        auto *idx1 = m.create_constant(Type::of<uint32_t>(), &one);
+        auto *dm = b.call(matrix_type, AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {combined, idx0});
+        auto *dv = b.call(vector_type, AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {mv, idx1});
+        auto *dd = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {det, idx0});
+        b.store(matrix_grad_out, dm);
+        b.store(vector_grad_out, dv);
+        b.store(scalar_grad_out, dd);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t matmul_count = 0u;
+        size_t determinant_count = 0u;
+        size_t inverse_count = 0u;
+        size_t outer_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>()) {
+                switch (static_cast<ArithmeticInst *>(inst)->op()) {
+                    case ArithmeticOp::MATRIX_LINALG_MUL: matmul_count++; break;
+                    case ArithmeticOp::MATRIX_DETERMINANT: determinant_count++; break;
+                    case ArithmeticOp::MATRIX_INVERSE: inverse_count++; break;
+                    case ArithmeticOp::OUTER_PRODUCT: outer_count++; break;
+                    default: break;
+                }
+            }
+        });
+        expect(matmul_count >= 5u);
+        expect(determinant_count >= 1u);
+        expect(inverse_count >= 2u);
+        expect(outer_count >= 3u);
+    };
+
+    "autodiff_forward_handles_matrix_scalar_components"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto matrix_type = Type::of<float2x2>();
+        auto *mat = k->create_argument(matrix_type, false);
+        auto *scalar = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *matrix_grad_out = b.alloca_local(matrix_type);
+        auto *scope = b.forward_autodiff_scope(2u);
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        auto *zero_m = m.create_constant_zero(matrix_type);
+        auto *one_m = m.create_constant_one(matrix_type);
+        auto *zero_f = m.create_constant_zero(Type::of<float>());
+        auto *one_f = m.create_constant_one(Type::of<float>());
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {mat, one_m, zero_m});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {scalar, zero_f, one_f});
+        auto *mul = b.call(matrix_type, ArithmeticOp::MATRIX_COMP_MUL, {mat, scalar});
+        auto *div = b.call(matrix_type, ArithmeticOp::MATRIX_COMP_DIV, {scalar, mat});
+        auto *sum = b.call(matrix_type, ArithmeticOp::MATRIX_COMP_ADD, {mul, div});
+        uint32_t one = 1u;
+        auto *idx = m.create_constant(Type::of<uint32_t>(), &one);
+        auto *ds = b.call(matrix_type, AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {sum, idx});
+        b.store(matrix_grad_out, ds);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t aggregate_count = 0u;
+        size_t matrix_div_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>()) {
+                auto op = static_cast<ArithmeticInst *>(inst)->op();
+                if (op == ArithmeticOp::AGGREGATE) { aggregate_count++; }
+                if (op == ArithmeticOp::MATRIX_COMP_DIV) { matrix_div_count++; }
+            }
+        });
+        expect(aggregate_count >= 1u);
+        expect(matrix_div_count >= 2u);
+    };
+
+    "autodiff_forward_projects_static_cast_aggregate_gradients"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto vector_type = Type::of<float2>();
+        auto double_vector_type = Type::of<double2>();
+        auto matrix_type = Type::of<float2x2>();
+        auto *v = k->create_argument(vector_type, false);
+        auto *s = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *vector_grad_out = b.alloca_local(double_vector_type);
+        auto *matrix_grad_out = b.alloca_local(matrix_type);
+        auto *scope = b.forward_autodiff_scope(1u);
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {v, m.create_constant_one(vector_type)});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_PROPAGATE_GRADIENT, {s, m.create_constant_one(Type::of<float>())});
+        auto *vd = b.cast_(double_vector_type, CastOp::STATIC_CAST, v);
+        auto *sm = b.call(matrix_type, ArithmeticOp::AGGREGATE, {b.call(vector_type, ArithmeticOp::AGGREGATE, {s, s}),
+                                                                 b.call(vector_type, ArithmeticOp::AGGREGATE, {s, s})});
+        uint32_t zero = 0u;
+        auto *idx = m.create_constant(Type::of<uint32_t>(), &zero);
+        auto *dvd = b.call(double_vector_type, AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {vd, idx});
+        auto *dsm = b.call(matrix_type, AutodiffIntrinsicOp::AUTODIFF_OUTPUT_GRADIENT, {sm, idx});
+        b.store(vector_grad_out, dvd);
+        b.store(matrix_grad_out, dsm);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t float_to_double_scalar_cast_count = 0u;
+        size_t aggregate_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<CastInst>()) {
+                auto *cast = static_cast<CastInst *>(inst);
+                if (cast->op() == CastOp::STATIC_CAST &&
+                    cast->type() == Type::of<double>() &&
+                    cast->value()->type() == Type::of<float>()) {
+                    float_to_double_scalar_cast_count++;
+                }
+            } else if (inst->isa<ArithmeticInst>() &&
+                       static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::AGGREGATE) {
+                aggregate_count++;
+            }
+        });
+        expect(float_to_double_scalar_cast_count >= 2u);
+        expect(aggregate_count >= 4u);
+    };
+
+    "autodiff_reverse_projects_matrix_scalar_component_gradients"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto matrix_type = Type::of<float2x2>();
+        auto *mat = k->create_argument(matrix_type, false);
+        auto *scalar = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *grad_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {mat});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {scalar});
+        auto *prod = b.call(matrix_type, ArithmeticOp::MATRIX_COMP_MUL, {mat, scalar});
+        auto *quot = b.call(matrix_type, ArithmeticOp::MATRIX_COMP_DIV, {scalar, mat});
+        auto *sum = b.call(matrix_type, ArithmeticOp::MATRIX_COMP_ADD, {prod, quot});
+        auto *col0 = b.call(Type::of<float2>(), ArithmeticOp::EXTRACT, {sum, m.create_constant_zero(Type::of<uint32_t>())});
+        auto *y = b.call(Type::of<float>(), ArithmeticOp::REDUCE_SUM, {col0});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {y, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        auto *gs = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {scalar});
+        b.store(grad_out, gs);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t reduce_sum_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>() &&
+                static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::REDUCE_SUM) {
+                reduce_sum_count++;
+            }
+        });
+        expect(reduce_sum_count >= 2u);
+    };
+
+    "autodiff_reverse_propagates_static_cast_gradient"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *grad_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *xd = static_cast<Value *>(b.static_cast_(Type::of<double>(), x));
+        auto *yd = b.call(Type::of<double>(), ArithmeticOp::BINARY_MUL, {xd, xd});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {yd, m.create_constant_one(Type::of<double>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        auto *gx = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {x});
+        b.store(grad_out, gx);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        bool has_forward_cast = false;
+        bool has_backward_cast = false;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<CastInst>()) {
+                auto *cast = static_cast<CastInst *>(inst);
+                if (cast->op() == CastOp::STATIC_CAST &&
+                    cast->type() == Type::of<double>() &&
+                    cast->value()->type() == Type::of<float>()) {
+                    has_forward_cast = true;
+                }
+                if (cast->op() == CastOp::STATIC_CAST &&
+                    cast->type() == Type::of<float>() &&
+                    cast->value()->type() == Type::of<double>()) {
+                    has_backward_cast = true;
+                }
+            }
+        });
+        expect(has_forward_cast);
+        expect(has_backward_cast);
+    };
+
+    "autodiff_reverse_projects_vector_static_cast_gradient"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto vector_type = Type::of<float2>();
+        auto double_vector_type = Type::of<double2>();
+        auto *x = k->create_argument(vector_type, false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *grad_out = b.alloca_local(vector_type);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *xd = b.cast_(double_vector_type, CastOp::STATIC_CAST, x);
+        auto *yd = b.call(Type::of<double>(), ArithmeticOp::REDUCE_SUM, {xd});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {yd, m.create_constant_one(Type::of<double>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        auto *gx = b.call(vector_type, AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {x});
+        b.store(grad_out, gx);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t forward_vector_cast_count = 0u;
+        size_t backward_scalar_cast_count = 0u;
+        size_t insert_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<CastInst>()) {
+                auto *cast = static_cast<CastInst *>(inst);
+                if (cast->op() == CastOp::STATIC_CAST &&
+                    cast->type() == double_vector_type &&
+                    cast->value()->type() == vector_type) {
+                    forward_vector_cast_count++;
+                }
+                if (cast->op() == CastOp::STATIC_CAST &&
+                    cast->type() == Type::of<float>() &&
+                    cast->value()->type() == Type::of<double>()) {
+                    backward_scalar_cast_count++;
+                }
+            } else if (inst->isa<ArithmeticInst>() &&
+                       static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::INSERT) {
+                insert_count++;
+            }
+        });
+        expect(forward_vector_cast_count == 1u);
+        expect(backward_scalar_cast_count >= 2u);
+        expect(insert_count >= 2u);
+    };
+
+    "autodiff_reverse_insert_zeroes_overwritten_base_gradient"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto vector_type = Type::of<float2>();
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *y = k->create_argument(Type::of<float>(), false);
+        auto *z = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *gx_out = b.alloca_local(Type::of<float>());
+        auto *gy_out = b.alloca_local(Type::of<float>());
+        auto *gz_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {y});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {z});
+        auto *base = b.call(vector_type, ArithmeticOp::AGGREGATE, {x, y});
+        auto *updated = b.call(vector_type, ArithmeticOp::INSERT, {base, z, m.create_constant_zero(Type::of<uint32_t>())});
+        auto *loss = b.call(Type::of<float>(), ArithmeticOp::REDUCE_SUM, {updated});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {loss, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        auto *gx = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {x});
+        auto *gy = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {y});
+        auto *gz = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {z});
+        b.store(gx_out, gx);
+        b.store(gy_out, gy);
+        b.store(gz_out, gz);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        bool zeroes_overwritten_slot = false;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>()) {
+                auto *arith = static_cast<ArithmeticInst *>(inst);
+                if (arith->op() == ArithmeticOp::INSERT &&
+                    arith->type() == vector_type &&
+                    arith->operand_count() == 3u &&
+                    !arith->operand(0)->isa<Constant>() &&
+                    arith->operand(1)->isa<Constant>() &&
+                    static_cast<Constant *>(arith->operand(1))->type() == Type::of<float>() &&
+                    static_cast<Constant *>(arith->operand(1))->as<float>() == 0.0f) {
+                    zeroes_overwritten_slot = true;
+                }
+            }
+        });
+        expect(zeroes_overwritten_slot);
+    };
+
+    "autodiff_snapshots_mutable_cfg_selectors"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *flag_arg = k->create_argument(Type::of<bool>(), false);
+        auto *tag_arg = k->create_argument(Type::of<int>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *flag = b.alloca_local(Type::of<bool>());
+        auto *tag = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        b.store(flag, flag_arg);
+        b.store(tag, tag_arg);
+        auto *cond = b.load(Type::of<bool>(), flag);
+        auto *forward_if = b.if_(cond);
+        auto *if_merge = forward_if->create_merge_block();
+        auto *if_true = forward_if->create_true_block();
+        auto *if_false = forward_if->create_false_block();
+        b.set_insertion_point(if_true);
+        auto *t0 = b.load(Type::of<float>(), y);
+        auto *t1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {t0, t0});
+        b.store(y, t1);
+        b.br(if_merge);
+        b.set_insertion_point(if_false);
+        auto *f0 = b.load(Type::of<float>(), y);
+        auto *f1 = b.call(Type::of<float>(), ArithmeticOp::SIN, {f0});
+        b.store(y, f1);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        b.store(flag, m.create_constant_zero(Type::of<bool>()));
+        auto *selector = b.load(Type::of<int>(), tag);
+        auto *forward_switch = b.switch_(selector);
+        auto *sw_merge = forward_switch->create_merge_block();
+        auto *sw_default = forward_switch->create_default_block();
+        auto *sw_case = forward_switch->create_case_block(1);
+        b.set_insertion_point(sw_default);
+        auto *d0 = b.load(Type::of<float>(), y);
+        auto *d1 = b.call(Type::of<float>(), ArithmeticOp::COS, {d0});
+        b.store(y, d1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_case);
+        auto *c0 = b.load(Type::of<float>(), y);
+        auto *c1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {c0, x});
+        b.store(y, c1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_merge);
+        int32_t zero = 0;
+        b.store(tag, m.create_constant(Type::of<int>(), &zero));
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        IfInst *backward_if = nullptr;
+        SwitchInst *backward_switch = nullptr;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<IfInst>() && inst != forward_if) {
+                backward_if = static_cast<IfInst *>(inst);
+            } else if (inst->isa<SwitchInst>() && inst != forward_switch) {
+                backward_switch = static_cast<SwitchInst *>(inst);
+            }
+        });
+        expect(backward_if != nullptr);
+        expect(backward_switch != nullptr);
+        auto *if_snapshot_store = find_store_before(forward_if, nullptr, cond);
+        expect(if_snapshot_store != nullptr);
+        auto *backward_if_condition = backward_if == nullptr ? nullptr : backward_if->condition();
+        expect(backward_if_condition != nullptr && backward_if_condition->isa<LoadInst>());
+        auto *backward_if_load = backward_if_condition != nullptr && backward_if_condition->isa<LoadInst>() ?
+                                     static_cast<LoadInst *>(backward_if_condition) :
+                                     nullptr;
+        expect(backward_if_load != nullptr && if_snapshot_store != nullptr &&
+               backward_if_load->variable() == if_snapshot_store->variable());
+        expect(backward_if_load != nullptr && backward_if_load->variable() != flag);
+        auto *switch_snapshot_store = find_store_before(forward_switch, nullptr, selector);
+        expect(switch_snapshot_store != nullptr);
+        auto *backward_switch_value = backward_switch == nullptr ? nullptr : backward_switch->value();
+        expect(backward_switch_value != nullptr && backward_switch_value->isa<LoadInst>());
+        auto *backward_switch_load = backward_switch_value != nullptr && backward_switch_value->isa<LoadInst>() ?
+                                         static_cast<LoadInst *>(backward_switch_value) :
+                                         nullptr;
+        expect(backward_switch_load != nullptr && switch_snapshot_store != nullptr &&
+               backward_switch_load->variable() == switch_snapshot_store->variable());
+        expect(backward_switch_load != nullptr && backward_switch_load->variable() != tag);
+    };
+
+    "autodiff_preserves_native_switch_in_backward"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *tag = k->create_argument(Type::of<int>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        b.store(y, x);
+        auto *sw = b.switch_(tag);
+        auto *sw_merge = sw->create_merge_block();
+        auto *default_block = sw->create_default_block();
+        auto *case_block = sw->create_case_block(7);
+        b.set_insertion_point(default_block);
+        auto *d0 = b.load(Type::of<float>(), y);
+        auto *d1 = b.call(Type::of<float>(), ArithmeticOp::SIN, {d0});
+        b.store(y, d1);
+        b.br(sw_merge);
+        b.set_insertion_point(case_block);
+        auto *c0 = b.load(Type::of<float>(), y);
+        auto *c1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {c0, c0});
+        b.store(y, c1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::SWITCH) == 2u);
+    };
+
+    "autodiff_handles_native_pow_int"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        int32_t three = 3;
+        auto *exp = m.create_constant(Type::of<int>(), &three);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *pow = b.call(Type::of<float>(), ArithmeticOp::POW_INT, {x, exp});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {pow, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t pow_int_count = 0u;
+        bool has_exponent_cast = false;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>() &&
+                static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::POW_INT) {
+                pow_int_count++;
+            } else if (inst->isa<CastInst>()) {
+                auto *cast = static_cast<CastInst *>(inst);
+                if (cast->op() == CastOp::STATIC_CAST &&
+                    cast->type() == Type::of<float>() &&
+                    cast->operand(0)->type() == Type::of<int>()) {
+                    has_exponent_cast = true;
+                }
+            }
+        });
+        expect(pow_int_count == 2u);
+        expect(has_exponent_cast);
+    };
+
+    "autodiff_handles_native_smoothstep"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *edge0 = k->create_argument(Type::of<float>(), false);
+        auto *edge1 = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {edge0});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {edge1});
+        auto *smooth = b.call(Type::of<float>(), ArithmeticOp::SMOOTHSTEP, {edge0, edge1, x});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {smooth, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t smoothstep_count = 0u;
+        size_t saturate_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>()) {
+                auto *arith = static_cast<ArithmeticInst *>(inst);
+                if (arith->op() == ArithmeticOp::SMOOTHSTEP) {
+                    smoothstep_count++;
+                } else if (arith->op() == ArithmeticOp::SATURATE) {
+                    saturate_count++;
+                }
+            }
+        });
+        expect(smoothstep_count == 1u);
+        expect(saturate_count >= 1u);
+    };
+
+    "autodiff_accumulate_gradient_marks_reverse_root"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *grad_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *s = b.call(Type::of<float>(), ArithmeticOp::SIN, {x});
+        auto *loss = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {s, s});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_ACCUMULATE_GRADIENT, {loss, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        auto *gx = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {x});
+        b.store(grad_out, gx);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        size_t cos_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>() &&
+                static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::COS) {
+                cos_count++;
+            }
+        });
+        expect(cos_count >= 1u);
+    };
+
+    "autodiff_reverse_bounded_dynamic_loop"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *n = k->create_argument(Type::of<int>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *grad_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        int32_t zero = 0;
+        int32_t one = 1;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, n});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *yv = b.load(Type::of<float>(), y);
+        auto *s = b.call(Type::of<float>(), ArithmeticOp::SIN, {yv});
+        auto *sum = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {s, x});
+        b.store(y, sum);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        auto *gx = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {x});
+        b.store(grad_out, gx);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::IF) >= 2u);
+        size_t cos_count = 0u;
+        k->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>() &&
+                static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::COS) {
+                cos_count++;
+            }
+        });
+        expect(cos_count >= 1u);
+    };
+
+    "autodiff_reverse_bounded_dynamic_loop_with_nested_if"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *n = k->create_argument(Type::of<int>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *grad_out = b.alloca_local(Type::of<float>());
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t two = 2;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *two_c = m.create_constant(Type::of<int>(), &two);
+        b.store(y, x);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, n});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *iv_body = b.load(Type::of<int>(), i);
+        auto *parity = b.call(Type::of<int>(), ArithmeticOp::BINARY_MOD, {iv_body, two_c});
+        auto *branch_cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {parity, zero_c});
+        auto *if_inst = b.if_(branch_cond);
+        auto *if_merge = if_inst->create_merge_block();
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        b.set_insertion_point(if_true);
+        auto *yt0 = b.load(Type::of<float>(), y);
+        auto *yt1 = b.call(Type::of<float>(), ArithmeticOp::SIN, {yt0});
+        auto *yt2 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {yt1, x});
+        b.store(y, yt2);
+        b.br(if_merge);
+        b.set_insertion_point(if_false);
+        auto *yf0 = b.load(Type::of<float>(), y);
+        auto *yf1 = b.call(Type::of<float>(), ArithmeticOp::COS, {yf0});
+        auto *yf2 = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {yf1, x});
+        b.store(y, yf2);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        auto *gx = b.call(Type::of<float>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT, {x});
+        b.store(grad_out, gx);
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+        bool all_terminated = true;
+        k->traverse_basic_blocks([&](BasicBlock *block) noexcept {
+            all_terminated &= block->is_terminated();
+        });
+        expect(all_terminated);
+        expect(count_reachable_insts(k, DerivedInstructionTag::IF) >= 2u);
+    };
+
+    "autodiff_inlines_callable_before_reverse_pass"_test = [] {
+        Module m;
+        auto *callee = m.create_callable(Type::of<float>());
+        auto *callee_arg = callee->create_argument(Type::of<float>(), false);
+        auto *callee_body = callee->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(callee_body);
+        auto *sin_x = b.call(Type::of<float>(), ArithmeticOp::SIN, {callee_arg});
+        auto *mul = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {sin_x, callee_arg});
+        b.return_(mul);
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *call = b.call(Type::of<float>(), callee, {x});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {call, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        expect(count_reachable_insts(k, DerivedInstructionTag::CALL) == 1u);
+        auto inline_info = inline_all_pass_run_on_module(&m);
+        expect(inline_info.inlined_call_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::CALL) == 0u);
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+    };
+
+    "autodiff_unrolls_fixed_trip_loop_before_reverse_pass"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t four = 4;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *four_c = m.create_constant(Type::of<int>(), &four);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, four_c});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *yv = b.load(Type::of<float>(), y);
+        auto *s = b.call(Type::of<float>(), ArithmeticOp::SIN, {yv});
+        b.store(y, s);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+    };
+
+    "autodiff_unrolls_fixed_trip_loop_with_explicit_step_xor_condition"_test = [] {
+        auto run_case = [](int32_t start_v, int32_t bound_v, int32_t step_v) {
+            Module m;
+            BasicBlock *body;
+            auto *k = make_kernel_with_body(m, body);
+            auto *x = k->create_argument(Type::of<float>(), false);
+            XIRBuilder b;
+            b.set_insertion_point(body);
+            auto *scope = b.autodiff_scope();
+            auto *merge = scope->create_merge_block();
+            auto *entry = scope->create_entry_block();
+            b.set_insertion_point(entry);
+            b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+            auto *y = b.alloca_local(Type::of<float>());
+            auto *i = b.alloca_local(Type::of<int>());
+            auto *step = b.alloca_local(Type::of<int>());
+            int32_t zero_v = 0;
+            auto *start = m.create_constant(Type::of<int>(), &start_v);
+            auto *bound = m.create_constant(Type::of<int>(), &bound_v);
+            auto *step_c = m.create_constant(Type::of<int>(), &step_v);
+            auto *zero = m.create_constant(Type::of<int>(), &zero_v);
+            b.store(y, x);
+            b.store(i, start);
+            b.store(step, step_c);
+            auto *loop = b.loop();
+            auto *prepare = loop->create_prepare_block();
+            auto *loop_body = loop->create_body_block();
+            auto *update = loop->create_update_block();
+            auto *loop_merge = loop->create_merge_block();
+            b.set_insertion_point(prepare);
+            auto *iv = b.load(Type::of<int>(), i);
+            auto *cmp = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, bound});
+            auto *cond_step = b.load(Type::of<int>(), step);
+            auto *neg_step = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {cond_step, zero});
+            auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_BIT_XOR, {cmp, neg_step});
+            b.cond_br(cond, loop_body, loop_merge);
+            b.set_insertion_point(loop_body);
+            auto *yv = b.load(Type::of<float>(), y);
+            auto *sum = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {yv, x});
+            auto *s = b.call(Type::of<float>(), ArithmeticOp::SIN, {sum});
+            b.store(y, s);
+            b.br(update);
+            b.set_insertion_point(update);
+            auto *iv_next_base = b.load(Type::of<int>(), i);
+            auto *step_update = b.load(Type::of<int>(), step);
+            auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, step_update});
+            b.store(i, iv_next);
+            b.br(prepare);
+            b.set_insertion_point(loop_merge);
+            auto *out = b.load(Type::of<float>(), y);
+            b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+            b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+            b.br(merge);
+            b.set_insertion_point(merge);
+            b.return_void();
+            auto info = autodiff_pass_run_on_function(k);
+            expect(info.transformed_scope_count == 1u);
+            expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+            expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+            expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+        };
+        run_case(0, 6, 2);
+        run_case(3, 0, -1);
+    };
+
+    "autodiff_unrolls_fixed_trip_loop_with_update_state_store"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t three = 3;
+        float scale_v = 0.5f;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *three_c = m.create_constant(Type::of<int>(), &three);
+        auto *scale = m.create_constant(Type::of<float>(), &scale_v);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, three_c});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *yv = b.load(Type::of<float>(), y);
+        auto *s = b.call(Type::of<float>(), ArithmeticOp::SIN, {yv});
+        b.store(y, s);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *yu = b.load(Type::of<float>(), y);
+        auto *y_next = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {yu, scale});
+        b.store(y, y_next);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+    };
+
+    "autodiff_unrolls_fixed_trip_loop_with_nested_cfg_before_dce"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t three = 3;
+        float half = 0.5f;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *three_c = m.create_constant(Type::of<int>(), &three);
+        auto *half_c = m.create_constant(Type::of<float>(), &half);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, three_c});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *switch_iv = b.load(Type::of<int>(), i);
+        auto *sw = b.switch_(switch_iv);
+        auto *sw_merge = sw->create_merge_block();
+        auto *sw_default = sw->create_default_block();
+        auto *sw_case = sw->create_case_block(1);
+        b.set_insertion_point(sw_default);
+        auto *d0 = b.load(Type::of<float>(), y);
+        auto *d1 = b.call(Type::of<float>(), ArithmeticOp::SIN, {d0});
+        b.store(y, d1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_case);
+        auto *c0 = b.load(Type::of<float>(), y);
+        auto *c1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {c0, x});
+        b.store(y, c1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_merge);
+        auto *if_y = b.load(Type::of<float>(), y);
+        auto *if_cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_GREATER, {if_y, half_c});
+        auto *if_inst = b.if_(if_cond);
+        auto *if_merge = if_inst->create_merge_block();
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        b.set_insertion_point(if_true);
+        auto *t0 = b.load(Type::of<float>(), y);
+        auto *t1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {t0, x});
+        b.store(y, t1);
+        b.br(if_merge);
+        b.set_insertion_point(if_false);
+        auto *f0 = b.load(Type::of<float>(), y);
+        auto *f1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_SUB, {f0, x});
+        b.store(y, f1);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+        auto scalarizer_info = scalarizer_pass_run_on_function(k);
+        static_cast<void>(scalarizer_info);
+        auto sroa_info = sroa_pass_run_on_function(k);
+        static_cast<void>(sroa_info);
+        auto dce_info = dce_pass_run_on_function(k);
+        static_cast<void>(dce_info);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::SWITCH) >= 6u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::IF) >= 6u);
+    };
+
+    "autodiff_unrolls_fixed_trip_loop_with_vector_state_before_dce"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        auto *float2_t = Type::of<float2>();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *p = b.alloca_local(float2_t);
+        auto *v = b.alloca_local(float2_t);
+        auto *i = b.alloca_local(Type::of<int>());
+        uint32_t ix = 0u;
+        uint32_t iy = 1u;
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t four = 4;
+        float c025 = 0.25f;
+        float c05 = 0.5f;
+        auto *ix_c = m.create_constant(Type::of<uint32_t>(), &ix);
+        auto *iy_c = m.create_constant(Type::of<uint32_t>(), &iy);
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *four_c = m.create_constant(Type::of<int>(), &four);
+        auto *c025_c = m.create_constant(Type::of<float>(), &c025);
+        auto *c05_c = m.create_constant(Type::of<float>(), &c05);
+        auto *x2 = b.call(float2_t, ArithmeticOp::AGGREGATE, {x, x});
+        auto *v0 = b.call(float2_t, ArithmeticOp::BINARY_MUL, {x2, c025_c});
+        b.store(p, x2);
+        b.store(v, v0);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, four_c});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *switch_iv = b.load(Type::of<int>(), i);
+        auto *sw = b.switch_(switch_iv);
+        auto *sw_merge = sw->create_merge_block();
+        auto *sw_default = sw->create_default_block();
+        auto *sw_case = sw->create_case_block(2);
+        b.set_insertion_point(sw_default);
+        auto *pd0 = b.load(float2_t, p);
+        auto *vd0 = b.load(float2_t, v);
+        auto *pd1 = b.call(float2_t, ArithmeticOp::BINARY_ADD, {pd0, vd0});
+        b.store(p, pd1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_case);
+        auto *pc0 = b.load(float2_t, p);
+        auto *vc0 = b.load(float2_t, v);
+        auto *vc1 = b.call(float2_t, ArithmeticOp::BINARY_MUL, {vc0, pc0});
+        b.store(v, vc1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_merge);
+        auto *pl = b.load(float2_t, p);
+        auto *px = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {pl, ix_c});
+        auto *py = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {pl, iy_c});
+        auto *if_cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_GREATER, {px, py});
+        auto *if_inst = b.if_(if_cond);
+        auto *if_merge = if_inst->create_merge_block();
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        b.set_insertion_point(if_true);
+        auto *vt0 = b.load(float2_t, v);
+        auto *vt1 = b.call(float2_t, ArithmeticOp::BINARY_MUL, {vt0, c05_c});
+        b.store(v, vt1);
+        b.br(if_merge);
+        b.set_insertion_point(if_false);
+        auto *pf0 = b.load(float2_t, p);
+        auto *pf1 = b.call(float2_t, ArithmeticOp::BINARY_ADD, {pf0, x2});
+        b.store(p, pf1);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out_p = b.load(float2_t, p);
+        auto *out_v = b.load(float2_t, v);
+        auto *out_px = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {out_p, ix_c});
+        auto *out_py = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {out_p, iy_c});
+        auto *out_vx = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {out_v, ix_c});
+        auto *sum0 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {out_px, out_py});
+        auto *out = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {sum0, out_vx});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+        auto scalarizer_info = scalarizer_pass_run_on_function(k);
+        static_cast<void>(scalarizer_info);
+        auto sroa_info = sroa_pass_run_on_function(k);
+        static_cast<void>(sroa_info);
+        auto dce_info = dce_pass_run_on_function(k);
+        static_cast<void>(dce_info);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::SWITCH) >= 8u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::IF) >= 8u);
+    };
+
+    "autodiff_unrolls_fixed_trip_loop_with_continue_cfg"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t two = 2;
+        int32_t five = 5;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *two_c = m.create_constant(Type::of<int>(), &two);
+        auto *five_c = m.create_constant(Type::of<int>(), &five);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, five_c});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *if_iv = b.load(Type::of<int>(), i);
+        auto *if_cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {if_iv, two_c});
+        auto *if_inst = b.if_(if_cond);
+        auto *if_merge = if_inst->create_merge_block();
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        b.set_insertion_point(if_true);
+        b.continue_(update);
+        b.set_insertion_point(if_false);
+        auto *yf0 = b.load(Type::of<float>(), y);
+        auto *yf1 = b.call(Type::of<float>(), ArithmeticOp::SIN, {yf0});
+        b.store(y, yf1);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        auto *ym0 = b.load(Type::of<float>(), y);
+        auto *ym1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {ym0, x});
+        b.store(y, ym1);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::BREAK) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::CONTINUE) == 0u);
+    };
+
+    "autodiff_unrolls_fixed_trip_loop_with_break_cfg"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t three = 3;
+        int32_t six = 6;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *three_c = m.create_constant(Type::of<int>(), &three);
+        auto *six_c = m.create_constant(Type::of<int>(), &six);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, six_c});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *yv0 = b.load(Type::of<float>(), y);
+        auto *sum = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {yv0, x});
+        auto *s = b.call(Type::of<float>(), ArithmeticOp::SIN, {sum});
+        b.store(y, s);
+        auto *if_iv = b.load(Type::of<int>(), i);
+        auto *if_cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_EQUAL, {if_iv, three_c});
+        auto *if_inst = b.if_(if_cond);
+        auto *if_merge = if_inst->create_merge_block();
+        auto *if_true = if_inst->create_true_block();
+        auto *if_false = if_inst->create_false_block();
+        b.set_insertion_point(if_true);
+        b.break_(loop_merge);
+        b.set_insertion_point(if_false);
+        auto *yf0 = b.load(Type::of<float>(), y);
+        auto *yf1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {yf0, x});
+        b.store(y, yf1);
+        b.br(if_merge);
+        b.set_insertion_point(if_merge);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::BREAK) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::CONTINUE) == 0u);
+    };
+
+    "autodiff_unrolls_fixed_trip_loop_with_switch_early_exit_cfg"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        auto *x = k->create_argument(Type::of<float>(), false);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *scope = b.autodiff_scope();
+        auto *merge = scope->create_merge_block();
+        auto *entry = scope->create_entry_block();
+        b.set_insertion_point(entry);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_REQUIRES_GRADIENT, {x});
+        auto *y = b.alloca_local(Type::of<float>());
+        auto *i = b.alloca_local(Type::of<int>());
+        b.store(y, x);
+        int32_t zero = 0;
+        int32_t one = 1;
+        int32_t four = 4;
+        int32_t six = 6;
+        auto *zero_c = m.create_constant(Type::of<int>(), &zero);
+        auto *one_c = m.create_constant(Type::of<int>(), &one);
+        auto *six_c = m.create_constant(Type::of<int>(), &six);
+        b.store(i, zero_c);
+        auto *loop = b.loop();
+        auto *prepare = loop->create_prepare_block();
+        auto *loop_body = loop->create_body_block();
+        auto *update = loop->create_update_block();
+        auto *loop_merge = loop->create_merge_block();
+        b.set_insertion_point(prepare);
+        auto *iv = b.load(Type::of<int>(), i);
+        auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_LESS, {iv, six_c});
+        b.cond_br(cond, loop_body, loop_merge);
+        b.set_insertion_point(loop_body);
+        auto *switch_iv = b.load(Type::of<int>(), i);
+        auto *sw = b.switch_(switch_iv);
+        auto *sw_merge = sw->create_merge_block();
+        auto *sw_default = sw->create_default_block();
+        auto *sw_continue = sw->create_case_block(1);
+        auto *sw_break = sw->create_case_block(4);
+        b.set_insertion_point(sw_default);
+        auto *d0 = b.load(Type::of<float>(), y);
+        auto *d1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_MUL, {d0, x});
+        b.store(y, d1);
+        b.br(sw_merge);
+        b.set_insertion_point(sw_continue);
+        auto *c0 = b.load(Type::of<float>(), y);
+        auto *c1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {c0, x});
+        b.store(y, c1);
+        b.continue_(update);
+        b.set_insertion_point(sw_break);
+        auto *b0 = b.load(Type::of<float>(), y);
+        auto *b1 = b.call(Type::of<float>(), ArithmeticOp::SIN, {b0});
+        b.store(y, b1);
+        b.break_(loop_merge);
+        b.set_insertion_point(sw_merge);
+        auto *m0 = b.load(Type::of<float>(), y);
+        auto *m1 = b.call(Type::of<float>(), ArithmeticOp::BINARY_ADD, {m0, x});
+        b.store(y, m1);
+        b.br(update);
+        b.set_insertion_point(update);
+        auto *iv_next_base = b.load(Type::of<int>(), i);
+        auto *iv_next = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {iv_next_base, one_c});
+        b.store(i, iv_next);
+        b.br(prepare);
+        b.set_insertion_point(loop_merge);
+        auto *out = b.load(Type::of<float>(), y);
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_GRADIENT_MARKER, {out, m.create_constant_one(Type::of<float>())});
+        b.call(Type::of<void>(), AutodiffIntrinsicOp::AUTODIFF_BACKWARD, {});
+        b.br(merge);
+        b.set_insertion_point(merge);
+        b.return_void();
+        auto info = autodiff_pass_run_on_function(k);
+        expect(info.transformed_scope_count == 1u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_SCOPE) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::AUTODIFF_INTRINSIC) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::LOOP) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::BREAK) == 0u);
+        expect(count_reachable_insts(k, DerivedInstructionTag::CONTINUE) == 0u);
+    };
+}
+
 // Regression tests
 
 void reg_regression() {
@@ -2382,6 +4207,7 @@ int main(int argc, char *argv[]) {
     reg_mem2reg();
     reg_promote_ref_arg();
     reg_outline();
+    reg_autodiff();
     reg_regression();
     return 0;
 }

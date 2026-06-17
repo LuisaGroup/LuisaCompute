@@ -74,6 +74,18 @@ const bool LUISA_XIR_DISABLE_OPTIMIZATION = [] {
     return false;
 }();
 
+[[nodiscard]] bool has_autodiff_scope(xir::Module *module) noexcept {
+    auto found = false;
+    for (auto f : module->function_list()) {
+        if (auto def = f->definition()) {
+            def->traverse_instructions([&](xir::Instruction *inst) noexcept {
+                found |= inst->derived_instruction_tag() == xir::DerivedInstructionTag::AUTODIFF_SCOPE;
+            });
+        }
+    }
+    return found;
+}
+
 void dump_xir_module(const xir::Module *module, luisa::string_view filename) noexcept {
     std::ofstream f{luisa::string{filename}.c_str()};
     f << xir::xir_to_text_translate(module, true);
@@ -213,7 +225,22 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             post_inline_extra_stats.log("SPIR-V post-inline extra");
         }
 
+        auto has_ad_scope = has_autodiff_scope(xir_module.get());
         xir::PassPipeline autodiff;
+        if (has_ad_scope) {
+            autodiff.add("inline-all", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::inline_all_pass_run_on_module(m, &r);
+                return i.inlined_call_count > 0u;
+            });
+            autodiff.add("dead-arg-elim", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dead_arg_elim_pass_run_on_module(m, &r);
+                return i.removed_arg_count > 0u;
+            });
+            autodiff.add("dce", [](xir::Module *m, xir::PassReport &r) {
+                auto i = xir::dce_pass_run_on_module(m, &r);
+                return i.removed_inst_count > 0u || i.removed_block_count > 0u;
+            });
+        }
         autodiff.add("autodiff", [](xir::Module *m, xir::PassReport &r) {
             auto i = xir::autodiff_pass_run_on_module(m);
             r.set("transformed_scope_count", i.transformed_scope_count);
