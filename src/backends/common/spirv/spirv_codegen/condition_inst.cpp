@@ -1,4 +1,5 @@
 #include "entry.h"
+#include <algorithm>
 #include <luisa/core/logging.h>
 
 namespace lc::spirv {
@@ -205,12 +206,19 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     _builder.createBranch(false, prepare);
     _emit_block(inst->prepare_block());
     _emit_block(inst->body_block());
+    // Collect pending sub-blocks and emit them in FIFO (insertion) order
+    // so definitions that dominate uses are emitted first.
+    luisa::vector<const xir::BasicBlock *> sub_blocks;
     while (_pending_blocks.size() > pending_base) {
         auto *bb = _pending_blocks.back();
         _pending_blocks.pop_back();
         if (bb == inst->update_block() || bb == inst->merge_block()) {
             continue;
         }
+        sub_blocks.push_back(bb);
+    }
+    std::reverse(sub_blocks.begin(), sub_blocks.end());
+    for (auto *bb : sub_blocks) {
         _emit_block(bb);
     }
     _emit_block(inst->update_block());
@@ -237,12 +245,18 @@ void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) 
     _builder.createLoopMerge(merge, continue_block, spv::LoopControlMask::MaskNone, {});
     _builder.createBranch(false, body);
     _emit_block(inst->body_block());
+    // Collect pending sub-blocks and emit them in FIFO (insertion) order.
+    luisa::vector<const xir::BasicBlock *> sub_blocks;
     while (_pending_blocks.size() > pending_base) {
         auto *bb = _pending_blocks.back();
         _pending_blocks.pop_back();
         if (bb == inst->merge_block()) {
             continue;
         }
+        sub_blocks.push_back(bb);
+    }
+    std::reverse(sub_blocks.begin(), sub_blocks.end());
+    for (auto *bb : sub_blocks) {
         _emit_block(bb);
     }
     if (!_builder.getBuildPoint()->isTerminated()) {
@@ -419,10 +433,16 @@ void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept 
             _builder.createBranch(false, selection_merge_target);
         }
     }
+    // Collect pending sub-blocks and emit them in FIFO (insertion) order.
+    luisa::vector<const xir::BasicBlock *> sub_blocks;
     while (_pending_blocks.size() > pending_base) {
         auto *bb = _pending_blocks.back();
         _pending_blocks.pop_back();
         if (bb == inst->merge_block()) { continue; }
+        sub_blocks.push_back(bb);
+    }
+    std::reverse(sub_blocks.begin(), sub_blocks.end());
+    for (auto *bb : sub_blocks) {
         _emit_block(bb);
     }
     if (synthetic_merge != nullptr) {

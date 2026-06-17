@@ -67,6 +67,7 @@ SpirvCodegenEntry::~SpirvCodegenEntry() noexcept {
     _used_merge_blocks.clear();
     _pending_blocks.clear();
     _added_blocks.clear();
+    _emitting_values.clear();
     _print_info.clear();
     _print_formats.clear();
     _control_flow_stack.clear();
@@ -332,11 +333,48 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
         case xir::DerivedValueTag::FUNCTION:
         case xir::DerivedValueTag::BASIC_BLOCK:
         case xir::DerivedValueTag::INSTRUCTION: {
-            auto tag = xir::to_string(value->derived_value_tag());
-            auto name = value->name().value_or("<noname>");
-            auto type_desc = value->type() ? value->type()->description() : "void";
-            LUISA_ERROR_WITH_LOCATION("SPIR-V value {} (name={}, type={}) should have been pre-mapped.", tag, name, type_desc);
-            break;
+            auto *inst = static_cast<const xir::Instruction *>(value);
+            // Guard against recursive cycles
+            if (!_emitting_values.emplace(value).second) {
+                // Cycle detected: create OpUndef as placeholder
+                auto spv_type = _convert_type(value->type(), Usage::READ);
+                id = _builder.createUndefined(spv_type);
+                _value_map.emplace(value, id);
+                break;
+            }
+            // Try to emit the parent block if it hasn't been emitted
+            if (auto *parent = inst->parent_block();
+                parent != nullptr && !_emitted_blocks.contains(parent)) {
+                auto *saved_bp = _builder.getBuildPoint();
+                _emit_block(parent);
+                if (saved_bp != nullptr && _builder.getBuildPoint() != saved_bp) {
+                    _builder.setBuildPoint(saved_bp);
+                }
+            }
+            // If still not mapped, try emitting just this instruction
+            if (auto it = _value_map.find(value); it == _value_map.end()) {
+                auto *saved_bp = _builder.getBuildPoint();
+                if (auto *parent = inst->parent_block()) {
+                    auto *block = _get_or_create_block(parent);
+                    if (block != nullptr) {
+                        if (!_added_blocks.contains(block)) {
+                            block->getParent().addBlock(block);
+                            _added_blocks.emplace(block);
+                        }
+                        _builder.setBuildPoint(block);
+                    }
+                }
+                _emit_instruction(inst);
+                if (saved_bp != nullptr) {
+                    _builder.setBuildPoint(saved_bp);
+                }
+            }
+            _emitting_values.erase(value);
+            if (auto it = _value_map.find(value); it != _value_map.end()) {
+                id = it->second;
+                break;
+            }
+            [[fallthrough]];
         }
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit value.");
@@ -450,6 +488,7 @@ void SpirvCodegenEntry::_reset_function_codegen_state() noexcept {
     _block_map.clear();
     _loop_boundary_stack.clear();
     _added_blocks.clear();
+    _emitting_values.clear();
     _rq_proceed_result.clear();
 }
 

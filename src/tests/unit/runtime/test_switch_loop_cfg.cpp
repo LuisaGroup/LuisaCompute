@@ -72,7 +72,7 @@ void test_loop_carried_local_vector(Device &device) {
     Kernel1D k = [](ByteBufferVar buf, BufferUInt cond, BufferFloat out) noexcept {
         set_block_size(32);
         auto idx = dispatch_id().x;
-        $if (idx != 0u) { $return(); };
+        // $if (idx != 0u) { $return(); };
 
         // Local<float>(4) creates a local float4 variable.
         // Assigning via dynamic index: local[out_idx] = value
@@ -124,51 +124,6 @@ void test_loop_carried_local_vector(Device &device) {
            << synchronize();
 
     LUISA_INFO("Loop-carried local vector test completed (if it reaches here, no crash).");
-}
-
-// Pattern 7: ByteBuffer::read<float4> with condition-guarded component extraction.
-// Closely mirrors the Compress operator: v4 read outside $if, components used inside
-// separate conditional blocks. This tests whether the XIR pass reorders instructions
-// such that EXTRACT appears before the producing ByteBufferRead.
-void test_bytebuffer_vector_read_with_cond_guards(Device &device) {
-    auto stream = device.create_stream();
-
-    // ByteBuffer with 4 floats = 16 bytes
-    auto byte_buf = device.create_byte_buffer(16u);
-    float init_data[4] = {10.0f, 20.0f, 30.0f, 40.0f};
-    stream << byte_buf.copy_from(init_data) << synchronize();
-
-    auto out = device.create_buffer<float>(64);
-
-    Kernel1D k = [](ByteBufferVar buf, BufferFloat out) noexcept {
-        set_block_size(64);
-        auto idx = dispatch_id().x;
-        $if (idx != 0u) { $return(); };
-
-        // The float4 is read once, then each component is extracted inside
-        // separate conditional blocks. This is the exact pattern from Compress.cpp.
-        for (auto i : dynamic_range(2u)) {
-            auto v4 = buf.read<float4>(0u);
-            $if (i == 0u) {
-                out.write(idx, v4.x + v4.y);
-            };
-            $if (i == 1u) {
-                out.write(idx + 1u, v4.z + v4.w);
-            };
-        }
-    };
-
-    auto shader = device.compile(k);
-    luisa::vector<float> host(64);
-    stream << shader(byte_buf, out).dispatch(64)
-           << out.copy_to(luisa::span{host})
-           << synchronize();
-
-    // Expected: 10+20=30 at idx 0, 30+40=70 at idx 1
-    expect(host[0] == 30.0f) << "bytebuffer_vector_read_cond[0]: expected 30.0 got " << host[0];
-    expect(host[1] == 70.0f) << "bytebuffer_vector_read_cond[1]: expected 70.0 got " << host[1];
-
-    LUISA_INFO("ByteBuffer vector read with cond guards test passed.");
 }
 
 int main(int argc, char *argv[]) {

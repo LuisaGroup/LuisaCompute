@@ -621,3 +621,184 @@ When the Vulkan backend reports `VK_ERROR_DEVICE_LOST` at `vkQueueSubmit`, the G
 4. **Compare with LLVM fallback**: The `fallback` backend (`luisa-backend-fallback`) uses its own XIR→LLVM codegen. If the fallback works but SPIR-V crashes, the bug is in SPIR-V codegen or the shared XIR passes.
 5. **Check for infinite loops**: GPU timeout often means an infinite loop. Verify all loop back-edges are preserved after restructuring. Look for `restructured_loop` count mismatches.
 6. **Check non-deterministic behavior**: `unordered_set` iteration order can cause intermittent bugs (e.g., `exit_targets[0]`). If a crash is flaky, suspect unordered container ordering.
+
+## Coding Rules
+
+These rules govern all code in `src/backends/common/spirv/spirv_codegen/`. They are derived from the existing implementation patterns and must be followed for consistency.
+
+### File Organization
+
+| Rule | Description |
+|---|---|
+| R1 | All codegen methods are declared in `entry.h` under `class SpirvCodegenEntry`. |
+| R2 | `SpirvCodegenEntry` has only one public method: `static SpirvResult compile_spirv(...)`. Everything else is private. |
+| R3 | Per-instruction dispatch lives in `instruction.cpp`. Control-flow (if/loop/switch/branch) lives in `condition_inst.cpp`. Type conversion lives in `type.cpp`. Binding/descriptor layout lives in `bind.cpp`. Core pipeline (emit/usage analysis/kernel prologue) lives in `emit.cpp`. |
+| R4 | The AST→XIR translation and optimization pipeline is in `utils.cpp` — it is a free function `luisa_spirv_backend_translate_ast_to_xir()`, NOT a member of `SpirvCodegenEntry`. |
+
+### Value Mapping (`_value_map`)
+
+| Rule | Description |
+|---|---|
+| V1 | Every SPIR-V instruction result that is not void **must** be stored in `_value_map` via `_value_map.emplace(inst, id)`. |
+| V2 | **EXCEPTION**: `SPECIAL_REGISTER` (builtins) results must **NOT** be cached in `_value_map`. Their `OpLoad` must dominate all uses; caching could place the load inside a loop body and reuse it after the loop, violating SPIR-V dominance. |
+| V3 | **EXCEPTION**: `UNDEFINED` values must **NOT** be cached in `_value_map`. `OpUndef` is added to the current block and must dominate all uses. |
+| V4 | `_emit_value()` handles cycle detection via `_emitting_values`. If a value is already being emitted (recursive cycle), an `OpUndef` placeholder is created and stored in `_value_map`. |
+| V5 | If an instruction's parent block hasn't been emitted yet when `_emit_value()` is called for that instruction, the parent block is emitted on-the-fly (saving/restoring builder build point). |
+| V6 | Non-resource `ARGUMENT` values are pre-mapped in `_emit_kernel()` (from cbuffer) or `_emit_callable()` (from function params). Resource `ARGUMENT` values are resolved lazily via `_resolve_resource_argument()`. |
+
+### Type Conversion (`_convert_type`)
+
+| Rule | Description |
+|---|---|
+| T1 | Always use `_convert_type(type, usage)` for SPIR-V result types. Usage is `Usage::READ` for read-only, `Usage::WRITE` for writable, `Usage::READ_WRITE` for read-write. |
+| T2 | Texture types are cached separately in `_sampled_image_type_map` (read-only) vs `_storage_image_type_map` (writable). Do NOT cache them in `_type_map`. |
+| T3 | Buffer types with struct/array elements use `_convert_laid_out_type()` which adds `ArrayStride`, `Offset`, `ColMajor`, `MatrixStride` decorations recursively. |
+| T4 | Bool element types in buffers are always converted to `uint32` storage. Conversion back to bool happens on read (compare≠0) and on write (select 1:0). |
+| T5 | FP8 types require `_uses_float8 = true`. Int8 types require `_uses_int8 = true`. 8-bit storage in StorageBuffer/Uniform/PushConstant requires tracking via `_mark_8bit_storage_usage()`. |
+| T6 | New type tags: add a case in `_convert_type()` AND in `_convert_laid_out_type()` AND in `_emit_literal()` AND in `spirv_codegen_emit_scalar_constant()`. |
+
+### Block Management
+
+| Rule | Description |
+|---|---|
+| B1 | Blocks are created lazily via `_get_or_create_block(bb)` which checks `_block_map` first, then allocates a new `spv::Block` with `_builder.getUniqueId()`. |
+| B2 | `_emit_block(bb)` checks `_emitted_blocks` first. If already emitted, returns immediately. It adds the SPIR-V block to its parent function via `addBlock()` and records it in `_added_blocks`. |
+| B3 | Block emission order matters for SPIR-V dominance. Use `REVERSE_POST_ORDER` traversal in `_emit_function_blocks()` for forward functions. |
+| B4 | For loops, create synthetic header/continue blocks **before** emitting body blocks so back-edges reference lexically earlier blocks (required by SPIR-V). |
+| B5 | Merge blocks must be unique within a function — a block can only be the merge target for one construct. Use `_used_merge_blocks` to track. If a merge would be reused, create a synthetic merge block. |
+| B6 | Pre-register all merge blocks via `_pre_register_merge_blocks(def)` before emitting any function body. This ensures block IDs are allocated before they are referenced as merge targets. |
+| B7 | Use `_added_blocks` to track which SPIR-V blocks have been added to the function (via `addBlock()`). Do not add the same block twice. |
+| B8 | Pending blocks (discovered via branch/cond_branch) are collected in `_pending_blocks` and emitted in FIFO order after the main loop body. This ensures definitions dominate uses. |
+
+### Control Flow
+
+| Rule | Description |
+|---|---|
+| C1 | All loop types (`LoopInst`, `SimpleLoopInst`, `RayQueryLoopInst`) use `_loop_header_redirect` to redirect branches to prepare/body/dispatch XIR blocks to the correct SPIR-V block (header or continue_block). |
+| C2 | `_loop_boundary_stack` tracks (XIR merge block, SPIR-V merge/continue block) pairs per enclosing loop. `_conditional_branch_inst` uses this to detect break-vs-continue patterns and insert `OpSelectionMerge` when needed. |
+| C3 | `_outer_merge_stack` tracks enclosing `IfInst` merge blocks so nested constructs can detect when an arm coincides with an outer merge — requiring a synthetic clone to avoid dominance ordering violations. |
+| C4 | Switch instances must detect cross-segment branches (case bodies that branch to other cases or back to the switch header). If detected, wrap in a synthetic loop with `OpLoopMerge`. |
+| C5 | `_emit_if_inst()`: if neither arm reaches the merge block (both exit via break/continue/return), the merge is unreachable. Use a synthetic dead-end merge; let the real merge be emitted when actually reached. |
+| C6 | `OpSelectionMerge`/`OpLoopMerge` instructions must be emitted **before** the branch that targets the merge. |
+
+### Constants, Literals, and the Constant UBO
+
+| Rule | Description |
+|---|---|
+| K1 | `_emit_literal()` handles scalar, vector, matrix, array, and structure constants recursively. FP8 constants use `makeFloatE4M3Constant()` / `makeFloatE5M2Constant()`. |
+| K2 | `_emit_constant()` checks `_value_map` cache first, then `_ubo_constant_member_by_hash` (if lowered to UBO), then falls back to `_emit_literal()`. |
+| K3 | Array constants are detected in `compile_spirv()` (step after `_mark_atomic_buffer_types()`) and added to `_ubo_array_constants`. `generate_binding()` creates a `_ConstantUBO` with std140 layout. |
+| K4 | UBO-lowered array constants use `_ubo_constant_member_by_hash` mapping constant hash → struct member index. `EXTRACT` on UBO arrays is detected in `_emit_arithmetic_inst()` for fast indexed load. |
+| K5 | SpecConstantOp folding is enabled for `IAdd`, `IMul`, `IEqual`, `INotEqual` on integer constants. This is gated on `Op::OpConstant` or `Op::OpSpecConstant` opcodes for both operands. |
+
+### Arithmetic Emission
+
+| Rule | Description |
+|---|---|
+| A1 | The `_emit_arithmetic_inst()` switch must handle every `xir::ArithmeticOp`. Unhandled ops → `LUISA_NOT_IMPLEMENTED`. |
+| A2 | Helper pattern: `unary(op)`, `binary(op)`, `glsl(builtin,args...)`, `glsl_typed(f,s,u,args...)`, and `make_glsl_call(builtin,type,args)`. |
+| A3 | The `make_glsl_call` wrapper auto-promotes 8-bit integer operands to 32-bit before the GLSL.std.450 call and truncates the result back. |
+| A4 | VectorTimesScalar peephole: in `BINARY_MUL` on float vectors, detect if one operand is a smeared scalar (`AGGREGATE` with all-equal operands, or load from alloca stored once from smeared scalar) and emit `OpVectorTimesScalar`. |
+| A5 | Strength reduction: `BINARY_MUL(x, 2^n)` → `OpShiftLeftLogical(x, n)`. `BINARY_DIV(x, 2^n)` → `OpShiftRightArithmetic(x, n)` for signed int. |
+| A6 | `AGGREGATE` peephole: detect when all operands are `EXTRACT` from the same base vector with constant indices → emit `createRvalueSwizzle`. |
+| A7 | `SHUFFLE` peephole: if all indices are constants → `createRvalueSwizzle`. Otherwise → `createVectorExtractDynamic` per component. |
+| A8 | `EXTRACT`: all-constant indices → `createCompositeExtract`. Vector with dynamic index → `createVectorExtractDynamic`. Array/matrix with small element count (≤16) and single dynamic index → `OpSelect` chain over `CompositeExtract`. Other dynamic cases → temp variable + access chain + load. |
+| A9 | `INSERT`: all-constant indices → `createCompositeInsert`. Dynamic → temp variable + access chain + store + load. |
+| A10 | FP8 types: **no arithmetic is allowed**. Emitters must error with guidance to upconvert to float16/float32, compute, then downconvert. |
+| A11 | Bool arithmetic maps to logical ops: `BINARY_BIT_AND`→`OpLogicalAnd`, `BINARY_BIT_OR`→`OpLogicalOr`, `BINARY_BIT_XOR`→`OpLogicalNotEqual`, `UNARY_BIT_NOT`→`OpLogicalNot`. Comparison ops use `OpFOrd*` for float, `OpS*` for signed int, `OpU*` for unsigned. |
+
+### Resource Read/Write
+
+| Rule | Description |
+|---|---|
+| W1 | Typed buffer access (when buffer element type is non-null and not word-storage): use `_create_access_chain(0, index)` → `createLoad`/`createStore`. Type mismatch handled with `OpCopyLogical`. |
+| W2 | Byte buffer / untyped / bindless access: compute `word_offset = index * word_count`, use `_emit_buffer_read_impl()`/`_emit_buffer_write_impl()` recursively. |
+| W3 | Sub-word types (bool, int8, float16, float8, sub-word structures/vectors) in byte buffers use read-modify-write: load word, shift, mask, convert, and for writes: clear old bits, OR new bits. |
+| W4 | `_emit_buffer_read_impl()` and `_emit_buffer_write_impl()` recursively handle scalar, vector, matrix, structure, and array element types. Multi-word scalars (int64, double) are loaded/stored as uvec2 via bitcast. |
+| W5 | Bool vector storage: reads extract individual bits via shift+mask+compare; writes pack bits via select+shift+or. |
+| W6 | Bindless buffer access: resolve `buffer_idx` from bindless_array (3 uint32s per slot), create access chain into `_buffer_heap_id`. Mark `NonUniformEXT` decoration when the slot index is non-uniform. |
+| W7 | Textures: use `_load_texture()` to handle array-vs-non-array image loads. Storage images use `OpImageRead`/`OpImageWrite` (+`StorageImageReadWithoutFormat`/`StorageImageWriteWithoutFormat` capabilities). Sampled images use `OpImageFetch`/`createTextureCall`. |
+
+### Atomic Emission
+
+| Rule | Description |
+|---|---|
+| AT1 | Scope is always `Device`. Memory semantics are `MaskNone` (no acquire/release needed for compute shaders). |
+| AT2 | Float atomics on scalar buffers use native SPIR-V extensions: `SPV_EXT_shader_atomic_float_add` for add, `SPV_EXT_shader_atomic_float_min_max` for min/max, `SPV_EXT_shader_atomic_float16_add` for half. |
+| AT3 | Float atomics on non-scalar buffers (word-storage) fall back to CAS loop: `OpAtomicLoad` → compute new value → `OpAtomicCompareExchange` → loop until success. This is required because NVIDIA drivers crash on pointer bitcast in atomics. |
+| AT4 | Float compare-exchange on scalar buffers: CAS loop with `OpAtomicLoad` + `OpAtomicExchange` (avoids `OpAtomicCompareExchange` on float pointers). |
+| AT5 | Non-scalar buffer atomics compute word offsets from element indices: `elem_index * elem_word_count + byte_offset/4`. |
+| AT6 | `_needs_atomic_buffer_types` tracks buffer types that require atomic access → influences `_buffer_uses_word_storage()` which determines whether the buffer uses uint32 storage (word-level) or typed access. |
+
+### Kernel and Callable Emission
+
+| Rule | Description |
+|---|---|
+| E1 | Kernel entry point must have **no parameters** in SPIR-V. Use `makeFunctionEntry` with empty param lists. |
+| E2 | Non-resource kernel arguments are loaded from cbuffer (`_property_ids[2]`): compute aligned offsets, handle sub-word types (bool→compare, int8→truncate+bitcast), multi-word types via `_emit_buffer_read_impl`. |
+| E3 | If cbuffer is unavailable (`_property_ids.size() <= 2`), fall back to `makeNullConstant` for value args. |
+| E4 | Kernel prologue must include **dispatch bounds check**: `GlobalInvocationId >= DispatchSize` → early return. This prevents extra threads in the last workgroup from executing. Uses `OpSelectionMerge` + `OpBranchConditional` → return block / body block. The XIR body block is remapped to the body block (not the entry). |
+| E5 | Callable emission: skip unused resource args (to avoid type mismatches with kernel globals). Add `VariablePointersStorageBuffer` capability when callable has buffer/bindless_array params. |
+| E6 | Callable texture params are marked in `_is_storage_image_map` using `_function_argument_usage_of()`. |
+| E7 | `_callable_arg_used` tracks which callable args are actually used (via `use_list().empty()`). Unused resource args are skipped during call site argument packing. |
+| E8 | Call site (`CALL`): for reference args that are not alloca/param, create temp variable, copy-in before call, copy-out after call. |
+| E9 | Before emitting each function (`_emit_kernel`/`_emit_callable`), call `_reset_function_codegen_state()` to clear per-function state. |
+| E10 | After emitting all blocks, ensure the last block is terminated. If not, add `makeReturn(false)`. |
+
+### Special Registers and Builtins
+
+| Rule | Description |
+|---|---|
+| S1 | Built-in variables are created on first use and cached in `_builtin_var_map`. They use `Input` storage class with `BuiltIn` decoration. |
+| S2 | `DISPATCH_SIZE` is a special case: it reads from push constant `_property_ids[0]` (uint4), extracting xyz components. |
+| S3 | `_global_invocation_id_var` is cached separately because it's needed in the kernel prologue (dispatch bounds check). If not yet created, it's created there. |
+| S4 | Builtin map: `THREAD_ID`→LocalInvocationId, `BLOCK_ID`→WorkgroupId, `DISPATCH_ID`→GlobalInvocationId, `BLOCK_SIZE`→WorkgroupSize, `WARP_SIZE`→SubgroupSize, `WARP_LANE_ID`→SubgroupLocalInvocationId. |
+
+### Capabilities and Extensions
+
+| Rule | Description |
+|---|---|
+| CAP1 | Base setup in constructor: `spv::Spv_1_5`, `Shader` capability, `GLSL450` memory model, import `GLSL.std.450`. |
+| CAP2 | Image read/write without format: `StorageImageReadWithoutFormat` / `StorageImageWriteWithoutFormat` are core SPIR-V 1.5 capabilities (no extension needed). |
+| CAP3 | Image query: `ImageQuery` capability required for `OpImageQuerySize`/`OpImageQuerySizeLod`. |
+| CAP4 | 8-bit storage: `SPV_KHR_8bit_storage` extension + `StorageBuffer8BitAccess` / `UniformAndStorageBuffer8BitAccess` / `StoragePushConstant8`. |
+| CAP5 | Descriptor indexing: `SPV_EXT_descriptor_indexing` + `RuntimeDescriptorArray` + `ShaderNonUniformEXT` + array-specific indexing caps (`SampledImageArrayNonUniformIndexingEXT`, `StorageImageArrayNonUniformIndexingEXT`, `StorageBufferArrayNonUniformIndexingEXT`). |
+| CAP6 | Ray query: `SPV_KHR_ray_query` + `RayQueryKHR`. |
+| CAP7 | Variable pointers: `SPV_KHR_variable_pointers` + `VariablePointersStorageBuffer` (only for callables with buffer/bindless_array params). |
+| CAP8 | Group ops: `GroupNonUniform` + `GroupNonUniformArithmetic`/`GroupNonUniformVote`/`GroupNonUniformBallot`/`GroupNonUniformShuffle` as needed. |
+| CAP9 | Add capabilities and extensions as late as possible (at emission time), not in the constructor, so they are only added when actually needed. |
+
+### SPIR-V Validator Interaction
+
+| Rule | Description |
+|---|---|
+| VAL1 | SPIR-V validation runs twice: pre-optimization and post-optimization. Environment: `SPV_ENV_VULKAN_1_2`. |
+| VAL2 | Validation failure → `LUISA_ERROR` with stage ("pre-optimization"/"post-optimization") and full message log. |
+| VAL3 | SPIR-V optimization level controlled by `LUISA_SPIRV_OPT_LEVEL` env var: 0=skip, 1=lightweight (ADCE+BlockMerge+Simplification+DeadBranchElim), 2=performance passes. |
+| VAL4 | The optimizer is an `spvtools::Optimizer` run on the SPIR-V binary after initial dump and pre-validation. |
+
+### Lifecycle and Cleanup
+
+| Rule | Description |
+|---|---|
+| L1 | `SpirvCodegenEntry` is constructed once per `compile_spirv()` call. Constructor creates `spv::Builder` with `spv::Spv_1_5`. |
+| L2 | The `spv::Builder` is intentionally leaked via `_builder_ptr.release()` in `compile_spirv()` to avoid destructor crash. This is a known glslang issue. |
+| L3 | Destructor clears all maps and containers explicitly (though rarely called due to leak). |
+| L4 | `compile_spirv()` is the only public API. It is called from `vk/device.cpp` (Vulkan backend) at shader creation time. |
+
+### General Coding Patterns
+
+| Rule | Description |
+|---|---|
+| G1 | Use `luisa::` containers (`luisa::vector`, `luisa::unordered_map`, `luisa::unordered_set`, `luisa::string`, `luisa::span`, `luisa::unique_ptr`). |
+| G2 | Use `spv::NoResult` as the null/invalid SPIR-V ID sentinel. Use `spv::StorageClass::Max` as uninitialized storage class sentinel. |
+| G3 | All emission methods return `void` and store results in `_value_map` (except `_emit_value`, `_emit_constant`, `_emit_literal`, `_resolve_resource_argument`, `_emit_buffer_read*`, `_ensure_type` which return `spv::Id`). |
+| G4 | Use `LUISA_ASSERT(id != spv::NoResult, ...)` after every emission to catch failures early. |
+| G5 | Use `LUISA_NOT_IMPLEMENTED(...)` for unhandled opcodes/types — this produces a clear error message during shader compilation. |
+| G6 | The pattern for emitting a new instruction type: (1) add case in `_emit_instruction()`, (2) implement the emission method in `instruction.cpp` (or `condition_inst.cpp` for control flow), (3) declare it in `entry.h`. |
+| G7 | Access chains: always use `_create_access_chain()` which saves/restores the builder's AccessChain state. This prevents cross-contamination between access chains. |
+| G8 | Type matching: use `_ensure_type()` when operands may need implicit conversion (e.g., uint→int for combined arithmetic). Falls back to `OpBitcast` when no better conversion exists. |
+| G9 | Builder build point management: when emitting blocks out-of-order (e.g., in `_emit_value`), always save `_builder.getBuildPoint()` first and restore it after. |
+| G10 | `_uniformity.analyze(f)` must be called at the start of `_emit_kernel()` and `_emit_callable()` so uniformity information is available for `NonUniformEXT` decoration decisions. |
+| G11 | `_function_argument_usage` is computed in `_analyze_function_argument_usage()` before function emission. It propagates usage (READ/WRITE/READ_WRITE) through call chains with a fixed-point iteration. |
+| G12 | When adding a new env var for debugging: define it as a file-local `const bool` in `utils.cpp` (read once via `getenv`), check it in the appropriate pipeline section, and document it in this skill file.

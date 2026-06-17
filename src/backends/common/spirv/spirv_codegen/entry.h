@@ -87,6 +87,7 @@ private:
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
     luisa::unordered_map<const Type *, spv::Id> _laid_out_type_map;
     luisa::compute::xir::UniformityAnalysis _uniformity;
+    luisa::unordered_set<const xir::Value *> _emitting_values;
 
     spv::Id _constant_ubo_var{spv::NoResult};
     luisa::unordered_map<uint64_t, uint32_t> _ubo_constant_member_by_hash;
