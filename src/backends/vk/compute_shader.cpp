@@ -25,7 +25,8 @@ ComputeShader::ComputeShader(
     bool use_buffer_bindless,
     vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
     luisa::span<const std::byte> constant_ubo_data,
-    uint validation_count)
+    uint validation_count,
+    luisa::optional<uint8_t> required_subgroup_size)
     : Shader{device, ShaderTag::kComputeShader, std::move(captured), std::move(saved_args), binds, use_tex2d_bindless, use_tex3d_bindless, use_buffer_bindless, std::move(printers), constant_ubo_data, validation_count}, _block_size(block_size) {
     VkPipelineCacheCreateInfo pso_ci{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
@@ -43,11 +44,30 @@ ComputeShader::ComputeShader(
     auto dispose_module = vstd::scope_exit([&] {
         vkDestroyShaderModule(device->logic_device(), shader_module, Device::alloc_callbacks());
     });
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfo required_subgroup_size_info{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO};
+    void *stage_next = nullptr;
+    if (required_subgroup_size) {
+        if (!device->subgroup_size_control_enabled) {
+            LUISA_ERROR("Shader requested subgroup size {}, but Vulkan subgroup size control is not enabled.", *required_subgroup_size);
+        }
+        auto &props = device->subgroup_size_control_properties();
+        auto size = static_cast<uint32_t>(*required_subgroup_size);
+        if ((props.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) == 0u ||
+            size < props.minSubgroupSize ||
+            size > props.maxSubgroupSize) {
+            LUISA_ERROR("Shader requested subgroup size {}, but supported compute subgroup sizes are [{}..{}] with stages 0x{:x}.",
+                        size, props.minSubgroupSize, props.maxSubgroupSize, props.requiredSubgroupSizeStages);
+        }
+        required_subgroup_size_info.requiredSubgroupSize = size;
+        stage_next = &required_subgroup_size_info;
+    }
     VkComputePipelineCreateInfo pipe_ci{
         .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
         .flags = 0,
         .stage = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .pNext = stage_next,
             .flags = 0,
             .stage = VK_SHADER_STAGE_COMPUTE_BIT,
             .module = shader_module,
@@ -82,11 +102,14 @@ ComputeShader *ComputeShader::compile(
     SerdeType serde_type,
     uint shader_model,
     bool unsafe_math,
-    uint validation_count) {
+    uint validation_count,
+    luisa::optional<uint8_t> required_subgroup_size) {
 
-    auto result = ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
+    auto result = required_subgroup_size ?
+                      ShaderSerializer::DeserResult{} :
+                      ShaderSerializer::try_deser_compute(device, code_md5, std::move(bindings), file_name, serde_type, bin_io);
     // cache invalid, need compile
-    bool write_cache = !file_name.empty();
+    bool write_cache = !required_subgroup_size && !file_name.empty();
     if (!result.shader) {
         if (serde_type == SerdeType::kBuiltin) [[unlikely]] {
             LUISA_WARNING("Cached SPIRV {} is invalid!", file_name);
@@ -136,7 +159,8 @@ ComputeShader *ComputeShader::compile(
                     str.useBufferBindless,
                     std::move(str.printers),
                     {},
-                    validation_count);
+                    validation_count,
+                    required_subgroup_size);
                 if (write_cache) {
                     ShaderSerializer::serialize_bytecode(
                         shader->binds(),

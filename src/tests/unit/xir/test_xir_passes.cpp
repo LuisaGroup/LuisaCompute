@@ -30,6 +30,7 @@
 #include <luisa/xir/passes/transpose_gep.h>
 #include <luisa/xir/passes/unused_callable_removal.h>
 #include <luisa/ast/type_registry.h>
+#include <luisa/xir/instructions/return.h>
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -1519,6 +1520,49 @@ void reg_div_rem_pairs() {
         b.return_void();
         auto info = div_rem_pairs_pass_run_on_function(k);
         expect(info.merged_pair_count == 0u);
+    };
+
+    "div_rem_pairs_nested_remainders_preserve_current_operands"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *dispatch_id = m.create_dispatch_id();
+        uint32_t x_index_v = 0u;
+        uint32_t outer_v = 64u;
+        uint32_t inner_v = 8u;
+        auto *x_index = m.create_constant(Type::of<uint32_t>(), &x_index_v);
+        auto *outer = m.create_constant(Type::of<uint32_t>(), &outer_v);
+        auto *inner = m.create_constant(Type::of<uint32_t>(), &inner_v);
+        auto *x = b.call(Type::of<uint32_t>(), ArithmeticOp::EXTRACT, {dispatch_id, x_index});
+        b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_DIV, {x, outer});
+        auto *rem = b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_MOD, {x, outer});
+        b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_DIV, {rem, inner});
+        auto *nested_rem = b.call(Type::of<uint32_t>(), ArithmeticOp::BINARY_MOD, {rem, inner});
+        b.return_(nested_rem);
+
+        auto info = div_rem_pairs_pass_run_on_function(k);
+        expect(info.merged_pair_count == 2u);
+        auto mod_count = 0u;
+        body->traverse_instructions([&](Instruction *inst) noexcept {
+            if (inst->isa<ArithmeticInst>() &&
+                static_cast<ArithmeticInst *>(inst)->op() == ArithmeticOp::BINARY_MOD) {
+                mod_count++;
+            }
+        });
+        expect(mod_count == 0u);
+        auto *ret = static_cast<ReturnInst *>(body->terminator());
+        auto *nested_sub = static_cast<ArithmeticInst *>(ret->return_value());
+        expect(nested_sub->op() == ArithmeticOp::BINARY_SUB);
+        auto *outer_sub = static_cast<ArithmeticInst *>(nested_sub->operand(0));
+        auto *nested_mul = static_cast<ArithmeticInst *>(nested_sub->operand(1));
+        auto *nested_div = static_cast<ArithmeticInst *>(nested_mul->operand(0));
+        expect(outer_sub->op() == ArithmeticOp::BINARY_SUB);
+        expect(nested_mul->op() == ArithmeticOp::BINARY_MUL);
+        expect(nested_div->op() == ArithmeticOp::BINARY_DIV);
+        expect(nested_div->operand(0) == outer_sub);
+        expect(nested_mul->operand(1) == inner);
     };
 
     "div_rem_pairs_module_runs_all_functions"_test = [] {

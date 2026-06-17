@@ -37,7 +37,8 @@ public:
         bool use_buffer_bindless,
         vstd::vector<std::pair<luisa::string, luisa::compute::Type const *>> &&printers,
         luisa::span<const std::byte> constant_ubo_data = {},
-        uint validation_count = 0);
+        uint validation_count = 0,
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt);
     ~ComputeShader();
     static ComputeShader *compile(
         BinaryIO const *bin_io,
@@ -51,6 +52,7 @@ public:
         SerdeType serde_type,
         uint shader_model,
         bool unsafe_math,
-        uint validation_count = 0);
+        uint validation_count = 0,
+        luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt);
 };
 }// namespace lc::vk

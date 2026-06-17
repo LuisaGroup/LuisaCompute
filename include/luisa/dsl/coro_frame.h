@@ -28,6 +28,8 @@ private:
     size_t _total_size{0u};
 
 public:
+    static constexpr size_t reserved_field_count = 3u;
+
     void add_field(luisa::string name, const Type *type) noexcept {
         auto alignment = type->alignment();
         auto size = type->size();
@@ -57,6 +59,40 @@ public:
     }
 
     [[nodiscard]] auto total_size() const noexcept { return _total_size; }
+
+    [[nodiscard]] auto frame_field_count() const noexcept { return reserved_field_count + _fields.size(); }
+
+    [[nodiscard]] auto frame_field_type(size_t index) const noexcept {
+        switch (index) {
+            case 0u: return Type::of<uint3>();
+            case 1u: return Type::of<uint>();
+            case 2u: return Type::of<uint>();
+            default:
+                LUISA_ASSERT(index < frame_field_count(), "CoroFrame field index out of range.");
+                return _fields[index - reserved_field_count].type;
+        }
+    }
+
+    [[nodiscard]] auto frame_alignment() const noexcept -> size_t {
+        auto alignment = Type::of<uint3>()->alignment();
+        alignment = std::max(alignment, Type::of<uint>()->alignment());
+        for (auto i = 0u; i < field_count(); i++) {
+            alignment = std::max(alignment, field(i).type->alignment());
+        }
+        return alignment;
+    }
+
+    [[nodiscard]] auto frame_type() const noexcept -> const Type * {
+        luisa::vector<const Type *> members;
+        members.reserve(frame_field_count());
+        members.emplace_back(Type::of<uint3>());
+        members.emplace_back(Type::of<uint>());
+        members.emplace_back(Type::of<uint>());
+        for (auto i = 0u; i < field_count(); i++) {
+            members.emplace_back(field(i).type);
+        }
+        return Type::structure(frame_alignment(), members);
+    }
 
     void from_materialize_info(const xir::CoroMaterializeInfo &info) noexcept {
         // Clear existing fields
@@ -89,26 +125,6 @@ private:
     const Type *_type{nullptr};
     const Expression *_expression{nullptr};
 
-    [[nodiscard]] static auto _frame_alignment(const CoroFrameDesc *desc) noexcept -> size_t {
-        auto alignment = Type::of<uint3>()->alignment();
-        alignment = std::max(alignment, Type::of<uint>()->alignment());
-        for (auto i = 0u; i < desc->field_count(); i++) {
-            alignment = std::max(alignment, desc->field(i).type->alignment());
-        }
-        return alignment;
-    }
-
-    [[nodiscard]] static auto _frame_type(const CoroFrameDesc *desc) noexcept -> const Type * {
-        luisa::vector<const Type *> members;
-        members.emplace_back(Type::of<uint3>());
-        members.emplace_back(Type::of<uint>());
-        members.emplace_back(Type::of<uint>());
-        for (auto i = 0u; i < desc->field_count(); i++) {
-            members.emplace_back(desc->field(i).type);
-        }
-        return Type::structure(_frame_alignment(desc), members);
-    }
-
     [[nodiscard]] auto _field_index(luisa::string_view name) const noexcept -> size_t {
         for (auto i = 0u; i < _desc->field_count(); i++) {
             if (_desc->field(i).name == name) {
@@ -124,13 +140,16 @@ public:
     UInt target_token;
     UInt skip_flag;
 
-    explicit CoroFrame(const CoroFrameDesc *desc) noexcept
+    CoroFrame(const CoroFrameDesc *desc, const Expression *expression) noexcept
         : _desc{desc},
-          _type{_frame_type(desc)},
-          _expression{detail::FunctionBuilder::current()->local(_type)},
+          _type{desc->frame_type()},
+          _expression{expression},
           coro_id{detail::FunctionBuilder::current()->member(Type::of<uint3>(), _expression, 0u)},
           target_token{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 1u)},
           skip_flag{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 2u)} {}
+
+    explicit CoroFrame(const CoroFrameDesc *desc) noexcept
+        : CoroFrame{desc, detail::FunctionBuilder::current()->local(desc->frame_type())} {}
 
     [[nodiscard]] static auto create(const CoroFrameDesc *desc) noexcept {
         return CoroFrame{desc};
@@ -160,4 +179,4 @@ public:
     }
 };
 
-}
+}// namespace luisa::compute

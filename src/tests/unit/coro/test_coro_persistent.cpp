@@ -195,5 +195,5 @@ void reg_coro_persistent(luisa::test::coro_test::Options options) {
 int main(int argc, char *argv[]) {
     auto options = luisa::test::coro_test::parse_options(argc, argv);
     reg_coro_persistent(options);
-    return 0;
+    return luisa::test::coro_test::run_tests(argc, argv);
 }

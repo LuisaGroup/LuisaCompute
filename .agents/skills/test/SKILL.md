@@ -418,6 +418,14 @@ end)
 
 Backend is passed as the first positional arg: `cuda`, `dx`, `cpu`, `metal`, `vk`. The exact set available depends on which backends were built (e.g. `LUISA_COMPUTE_ENABLE_CUDA`, `LUISA_COMPUTE_ENABLE_DX`, etc.).
 
+## Coroutine Scheduler Tests
+
+Coroutine unit tests in `src/tests/unit/coro/` use `src/tests/common/coro_test_utils.h`. They must require an explicit backend as the first positional argument, e.g. `test_coro_pipeline_1suspend vk`; do not default the backend or hard-code `vk`/`cuda` in the test source.
+
+For scheduler-agnostic coroutine behavior, run all schedulers inside the test body (`state_machine`, `wavefront`, and `persistent`) instead of accepting a test-side `--scheduler` option. Keep scheduler-specific option matrices in scheduler-specific tests such as `test_coro_wavefront.cpp` and `test_coro_persistent_opt.cpp`.
+
+Examples may expose scheduler selection, but tests should preserve broad coverage. If a smaller coroutine/MHA repro is useful for debugging, add it as a new focused test and keep the original mirrored example/test target intact.
+
 ## Assertions
 
 ```cpp

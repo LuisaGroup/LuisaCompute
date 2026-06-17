@@ -298,6 +298,10 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
                 default:
                     LUISA_NOT_IMPLEMENTED("SPIR-V special register {}.", xir::to_string(reg->derived_special_register_tag()));
             }
+            if (builtin == spv::BuiltIn::SubgroupSize ||
+                builtin == spv::BuiltIn::SubgroupLocalInvocationId) {
+                _builder.addCapability(spv::Capability::GroupNonUniform);
+            }
             spv::Id var;
             if (builtin == spv::BuiltIn::GlobalInvocationId && _global_invocation_id_var != spv::NoResult) {
                 var = _global_invocation_id_var;

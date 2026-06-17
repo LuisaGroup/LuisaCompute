@@ -4,10 +4,12 @@
 
 #pragma once
 
+#include <luisa/coro/coro_frame_storage.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/coro/coro_scheduler.h>
 #include <luisa/dsl/shared.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/runtime/byte_buffer.h>
 #include <luisa/runtime/buffer.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/shader.h>
@@ -31,36 +33,248 @@ public:
 
 private:
     Config _config;
-    Shader1D<Buffer<uint>, uint3, Args...> _pt_shader;
+    Shader1D<Buffer<uint>, ByteBuffer, uint3, Args...> _pt_shader;
     Shader1D<Buffer<uint>> _clear_shader;
     Buffer<uint> _global;
+    ByteBuffer _global_frames;
+    CoroFrameStorageLayout _global_frame_layout;
+    luisa::vector<luisa::vector<size_t>> _input_fields;
+    luisa::vector<luisa::vector<size_t>> _output_fields;
 
 private:
     void _prepare(Device &device, const Coro &coro) noexcept {
         _global = device.create_buffer<uint>(1u);
+        auto q_fac = 1u;
+        auto coro_g_fac = static_cast<uint>(coro.subroutine_count() > q_fac ? coro.subroutine_count() - q_fac : 0u);
+        auto g_fac = coro_g_fac;
+        auto global_frame_capacity = _config.global_memory_ext ?
+                                         std::max<uint>(1u, _config.thread_count * g_fac) :
+                                         1u;
+        _global_frame_layout = CoroFrameStorageLayout::make_aos(coro.frame(), global_frame_capacity);
+        _global_frames = device.create_byte_buffer(_global_frame_layout.size_bytes);
+        _input_fields.resize(coro.subroutine_count());
+        _output_fields.resize(coro.subroutine_count());
+        for (auto i = 0u; i < coro.subroutine_count(); i++) {
+            _input_fields[i] = coro_frame_collect_input_fields(coro.graph(), i);
+            _output_fields[i] = coro_frame_collect_output_fields(coro.graph(), i);
+        }
 
-        Kernel1D main_kernel = [this, &coro](BufferUInt global, UInt3 dispatch_size_prefix_product, Var<Args>... args) noexcept {
+        Kernel1D main_kernel = [this, &coro, q_fac, g_fac,
+                                input_fields = _input_fields,
+                                output_fields = _output_fields,
+                                global_layout = _global_frame_layout](
+                                   BufferUInt global, ByteBufferVar global_frames,
+                                   UInt3 dispatch_size_prefix_product, Var<Args>... args) noexcept {
             set_block_size(_config.block_size, 1u, 1u);
-            $loop {
-                auto global_index = global.atomic(0u).fetch_add(1u);
-                $if (global_index >= dispatch_size_prefix_product.z) { $break; };
+            auto subroutine_count = static_cast<uint>(coro.subroutine_count());
+            auto shared_queue_size = _config.block_size * q_fac;
+            auto global_queue_size = _config.block_size * g_fac;
+            auto total_queue_size = _config.global_memory_ext ?
+                                        shared_queue_size + global_queue_size :
+                                        shared_queue_size;
+            auto token_to_index = [&](UInt target_token) noexcept {
+                auto next = def(0u);
+                $if (target_token != CoroFrame::TERMINAL_TOKEN) {
+                    for (size_t i = 1u; i < coro.subroutine_count(); ++i) {
+                        $if (target_token == coro.trigger_token(i)) {
+                            next = static_cast<uint>(i);
+                        };
+                    }
+                };
+                return next;
+            };
+            auto dispatch_id_from_linear = [&](UInt global_index) noexcept {
                 auto index_z = global_index / dispatch_size_prefix_product.y;
                 auto index_xy = global_index - index_z * dispatch_size_prefix_product.y;
                 auto index_y = index_xy / dispatch_size_prefix_product.x;
                 auto index_x = index_xy - index_y * dispatch_size_prefix_product.x;
+                return make_uint3(index_x, index_y, index_z);
+            };
+            CoroFrameSharedStorage frames{&coro.frame(), shared_queue_size, _config.shared_memory_soa};
+            Shared<uint> all_token{total_queue_size};
+            Shared<uint> path_id{shared_queue_size};
+            Shared<uint> work_counter{subroutine_count};
+            Shared<uint> work_offset{2u};
+            Shared<uint> workload{2u};
+            Shared<uint> work_stat{2u};
+            Shared<uint> rem_global{1u};
+            Shared<uint> rem_local{1u};
 
-                auto frame = coro.instantiate(make_uint3(index_x, index_y, index_z));
-                frame.target_token = 0u;
-                frame.skip_flag = 0u;
-                coro.entry()(frame, args...);
-                $while (!frame.is_terminated()) {
+            for (auto index = 0u; index < q_fac; index++) {
+                auto s = index * _config.block_size + thread_x();
+                all_token[s] = 0u;
+            }
+            if (_config.global_memory_ext) {
+                for (auto index = 0u; index < g_fac; index++) {
+                    auto s = shared_queue_size + index * _config.block_size + thread_x();
+                    all_token[s] = 0u;
+                }
+            }
+            $if (thread_x() < subroutine_count) {
+                $if (thread_x() == 0u) {
+                    work_counter[0u] = total_queue_size;
+                }
+                $else {
+                    work_counter[thread_x()] = 0u;
+                };
+            };
+            workload[0u] = 0u;
+            workload[1u] = 0u;
+            rem_global[0u] = 1u;
+            rem_local[0u] = 0u;
+            sync_block();
+
+            $while (rem_global[0u] != 0u | rem_local[0u] != 0u) {
+                sync_block();
+                rem_local[0u] = 0u;
+                work_stat[0u] = 0u;
+                work_stat[1u] = 0xffffffffu;
+                sync_block();
+
+                $if (thread_x() == _config.block_size - 1u) {
+                    $if (workload[0u] >= workload[1u] & rem_global[0u] != 0u) {
+                        auto fetch_count = _config.block_size * _config.fetch_size;
+                        auto st = global.atomic(0u).fetch_add(fetch_count);
+                        workload[0u] = st;
+                        workload[1u] = min(st + fetch_count, dispatch_size_prefix_product.z);
+                        $if (st >= dispatch_size_prefix_product.z) {
+                            rem_global[0u] = 0u;
+                        };
+                    };
+                };
+                sync_block();
+
+                $if (thread_x() == 0u) {
+                    auto best_count = def(0u);
+                    auto best_token = def(0xffffffffu);
                     for (size_t i = 1u; i < coro.subroutine_count(); ++i) {
-                        $if (frame.target_token == coro.trigger_token(i)) {
+                        auto count = work_counter[static_cast<uint>(i)];
+                        $if (count != 0u & count >= best_count) {
+                            best_count = count;
+                            best_token = static_cast<uint>(i);
+                            rem_local[0u] = 1u;
+                        };
+                    }
+                    $if (best_count == 0u & workload[0u] < workload[1u] & work_counter[0u] != 0u) {
+                        best_count = work_counter[0u];
+                        best_token = 0u;
+                        rem_local[0u] = 1u;
+                    };
+                    $if (best_count == 0u & rem_global[0u] != 0u) {
+                        rem_local[0u] = 1u;
+                    };
+                    work_stat[0u] = best_count;
+                    work_stat[1u] = best_token;
+                };
+                sync_block();
+
+                work_offset[0u] = 0u;
+                work_offset[1u] = 0u;
+                sync_block();
+
+                if (!_config.global_memory_ext) {
+                    for (auto index = 0u; index < q_fac; index++) {
+                        auto frame_token = all_token[index * _config.block_size + thread_x()];
+                        $if (frame_token == work_stat[1u]) {
+                            auto id = work_offset.atomic(0u).fetch_add(1u);
+                            path_id[id] = index * _config.block_size + thread_x();
+                        };
+                    }
+                } else {
+                    for (auto index = 0u; index < q_fac; index++) {
+                        auto frame_token = all_token[index * _config.block_size + thread_x()];
+                        $if (frame_token != work_stat[1u]) {
+                            auto id = work_offset.atomic(0u).fetch_add(1u);
+                            path_id[id] = index * _config.block_size + thread_x();
+                        };
+                    }
+                    sync_block();
+                    $if (shared_queue_size - work_offset[0u] < _config.block_size) {
+                        for (auto index = 0u; index < g_fac; index++) {
+                            auto global_id = block_x() * global_queue_size + index * _config.block_size + thread_x();
+                            auto global_queue_id = index * _config.block_size + thread_x();
+                            auto global_token_index = shared_queue_size + global_queue_id;
+                            auto coro_token = all_token[global_token_index];
+                            $if (coro_token == work_stat[1u]) {
+                                auto id = work_offset.atomic(1u).fetch_add(1u);
+                                $if (id < work_offset[0u]) {
+                                    auto dst = path_id[id];
+                                    auto frame_token = all_token[dst];
+                                    $if (coro_token == 0u) {
+                                        $if (frame_token != 0u) {
+                                            auto frame = frames.read(dst);
+                                            coro_frame_store(global_frames, global_id, frame, global_layout, false);
+                                        };
+                                        all_token[global_token_index] = frame_token;
+                                        all_token[dst] = 0u;
+                                    }
+                                    $elif (coro_token != 0u) {
+                                        auto global_frame = coro_frame_load(
+                                            &coro.frame(), global_frames, global_id,
+                                            global_layout, false);
+                                        $if (frame_token != 0u) {
+                                            auto frame = frames.read(dst);
+                                            coro_frame_store(global_frames, global_id, frame, global_layout, false);
+                                        };
+                                        frames.write(dst, global_frame);
+                                        all_token[global_token_index] = frame_token;
+                                        all_token[dst] = coro_token;
+                                    };
+                                };
+                            };
+                        }
+                    };
+                }
+
+                auto gen_start = workload[0u];
+                sync_block();
+                auto pid = def(thread_x());
+                if (!_config.global_memory_ext) {
+                    $if (thread_x() < work_offset[0u]) {
+                        pid = path_id[thread_x()];
+                    };
+                }
+                auto do_work = def(false);
+                if (_config.global_memory_ext) {
+                    do_work = all_token[pid] == work_stat[1u];
+                } else {
+                    do_work = thread_x() < work_offset[0u];
+                }
+                $if (do_work) {
+                    auto current_token = all_token[pid];
+                    $if (current_token == 0u) {
+                        auto global_index = _config.global_memory_ext ?
+                                                gen_start + thread_x() :
+                                                workload.atomic(0u).fetch_add(1u);
+                        $if (global_index < workload[1u]) {
+                            work_counter.atomic(0u).fetch_sub(1u);
+                            auto frame = coro.instantiate(dispatch_id_from_linear(global_index));
+                            frame.target_token = 0u;
+                            frame.skip_flag = 0u;
+                            coro.entry()(frame, args...);
+                            auto next = token_to_index(frame.target_token);
+                            frames.write(pid, frame, luisa::span{output_fields[0u]});
+                            all_token[pid] = next;
+                            work_counter.atomic(next).fetch_add(1u);
+                            if (_config.global_memory_ext) {
+                                workload.atomic(0u).fetch_add(1u);
+                            }
+                        };
+                    };
+                    for (size_t i = 1u; i < coro.subroutine_count(); ++i) {
+                        $if (current_token == static_cast<uint>(i)) {
+                            work_counter.atomic(static_cast<uint>(i)).fetch_sub(1u);
+                            auto frame = frames.read(pid, luisa::span{input_fields[i]});
                             frame.skip_flag = 0u;
                             coro[i](frame, args...);
+                            auto next = token_to_index(frame.target_token);
+                            frames.write(pid, frame, luisa::span{output_fields[i]});
+                            all_token[pid] = next;
+                            work_counter.atomic(next).fetch_add(1u);
                         };
                     }
                 };
+                sync_block();
             };
         };
         _pt_shader = device.compile(main_kernel);
@@ -78,7 +292,7 @@ private:
             dispatch_size.x * dispatch_size.y,
             dispatch_size.x * dispatch_size.y * dispatch_size.z);
         stream << _clear_shader(_global).dispatch(1u);
-        stream << _pt_shader(_global, dispatch_size_prefix_product, args...).dispatch(_config.thread_count);
+        stream << _pt_shader(_global, _global_frames, dispatch_size_prefix_product, args...).dispatch(_config.thread_count);
     }
 
 public:

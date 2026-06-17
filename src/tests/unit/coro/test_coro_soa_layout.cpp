@@ -129,5 +129,5 @@ void reg_coro_soa_layout(luisa::test::coro_test::Options options) {
 int main(int argc, char *argv[]) {
     auto options = luisa::test::coro_test::parse_options(argc, argv);
     reg_coro_soa_layout(options);
-    return 0;
+    return luisa::test::coro_test::run_tests(argc, argv);
 }

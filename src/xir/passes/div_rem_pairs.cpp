@@ -1,5 +1,6 @@
 #include <luisa/ast/type_registry.h>
 #include <luisa/core/stl/unordered_map.h>
+#include <luisa/core/stl/vector.h>
 #include <luisa/xir/basic_block.h>
 #include <luisa/xir/builder.h>
 #include <luisa/xir/function.h>
@@ -22,9 +23,13 @@ struct DivModKey {
     }
 };
 
+[[nodiscard]] static DivModKey div_mod_key(ArithmeticInst *inst) noexcept {
+    return DivModKey{inst->operand(0), inst->operand(1)};
+}
+
 static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &info) noexcept {
-    luisa::unordered_map<DivModKey, ArithmeticInst *> div_map;
-    luisa::unordered_map<DivModKey, ArithmeticInst *> mod_map;
+    luisa::vector<ArithmeticInst *> div_insts;
+    luisa::vector<ArithmeticInst *> mod_insts;
     luisa::unordered_map<Instruction *, size_t> instruction_indices;
     auto index = 0u;
 
@@ -41,11 +46,9 @@ static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &
         if (!is_integer_type(ari->type())) return;
         auto op = ari->op();
         if (op == ArithmeticOp::BINARY_DIV) {
-            DivModKey key{ari->operand(0), ari->operand(1)};
-            if (div_map.find(key) == div_map.end()) { div_map.emplace(key, ari); }
+            div_insts.emplace_back(ari);
         } else if (op == ArithmeticOp::BINARY_MOD) {
-            DivModKey key{ari->operand(0), ari->operand(1)};
-            if (mod_map.find(key) == mod_map.end()) { mod_map.emplace(key, ari); }
+            mod_insts.emplace_back(ari);
         }
     });
 
@@ -59,11 +62,19 @@ static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &
         return dom_tree.dominates(div_block, mod_block);
     };
 
-    for (auto &[key, mod_inst] : mod_map) {
-        auto it = div_map.find(key);
-        if (it == div_map.end()) continue;
-        auto div_inst = it->second;
-        if (!dominates_inst(div_inst, mod_inst)) continue;
+    for (auto *mod_inst : mod_insts) {
+        if (!mod_inst->is_linked()) { continue; }
+        auto key = div_mod_key(mod_inst);
+        ArithmeticInst *div_inst = nullptr;
+        for (auto *candidate : div_insts) {
+            if (candidate->is_linked() &&
+                div_mod_key(candidate) == key &&
+                dominates_inst(candidate, mod_inst)) {
+                div_inst = candidate;
+                break;
+            }
+        }
+        if (div_inst == nullptr) { continue; }
 
         XIRBuilder b;
         b.set_insertion_point(mod_inst->prev());

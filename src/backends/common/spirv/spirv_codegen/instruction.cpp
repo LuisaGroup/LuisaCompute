@@ -1423,9 +1423,23 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
         ptr = _create_access_chain(storage, base, idx_ids);
     }
 
-    auto scope = _builder.makeUintConstant(static_cast<uint32_t>(spv::Scope::Device));
-    auto semantics = _builder.makeUintConstant(static_cast<uint32_t>(spv::MemorySemanticsMask::MaskNone));
-    auto semantics_equal = _builder.makeUintConstant(static_cast<uint32_t>(spv::MemorySemanticsMask::MaskNone));
+    auto pointer_storage = _builder.getStorageClass(ptr);
+    auto atomic_scope = pointer_storage == spv::StorageClass::Workgroup ?
+                            spv::Scope::Workgroup :
+                            spv::Scope::Device;
+    auto atomic_memory = pointer_storage == spv::StorageClass::Workgroup ?
+                             spv::MemorySemanticsMask::WorkgroupMemory :
+                             spv::MemorySemanticsAllMemory;
+    auto atomic_semantics = pointer_storage == spv::StorageClass::Workgroup ?
+                                (spv::MemorySemanticsMask::WorkgroupMemory |
+                                 spv::MemorySemanticsMask::AcquireRelease) :
+                                (spv::MemorySemanticsAllMemory |
+                                 spv::MemorySemanticsMask::AcquireRelease);
+    auto atomic_failure_semantics = atomic_memory | spv::MemorySemanticsMask::Acquire;
+    auto scope = _builder.makeUintConstant(static_cast<uint32_t>(atomic_scope));
+    auto semantics = _builder.makeUintConstant(static_cast<uint32_t>(atomic_semantics));
+    auto semantics_equal = semantics;
+    auto semantics_unequal = _builder.makeUintConstant(static_cast<uint32_t>(atomic_failure_semantics));
 
     spv::Id id = spv::NoResult;
     auto values = inst->value_uses();
@@ -1452,7 +1466,7 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                     auto expected_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, expected);
                     auto desired_uint = _builder.createUnaryOp(spv::Op::OpBitcast, uint_type, desired);
                     auto result = _builder.createOp(spv::Op::OpAtomicCompareExchange, uint_type,
-                                                    {ptr, scope, semantics_equal, semantics, desired_uint, expected_uint});
+                                                    {ptr, scope, semantics_equal, semantics_unequal, desired_uint, expected_uint});
                     id = _builder.createUnaryOp(spv::Op::OpBitcast, type, result);
                 } else {
                     // Scalar buffer or shared memory: ptr is float*, use CAS loop
@@ -1462,7 +1476,7 @@ void SpirvCodegenEntry::_emit_atomic_inst(const xir::AtomicInst *inst) noexcept 
                 }
             } else {
                 id = _builder.createOp(spv::Op::OpAtomicCompareExchange, type,
-                                       {ptr, scope, semantics_equal, semantics, desired, expected});
+                                       {ptr, scope, semantics_equal, semantics_unequal, desired, expected});
             }
             break;
         }
@@ -2584,6 +2598,9 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             break;
         }
         case xir::ResourceReadOp::BUFFER_VOLATILE_READ: {
+            _builder.createMemoryBarrier(spv::Scope::Device,
+                                         spv::MemorySemanticsAllMemory |
+                                             spv::MemorySemanticsMask::AcquireRelease);
             auto buffer = _emit_value(inst->operand(0));
             auto index = _emit_value(inst->operand(1));
             id = _emit_buffer_read(buffer, index, inst->type(), inst->operand(0)->type(), false, spv::MemoryAccessMask::Volatile);
@@ -2603,6 +2620,9 @@ void SpirvCodegenEntry::_emit_resource_read_inst(const xir::ResourceReadInst *in
             break;
         }
         case xir::ResourceReadOp::BYTE_BUFFER_VOLATILE_READ: {
+            _builder.createMemoryBarrier(spv::Scope::Device,
+                                         spv::MemorySemanticsAllMemory |
+                                             spv::MemorySemanticsMask::AcquireRelease);
             auto buffer = _emit_value(inst->operand(0));
             auto byte_index = _ensure_type(_emit_value(inst->operand(1)), uint_type);
             auto read_type = inst->type();
@@ -2837,10 +2857,27 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
     auto subgroup_scope = _builder.makeUintConstant(static_cast<uint32_t>(spv::Scope::Subgroup));
     auto group_op_reduce = static_cast<uint32_t>(spv::GroupOperation::Reduce);
     auto group_op_exclusive_scan = static_cast<uint32_t>(spv::GroupOperation::ExclusiveScan);
+    auto emit_shuffle = [this](const Type *type, spv::Id value, spv::Id scope, spv::Id lane) noexcept {
+        if (!type->is_vector()) {
+            return _builder.createOp(spv::Op::OpGroupNonUniformShuffle,
+                                     _convert_type(type, Usage::READ),
+                                     {scope, value, lane});
+        }
+        auto elem_type = type->element();
+        auto elem_spv_type = _convert_type(elem_type, Usage::READ);
+        std::vector<spv::Id> comps;
+        comps.reserve(type->dimension());
+        for (auto i = 0u; i < type->dimension(); i++) {
+            auto comp = _builder.createCompositeExtract(value, elem_spv_type, i);
+            comps.emplace_back(_builder.createOp(spv::Op::OpGroupNonUniformShuffle,
+                                                 elem_spv_type, {scope, comp, lane}));
+        }
+        return _builder.createCompositeConstruct(_convert_type(type, Usage::READ), comps);
+    };
     switch (inst->op()) {
         case xir::ThreadGroupOp::SYNCHRONIZE_BLOCK: {
-            _builder.createControlBarrier(spv::Scope::Workgroup, spv::Scope::Device,
-                                          spv::MemorySemanticsAllMemory |
+            _builder.createControlBarrier(spv::Scope::Workgroup, spv::Scope::Workgroup,
+                                          spv::MemorySemanticsMask::WorkgroupMemory |
                                               spv::MemorySemanticsMask::AcquireRelease);
             break;
         }
@@ -2868,6 +2905,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_BIT_AND: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformArithmetic);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformBitwiseAnd, _convert_type(inst->type(), Usage::READ),
                                    std::vector<spv::IdImmediate>{
@@ -2878,6 +2916,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_BIT_OR: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformArithmetic);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformBitwiseOr, _convert_type(inst->type(), Usage::READ),
                                    std::vector<spv::IdImmediate>{
@@ -2888,6 +2927,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
         }
         case xir::ThreadGroupOp::WARP_ACTIVE_BIT_XOR: {
             _builder.addCapability(spv::Capability::GroupNonUniform);
+            _builder.addCapability(spv::Capability::GroupNonUniformArithmetic);
             auto val = _emit_value(inst->operand(0));
             id = _builder.createOp(spv::Op::OpGroupNonUniformBitwiseXor, _convert_type(inst->type(), Usage::READ),
                                    std::vector<spv::IdImmediate>{
@@ -3070,8 +3110,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
             _builder.addCapability(spv::Capability::GroupNonUniformShuffle);
             auto val = _emit_value(inst->operand(0));
             auto lane = _emit_value(inst->operand(1));
-            id = _builder.createOp(spv::Op::OpGroupNonUniformShuffle, _convert_type(inst->type(), Usage::READ),
-                                   {subgroup_scope, val, lane});
+            id = emit_shuffle(inst->type(), val, subgroup_scope, lane);
             break;
         }
         case xir::ThreadGroupOp::WARP_READ_FIRST_ACTIVE_LANE: {
@@ -3086,8 +3125,7 @@ void SpirvCodegenEntry::_emit_thread_group_inst(const xir::ThreadGroupInst *inst
             auto first_lane = _builder.createOp(spv::Op::OpGroupNonUniformBallotFindLSB, uint_type,
                                                 {subgroup_scope, ballot});
             auto val = _emit_value(inst->operand(0));
-            id = _builder.createOp(spv::Op::OpGroupNonUniformShuffle, _convert_type(inst->type(), Usage::READ),
-                                   {subgroup_scope, val, first_lane});
+            id = emit_shuffle(inst->type(), val, subgroup_scope, first_lane);
             break;
         }
         // ignored

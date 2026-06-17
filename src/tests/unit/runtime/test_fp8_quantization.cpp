@@ -26,7 +26,6 @@ using namespace luisa::compute;
 
 // FP8 E4M3 constants
 constexpr float kFp8E4M3Max = 448.0f;
-constexpr uint kWarpSize = 32;
 
 // TinyMLP dimensions
 constexpr uint kBatch = 4u;
@@ -138,6 +137,7 @@ int main(int argc, char *argv[]) {
     }
     Device device = ctx.create_device(argv[1]);
     Stream stream = device.create_stream();
+    auto warp_size = device.compute_warp_size();
 
     std::mt19937 gen(42);
     std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
@@ -205,24 +205,26 @@ int main(int argc, char *argv[]) {
                              Var<uint> M, Var<uint> N, Var<uint> K,
                              Var<float> a_scale, Var<float> w_scale) noexcept {
         set_block_size(128, 1, 1);
-        set_warp_size(kWarpSize);
+        set_warp_size(warp_size);
 
         auto fp8_from = fp8e4m3_from_float();
         auto fp8_to = fp8e4m3_to_float();
 
         UInt row = dispatch_id().y;
-        UInt col = dispatch_id().x / kWarpSize;
+        UInt col = dispatch_id().x / warp_size;
         UInt warp_local_id = warp_lane_id();
 
-        UInt tile_count = (K + kWarpSize - 1) / kWarpSize;
+        UInt tile_count = (K + warp_size - 1) / warp_size;
         Float acc = 0.0f;
 
         for (auto t : dynamic_range(tile_count)) {
-            UInt k = t * kWarpSize + warp_local_id;
+            UInt tile_begin = t * warp_size;
+            UInt tile_size = min(warp_size, K - tile_begin);
+            UInt k = tile_begin + warp_local_id;
             Float local_v = 0.0f;
             UInt warp_word = 0;
-            $if(warp_local_id < ((K + 3u) / 4u)) {
-                UInt byte_offset = col * K + (t * kWarpSize + warp_local_id * 4);
+            $if (warp_local_id < ((tile_size + 3u) / 4u)) {
+                UInt byte_offset = col * K + tile_begin + warp_local_id * 4u;
                 warp_word = w_buffer.read<uint>(byte_offset);
             };
             $if (k < K) {
@@ -233,8 +235,8 @@ int main(int argc, char *argv[]) {
                 Float a_dq = a_dq_half.cast<float>();
                 // col*K is guaranteed to be 4-byte aligned because K % 4 == 0.
                 UInt byte_offset = col * K + k;
-                UInt aligned_offset = (byte_offset / 4u) * 4u;
-                UInt word = warp_read_lane(warp_word, warp_local_id / 4u);
+                UInt rel_byte = k - tile_begin;
+                UInt word = warp_read_lane(warp_word, rel_byte / 4u);
                 UInt shift = (byte_offset % 4u) * 8u;
                 UInt w_bits = (word >> shift) & 0xffu;
                 Half w_half = fp8_to(w_bits);
@@ -265,7 +267,7 @@ int main(int argc, char *argv[]) {
     float x_scale = compute_fp8_scale(input);
     stream << matmul_shader(input_buffer, w1_buffer, b1_buffer, hidden_buffer,
                             kBatch, kHiddenDim, kInDim, x_scale, w_scales[0])
-                  .dispatch(kHiddenDim * kWarpSize, kBatch)
+                  .dispatch(kHiddenDim * warp_size, kBatch)
            << relu_shader(hidden_buffer, kBatch * kHiddenDim).dispatch(kBatch * kHiddenDim)
            << synchronize();
 
@@ -276,7 +278,7 @@ int main(int argc, char *argv[]) {
 
     stream << matmul_shader(hidden_buffer, w2_buffer, b2_buffer, output_buffer,
                             kBatch, kOutDim, kHiddenDim, h_scale, w_scales[1])
-                  .dispatch(kOutDim * kWarpSize, kBatch)
+                  .dispatch(kOutDim * warp_size, kBatch)
            << synchronize();
 
     luisa::vector<float> gpu_out(kBatch * kOutDim);
@@ -310,11 +312,11 @@ int main(int argc, char *argv[]) {
     for (int iter = 0; iter < 10; ++iter) {
         cmdlist << matmul_shader(input_buffer, w1_buffer, b1_buffer, hidden_buffer,
                                 kBatch, kHiddenDim, kInDim, x_scale, w_scales[0])
-                      .dispatch(kHiddenDim * kWarpSize, kBatch)
+                      .dispatch(kHiddenDim * warp_size, kBatch)
                << relu_shader(hidden_buffer, kBatch * kHiddenDim).dispatch(kBatch * kHiddenDim)
                << matmul_shader(hidden_buffer, w2_buffer, b2_buffer, output_buffer,
                                 kBatch, kOutDim, kHiddenDim, h_scale, w_scales[1])
-                      .dispatch(kOutDim * kWarpSize, kBatch);
+                      .dispatch(kOutDim * warp_size, kBatch);
     }
     stream << cmdlist.commit() << synchronize();
     auto warmup_ms = warmup_clock.toc();
@@ -324,11 +326,11 @@ int main(int argc, char *argv[]) {
     for (int iter = 0; iter < 128; ++iter) {
         cmdlist << matmul_shader(input_buffer, w1_buffer, b1_buffer, hidden_buffer,
                                  kBatch, kHiddenDim, kInDim, x_scale, w_scales[0])
-                       .dispatch(kHiddenDim * kWarpSize, kBatch)
+                       .dispatch(kHiddenDim * warp_size, kBatch)
                 << relu_shader(hidden_buffer, kBatch * kHiddenDim).dispatch(kBatch * kHiddenDim)
                 << matmul_shader(hidden_buffer, w2_buffer, b2_buffer, output_buffer,
                                  kBatch, kOutDim, kHiddenDim, h_scale, w_scales[1])
-                       .dispatch(kOutDim * kWarpSize, kBatch);
+                       .dispatch(kOutDim * warp_size, kBatch);
     }
     stream << cmdlist.commit() << synchronize();
     auto timed_ms = timed_clock.toc();

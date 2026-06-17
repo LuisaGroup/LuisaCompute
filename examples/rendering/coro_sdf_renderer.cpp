@@ -12,6 +12,7 @@
 #include <stb/stb_image_write.h>
 
 #include "common/reference_compare.h"
+#include "common/coro_scheduler_options.h"
 
 #include <luisa/luisa-compute.h>
 #include <luisa/coro/schedulers/persistent_threads.h>
@@ -25,49 +26,10 @@ using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
 
-enum class ExampleCoroSchedulerKind {
-    state_machine,
-    wavefront,
-    persistent,
-};
-
-[[nodiscard]] static auto parse_coro_scheduler(int argc, char *argv[]) noexcept {
-    auto kind = ExampleCoroSchedulerKind::state_machine;
-    for (int i = 2; i < argc; i++) {
-        if (argv[i] == nullptr) { break; }
-        std::string_view arg{argv[i]};
-        if (arg == "--scheduler") {
-            if (i + 1 >= argc || argv[i + 1] == nullptr) {
-                LUISA_ERROR("Missing value for --scheduler. Expected state_machine, wavefront, or persistent.");
-            }
-            std::string_view value{argv[++i]};
-            if (value == "state_machine" || value == "statemachine" || value == "state") {
-                kind = ExampleCoroSchedulerKind::state_machine;
-            } else if (value == "wavefront" || value == "wave") {
-                kind = ExampleCoroSchedulerKind::wavefront;
-            } else if (value == "persistent" || value == "persistent_threads") {
-                kind = ExampleCoroSchedulerKind::persistent;
-            } else {
-                LUISA_ERROR("Unknown coroutine scheduler '{}'. Expected state_machine, wavefront, or persistent.", value);
-            }
-        }
-    }
-    return kind;
-}
-
-[[nodiscard]] static constexpr auto scheduler_name(ExampleCoroSchedulerKind kind) noexcept {
-    switch (kind) {
-        case ExampleCoroSchedulerKind::state_machine: return "state_machine";
-        case ExampleCoroSchedulerKind::wavefront: return "wavefront";
-        case ExampleCoroSchedulerKind::persistent: return "persistent";
-    }
-    return "unknown";
-}
-
 int main(int argc, char *argv[]) {
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
-    auto scheduler_kind = parse_coro_scheduler(argc, argv);
+    auto scheduler_kind = luisa::example::parse_coro_scheduler_arg(argc, argv);
 
     static constexpr int max_ray_depth = 6;
     static constexpr float eps = 1e-4f;
@@ -199,7 +161,7 @@ int main(int argc, char *argv[]) {
                 normal = sdf_normal(hit_pos);
                 Int t = cast<int>((hit_pos.x + 10.0f) * 1.1f + 0.5f) % 3;
                 c = make_float3(0.4f) + make_float3(0.3f, 0.2f, 0.3f) *
-                                          ite(t == make_int3(0, 1, 2), 1.0f, 0.0f);
+                                            ite(t == make_int3(0, 1, 2), 1.0f, 0.0f);
             };
             $suspend("next_hit");
             Float dist_to_light = intersect_light(pos, d);
@@ -234,23 +196,21 @@ int main(int argc, char *argv[]) {
     using Scheduler = CoroScheduler<Image<uint>, Image<float>, uint>;
     std::unique_ptr<Scheduler> scheduler;
     switch (scheduler_kind) {
-        case ExampleCoroSchedulerKind::state_machine:
+        case luisa::example::CoroSchedulerKind::state_machine:
             scheduler = std::make_unique<StateMachineCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro);
             break;
-        case ExampleCoroSchedulerKind::wavefront: {
+        case luisa::example::CoroSchedulerKind::wavefront: {
             WavefrontCoroSchedulerConfig cfg{};
-            cfg.thread_count = total_cells;
             scheduler = std::make_unique<WavefrontCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro, cfg);
             break;
         }
-        case ExampleCoroSchedulerKind::persistent: {
+        case luisa::example::CoroSchedulerKind::persistent: {
             PersistentThreadsCoroSchedulerConfig cfg{};
-            cfg.thread_count = total_cells;
             scheduler = std::make_unique<PersistentThreadsCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro, cfg);
             break;
         }
     }
-    LUISA_INFO("CoroScheduler: {}", scheduler_name(scheduler_kind));
+    LUISA_INFO("CoroScheduler: {}", luisa::example::coro_scheduler_name(scheduler_kind));
 
     uint total_spp = opts.spp == 0u ? 1024u : opts.spp;
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);

@@ -497,6 +497,12 @@ device_assert(x > 0.0f, "x must be positive");
 ULong t = device_clock();
 ```
 
+## Coroutine Examples
+
+Coroutine examples that expose scheduler selection should use `--scheduler <state_machine|wavefront|persistent>` after the explicit backend argument, with `state_machine` as the default unless the example has a documented reason to choose otherwise. Prefer the shared parser in `examples/common/coro_scheduler_options.h` over per-example parsing.
+
+Keep unit tests different from examples: coroutine unit tests should require an explicit backend and exercise all schedulers internally for scheduler-agnostic behavior, while examples may let users specify a scheduler or rely on the default.
+
 ## Complete Example
 
 ```cpp

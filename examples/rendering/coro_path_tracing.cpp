@@ -2,7 +2,7 @@
 // Full path tracing pipeline inside a coroutine with multiple $suspend
 // points matching the persistent-threads pattern from the old codebase.
 //
-// Usage: coro_path_tracing <backend> [--offline] [--spp N]
+// Usage: coro_path_tracing <backend> [--offline] [--spp N] [--scheduler state_machine|wavefront|persistent]
 //   backend: cuda, dx, cpu, metal, fallback
 
 #include <array>
@@ -19,6 +19,7 @@
 #include <luisa/coro/schedulers/state_machine.h>
 #include <luisa/coro/schedulers/wavefront.h>
 
+#include "common/coro_scheduler_options.h"
 #include "common/reference_compare.h"
 #include "cornell_box.h"
 
@@ -53,45 +54,6 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
     }
 };
 
-enum class ExampleCoroSchedulerKind {
-    state_machine,
-    wavefront,
-    persistent,
-};
-
-[[nodiscard]] static auto parse_coro_scheduler(int argc, char *argv[]) noexcept {
-    auto kind = ExampleCoroSchedulerKind::state_machine;
-    for (int i = 2; i < argc; i++) {
-        if (argv[i] == nullptr) { break; }
-        std::string_view arg{argv[i]};
-        if (arg == "--scheduler") {
-            if (i + 1 >= argc || argv[i + 1] == nullptr) {
-                LUISA_ERROR("Missing value for --scheduler. Expected state_machine, wavefront, or persistent.");
-            }
-            std::string_view value{argv[++i]};
-            if (value == "state_machine" || value == "statemachine" || value == "state") {
-                kind = ExampleCoroSchedulerKind::state_machine;
-            } else if (value == "wavefront" || value == "wave") {
-                kind = ExampleCoroSchedulerKind::wavefront;
-            } else if (value == "persistent" || value == "persistent_threads") {
-                kind = ExampleCoroSchedulerKind::persistent;
-            } else {
-                LUISA_ERROR("Unknown coroutine scheduler '{}'. Expected state_machine, wavefront, or persistent.", value);
-            }
-        }
-    }
-    return kind;
-}
-
-[[nodiscard]] static constexpr auto scheduler_name(ExampleCoroSchedulerKind kind) noexcept {
-    switch (kind) {
-        case ExampleCoroSchedulerKind::state_machine: return "state_machine";
-        case ExampleCoroSchedulerKind::wavefront: return "wavefront";
-        case ExampleCoroSchedulerKind::persistent: return "persistent";
-    }
-    return "unknown";
-}
-
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
@@ -106,7 +68,7 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device(backend_name);
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
-    auto scheduler_kind = parse_coro_scheduler(argc, argv);
+    auto scheduler_kind = luisa::example::parse_coro_scheduler_arg(argc, argv);
     bool offline = opts.offline;
 #if !ENABLE_DISPLAY
     if (!offline) {
@@ -247,14 +209,16 @@ int main(int argc, char *argv[]) {
     // ─── SPP per dispatch ────────────────────────────────────────────
     auto spp_per_dispatch = (backend_name == "metal" ||
                              backend_name == "cpu" ||
-                             backend_name == "fallback") ? 1u : 64u;
+                             backend_name == "fallback") ?
+                                1u :
+                                64u;
 
     static constexpr uint2 resolution = make_uint2(1024u);
     uint total_cells = resolution.x * resolution.y;
     uint total_spp = opts.spp == 0u ? 1024u : opts.spp;
 
     Coroutine coro = [&](ImageFloat image, ImageUInt seed_image,
-                          AccelVar accel, UInt2 resolution) noexcept {
+                         AccelVar accel, UInt2 resolution) noexcept {
         UInt2 coord = dispatch_id().xy();
         Float frame_size = min(resolution.x, resolution.y).cast<float>();
         UInt state = seed_image.read(coord).x;
@@ -291,7 +255,8 @@ int main(int argc, char *argv[]) {
                 $if (hit.inst == static_cast<uint>(meshes.size() - 1u)) {
                     $if (depth == 0u) {
                         radiance += light_emission;
-                    } $else {
+                    }
+                    $else {
                         Float pdf_light = length_squared(p - ray->origin()) / (light_area * cos_wo);
                         Float mis_weight = balanced_heuristic(pdf_bsdf, pdf_light);
                         radiance += mis_weight * beta * light_emission;
@@ -347,23 +312,25 @@ int main(int argc, char *argv[]) {
     using Scheduler = CoroScheduler<Image<float>, Image<uint>, Accel, uint2>;
     std::unique_ptr<Scheduler> scheduler;
     switch (scheduler_kind) {
-        case ExampleCoroSchedulerKind::state_machine:
+        case luisa::example::CoroSchedulerKind::state_machine:
             scheduler = std::make_unique<StateMachineCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro);
             break;
-        case ExampleCoroSchedulerKind::wavefront: {
-            WavefrontCoroSchedulerConfig cfg{};
-            cfg.thread_count = total_cells;
+        case luisa::example::CoroSchedulerKind::wavefront: {
+            WavefrontCoroSchedulerConfig cfg{
+                .thread_count = 4_M,
+                .global_memory_soa = true,
+                .gather_by_sorting = false,
+            };
             scheduler = std::make_unique<WavefrontCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
             break;
         }
-        case ExampleCoroSchedulerKind::persistent: {
+        case luisa::example::CoroSchedulerKind::persistent: {
             PersistentThreadsCoroSchedulerConfig cfg{};
-            cfg.thread_count = total_cells;
             scheduler = std::make_unique<PersistentThreadsCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
             break;
         }
     }
-    LUISA_INFO("CoroScheduler: {}", scheduler_name(scheduler_kind));
+    LUISA_INFO("CoroScheduler: {}", luisa::example::coro_scheduler_name(scheduler_kind));
 
     // ─── Make sampler shader ─────────────────────────────────────────
     auto make_sampler_shader = device.compile(Kernel2D([&](ImageUInt seed_image) noexcept {
@@ -387,7 +354,7 @@ int main(int argc, char *argv[]) {
 
     // ─── HDR-to-LDR kernel ───────────────────────────────────────────
     auto hdr2ldr_shader = device.compile(Kernel2D([&](ImageFloat hdr_image, ImageFloat ldr_image,
-                                                       Float scale, Bool is_hdr) noexcept {
+                                                      Float scale, Bool is_hdr) noexcept {
         UInt2 coord = dispatch_id().xy();
         Float4 hdr = hdr_image.read(coord);
         Float3 ldr = clamp(hdr.xyz() / hdr.w * scale, 0.0f, 1.0f);
@@ -415,7 +382,7 @@ int main(int argc, char *argv[]) {
         for (uint pass = 0u; pass < passes; ++pass) {
             stream << (*scheduler)(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                    << accumulate_shader(accum_image, framebuffer)
-                            .dispatch(resolution)
+                          .dispatch(resolution)
                    << synchronize();
             LUISA_INFO("Pass {}/{}: {:.1f} ms",
                        pass + 1u, passes, clock.toc());
@@ -467,9 +434,9 @@ int main(int argc, char *argv[]) {
         while (!window.should_close()) {
             stream << (*scheduler)(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                    << accumulate_shader(accum_image, framebuffer)
-                            .dispatch(resolution)
+                          .dispatch(resolution)
                    << hdr2ldr_shader(accum_image, ldr_image, 2.0f, false)
-                           .dispatch(resolution)
+                          .dispatch(resolution)
                    << swapchain.present(ldr_image)
                    << synchronize();
             window.poll_events();

@@ -96,6 +96,7 @@ test_proj("test_texture_compress", "unit/runtime/test_texture_compress.cpp")
 test_proj("test_texture_io", "unit/runtime/test_texture_io.cpp")
 test_proj("test_warp", "unit/runtime/test_warp.cpp")
 test_proj("test_warp_prefix_scan", "unit/runtime/test_warp_prefix_scan.cpp")
+test_proj("test_mha_warp_reduction", "unit/runtime/test_mha_warp_reduction.cpp")
 test_proj("test_buffer_io", "unit/runtime/test_buffer_io.cpp")
 test_proj("test_buffer", "unit/runtime/test_buffer.cpp")
 test_proj("test_out_of_range", "unit/runtime/test_out_of_range.cpp")
@@ -106,8 +107,19 @@ test_proj("test_gemm", "unit/runtime/test_gemm.cpp")
 test_proj("test_shared_mem", "unit/runtime/test_shared_mem.cpp")
 test_proj("test_switch_loop_cfg", "unit/runtime/test_switch_loop_cfg.cpp")
 
+-- unit/coro
+test_proj("test_coro_scheduler_base", "unit/coro/test_coro_scheduler_base.cpp")
+test_proj("test_coro_multisplit", "unit/coro/test_coro_multisplit.cpp")
+test_proj("test_coro_compaction", "unit/coro/test_coro_compaction.cpp")
+test_proj("test_coro_radix_sort", "unit/coro/test_coro_radix_sort.cpp")
+
 -- unit/xir
 if has_config("lc_enable_xir") then
+    local function coro_xir_test_proj(name, source)
+        test_proj(name, source, false, function()
+            add_defines("LUISA_ENABLE_XIR")
+        end)
+    end
     test_proj("test_ast_to_xir", "unit/xir/test_ast_to_xir.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
@@ -126,6 +138,17 @@ if has_config("lc_enable_xir") then
     test_proj("test_xir_pass_restructure_cfg", "unit/xir/test_xir_pass_restructure_cfg.cpp", false, function()
         add_defines("LUISA_ENABLE_XIR")
     end)
+    coro_xir_test_proj("test_coro_graph", "unit/coro/test_coro_graph.cpp")
+    coro_xir_test_proj("test_coro_state_machine", "unit/coro/test_coro_state_machine.cpp")
+    coro_xir_test_proj("test_coro_persistent", "unit/coro/test_coro_persistent.cpp")
+    coro_xir_test_proj("test_coro_persistent_opt", "unit/coro/test_coro_persistent_opt.cpp")
+    coro_xir_test_proj("test_coro_persistent_integration", "unit/coro/test_coro_persistent_integration.cpp")
+    coro_xir_test_proj("test_coro_soa_layout", "unit/coro/test_coro_soa_layout.cpp")
+    coro_xir_test_proj("test_coro_wavefront", "unit/coro/test_coro_wavefront.cpp")
+    coro_xir_test_proj("test_coro_all_schedulers", "unit/coro/test_coro_all_schedulers.cpp")
+    coro_xir_test_proj("test_coro_wavefront_integration", "unit/coro/test_coro_wavefront_integration.cpp")
+    coro_xir_test_proj("test_coro_pipeline_1suspend", "unit/coro/test_coro_pipeline_1suspend.cpp")
+    coro_xir_test_proj("test_coro_pipeline_3suspend", "unit/coro/test_coro_pipeline_3suspend.cpp")
 end
 
 -- integration/runtime

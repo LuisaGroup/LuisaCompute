@@ -60,6 +60,7 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     VkDescriptorSet _bdls_tex3d_set{};
     VkDescriptorSetLayout _bdls_tex3d_set_layout{};
     VkPipelineCacheHeaderVersionOne _pso_header{};
+    VkPhysicalDeviceSubgroupSizeControlProperties _subgroup_size_control_properties{};
     vstd::vector<VkSampler> _samplers;
     vstd::optional<VkAllocator> _allocator;
     BinaryIO const *_binary_io{};
@@ -115,6 +116,7 @@ public:
     bool device_address_enabled : 1 {true};
     bool interop_enabled : 1 {true};
     bool motion_blur_enabled : 1 {false};
+    bool subgroup_size_control_enabled : 1 {false};
     auto &graphics_queue_mtx() { return _graphics_queue_mtx; }
     auto &compute_queue_mtx() { return _compute_queue_mtx; }
     auto &copy_queue_mtx() { return _copy_queue_mtx; }
@@ -140,6 +142,7 @@ public:
     auto physical_device() const { return _vk_device->physical_device; }
     auto logic_device() const { return _vk_device->logical_device; }
     auto const &pso_header() const { return _pso_header; }
+    auto const &subgroup_size_control_properties() const noexcept { return _subgroup_size_control_properties; }
     bool is_pso_same(VkPipelineCacheHeaderVersionOne const &pso);
     auto const &properties() const { return _vk_device->properties; }
     auto const &features() const { return _vk_device->features; }

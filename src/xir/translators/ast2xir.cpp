@@ -1169,7 +1169,11 @@ private:
             LUISA_DEBUG_ASSERT(_current.variables.find(ast_local) == _current.variables.end(),
                                "Local variable already exists.");
             auto v = _current.variables.emplace(ast_local, b.alloca_local(ast_local.type())).first->second;
-            v->set_name(luisa::format("_reg_{}", ast_local.uid()));
+            if (auto name = _current.ast->get_variable_name(ast_local.uid()); !name.empty()) {
+                v->set_name(name);
+            } else {
+                v->set_name(luisa::format("_reg_{}", ast_local.uid()));
+            }
             if (ast_local.is_builtin()) {
                 auto builtin_init = _translate_builtin_variable(ast_local);
                 LUISA_ASSERT(v->type() == builtin_init->type(), "Variable type mismatch.");

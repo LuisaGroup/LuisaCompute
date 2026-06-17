@@ -297,7 +297,13 @@ ResourceCreationInfo Device::create_procedural_primitive(
 }
 
 uint Device::compute_warp_size() const noexcept {
-    return 32;
+    VkPhysicalDeviceSubgroupProperties subgroup_properties{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+    VkPhysicalDeviceProperties2 properties2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+        .pNext = &subgroup_properties};
+    vkGetPhysicalDeviceProperties2(physical_device(), &properties2);
+    return subgroup_properties.subgroupSize;
 }
 uint64_t Device::memory_granularity() const noexcept {
     return kSparseBufferSize;
@@ -567,6 +573,7 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
     bool enable_motion_blur = false;
     bool enable_float_atomic_add = false;
     bool enable_float_shared_atomic = false;
+    bool enable_subgroup_size_control = false;
     if (supported_ext.find(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME) != supported_ext.end()) {
         _enable_device_exts.emplace_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
         enable_barycentric = true;
@@ -616,6 +623,29 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
             _enable_device_exts.emplace_back(name);
         }
     };
+    {
+        VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_features{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES};
+        VkPhysicalDeviceFeatures2 features2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = &subgroup_size_control_features};
+        vkGetPhysicalDeviceFeatures2(physical_device, &features2);
+        VkPhysicalDeviceSubgroupSizeControlProperties subgroup_size_control_properties{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
+        VkPhysicalDeviceProperties2 properties2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+            .pNext = &subgroup_size_control_properties};
+        vkGetPhysicalDeviceProperties2(physical_device, &properties2);
+        if (subgroup_size_control_features.subgroupSizeControl == VK_TRUE &&
+            (subgroup_size_control_properties.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0u) {
+            enable_subgroup_size_control = true;
+            subgroup_size_control_enabled = true;
+            _subgroup_size_control_properties = subgroup_size_control_properties;
+            if (supported_ext.find(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME) != supported_ext.end()) {
+                enable_device_extension(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME);
+            }
+        }
+    }
     enable_device_extension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
     enable_device_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
     if (bindless_enabled) {
@@ -734,6 +764,14 @@ void Device::_init_device(VkPhysicalDevice external_physical_device, VkDevice ex
         VK_FALSE};
     if (enable_float_atomic_add || enable_float_shared_atomic) {
         feature_next = &float_atomic_feature;
+    }
+    VkPhysicalDeviceSubgroupSizeControlFeatures subgroup_size_control_feature{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+        .pNext = feature_next,
+        .subgroupSizeControl = VK_TRUE,
+        .computeFullSubgroups = VK_FALSE};
+    if (enable_subgroup_size_control) {
+        feature_next = &subgroup_size_control_feature;
     }
     VkPhysicalDeviceSynchronization2Features barrier_feature{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
@@ -1253,7 +1291,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 std::move(llvm_result.printers),
                 {llvm_result.constant_ubo_data.data(),
                  llvm_result.constant_ubo_data.size()},
-                0);
+                0,
+                kernel.allowed_warp_size());
             LUISA_VERBOSE("ComputeShader (LLVM) created, pipeline: {}",
                          reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
@@ -1351,7 +1390,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 spv_result.useBufferBindless,
                 std::move(spv_result.printers),
                 {spv_result.constant_ubo_data.data(), spv_result.constant_ubo_data.size()},
-                0);
+                0,
+                kernel.allowed_warp_size());
             LUISA_VERBOSE("ComputeShader created successfully, pipeline: {}", reinterpret_cast<void *>(shader->pipeline()));
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
@@ -1432,7 +1472,8 @@ ShaderCreationInfo Device::create_shader(const ShaderOption &option, Function ke
                 serde_type,
                 kernel.use_cooperative_operations() ? kTensorShaderModel : (kernel.allowed_warp_size().has_value() ? kHighShaderModel : kShaderModel),
                 option.enable_fast_math,
-                code.validation_count);
+                code.validation_count,
+                kernel.allowed_warp_size());
             info.handle = reinterpret_cast<uint64_t>(shader);
             info.native_handle = shader->pipeline();
         }
