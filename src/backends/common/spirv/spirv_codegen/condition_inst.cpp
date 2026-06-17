@@ -38,6 +38,32 @@ namespace {
     return has;
 }
 
+[[nodiscard]] bool block_reaches_excluding(const xir::BasicBlock *from,
+                                           const xir::BasicBlock *to,
+                                           const xir::BasicBlock *exclude) noexcept {
+    if (from == nullptr || to == nullptr) { return false; }
+    if (from == to) { return true; }
+    if (from == exclude) { return false; }
+    luisa::unordered_set<const xir::BasicBlock *> visited;
+    luisa::vector<const xir::BasicBlock *> worklist;
+    worklist.emplace_back(from);
+    while (!worklist.empty()) {
+        auto *bb = worklist.back();
+        worklist.pop_back();
+        if (bb == nullptr || !visited.emplace(bb).second || bb == exclude) { continue; }
+        bool found = false;
+        bb->traverse_successors(true, [&](const xir::BasicBlock *succ) noexcept {
+            if (succ == to) {
+                found = true;
+            } else if (!visited.contains(succ) && succ != exclude) {
+                worklist.emplace_back(succ);
+            }
+        });
+        if (found) { return true; }
+    }
+    return false;
+}
+
 }// namespace
 
 void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
@@ -170,6 +196,8 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     auto merge = _get_or_create_block(inst->merge_block());
     _used_merge_blocks.emplace(merge->getId());
     _used_merge_blocks.emplace(update->getId());
+    _loop_boundary_stack.emplace_back(inst->merge_block(), merge);
+    _loop_boundary_stack.emplace_back(inst->update_block(), update);
     _loop_header_redirect.emplace(inst->prepare_block(), header);
     _builder.createBranch(false, header);
     _builder.setBuildPoint(header);
@@ -187,6 +215,8 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     }
     _emit_block(inst->update_block());
     _emit_block(inst->merge_block());
+    _loop_boundary_stack.pop_back();
+    _loop_boundary_stack.pop_back();
 }
 
 void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) noexcept {
@@ -199,6 +229,8 @@ void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) 
     auto merge = _get_or_create_block(inst->merge_block());
     _used_merge_blocks.emplace(merge->getId());
     _used_merge_blocks.emplace(continue_block->getId());
+    _loop_boundary_stack.emplace_back(inst->merge_block(), merge);
+    _loop_boundary_stack.emplace_back(inst->body_block(), continue_block);
     _loop_header_redirect.emplace(inst->body_block(), continue_block);
     _builder.createBranch(false, header);
     _builder.setBuildPoint(header);
@@ -219,6 +251,8 @@ void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) 
     _builder.setBuildPoint(continue_block);
     _builder.createBranch(false, header);
     _emit_block(inst->merge_block());
+    _loop_boundary_stack.pop_back();
+    _loop_boundary_stack.pop_back();
 }
 
 void SpirvCodegenEntry::_emit_switch_inst(const xir::SwitchInst *inst) noexcept {
@@ -434,6 +468,45 @@ void SpirvCodegenEntry::_emit_conditional_branch_inst(const xir::ConditionalBran
     };
     auto true_block = get_target(inst->true_block());
     auto false_block = get_target(inst->false_block());
+
+    // If this conditional branch is not already part of a loop header or an
+    // IfInst selection, but it is inside a loop, it is likely a loop-boundary
+    // branch (break/continue) produced by restructure_cfg. Wrap it in a
+    // selection construct using the target that continues the loop as the merge
+    // block. We identify the continue target by reachability to the loop's
+    // continue/update block.
+    auto *current = _builder.getBuildPoint();
+    bool has_loop_merge = false;
+    bool has_selection_merge = false;
+    if (current != nullptr) {
+        for (auto &instr : current->getInstructions()) {
+            auto op = instr->getOpCode();
+            if (op == spv::Op::OpLoopMerge) { has_loop_merge = true; }
+            if (op == spv::Op::OpSelectionMerge) { has_selection_merge = true; }
+        }
+    }
+    if (!has_loop_merge && !has_selection_merge && !_loop_boundary_stack.empty()) {
+        // Stack layout per loop: (merge, continue/update). The innermost loop
+        // boundaries are at the top two entries.
+        auto *loop_merge_xb = _loop_boundary_stack[_loop_boundary_stack.size() - 2].first;
+        auto *loop_continue_xb = _loop_boundary_stack.back().first;
+        auto true_reaches_continue = block_reaches_excluding(inst->true_block(), loop_continue_xb, loop_merge_xb);
+        auto false_reaches_continue = block_reaches_excluding(inst->false_block(), loop_continue_xb, loop_merge_xb);
+        spv::Block *selection_merge = nullptr;
+        if (true_reaches_continue && !false_reaches_continue) {
+            selection_merge = true_block;
+        } else if (false_reaches_continue && !true_reaches_continue) {
+            selection_merge = false_block;
+        }
+        if (selection_merge != nullptr) {
+            auto selection_merge_inst = new spv::Instruction(spv::Op::OpSelectionMerge);
+            selection_merge_inst->reserveOperands(2);
+            selection_merge_inst->addIdOperand(selection_merge->getId());
+            selection_merge_inst->addImmediateOperand(spv::SelectionControlMask::MaskNone);
+            _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge_inst));
+        }
+    }
+
     _builder.createConditionalBranch(cond, true_block, false_block);
     if (!_emitted_blocks.contains(inst->true_block())) {
         _pending_blocks.push_back(inst->true_block());

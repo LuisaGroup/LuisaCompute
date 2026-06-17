@@ -52,6 +52,7 @@ private:
     luisa::unordered_set<const xir::BasicBlock *> _emitted_blocks;
     luisa::unordered_set<spv::Id> _used_merge_blocks;
     luisa::vector<spv::Block *> _outer_merge_stack;
+    luisa::vector<std::pair<const xir::BasicBlock *, spv::Block *>> _loop_boundary_stack;
     luisa::vector<const xir::BasicBlock *> _pending_blocks;
     luisa::unordered_set<spv::Block *> _added_blocks;
 

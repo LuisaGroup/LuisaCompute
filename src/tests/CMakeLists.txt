@@ -114,6 +114,7 @@ luisa_compute_add_test(test_device_test         unit/runtime/test_device.cpp)
 luisa_compute_add_test(test_external_buffer     unit/runtime/test_external_buffer.cpp)
 luisa_compute_add_test(test_gemm                unit/runtime/test_gemm.cpp)
 luisa_compute_add_test(test_shared_mem          unit/runtime/test_shared_mem.cpp)
+luisa_compute_add_test(test_switch_loop_cfg   unit/runtime/test_switch_loop_cfg.cpp)
 
 # --- unit/xir: standalone tests (no backend needed, auto-run via CTest) ---
 luisa_compute_add_test(test_ast_to_xir unit/xir/test_ast_to_xir.cpp LABELS "unit;unit_xir")

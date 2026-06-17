@@ -440,15 +440,17 @@ void SpirvCodegenEntry::_pre_register_merge_blocks(const xir::FunctionDefinition
         }
     }
 }
-
 void SpirvCodegenEntry::_reset_function_codegen_state() noexcept {
     _emitted_blocks.clear();
     _pending_blocks.clear();
     _loop_header_redirect.clear();
+    _loop_header_info.clear();
     _used_merge_blocks.clear();
     _outer_merge_stack.clear();
     _block_map.clear();
+    _loop_boundary_stack.clear();
     _added_blocks.clear();
+    _rq_proceed_result.clear();
 }
 
 void SpirvCodegenEntry::_emit_function_blocks(const xir::FunctionDefinition *def) noexcept {
