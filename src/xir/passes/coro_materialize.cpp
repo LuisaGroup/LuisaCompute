@@ -23,7 +23,7 @@ namespace luisa::compute::xir {
 namespace detail {
 
 static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 3u;
-static constexpr uint32_t FRAME_FIELD_TOKEN = 1u;
+static constexpr uint32_t FRAME_FIELD_TOKEN_CMAT = 1u;
 
 struct RegisterInfo {
     luisa::string name;
@@ -59,7 +59,7 @@ struct RegisterInfo {
     if (gep->index_count() != 1u) { return false; }
     auto *idx = gep->index(0u);
     if (!idx->isa<Constant>()) { return false; }
-    return static_cast<Constant *>(idx)->as<uint32_t>() == FRAME_FIELD_TOKEN;
+    return static_cast<Constant *>(idx)->as<uint32_t>() == FRAME_FIELD_TOKEN_CMAT;
 }
 
 [[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(
@@ -195,7 +195,7 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
                                      live_out, info.store_inserted_count);
         }
 
-        auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN);
+        auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN_CMAT);
         auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_token});
         auto *tok_c = mod->create_constant(Type::of<uint32_t>(), &token);
         b.store(gep0, tok_c);
@@ -217,7 +217,7 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         } else {
             b.set_insertion_point(t->parent_block());
         }
-        auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN);
+        auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN_CMAT);
         auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_token});
         auto term_tok = TERMINAL_TOKEN;
         auto *term_c = mod->create_constant(Type::of<uint32_t>(), &term_tok);

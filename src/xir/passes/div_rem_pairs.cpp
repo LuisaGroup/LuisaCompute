@@ -28,10 +28,17 @@ static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &
     luisa::unordered_map<Instruction *, size_t> instruction_indices;
     auto index = 0u;
 
+    auto is_integer_type = [](const Type *type) noexcept {
+        auto t = type;
+        while (t->is_vector() || t->is_matrix() || t->is_array()) { t = t->element(); }
+        return t->is_int() || t->is_uint();
+    };
+
     def->traverse_instructions([&](Instruction *inst) noexcept {
         instruction_indices.emplace(inst, index++);
         if (!inst->isa<ArithmeticInst>()) return;
         auto ari = static_cast<ArithmeticInst *>(inst);
+        if (!is_integer_type(ari->type())) return;
         auto op = ari->op();
         if (op == ArithmeticOp::BINARY_DIV) {
             DivModKey key{ari->operand(0), ari->operand(1)};
@@ -60,8 +67,10 @@ static void div_rem_pairs_on_function(FunctionDefinition *def, DivRemPairsInfo &
 
         XIRBuilder b;
         b.set_insertion_point(mod_inst->prev());
-        auto mul = b.call(div_inst->type(), ArithmeticOp::BINARY_MUL, {div_inst, key.y});
-        auto sub = b.call(mod_inst->type(), ArithmeticOp::BINARY_SUB, {key.x, mul});
+        auto x = mod_inst->operand(0);
+        auto y = mod_inst->operand(1);
+        auto mul = b.call(div_inst->type(), ArithmeticOp::BINARY_MUL, {div_inst, y});
+        auto sub = b.call(mod_inst->type(), ArithmeticOp::BINARY_SUB, {x, mul});
 
         mod_inst->replace_all_uses_with(sub);
         mod_inst->remove_self();
