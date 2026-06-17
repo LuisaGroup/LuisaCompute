@@ -25,7 +25,11 @@ namespace {
 
 [[nodiscard]] CallableFunction *make_post_split_callable(Module &m, Value *&frame_arg_out, BasicBlock *&body_out) noexcept {
     auto *cf = m.create_callable(nullptr);
-    frame_arg_out = cf->create_reference_argument(Type::structure({Type::of<uint32_t>(), Type::of<uint32_t>()}));
+    frame_arg_out = cf->create_reference_argument(Type::structure({
+        Type::of<uint3>(),
+        Type::of<uint32_t>(),
+        Type::of<uint32_t>(),
+    }));
     body_out = cf->create_body_block();
     return cf;
 }
@@ -63,7 +67,7 @@ void reg_coro_materialize() {
 
         // then: nothing registered, no stores/loads for user vars
         expect(info.register_count == 0u);
-        expect(info.frame_field_count == 2u);
+        expect(info.frame_field_count == 3u);
         expect(info.load_inserted_count == 0u);
         expect(info.store_inserted_count == 0u);
     };
@@ -165,8 +169,9 @@ void reg_coro_materialize() {
         b.set_insertion_point(body);
 
         // simulate post-split token store
-        auto *field_zero = m.create_constant_zero(Type::of<uint32_t>());
-        auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_zero});
+        auto token_field = 1u;
+        auto *field_token = m.create_constant(Type::of<uint32_t>(), &token_field);
+        auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_token});
         auto token_val = static_cast<uint32_t>(42u);
         auto *tok_c = m.create_constant(Type::of<uint32_t>(), &token_val);
         b.store(gep0, tok_c);
@@ -177,7 +182,7 @@ void reg_coro_materialize() {
 
         // then: no user registers
         expect(info.register_count == 0u);
-        expect(info.frame_field_count == 2u);
+        expect(info.frame_field_count == 3u);
     };
 }
 

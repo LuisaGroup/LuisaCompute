@@ -7,7 +7,7 @@
 #include <luisa/ast/type_registry.h>
 
 #include "ut/ut.hpp"
-#include "test_device.h"
+#include "coro_test_utils.h"
 
 using namespace luisa;
 using namespace luisa::compute;
@@ -345,22 +345,22 @@ void reg_coro_frame_type_checks() {
         CoroFrameDesc desc;
         desc.add_field("fval", Type::of<float>());
         desc.add_field("ival", Type::of<int>());
-        expect(true);
+        expect(desc.field_count() == 2u);
+        expect(desc.field(0u).type == Type::of<float>());
+        expect(desc.field(1u).type == Type::of<int>());
     };
 
     "get_by_name_returns_var_type"_test = [] {
         CoroFrameDesc desc;
         desc.add_field("alpha", Type::of<float>());
-        expect(true);
+        auto *field = desc.field("alpha");
+        expect(field != nullptr);
+        expect(field->type == Type::of<float>());
     };
 
     "is_terminated_returns_bool"_test = [] {
-        CoroFrameDesc desc;
-        desc.add_field("x", Type::of<float>());
-        auto check_type = []<typename F>(F &&frame) {
-            static_assert(std::is_same_v<decltype(frame.is_terminated()), Bool>);
-        };
-        expect(true);
+        static_assert(std::is_same_v<decltype(std::declval<CoroFrame &>().is_terminated()), Bool>);
+        expect(std::is_same_v<decltype(std::declval<CoroFrame &>().is_terminated()), Bool>);
     };
 }
 
@@ -373,12 +373,9 @@ int main(int argc, char *argv[]) {
     reg_coro_frame_static();
     reg_coro_frame_type_checks();
 
-    auto dc = luisa::test::create_device_from_ut(argc, argv);
-    if (!dc) {
-        return 0;
-    }
-
-    reg_coro_frame_runtime(dc->device);
+    auto options = luisa::test::coro_test::parse_options(argc, argv);
+    auto dc = luisa::test::coro_test::create_device(options);
+    reg_coro_frame_runtime(dc.device);
 
     return 0;
 }

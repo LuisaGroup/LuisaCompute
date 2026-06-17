@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <numbers>
 #include <optional>
 #include <string_view>
@@ -14,6 +15,7 @@
 
 #include <luisa/luisa-compute.h>
 #include <luisa/coro/schedulers/state_machine.h>
+#include <luisa/coro/schedulers/wavefront.h>
 #include <luisa/core/clock.h>
 #include <luisa/core/logging.h>
 #include <luisa/dsl/sugar.h>
@@ -22,9 +24,45 @@ using namespace luisa;
 using namespace luisa::compute;
 using namespace luisa::compute::coro;
 
+enum class ExampleCoroSchedulerKind {
+    state_machine,
+    wavefront,
+};
+
+[[nodiscard]] static auto parse_coro_scheduler(int argc, char *argv[]) noexcept {
+    auto kind = ExampleCoroSchedulerKind::state_machine;
+    for (int i = 2; i < argc; i++) {
+        if (argv[i] == nullptr) { break; }
+        std::string_view arg{argv[i]};
+        if (arg == "--scheduler") {
+            if (i + 1 >= argc || argv[i + 1] == nullptr) {
+                LUISA_ERROR("Missing value for --scheduler. Expected state_machine or wavefront.");
+            }
+            std::string_view value{argv[++i]};
+            if (value == "state_machine" || value == "statemachine" || value == "state") {
+                kind = ExampleCoroSchedulerKind::state_machine;
+            } else if (value == "wavefront" || value == "wave") {
+                kind = ExampleCoroSchedulerKind::wavefront;
+            } else {
+                LUISA_ERROR("Unknown coroutine scheduler '{}'. Expected state_machine or wavefront.", value);
+            }
+        }
+    }
+    return kind;
+}
+
+[[nodiscard]] static constexpr auto scheduler_name(ExampleCoroSchedulerKind kind) noexcept {
+    switch (kind) {
+        case ExampleCoroSchedulerKind::state_machine: return "state_machine";
+        case ExampleCoroSchedulerKind::wavefront: return "wavefront";
+    }
+    return "unknown";
+}
+
 int main(int argc, char *argv[]) {
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    auto scheduler_kind = parse_coro_scheduler(argc, argv);
 
     static constexpr int max_ray_depth = 6;
     static constexpr float eps = 1e-4f;
@@ -38,7 +76,7 @@ int main(int argc, char *argv[]) {
 
     Context ctx{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--spp N] [--compare ref.png]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--spp N] [--compare ref.png] [--scheduler state_machine|wavefront]", argv[0]);
         exit(1);
     }
     Device device = ctx.create_device(argv[1]);
@@ -183,11 +221,26 @@ int main(int argc, char *argv[]) {
     LUISA_INFO("Coroutine compiled: {} subroutines, {} graph nodes",
                coro.subroutine_count(), coro.graph().node_count());
 
-    StateMachineCoroScheduler<Image<uint>, Image<float>, uint> scheduler{device, coro};
-
     static constexpr uint width = 1280u;
     static constexpr uint height = 720u;
     static constexpr uint interval = 64u;
+    static constexpr uint total_cells = width * height;
+
+    using Scheduler = CoroScheduler<Image<uint>, Image<float>, uint>;
+    std::unique_ptr<Scheduler> scheduler;
+    switch (scheduler_kind) {
+        case ExampleCoroSchedulerKind::state_machine:
+            scheduler = std::make_unique<StateMachineCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro);
+            break;
+        case ExampleCoroSchedulerKind::wavefront: {
+            WavefrontCoroSchedulerConfig cfg{};
+            cfg.thread_count = total_cells;
+            scheduler = std::make_unique<WavefrontCoroScheduler<Image<uint>, Image<float>, uint>>(device, coro, cfg);
+            break;
+        }
+    }
+    LUISA_INFO("CoroScheduler: {}", scheduler_name(scheduler_kind));
+
     uint total_spp = opts.spp == 0u ? 1024u : opts.spp;
     Image<uint> seed_image = device.create_image<uint>(PixelStorage::INT1, width, height);
     Image<float> accum_image = device.create_image<float>(PixelStorage::FLOAT4, width, height);
@@ -212,7 +265,7 @@ int main(int argc, char *argv[]) {
     uint spp = 0u;
     while (spp < total_spp) {
         for (uint frame = 0u; frame < interval && spp + frame < total_spp; frame++) {
-            stream << scheduler(seed_image, accum_image, spp + frame).dispatch(width, height);
+            stream << (*scheduler)(seed_image, accum_image, spp + frame).dispatch(width, height);
             spp_count++;
         }
         spp += interval;

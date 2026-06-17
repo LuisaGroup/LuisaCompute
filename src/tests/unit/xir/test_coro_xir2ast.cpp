@@ -57,7 +57,7 @@ struct StatementCounter final : StmtVisitor {
 
 [[nodiscard]] CallableFunction *make_continuation(Module &m, Value *&frame_arg_out, BasicBlock *&body_out) noexcept {
     auto *cf = m.create_callable(nullptr);
-    auto frame_type = Type::structure({Type::of<uint32_t>(), Type::of<float>()});
+    auto frame_type = Type::structure({Type::of<uint3>(), Type::of<uint32_t>(), Type::of<uint32_t>(), Type::of<float>()});
     frame_arg_out = cf->create_reference_argument(frame_type);
     body_out = cf->create_body_block();
     return cf;
@@ -77,18 +77,16 @@ void reg_coro_xir2ast() {
         XIRBuilder b;
         b.set_insertion_point(body);
 
-        // Load token field (field 0) from frame: gep frame_arg, 0; load gep
-        auto *idx0 = m.create_constant_zero(Type::of<uint32_t>());
-        auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {idx0});
-        auto *loaded_token = b.load(Type::of<uint32_t>(), gep0);
+        uint32_t token_field = 1u;
+        auto *idx_token = m.create_constant(Type::of<uint32_t>(), &token_field);
+        auto *gep_token = b.gep(Type::of<uint32_t>(), frame_arg, {idx_token});
+        auto *loaded_token = b.load(Type::of<uint32_t>(), gep_token);
 
-        // Store to value field (field 1) in frame: gep frame_arg, 1; store value, gep
-        uint32_t one = 1u;
-        auto *idx1 = m.create_constant(Type::of<uint32_t>(), &one);
-        auto *gep1 = b.gep(Type::of<float>(), frame_arg, {idx1});
-        // Store a float value into the float field
+        uint32_t value_field = 3u;
+        auto *idx_value = m.create_constant(Type::of<uint32_t>(), &value_field);
+        auto *gep_value = b.gep(Type::of<float>(), frame_arg, {idx_value});
         auto *float_val = m.create_constant_one(Type::of<float>());
-        b.store(gep1, float_val);
+        b.store(gep_value, float_val);
 
         b.return_void();
 
@@ -99,12 +97,10 @@ void reg_coro_xir2ast() {
         expect(ast != nullptr);
         expect(ast->function().tag() == ASTFunction::Tag::CALLABLE);
         expect(ast->arguments().size() == 1u);
-        // The frame arg should be a reference argument
         expect(ast->arguments().front().is_reference());
 
         StatementCounter counter;
         ast->body()->accept(counter);
-        // At least 2 stores: one from the LoadInst lowering, one from the StoreInst
         expect(counter.stores >= 2u);
         expect(counter.returns == 1u);
     };
@@ -119,24 +115,21 @@ void reg_coro_xir2ast() {
         XIRBuilder b;
         b.set_insertion_point(body);
 
-        // Load field 0 (token) to use as condition
-        auto *idx0 = m.create_constant_zero(Type::of<uint32_t>());
-        auto *gep_token = b.gep(Type::of<uint32_t>(), frame_arg, {idx0});
+        uint32_t token_field = 1u;
+        auto *idx_token = m.create_constant(Type::of<uint32_t>(), &token_field);
+        auto *gep_token = b.gep(Type::of<uint32_t>(), frame_arg, {idx_token});
         auto *token_val = b.load(Type::of<uint32_t>(), gep_token);
 
-        // Compare token != 0
-        float zero_f = 0.0f;
-        auto *zero_c = m.create_constant(Type::of<float>(), &zero_f);
+        auto *zero_c = m.create_constant_zero(Type::of<uint32_t>());
         auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {token_val, zero_c});
 
-        // Create structured if with proper merge
         auto *if_inst = b.if_(cond);
         auto *merge_bb = if_inst->create_merge_block();
 
         b.set_insertion_point(if_inst->create_true_block());
-        uint32_t one = 1u;
-        auto *idx1 = m.create_constant(Type::of<uint32_t>(), &one);
-        auto *gep1 = b.gep(Type::of<float>(), frame_arg, {idx1});
+        uint32_t value_field = 3u;
+        auto *idx_value = m.create_constant(Type::of<uint32_t>(), &value_field);
+        auto *gep1 = b.gep(Type::of<float>(), frame_arg, {idx_value});
         auto *float_val = m.create_constant_one(Type::of<float>());
         b.store(gep1, float_val);
         b.br(merge_bb);
@@ -165,10 +158,11 @@ void reg_coro_xir2ast() {
         // given: a continuation with a multi-field frame struct
         Module m;
         auto frame_type = Type::structure({
-            Type::of<uint32_t>(),  // token
-            Type::of<uint32_t>(),  // skip
-            Type::of<float>(),     // saved value 1
-            Type::of<int>(),       // saved value 2
+            Type::of<uint3>(),
+            Type::of<uint32_t>(),
+            Type::of<uint32_t>(),
+            Type::of<float>(),
+            Type::of<int>(),
         });
         auto *cf = m.create_callable(nullptr);
         auto *frame_arg = cf->create_reference_argument(frame_type);
@@ -185,7 +179,6 @@ void reg_coro_xir2ast() {
         expect(ast != nullptr);
         expect(ast->function().tag() == ASTFunction::Tag::CALLABLE);
         expect(ast->arguments().size() == 1u);
-        // The argument should be a reference, meaning the type is the struct itself
         expect(ast->arguments().front().is_reference());
     };
 
@@ -205,12 +198,10 @@ void reg_coro_xir2ast() {
         expect(ast != nullptr);
         expect(ast->function().tag() == ASTFunction::Tag::CALLABLE);
         expect(ast->arguments().size() == 1u);
-        // Value argument should NOT be a reference
         expect(!ast->arguments().front().is_reference());
     };
 
-    "xir_to_ast_translate_continuation_rejects_kernel"_test = [] {
-        // given: a kernel (not a continuation)
+    "kernel_is_not_a_continuation_callable"_test = [] {
         Module m;
         auto *k = m.create_kernel();
         k->create_body_block();
@@ -220,8 +211,7 @@ void reg_coro_xir2ast() {
 }
 
 int main(int argc, char *argv[]) {
-    (void)argc;
-    (void)argv;
+    boost::ut::detail::cfg::parse_arg_with_fallback(argc, const_cast<const char **>(argv));
     reg_coro_xir2ast();
     return 0;
 }

@@ -90,7 +90,8 @@ private:
     const Expression *_expression{nullptr};
 
     [[nodiscard]] static auto _frame_alignment(const CoroFrameDesc *desc) noexcept -> size_t {
-        auto alignment = Type::of<uint>()->alignment();
+        auto alignment = Type::of<uint3>()->alignment();
+        alignment = std::max(alignment, Type::of<uint>()->alignment());
         for (auto i = 0u; i < desc->field_count(); i++) {
             alignment = std::max(alignment, desc->field(i).type->alignment());
         }
@@ -99,6 +100,7 @@ private:
 
     [[nodiscard]] static auto _frame_type(const CoroFrameDesc *desc) noexcept -> const Type * {
         luisa::vector<const Type *> members;
+        members.emplace_back(Type::of<uint3>());
         members.emplace_back(Type::of<uint>());
         members.emplace_back(Type::of<uint>());
         for (auto i = 0u; i < desc->field_count(); i++) {
@@ -126,9 +128,9 @@ public:
         : _desc{desc},
           _type{_frame_type(desc)},
           _expression{detail::FunctionBuilder::current()->local(_type)},
-          coro_id{detail::FunctionBuilder::current()->local(Type::of<uint3>())},
-          target_token{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 0u)},
-          skip_flag{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 1u)} {}
+          coro_id{detail::FunctionBuilder::current()->member(Type::of<uint3>(), _expression, 0u)},
+          target_token{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 1u)},
+          skip_flag{detail::FunctionBuilder::current()->member(Type::of<uint>(), _expression, 2u)} {}
 
     [[nodiscard]] static auto create(const CoroFrameDesc *desc) noexcept {
         return CoroFrame{desc};
@@ -140,7 +142,7 @@ public:
     template<typename T>
     [[nodiscard]] auto get(size_t index) const noexcept {
         LUISA_ASSERT(index < _desc->field_count(), "CoroFrame field index out of range.");
-        auto field_index = index + 2u;
+        auto field_index = index + 3u;
         auto field = _desc->field(index);
         LUISA_ASSERT(field.type == Type::of<T>(), "CoroFrame field type mismatch.");
         return Var<T>{detail::FunctionBuilder::current()->member(Type::of<T>(), _expression, field_index)};

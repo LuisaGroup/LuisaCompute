@@ -96,8 +96,9 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
     if (cfg.scopes.empty()) { throw std::runtime_error("coro-cfg-distill found no scopes"); }
     luisa::vector<const Type *> frame_fields;
-    frame_fields.push_back(Type::of<uint>());// [0] token
-    frame_fields.push_back(Type::of<uint>());// [1] skip_flag
+    frame_fields.push_back(Type::of<uint3>());// [0] coro_id
+    frame_fields.push_back(Type::of<uint>()); // [1] token
+    frame_fields.push_back(Type::of<uint>()); // [2] skip_flag
     for (auto &value : cfg.frame_values) { frame_fields.push_back(value.type); }
     auto *frame_type = Type::structure(frame_fields);
 

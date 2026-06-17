@@ -36,7 +36,8 @@ void reg_coro_scheduler_base() {
     "pure_virtual_prevents_instantiation"_test = [] {
         static_assert(std::is_abstract_v<CoroScheduler<int, float>>);
         static_assert(!std::is_abstract_v<TestScheduler>);
-        expect(true);
+        expect(std::is_abstract_v<CoroScheduler<int, float>>);
+        expect(!std::is_abstract_v<TestScheduler>);
     };
 
     "operator_paren_returns_coro_scheduler_invoke"_test = [] {
@@ -45,7 +46,8 @@ void reg_coro_scheduler_base() {
         using InvokeType = decltype(invoke);
         static_assert(std::is_same_v<InvokeType,
                                       coro::detail::CoroSchedulerInvoke<int, float>>);
-        expect(true);
+        expect(std::is_same_v<InvokeType,
+                              coro::detail::CoroSchedulerInvoke<int, float>>);
     };
 
     "dispatch_is_lazy_called_when_invoked_with_stream"_test = [] {

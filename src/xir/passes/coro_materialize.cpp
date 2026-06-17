@@ -22,6 +22,9 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
+static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 3u;
+static constexpr uint32_t FRAME_FIELD_TOKEN = 1u;
+
 struct RegisterInfo {
     luisa::string name;
     const Type *type;
@@ -56,7 +59,7 @@ struct RegisterInfo {
     if (gep->index_count() != 1u) { return false; }
     auto *idx = gep->index(0u);
     if (!idx->isa<Constant>()) { return false; }
-    return true;
+    return static_cast<Constant *>(idx)->as<uint32_t>() == FRAME_FIELD_TOKEN;
 }
 
 [[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(
@@ -88,8 +91,9 @@ struct RegisterInfo {
 
 [[nodiscard]] static const Type *build_frame_type(const luisa::vector<RegisterInfo> &regs) noexcept {
     luisa::vector<const Type *> fields;
-    fields.push_back(Type::of<uint32_t>());// [0] token
-    fields.push_back(Type::of<uint32_t>());// [1] skip
+    fields.push_back(Type::of<uint3>());   // [0] coro_id
+    fields.push_back(Type::of<uint32_t>());// [1] token
+    fields.push_back(Type::of<uint32_t>());// [2] skip
     for (auto &reg : regs) { fields.push_back(reg.type); }
     return Type::structure(fields);
 }
@@ -97,9 +101,8 @@ struct RegisterInfo {
 [[nodiscard]] static luisa::unordered_map<luisa::string, size_t> build_field_map(
     const luisa::vector<RegisterInfo> &regs) noexcept {
     luisa::unordered_map<luisa::string, size_t> map;
-    constexpr size_t user_offset = 2u;
     for (size_t i = 0u; i < regs.size(); ++i) {
-        map.emplace(regs[i].name, user_offset + i);
+        map.emplace(regs[i].name, FRAME_RESERVED_FIELD_COUNT + i);
     }
     return map;
 }
@@ -192,8 +195,8 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
                                      live_out, info.store_inserted_count);
         }
 
-        auto *field_zero = mod->create_constant_zero(Type::of<uint32_t>());
-        auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_zero});
+        auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN);
+        auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_token});
         auto *tok_c = mod->create_constant(Type::of<uint32_t>(), &token);
         b.store(gep0, tok_c);
         b.return_void();
@@ -214,8 +217,8 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         } else {
             b.set_insertion_point(t->parent_block());
         }
-        auto *field_zero = mod->create_constant_zero(Type::of<uint32_t>());
-        auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_zero});
+        auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN);
+        auto *gep0 = b.gep(Type::of<uint32_t>(), frame_arg, {field_token});
         auto term_tok = TERMINAL_TOKEN;
         auto *term_c = mod->create_constant(Type::of<uint32_t>(), &term_tok);
         b.store(gep0, term_c);
@@ -375,7 +378,7 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module(Module *m) noexcept {
 
     auto field_map = detail::build_field_map(regs);
     info.name_to_field = field_map;
-    info.frame_field_count = 2u + regs.size();
+    info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + regs.size();
 
     for (auto *func : callables) {
         detail::process_callable(m, func, detail::find_frame_operand(func), regs, field_map, nullptr, nullptr, true, info);
@@ -403,10 +406,10 @@ CoroMaterializeInfo coro_materialize_pass_run_on_module_with_cfg(
 
     luisa::unordered_map<Value *, size_t> value_field_map;
     info.register_count = cfg.frame_values.size();
-    info.frame_field_count = 2u + cfg.frame_values.size();
+    info.frame_field_count = detail::FRAME_RESERVED_FIELD_COUNT + cfg.frame_values.size();
     for (size_t i = 0u; i < cfg.frame_values.size(); ++i) {
         auto &value = cfg.frame_values[i];
-        auto field_index = i + 2u;
+        auto field_index = i + detail::FRAME_RESERVED_FIELD_COUNT;
         info.name_to_field.emplace(value.name, field_index);
         info.name_to_type.emplace(value.name, value.type);
         value_field_map.emplace(value.value, field_index);

@@ -4,6 +4,12 @@
 
 namespace luisa::compute::xir {
 
+namespace {
+
+static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 3u;
+
+}// namespace
+
 DeadFieldEliminationInfo dead_field_elimination_pass_run(
     CoroMaterializeInfo &info,
     CoroFrameDesc &desc) noexcept {
@@ -13,8 +19,9 @@ DeadFieldEliminationInfo dead_field_elimination_pass_run(
     result.original_frame_size = desc.total_size();
 
     luisa::unordered_set<size_t> used_fields;
-    used_fields.emplace(0u);
-    used_fields.emplace(1u);
+    for (size_t i = 0u; i < FRAME_RESERVED_FIELD_COUNT; ++i) {
+        used_fields.emplace(i);
+    }
 
     for (const auto &edge : info.edges) {
         for (auto idx : edge.load_fields) {
@@ -23,7 +30,7 @@ DeadFieldEliminationInfo dead_field_elimination_pass_run(
     }
 
     luisa::unordered_set<size_t> dead_fields;
-    for (size_t i = 2u; i < info.frame_field_count; ++i) {
+    for (size_t i = FRAME_RESERVED_FIELD_COUNT; i < info.frame_field_count; ++i) {
         if (!used_fields.contains(i)) {
             dead_fields.emplace(i);
         }

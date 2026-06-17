@@ -150,6 +150,58 @@ void reg_xir2ast_direct() {
         expect(counter.exprs == 2u);
         expect(counter.returns == 1u);
     };
+
+    "xir_to_ast_direct_cond_br_with_nested_reconvergence"_test = [] {
+        Module module;
+        auto *kernel = module.create_kernel();
+        auto *body = kernel->create_body_block();
+        XIRBuilder b;
+        b.set_insertion_point(body);
+        auto *local = b.alloca_local(Type::of<uint32_t>());
+        bool cond_value = true;
+        auto *cond = module.create_constant(Type::of<bool>(), &cond_value);
+        bool nested_cond_value = false;
+        auto *nested_cond = module.create_constant(Type::of<bool>(), &nested_cond_value);
+        uint32_t one = 1u;
+        uint32_t two = 2u;
+        uint32_t three = 3u;
+        auto *one_c = module.create_constant(Type::of<uint32_t>(), &one);
+        auto *two_c = module.create_constant(Type::of<uint32_t>(), &two);
+        auto *three_c = module.create_constant(Type::of<uint32_t>(), &three);
+        auto *true_block = kernel->create_basic_block();
+        auto *false_block = kernel->create_basic_block();
+        auto *true_true_block = kernel->create_basic_block();
+        auto *true_false_block = kernel->create_basic_block();
+        auto *true_join = kernel->create_basic_block();
+        auto *merge = kernel->create_basic_block();
+        b.cond_br(cond, true_block, false_block);
+
+        b.set_insertion_point(true_block);
+        b.cond_br(nested_cond, true_true_block, true_false_block);
+        b.set_insertion_point(true_true_block);
+        b.store(local, one_c);
+        b.br(true_join);
+        b.set_insertion_point(true_false_block);
+        b.store(local, two_c);
+        b.br(true_join);
+        b.set_insertion_point(true_join);
+        b.br(merge);
+
+        b.set_insertion_point(false_block);
+        b.store(local, three_c);
+        b.br(merge);
+
+        b.set_insertion_point(merge);
+        b.return_void();
+
+        auto ast = xir_to_ast_translate(*kernel, {});
+        expect(ast != nullptr);
+        StatementCounter counter;
+        ast->body()->accept(counter);
+        expect(counter.ifs == 2u);
+        expect(counter.stores == 3u);
+        expect(counter.returns == 1u);
+    };
 }
 
 void reg_xir2ast_ast_roundtrip() {

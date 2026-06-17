@@ -18,13 +18,16 @@
 #include <luisa/xir/op.h>
 #include <luisa/xir/passes/coro_cfg_distill.h>
 #include <luisa/xir/passes/coro_split.h>
+#include <luisa/xir/special_register.h>
 
 namespace luisa::compute::xir {
 
 namespace detail {
 
-static constexpr uint32_t FRAME_FIELD_TOKEN = 0u;
-static constexpr uint32_t FRAME_FIELD_SKIP_FLAG = 1u;
+static constexpr uint32_t FRAME_FIELD_CORO_ID = 0u;
+static constexpr uint32_t FRAME_FIELD_TOKEN = 1u;
+static constexpr uint32_t FRAME_FIELD_SKIP_FLAG = 2u;
+static constexpr uint32_t FRAME_USER_FIELD_OFFSET = 3u;
 static constexpr uint32_t SKIP_FLAG_TRUE = 1u;
 
 class CoroSplitValueResolver final : public InstructionCloneValueResolver {
@@ -37,6 +40,8 @@ private:
     luisa::unordered_set<const BasicBlock *> _scope_blocks;
     XIRBuilder *_builder{nullptr};
     BasicBlock *_alloca_bb{nullptr};
+    Value *_frame_arg{nullptr};
+    Module *_module{nullptr};
     const BasicBlock *_scope_root{nullptr};
     const BasicBlock *_current_orig_block{nullptr};
 
@@ -70,6 +75,11 @@ public:
     void set_builder(XIRBuilder *b, BasicBlock *alloca_bb) noexcept {
         _builder = b;
         _alloca_bb = alloca_bb;
+    }
+
+    void set_frame_arg(Module *module, Value *frame_arg) noexcept {
+        _module = module;
+        _frame_arg = frame_arg;
     }
 
     void set_scope(const BasicBlock *root, luisa::unordered_set<const BasicBlock *> blocks) noexcept {
@@ -111,8 +121,17 @@ public:
             case DerivedValueTag::UNDEFINED:
             case DerivedValueTag::FUNCTION:
             case DerivedValueTag::CONSTANT:
-            case DerivedValueTag::SPECIAL_REGISTER:
                 return const_cast<Value *>(value);
+            case DerivedValueTag::SPECIAL_REGISTER: {
+                auto *sreg = static_cast<const SpecialRegister *>(value);
+                if (sreg->derived_special_register_tag() == DerivedSpecialRegisterTag::DISPATCH_ID &&
+                    _builder != nullptr && _module != nullptr && _frame_arg != nullptr) {
+                    auto *idx = static_cast<Value *>(_module->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_CORO_ID));
+                    auto *gep = _builder->gep(Type::of<uint3>(), _frame_arg, {idx});
+                    return _builder->load(Type::of<uint3>(), gep);
+                }
+                return const_cast<Value *>(value);
+            }
             case DerivedValueTag::BASIC_BLOCK: {
                 auto it = _block_map.find(static_cast<const BasicBlock *>(value));
                 LUISA_DEBUG_ASSERT(it != _block_map.end(), "Block not found in resolver.");
@@ -172,12 +191,12 @@ public:
 };
 
 [[nodiscard]] static const Type *create_frame_type() noexcept {
-    return Type::structure({Type::of<uint>(), Type::of<uint>()});
+    return Type::structure({Type::of<uint3>(), Type::of<uint>(), Type::of<uint>()});
 }
 
 static void store_frame_token(XIRBuilder &b, Value *frame_arg, Module *mod, uint32_t token) noexcept {
-    auto *field_zero = mod->create_constant_zero(Type::of<uint>());
-    auto *gep = b.gep(Type::of<uint>(), frame_arg, {field_zero});
+    auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN);
+    auto *gep = b.gep(Type::of<uint>(), frame_arg, {field_token});
     auto *tok_const = mod->create_constant(Type::of<uint>(), &token);
     b.store(gep, tok_const);
 }
@@ -210,7 +229,7 @@ static void store_live_values_to_frame(XIRBuilder &b, Module *mod, Value *frame_
         auto it = field_indices.find(value);
         if (it == field_indices.end()) { continue; }
         auto &frame_value = result.frame_values[it->second];
-        auto field_index = FRAME_FIELD_SKIP_FLAG + 1u + it->second;
+        auto field_index = FRAME_USER_FIELD_OFFSET + it->second;
         auto *field = frame_field_ptr(b, mod, frame_arg, frame_value.type, field_index);
         auto *cloned = resolver.resolve(value);
         if (is_memory_frame_value(value)) {
@@ -241,7 +260,7 @@ static void load_live_values_from_frame(XIRBuilder &b, Module *mod, Value *frame
         auto it = field_indices.find(value);
         if (it == field_indices.end()) { continue; }
         auto &frame_value = result.frame_values[it->second];
-        auto field_index = FRAME_FIELD_SKIP_FLAG + 1u + it->second;
+        auto field_index = FRAME_USER_FIELD_OFFSET + it->second;
         auto *field = frame_field_ptr(b, mod, frame_arg, frame_value.type, field_index);
         auto *loaded = b.load(frame_value.type, field);
         if (is_memory_frame_value(value)) {
@@ -264,8 +283,8 @@ static void build_skip_check_entry(Module *mod, CallableFunction *func,
     b.set_insertion_point(check_block);
 
     if (check_token) {
-        auto *field_zero = mod->create_constant_zero(Type::of<uint>());
-        auto *gep0 = b.gep(Type::of<uint>(), frame_arg, {field_zero});
+        auto *field_token = mod->create_constant(Type::of<uint32_t>(), &FRAME_FIELD_TOKEN);
+        auto *gep0 = b.gep(Type::of<uint>(), frame_arg, {field_token});
         auto *loaded_token = b.load(Type::of<uint>(), gep0);
         auto *zero = mod->create_constant_zero(Type::of<uint>());
         auto *cond = b.call(Type::of<bool>(), ArithmeticOp::BINARY_NOT_EQUAL, {loaded_token, zero});
@@ -495,6 +514,7 @@ static void instrument_returns_with_skip_flag(Module *mod, const CoroCfgDistillR
         }
 
         auto *body_entry = static_cast<BasicBlock *>(resolver.resolve(scope.blocks.front()));
+        resolver.set_frame_arg(mod, frame_arg);
 
         if (i > 0) {
             build_skip_check_entry(mod, new_func, frame_arg, body_entry);

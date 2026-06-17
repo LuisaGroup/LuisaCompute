@@ -1,4 +1,6 @@
 #include "ut/ut.hpp"
+#include "coro_test_utils.h"
+
 #include <luisa/core/logging.h>
 #include <luisa/coro/schedulers/persistent.h>
 #include <luisa/dsl/coro_func.h>
@@ -14,7 +16,7 @@ using namespace luisa::compute::coro;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-void reg_coro_persistent_integration(char *argv[]) {
+void reg_coro_persistent_integration(luisa::test::coro_test::Options options) {
 
     // ================================================================
     // T36: Persistent integration test — config matrix
@@ -32,9 +34,9 @@ void reg_coro_persistent_integration(char *argv[]) {
     // ----------------------------------------------------------------
     // 1. Default config
     // ----------------------------------------------------------------
-    "T36_default_config_dispatches"_test = [argv, &make_coro] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T36_default_config_dispatches"_test = [options, &make_coro] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = make_coro();
@@ -56,9 +58,9 @@ void reg_coro_persistent_integration(char *argv[]) {
     // ----------------------------------------------------------------
     // 2. GME on
     // ----------------------------------------------------------------
-    "T36_GME_on_dispatches"_test = [argv, &make_coro] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T36_GME_on_dispatches"_test = [options, &make_coro] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = make_coro();
@@ -82,9 +84,9 @@ void reg_coro_persistent_integration(char *argv[]) {
     // ----------------------------------------------------------------
     // 3. SoA on
     // ----------------------------------------------------------------
-    "T36_SoA_on_dispatches"_test = [argv, &make_coro] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T36_SoA_on_dispatches"_test = [options, &make_coro] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = make_coro();
@@ -108,9 +110,9 @@ void reg_coro_persistent_integration(char *argv[]) {
     // ----------------------------------------------------------------
     // 4. GME + SoA both on (all optimizations)
     // ----------------------------------------------------------------
-    "T36_GME_SoA_all_on_dispatches"_test = [argv, &make_coro] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T36_GME_SoA_all_on_dispatches"_test = [options, &make_coro] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = make_coro();
@@ -137,9 +139,9 @@ void reg_coro_persistent_integration(char *argv[]) {
     // ----------------------------------------------------------------
     // 5. Custom block_size and thread_count
     // ----------------------------------------------------------------
-    "T36_custom_block_thread_dispatches"_test = [argv, &make_coro] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T36_custom_block_thread_dispatches"_test = [options, &make_coro] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = make_coro();
@@ -164,9 +166,9 @@ void reg_coro_persistent_integration(char *argv[]) {
     // ----------------------------------------------------------------
     // 6. Backward compatibility: block_size-only constructor
     // ----------------------------------------------------------------
-    "T36_backward_compat_block_size_dispatches"_test = [argv, &make_coro] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T36_backward_compat_block_size_dispatches"_test = [options, &make_coro] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = make_coro();
@@ -189,9 +191,9 @@ void reg_coro_persistent_integration(char *argv[]) {
     // ----------------------------------------------------------------
     // 7. GME + custom thread_count (different combine)
     // ----------------------------------------------------------------
-    "T36_GME_custom_thread_dispatches"_test = [argv, &make_coro] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T36_GME_custom_thread_dispatches"_test = [options, &make_coro] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = make_coro();
@@ -216,9 +218,9 @@ void reg_coro_persistent_integration(char *argv[]) {
     // ----------------------------------------------------------------
     // 8. Minimal thread count (boundary)
     // ----------------------------------------------------------------
-    "T36_minimal_thread_count_dispatches"_test = [argv, &make_coro] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T36_minimal_thread_count_dispatches"_test = [options, &make_coro] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = make_coro();
@@ -240,6 +242,7 @@ void reg_coro_persistent_integration(char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-    reg_coro_persistent_integration(argv);
+    auto options = luisa::test::coro_test::parse_options(argc, argv);
+    reg_coro_persistent_integration(options);
     return 0;
 }

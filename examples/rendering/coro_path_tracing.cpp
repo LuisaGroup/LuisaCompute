@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <memory>
 #include <string_view>
 
 #include <stb/stb_image_write.h>
@@ -15,6 +16,7 @@
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/coro/schedulers/state_machine.h>
+#include <luisa/coro/schedulers/wavefront.h>
 
 #include "common/reference_compare.h"
 #include "cornell_box.h"
@@ -50,13 +52,48 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
     }
 };
 
+enum class ExampleCoroSchedulerKind {
+    state_machine,
+    wavefront,
+};
+
+[[nodiscard]] static auto parse_coro_scheduler(int argc, char *argv[]) noexcept {
+    auto kind = ExampleCoroSchedulerKind::state_machine;
+    for (int i = 2; i < argc; i++) {
+        if (argv[i] == nullptr) { break; }
+        std::string_view arg{argv[i]};
+        if (arg == "--scheduler") {
+            if (i + 1 >= argc || argv[i + 1] == nullptr) {
+                LUISA_ERROR("Missing value for --scheduler. Expected state_machine or wavefront.");
+            }
+            std::string_view value{argv[++i]};
+            if (value == "state_machine" || value == "statemachine" || value == "state") {
+                kind = ExampleCoroSchedulerKind::state_machine;
+            } else if (value == "wavefront" || value == "wave") {
+                kind = ExampleCoroSchedulerKind::wavefront;
+            } else {
+                LUISA_ERROR("Unknown coroutine scheduler '{}'. Expected state_machine or wavefront.", value);
+            }
+        }
+    }
+    return kind;
+}
+
+[[nodiscard]] static constexpr auto scheduler_name(ExampleCoroSchedulerKind kind) noexcept {
+    switch (kind) {
+        case ExampleCoroSchedulerKind::state_machine: return "state_machine";
+        case ExampleCoroSchedulerKind::wavefront: return "wavefront";
+    }
+    return "unknown";
+}
+
 int main(int argc, char *argv[]) {
 
     log_level_verbose();
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--scheduler state_machine|wavefront]", argv[0]);
         exit(1);
     }
 
@@ -64,6 +101,7 @@ int main(int argc, char *argv[]) {
     Device device = context.create_device(backend_name);
 
     auto opts = luisa::ref::ExampleOptions::parse(argc, argv);
+    auto scheduler_kind = parse_coro_scheduler(argc, argv);
     bool offline = opts.offline;
 #if !ENABLE_DISPLAY
     if (!offline) {
@@ -301,8 +339,20 @@ int main(int argc, char *argv[]) {
         image.write(coord, make_float4(clamp(radiance, 0.0f, 30.0f), 1.0f));
     };
 
-    StateMachineCoroScheduler<Image<float>, Image<uint>, Accel, uint2> scheduler{device, coro};
-    LUISA_INFO("CoroScheduler: statemachine");
+    using Scheduler = CoroScheduler<Image<float>, Image<uint>, Accel, uint2>;
+    std::unique_ptr<Scheduler> scheduler;
+    switch (scheduler_kind) {
+        case ExampleCoroSchedulerKind::state_machine:
+            scheduler = std::make_unique<StateMachineCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro);
+            break;
+        case ExampleCoroSchedulerKind::wavefront: {
+            WavefrontCoroSchedulerConfig cfg{};
+            cfg.thread_count = total_cells;
+            scheduler = std::make_unique<WavefrontCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
+            break;
+        }
+    }
+    LUISA_INFO("CoroScheduler: {}", scheduler_name(scheduler_kind));
 
     // ─── Make sampler shader ─────────────────────────────────────────
     auto make_sampler_shader = device.compile(Kernel2D([&](ImageUInt seed_image) noexcept {
@@ -352,7 +402,7 @@ int main(int argc, char *argv[]) {
         auto passes = (total_spp + spp_per_dispatch - 1u) / spp_per_dispatch;
         Clock clock;
         for (uint pass = 0u; pass < passes; ++pass) {
-            stream << scheduler(framebuffer, seed_image, accel, resolution).dispatch(resolution)
+            stream << (*scheduler)(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                    << accumulate_shader(accum_image, framebuffer)
                             .dispatch(resolution)
                    << synchronize();
@@ -404,7 +454,7 @@ int main(int argc, char *argv[]) {
         LUISA_INFO("Interactive mode: {}-SPP/pass, ESC to quit", spp_per_dispatch);
 
         while (!window.should_close()) {
-            stream << scheduler(framebuffer, seed_image, accel, resolution).dispatch(resolution)
+            stream << (*scheduler)(framebuffer, seed_image, accel, resolution).dispatch(resolution)
                    << accumulate_shader(accum_image, framebuffer)
                             .dispatch(resolution)
                    << hdr2ldr_shader(accum_image, ldr_image, 2.0f, false)

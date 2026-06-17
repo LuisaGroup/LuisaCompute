@@ -124,6 +124,7 @@ private:
     void _analyze_function_argument_usage(const xir::Module *module) noexcept;
     Usage _function_argument_usage_of(const xir::Function *function,
                                       const xir::Argument *argument) const noexcept;
+    Usage _resource_argument_binding_usage(const xir::Argument *argument) const noexcept;
     void _emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block = nullptr) noexcept;
     void _emit_instruction(const xir::Instruction *inst) noexcept;
 

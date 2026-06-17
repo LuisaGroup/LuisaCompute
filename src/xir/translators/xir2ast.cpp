@@ -47,6 +47,7 @@
 #include <luisa/xir/passes/loop_unroll.h>
 #include <luisa/xir/passes/mem2reg.h>
 #include <luisa/xir/passes/pass_pipeline.h>
+#include <luisa/xir/passes/post_dom_tree.h>
 #include <luisa/xir/passes/promote_ref_arg.h>
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
@@ -601,6 +602,35 @@ private:
         _value_map = std::move(value_map);
     }
 
+    [[nodiscard]] luisa::optional<const BasicBlock *> _find_conditional_branch_merge(
+        const ConditionalBranchInst *br, const BasicBlock *stop) noexcept {
+        auto true_block = br->true_block();
+        auto false_block = br->false_block();
+        auto branch_target = [](const BasicBlock *block) noexcept -> const BasicBlock * {
+            auto term = block->terminator();
+            return term != nullptr && term->isa<BranchInst>() ?
+                       static_cast<const BranchInst *>(term)->target_block() :
+                       nullptr;
+        };
+        auto true_target = true_block == stop ? stop : branch_target(true_block);
+        auto false_target = false_block == stop ? stop : branch_target(false_block);
+        if (true_block == stop || false_block == stop) { return stop; }
+        if (true_target != nullptr && true_target == false_block) { return false_block; }
+        if (false_target != nullptr && false_target == true_block) { return true_block; }
+        if (true_target == false_target) { return luisa::optional<const BasicBlock *>{true_target}; }
+        auto *function = const_cast<Function *>(br->parent_function());
+        auto pdom = compute_post_dom_tree(function);
+        auto *parent = const_cast<BasicBlock *>(br->parent_block());
+        auto *merge = pdom.immediate_post_dominator(parent);
+        if (merge == parent) { return luisa::nullopt; }
+        if (merge != nullptr) { return merge; }
+        if (stop != nullptr && pdom.contains(const_cast<BasicBlock *>(stop)) &&
+            pdom.post_dominates(const_cast<BasicBlock *>(stop), parent)) {
+            return stop;
+        }
+        return luisa::nullopt;
+    }
+
     template<typename T>
     [[nodiscard]] const Expression *_assert_or_assume(const T *inst) noexcept {
         auto b = _current_builder();
@@ -882,36 +912,23 @@ private:
                     auto br = static_cast<const ConditionalBranchInst *>(inst);
                     auto true_block = br->true_block();
                     auto false_block = br->false_block();
-                    auto branch_target = [](const BasicBlock *block) noexcept -> const BasicBlock * {
-                        auto term = block->terminator();
-                        return term != nullptr && term->isa<BranchInst>() ? static_cast<const BranchInst *>(term)->target_block() : nullptr;
-                    };
-                    auto true_target = true_block == stop ? stop : branch_target(true_block);
-                    auto false_target = false_block == stop ? stop : branch_target(false_block);
-                    const BasicBlock *merge = nullptr;
-                    if (true_block == stop || false_block == stop) {
-                        merge = stop;
-                    } else if (true_target != nullptr && true_target == false_block) {
-                        merge = false_block;
-                    } else if (false_target != nullptr && false_target == true_block) {
-                        merge = true_block;
-                    } else if (true_target == false_target) {
-                        merge = true_target;
-                    } else {
+                    auto merge = _find_conditional_branch_merge(br, stop);
+                    if (!merge) {
                         LUISA_ERROR_WITH_LOCATION("XIR-to-AST requires structured control flow.");
                     }
+                    auto merge_block = *merge;
                     auto ast_if = _current_builder()->if_(_expr(br->condition()));
-                    if (true_block != merge) {
+                    if (true_block != merge_block) {
                         _current_builder()->with(ast_if->true_branch(), [&] {
-                            _with_value_map_checkpoint([&] { _emit_block(true_block, merge); });
+                            _with_value_map_checkpoint([&] { _emit_block(true_block, merge_block); });
                         });
                     }
-                    if (false_block != merge) {
+                    if (false_block != merge_block) {
                         _current_builder()->with(ast_if->false_branch(), [&] {
-                            _with_value_map_checkpoint([&] { _emit_block(false_block, merge); });
+                            _with_value_map_checkpoint([&] { _emit_block(false_block, merge_block); });
                         });
                     }
-                    if (merge != stop) { _emit_block(merge, stop); }
+                    if (merge_block != stop) { _emit_block(merge_block, stop); }
                     return;
                 }
                 case DerivedInstructionTag::IF: {

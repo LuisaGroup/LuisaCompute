@@ -1,4 +1,6 @@
 #include "ut/ut.hpp"
+#include "coro_test_utils.h"
+
 #include <luisa/core/logging.h>
 #include <luisa/coro/schedulers/persistent.h>
 #include <luisa/dsl/coro_func.h>
@@ -14,7 +16,7 @@ using namespace luisa::compute::coro;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-void reg_coro_persistent_opt(char *argv[]) {
+void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
 
     // ================================================================
     // T33: Global memory extension (GME) for frame spill
@@ -44,9 +46,9 @@ void reg_coro_persistent_opt(char *argv[]) {
         expect(cfg.global_memory_ext == true);
     };
 
-    "T33_GME_scheduler_creates_and_dispatches"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T33_GME_scheduler_creates_and_dispatches"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = Coroutine<void()>([] {
@@ -71,16 +73,15 @@ void reg_coro_persistent_opt(char *argv[]) {
         scheduler().dispatch(1u)(stream);
         stream << synchronize();
         LUISA_INFO("T33: GME dispatch complete");
-        expect(true);
     };
 
     // ================================================================
     // T34: SoA bank conflict avoidance in shared memory
     // ================================================================
 
-    "T34_SoA_scheduler_creates_and_dispatches"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T34_SoA_scheduler_creates_and_dispatches"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = Coroutine<void(int)>([](Var<int> x) {
@@ -101,16 +102,15 @@ void reg_coro_persistent_opt(char *argv[]) {
         scheduler(42).dispatch(1u)(stream);
         stream << synchronize();
         LUISA_INFO("T34: SoA dispatch complete");
-        expect(true);
     };
 
     // ================================================================
     // T35: Atomic task acquisition + block-wise voting
     // ================================================================
 
-    "T35_atomic_task_acquire_scheduler_creates_and_dispatches"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T35_atomic_task_acquire_scheduler_creates_and_dispatches"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = Coroutine<void()>([] {
@@ -132,16 +132,15 @@ void reg_coro_persistent_opt(char *argv[]) {
         scheduler().dispatch(1u)(stream);
         stream << synchronize();
         LUISA_INFO("T35: Atomic-task dispatch complete");
-        expect(true);
     };
 
     // ================================================================
     // Combined: GME + SoA + atomic task acquisition
     // ================================================================
 
-    "T33_T34_T35_all_options_enabled"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T33_T34_T35_all_options_enabled"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = Coroutine<void()>([] {
@@ -168,16 +167,15 @@ void reg_coro_persistent_opt(char *argv[]) {
         scheduler().dispatch(1u)(stream);
         stream << synchronize();
         LUISA_INFO("Combined: all options enabled dispatch complete");
-        expect(true);
     };
 
     // ================================================================
     // Default config constructor (no Config argument)
     // ================================================================
 
-    "T33_default_constructor_dispatches"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T33_default_constructor_dispatches"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = Coroutine<void()>([] {
@@ -193,16 +191,16 @@ void reg_coro_persistent_opt(char *argv[]) {
         scheduler().dispatch(1u)(stream);
         stream << synchronize();
         LUISA_INFO("Default-construct dispatch complete");
-        expect(true);
+        expect(scheduler.config().block_size == PersistentThreadsCoroSchedulerConfig{}.block_size);
     };
 
     // ================================================================
     // Backward-compatible block_size constructor
     // ================================================================
 
-    "T33_backward_compat_block_size_constructor"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device("fallback");
+    "T33_backward_compat_block_size_constructor"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         auto coro = Coroutine<void()>([] {
@@ -222,7 +220,6 @@ void reg_coro_persistent_opt(char *argv[]) {
         scheduler().dispatch(1u)(stream);
         stream << synchronize();
         LUISA_INFO("Backward-compat dispatch complete");
-        expect(true);
     };
 
     // ================================================================
@@ -233,11 +230,14 @@ void reg_coro_persistent_opt(char *argv[]) {
         static_assert(std::is_same_v<
                       decltype(std::declval<PersistentThreadsCoroScheduler<>>().config()),
                       const PersistentThreadsCoroSchedulerConfig &>);
-        expect(true);
+        expect(std::is_same_v<
+               decltype(std::declval<PersistentThreadsCoroScheduler<>>().config()),
+               const PersistentThreadsCoroSchedulerConfig &>);
     };
 }
 
 int main(int argc, char *argv[]) {
-    reg_coro_persistent_opt(argv);
+    auto options = luisa::test::coro_test::parse_options(argc, argv);
+    reg_coro_persistent_opt(options);
     return 0;
 }

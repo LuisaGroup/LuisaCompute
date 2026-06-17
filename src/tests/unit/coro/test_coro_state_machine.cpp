@@ -1,4 +1,6 @@
 #include "ut/ut.hpp"
+#include "coro_test_utils.h"
+
 #include <luisa/core/logging.h>
 #include <luisa/dsl/coro_func.h>
 #include <luisa/dsl/sugar.h>
@@ -14,19 +16,20 @@ using namespace luisa::compute::coro;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-void reg_coro_state_machine(char *argv[]) {
+void reg_coro_state_machine(luisa::test::coro_test::Options options) {
 
     "state_machine_constructor_and_type_check"_test = [] {
         static_assert(std::is_base_of_v<CoroScheduler<Buffer<int>>,
                                         StateMachineCoroScheduler<Buffer<int>>>);
-        expect(true);
+        expect(std::is_base_of_v<CoroScheduler<Buffer<int>>,
+                                 StateMachineCoroScheduler<Buffer<int>>>);
     };
 
-    "state_machine_compiles_and_runs"_test = [argv] {
+    "state_machine_compiles_and_runs"_test = [options] {
         constexpr uint N = 256u;
 
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         {
@@ -58,9 +61,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[1] == 99);
     };
 
-    "state_machine_local_var_across_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_local_var_across_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -81,9 +84,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 99);
     };
 
-    "state_machine_branch_across_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_branch_across_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -108,9 +111,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 10);
     };
 
-    "state_machine_float3_across_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_float3_across_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<float> output = device.create_buffer<float>(16);
@@ -131,9 +134,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 6.f);
     };
 
-    "state_machine_bool_across_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_bool_across_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -157,9 +160,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 77);
     };
 
-    "state_machine_multi_var_across_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_multi_var_across_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -187,9 +190,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[3] == 35);
     };
 
-    "state_machine_ref_callable_update_across_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_ref_callable_update_across_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -221,9 +224,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[2] == 46);
     };
 
-    "state_machine_dispatch_id_across_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_dispatch_id_across_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -245,9 +248,9 @@ void reg_coro_state_machine(char *argv[]) {
         }
     };
 
-    "state_machine_nested_if_chain"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_nested_if_chain"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -282,9 +285,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[10] == 40);
     };
 
-    "state_machine_nested_if_inside_if"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_nested_if_inside_if"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -318,9 +321,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[8] == 33);
     };
 
-    "state_machine_switch_across_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_switch_across_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -351,9 +354,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[4] == 100);
     };
 
-    "state_machine_multiple_suspend_points"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_multiple_suspend_points"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -380,9 +383,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 6);
     };
 
-    "state_machine_all_pixels_active"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_all_pixels_active"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         constexpr uint N = 256u;
@@ -406,9 +409,9 @@ void reg_coro_state_machine(char *argv[]) {
         }
     };
 
-    "state_machine_for_with_suspend_single"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_for_with_suspend_single"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -430,9 +433,9 @@ void reg_coro_state_machine(char *argv[]) {
 
     };
 
-    "state_machine_for_if_suspend_branch"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_for_if_suspend_branch"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -456,9 +459,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 224);
     };
 
-    "state_machine_while_with_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_while_with_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -484,9 +487,9 @@ void reg_coro_state_machine(char *argv[]) {
     };
 
 
-    "state_machine_suspend_inside_nested_if"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_suspend_inside_nested_if"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
 
         Buffer<int> output = device.create_buffer<int>(16);
@@ -516,9 +519,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[4] == 0);
     };
 
-    "state_machine_double_suspend_linear"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_double_suspend_linear"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -538,9 +541,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 40);
     };
 
-    "state_machine_triple_suspend_with_loop"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_triple_suspend_with_loop"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -560,11 +563,12 @@ void reg_coro_state_machine(char *argv[]) {
         std::vector<int> host(16, -1);
         stream << output.copy_to(host.data()) << synchronize();
         LUISA_INFO("triple_suspend host[0]={}", host[0]);
+        expect(host[0] == 12);
     };
 
-    "state_machine_for_suspend_plus_after_suspend"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_for_suspend_plus_after_suspend"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -586,9 +590,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 102);
     };
 
-    "state_machine_sdf_pattern_5_scopes"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_sdf_pattern_5_scopes"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -610,9 +614,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 42);
     };
 
-    "state_machine_5scope_with_var_in_loop"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_5scope_with_var_in_loop"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -635,9 +639,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 42);
     };
 
-    "state_machine_5scope_with_if_read_i"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_5scope_with_if_read_i"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -661,9 +665,9 @@ void reg_coro_state_machine(char *argv[]) {
         expect(host[0] == 42);
     };
 
-    "state_machine_path_tracing_nested_break_pattern"_test = [argv] {
-        Context ctx{argv[0]};
-        Device device = ctx.create_device(argv[1]);
+    "state_machine_path_tracing_nested_break_pattern"_test = [options] {
+        auto dc = luisa::test::coro_test::create_device(options);
+        auto &device = dc.device;
         Stream stream = device.create_stream();
         Buffer<int> output = device.create_buffer<int>(16);
         auto coro = Coroutine<void(Buffer<int>)>([](Var<Buffer<int>> buf) {
@@ -697,6 +701,7 @@ void reg_coro_state_machine(char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-    reg_coro_state_machine(argv);
+    auto options = luisa::test::coro_test::parse_options(argc, argv);
+    reg_coro_state_machine(options);
     return 0;
 }

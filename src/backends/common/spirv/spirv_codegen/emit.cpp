@@ -640,6 +640,36 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
     _builder.leaveFunction();
 }
 
+Usage SpirvCodegenEntry::_resource_argument_binding_usage(const xir::Argument *argument) const noexcept {
+    if (argument == nullptr || !argument->is_resource()) { return Usage::NONE; }
+    auto func = argument->parent_function();
+    if (func == nullptr || func->derived_function_tag() != xir::DerivedFunctionTag::KERNEL) { return Usage::NONE; }
+    auto prop_index = _get_resource_property_base(func);
+    auto found = false;
+    for (auto arg : func->arguments()) {
+        if (!arg->is_resource()) { continue; }
+        if (arg == argument) {
+            found = true;
+            break;
+        }
+        ++prop_index;
+        if (arg->type()->tag() == Type::Tag::ACCEL) { ++prop_index; }
+    }
+    if (!found || prop_index == 0u || prop_index > _properties.size()) { return Usage::NONE; }
+    auto prop_idx = prop_index - 1u;
+    auto usage = Usage::READ;
+    switch (_properties[prop_idx].type) {
+        case ShaderVariableType::RWStructuredBuffer:
+        case ShaderVariableType::UAVBufferHeap:
+        case ShaderVariableType::UAVTextureHeap:
+            usage = Usage::READ_WRITE;
+            break;
+        default:
+            break;
+    }
+    return usage;
+}
+
 void SpirvCodegenEntry::_analyze_function_argument_usage(const xir::Module *module) noexcept {
     _function_argument_usage.clear();
     auto merge_usage = [](Usage lhs, Usage rhs) noexcept {
@@ -692,6 +722,14 @@ void SpirvCodegenEntry::_analyze_function_argument_usage(const xir::Module *modu
                 default: break;
             }
         });
+    }
+    for (auto function : module->function_list()) {
+        if (!function->is_definition()) { continue; }
+        for (auto arg : function->arguments()) {
+            if (auto usage = _resource_argument_binding_usage(arg); usage != Usage::NONE) {
+                static_cast<void>(add_usage(function, arg, usage));
+            }
+        }
     }
     bool changed = true;
     while (changed) {
