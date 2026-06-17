@@ -292,12 +292,18 @@ Note: `StorageImageReadWithoutFormat` and `StorageImageWriteWithoutFormat` are c
 - **Loop** (`_emit_loop_inst`): creates synthetic header block, sets `_loop_header_redirect[prepare]=header`, branches header→prepare, `OpLoopMerge(merge, update)` in header.
 - **Simple Loop** (`_emit_simple_loop_inst`): do-while. Creates header + continue_block, `_loop_header_redirect[body]=continue_block`, `OpLoopMerge(merge, continue_block)` in header, body→continue→header.
 - **Switch** (`_emit_switch_inst`): `bind_or_get` case blocks + default + merge, synthetic merge if needed, `OpSelectionMerge`, `OpSwitch` with case values + default, emit each case, branch to merge.
-- **Branch** (`_emit_branch_inst`): respects `_loop_header_redirect` for target.
-- **CondBranch** (`_emit_conditional_branch_inst`): respects `_loop_header_redirect` for both targets.
+- **Branch** (`_emit_branch_inst`): resolves targets through `_resolve_branch_target`, including loop header redirects and trivial XIR forwarders that lead to an enclosing loop merge/continue.
+- **CondBranch** (`_emit_conditional_branch_inst`): uses the same target resolver for both targets.
 
 Key patterns:
 - `_used_merge_blocks`: prevents reusing merge block IDs (SPIR-V requires unique merge targets).
 - `_loop_header_redirect`: For all loop types, redirects branches to prepare/body/dispatch to the correct SPIR-V block (header or continue_block).
+- `_loop_boundary_stack`: lets branch emission collapse an empty XIR block that only forwards to an enclosing loop merge/continue. Do not collapse the active selection merge target during normal branch resolution; normal `OpSelectionMerge` blocks must remain materialized.
+- `_branch_target_redirect`: scoped override for one-sided `IfInst` arm emission, used when a real XIR arm terminator branches to an empty merge block that forwards to a loop boundary.
+- `_forwarded_blocks`: XIR blocks whose branches have been collapsed away; do not later emit them as pending top-level blocks after the loop-boundary context is gone.
+- `_emit_block()` returns `true` only when it emitted that block body in this call. `false` also covers blocks that are already in progress, not just blocks that are fully emitted; callers such as `IfInst` arm emission must not add synthetic terminators after a `false` return.
+- `_emit_if_inst()` postdom rule: if both arms can reach the XIR merge and either arm says the merge post-dominates, keep the real merge as the SPIR-V selection merge. Otherwise, unreachable subpaths can make a real two-sided merge look one-sided and produce branch-into-selection errors.
+- Terminal arms (`return`, `unreachable`, `raster_discard`) are not fall-through continuations. Keep the real merge for the live arm instead of using the terminal arm block as the selection merge.
 - `_block_map` binding: blocks are allocated lazily via `_get_or_create_block()` or `bind_or_get()`.
 
 ## Binding Generation (`bind.cpp`)
@@ -662,7 +668,7 @@ These rules govern all code in `src/backends/common/spirv/spirv_codegen/`. They 
 | Rule | Description |
 |---|---|
 | B1 | Blocks are created lazily via `_get_or_create_block(bb)` which checks `_block_map` first, then allocates a new `spv::Block` with `_builder.getUniqueId()`. |
-| B2 | `_emit_block(bb)` checks `_emitted_blocks` first. If already emitted, returns immediately. It adds the SPIR-V block to its parent function via `addBlock()` and records it in `_added_blocks`. |
+| B2 | `_emit_block(bb)` returns `true` only when this call emitted the block body. It returns `false` for null, forwarded, already-emitted, and currently-emitting blocks. Treating `false` as an empty finished block can append instructions after a terminator when recursive emission later resumes. |
 | B3 | Block emission order matters for SPIR-V dominance. Use `REVERSE_POST_ORDER` traversal in `_emit_function_blocks()` for forward functions. |
 | B4 | For loops, create synthetic header/continue blocks **before** emitting body blocks so back-edges reference lexically earlier blocks (required by SPIR-V). |
 | B5 | Merge blocks must be unique within a function — a block can only be the merge target for one construct. Use `_used_merge_blocks` to track. If a merge would be reused, create a synthetic merge block. |

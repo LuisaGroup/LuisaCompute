@@ -453,9 +453,10 @@ spv::Block *SpirvCodegenEntry::_get_or_create_block(const xir::BasicBlock *bb) n
     return block;
 }
 
-void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block) noexcept {
-    if (bb == nullptr) { return; }
-    if (!_emitted_blocks.emplace(bb).second) { return; }
+bool SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block) noexcept {
+    if (bb == nullptr) { return false; }
+    if (override_spv_block == nullptr && _forwarded_blocks.contains(bb)) { return false; }
+    if (!_emitted_blocks.emplace(bb).second) { return false; }
     auto spv_block = override_spv_block != nullptr ? override_spv_block : _get_or_create_block(bb);
     // If an override block is used, make sure the XIR block maps to it so that
     // later references (e.g., from _emit_value) resolve to the block that
@@ -482,6 +483,7 @@ void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb, spv::Block *overr
     for (auto inst : bb->instructions()) {
         _emit_instruction(inst);
     }
+    return true;
 }
 
 void SpirvCodegenEntry::_pre_register_merge_blocks(const xir::FunctionDefinition *def) noexcept {
@@ -510,9 +512,11 @@ void SpirvCodegenEntry::_pre_register_merge_blocks(const xir::FunctionDefinition
 }
 void SpirvCodegenEntry::_reset_function_codegen_state() noexcept {
     _emitted_blocks.clear();
+    _forwarded_blocks.clear();
     _pending_blocks.clear();
     _loop_header_redirect.clear();
     _loop_header_info.clear();
+    _branch_target_redirect.clear();
     _used_merge_blocks.clear();
     _outer_merge_stack.clear();
     _block_map.clear();
@@ -565,7 +569,7 @@ void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept
                 break;
             }
         }
-            if (cbuffer_non_empty && _property_ids.size() > 2) {
+        if (cbuffer_non_empty && _property_ids.size() > 2) {
             auto cbuffer_id = _property_ids[2];
             auto uint_type = _builder.makeUintType(32);
             auto bool_type = _builder.makeBoolType();
@@ -832,8 +836,8 @@ void SpirvCodegenEntry::_analyze_function_argument_usage(const xir::Module *modu
                             if (fit != arg_indices.end()) {
                                 auto ait = fit->second.find(caller_arg);
                                 if (ait != fit->second.end()) {
-                                auto caller_usage = _function_argument_usage.at(function)[ait->second];
-                                changed |= add_usage(callee, callee_arg, caller_usage);
+                                    auto caller_usage = _function_argument_usage.at(function)[ait->second];
+                                    changed |= add_usage(callee, callee_arg, caller_usage);
                                 }
                             }
                         }

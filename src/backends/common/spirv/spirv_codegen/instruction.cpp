@@ -3441,17 +3441,14 @@ void SpirvCodegenEntry::_emit_instruction(const xir::Instruction *inst) noexcept
         case xir::DerivedInstructionTag::BREAK: {
             auto br = static_cast<const xir::BreakInst *>(inst);
             auto tgt = br->target_block();
-            auto spv_tgt = _get_or_create_block(tgt);
+            auto spv_tgt = _resolve_branch_target(tgt);
             _builder.createBranch(false, spv_tgt);
             break;
         }
         case xir::DerivedInstructionTag::CONTINUE: {
             auto cont = static_cast<const xir::ContinueInst *>(inst);
             auto target = cont->target_block();
-            auto it = _loop_header_redirect.find(target);
-            _builder.createBranch(false, it == _loop_header_redirect.end() ?
-                                             _get_or_create_block(target) :
-                                             it->second);
+            _builder.createBranch(false, _resolve_branch_target(target));
             break;
         }
         case xir::DerivedInstructionTag::RETURN: {
@@ -3589,13 +3586,13 @@ void SpirvCodegenEntry::_emit_ray_query_dispatch_inst(const xir::RayQueryDispatc
     auto saved_redirect = _loop_header_redirect[dispatch_xir_block];
     _loop_header_redirect[dispatch_xir_block] = dispatch_merge_block;
     _builder.setBuildPoint(surface_block);
-    _emit_block(inst->on_surface_candidate_block());
-    if (!_builder.getBuildPoint()->isTerminated()) {
+    auto emitted_surface = _emit_block(inst->on_surface_candidate_block());
+    if (emitted_surface && !_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, dispatch_merge_block);
     }
     _builder.setBuildPoint(procedural_block);
-    _emit_block(inst->on_procedural_candidate_block());
-    if (!_builder.getBuildPoint()->isTerminated()) {
+    auto emitted_procedural = _emit_block(inst->on_procedural_candidate_block());
+    if (emitted_procedural && !_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, dispatch_merge_block);
     }
     _loop_header_redirect[dispatch_xir_block] = saved_redirect;

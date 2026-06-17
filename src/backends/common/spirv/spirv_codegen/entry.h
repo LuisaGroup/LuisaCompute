@@ -40,7 +40,7 @@ private:
     StringScratch &_scratch;
     luisa::unique_ptr<spv::Builder> _builder_ptr;
     spv::SpvBuildLogger _logger;
-    spv::Builder &_builder; // reference to *_builder_ptr
+    spv::Builder &_builder;// reference to *_builder_ptr
 
     luisa::unordered_map<const Type *, spv::Id> _type_map;
     luisa::unordered_map<const Type *, spv::Id> _sampled_image_type_map;
@@ -50,7 +50,9 @@ private:
     luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _block_map;
     luisa::unordered_map<const xir::BasicBlock *, std::pair<spv::Block *, spv::Block *>> _loop_header_info;
     luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _loop_header_redirect;
+    luisa::unordered_map<const xir::BasicBlock *, spv::Block *> _branch_target_redirect;
     luisa::unordered_set<const xir::BasicBlock *> _emitted_blocks;
+    luisa::unordered_set<const xir::BasicBlock *> _forwarded_blocks;
     luisa::unordered_set<spv::Id> _used_merge_blocks;
     luisa::vector<spv::Block *> _outer_merge_stack;
     luisa::vector<std::pair<const xir::BasicBlock *, spv::Block *>> _loop_boundary_stack;
@@ -129,8 +131,13 @@ private:
     Usage _function_argument_usage_of(const xir::Function *function,
                                       const xir::Argument *argument) const noexcept;
     Usage _resource_argument_binding_usage(const xir::Argument *argument) const noexcept;
-    void _emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block = nullptr) noexcept;
+    bool _emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block = nullptr) noexcept;
     void _emit_instruction(const xir::Instruction *inst) noexcept;
+    [[nodiscard]] bool _is_direct_structured_branch_target(const xir::BasicBlock *bb) const noexcept;
+    [[nodiscard]] spv::Block *_resolve_branch_target(const xir::BasicBlock *bb) noexcept;
+    [[nodiscard]] spv::Block *_direct_loop_boundary_forward_target(const xir::BasicBlock *bb) noexcept;
+    [[nodiscard]] spv::Block *_loop_boundary_forward_target(const xir::BasicBlock *bb,
+                                                            bool preserve_active_selection_merges) noexcept;
 
     void _emit_if_inst(const xir::IfInst *inst) noexcept;
     void _emit_loop_inst(const xir::LoopInst *inst) noexcept;
