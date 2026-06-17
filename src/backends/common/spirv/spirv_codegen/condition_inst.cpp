@@ -84,22 +84,45 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     auto true_block = bind_or_get(inst->true_block(), true_fresh);
     auto false_block = bind_or_get(inst->false_block(), false_fresh);
     auto merge_block = bind_or_get(inst->merge_block(), merge_fresh);
-    // If the merge block is not reachable from either arm (both arms exit the
-    // construct via break/continue/return), using it as the SPIR-V selection
-    // merge would force glslang's inReadableOrder() to emit the dead merge
-    // before any later block that dominates it.  Use a synthetic dead-end merge
-    // instead, and let the real merge block be emitted when it is actually
-    // reached via control flow.
+    // Determine whether the declared merge block actually post-dominates each
+    // arm.  A proper two-sided if has the merge block strictly post-dominating
+    // both arms.  If the merge only post-dominates one arm, the other arm is
+    // the fall-through continuation and the SPIR-V selection merge must be
+    // that arm's block.
+    bool true_post_dom = _dom_tree != nullptr && _dom_tree->strictly_post_dominates(
+                                                                             const_cast<xir::BasicBlock *>(inst->merge_block()),
+                                                                             const_cast<xir::BasicBlock *>(inst->true_block()));
+    bool false_post_dom = _dom_tree != nullptr && _dom_tree->strictly_post_dominates(
+                                                                              const_cast<xir::BasicBlock *>(inst->merge_block()),
+                                                                              const_cast<xir::BasicBlock *>(inst->false_block()));
     bool merge_already_used = _used_merge_blocks.contains(merge_block->getId());
-    bool merge_reachable_from_arms = block_reaches(inst->true_block(), inst->merge_block()) ||
-                                     block_reaches(inst->false_block(), inst->merge_block());
-    bool needs_synthetic_merge = merge_already_used || !merge_reachable_from_arms;
 
+    // In a normal two-sided if both arms reach the merge block and we can use
+    // it as the SPIR-V selection merge.  If neither arm reaches it, we need a
+    // synthetic dead-end merge.  If exactly one arm reaches it, the other arm
+    // is the fall-through continuation: use that arm's block as the SPIR-V
+    // selection merge and make the reaching arm branch to the original merge.
     spv::Block *synthetic_merge = nullptr;
     spv::Block *selection_merge_target = merge_block;
-    if (needs_synthetic_merge) {
+    spv::Block *true_branch_target = merge_block;
+    spv::Block *false_branch_target = merge_block;
+    if (merge_already_used || (!true_post_dom && !false_post_dom)) {
+        // Both arms exit the construct (or the merge is already reserved), so a
+        // synthetic merge is required for SPIR-V structural correctness.
         synthetic_merge = new spv::Block(_builder.getUniqueId(), function);
         selection_merge_target = synthetic_merge;
+        true_branch_target = synthetic_merge;
+        false_branch_target = synthetic_merge;
+    } else if (!true_post_dom && false_post_dom) {
+        // True arm falls through: the true target is also the SPIR-V merge.
+        selection_merge_target = true_block;
+        true_branch_target = nullptr;// fall through
+        false_branch_target = merge_block;
+    } else if (true_post_dom && !false_post_dom) {
+        // False arm falls through: the false target is also the SPIR-V merge.
+        selection_merge_target = false_block;
+        true_branch_target = merge_block;
+        false_branch_target = nullptr;// fall through
     }
     _used_merge_blocks.emplace(selection_merge_target->getId());
     if (synthetic_merge != nullptr) {
@@ -127,7 +150,7 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     // would place the outer merge after the inner construct in the binary while
     // the inner construct's merge is dominated by that arm, causing a dominance
     // ordering violation.  We avoid that by cloning the arm into a fresh block.
-    _outer_merge_stack.push_back(merge_block);
+    _outer_merge_stack.push_back(selection_merge_target);
 
     auto selection_merge = new spv::Instruction(spv::Op::OpSelectionMerge);
     selection_merge->reserveOperands(2);
@@ -135,7 +158,7 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     selection_merge->addImmediateOperand(spv::SelectionControlMask::MaskNone);
     _builder.getBuildPoint()->addInstruction(std::unique_ptr<spv::Instruction>(selection_merge));
     _builder.createConditionalBranch(cond, true_target, false_target);
-    auto emit_arm = [&](const xir::BasicBlock *xb, spv::Block *target) noexcept {
+    auto emit_arm = [&](const xir::BasicBlock *xb, spv::Block *target, spv::Block *branch_to) noexcept {
         if (xb == inst->merge_block()) { return; }
         if (!_added_blocks.contains(target)) {
             function.addBlock(target);
@@ -143,12 +166,16 @@ void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
         }
         _builder.setBuildPoint(target);
         _emit_block(xb, target);
-        if (!_builder.getBuildPoint()->isTerminated()) {
-            _builder.createBranch(false, selection_merge_target);
+        // Use the target block (not the current build point) to decide whether a
+        // terminator is still needed.  Nested control flow may leave the build
+        // point in a different block while the target block itself is already
+        // terminated.
+        if (branch_to != nullptr && !target->isTerminated()) {
+            _builder.createBranch(false, branch_to);
         }
     };
-    emit_arm(inst->true_block(), true_target);
-    emit_arm(inst->false_block(), false_target);
+    emit_arm(inst->true_block(), true_target, true_branch_target);
+    emit_arm(inst->false_block(), false_target, false_branch_target);
     if (synthetic_merge != nullptr) {
         function.addBlock(synthetic_merge);
         _added_blocks.emplace(synthetic_merge);

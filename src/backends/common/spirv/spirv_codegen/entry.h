@@ -12,6 +12,7 @@
 #include <luisa/xir/op.h>
 #include <luisa/ast/usage.h>
 #include <luisa/xir/passes/uniformity_analysis.h>
+#include <luisa/xir/passes/post_dom_tree.h>
 
 namespace lc::spirv {
 using namespace luisa;
@@ -87,6 +88,7 @@ private:
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
     luisa::unordered_map<const Type *, spv::Id> _laid_out_type_map;
     luisa::compute::xir::UniformityAnalysis _uniformity;
+    luisa::unique_ptr<luisa::compute::xir::PostDomTree> _dom_tree;
     luisa::unordered_set<const xir::Value *> _emitting_values;
 
     spv::Id _constant_ubo_var{spv::NoResult};

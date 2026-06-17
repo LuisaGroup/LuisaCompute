@@ -351,20 +351,31 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
                     _builder.setBuildPoint(saved_bp);
                 }
             }
-            // If still not mapped, try emitting just this instruction
+            // If still not mapped, the parent block may be in the middle of being
+            // emitted (a forward reference inside the same block).  Emit just this
+            // instruction into the current block, but only if the current block is
+            // the parent and hasn't been terminated yet.  Otherwise we would append
+            // instructions after a terminator, which violates SPIR-V structural
+            // rules.
             if (auto it = _value_map.find(value); it == _value_map.end()) {
                 auto *saved_bp = _builder.getBuildPoint();
+                bool can_direct_emit = false;
                 if (auto *parent = inst->parent_block()) {
-                    auto *block = _get_or_create_block(parent);
-                    if (block != nullptr) {
-                        if (!_added_blocks.contains(block)) {
-                            block->getParent().addBlock(block);
-                            _added_blocks.emplace(block);
-                        }
-                        _builder.setBuildPoint(block);
+                    if (auto *parent_block = _get_or_create_block(parent)) {
+                        can_direct_emit = (_builder.getBuildPoint() == parent_block) &&
+                                          !parent_block->isTerminated();
                     }
                 }
-                _emit_instruction(inst);
+                if (can_direct_emit) {
+                    LUISA_VERBOSE("_emit_value direct emit for XIR inst {} into block {}",
+                                  reinterpret_cast<uintptr_t>(inst), _builder.getBuildPoint()->getId());
+                    _emit_instruction(inst);
+                } else {
+                    LUISA_VERBOSE("_emit_value skipping direct emit for XIR inst {} (buildpoint={} parent={})",
+                                  reinterpret_cast<uintptr_t>(inst),
+                                  _builder.getBuildPoint() ? _builder.getBuildPoint()->getId() : 0,
+                                  reinterpret_cast<uintptr_t>(inst->parent_block()));
+                }
                 if (saved_bp != nullptr) {
                     _builder.setBuildPoint(saved_bp);
                 }
@@ -440,10 +451,25 @@ spv::Block *SpirvCodegenEntry::_get_or_create_block(const xir::BasicBlock *bb) n
 
 void SpirvCodegenEntry::_emit_block(const xir::BasicBlock *bb, spv::Block *override_spv_block) noexcept {
     if (bb == nullptr) { return; }
-    if (!_emitted_blocks.emplace(bb).second) {
-        return;
-    }
+    if (!_emitted_blocks.emplace(bb).second) { return; }
     auto spv_block = override_spv_block != nullptr ? override_spv_block : _get_or_create_block(bb);
+    // If an override block is used, make sure the XIR block maps to it so that
+    // later references (e.g., from _emit_value) resolve to the block that
+    // actually contains the emitted instructions.
+    if (override_spv_block != nullptr) {
+        _block_map[bb] = override_spv_block;
+    }
+    // If the chosen SPIR-V block is already terminated, we cannot append more
+    // instructions to it.  This can happen when an XIR block is mapped to a
+    // SPIR-V block that was previously used as a merge target.  Create a fresh
+    // block for the remaining instructions so they stay inside a valid block.
+    if (spv_block->isTerminated()) {
+        LUISA_VERBOSE("_emit_block: block {} is already terminated; creating fresh block for XIR block {}",
+                      spv_block->getId(), reinterpret_cast<uintptr_t>(bb));
+        auto &function = spv_block->getParent();
+        spv_block = new spv::Block(_builder.getUniqueId(), function);
+        _block_map[bb] = spv_block;
+    }
     if (!_added_blocks.contains(spv_block)) {
         spv_block->getParent().addBlock(spv_block);
         _added_blocks.emplace(spv_block);
@@ -490,6 +516,7 @@ void SpirvCodegenEntry::_reset_function_codegen_state() noexcept {
     _added_blocks.clear();
     _emitting_values.clear();
     _rq_proceed_result.clear();
+    _dom_tree.reset();
 }
 
 void SpirvCodegenEntry::_emit_function_blocks(const xir::FunctionDefinition *def) noexcept {
@@ -506,6 +533,7 @@ void SpirvCodegenEntry::_emit_function_blocks(const xir::FunctionDefinition *def
 
 void SpirvCodegenEntry::_emit_kernel(const xir::KernelFunction *kernel) noexcept {
     _reset_function_codegen_state();
+    _dom_tree = luisa::make_unique<xir::PostDomTree>(xir::compute_post_dom_tree(const_cast<xir::KernelFunction *>(kernel)));
     _uniformity.analyze(kernel);
     auto ret_type = _builder.makeVoidType();
     std::vector<spv::Id> param_types;
@@ -835,6 +863,7 @@ Usage SpirvCodegenEntry::_function_argument_usage_of(
 
 void SpirvCodegenEntry::_emit_callable(const xir::CallableFunction *callable, const xir::Module *module) noexcept {
     _reset_function_codegen_state();
+    _dom_tree = luisa::make_unique<xir::PostDomTree>(xir::compute_post_dom_tree(const_cast<xir::CallableFunction *>(callable)));
     _uniformity.analyze(callable);
     auto ret_type = _convert_type(callable->type(), Usage::READ);
     std::vector<spv::Id> param_types;
