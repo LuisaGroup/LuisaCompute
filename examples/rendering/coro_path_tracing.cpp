@@ -15,6 +15,7 @@
 #include <luisa/luisa-compute.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/coro_func.h>
+#include <luisa/coro/schedulers/persistent_threads.h>
 #include <luisa/coro/schedulers/state_machine.h>
 #include <luisa/coro/schedulers/wavefront.h>
 
@@ -55,6 +56,7 @@ LUISA_STRUCT(Onb, tangent, binormal, normal) {
 enum class ExampleCoroSchedulerKind {
     state_machine,
     wavefront,
+    persistent,
 };
 
 [[nodiscard]] static auto parse_coro_scheduler(int argc, char *argv[]) noexcept {
@@ -64,15 +66,17 @@ enum class ExampleCoroSchedulerKind {
         std::string_view arg{argv[i]};
         if (arg == "--scheduler") {
             if (i + 1 >= argc || argv[i + 1] == nullptr) {
-                LUISA_ERROR("Missing value for --scheduler. Expected state_machine or wavefront.");
+                LUISA_ERROR("Missing value for --scheduler. Expected state_machine, wavefront, or persistent.");
             }
             std::string_view value{argv[++i]};
             if (value == "state_machine" || value == "statemachine" || value == "state") {
                 kind = ExampleCoroSchedulerKind::state_machine;
             } else if (value == "wavefront" || value == "wave") {
                 kind = ExampleCoroSchedulerKind::wavefront;
+            } else if (value == "persistent" || value == "persistent_threads") {
+                kind = ExampleCoroSchedulerKind::persistent;
             } else {
-                LUISA_ERROR("Unknown coroutine scheduler '{}'. Expected state_machine or wavefront.", value);
+                LUISA_ERROR("Unknown coroutine scheduler '{}'. Expected state_machine, wavefront, or persistent.", value);
             }
         }
     }
@@ -83,6 +87,7 @@ enum class ExampleCoroSchedulerKind {
     switch (kind) {
         case ExampleCoroSchedulerKind::state_machine: return "state_machine";
         case ExampleCoroSchedulerKind::wavefront: return "wavefront";
+        case ExampleCoroSchedulerKind::persistent: return "persistent";
     }
     return "unknown";
 }
@@ -93,7 +98,7 @@ int main(int argc, char *argv[]) {
 
     Context context{argv[0]};
     if (argc <= 1) {
-        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--scheduler state_machine|wavefront]", argv[0]);
+        LUISA_INFO("Usage: {} <backend> [--offline] [--spp N] [--scheduler state_machine|wavefront|persistent]", argv[0]);
         exit(1);
     }
 
@@ -349,6 +354,12 @@ int main(int argc, char *argv[]) {
             WavefrontCoroSchedulerConfig cfg{};
             cfg.thread_count = total_cells;
             scheduler = std::make_unique<WavefrontCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
+            break;
+        }
+        case ExampleCoroSchedulerKind::persistent: {
+            PersistentThreadsCoroSchedulerConfig cfg{};
+            cfg.thread_count = total_cells;
+            scheduler = std::make_unique<PersistentThreadsCoroScheduler<Image<float>, Image<uint>, Accel, uint2>>(device, coro, cfg);
             break;
         }
     }
