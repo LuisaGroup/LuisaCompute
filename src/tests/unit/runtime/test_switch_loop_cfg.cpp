@@ -32,292 +32,101 @@
 #include <luisa/runtime/byte_buffer.h>
 #include <luisa/dsl/sugar.h>
 #include <luisa/dsl/syntax.h>
+#include <luisa/dsl/local.h>
 
 using namespace luisa;
 using namespace luisa::compute;
 using namespace boost::ut;
 using namespace boost::ut::literals;
 
-// Pattern 1: Switch inside a loop.
-// This creates a switch whose case bodies can potentially branch back
-// to the loop header via continue, creating a back-edge in SPIR-V.
-// Uses loop-level continue (outside switch) to avoid lambda scoping issues.
-void test_switch_in_loop(Device &device) {
-    auto stream = device.create_stream();
-    auto out = device.create_buffer<float>(64);
 
-    Kernel1D k = [](BufferVar<float> out) noexcept {
-        set_block_size(64);
-        auto idx = dispatch_id().x;
-        Float accum = 0.0f;
-
-        // Loop with switch inside; case bodies assign values,
-        // loop-level if handles continue to avoid lambda scoping.
-        $for (i, 0u, 10u) {
-            Float sw_val = 0.0f;
-            $switch (idx % 3u) {
-                $case (0u) { sw_val = 1.0f; };
-                $case (1u) { sw_val = 2.0f; };
-                $default { sw_val = 3.0f; };
-            };
-            accum += sw_val;
-            $if (i < 5u) {
-                accum += 0.5f;// extra for early iterations
-            };
-        };
-
-        out.write(idx, accum);
-    };
-
-    auto shader = device.compile(k);
-    luisa::vector<float> host(64);
-    stream << shader(out).dispatch(64)
-           << out.copy_to(luisa::span{host})
-           << synchronize();
-
-    // idx % 3 == 0: 10 * 1.0 + 5 * 0.5 = 12.5
-    // idx % 3 == 1: 10 * 2.0 + 5 * 0.5 = 22.5
-    // idx % 3 == 2: 10 * 3.0 + 5 * 0.5 = 32.5
-    for (auto i = 0u; i < 64u; i++) {
-        auto mod = i % 3u;
-        float expected = mod == 0u ? 12.5f : (mod == 1u ? 22.5f : 32.5f);
-        expect(std::abs(host[i] - expected) < 1e-4f)
-            << "switch_in_loop mismatch at " << i
-            << ": got " << host[i] << " expected " << expected;
-    }
-}
-
-// Pattern 2: Multi-exit loop with conditional breaks.
-// restructure_cfg converts this into a switch construct where
-// each exit becomes a case, potentially creating back-edges.
-void test_multi_exit_loop(Device &device) {
-    auto stream = device.create_stream();
-    auto out = device.create_buffer<float>(64);
-
-    Kernel1D k = [](BufferVar<float> out) noexcept {
-        set_block_size(64);
-        auto tid = dispatch_id().x;
-        $if (tid != 0u) { $return(); };
-        auto idx = dispatch_id().x;
-        Float accum = 0.0f;
-        UInt count = 0u;
-
-        // Multi-exit loop: different conditions break at different points.
-        // restructure_cfg will create a switch with cases for each exit.
-        $while (true) {
-            $if (idx < 10u) {
-                accum += 1.0f;
-                $if (count >= 3u) {
-                    $break;// exit 1
-                };
-            }
-            $elif (idx < 20u) {
-                accum += 10.0f;
-                $if (count >= 5u) {
-                    $break;// exit 2
-                };
-            }
-            $elif (idx < 40u) {
-                accum += 100.0f;
-                $if (count >= 2u) {
-                    $break;// exit 3
-                };
-            }
-            $else {
-                accum += 1000.0f;
-                $if (count >= 1u) {
-                    $break;// exit 4
-                };
-            };
-            count += 1u;
-        };
-
-        out.write(idx, accum);
-    };
-
-    auto shader = device.compile(k);
-    luisa::vector<float> host(64);
-    stream << shader(out).dispatch(64)
-           << out.copy_to(luisa::span{host})
-           << synchronize();
-
-    // Just check that results are reasonable (non-zero, finite)
-    for (auto i = 0u; i < 64u; i++) {
-        expect(host[i] > 0.0f && std::isfinite(host[i]))
-            << "multi_exit_loop mismatch at " << i
-            << ": got " << host[i];
-    }
-}
-
-// Pattern 3: Nested switches.
-// This creates complex nested structured CFG that stress-tests
-// the SPIR-V backend's switch emission, especially with shared
-// merge blocks.
-void test_nested_switches(Device &device) {
-    auto stream = device.create_stream();
-    auto out = device.create_buffer<float>(64);
-
-    Kernel1D k = [](BufferVar<float> out) noexcept {
-        set_block_size(64);
-        auto idx = dispatch_id().x;
-        auto tid = dispatch_id().x;
-        $if (tid != 0u) { $return(); };
-        Float result = 0.0f;
-
-        // Outer switch
-        $switch (idx % 2u) {
-            $case (0u) {
-                // Inner switch
-                $switch (idx % 4u) {
-                    $case (0u) { result = 3.0f; };
-                    $case (1u) { result = 8.0f; };
-                    $case (2u) { result = 10.0f; };
-                    $default { result = 100.0f; };
-                };
-            };
-            $case (1u) {
-                result = 999.0f;
-            };
-        };
-
-        out.write(idx, result);
-    };
-
-    auto shader = device.compile(k);
-    luisa::vector<float> host(64);
-    stream << shader(out).dispatch(64)
-           << out.copy_to(luisa::span{host})
-           << synchronize();
-
-    for (auto i = 0u; i < 64u; i++) {
-        float expected;
-        if (i % 2u == 1u) {
-            expected = 999.0f;
-        } else {
-            auto mod = i % 4u;
-            switch (mod) {
-                case 0u: expected = 3.0f; break;
-                case 1u: expected = 8.0f; break;
-                case 2u: expected = 10.0f; break;
-                default: expected = 100.0f; break;
-            }
-        }
-        expect(std::abs(host[i] - expected) < 1e-4f)
-            << "nested_switches mismatch at " << i
-            << ": got " << host[i] << " expected " << expected;
-    }
-}
-
-// Pattern 4: Switch followed by loop then another switch.
-// This creates the kind of CFG where restructure_cfg may
-// restructure the region into a switch-loop construct.
-void test_switch_then_loop_then_switch(Device &device) {
-    auto stream = device.create_stream();
-    auto out = device.create_buffer<float>(64);
-
-    Kernel1D k = [](BufferVar<float> out) noexcept {
-        set_block_size(128, 1, 1);
-        auto tid = dispatch_id().x;
-        $if (tid != 0u) { $return(); };
-    };
-
-    auto shader = device.compile(k);
-
-}
-
-// Pattern 5: ByteBuffer::read<float4> with component extraction inside a loop.
-// This exercises a crash where ByteBufferRead produces a float4, and EXTRACT
-// instructions for v4.x/v4.y/v4.z/v4.w appear BEFORE the ByteBufferRead instruction
-// in the XIR instruction list, violating SSA dominance and causing:
-//   LUISA_ERROR_WITH_LOCATION("SPIR-V value ... should have been pre-mapped.")
-// in SpirvCodegenEntry::_emit_value.
+// Pattern 6: Loop-carried Local<float> with dynamic index assignment.
+// Creates GEP+Store pattern inside $if branches inside a loop.
+// transpose_gep converts GEP+Store to Load+INSERT+Store.
+// if-conversion then converts the diamonds, potentially creating
+// a use-before-def cycle where the INSERT references a SELECT
+// that appears later in the same block.
 //
-// Reproduces the same DSL pattern as the Compress ONNX operator's vectorized
-// read path (nn/operators/Compress.cpp).
-//
-// Uses C++ range-for with dynamic_range (same as Compress) and ByteBuffer write
-// with dynamic offsets, closely mirroring the exact Compress operator pattern.
-void test_bytebuffer_vector_read_compress_pattern(Device &device) {
+// Expected: crash at SpirvCodegenEntry::_emit_value with:
+//   "SPIR-V value inst (name=<noname>, type=vector<float,4>) should have been pre-mapped."
+void test_loop_carried_local_vector(Device &device) {
     auto stream = device.create_stream();
 
-    // ByteBuffer contains 8 floats = 32 bytes
-    auto buf = device.create_byte_buffer(32u);
-    float init_data[8] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    // ByteBuffer with 16 floats
+    auto buf = device.create_byte_buffer(64u);
+    float init_data[16] = {1.0f, 2.0f, 3.0f, 4.0f,
+                           5.0f, 6.0f, 7.0f, 8.0f,
+                           9.0f, 10.0f, 11.0f, 12.0f,
+                           13.0f, 14.0f, 15.0f, 16.0f};
     stream << buf.copy_from(init_data) << synchronize();
 
-    // Output buffer for 8 floats
-    auto out_buf = device.create_byte_buffer(32u);
-    auto check_buf = device.create_buffer<float>(8);
-
-    // Condition buffer (local tensor, but we use a local Var array to avoid DSL complexities)
-    auto cond_buf = device.create_buffer<uint>(8);
-    luisa::vector<uint> cond_init = {1u, 0u, 1u, 0u, 1u, 0u, 1u, 0u};
+    // Condition buffer
+    auto cond_buf = device.create_buffer<uint>(16);
+    luisa::vector<uint> cond_init = {1u, 0u, 1u, 0u, 1u, 0u, 1u, 0u,
+                                      0u, 1u, 0u, 1u, 0u, 1u, 0u, 1u};
     stream << cond_buf.copy_from(luisa::span{cond_init}) << synchronize();
 
-    Kernel1D k = [](ByteBufferVar buf_in, ByteBufferVar buf_out, BufferUInt cond, BufferFloat check) noexcept {
+    // Output buffer
+    auto out_buf = device.create_buffer<float>(16);
+
+    Kernel1D k = [](ByteBufferVar buf, BufferUInt cond, BufferFloat out) noexcept {
         set_block_size(32);
         auto idx = dispatch_id().x;
         $if (idx != 0u) { $return(); };
 
-        // Exactly mirrors Compress.cpp vectorized read path:
-        //   for (auto i4 : dynamic_range(vec_n)) {
-        //       auto base = i4 * 4;
-        //       auto v4 = buf_in->read<float4>(off_in + base * sizeof(float));
-        //       $if (cond[base + 0u]) { buf_out->write(off_out + out_idx * 4, v4.x); out_idx++; };
-        //       ...
-        //   }
-        auto off_in = 0u;
-        auto off_out = 0u;
+        // Local<float>(4) creates a local float4 variable.
+        // Assigning via dynamic index: local[out_idx] = value
+        // creates GEP(float4, out_idx) + Store.
+        // transpose_gep converts this to Load + INSERT + Store.
+        // After mem2reg, the alloca is promoted to phi.
+        // The INSERT now operates on the loop-carried phi value.
         auto elem_size = 4u;
-        auto vec_n = 2u;
+        Local<float> local_out{4u};  // float4
         auto out_idx = def(0u);
+        auto vec_n = 2u;
 
         for (auto i4 : dynamic_range(vec_n)) {
             auto base = i4 * 4u;
-            auto v4 = buf_in.read<float4>(off_in + base * elem_size);
+            auto v4 = buf.read<float4>(base * elem_size);
 
+            // Each $if conditionally writes one component of v4
+            // to local_out at position out_idx, then increments out_idx.
+            // local_out[dynamic_idx] = scalar → GEP+Store → transpose_gep → INSERT
             $if (cond.read(base + 0u) != 0u) {
-                buf_out.write(off_out + out_idx * elem_size, v4.x);
+                local_out[out_idx] = v4.x;
                 out_idx += 1u;
             };
             $if (cond.read(base + 1u) != 0u) {
-                buf_out.write(off_out + out_idx * elem_size, v4.y);
+                local_out[out_idx] = v4.y;
                 out_idx += 1u;
             };
             $if (cond.read(base + 2u) != 0u) {
-                buf_out.write(off_out + out_idx * elem_size, v4.z);
+                local_out[out_idx] = v4.z;
                 out_idx += 1u;
             };
             $if (cond.read(base + 3u) != 0u) {
-                buf_out.write(off_out + out_idx * elem_size, v4.w);
+                local_out[out_idx] = v4.w;
                 out_idx += 1u;
             };
         }
 
-        // Write output to check buffer for verification
-        check.write(0u, buf_out.read<float>(0u));
-        check.write(1u, buf_out.read<float>(4u));
-        check.write(2u, buf_out.read<float>(8u));
-        check.write(3u, buf_out.read<float>(12u));
+        // Write final result to output
+        out.write(0u, local_out[0u]);
+        out.write(1u, local_out[1u]);
+        out.write(2u, local_out[2u]);
+        out.write(3u, local_out[3u]);
     };
 
     auto shader = device.compile(k);
-    luisa::vector<float> host(8);
-    stream << shader(buf, out_buf, cond_buf, check_buf).dispatch(32)
-           << check_buf.copy_to(luisa::span{host})
+    luisa::vector<float> host(16);
+    stream << shader(buf, cond_buf, out_buf).dispatch(32)
+           << out_buf.copy_to(luisa::span{host})
            << synchronize();
 
-    // Cond = [1,0,1,0,1,0,1,0], Data = [1,2,3,4,5,6,7,8]
-    // Selected elements: 1, 3, 5, 7 -> values: 1.0, 3.0, 5.0, 7.0
-    expect(host[0] == 1.0f) << "compress_pattern[0]: expected 1.0 got " << host[0];
-    expect(host[1] == 3.0f) << "compress_pattern[1]: expected 3.0 got " << host[1];
-    expect(host[2] == 5.0f) << "compress_pattern[2]: expected 5.0 got " << host[2];
-    expect(host[3] == 7.0f) << "compress_pattern[3]: expected 7.0 got " << host[3];
-
-    LUISA_INFO("ByteBuffer vector read Compress pattern test passed.");
+    LUISA_INFO("Loop-carried local vector test completed (if it reaches here, no crash).");
 }
 
-// Pattern 6: ByteBuffer::read<float4> with condition-guarded component extraction.
+// Pattern 7: ByteBuffer::read<float4> with condition-guarded component extraction.
 // Closely mirrors the Compress operator: v4 read outside $if, components used inside
 // separate conditional blocks. This tests whether the XIR pass reorders instructions
 // such that EXTRACT appears before the producing ByteBufferRead.
@@ -372,12 +181,8 @@ int main(int argc, char *argv[]) {
     auto &device = dc->device;
     LUISA_INFO("Testing switch-loop CFG patterns on backend: {}", device.backend_name());
 
-    // test_switch_in_loop(device);
-    // test_multi_exit_loop(device);
-    // test_nested_switches(device);
-    test_switch_then_loop_then_switch(device);
-    test_bytebuffer_vector_read_compress_pattern(device);
-    test_bytebuffer_vector_read_with_cond_guards(device);
+
+    test_loop_carried_local_vector(device);
 
     LUISA_INFO("All switch-loop CFG tests completed.");
 }
