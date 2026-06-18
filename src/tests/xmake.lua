@@ -105,7 +105,6 @@ test_proj("test_device_test", "unit/runtime/test_device.cpp")
 test_proj("test_external_buffer", "unit/runtime/test_external_buffer.cpp")
 test_proj("test_gemm", "unit/runtime/test_gemm.cpp")
 test_proj("test_shared_mem", "unit/runtime/test_shared_mem.cpp")
-test_proj("test_switch_loop_cfg", "unit/runtime/test_switch_loop_cfg.cpp")
 
 -- unit/coro
 test_proj("test_coro_scheduler_base", "unit/coro/test_coro_scheduler_base.cpp")

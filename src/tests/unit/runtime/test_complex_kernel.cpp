@@ -23,11 +23,14 @@
 #include <luisa/runtime/context.h>
 #include <luisa/runtime/device.h>
 #include <luisa/runtime/stream.h>
+#include <luisa/runtime/buffer.h>
+#include <luisa/runtime/byte_buffer.h>
 #include <luisa/runtime/image.h>
 #include <luisa/runtime/rtx/accel.h>
 #include <luisa/runtime/rtx/mesh.h>
 #include <luisa/runtime/rtx/triangle.h>
 #include <luisa/dsl/sugar.h>
+#include <luisa/dsl/local.h>
 #include <luisa/core/clock.h>
 #include <luisa/vstl/meta_lib.h>
 #include <luisa/vstl/common.h>
@@ -482,6 +485,300 @@ struct PointerData {
     float c;
 };
 LUISA_STRUCT(PointerData, a, b, c) {};
+
+// ---------------------------------------------------------------------------
+// Switch / loop CFG corner tests (migrated from test_switch_loop_cfg.cpp)
+// Passes exercised:
+//   destructure_cfg, restructure_cfg, simplify_cfg, if_conversion,
+//   lower_break_continue, phi_cleanup, transpose_gep, local_store_forward
+// ---------------------------------------------------------------------------
+
+// Pattern 6: Loop-carried Local<float> with dynamic index assignment.
+// Creates GEP+Store pattern inside $if branches inside a loop.
+// transpose_gep converts GEP+Store to Load+INSERT+Store.
+// if-conversion then converts the diamonds, potentially creating
+// a use-before-def cycle where the INSERT references a SELECT
+// that appears later in the same block.
+void test_loop_carried_local_vector(Device &device) {
+    auto stream = device.create_stream();
+
+    // ByteBuffer with 16 floats
+    auto buf = device.create_byte_buffer(64u);
+    float init_data[16] = {1.0f, 2.0f, 3.0f, 4.0f,
+                           5.0f, 6.0f, 7.0f, 8.0f,
+                           9.0f, 10.0f, 11.0f, 12.0f,
+                           13.0f, 14.0f, 15.0f, 16.0f};
+    stream << buf.copy_from(init_data) << synchronize();
+
+    // Condition buffer
+    auto cond_buf = device.create_buffer<uint>(16);
+    luisa::vector<uint> cond_init = {1u, 0u, 1u, 0u, 1u, 0u, 1u, 0u,
+                                      0u, 1u, 0u, 1u, 0u, 1u, 0u, 1u};
+    stream << cond_buf.copy_from(luisa::span{cond_init}) << synchronize();
+
+    // Output buffer
+    auto out_buf = device.create_buffer<float>(16);
+
+    Kernel1D k = [](ByteBufferVar buf, BufferUInt cond, BufferFloat out) noexcept {
+        set_block_size(32);
+        auto idx = dispatch_id().x;
+        // $if (idx != 0u) { $return(); };
+
+        auto elem_size = 4u;
+        Local<float> local_out{4u};  // float4
+        auto out_idx = def(0u);
+        auto vec_n = 2u;
+
+        for (auto i4 : dynamic_range(vec_n)) {
+            auto base = i4 * 4u;
+            auto v4 = buf.read<float4>(base * elem_size);
+
+            $if (cond.read(base + 0u) != 0u) {
+                local_out[out_idx] = v4.x;
+                out_idx += 1u;
+            };
+            $if (cond.read(base + 1u) != 0u) {
+                local_out[out_idx] = v4.y;
+                out_idx += 1u;
+            };
+            $if (cond.read(base + 2u) != 0u) {
+                local_out[out_idx] = v4.z;
+                out_idx += 1u;
+            };
+            $if (cond.read(base + 3u) != 0u) {
+                local_out[out_idx] = v4.w;
+                out_idx += 1u;
+            };
+        }
+
+        out.write(0u, local_out[0u]);
+        out.write(1u, local_out[1u]);
+        out.write(2u, local_out[2u]);
+        out.write(3u, local_out[3u]);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(16);
+    stream << shader(buf, cond_buf, out_buf).dispatch(32)
+           << out_buf.copy_to(luisa::span{host})
+           << synchronize();
+
+    LUISA_INFO("Loop-carried local vector test completed (if it reaches here, no crash).");
+}
+
+// Pattern 7: Reproducer for Compress-like vectorized ByteBuffer read bug.
+// Reads a vector (float4) from a ByteBuffer, extracts its components, and
+// conditionally scatters them into a local array using sequential $if blocks.
+void test_compress_like_vectorized_read(Device &device) {
+    auto stream = device.create_stream();
+
+    auto buf = device.create_byte_buffer(32u);
+    float init_data[8] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    stream << buf.copy_from(init_data) << synchronize();
+
+    auto cond_buf = device.create_buffer<uint>(8);
+    luisa::vector<uint> cond_init = {1u, 0u, 1u, 0u, 1u, 0u, 1u, 0u};
+    stream << cond_buf.copy_from(luisa::span{cond_init}) << synchronize();
+
+    auto out_buf = device.create_buffer<float>(4);
+
+    Kernel1D k = [](ByteBufferVar buf, BufferUInt cond, BufferFloat out) noexcept {
+        set_block_size(32);
+        auto idx = dispatch_id().x;
+        $if (idx != 0u) { $return(); };
+
+        auto elem_size = 4u;
+        Local<float> local_out{4u};
+        auto out_idx = def(0u);
+        auto vec_n = 2u;
+
+        for (auto i4 : dynamic_range(vec_n)) {
+            auto base = i4 * 4u;
+            auto v4 = buf.read<float4>(base * elem_size);
+
+            $if (cond.read(base + 0u) != 0u) {
+                local_out[out_idx] = v4.x;
+                out_idx += 1u;
+            };
+            $if (cond.read(base + 1u) != 0u) {
+                local_out[out_idx] = v4.y;
+                out_idx += 1u;
+            };
+            $if (cond.read(base + 2u) != 0u) {
+                local_out[out_idx] = v4.z;
+                out_idx += 1u;
+            };
+            $if (cond.read(base + 3u) != 0u) {
+                local_out[out_idx] = v4.w;
+                out_idx += 1u;
+            };
+        }
+
+        out.write(0u, local_out[0u]);
+        out.write(1u, local_out[1u]);
+        out.write(2u, local_out[2u]);
+        out.write(3u, local_out[3u]);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(4);
+    stream << shader(buf, cond_buf, out_buf).dispatch(32)
+           << out_buf.copy_to(luisa::span{host})
+           << synchronize();
+
+    float expected[4] = {1.0f, 3.0f, 5.0f, 7.0f};
+    bool ok = true;
+    for (auto i = 0u; i < 4u; ++i) {
+        if (host[i] != expected[i]) {
+            LUISA_WARNING("compress-like vectorized read mismatch at [{}]: actual={}, expected={}",
+                          i, host[i], expected[i]);
+            ok = false;
+        }
+    }
+    boost::ut::expect(static_cast<bool>(ok));
+    LUISA_INFO("Compress-like vectorized read test: {}.", ok ? "PASS" : "FAIL");
+}
+
+// Pattern 8: Scalar-read fallback for the same Compress-like scatter.
+void test_compress_like_scalar_fallback(Device &device) {
+    auto stream = device.create_stream();
+
+    auto buf = device.create_byte_buffer(32u);
+    float init_data[8] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    stream << buf.copy_from(init_data) << synchronize();
+
+    auto cond_buf = device.create_buffer<uint>(8);
+    luisa::vector<uint> cond_init = {1u, 0u, 1u, 0u, 1u, 0u, 1u, 0u};
+    stream << cond_buf.copy_from(luisa::span{cond_init}) << synchronize();
+
+    auto out_buf = device.create_buffer<float>(4);
+
+    Kernel1D k = [](ByteBufferVar buf, BufferUInt cond, BufferFloat out) noexcept {
+        set_block_size(32);
+        auto idx = dispatch_id().x;
+        $if (idx != 0u) { $return(); };
+
+        auto elem_size = 4u;
+        Local<float> local_out{4u};
+        auto out_idx = def(0u);
+        auto n = 8u;
+
+        for (auto i : dynamic_range(n)) {
+            auto v = buf.read<float>(i * elem_size);
+            $if (cond.read(i) != 0u) {
+                local_out[out_idx] = v;
+                out_idx += 1u;
+            };
+        }
+
+        out.write(0u, local_out[0u]);
+        out.write(1u, local_out[1u]);
+        out.write(2u, local_out[2u]);
+        out.write(3u, local_out[3u]);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> host(4);
+    stream << shader(buf, cond_buf, out_buf).dispatch(32)
+           << out_buf.copy_to(luisa::span{host})
+           << synchronize();
+
+    float expected[4] = {1.0f, 3.0f, 5.0f, 7.0f};
+    bool ok = true;
+    for (auto i = 0u; i < 4u; ++i) {
+        if (host[i] != expected[i]) {
+            LUISA_WARNING("compress-like scalar fallback mismatch at [{}]: actual={}, expected={}",
+                          i, host[i], expected[i]);
+            ok = false;
+        }
+    }
+    boost::ut::expect(static_cast<bool>(ok));
+    LUISA_INFO("Compress-like scalar fallback test: {}.", ok ? "PASS" : "FAIL");
+}
+
+// Pattern 9: Single-iteration dynamic_range loop containing nested loops and
+// conditional writes. Reproduces the SPIR-V validation failure seen in
+// mrpnn_luisa's TopK operator when the output size is 1.
+void test_single_iteration_loop(Device &device) {
+    auto stream = device.create_stream();
+
+    constexpr uint axis_size = 5u;
+    auto in_buf = device.create_buffer<float>(axis_size);
+    auto count_buf = device.create_buffer<uint>(1u);
+    auto out_val_buf = device.create_buffer<float>(1u);
+    auto out_idx_buf = device.create_buffer<int>(1u);
+
+    luisa::vector<float> init = {5.0f, 3.0f, 8.0f, 1.0f, 9.0f};
+    luisa::vector<uint> count_init = {1u};
+    stream << in_buf.copy_from(luisa::span{init})
+           << count_buf.copy_from(luisa::span{count_init})
+           << synchronize();
+
+    Kernel1D k = [axis_size](BufferFloat in, BufferUInt count,
+                             BufferFloat out_val, BufferInt out_idx) noexcept {
+        set_block_size(32);
+        auto idx = dispatch_id().x;
+        $if (idx != 0u) { $return(); };
+
+        Local<float> out_vals{1u};
+        Local<int> out_idxs{1u};
+
+        auto bound = count.read(0u);
+        for (auto out_linear : dynamic_range(bound)) {
+            Local<float> local_vals{axis_size};
+            Local<float> local_cmps{axis_size};
+
+            for (auto i : dynamic_range(axis_size)) {
+                auto v = in.read(i);
+                local_vals[i] = v;
+                local_cmps[i] = v;
+            }
+
+            auto result_val = def(local_vals[0]);
+            auto result_idx = def(0);
+
+            for (auto candidate : dynamic_range(axis_size)) {
+                auto cand_cmp = local_cmps[candidate];
+                auto count = def(0u);
+
+                for (auto other : dynamic_range(axis_size)) {
+                    auto other_cmp = local_cmps[other];
+                    auto inc = select(0u, 1u,
+                                      (other_cmp < cand_cmp) |
+                                          ((other_cmp == cand_cmp) & (other < candidate)));
+                    count += inc;
+                }
+
+                $if (count == 0u) {
+                    result_val = local_vals[candidate];
+                    result_idx = candidate.cast<int>();
+                };
+            }
+
+            out_vals[out_linear] = result_val;
+            out_idxs[out_linear] = result_idx;
+        }
+
+        out_val.write(0u, out_vals[0u]);
+        out_idx.write(0u, out_idxs[0u]);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> out_val_host(1);
+    luisa::vector<int> out_idx_host(1);
+    stream << shader(in_buf, count_buf, out_val_buf, out_idx_buf).dispatch(32)
+           << out_val_buf.copy_to(luisa::span{out_val_host})
+           << out_idx_buf.copy_to(luisa::span{out_idx_host})
+           << synchronize();
+
+    bool ok = (out_val_host[0] == 1.0f) && (out_idx_host[0] == 3);
+    if (!ok) {
+        LUISA_WARNING("single-iteration loop result mismatch: value={}, index={}",
+                      out_val_host[0], out_idx_host[0]);
+    }
+    boost::ut::expect(static_cast<bool>(ok));
+    LUISA_INFO("Single-iteration loop test: {}.", ok ? "PASS" : "FAIL");
+}
 
 // ---------------------------------------------------------------------------
 // Test 1: nested if-elif-else, switch, break in loops, while-loop, early return
@@ -2504,6 +2801,10 @@ int main(int argc, char *argv[]) {
 
     auto &device = dc->device;
     test_control_flow_corners(device);
+    test_loop_carried_local_vector(device);
+    test_compress_like_vectorized_read(device);
+    test_compress_like_scalar_fallback(device);
+    test_single_iteration_loop(device);
     test_cfg_empty_constant_and_multi_predecessor_merge(device);
     test_cfg_nested_switch_fallthrough_like(device);
     test_cfg_tiny_diamond_if_conversion(device);
