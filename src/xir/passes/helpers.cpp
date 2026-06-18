@@ -71,15 +71,12 @@ bool remove_redundant_phi_instruction(PhiInst *phi) noexcept {
     return false;
 }
 
-bool simplify_phi_instruction(PhiInst *phi) noexcept {
+bool simplify_phi_instruction(PhiInst *phi, const DomTree *dom_tree) noexcept {
     if (phi->use_list().empty()) {
         phi->remove_self();
         return true;
     }
-    // SSA dominance guarantees that if every non-self, non-undef incoming is
-    // the same value V, then V dominates every use of the phi and may legally
-    // replace it. This is strictly stronger than remove_redundant_phi_instruction,
-    // which only replaces with constants/arguments/special-registers.
+    // Find the unique non-self, non-undef incoming value (if any).
     Value *unique = nullptr;
     for (auto value_use : phi->incoming_value_uses()) {
         auto v = value_use->value();
@@ -99,6 +96,26 @@ bool simplify_phi_instruction(PhiInst *phi) noexcept {
         phi->remove_self();
         return true;
     }
+    // The unique value must dominate the phi's block (and thus all its uses).
+    // Loop-carried phis are a classic counter-example: a phi in the loop header
+    // may have an undef initial value and a single back-edge value V, but V is
+    // defined later in the loop body and does not dominate the header. Replacing
+    // the phi with V would create a self-referential cycle across iterations.
+    auto dominates_phi = [&]() noexcept -> bool {
+        // Constants, function arguments, and special registers dominate everything.
+        if (unique->isa<Constant>() || unique->isa<Argument>() || unique->isa<SpecialRegister>()) { return true; }
+        auto unique_inst = unique->isa<Instruction>() ? static_cast<Instruction *>(unique) : nullptr;
+        if (unique_inst == nullptr) { return false; }
+        auto unique_block = unique_inst->parent_block();
+        auto phi_block = phi->parent_block();
+        if (unique_block == nullptr || phi_block == nullptr) { return false; }
+        if (unique_block == phi_block) { return false; }// phis are at the block start
+        if (dom_tree != nullptr) { return dom_tree->dominates(unique_block, phi_block); }
+        // Without a dominator tree, be conservative and only allow values that
+        // are guaranteed to dominate everything (constants/arguments handled above).
+        return false;
+    };
+    if (!dominates_phi()) { return false; }
     phi->replace_all_uses_with(unique);
     phi->remove_self();
     return true;

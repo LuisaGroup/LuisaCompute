@@ -325,7 +325,7 @@ static void gvn_pass_on_function(Function *function, GVNInfo &info) noexcept {
             if (inst->isa<PhiInst>()) phis.push_back(static_cast<PhiInst *>(inst));
         });
         for (auto phi : phis) {
-            if (simplify_phi_instruction(phi)) {
+            if (simplify_phi_instruction(phi, &dom_tree)) {
                 ++info.removed_inst_count;
                 changed = true;
             }
