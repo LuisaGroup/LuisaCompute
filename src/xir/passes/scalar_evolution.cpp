@@ -361,7 +361,7 @@ struct SCEVAnalyzer {
 
         for (auto *bb : blocks) {
             for (auto *inst : bb->instructions()) {
-                get_scev(inst);
+                static_cast<void>(get_scev(inst));
             }
         }
     }

@@ -655,6 +655,8 @@ namespace luisa::compute::xir {
         case ArithmeticOp::ISNAN:
             // Handled in try_fold_scalar/try_fold_vector
             break;
+        default:
+            break;
     }
     return false;
 }

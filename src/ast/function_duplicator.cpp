@@ -410,6 +410,11 @@ private:
                 fb->comment_(luisa::string{s->comment()});
                 break;
             }
+            case Statement::Tag::SUSPEND: {
+                auto s = static_cast<const SuspendStmt *>(stmt);
+                fb->suspend_(s->token(), luisa::string{s->name()});
+                break;
+            }
             case Statement::Tag::RAY_QUERY: {
                 auto s = static_cast<const RayQueryStmt *>(stmt);
                 auto q = _dup_expr(s->query());

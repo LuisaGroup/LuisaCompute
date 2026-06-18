@@ -18,6 +18,7 @@
 #include <luisa/xir/instructions/cast.h>
 #include <luisa/xir/instructions/clock.h>
 #include <luisa/xir/instructions/continue.h>
+#include <luisa/xir/instructions/coro.h>
 #include <luisa/xir/instructions/gep.h>
 #include <luisa/xir/instructions/autodiff.h>
 #include <luisa/xir/instructions/load.h>
@@ -158,6 +159,8 @@ private:
             case Type::Tag::FLOAT16: return "f16";
             case Type::Tag::FLOAT32: return "f32";
             case Type::Tag::FLOAT64: return "f64";
+            case Type::Tag::FLOAT8_E4M3: return "f8e4m3";
+            case Type::Tag::FLOAT8_E5M2: return "f8e5m2";
             case Type::Tag::VECTOR: return luisa::format("vector<{}, {}>", _type_ident(type->element()), type->dimension());
             case Type::Tag::MATRIX: return luisa::format("matrix<{}, {}>", _type_ident(type->element()), type->dimension());
             case Type::Tag::ARRAY: return luisa::format("array<{}, {}>", _type_ident(type->element()), type->dimension());
@@ -256,6 +259,20 @@ private:
             _main << " ";
             _emit_string_escaped(_main, inst->message());
         }
+    }
+
+    void _emit_coro_suspend_inst(const CoroSuspendInst *inst) noexcept {
+        _main << "coro_suspend " << inst->token() << " ";
+        _emit_string_escaped(_main, inst->name());
+        _main << " " << _value_ident(inst->frame());
+    }
+
+    void _emit_coro_resume_inst(const CoroResumeInst *inst) noexcept {
+        _main << "coro_resume " << inst->token() << " " << _value_ident(inst->frame());
+    }
+
+    void _emit_coro_terminate_inst(const CoroTerminateInst *inst [[maybe_unused]]) noexcept {
+        _main << "coro_terminate";
     }
 
     void _emit_assert_inst(const AssertInst *inst) noexcept {
@@ -500,6 +517,15 @@ private:
         switch (inst->derived_instruction_tag()) {
             case DerivedInstructionTag::UNREACHABLE:
                 _emit_unreachable_inst(static_cast<const UnreachableInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_SUSPEND:
+                _emit_coro_suspend_inst(static_cast<const CoroSuspendInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_RESUME:
+                _emit_coro_resume_inst(static_cast<const CoroResumeInst *>(inst));
+                break;
+            case DerivedInstructionTag::CORO_TERMINATE:
+                _emit_coro_terminate_inst(static_cast<const CoroTerminateInst *>(inst));
                 break;
             case DerivedInstructionTag::IF:
                 _emit_if_inst(static_cast<const IfInst *>(inst), indent);

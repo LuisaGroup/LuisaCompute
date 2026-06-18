@@ -251,12 +251,14 @@ public:
 
 /// Suspend statement
 class LUISA_AST_API SuspendStmt : public Statement {
+    friend class CallableLibrary;
 
 private:
     uint32_t _token;
     luisa::string _name;
 
 private:
+    SuspendStmt() noexcept = default;
     [[nodiscard]] uint64_t _compute_hash() const noexcept override;
 
 public:

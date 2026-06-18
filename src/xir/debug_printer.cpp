@@ -442,6 +442,10 @@ void XIRDebugPrinter::emit_metadata_list(luisa::string &s, const MetadataList &m
                                      comment_md->comment());
                     break;
                 }
+                case DerivedMetadataTag::SIGNATURE_CONSTRAINT: {
+                    s.append("signature_constraint, "sv);
+                    break;
+                }
                 case DerivedMetadataTag::CURVE_BASIS: {
                     auto curve_md = static_cast<const CurveBasisMD *>(md);
                     s.append("curve_basis = ("sv);

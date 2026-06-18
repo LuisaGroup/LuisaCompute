@@ -122,7 +122,7 @@ void process_loop(LoopInst *loop, IndVarSimplifyInfo &info) noexcept {
 }
 
 void indvar_simplify_on_function_def(FunctionDefinition *def, IndVarSimplifyInfo &info) noexcept {
-    scev_pass_run_on_function(def);
+    static_cast<void>(scev_pass_run_on_function(def));
 
     luisa::vector<LoopInst *> loops;
     def->traverse_instructions([&](Instruction *inst) noexcept {
