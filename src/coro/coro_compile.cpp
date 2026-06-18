@@ -1,4 +1,4 @@
-#include <stdexcept>
+#include <luisa/core/logging.h>
 
 #include <luisa/ast/function.h>
 #include <luisa/ast/function_builder.h>
@@ -55,10 +55,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto ast_func = Function{builder.get()};
     xir::AST2XIRConfig config{};
     auto module = xir::ast_to_xir_translate(ast_func, config);
-    if (!module) {
-        throw std::runtime_error(
-            "Coroutine compilation failed: AST->XIR translation returned null module");
-    }
+    LUISA_ASSERT(module != nullptr,
+                 "Coroutine compilation failed: AST->XIR translation returned null module");
 
     xir::Function *coro_func = nullptr;
     for (auto *f : module->function_list()) {
@@ -71,9 +69,8 @@ CoroutineCompileResult compile_coroutine_pipeline(
             if (has_coro) { coro_func = f; break; }
         }
     }
-    if (!coro_func) {
-        throw std::runtime_error("Coroutine compilation failed: no coroutine function found in XIR module");
-    }
+    LUISA_ASSERT(coro_func != nullptr,
+                 "Coroutine compilation failed: no coroutine function found in XIR module");
 
     (void)xir::destructure_cfg_pass_run_on_module(module.get());
     auto pre_distill_pipeline = create_coro_pre_distill_pipeline();
@@ -91,10 +88,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
             if (has_coro) { coro_func = f; break; }
         }
     }
-    if (!coro_func) { throw std::runtime_error("coro_func lost after destructure_cfg"); }
+    LUISA_ASSERT(coro_func != nullptr, "coro_func lost after destructure_cfg");
 
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
-    if (cfg.scopes.empty()) { throw std::runtime_error("coro-cfg-distill found no scopes"); }
+    LUISA_ASSERT(!cfg.scopes.empty(), "coro-cfg-distill found no scopes");
     luisa::vector<const Type *> frame_fields;
     frame_fields.push_back(Type::of<uint3>());// [0] coro_id
     frame_fields.push_back(Type::of<uint>()); // [1] token
@@ -103,10 +100,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto *frame_type = Type::structure(frame_fields);
 
     auto split_info = xir::coro_split_pass_run_on_module_with_cfg_and_frame_info(module.get(), cfg, frame_type);
-    if (split_info.subroutines.empty()) { throw std::runtime_error("coro-split produced no callables"); }
+    LUISA_ASSERT(!split_info.subroutines.empty(), "coro-split produced no callables");
 
     auto materialize_info = xir::coro_materialize_pass_run_on_module_with_cfg(module.get(), cfg, split_info);
-    if (materialize_info.callable_count == 0u) { throw std::runtime_error("coro-materialize found no callables"); }
+    LUISA_ASSERT(materialize_info.callable_count != 0u, "coro-materialize found no callables");
 
     (void)xir::coro_reg2mem_pass_run_on_split(split_info);
     (void)xir::destructure_cfg_pass_run_on_module(module.get());
