@@ -65,12 +65,12 @@ void test_grouped_float2_prefix_extract(Device &device) {
     };
 
     auto shader = device.compile(kernel);
-    stream << input_buffer.copy_from(input.data())
+    stream << input_buffer.copy_from(luisa::span{input})
            << shader(input_buffer, output_buffer).dispatch(output_count * kGroupLanes)
            << synchronize();
 
     luisa::vector<float> output(output_count);
-    stream << output_buffer.copy_to(output.data()) << synchronize();
+    stream << output_buffer.copy_to(luisa::span{output}) << synchronize();
 
     auto ok = true;
     for (auto i = 0u; i < output_count; i++) {
@@ -131,12 +131,12 @@ void test_grouped_softmax(Device &device) {
     };
 
     auto shader = device.compile(kernel);
-    stream << input_buffer.copy_from(input.data())
+    stream << input_buffer.copy_from(luisa::span{input})
            << shader(input_buffer, output_buffer).dispatch(row_count * row_size)
            << synchronize();
 
     luisa::vector<float> output(value_count);
-    stream << output_buffer.copy_to(output.data()) << synchronize();
+    stream << output_buffer.copy_to(luisa::span{output}) << synchronize();
 
     auto ok = true;
     for (auto row = 0u; row < row_count; row++) {

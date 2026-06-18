@@ -105,7 +105,7 @@ void reg_coro_pipeline_1suspend(luisa::test::coro_test::Options options) {
 
             dispatch_with_scheduler(device, coro, scheduler_kind, stream, N, output);
             luisa::vector<uint> host(N);
-            stream << output.copy_to(host.data()) << synchronize();
+            stream << output.copy_to(luisa::span{host}) << synchronize();
             LUISA_INFO("Dispatch complete for {}", scheduler_name(scheduler_kind));
             auto ok = true;
             for (auto i = 0u; i < N; i++) {

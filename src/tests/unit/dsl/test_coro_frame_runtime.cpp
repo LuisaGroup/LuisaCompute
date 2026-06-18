@@ -77,7 +77,7 @@ void reg_coro_frame_runtime(Device &device) {
         stream << shader().dispatch(1u) << synchronize();
 
         luisa::vector<uint> host(3u);
-        stream << result_buf.copy_to(host.data()) << synchronize();
+        stream << result_buf.copy_to(luisa::span{host}) << synchronize();
 
         expect(host[0] == 10u);
         expect(host[1] == 20u);
@@ -100,7 +100,7 @@ void reg_coro_frame_runtime(Device &device) {
         stream << shader().dispatch(1u) << synchronize();
 
         luisa::vector<uint> host(1u);
-        stream << result_buf.copy_to(host.data()) << synchronize();
+        stream << result_buf.copy_to(luisa::span{host}) << synchronize();
 
         expect(host[0] == 42u);
     };
@@ -132,9 +132,9 @@ void reg_coro_frame_runtime(Device &device) {
         luisa::vector<float> fhost(1u);
         luisa::vector<int> ihost(1u);
         luisa::vector<uint> uhost(1u);
-        stream << float_buf.copy_to(fhost.data()) << synchronize();
-        stream << int_buf.copy_to(ihost.data()) << synchronize();
-        stream << uint_buf.copy_to(uhost.data()) << synchronize();
+        stream << float_buf.copy_to(luisa::span{fhost}) << synchronize();
+        stream << int_buf.copy_to(luisa::span{ihost}) << synchronize();
+        stream << uint_buf.copy_to(luisa::span{uhost}) << synchronize();
         // Just verify buffers were written (values depend on init, not checked)
         expect(fhost.size() == 1u);
         expect(ihost.size() == 1u);
@@ -160,8 +160,8 @@ void reg_coro_frame_runtime(Device &device) {
 
         luisa::vector<float> ahost(1u);
         luisa::vector<uint> bhost(1u);
-        stream << alpha_buf.copy_to(ahost.data()) << synchronize();
-        stream << beta_buf.copy_to(bhost.data()) << synchronize();
+        stream << alpha_buf.copy_to(luisa::span{ahost}) << synchronize();
+        stream << beta_buf.copy_to(luisa::span{bhost}) << synchronize();
         expect(ahost.size() == 1u);
         expect(bhost.size() == 1u);
     };
@@ -186,7 +186,7 @@ void reg_coro_frame_runtime(Device &device) {
         stream << shader().dispatch(1u) << synchronize();
 
         luisa::vector<int> host(1u);
-        stream << result_buf.copy_to(host.data()) << synchronize();
+        stream << result_buf.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 0);
     };
 
@@ -210,7 +210,7 @@ void reg_coro_frame_runtime(Device &device) {
         stream << shader().dispatch(1u) << synchronize();
 
         luisa::vector<int> host(1u);
-        stream << result_buf.copy_to(host.data()) << synchronize();
+        stream << result_buf.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 1);
     };
 
@@ -244,7 +244,7 @@ void reg_coro_frame_runtime(Device &device) {
         stream << shader().dispatch(1u) << synchronize();
 
         luisa::vector<int> host(2u);
-        stream << result_buf.copy_to(host.data()) << synchronize();
+        stream << result_buf.copy_to(luisa::span{host}) << synchronize();
 
         expect(host[0] == 0);// not terminated
         expect(host[1] == 1);// terminated
@@ -266,7 +266,7 @@ void reg_coro_frame_runtime(Device &device) {
         stream << shader().dispatch(1u) << synchronize();
 
         luisa::vector<uint> host(1u);
-        stream << count_buf.copy_to(host.data()) << synchronize();
+        stream << count_buf.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 1u);
     };
 
@@ -289,8 +289,8 @@ void reg_coro_frame_runtime(Device &device) {
 
         luisa::vector<float> xhost(1u);
         luisa::vector<int> yhost(1u);
-        stream << x_buf.copy_to(xhost.data()) << synchronize();
-        stream << y_buf.copy_to(yhost.data()) << synchronize();
+        stream << x_buf.copy_to(luisa::span{xhost}) << synchronize();
+        stream << y_buf.copy_to(luisa::span{yhost}) << synchronize();
         expect(xhost.size() == 1u);
         expect(yhost.size() == 1u);
     };
@@ -324,8 +324,8 @@ void reg_coro_frame_runtime(Device &device) {
 
         luisa::vector<float> fhost(7u);
         luisa::vector<uint> uhost(1u);
-        stream << fbuf.copy_to(fhost.data()) << synchronize();
-        stream << ubuf.copy_to(uhost.data()) << synchronize();
+        stream << fbuf.copy_to(luisa::span{fhost}) << synchronize();
+        stream << ubuf.copy_to(luisa::span{uhost}) << synchronize();
         expect(fhost.size() == 7u);
         expect(uhost.size() == 1u);
     };

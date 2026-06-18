@@ -94,7 +94,7 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
         StateMachineCoroScheduler<Buffer<int>> scheduler{device, coro};
         scheduler(output).dispatch(kTestInstances)(stream);
         luisa::vector<int> host(kTestInstances);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("StateMachine: dispatch complete — PASSED");
         expect(expect_sequence(host, 42, "sm_baseline"));
     };
@@ -124,7 +124,7 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
             device, coro, WavefrontCoroSchedulerConfig{.global_memory_soa = false}};
         scheduler(output).dispatch(kTestInstances)(stream);
         luisa::vector<int> host(kTestInstances);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Wavefront AoS (no comp): dispatch complete — PASSED");
         expect(expect_sequence(host, 42, "wf_aos_no_compaction"));
     };
@@ -154,7 +154,7 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
             device, coro, WavefrontCoroSchedulerConfig{.global_memory_soa = false}};
         scheduler(output).dispatch(kTestInstances)(stream);
         luisa::vector<int> host(kTestInstances);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Wavefront AoS (comp): dispatch complete — PASSED");
         expect(expect_sequence(host, 42, "wf_aos_with_compaction"));
 
@@ -188,7 +188,7 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
             device, coro, WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         scheduler(output).dispatch(kTestInstances)(stream);
         luisa::vector<int> host(kTestInstances);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Wavefront SoA (no comp): dispatch complete — PASSED");
         expect(expect_sequence(host, 42, "wf_soa_no_compaction"));
     };
@@ -218,7 +218,7 @@ void reg_coro_wavefront_integration(luisa::test::coro_test::Options options) {
             device, coro, WavefrontCoroSchedulerConfig{.global_memory_soa = true}};
         scheduler(output).dispatch(kTestInstances)(stream);
         luisa::vector<int> host(kTestInstances);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Wavefront SoA (comp): dispatch complete — PASSED");
         expect(expect_sequence(host, 42, "wf_soa_with_compaction"));
 

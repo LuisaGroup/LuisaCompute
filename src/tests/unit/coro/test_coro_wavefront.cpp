@@ -82,7 +82,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Dispatch complete");
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -145,7 +145,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         for (auto soa : {false, true}) {
             for (auto compaction : {false, true}) {
                 luisa::vector<uint> zero(N);
-                stream << output.copy_from(zero.data()) << synchronize();
+                stream << output.copy_from(luisa::span{zero}) << synchronize();
 
                 WavefrontCoroSchedulerConfig cfg{
                     .thread_count = capacity,
@@ -157,7 +157,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                 scheduler(output).dispatch(N)(stream);
 
                 luisa::vector<uint> host(N);
-                stream << output.copy_to(host.data()) << synchronize();
+                stream << output.copy_to(luisa::span{host}) << synchronize();
 
                 auto ok = true;
                 for (auto i = 0u; i < N; i++) {
@@ -205,7 +205,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -253,7 +253,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -292,7 +292,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         for (auto soa : {false, true}) {
             for (auto compaction : {false, true}) {
                 luisa::vector<uint> zero(N);
-                stream << output.copy_from(zero.data()) << synchronize();
+                stream << output.copy_from(luisa::span{zero}) << synchronize();
 
                 WavefrontCoroSchedulerConfig cfg{
                     .thread_count = capacity,
@@ -304,7 +304,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
                 scheduler(output).dispatch(N)(stream);
 
                 luisa::vector<uint> host(N);
-                stream << output.copy_to(host.data()) << synchronize();
+                stream << output.copy_to(luisa::span{host}) << synchronize();
 
                 auto ok = true;
                 for (auto i = 0u; i < N; i++) {
@@ -358,7 +358,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -405,7 +405,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -455,7 +455,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -496,7 +496,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
         for (auto gather_by_sorting : {false, true}) {
             for (auto soa : {false, true}) {
                 luisa::vector<uint> zero(N);
-                stream << output.copy_from(zero.data()) << synchronize();
+                stream << output.copy_from(luisa::span{zero}) << synchronize();
 
                 WavefrontCoroSchedulerConfig cfg{
                     .thread_count = capacity,
@@ -511,7 +511,7 @@ void reg_coro_wavefront(luisa::test::coro_test::Options options) {
 
                 scheduler(output).dispatch(N)(stream);
                 luisa::vector<uint> host(N);
-                stream << output.copy_to(host.data()) << synchronize();
+                stream << output.copy_to(luisa::span{host}) << synchronize();
 
                 auto ok = true;
                 for (auto i = 0u; i < N; i++) {

@@ -100,7 +100,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
 
         for (auto shared_soa : {false, true}) {
             luisa::vector<uint> zero(N);
-            stream << output.copy_from(zero.data()) << synchronize();
+            stream << output.copy_from(luisa::span{zero}) << synchronize();
 
             PersistentThreadsCoroSchedulerConfig cfg{
                 .thread_count = thread_count,
@@ -113,7 +113,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
             scheduler(output).dispatch(N)(stream);
 
             luisa::vector<uint> host(N);
-            stream << output.copy_to(host.data()) << synchronize();
+            stream << output.copy_to(luisa::span{host}) << synchronize();
 
             auto ok = true;
             for (auto i = 0u; i < N; i++) {
@@ -156,7 +156,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
 
         for (auto shared_soa : {false, true}) {
             luisa::vector<uint> zero(N);
-            stream << output.copy_from(zero.data()) << synchronize();
+            stream << output.copy_from(luisa::span{zero}) << synchronize();
 
             PersistentThreadsCoroSchedulerConfig cfg{
                 .thread_count = thread_count,
@@ -169,7 +169,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
             scheduler(output).dispatch(N)(stream);
 
             luisa::vector<uint> host(N);
-            stream << output.copy_to(host.data()) << synchronize();
+            stream << output.copy_to(luisa::span{host}) << synchronize();
 
             auto ok = true;
             for (auto i = 0u; i < N; i++) {
@@ -218,12 +218,12 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         for (auto pass = 0u; pass < 2u; pass++) {
             auto salt = pass == 0u ? 101u : 907u;
             luisa::vector<uint> zero(N);
-            stream << output.copy_from(zero.data()) << synchronize();
+            stream << output.copy_from(luisa::span{zero}) << synchronize();
 
             scheduler(output, salt).dispatch(N)(stream);
 
             luisa::vector<uint> host(N);
-            stream << output.copy_to(host.data()) << synchronize();
+            stream << output.copy_to(luisa::span{host}) << synchronize();
 
             auto ok = true;
             for (auto i = 0u; i < N; i++) {
@@ -420,7 +420,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
 
         for (auto fetch_size : {1u, 3u, 5u}) {
             luisa::vector<uint> zero(N);
-            stream << output.copy_from(zero.data()) << synchronize();
+            stream << output.copy_from(luisa::span{zero}) << synchronize();
 
             PersistentThreadsCoroSchedulerConfig cfg{
                 .thread_count = 70u,
@@ -436,7 +436,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
             scheduler(output).dispatch(N)(stream);
 
             luisa::vector<uint> host(N);
-            stream << output.copy_to(host.data()) << synchronize();
+            stream << output.copy_to(luisa::span{host}) << synchronize();
 
             auto ok = true;
             for (auto i = 0u; i < N; i++) {

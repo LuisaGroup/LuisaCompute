@@ -117,6 +117,7 @@ if has_config("lc_enable_xir") then
     local function coro_xir_test_proj(name, source)
         test_proj(name, source, false, function()
             add_defines("LUISA_ENABLE_XIR")
+            add_deps("lc-coro")
         end)
     end
     test_proj("test_ast_to_xir", "unit/xir/test_ast_to_xir.cpp", false, function()

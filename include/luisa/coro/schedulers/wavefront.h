@@ -424,7 +424,7 @@ private:
                 }
             }
             if (!_config.gather_by_sorting) {
-                stream << _resume_count.copy_to(_host_count.data()) << synchronize();
+                stream << _resume_count.copy_to(luisa::span{_host_count.data(), _host_count.size()}) << synchronize();
             }
         }
     }

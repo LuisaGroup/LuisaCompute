@@ -59,7 +59,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         LUISA_INFO("StateMachineCoroScheduler: dispatching {} threads", N);
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("StateMachineCoroScheduler: dispatch complete");
         expect_filled(host, 11u, "cross_1suspend_state_machine");
     };
@@ -86,7 +86,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         LUISA_INFO("WavefrontCoroScheduler: dispatching {} instances", N);
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("WavefrontCoroScheduler: dispatch complete");
         expect_filled(host, 12u, "cross_1suspend_wavefront");
     };
@@ -115,7 +115,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatching {} logical instances", N);
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatch complete");
         expect_filled(host, 13u, "cross_1suspend_persistent");
     };
@@ -148,7 +148,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         LUISA_INFO("StateMachineCoroScheduler: dispatching {} threads", N);
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("StateMachineCoroScheduler: dispatch complete");
         expect_filled(host, 31u, "cross_3suspend_state_machine");
     };
@@ -177,7 +177,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         LUISA_INFO("WavefrontCoroScheduler: dispatching {} instances", N);
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("WavefrontCoroScheduler: dispatch complete");
         expect_filled(host, 32u, "cross_3suspend_wavefront");
     };
@@ -208,7 +208,7 @@ void reg_coro_all_schedulers(luisa::test::coro_test::Options options) {
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatching {} logical instances", N);
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("PersistentThreadsCoroScheduler: dispatch complete");
         expect_filled(host, 33u, "cross_3suspend_persistent");
     };

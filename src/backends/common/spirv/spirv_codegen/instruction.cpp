@@ -2748,6 +2748,26 @@ void SpirvCodegenEntry::_emit_resource_write_inst(const xir::ResourceWriteInst *
             auto tex_array = _emit_value(inst->operand(0));
             auto coord = _emit_value(inst->operand(1));
             auto value = _emit_value(inst->operand(2));
+            auto value_type = _builder.getTypeId(value);
+            auto value_component_count = _builder.getNumTypeComponents(value_type);
+            if (value_component_count < 4u) {
+                auto scalar_type = _builder.getScalarTypeId(value_type);
+                auto vec4_type = _builder.makeVectorType(scalar_type, 4);
+                if (_builder.isScalar(value)) {
+                    value = _builder.smearScalar(spv::NoPrecision, value, vec4_type);
+                } else {
+                    std::vector<spv::Id> comps;
+                    comps.reserve(4);
+                    for (auto i = 0u; i < value_component_count; ++i) {
+                        comps.emplace_back(_builder.createCompositeExtract(value, scalar_type, i));
+                    }
+                    auto last = comps.back();
+                    for (auto i = value_component_count; i < 4u; ++i) {
+                        comps.emplace_back(last);
+                    }
+                    value = _builder.createCompositeConstruct(vec4_type, comps);
+                }
+            }
             auto tex = _load_texture(tex_array);
             auto image_type = _builder.getImageType(tex);
             if (_builder.getImageTypeFormat(image_type) == spv::ImageFormat::Unknown) {

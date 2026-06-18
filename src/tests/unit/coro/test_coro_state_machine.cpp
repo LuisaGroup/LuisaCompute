@@ -55,7 +55,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         LUISA_INFO("Dispatch complete");
 
         std::vector<int> host(N, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("buf[0]={} buf[1]={}", host[0], host[1]);
         expect(host[0] == 42);
         expect(host[1] == 99);
@@ -80,7 +80,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 99);
     };
 
@@ -107,7 +107,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 10);
     };
 
@@ -130,7 +130,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<float> host(16, -1.f);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 6.f);
     };
 
@@ -156,7 +156,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 77);
     };
 
@@ -183,7 +183,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 10);
         expect(host[1] == 20);
         expect(host[2] == 30);
@@ -217,7 +217,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("ref_callable host[0..2]={}, {}, {}", host[0], host[1], host[2]);
         expect(host[0] == 13);
         expect(host[1] == 46);
@@ -242,7 +242,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         for (int i = 0; i < 16; i++) {
             expect(host[i] == i * 10);
         }
@@ -278,7 +278,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 10);
         expect(host[3] == 20);
         expect(host[6] == 30);
@@ -315,7 +315,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 11);
         expect(host[3] == 22);
         expect(host[8] == 33);
@@ -346,7 +346,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 100);
         expect(host[1] == 200);
         expect(host[2] == 300);
@@ -378,7 +378,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("multi_suspend host[0]={}", host[0]);
         expect(host[0] == 6);
     };
@@ -403,7 +403,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(N, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         for (uint i = 0u; i < N; i++) {
             expect(host[i] == static_cast<int>(i * 7 + 1));
         }
@@ -427,7 +427,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("for_suspend host[0]={}", host[0]);
         expect(host[0] == 102);
 
@@ -455,7 +455,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 224);
     };
 
@@ -482,7 +482,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 3);
     };
 
@@ -513,7 +513,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         stream << synchronize();
 
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         expect(host[0] == 111);
         expect(host[2] == 222);
         expect(host[4] == 0);
@@ -536,7 +536,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("double_suspend host[0]={}", host[0]);
         expect(host[0] == 40);
     };
@@ -561,7 +561,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("triple_suspend host[0]={}", host[0]);
         expect(host[0] == 12);
     };
@@ -585,7 +585,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("for_plus_after host[0]={}", host[0]);
         expect(host[0] == 102);
     };
@@ -609,7 +609,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("sdf_5scope host[0]={}", host[0]);
         expect(host[0] == 42);
     };
@@ -634,7 +634,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("var_in_loop host[0]={}", host[0]);
         expect(host[0] == 42);
     };
@@ -660,7 +660,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("if_read_i host[0]={}", host[0]);
         expect(host[0] == 42);
     };
@@ -694,7 +694,7 @@ void reg_coro_state_machine(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(1)(stream);
         stream << synchronize();
         std::vector<int> host(16, -1);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("nested_break host[0]={}", host[0]);
         expect(host[0] == 484);
     };

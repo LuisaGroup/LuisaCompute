@@ -141,7 +141,7 @@ void reg_coro_persistent(luisa::test::coro_test::Options options) {
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
         LUISA_INFO("Persistent with buffer dispatch complete");
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -177,7 +177,7 @@ void reg_coro_persistent(luisa::test::coro_test::Options options) {
 
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {

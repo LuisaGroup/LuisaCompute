@@ -11,7 +11,8 @@ namespace luisa::compute::dsl_detail {
 
 #include <luisa/dsl/syntax.h>
 
-namespace luisa::compute::dsl {
+namespace luisa::compute {
+inline namespace dsl {
 
 inline void suspend_impl(uint32_t token) {
     detail::FunctionBuilder::current()->suspend_(token);
@@ -21,7 +22,8 @@ inline void suspend_impl(uint32_t token, const char *name) {
     detail::FunctionBuilder::current()->suspend_(token, luisa::string{name});
 }
 
-} // namespace luisa::compute::dsl
+} // namespace dsl
+} // namespace luisa::compute
 
 #define $ ::luisa::compute::Var
 

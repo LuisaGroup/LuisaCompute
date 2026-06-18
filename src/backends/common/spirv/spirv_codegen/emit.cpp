@@ -389,7 +389,6 @@ spv::Id SpirvCodegenEntry::_emit_value(const xir::Value *value) noexcept {
                 id = it->second;
                 break;
             }
-            [[fallthrough]];
         }
     }
     LUISA_ASSERT(id != spv::NoResult, "Failed to emit value.");
