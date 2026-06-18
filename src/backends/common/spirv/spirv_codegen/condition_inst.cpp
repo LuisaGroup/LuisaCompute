@@ -395,19 +395,25 @@ void SpirvCodegenEntry::_emit_loop_inst(const xir::LoopInst *inst) noexcept {
     _emit_block(inst->prepare_block());
     _emit_block(inst->body_block());
     // Collect pending sub-blocks and emit them in FIFO (insertion) order
-    // so definitions that dominate uses are emitted first.
-    luisa::vector<const xir::BasicBlock *> sub_blocks;
-    while (_pending_blocks.size() > pending_base) {
-        auto *bb = _pending_blocks.back();
-        _pending_blocks.pop_back();
-        if (bb == inst->update_block() || bb == inst->merge_block()) {
-            continue;
+    // so definitions that dominate uses are emitted first.  Nested loops may
+    // enqueue new blocks (e.g., the continuation after a nested loop) while we
+    // are emitting previously enqueued blocks, so drain the pending list in a
+    // fixed-point loop before emitting the update and merge blocks.
+    while (true) {
+        luisa::vector<const xir::BasicBlock *> sub_blocks;
+        while (_pending_blocks.size() > pending_base) {
+            auto *bb = _pending_blocks.back();
+            _pending_blocks.pop_back();
+            if (bb == inst->update_block() || bb == inst->merge_block()) {
+                continue;
+            }
+            sub_blocks.push_back(bb);
         }
-        sub_blocks.push_back(bb);
-    }
-    std::reverse(sub_blocks.begin(), sub_blocks.end());
-    for (auto *bb : sub_blocks) {
-        _emit_block(bb);
+        if (sub_blocks.empty()) { break; }
+        std::reverse(sub_blocks.begin(), sub_blocks.end());
+        for (auto *bb : sub_blocks) {
+            _emit_block(bb);
+        }
     }
     _emit_block(inst->update_block());
     _emit_block(inst->merge_block());
@@ -434,18 +440,23 @@ void SpirvCodegenEntry::_emit_simple_loop_inst(const xir::SimpleLoopInst *inst) 
     _builder.createBranch(false, body);
     _emit_block(inst->body_block());
     // Collect pending sub-blocks and emit them in FIFO (insertion) order.
-    luisa::vector<const xir::BasicBlock *> sub_blocks;
-    while (_pending_blocks.size() > pending_base) {
-        auto *bb = _pending_blocks.back();
-        _pending_blocks.pop_back();
-        if (bb == inst->merge_block()) {
-            continue;
+    // Drain in a fixed-point loop because nested loops may enqueue additional
+    // blocks while we are emitting previously enqueued ones.
+    while (true) {
+        luisa::vector<const xir::BasicBlock *> sub_blocks;
+        while (_pending_blocks.size() > pending_base) {
+            auto *bb = _pending_blocks.back();
+            _pending_blocks.pop_back();
+            if (bb == inst->merge_block()) {
+                continue;
+            }
+            sub_blocks.push_back(bb);
         }
-        sub_blocks.push_back(bb);
-    }
-    std::reverse(sub_blocks.begin(), sub_blocks.end());
-    for (auto *bb : sub_blocks) {
-        _emit_block(bb);
+        if (sub_blocks.empty()) { break; }
+        std::reverse(sub_blocks.begin(), sub_blocks.end());
+        for (auto *bb : sub_blocks) {
+            _emit_block(bb);
+        }
     }
     if (!_builder.getBuildPoint()->isTerminated()) {
         _builder.createBranch(false, continue_block);

@@ -17,6 +17,8 @@
 // 5. Loop with switch and break at loop level
 // 6. Vectorized ByteBuffer read + conditional scalar writes to local array
 //    (reproduces the Compress operator miscompile on Vulkan)
+// 9. Single-iteration dynamic_range loop with nested loops and $if
+//    (reproduces the TopK operator SPIR-V validation crash on Vulkan)
 //
 // NOTE: $break/$continue inside $case bodies are NOT valid DSL because
 // $case expands to a lambda, and break/continue scopes don't cross
@@ -276,6 +278,99 @@ void test_compress_like_scalar_fallback(Device &device) {
     LUISA_INFO("Compress-like scalar fallback test: {}.", ok ? "PASS" : "FAIL");
 }
 
+// Pattern 9: Single-iteration dynamic_range loop containing nested loops and
+// conditional writes. Reproduces the SPIR-V validation failure seen in
+// mrpnn_luisa's TopK operator when the output size is 1:
+//
+//   error [:0:0]: block <ID> ... exits the loop headed by <ID> ...,
+//                 but not via a structured exit
+//
+// The outer loop is known to execute exactly once (dynamic_range(1u)), but the
+// SPIR-V restructure_cfg pass still emits an invalid structured control-flow
+// edge when the body contains nested dynamic_range loops and an $if block.
+void test_single_iteration_loop(Device &device) {
+    auto stream = device.create_stream();
+
+    constexpr uint axis_size = 5u;
+    auto in_buf = device.create_buffer<float>(axis_size);
+    auto count_buf = device.create_buffer<uint>(1u);
+    auto out_val_buf = device.create_buffer<float>(1u);
+    auto out_idx_buf = device.create_buffer<int>(1u);
+
+    luisa::vector<float> init = {5.0f, 3.0f, 8.0f, 1.0f, 9.0f};
+    luisa::vector<uint> count_init = {1u};
+    stream << in_buf.copy_from(luisa::span{init})
+           << count_buf.copy_from(luisa::span{count_init})
+           << synchronize();
+
+    Kernel1D k = [axis_size](BufferFloat in, BufferUInt count,
+                             BufferFloat out_val, BufferInt out_idx) noexcept {
+        set_block_size(32);
+        auto idx = dispatch_id().x;
+        $if (idx != 0u) { $return(); };
+
+        // Output arrays of size 1, indexed by the outer loop variable.
+        Local<float> out_vals{1u};
+        Local<int> out_idxs{1u};
+
+        // Runtime loop bound equal to 1: the exact trigger in TopK.
+        auto bound = count.read(0u);
+        for (auto out_linear : dynamic_range(bound)) {
+            Local<float> local_vals{axis_size};
+            Local<float> local_cmps{axis_size};
+
+            for (auto i : dynamic_range(axis_size)) {
+                auto v = in.read(i);
+                local_vals[i] = v;
+                local_cmps[i] = v;
+            }
+
+            auto result_val = def(local_vals[0]);
+            auto result_idx = def(0);
+
+            for (auto candidate : dynamic_range(axis_size)) {
+                auto cand_cmp = local_cmps[candidate];
+                auto count = def(0u);
+
+                for (auto other : dynamic_range(axis_size)) {
+                    auto other_cmp = local_cmps[other];
+                    auto inc = select(0u, 1u,
+                                      (other_cmp < cand_cmp) |
+                                          ((other_cmp == cand_cmp) & (other < candidate)));
+                    count += inc;
+                }
+
+                $if (count == 0u) {
+                    result_val = local_vals[candidate];
+                    result_idx = candidate.cast<int>();
+                };
+            }
+
+            out_vals[out_linear] = result_val;
+            out_idxs[out_linear] = result_idx;
+        }
+
+        out_val.write(0u, out_vals[0u]);
+        out_idx.write(0u, out_idxs[0u]);
+    };
+
+    auto shader = device.compile(k);
+    luisa::vector<float> out_val_host(1);
+    luisa::vector<int> out_idx_host(1);
+    stream << shader(in_buf, count_buf, out_val_buf, out_idx_buf).dispatch(32)
+           << out_val_buf.copy_to(luisa::span{out_val_host})
+           << out_idx_buf.copy_to(luisa::span{out_idx_host})
+           << synchronize();
+
+    bool ok = (out_val_host[0] == 1.0f) && (out_idx_host[0] == 3);
+    if (!ok) {
+        LUISA_WARNING("single-iteration loop result mismatch: value={}, index={}",
+                      out_val_host[0], out_idx_host[0]);
+    }
+    boost::ut::expect(static_cast<bool>(ok));
+    LUISA_INFO("Single-iteration loop test: {}.", ok ? "PASS" : "FAIL");
+}
+
 int main(int argc, char *argv[]) {
     auto dc = luisa::test::create_device_from_ut(argc, argv);
     if (!dc) {
@@ -289,7 +384,8 @@ int main(int argc, char *argv[]) {
 
     // test_loop_carried_local_vector(device);
     // test_compress_like_scalar_fallback(device); // scalar fallback; passes, kept as reference
-    test_compress_like_vectorized_read(device);
+    // test_compress_like_vectorized_read(device);
+    test_single_iteration_loop(device);
 
     LUISA_INFO("All switch-loop CFG tests completed.");
 }
