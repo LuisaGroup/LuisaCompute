@@ -87,6 +87,7 @@ private:
     luisa::unordered_map<spv::Id, spv::Id> _rq_proceed_result;// rq object SSA id -> last OpRayQueryProceedKHR result SSA id
     luisa::unordered_map<const xir::Function *, luisa::vector<bool>> _callable_arg_used;
     luisa::unordered_map<const xir::Function *, luisa::vector<Usage>> _function_argument_usage;
+    luisa::unordered_map<const xir::Instruction *, const xir::Value *> _smear_source_cache;
     luisa::unordered_set<const Type *> _needs_atomic_buffer_types;
     luisa::unordered_map<const Type *, spv::Id> _laid_out_type_map;
     luisa::compute::xir::UniformityAnalysis _uniformity;
@@ -146,6 +147,7 @@ private:
     void _emit_branch_inst(const xir::BranchInst *inst) noexcept;
     void _emit_conditional_branch_inst(const xir::ConditionalBranchInst *inst) noexcept;
     void _emit_arithmetic_inst(const xir::ArithmeticInst *inst) noexcept;
+    const xir::Value *_try_find_scalar_smear_source(const xir::Value *v) noexcept;
     void _emit_atomic_inst(const xir::AtomicInst *inst) noexcept;
     spv::Id _emit_float_atomic_cas_loop(spv::Id ptr, spv::Id val, spv::Id float_type, xir::AtomicOp op) noexcept;
     spv::Id _emit_float_compare_exchange_cas_loop(spv::Id ptr, spv::Id expected, spv::Id desired, spv::Id float_type) noexcept;

@@ -4,13 +4,17 @@
 
 namespace lc::spirv {
 
-static const xir::Value *try_find_scalar_smear_source(const xir::Value *v) noexcept {
+const xir::Value *SpirvCodegenEntry::_try_find_scalar_smear_source(const xir::Value *v) noexcept {
     if (!v->isa<xir::LoadInst>()) return nullptr;
     auto load = static_cast<const xir::LoadInst *>(v);
     auto ptr = load->variable();
     if (!ptr->isa<xir::Instruction>()) return nullptr;
     auto ptr_inst = static_cast<const xir::Instruction *>(ptr);
     if (!ptr_inst->isa<xir::AllocaInst>()) return nullptr;
+    // Check cache first.
+    if (auto it = _smear_source_cache.find(ptr_inst); it != _smear_source_cache.end()) {
+        return it->second;
+    }
     auto func = load->parent_function();
     if (!func) return nullptr;
     auto def = func->definition();
@@ -26,15 +30,32 @@ static const xir::Value *try_find_scalar_smear_source(const xir::Value *v) noexc
             }
         }
     });
-    if (store_count != 1 || stored == nullptr) return nullptr;
-    if (!stored->isa<xir::ArithmeticInst>()) return nullptr;
-    auto arith = static_cast<const xir::ArithmeticInst *>(stored);
-    if (arith->op() != xir::ArithmeticOp::AGGREGATE) return nullptr;
-    if (arith->operand_count() == 0) return nullptr;
-    for (size_t i = 1; i < arith->operand_count(); ++i) {
-        if (arith->operand(i) != arith->operand(0)) return nullptr;
+    if (store_count != 1 || stored == nullptr) {
+        _smear_source_cache[ptr_inst] = nullptr;
+        return nullptr;
     }
-    return arith->operand(0);
+    if (!stored->isa<xir::ArithmeticInst>()) {
+        _smear_source_cache[ptr_inst] = nullptr;
+        return nullptr;
+    }
+    auto arith = static_cast<const xir::ArithmeticInst *>(stored);
+    if (arith->op() != xir::ArithmeticOp::AGGREGATE) {
+        _smear_source_cache[ptr_inst] = nullptr;
+        return nullptr;
+    }
+    if (arith->operand_count() == 0) {
+        _smear_source_cache[ptr_inst] = nullptr;
+        return nullptr;
+    }
+    for (size_t i = 1; i < arith->operand_count(); ++i) {
+        if (arith->operand(i) != arith->operand(0)) {
+            _smear_source_cache[ptr_inst] = nullptr;
+            return nullptr;
+        }
+    }
+    auto result = arith->operand(0);
+    _smear_source_cache[ptr_inst] = result;
+    return result;
 }
 
 void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) noexcept {
@@ -179,7 +200,7 @@ void SpirvCodegenEntry::_emit_arithmetic_inst(const xir::ArithmeticInst *inst) n
                     if (id == spv::NoResult) id = try_vts(op1, op0);
                     if (id == spv::NoResult) {
                         auto try_vts_load = [&](const xir::Value *vec, const xir::Value *loaded) -> spv::Id {
-                            if (auto scalar_src = try_find_scalar_smear_source(loaded)) {
+                            if (auto scalar_src = _try_find_scalar_smear_source(loaded)) {
                                 auto scalar = _emit_value(scalar_src);
                                 return _builder.createBinOp(spv::Op::OpVectorTimesScalar, type, _emit_value(vec), scalar);
                             }

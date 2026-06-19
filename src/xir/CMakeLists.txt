@@ -103,8 +103,11 @@ set(LUISA_COMPUTE_XIR_SOURCES
         passes/sccp.cpp
         passes/scalarizer.cpp
         passes/inline.cpp
+        passes/loop_fusion.cpp
         passes/loop_rotation.cpp
         passes/loop_unroll.cpp
+        passes/loop_vectorization.cpp
+        passes/slp_vectorization.cpp
         passes/lower_break_continue.cpp
         passes/destructure_cfg.cpp
         passes/div_rem_pairs.cpp

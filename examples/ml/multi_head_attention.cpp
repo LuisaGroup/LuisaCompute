@@ -166,8 +166,20 @@ int main(int argc, char *argv[]) {
     stream << upload.commit() << synchronize();
 
     // ── Reusable RoPE rotation helper (DSL) ───────────────────────────────
+    // Precompute per-pair inverse frequencies (host-side constexpr) to avoid
+    // pow() in every kernel call. For realistic seq_len >= 2048 this matters.
+    constexpr std::array<float, rope_dim / 2u> kInvFreqs = []() {
+        std::array<float, rope_dim / 2u> f{};
+        for (uint p = 0u; p < rope_dim / 2u; ++p) {
+            f[p] = 1.0f / std::pow(rope_theta,
+                (2.0f * static_cast<float>(p)) / static_cast<float>(rope_dim));
+        }
+        return f;
+    }();
+
     Callable apply_rope_pair = [&](Float x0, Float x1, const UInt &pair, const UInt &pos) noexcept {
-        Float freq = 1.0f / pow(rope_theta, (2.0f * pair.cast<float>()) / rope_dim);
+        $constant freqs = kInvFreqs;
+        Float freq = freqs.read(pair);
         Float angle = pos.cast<float>() * freq;
         Float c = cos(angle);
         Float s = sin(angle);
@@ -181,14 +193,14 @@ int main(int argc, char *argv[]) {
     // Both MLA and MHA kernels are always defined; only the selected path
     // is compiled to GPU code and dispatched.
 
-    // ── Optimized MLA GPU kernels ───────────────────────────────────
+        // ── Optimized MLA GPU kernels ───────────────────────────────────
         // Phase 1+2: float4 vectorization + kernel fusion + online softmax.
 
         // Project queries: Q[b,h,i,d] = Wq[h,d,:] @ H[b,i,:] (shared-memory tiled).
-        // Each 2D block handles one (b,i) token; 32 threads cooperatively load H
+        // Each block handles one (b,i) token; 32 threads cooperatively load H
         // into shared memory; the first num_heads threads compute their assigned head.
-        // Grid: (batch * seq_len, 1). Block: (32, 1).
-        Kernel2D project_q_kernel = [&](BufferFloat H, BufferFloat Q, BufferFloat Wq) noexcept {
+        // Grid: (batch * seq_len). Block: (32, 1).
+        Kernel1D project_q_kernel = [&](BufferFloat H, BufferFloat Q, BufferFloat Wq) noexcept {
             constexpr uint kBlockSize = 32u;
             set_block_size(kBlockSize, 1u, 1u);
             set_name("mla_project_q");
@@ -199,8 +211,9 @@ int main(int argc, char *argv[]) {
                 return ((b_ * num_heads + h_) * seq_len + i_) * head_dim + d_;
             };
 
-            Var b = block_id().x / seq_len;
-            Var i = block_id().x % seq_len;
+            Var idx = dispatch_id().x;
+            Var b = idx / seq_len;
+            Var i = idx % seq_len;
             Var tx = thread_x();
             Var hi = (b * seq_len + i) * hidden_dim;
 
@@ -306,44 +319,15 @@ int main(int argc, char *argv[]) {
             };
         };
 
-        // Up-project values: V[b,h,j,d] = W_UV[h,d,:] @ c_t^KV[b,j,:] (float4-vectorized).
-        Kernel1D up_project_v_kernel = [&](BufferFloat cKV, BufferFloat V, BufferFloat Wuv) noexcept {
-            set_block_size(256u, 1u, 1u);
-            set_name("mla_up_project_v");
-
-            auto qkv_idx = [&](auto b_, auto h_, auto i_, auto d_) {
-                return ((b_ * num_heads + h_) * seq_len + i_) * head_dim + d_;
-            };
-
-            Var idx = dispatch_id().x;
-
-            Var b = idx / (num_heads * seq_len * head_dim);
-            Var h = (idx / (seq_len * head_dim)) % num_heads;
-            Var i = (idx / head_dim) % seq_len;
-            Var d = idx % head_dim;
-
-            Var head_off = h * head_dim * latent_dim;
-            Var ci = (b * seq_len + i) * latent_dim;
-            Var acc = def(0.0f);
-            $for (l, latent_dim / 4u) {
-                Var l4 = l * 4u;
-                Var w_base = head_off + d * latent_dim + l4;
-                Var cv_base = ci + l4;
-                acc += Wuv.read(w_base) * cKV.read(cv_base)
-                     + Wuv.read(w_base + 1u) * cKV.read(cv_base + 1u)
-                     + Wuv.read(w_base + 2u) * cKV.read(cv_base + 2u)
-                     + Wuv.read(w_base + 3u) * cKV.read(cv_base + 3u);
-            };
-            V.write(qkv_idx(b, h, i, d), acc);
-        };
-
-        // Online attention: fuses mla_score + softmax + av_weighted.
+        // Online attention: fuses mla_score + softmax + av_weighted + up_project_v.
         // Uses online softmax (numerically stable) to compute
         // O[b,h,i,:] = softmax(score[i,:]) @ V[b,h,:,:] in a single pass.
-        // Eliminates S and A buffers entirely.
+        // Eliminates S, A, and V buffers entirely — V is computed inline
+        // from Wuv (up-projection weight) and cKV, avoiding VRAM for V_buf
+        // and reducing kernel launch count by 1.
         Kernel1D online_attention_kernel = [&](BufferFloat Q, BufferFloat cKV,
                                                BufferFloat Wuk, BufferFloat Krope,
-                                               BufferFloat V, BufferFloat O) noexcept {
+                                               BufferFloat Wuv, BufferFloat O) noexcept {
             set_block_size(256u, 1u, 1u);
             set_name("mla_online_attention");
 
@@ -373,23 +357,29 @@ int main(int argc, char *argv[]) {
                 O.write(qkv_idx(b, h, i, d), 0.0f);
             };
 
+            // ── Hoist q_latent = Wuk[h]^T @ q_content (independent of j) ──
+            // Pre-compute all latent_dim q_latent values once per thread
+            // using a local array to avoid seq_len× recomputation.
+            $array<float, latent_dim> q_latent;
+            $for (d, latent_dim) {
+                Var acc = def(0.0f);
+                $for (c, content_dim / 4u) {
+                    Var c4 = c * 4u;
+                    Var w_base = hc_off + c4 * latent_dim + d;
+                    Var q_base = qkv_idx(b, h, i, c4);
+                    acc += Wuk.read(w_base) * Q.read(q_base)
+                         + Wuk.read(w_base + latent_dim) * Q.read(q_base + 1u)
+                         + Wuk.read(w_base + 2u * latent_dim) * Q.read(q_base + 2u)
+                         + Wuk.read(w_base + 3u * latent_dim) * Q.read(q_base + 3u);
+                };
+                q_latent[d] = acc;
+            };
+
             $for (j, seq_len) {
-                // ── Content score via matrix absorption ──
-                // q_latent = Wuk[h]^T @ q_content  (precomputed once per j due to
-                // lack of local arrays; latency added is minimal for latent_dim=16).
+                // ── Content score via matrix absorption (reusing hoisted q_latent) ──
                 Var content_score = def(0.0f);
                 $for (d, latent_dim) {
-                    Var q_latent_d = def(0.0f);
-                    $for (c, content_dim / 4u) {
-                        Var c4 = c * 4u;
-                        Var w_base = hc_off + c4 * latent_dim + d;
-                        Var q_base = qkv_idx(b, h, i, c4);
-                        q_latent_d += Wuk.read(w_base) * Q.read(q_base)
-                                    + Wuk.read(w_base + latent_dim) * Q.read(q_base + 1u)
-                                    + Wuk.read(w_base + 2u * latent_dim) * Q.read(q_base + 2u)
-                                    + Wuk.read(w_base + 3u * latent_dim) * Q.read(q_base + 3u);
-                    };
-                    content_score += q_latent_d * cKV.read(latent_idx(b, j, d));
+                    content_score += q_latent[d] * cKV.read(latent_idx(b, j, d));
                 };
 
                 // ── Positional score ──
@@ -413,9 +403,23 @@ int main(int argc, char *argv[]) {
                 s_norm = s_norm * exp_diff + exp_score;
 
                 // Update O_row: O *= exp(m - m_new), then O += V[j] * exp(score - m_new).
+                // V[b,h,j,d] is computed inline from Wuv and cKV (fused up_project_v)
+                // to eliminate the V_buf intermediate: V[b,h,j,d] = Wuv[h,d,:] @ cKV[b,j,:]
                 $for (d, head_dim) {
                     Var old_o = O.read(qkv_idx(b, h, i, d));
-                    Var v_val = V.read(qkv_idx(b, h, j, d));
+                    // Inline up_project_v: compute V[b,h,j,d] from Wuv[h,d,:] @ cKV[b,j,:]
+                    Var head_off_uv = h * head_dim * latent_dim;
+                    Var ci = (b * seq_len + j) * latent_dim;
+                    Var v_val = def(0.0f);
+                    $for (l, latent_dim / 4u) {
+                        Var l4 = l * 4u;
+                        Var w_base = head_off_uv + d * latent_dim + l4;
+                        Var cv_base = ci + l4;
+                        v_val += Wuv.read(w_base) * cKV.read(cv_base)
+                               + Wuv.read(w_base + 1u) * cKV.read(cv_base + 1u)
+                               + Wuv.read(w_base + 2u) * cKV.read(cv_base + 2u)
+                               + Wuv.read(w_base + 3u) * cKV.read(cv_base + 3u);
+                    };
                     O.write(qkv_idx(b, h, i, d), old_o * exp_diff + v_val * exp_score);
                 };
 
@@ -494,24 +498,29 @@ int main(int argc, char *argv[]) {
             LUISA_INFO("Compiling MLA kernels ...");
 
             opt.name = "mla_project_q";
-        auto project_q_shader = device.compile<2>(project_q_kernel, opt);
+        auto project_q_shader = device.compile<1>(project_q_kernel, opt);
         opt.name = "mla_project_kv";
         auto project_kv_shader = device.compile(project_kv_kernel, opt);
-        opt.name = "mla_up_project_v";
-        auto up_project_v_shader = device.compile(up_project_v_kernel, opt);
         opt.name = "mla_online_attention";
         auto online_attention_shader = device.compile(online_attention_kernel, opt);
 
         double compile_ms = compile_clock.toc();
         LUISA_INFO("  MLA kernels compiled in {:.2f} ms", compile_ms);
 
+        // Warm-up dispatch (not measured) — ensures GPU clocks are at full
+        // frequency and PSO creation is amortized before real measurement.
+        {
+            CommandList warmup = CommandList::create();
+            warmup << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
+            stream << warmup.commit() << synchronize();
+        }
+
         LUISA_INFO("Dispatching MLA GPU kernels ...");
         Clock dispatch_clock;
         CommandList cmd_list = CommandList::create();
-        cmd_list << project_q_shader(H_buf, Q_buf, Wq_buf).dispatch(batch * seq_len, 1u)
+        cmd_list << project_q_shader(H_buf, Q_buf, Wq_buf).dispatch(batch * seq_len)
                  << project_kv_shader(H_buf, cKV_buf, Krope_buf, Wdkv_buf, Wkr_buf).dispatch(batch * seq_len)
-                 << up_project_v_shader(cKV_buf, V_buf, Wuv_buf).dispatch(batch * num_heads * seq_len * head_dim)
-                 << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, V_buf, O_buf).dispatch(batch * num_heads * seq_len);
+                 << online_attention_shader(Q_buf, cKV_buf, Wuk_buf, Krope_buf, Wuv_buf, O_buf).dispatch(batch * num_heads * seq_len);
         stream << cmd_list.commit() << synchronize();
         double dispatch_ms = dispatch_clock.toc();
         LUISA_INFO("  MLA GPU dispatch + sync: {:.2f} ms", dispatch_ms);

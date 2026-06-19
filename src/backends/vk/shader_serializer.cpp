@@ -9,6 +9,7 @@ namespace lc::vk {
 namespace detail {
 struct ShaderSerHeader {
     uint64 header_ver;
+    uint pipeline_ver;
     vstd::MD5 md5;
     vstd::MD5 type_md5;
     uint64 property_size;
@@ -24,6 +25,7 @@ struct ShaderSerHeader {
 };
 struct RasterSerHeader {
     uint64 header_ver;
+    uint pipeline_ver;
     vstd::MD5 md5;
     vstd::MD5 type_md5;
     uint64 property_size;
@@ -38,6 +40,7 @@ struct RasterSerHeader {
     bool use_bindless_tex3d;
 };
 constexpr uint32_t kShaderSerVersion = 2; // version: set to header_ver
+constexpr uint kXIRPipelineVersion = 1; // bump when optimization pipeline changes to invalidate cache
 struct PSODataPackage {
     VkPipelineCacheHeaderVersionOne header;
     std::byte md5[sizeof(vstd::MD5)];
@@ -96,6 +99,7 @@ void ShaderSerializer::serialize_raster(
     using namespace detail;
     RasterSerHeader header{
         .header_ver = kShaderSerVersion,
+        .pipeline_ver = kXIRPipelineVersion,
         .md5 = shader_md5,
         .type_md5 = type_md5,
         .property_size = binds.size(),
@@ -167,6 +171,26 @@ bool ShaderSerializer::require_recompile(
     ShaderSerHeader header;
     read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(ShaderSerHeader)});
     if (header.header_ver != kShaderSerVersion) return true;
+    if (header.pipeline_ver != kXIRPipelineVersion) return true;
+    if (header.md5 != shader_md5) return true;
+    if (header.type_md5 != type_md5) return true;
+    return false;
+}
+
+bool ShaderSerializer::require_recompile_raster(
+    vstd::string_view file_name,
+    vstd::MD5 shader_md5,
+    vstd::MD5 type_md5,
+    SerdeType serde_type,
+    BinaryIO const *bin_io) {
+    using namespace detail;
+    auto read_stream = read_binary_io(serde_type, bin_io, file_name);
+    if (!read_stream) return true;
+    if (read_stream->length() < sizeof(RasterSerHeader)) return true;
+    RasterSerHeader header;
+    read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(RasterSerHeader)});
+    if (header.header_ver != kShaderSerVersion) return true;
+    if (header.pipeline_ver != kXIRPipelineVersion) return true;
     if (header.md5 != shader_md5) return true;
     if (header.type_md5 != type_md5) return true;
     return false;
@@ -192,6 +216,7 @@ void ShaderSerializer::serialize_bytecode(
     vstd::vector<std::byte> results;
     ShaderSerHeader header{
         .header_ver = kShaderSerVersion,
+        .pipeline_ver = kXIRPipelineVersion,
         .md5 = shader_md5,
         .type_md5 = type_md5,
         .property_size = binds.size(),
@@ -291,6 +316,7 @@ auto ShaderSerializer::try_deser_raster(
         if (stream_len < sizeof(RasterSerHeader)) return result;
         read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(RasterSerHeader)});
         if (header.header_ver != kShaderSerVersion) return result;
+        if (header.pipeline_ver != kXIRPipelineVersion) return result;
         uint64_t final_size = sizeof(RasterSerHeader) +
                               header.property_size * sizeof(hlsl::Property) +
                               header.vert_spv_byte_size +
@@ -368,6 +394,7 @@ ShaderSerializer::DeserResult ShaderSerializer::try_deser_compute(
         if (stream_len < sizeof(ShaderSerHeader)) return result;
         read_stream->read({reinterpret_cast<std::byte *>(&header), sizeof(ShaderSerHeader)});
         if (header.header_ver != kShaderSerVersion) return result;
+        if (header.pipeline_ver != kXIRPipelineVersion) return result;
         if (stream_len != read_stream->pos() + (header.printer_size_bytes + header.property_size * sizeof(hlsl::Property) + header.spv_byte_size + header.kernel_arg_count * sizeof(SavedArgument)))
             return result;
         if (shader_md5 && *shader_md5 != header.md5)

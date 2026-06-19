@@ -220,38 +220,10 @@ struct GVNState {
             h = hash_operand_vns(vns, false, h);
             break;
         }
-        case DerivedInstructionTag::LOAD: {
-            auto vns = state.get_operand_vns(inst);
-            h = hash_operand_vns(vns, false, h);
-            break;
-        }
-        case DerivedInstructionTag::CALL: {
-            auto call = static_cast<CallInst *>(inst);
-            auto callee = call->callee();
-            // TODO add by maxwell: is this safe?
-            h = luisa::hash64(&callee, sizeof(callee), h);
-            auto vns = state.get_operand_vns(inst);
-            h = hash_operand_vns(vns, false, h);
-            break;
-        }
+        // LOAD / CALL / RESOURCE_READ / RAY_QUERY_OBJECT_READ are excluded
+        // by can_value_number() and never reach this switch.
         case DerivedInstructionTag::RESOURCE_QUERY: {
             auto rq = static_cast<ResourceQueryInst *>(inst);
-            auto op = rq->op();
-            h = luisa::hash64(&op, sizeof(op), h);
-            auto vns = state.get_operand_vns(inst);
-            h = hash_operand_vns(vns, false, h);
-            break;
-        }
-        case DerivedInstructionTag::RESOURCE_READ: {
-            auto rr = static_cast<ResourceReadInst *>(inst);
-            auto op = rr->op();
-            h = luisa::hash64(&op, sizeof(op), h);
-            auto vns = state.get_operand_vns(inst);
-            h = hash_operand_vns(vns, false, h);
-            break;
-        }
-        case DerivedInstructionTag::RAY_QUERY_OBJECT_READ: {
-            auto rq = static_cast<RayQueryObjectReadInst *>(inst);
             auto op = rq->op();
             h = luisa::hash64(&op, sizeof(op), h);
             auto vns = state.get_operand_vns(inst);

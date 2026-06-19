@@ -468,6 +468,9 @@ When debugging or implementing an XIR pass, the LLVM project has similar passes 
 | `local_load_elimination` | `llvm/lib/Transforms/Utils/Local.cpp` | Local redundant-load elimination (part of GVN/local CSE). |
 | `local_store_forward` | `llvm/lib/Transforms/Utils/Local.cpp` | Store-to-load forwarding (part of local memory opts). |
 | `loop_rotation` | `llvm/lib/Transforms/Scalar/LoopRotation.cpp` | Rotate loops to place test at bottom. |
+| `loop_fusion` | `llvm/lib/Transforms/Scalar/LoopFuse.cpp` | Fuse adjacent loops with compatible bounds. |
+| `loop_vectorization` | `llvm/lib/Transforms/Vectorize/LoopVectorize.cpp` | Vectorize innermost loops (widening). |
+| `slp_vectorization` | `llvm/lib/Transforms/Vectorize/SLPVectorizer.cpp` | Superword-level parallelism (horizontal SIMD). |
 | `loop_unroll` | `llvm/lib/Transforms/Utils/LoopUnroll.cpp` | Loop unrolling (full / partial / runtime). |
 | `lower_break_continue` | — | XIR-specific lowering of structured `BreakInst`/`ContinueInst`. |
 | `lower_ray_query_loop` | — | XIR-specific ray-query pipeline lowering. |

@@ -1419,7 +1419,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 resource_barrier->record(get_resource_view(i.resource), i.stage, i.access, i.texture_layout);
                             }
                         } break;
-                        //TODO: other commands
+                        // NOTE: unimplemented command type — extend as new CustomCommandUUID
+                        // values are added.
                         default: {
                             LUISA_ERROR("Command type not supported.");
                         } break;
@@ -2274,7 +2275,8 @@ void CommandBuffer::execute(vstd::span<const luisa::unique_ptr<Command>> cmds) {
                                 _cmdbuffer,
                                 _state->desc_pool);
                         } break;
-                        //TODO: other commands
+                        // NOTE: unimplemented command type — extend as new CustomCommandUUID
+                        // values are added.
                         default: {
                             LUISA_ERROR("Command type not supported.");
                         } break;

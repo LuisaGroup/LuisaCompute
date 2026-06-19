@@ -55,6 +55,13 @@ public:
         SerdeType serde_type,
         BinaryIO const *bin_io
     );
+    static bool require_recompile_raster(
+        vstd::string_view file_name,
+        vstd::MD5 shader_md5,
+        vstd::MD5 type_md5,
+        SerdeType serde_type,
+        BinaryIO const *bin_io
+    );
     static void serialize_pso(
         Device *device,
         Shader const *shader,

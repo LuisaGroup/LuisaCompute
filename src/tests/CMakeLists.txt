@@ -162,6 +162,9 @@ luisa_compute_add_test(test_xir_pass_restructure_cfg unit/xir/test_xir_pass_rest
 luisa_compute_add_test(test_xir_pass_convergence_region unit/xir/test_xir_pass_convergence_region.cpp LABELS "unit;unit_xir")
     luisa_compute_add_test(test_xir_pass_early_return_elimination unit/xir/test_xir_pass_early_return_elimination.cpp LABELS "unit;unit_xir")
     luisa_compute_add_test(test_xir_pass_indvar_simplify unit/xir/test_xir_pass_indvar_simplify.cpp LABELS "unit;unit_xir")
+    luisa_compute_add_test(test_xir_pass_loop_fusion unit/xir/test_xir_pass_loop_fusion.cpp LABELS "unit;unit_xir")
+    luisa_compute_add_test(test_xir_pass_loop_vectorization unit/xir/test_xir_pass_loop_vectorization.cpp LABELS "unit;unit_xir")
+    luisa_compute_add_test(test_xir_pass_slp_vectorization unit/xir/test_xir_pass_slp_vectorization.cpp LABELS "unit;unit_xir")
     luisa_compute_add_test(test_xir_pass_pipeline unit/xir/test_xir_pass_pipeline.cpp LABELS "unit;unit_xir")
 
 # =============================================================================

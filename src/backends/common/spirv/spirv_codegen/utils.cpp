@@ -36,6 +36,9 @@
 #include <luisa/xir/passes/indvar_simplify.h>
 #include <luisa/xir/passes/licm.h>
 #include <luisa/xir/passes/loop_rotation.h>
+#include <luisa/xir/passes/loop_fusion.h>
+#include <luisa/xir/passes/loop_vectorization.h>
+#include <luisa/xir/passes/slp_vectorization.h>
 #include <luisa/xir/passes/lower_break_continue.h>
 #include <luisa/xir/passes/reassociate.h>
 #include <luisa/xir/passes/scalarizer.h>
@@ -115,7 +118,8 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
     //   Phase B runs SSA opts on unstructured CFG; mem2reg legal here.
     //   reg2mem before restructure_cfg: restructure_cfg requires phi-free input.
     //   restructure_cfg: unstructured -> structured.
-    //   SPIR-V codegen now emits OpPhi directly; post-reg2mem no longer required.
+    //   reg2mem after restructure_cfg: eliminates any remaining phis so that
+    //   SPIR-V codegen doesn't need OpPhi (planned for future optimization).
 
     if (!LUISA_XIR_DISABLE_OPTIMIZATION) {
         Clock opt_clk;
@@ -271,6 +275,22 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
             });
 
             if (!LUISA_XIR_DISABLE_RESTRUCTURE_CFG) {
+                norm.add("loop-fusion", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::loop_fusion_pass_run_on_module(m, &r);
+                    return i.fused_loop_count > 0u;
+                });
+                norm.add("licm", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::licm_pass_run_on_module(m, &r);
+                    return i.hoisted_count > 0u;
+                });
+                norm.add("indvar-simplify", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::indvar_simplify_pass_run_on_module(m, &r);
+                    return i.simplified_iv_count > 0u || i.removed_dead_iv_count > 0u;
+                });
+                norm.add("loop-vectorization", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::loop_vectorization_pass_run_on_module(m, &r);
+                    return i.vectorized_loop_count > 0u;
+                });
                 norm.add("destructure-cfg", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::destructure_cfg_pass_run_on_module(m, &r);
                     return i.destructured_if_count > 0u ||
@@ -280,6 +300,10 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                 norm.add("mem2reg", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::mem2reg_pass_run_on_module(m, &r);
                     return i.promoted_alloca_count > 0u;
+                });
+                norm.add("slp-vectorization", [](xir::Module *m, xir::PassReport &r) {
+                    auto i = xir::slp_vectorization_pass_run_on_module(m, &r);
+                    return i.vectorized_tree_count > 0u;
                 });
                 norm.add("algebraic-simplify", [algebraic_options](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::algebraic_simplify_pass_run_on_module(m, algebraic_options, &r);
@@ -355,7 +379,7 @@ void dump_xir_module(const xir::Module *module, luisa::string_view filename) noe
                     auto i = xir::reg2mem_pass_run_on_module(m, &r);
                     return i.lowered_phi_count > 0u;
                 });
-                norm.add_fixed_point("phase-c", xir::create_post_restructure_cleanup_pipeline(opt_options), 1u);
+                norm.add_fixed_point("phase-c", xir::create_post_restructure_cleanup_pipeline(opt_options), 3u);
                 norm.add("fix-self-referential", [](xir::Module *m, xir::PassReport &r) {
                     auto i = xir::fix_self_referential_pass_run_on_module(m, &r);
                     return i.fixed_count > 0u;

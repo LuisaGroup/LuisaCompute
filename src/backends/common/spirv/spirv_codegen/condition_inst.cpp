@@ -170,6 +170,26 @@ spv::Block *SpirvCodegenEntry::_resolve_branch_target(const xir::BasicBlock *tar
     return _get_or_create_block(target);
 }
 
+// ── Structured If → SPIR-V SelectionMerge ──────────────────────────────
+// Emit a structured if-else as a SPIR-V OpSelectionMerge + OpBranchConditional.
+//
+// Design invariants:
+//  1. Post-dominance determines whether the declared merge block is the real
+//     SPIR-V selection merge, a synthetic dead-end merge, or a fall-through.
+//  2. Nested constructs whose arm coincides with an outer merge block get a
+//     synthetic clone to avoid dominance-ordering violations.
+//  3. The real merge block is emitted lazily: only when it is the actual
+//     continuation of this selection, or it has no predecessors.  Otherwise it
+//     is emitted later when its other predecessor(s) are processed.
+//  4. Blocks that forward to a loop boundary or are already used as another
+//     construct's merge are tracked via _branch_target_redirect, _used_merge_blocks,
+//     and _forwarded_blocks to prevent duplicate emission.
+//
+// Helper lambdas:
+//  - bind_or_get: map XIR block -> SPIR-V block (create if new).
+//  - make_arm_target: clone arm if it coincides with an outer merge.
+//  - emit_arm: recursively emit an arm and its successors, then branch to target.
+//
 void SpirvCodegenEntry::_emit_if_inst(const xir::IfInst *inst) noexcept {
     auto cond = _emit_value(inst->condition());
     auto &function = _builder.getBuildPoint()->getParent();

@@ -166,7 +166,7 @@ ComputeShader *ComputeShader::compile(
                         shader->binds(),
                         shader->saved_arguments(),
                         md5,
-                        vstd::MD5(vstd::MD5::MD5Data{0, 0}),
+                        str.typeMD5,
                         block_size,
                         file_name,
                         {reinterpret_cast<const uint *>(buffer->GetBufferPointer()), buffer->GetBufferSize() / sizeof(uint)},

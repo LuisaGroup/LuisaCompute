@@ -34,7 +34,6 @@ namespace {
 
 // Global storage for SCEV query interface
 struct SCEVStorage {
-    luisa::unordered_map<Instruction *, luisa::unique_ptr<SCEV>> scev_map;
     luisa::unordered_map<Instruction *, const SCEV *> value_to_scev;
 };
 
@@ -121,7 +120,7 @@ struct SCEVAnalyzer {
             return ptr;
         }
 
-        auto *prepare_block = current_loop->prepare_block();
+        auto *preheader_block = current_loop->parent_block();
         auto *update_block = current_loop->update_block();
 
         // Find start (preheader incoming) and recurrence (latch incoming)
@@ -130,7 +129,7 @@ struct SCEVAnalyzer {
 
         for (size_t i = 0; i < count; ++i) {
             auto inc = phi->incoming(i);
-            if (inc.block == prepare_block) {
+            if (inc.block == preheader_block) {
                 start_val = inc.value;
             } else if (inc.block == update_block) {
                 recur_val = inc.value;
@@ -384,21 +383,14 @@ struct SCEVAnalyzer {
             info.analyzed_loop_count++;
         }
 
-        // Store results for global query
+        // Store results for global query. Release ownership from the analyzer's
+        // unique_ptrs so the cached SCEVs stay alive for later passes to query.
         auto &storage = get_scev_storage();
-        for (auto &[val, scev_ptr] : cache) {
-            if (val->isa<Instruction>()) {
-                auto *inst = static_cast<Instruction *>(val);
-                storage.value_to_scev[inst] = scev_ptr;
-            }
-        }
-        // Transfer ownership
         for (auto &uptr : allocated) {
-            auto *raw = uptr.get();
-            // Find all instructions that map to this SCEV
+            auto *raw = uptr.release();
             for (auto &[val, scev_ptr] : cache) {
                 if (scev_ptr == raw && val->isa<Instruction>()) {
-                    storage.scev_map.try_emplace(static_cast<Instruction *>(val), std::move(uptr));
+                    storage.value_to_scev[static_cast<Instruction *>(val)] = raw;
                     break;
                 }
             }
@@ -436,7 +428,10 @@ const SCEV *scev_get_for_value(Instruction *inst) noexcept {
     if (inst == nullptr) { return nullptr; }
     auto &storage = get_scev_storage();
     auto it = storage.value_to_scev.find(inst);
-    return it != storage.value_to_scev.end() ? it->second : nullptr;
+    if (it != storage.value_to_scev.end()) {
+        return it->second;
+    }
+    return nullptr;
 }
 
 }// namespace luisa::compute::xir
