@@ -501,6 +501,10 @@ ULong t = device_clock();
 
 Coroutine examples that expose scheduler selection should use `--scheduler <state_machine|wavefront|persistent>` after the explicit backend argument, with `state_machine` as the default unless the example has a documented reason to choose otherwise. Prefer the shared parser in `examples/common/coro_scheduler_options.h` over per-example parsing.
 
+Coroutine frames reserve four scalar `uint` fields: frame indices 0, 1, and 2 store `coro_id.x/y/z`, and frame index 3 stores `target_token`. User frame fields start at `CoroFrameDesc::reserved_field_count` (currently 4). Do not reintroduce a skip flag; it was only needed by the old structured-CFG replay path, and XIR coroutine splitting now uses unstructured CFG continuations directly.
+
+Rendering coroutine examples should keep the real fine-grained coroutine topology. Wavefront rebuilds or sorts work queues per suspend phase, so inner-loop suspends can dominate runtime even when the generated code is functionally correct; do not hide that by silently removing or coarsening suspends in the main example/test. If a coarser coroutine is useful for profiling, add it as a separate focused debug case. Log `coro.frame().total_size()`, `coro.frame().frame_type()->size()`, frame field count, subroutine count, and graph node count after compiling complex coroutines.
+
 Keep unit tests different from examples: coroutine unit tests should require an explicit backend and exercise all schedulers internally for scheduler-agnostic behavior, while examples may let users specify a scheduler or rely on the default.
 
 ## Complete Example

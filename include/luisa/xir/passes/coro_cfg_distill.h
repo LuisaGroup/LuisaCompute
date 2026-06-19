@@ -56,11 +56,15 @@ struct CoroCfgDistillResult {
         size_t from_scope{0u};
         size_t to_scope{0u};
         uint32_t token{0u};
+        BasicBlock *exit_block{nullptr};
+        bool is_suspend{false};
         luisa::vector<Value *> killed_values;
         luisa::vector<Value *> touched_values;
+        luisa::vector<Value *> live_values;
         luisa::vector<Value *> store_values;
         luisa::vector<luisa::string> killed_variables;
         luisa::vector<luisa::string> touched_variables;
+        luisa::vector<luisa::string> live_variables;
         luisa::vector<luisa::string> store_variables;
     };
 

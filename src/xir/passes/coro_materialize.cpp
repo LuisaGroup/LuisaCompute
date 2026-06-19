@@ -22,8 +22,8 @@ namespace luisa::compute::xir {
 
 namespace detail {
 
-static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 3u;
-static constexpr uint32_t FRAME_FIELD_TOKEN_CMAT = 1u;
+static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 4u;
+static constexpr uint32_t FRAME_FIELD_TOKEN_CMAT = 3u;
 
 struct RegisterInfo {
     luisa::string name;
@@ -57,9 +57,9 @@ struct RegisterInfo {
     auto *gep = static_cast<GEPInst *>(inst);
     if (gep->base() != frame_arg) { return false; }
     if (gep->index_count() != 1u) { return false; }
-    auto *idx = gep->index(0u);
-    if (!idx->isa<Constant>()) { return false; }
-    return static_cast<Constant *>(idx)->as<uint32_t>() == FRAME_FIELD_TOKEN_CMAT;
+    auto *field_idx = gep->index(0u);
+    if (!field_idx->isa<Constant>()) { return false; }
+    return static_cast<Constant *>(field_idx)->as<uint32_t>() == FRAME_FIELD_TOKEN_CMAT;
 }
 
 [[nodiscard]] static luisa::vector<RegisterInfo> collect_registers(
@@ -91,9 +91,10 @@ struct RegisterInfo {
 
 [[nodiscard]] static const Type *build_frame_type(const luisa::vector<RegisterInfo> &regs) noexcept {
     luisa::vector<const Type *> fields;
-    fields.push_back(Type::of<uint3>());   // [0] coro_id
-    fields.push_back(Type::of<uint32_t>());// [1] token
-    fields.push_back(Type::of<uint32_t>());// [2] skip
+    fields.reserve(FRAME_RESERVED_FIELD_COUNT + regs.size());
+    for (auto i = 0u; i < FRAME_RESERVED_FIELD_COUNT; i++) {
+        fields.push_back(Type::of<uint>());
+    }
     for (auto &reg : regs) { fields.push_back(reg.type); }
     return Type::structure(fields);
 }
@@ -267,7 +268,6 @@ static void process_callable(Module *mod, CallableFunction *func, Value *frame_a
         r->remove_self();
         info.resume_lowered_count++;
     }
-
 }
 
 [[nodiscard]] static luisa::unordered_set<luisa::string> collect_live_register_names(

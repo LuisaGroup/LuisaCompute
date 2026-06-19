@@ -15,6 +15,7 @@ static constexpr uint kShaderModel = 65u;
 static constexpr uint kHighShaderModel = 66u;
 static constexpr uint kTensorShaderModel = 69u;
 class ComputeShader;
+class Stream;
 using namespace luisa;
 using namespace luisa::compute;
 static constexpr size_t kSparseBufferSize = 65536ull;
@@ -39,8 +40,10 @@ class Device : public DeviceInterface, public vstd::IOperatorNewBase {
     luisa::spin_mutex _graphics_queue_mtx;
     luisa::spin_mutex _compute_queue_mtx;
     luisa::spin_mutex _copy_queue_mtx;
+    luisa::spin_mutex _stream_mtx;
     std::mutex _ext_mtx;
     vstd::unordered_map<vstd::string, Ext> _exts;
+    vstd::unordered_set<Stream *> _streams;
     luisa::unique_ptr<VulkanDeviceConfigExt> _config_ext;
     vstd::optional<vks::VulkanDevice> _vk_device;
     vstd::vector<vstd::string> _enable_device_exts;

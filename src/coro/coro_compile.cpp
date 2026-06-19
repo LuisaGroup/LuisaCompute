@@ -25,6 +25,8 @@
 #include <luisa/xir/passes/reg2mem.h>
 #include <luisa/xir/passes/restructure_cfg.h>
 #include <luisa/xir/passes/simplify_cfg.h>
+#include <luisa/xir/passes/sroa.h>
+#include <luisa/xir/passes/trace_gep.h>
 #include <luisa/xir/translators/ast2xir.h>
 #include <luisa/xir/translators/coro_xir2ast.h>
 
@@ -41,6 +43,15 @@ namespace {
     p.add("const-fold", [](xir::Module *m, xir::PassReport &r) {
         auto i = xir::const_fold_pass_run_on_module(m, &r);
         return i.folded_inst_count > 0u;
+    });
+    p.add("trace-gep", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::trace_gep_pass_run_on_module(m);
+        r.set("traced_gep", i.traced_gep_count);
+        return i.traced_gep_count > 0u;
+    });
+    p.add("sroa", [](xir::Module *m, xir::PassReport &r) {
+        auto i = xir::sroa_pass_run_on_module(m, {.decompose_vectors = true}, &r);
+        return i.decomposed_alloca_count > 0u;
     });
     return p;
 }
@@ -66,7 +77,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
             def->traverse_instructions([&](xir::Instruction *inst) noexcept {
                 if (inst->derived_instruction_tag() == xir::DerivedInstructionTag::CORO_SUSPEND) { has_coro = true; }
             });
-            if (has_coro) { coro_func = f; break; }
+            if (has_coro) {
+                coro_func = f;
+                break;
+            }
         }
     }
     LUISA_ASSERT(coro_func != nullptr,
@@ -85,7 +99,10 @@ CoroutineCompileResult compile_coroutine_pipeline(
             def->traverse_instructions([&](xir::Instruction *inst) noexcept {
                 if (inst->derived_instruction_tag() == xir::DerivedInstructionTag::CORO_SUSPEND) { has_coro = true; }
             });
-            if (has_coro) { coro_func = f; break; }
+            if (has_coro) {
+                coro_func = f;
+                break;
+            }
         }
     }
     LUISA_ASSERT(coro_func != nullptr, "coro_func lost after destructure_cfg");
@@ -93,11 +110,15 @@ CoroutineCompileResult compile_coroutine_pipeline(
     auto cfg = xir::coro_cfg_distill_pass_run_on_function(coro_func);
     LUISA_ASSERT(!cfg.scopes.empty(), "coro-cfg-distill found no scopes");
     luisa::vector<const Type *> frame_fields;
-    frame_fields.push_back(Type::of<uint3>());// [0] coro_id
-    frame_fields.push_back(Type::of<uint>()); // [1] token
-    frame_fields.push_back(Type::of<uint>()); // [2] skip_flag
-    for (auto &value : cfg.frame_values) { frame_fields.push_back(value.type); }
-    auto *frame_type = Type::structure(frame_fields);
+    auto frame_alignment = Type::of<uint>()->alignment();
+    for (auto i = 0u; i < CoroFrameDesc::reserved_field_count; i++) {
+        frame_fields.push_back(Type::of<uint>());
+    }
+    for (auto &value : cfg.frame_values) {
+        frame_fields.push_back(value.type);
+        frame_alignment = std::max(frame_alignment, value.type->alignment());
+    }
+    auto *frame_type = Type::structure(frame_alignment, frame_fields);
 
     auto split_info = xir::coro_split_pass_run_on_module_with_cfg_and_frame_info(module.get(), cfg, frame_type);
     LUISA_ASSERT(!split_info.subroutines.empty(), "coro-split produced no callables");
@@ -119,7 +140,9 @@ CoroutineCompileResult compile_coroutine_pipeline(
     for (auto &subroutine : split_info.subroutines) {
         if (subroutine.callable != nullptr) {
             auto ast = xir::xir_to_ast_translate_continuation(*subroutine.callable);
-            if (ast) { result.subroutines.push_back(std::move(ast)); }
+            if (ast) {
+                result.subroutines.push_back(std::move(ast));
+            }
         }
     }
 
@@ -131,4 +154,4 @@ CoroutineCompileResult compile_coroutine_pipeline(
     return result;
 }
 
-} // namespace luisa::compute::detail
+}// namespace luisa::compute::detail

@@ -448,8 +448,8 @@ struct SpirvResult {
 
 Set env var to dump codegen results. In `Device::create_shader()`:
 
-- **XIR→SPIRV path** (`LUISA_XIR_TO_SPIRV`): logs binary size + property bindings. `print_code()`: writes `spv_code_<name>.spvasm` (XIR→SPIRV disassembly) + `spv_code_hlsl_<name>.spvasm` (HLSL→DXC→SPIRV for comparison). HLSL writes to `hlsl_output_<name>.hlsl`.
-- **HLSL-only path**: `compile_only` + `print_code()`: writes `hlsl_output_<name>.hlsl`.
+- **XIR→SPIRV path** (`LUISA_XIR_TO_SPIRV`): logs binary size + property bindings. `print_code()`: writes `spv_code_<name>.spvasm` (XIR→SPIRV disassembly).
+- **LLVM→SPIRV path** (`LUISA_AST_LLVM_TO_SPIRV`): writes `spv_code_llvm_<name>.spvasm`.
 
 All files use `"wb"` (overwrite) mode — no append, no need to delete old files.
 
@@ -458,9 +458,7 @@ All files use `"wb"` (overwrite) mode — no append, no need to delete old files
 2. `Function::name()` — kernel/callable debug name
 3. `Function::hash()` formatted as hex — fallback (e.g. `spv_code_a1b2c3d4e5f6a7b8.spvasm`)
 
-For the VK `ComputeShader::compile()` path (no `Function` available), falls back to MD5 hash of the generated HLSL code when `file_name` is empty.
-
-When `LUISA_XIR_TO_SPIRV` is undefined, backend falls back to HLSL codegen + DXC.
+Vulkan user compute must use native SPIR-V codegen. If neither `LUISA_XIR_TO_SPIRV` nor `LUISA_AST_LLVM_TO_SPIRV` is defined, the Vulkan `Function` compute path errors instead of falling back to HLSL/DXC. HLSL/DXC remains only for explicitly internal Vulkan consumers such as builtins/raster.
 
 ## Adding New Instructions
 

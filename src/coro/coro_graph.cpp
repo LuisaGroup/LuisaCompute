@@ -1,4 +1,6 @@
 #include <luisa/coro/coro_graph.h>
+#include <luisa/core/stl/algorithm.h>
+#include <luisa/core/stl/format.h>
 #include <luisa/core/stl/memory.h>
 #include <luisa/xir/function.h>
 #include <luisa/xir/module.h>
@@ -7,6 +9,22 @@
 #include <luisa/xir/passes/coro_split.h>
 
 namespace luisa::compute::coro {
+
+namespace {
+
+static void append_unique(luisa::vector<size_t> &fields, size_t field) noexcept {
+    if (std::find(fields.begin(), fields.end(), field) == fields.end()) {
+        fields.emplace_back(field);
+    }
+}
+
+static void append_reserved_fields(luisa::vector<size_t> &fields) noexcept {
+    for (auto i = 0u; i < 4u; i++) {
+        append_unique(fields, i);
+    }
+}
+
+}// namespace
 
 [[nodiscard]] size_t CoroGraph::node_count() const noexcept {
     return _nodes.size();
@@ -37,6 +55,24 @@ namespace luisa::compute::coro {
         if (e.from_index == from && e.to_index == to) { return &e; }
     }
     return nullptr;
+}
+
+[[nodiscard]] luisa::string CoroGraph::dump() const noexcept {
+    luisa::string s;
+    for (auto &node : _nodes) {
+        auto name = node.name.empty() ? luisa::string{"<entry>"} : node.name;
+        s.append(luisa::format("Node {} '{}' token={} terminal={}\n",
+                               node.index, name, node.token, node.is_terminal));
+        s.append(luisa::format("  Input Fields: {}\n", node.input_fields));
+        s.append(luisa::format("  Output Fields: {}\n", node.output_fields));
+        s.append(luisa::format("  Transition Targets: {}\n", node.targets));
+    }
+    for (auto &edge : _edges) {
+        s.append(luisa::format("Edge {} -> {} load={} store={}\n",
+                               edge.from_index, edge.to_index,
+                               edge.load_fields, edge.store_fields));
+    }
+    return s;
 }
 
 [[nodiscard]] CoroGraph CoroGraph::from_module(
@@ -83,24 +119,51 @@ namespace luisa::compute::coro {
         }
     }
 
-    // --- Build edges from cfg-distill adjacency ---
-    // cfg.edges[i] lists the scope indices that scope i transitions to.
-    for (size_t from = 0u; from < cfg.edges.size(); ++from) {
-        for (size_t to : cfg.edges[from]) {
-            Edge edge;
-            edge.from_index = from;
-            edge.to_index = to;
-
-            // Match with materialize TransitionEdge for field-wise info
-            for (auto &te : info.edges) {
-                if (te.from_scope == from && te.to_scope == to) {
-                    edge.load_fields = te.load_fields;
-                    edge.store_fields = te.store_fields;
-                    break;
-                }
+    for (auto &te : info.edges) {
+        Edge *edge_ptr = nullptr;
+        for (auto &edge : graph._edges) {
+            if (edge.from_index == te.from_scope && edge.to_index == te.to_scope) {
+                edge_ptr = &edge;
+                break;
             }
-            graph._edges.push_back(std::move(edge));
         }
+        if (edge_ptr == nullptr) {
+            auto &edge = graph._edges.emplace_back();
+            edge.from_index = te.from_scope;
+            edge.to_index = te.to_scope;
+            edge_ptr = &edge;
+        }
+        for (auto field : te.load_fields) {
+            append_unique(edge_ptr->load_fields, field);
+        }
+        for (auto field : te.store_fields) {
+            append_unique(edge_ptr->store_fields, field);
+        }
+    }
+
+    for (auto &node : graph._nodes) {
+        append_reserved_fields(node.input_fields);
+        append_reserved_fields(node.output_fields);
+    }
+    for (auto &edge : graph._edges) {
+        if (edge.from_index < graph._nodes.size()) {
+            auto &from_node = graph._nodes[edge.from_index];
+            append_unique(from_node.targets, edge.to_index);
+            for (auto field : edge.store_fields) {
+                append_unique(from_node.output_fields, field);
+            }
+        }
+        if (edge.to_index < graph._nodes.size()) {
+            auto &to_node = graph._nodes[edge.to_index];
+            for (auto field : edge.load_fields) {
+                append_unique(to_node.input_fields, field);
+            }
+        }
+    }
+    for (auto &node : graph._nodes) {
+        luisa::sort(node.input_fields.begin(), node.input_fields.end());
+        luisa::sort(node.output_fields.begin(), node.output_fields.end());
+        luisa::sort(node.targets.begin(), node.targets.end());
     }
 
     return graph;

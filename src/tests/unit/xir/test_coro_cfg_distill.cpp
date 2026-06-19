@@ -598,6 +598,161 @@ void reg_coro_cfg_distill() {
         expect(entry_edge_ok);
         expect(loop_edge_ok);
     };
+
+    "per_edge_store_excludes_post_suspend_touches"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *zero = m.create_constant_zero(Type::of<int>());
+        auto *one = m.create_constant_one(Type::of<int>());
+        auto two_value = 2;
+        auto *two = m.create_constant(Type::of<int>(), &two_value);
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        state->set_name("state");
+        auto *late = b.alloca_local(Type::of<int>());
+        late->set_name("late");
+        b.store(state, one);
+        b.store(late, zero);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "s", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.store(late, two);
+        auto *a = b.load(Type::of<int>(), state);
+        auto *c = b.load(Type::of<int>(), late);
+        auto *sum = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {a, c});
+        b.return_(sum);
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        const CoroCfgDistillResult::Edge *suspend_edge = nullptr;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend && edge.token == 1u) {
+                suspend_edge = &edge;
+                break;
+            }
+        }
+        expect(suspend_edge != nullptr);
+        bool stores_state = false;
+        bool stores_late = false;
+        if (suspend_edge != nullptr) {
+            for (auto &name : suspend_edge->store_variables) {
+                if (name == "state") { stores_state = true; }
+                if (name == "late") { stores_late = true; }
+            }
+        }
+        expect(stores_state);
+        expect(!stores_late);
+    };
+
+    "cross_scope_branch_has_transition_store"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *one = m.create_constant_one(Type::of<int>());
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+        auto *skip_bb = k->create_basic_block();
+        auto *merge_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *state = b.alloca_local(Type::of<int>());
+        state->set_name("state");
+        b.store(state, one);
+        b.cond_br(cond, suspend_bb, skip_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "s", nullptr);
+
+        b.set_insertion_point(skip_bb);
+        b.br(resume_bb);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        b.br(merge_bb);
+
+        b.set_insertion_point(merge_bb);
+        auto *loaded = b.load(Type::of<int>(), state);
+        b.return_(loaded);
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        bool found_branch_edge = false;
+        bool branch_stores_state = false;
+        bool found_suspend_edge = false;
+        for (auto &edge : result.transition_edges) {
+            if (edge.is_suspend) {
+                found_suspend_edge = true;
+            } else if (edge.from_scope == 0u && edge.to_scope == 1u && edge.exit_block == skip_bb) {
+                found_branch_edge = true;
+                for (auto &name : edge.store_variables) {
+                    if (name == "state") { branch_stores_state = true; }
+                }
+            }
+        }
+        expect(found_suspend_edge);
+        expect(found_branch_edge);
+        expect(branch_stores_state);
+    };
+
+    "frame_values_sorted_by_alignment_and_size"_test = [] {
+        Module m;
+        BasicBlock *body;
+        auto *k = make_kernel_with_body(m, body);
+        XIRBuilder b;
+        auto *one_i = m.create_constant_one(Type::of<int>());
+        auto *one_f = m.create_constant_one(Type::of<float>());
+        auto *cond = m.create_constant_one(Type::of<bool>());
+        auto *float3_ty = Type::of<float3>();
+
+        auto *suspend_bb = k->create_basic_block();
+        auto *resume_bb = k->create_basic_block();
+
+        b.set_insertion_point(body);
+        auto *small = b.alloca_local(Type::of<int>());
+        small->set_name("small");
+        auto *medium = b.alloca_local(Type::of<float>());
+        medium->set_name("medium");
+        auto *large = b.alloca_local(float3_ty);
+        large->set_name("large");
+        b.store(small, one_i);
+        b.store(medium, one_f);
+        auto *large_value = b.call(float3_ty, ArithmeticOp::AGGREGATE, {one_f, one_f, one_f});
+        b.store(large, large_value);
+        b.cond_br(cond, suspend_bb, resume_bb);
+
+        b.set_insertion_point(suspend_bb);
+        b.coro_suspend(1u, "s", nullptr);
+
+        b.set_insertion_point(resume_bb);
+        b.coro_resume(1u, nullptr);
+        auto *loaded_small = b.load(Type::of<int>(), small);
+        auto *loaded_medium = b.load(Type::of<float>(), medium);
+        auto *loaded_large = b.load(float3_ty, large);
+        auto *loaded_large_x = b.call(Type::of<float>(), ArithmeticOp::EXTRACT, {loaded_large, m.create_constant_zero(Type::of<uint32_t>())});
+        auto *medium_i = b.static_cast_(Type::of<int>(), loaded_medium);
+        auto *large_i = b.static_cast_(Type::of<int>(), loaded_large_x);
+        auto *sum0 = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {loaded_small, medium_i});
+        auto *sum1 = b.call(Type::of<int>(), ArithmeticOp::BINARY_ADD, {sum0, large_i});
+        b.return_(sum1);
+
+        auto result = coro_cfg_distill_pass_run_on_function(k);
+        expect(result.frame_values.size() == 3u);
+        expect(result.frame_values[0u].name == "large");
+        expect(result.frame_values[0u].type == float3_ty);
+        expect(result.frame_values[1u].type->alignment() >= result.frame_values[2u].type->alignment());
+    };
 }
 
 int main(int argc, char *argv[]) {

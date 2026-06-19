@@ -30,26 +30,26 @@ static constexpr VkPipelineStageFlagBits2 kBarrierSyncMap[] = {
     kRasterStage                                                                               //kRasterUAV
 };
 static constexpr VkAccessFlagBits2 kBarrierAccessMap[] = {
-    VK_ACCESS_2_SHADER_READ_BIT,                     // kComputeRead,
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR, // kComputeAccelRead,
-    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,            // kComputeUAV,
-    VK_ACCESS_2_TRANSFER_READ_BIT,                   // kCopySource,
-    VK_ACCESS_2_TRANSFER_WRITE_BIT,                  // kCopyDest,
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,// kBuildAccel,
-    VK_ACCESS_2_TRANSFER_READ_BIT,                   // kCopyAccelSrc
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,// kCopyAccelDst
-    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,   //kDepthRead
-    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,  //kDepthWrite
-    VK_ACCESS_2_TRANSFER_WRITE_BIT,                  //kDepthClear
-    VK_ACCESS_2_TRANSFER_WRITE_BIT,                  //kRenderTargetClear
-    VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,           // kIndirectArgs
-    VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,           //kVertexRead,
-    VK_ACCESS_2_INDEX_READ_BIT,                      //  kIndexRead,
-    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,          //kRenderTarget
-    VK_ACCESS_2_SHADER_READ_BIT,                     //kAccelInstanceBuffer
-    VK_ACCESS_2_SHADER_READ_BIT,                     // kRasterRead
-    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR, // kRasterAccelRead,
-    VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,            // kRasterUAV,
+    VK_ACCESS_2_SHADER_READ_BIT,                                               // kComputeRead,
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,                           // kComputeAccelRead,
+    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,// kComputeUAV,
+    VK_ACCESS_2_TRANSFER_READ_BIT,                                             // kCopySource,
+    VK_ACCESS_2_TRANSFER_WRITE_BIT,                                            // kCopyDest,
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,                          // kBuildAccel,
+    VK_ACCESS_2_TRANSFER_READ_BIT,                                             // kCopyAccelSrc
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,                          // kCopyAccelDst
+    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,                             //kDepthRead
+    VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,                            //kDepthWrite
+    VK_ACCESS_2_TRANSFER_WRITE_BIT,                                            //kDepthClear
+    VK_ACCESS_2_TRANSFER_WRITE_BIT,                                            //kRenderTargetClear
+    VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT,                                     // kIndirectArgs
+    VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT,                                     //kVertexRead,
+    VK_ACCESS_2_INDEX_READ_BIT,                                                //  kIndexRead,
+    VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,                                    //kRenderTarget
+    VK_ACCESS_2_SHADER_READ_BIT,                                               //kAccelInstanceBuffer
+    VK_ACCESS_2_SHADER_READ_BIT,                                               // kRasterRead
+    VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR,                           // kRasterAccelRead,
+    VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,// kRasterUAV,
 };
 static constexpr VkAccessFlagBits2 kWriteAccess = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
 static constexpr VkImageLayout kBarrierLayoutMap[] = {
@@ -285,6 +285,20 @@ void ResourceBarrier::force_refresh_layout(
     LUISA_ASSERT(ranges.size() > level);
     ranges[level].before_layout = before_layout;
 }
+
+void ResourceBarrier::remove_resource(Resource const *res) noexcept {
+    _frame_states.remove(res);
+    _write_state_map.remove(res);
+    saved_restore_states.remove(res);
+    for (auto it = _current_update_states.begin(); it != _current_update_states.end();) {
+        if (it->first == res) {
+            it = _current_update_states.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 ResourceBarrier::~ResourceBarrier() {
 }
 
@@ -480,9 +494,9 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
             auto &bf = state.layer_states.get<0>();
             auto &barrier = _buffer_barriers.emplace_back();
             barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
             barrier.srcAccessMask = bf.before_access;
-            barrier.dstAccessMask = VK_ACCESS_2_NONE;
+            barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
             barrier.buffer = static_cast<Buffer const *>(res_ptr)->vk_buffer();
             barrier.offset = 0;
             barrier.size = std::numeric_limits<uint64_t>::max();
@@ -502,9 +516,9 @@ void ResourceBarrier::restore_states(VkCommandBuffer cmd_buffer) {
                 if (!i.level_inited) continue;
                 auto &barrier = _tex_barriers.emplace_back();
                 barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+                barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
                 barrier.srcAccessMask = i.before_access;
-                barrier.dstAccessMask = VK_ACCESS_2_NONE;
+                barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
                 barrier.oldLayout = i.before_layout;
                 barrier.newLayout = init_layout;
                 tex->set_layout(idx, init_layout);

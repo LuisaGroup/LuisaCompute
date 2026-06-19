@@ -81,19 +81,23 @@ private:
     coro::CoroGraph _graph;
     CoroFrameDesc _frame_desc;
     luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> _subroutines;
+    luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> _wrapped_subroutines;
     luisa::vector<uint32_t> _trigger_tokens;
     Function _coro_func;
-    mutable luisa::vector<luisa::shared_ptr<const detail::FunctionBuilder>> _wrapped_subroutines;
 
 public:
     class Subroutine {
 
     private:
+        luisa::shared_ptr<const detail::FunctionBuilder> _builder;
         Function _f;
 
     private:
         friend class Coroutine;
         explicit Subroutine(Function function) noexcept : _f{function} {}
+        explicit Subroutine(luisa::shared_ptr<const detail::FunctionBuilder> builder) noexcept
+            : _builder{std::move(builder)},
+              _f{_builder ? _builder->function() : Function{}} {}
 
     public:
         explicit operator bool() const noexcept { return static_cast<bool>(_f); }
@@ -158,12 +162,8 @@ private:
     }
 
     [[nodiscard]] Subroutine _get_wrapped_subroutine(size_t index) const noexcept {
-        if (index >= _subroutines.size()) { return Subroutine{{}}; }
-        if (!_wrapped_subroutines[index]) {
-            _wrapped_subroutines[index] = _make_subroutine_wrapper(
-                _coro_func, _subroutines[index]->function());
-        }
-        return Subroutine{_wrapped_subroutines[index]->function()};
+        if (index >= _wrapped_subroutines.size()) { return Subroutine{Function{}}; }
+        return Subroutine{_wrapped_subroutines[index]};
     }
 
 public:
@@ -193,7 +193,11 @@ public:
         _subroutines = std::move(result.subroutines);
         _trigger_tokens = std::move(result.trigger_tokens);
         _coro_func = _builder->function();
-        _wrapped_subroutines.resize(_subroutines.size());
+        _wrapped_subroutines.reserve(_subroutines.size());
+        for (auto &&subroutine : _subroutines) {
+            _wrapped_subroutines.emplace_back(
+                _make_subroutine_wrapper(_coro_func, subroutine->function()));
+        }
     }
 
     [[nodiscard]] auto function() const noexcept { return Function{_builder.get()}; }
@@ -217,12 +221,12 @@ public:
 
     [[nodiscard]] Subroutine subroutine(size_t token) const noexcept {
         auto *node = _graph.node_by_token(token);
-        return node ? _get_wrapped_subroutine(node->index) : Subroutine{{}};
+        return node ? _get_wrapped_subroutine(node->index) : Subroutine{Function{}};
     }
 
     [[nodiscard]] Subroutine subroutine(luisa::string_view name) const noexcept {
         auto *node = _graph.node_by_name(name);
-        return node ? _get_wrapped_subroutine(node->index) : Subroutine{{}};
+        return node ? _get_wrapped_subroutine(node->index) : Subroutine{Function{}};
     }
 
     [[nodiscard]] size_t subroutine_count() const noexcept { return _subroutines.size(); }

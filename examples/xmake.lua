@@ -63,6 +63,11 @@ example_proj("example_win_hdr", "gui/win_hdr.cpp", true)
     -- compute
     example_proj("example_helloworld", "compute/helloworld.cpp", false)
     example_proj("example_image_processing", "compute/image_processing.cpp", true)
+    example_proj("example_coro_sdf_renderer", "rendering/coro_sdf_renderer.cpp", false)
+    example_proj("example_coro_path_tracing", "rendering/coro_path_tracing.cpp", false)
+    example_proj("example_coro_path_tracing_wavefront", "rendering/coro_path_tracing.cpp", false, function()
+        add_defines("LUISA_CORO_PATH_TRACING_SAMPLE_DISPATCH_DEFAULT=1")
+    end)
     example_proj("example_multi_head_attention", "ml/multi_head_attention.cpp", false)
     includes("compute/tokenize")
 

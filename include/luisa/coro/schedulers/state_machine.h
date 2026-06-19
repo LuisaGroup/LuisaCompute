@@ -31,12 +31,10 @@ private:
             set_block_size(config.block_size);
             auto frame = coroutine.instantiate(dispatch_id());
             frame.target_token = 0u;
-            frame.skip_flag = 0u;
             coroutine[0u](frame, args...);
             $while (!frame.is_terminated()) {
                 for (size_t i = 1u; i < coroutine.subroutine_count(); ++i) {
                     $if (frame.target_token == coroutine.trigger_token(i)) {
-                        frame.skip_flag = 0u;
                         coroutine[i](frame, args...);
                     };
                 }

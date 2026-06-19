@@ -188,17 +188,19 @@ Output: `hlsl_output_<shader_name>.hlsl` in the working directory.
 
 **Naming priority** depends on the backend and shader path:
 
-*DX compute / raster / save paths, and VK `compile_only` / test paths:*
+*DX compute / raster / save paths:*
 1. `ShaderOption::name` / `fileName` — user-provided name
 2. `Function::name()` — kernel/callable debug name
 3. `Function::hash()` formatted as hex — fallback (e.g. `hlsl_output_a1b2c3d4.hlsl`)
 
-*VK runtime compute path (`ComputeShader::create`):*
+*VK internal builtin compute helpers only (`ComputeShader::compile_builtin_hlsl_to_spirv`):*
 1. `file_name` — user-provided / cached name
 2. Generated HLSL MD5 — fallback
 
 *VK raster (`VkRasterExt`):*
 `ShaderOption::name` is always required, so the dump file uses that name.
+
+VK user compute shaders must use native SPIR-V codegen (`LUISA_XIR_TO_SPIRV` or `LUISA_AST_LLVM_TO_SPIRV`); the Vulkan `Function` compute path must not call HLSL/DXC.
 
 Files are written with `"wb"` (overwrite) — no need to delete old files.  
 Each shader gets its own file; no more single `hlsl_output.hlsl` with appended content.

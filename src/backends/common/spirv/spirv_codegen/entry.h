@@ -21,6 +21,7 @@ struct SpirvResult {
     using Properties = vstd::vector<Property>;
     std::vector<uint32_t> spv_bin;
     Properties properties;
+    vstd::vector<std::pair<Variable, Usage>> argument_usages;
     vstd::vector<std::pair<vstd::string, luisa::compute::Type const *>> printers;
     luisa::vector<std::byte> constant_ubo_data;
     bool useTex2DBindless;
@@ -176,9 +177,13 @@ public:
     void emit(const xir::Module *module, luisa::span<const Function::Binding> bindings,
               luisa::string_view device_lib, luisa::string_view native_include) noexcept;
     [[nodiscard]] auto move_print_formats() && noexcept { return std::move(_print_formats); }
-    void generate_binding(Function kernel);
+    void generate_binding(Function kernel, luisa::span<const std::pair<Variable, Usage>> argument_usages);
 
     static SpirvResult compile_spirv(Function kernel, const ShaderOption &option, bool use_native_float_atomics = true);
+
+private:
+    [[nodiscard]] vstd::vector<std::pair<Variable, Usage>>
+    _collect_kernel_argument_usages(Function kernel, const xir::Module *module) const noexcept;
 };
 
 }// namespace lc::spirv

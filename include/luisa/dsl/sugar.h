@@ -14,16 +14,24 @@ namespace luisa::compute::dsl_detail {
 namespace luisa::compute {
 inline namespace dsl {
 
+inline void suspend_impl() {
+    detail::FunctionBuilder::current()->suspend_();
+}
+
 inline void suspend_impl(uint32_t token) {
     detail::FunctionBuilder::current()->suspend_(token);
+}
+
+inline void suspend_impl(const char *name) {
+    detail::FunctionBuilder::current()->suspend_(luisa::string{name});
 }
 
 inline void suspend_impl(uint32_t token, const char *name) {
     detail::FunctionBuilder::current()->suspend_(token, luisa::string{name});
 }
 
-} // namespace dsl
-} // namespace luisa::compute
+}
+}// namespace luisa::compute::dsl
 
 #define $ ::luisa::compute::Var
 
@@ -220,6 +228,6 @@ inline void suspend_impl(uint32_t token, const char *name) {
 #define $debug_break_on(...) \
     LUISA_COMPUTE_DSL_DEVICE_DEBUG_IMPL_REVERSE(LUISA_REVERSE(__VA_ARGS__))
 
-#define $suspend(...) ::luisa::compute::dsl::suspend_impl(__COUNTER__ + 1u __VA_OPT__(,) __VA_ARGS__)
+#define $suspend(...) ::luisa::compute::dsl::suspend_impl(__VA_ARGS__)
 
 #endif

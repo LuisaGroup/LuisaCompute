@@ -20,6 +20,9 @@ using ASTFunction = compute::Function;
 
 namespace {
 
+static constexpr uint32_t kReservedFrameFieldCount = 4u;
+static constexpr uint32_t kTargetTokenField = 3u;
+
 struct StatementCounter final : StmtVisitor {
     uint stores = 0u;
     uint returns = 0u;
@@ -57,7 +60,13 @@ struct StatementCounter final : StmtVisitor {
 
 [[nodiscard]] CallableFunction *make_continuation(Module &m, Value *&frame_arg_out, BasicBlock *&body_out) noexcept {
     auto *cf = m.create_callable(nullptr);
-    auto frame_type = Type::structure({Type::of<uint3>(), Type::of<uint32_t>(), Type::of<uint32_t>(), Type::of<float>()});
+    auto frame_type = Type::structure({
+        Type::of<uint32_t>(),
+        Type::of<uint32_t>(),
+        Type::of<uint32_t>(),
+        Type::of<uint32_t>(),
+        Type::of<float>(),
+    });
     frame_arg_out = cf->create_reference_argument(frame_type);
     body_out = cf->create_body_block();
     return cf;
@@ -77,12 +86,12 @@ void reg_coro_xir2ast() {
         XIRBuilder b;
         b.set_insertion_point(body);
 
-        uint32_t token_field = 1u;
+        uint32_t token_field = kTargetTokenField;
         auto *idx_token = m.create_constant(Type::of<uint32_t>(), &token_field);
         auto *gep_token = b.gep(Type::of<uint32_t>(), frame_arg, {idx_token});
         auto *loaded_token = b.load(Type::of<uint32_t>(), gep_token);
 
-        uint32_t value_field = 3u;
+        uint32_t value_field = kReservedFrameFieldCount;
         auto *idx_value = m.create_constant(Type::of<uint32_t>(), &value_field);
         auto *gep_value = b.gep(Type::of<float>(), frame_arg, {idx_value});
         auto *float_val = m.create_constant_one(Type::of<float>());
@@ -115,7 +124,7 @@ void reg_coro_xir2ast() {
         XIRBuilder b;
         b.set_insertion_point(body);
 
-        uint32_t token_field = 1u;
+        uint32_t token_field = kTargetTokenField;
         auto *idx_token = m.create_constant(Type::of<uint32_t>(), &token_field);
         auto *gep_token = b.gep(Type::of<uint32_t>(), frame_arg, {idx_token});
         auto *token_val = b.load(Type::of<uint32_t>(), gep_token);
@@ -127,7 +136,7 @@ void reg_coro_xir2ast() {
         auto *merge_bb = if_inst->create_merge_block();
 
         b.set_insertion_point(if_inst->create_true_block());
-        uint32_t value_field = 3u;
+        uint32_t value_field = kReservedFrameFieldCount;
         auto *idx_value = m.create_constant(Type::of<uint32_t>(), &value_field);
         auto *gep1 = b.gep(Type::of<float>(), frame_arg, {idx_value});
         auto *float_val = m.create_constant_one(Type::of<float>());
@@ -158,7 +167,8 @@ void reg_coro_xir2ast() {
         // given: a continuation with a multi-field frame struct
         Module m;
         auto frame_type = Type::structure({
-            Type::of<uint3>(),
+            Type::of<uint32_t>(),
+            Type::of<uint32_t>(),
             Type::of<uint32_t>(),
             Type::of<uint32_t>(),
             Type::of<float>(),

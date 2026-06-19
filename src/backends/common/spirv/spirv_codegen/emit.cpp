@@ -795,6 +795,11 @@ void SpirvCodegenEntry::_analyze_function_argument_usage(const xir::Module *modu
                     }
                     break;
                 }
+                case xir::DerivedInstructionTag::ATOMIC: {
+                    auto atomic = static_cast<const xir::AtomicInst *>(inst);
+                    static_cast<void>(add_usage(function, atomic->base(), Usage::READ_WRITE));
+                    break;
+                }
                 default: break;
             }
         });

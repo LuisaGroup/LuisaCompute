@@ -40,14 +40,14 @@ void verify_compacted_data(const luisa::vector<uint32_t> &buf,
     }
 }
 
-} // namespace
+}// namespace
 
 void reg_coro_compaction() {
 
     "compaction_4inst_2alive_no_compact_at_threshold_0_5"_test = [] {
         // 4 instances, 2 alive -> load factor 0.5, threshold 0.5 -> no compaction
         constexpr size_t capacity = 4u;
-        constexpr size_t stride = 3u; // token(1) + skip(1) + user(1)
+        constexpr size_t stride = 3u;// three mock uint fields per frame
         auto buf = make_marker_buffer(capacity, stride);
         luisa::vector<bool> alive = {true, false, true, false};
 
@@ -179,9 +179,9 @@ void reg_coro_compaction() {
         auto buf = make_marker_buffer(capacity, stride);
         luisa::vector<bool> alive(capacity);
         for (size_t i = 0u; i < capacity; ++i) {
-            alive[i] = (i % 2u == 0u); // even indices alive
+            alive[i] = (i % 2u == 0u);// even indices alive
         }
-        alive[14u] = false; // drop one alive so load < 0.5
+        alive[14u] = false;// drop one alive so load < 0.5
 
         CompactionResult result;
         compact_frame_buffer(buf, alive, stride, result);
@@ -229,7 +229,7 @@ void reg_coro_compaction() {
 
         // stride=0 -> nothing to move, just statistics
         expect(result.alive_count_before == 2u);
-        expect(!result.compacted); // stride 0 bails out early
+        expect(!result.compacted);// stride 0 bails out early
         expect(result.capacity == capacity);
     };
 
@@ -240,7 +240,7 @@ void reg_coro_compaction() {
         luisa::vector<bool> alive(capacity, false);
         // 30 alive out of 100 -> load_factor = 0.3
         for (size_t i = 0u; i < 30u; ++i) {
-            alive[i * 3u + 1u] = true; // scatter them
+            alive[i * 3u + 1u] = true;// scatter them
         }
 
         // threshold 0.35 -> no compaction (0.3 < 0.35 triggers it? No, check: 0.3 >= 0.35 is false, so compaction triggers)

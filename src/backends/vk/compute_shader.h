@@ -40,7 +40,7 @@ public:
         uint validation_count = 0,
         luisa::optional<uint8_t> required_subgroup_size = luisa::nullopt);
     ~ComputeShader();
-    static ComputeShader *compile(
+    static ComputeShader *compile_builtin_hlsl_to_spirv(
         BinaryIO const *bin_io,
         Device *device,
         vstd::vector<SavedArgument> &&saved_args,

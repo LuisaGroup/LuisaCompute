@@ -37,7 +37,7 @@ struct RasterSerHeader {
     bool use_bindless_tex2d;
     bool use_bindless_tex3d;
 };
-constexpr uint32_t kShaderSerVersion = 2; // version: set to header_ver
+constexpr uint32_t kShaderSerVersion = 2;// version: set to header_ver
 struct PSODataPackage {
     VkPipelineCacheHeaderVersionOne header;
     std::byte md5[sizeof(vstd::MD5)];
@@ -455,6 +455,15 @@ vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(Function kern
         auto &&var = args[i];
         return SavedArgument(kernel, var);
     });
+    return result;
+}
+
+vstd::vector<SavedArgument> ShaderSerializer::serialize_saved_args(luisa::span<const std::pair<Variable, Usage>> arguments) {
+    vstd::vector<SavedArgument> result;
+    result.reserve(arguments.size());
+    for (auto &&i : arguments) {
+        result.emplace_back(i.second, i.first);
+    }
     return result;
 }
 

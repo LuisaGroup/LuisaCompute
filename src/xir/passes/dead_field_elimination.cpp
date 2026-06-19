@@ -6,7 +6,7 @@ namespace luisa::compute::xir {
 
 namespace {
 
-static constexpr size_t FRAME_RESERVED_FIELD_COUNT = 3u;
+static constexpr size_t FRAME_RESERVED_FIELD_COUNT = CoroFrameDesc::reserved_field_count;
 
 }// namespace
 

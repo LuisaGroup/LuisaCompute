@@ -7,6 +7,7 @@
 #include <luisa/xir/instructions/store.h>
 #include <luisa/xir/constant.h>
 #include <luisa/core/logging.h>
+#include <luisa/core/stl/format.h>
 
 #include "helpers.h"
 
@@ -17,7 +18,7 @@ namespace detail {
 // Decompose only one level: struct→members, array→elements.
 // Does NOT recurse into nested aggregate members.
 static void collect_elem_types(const Type *type, luisa::vector<const Type *> &elems,
-                                bool decompose_vectors, bool decompose_matrices) noexcept {
+                               bool decompose_vectors, bool decompose_matrices) noexcept {
     if (type->is_structure()) {
         auto members = type->members();
         elems.assign(members.begin(), members.end());
@@ -93,8 +94,12 @@ static void decompose_alloca(AllocaInst *alloca, SROAInfo &info, XIRBuilder &bui
     // Create scalar allocas
     builder.set_insertion_point(alloca);
     luisa::vector<AllocaInst *> scalar_allocas;
+    auto original_name = alloca->name();
     for (auto et : elem_types) {
         auto sa = builder.alloca_local(et);
+        if (original_name.has_value()) {
+            sa->set_name(luisa::format("{}_{}", original_name.value(), scalar_allocas.size()));
+        }
         scalar_allocas.push_back(sa);
         info.inserted_alloca_count++;
     }

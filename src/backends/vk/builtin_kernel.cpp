@@ -24,7 +24,7 @@ ComputeShader *BuiltinKernel::load_accel_set_kernel(Device *device) {
         return code;
     };
     vstd::vector<SavedArgument> saved_args;
-    return ComputeShader::compile(
+    return ComputeShader::compile_builtin_hlsl_to_spirv(
         device->binary_io(),
         device,
         std::move(saved_args),
@@ -57,7 +57,7 @@ ComputeShader *BuiltinKernel::load_bindless_set_kernel(Device *device) {
         return code;
     };
     vstd::vector<SavedArgument> saved_args;
-    return ComputeShader::compile(
+    return ComputeShader::compile_builtin_hlsl_to_spirv(
         device->binary_io(),
         device,
         std::move(saved_args),

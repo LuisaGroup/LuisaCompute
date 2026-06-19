@@ -86,6 +86,7 @@ public:
         SerdeType serde_type,
         BinaryIO const *bin_io);
     static vstd::vector<SavedArgument> serialize_saved_args(Function kernel);
+    static vstd::vector<SavedArgument> serialize_saved_args(luisa::span<const std::pair<Variable, Usage>> arguments);
     static vstd::vector<SavedArgument> serialize_saved_args(vstd::IRange<std::pair<Variable, Usage>> &arguments);
 };
 }// namespace lc::vk

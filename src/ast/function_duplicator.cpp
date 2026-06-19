@@ -476,7 +476,7 @@ private:
 
 private:
     static void _deduplicate_custom_callables_impl(
-        luisa::unordered_map<uint64_t, luisa::shared_ptr<const FunctionBuilder>> &unique,
+        FuncBuilderMap &unique,
         const FunctionBuilder *const_builder) noexcept {
         auto builder = const_cast<FunctionBuilder *>(const_builder);
         luisa::unordered_set<const FunctionBuilder *> used;
@@ -487,9 +487,8 @@ private:
                     auto call = static_cast<const CallExpr *>(expr);
                     if (call->is_custom()) {
                         auto custom = call->custom();
-                        auto [iter, is_new] = unique.try_emplace(
-                            custom.hash(), custom.shared_builder());
-                        auto f = iter->second.get();
+                        auto [iter, is_new] = unique.emplace(custom.shared_builder());
+                        auto f = iter->get();
                         used.emplace(f);
                         if (is_new) {
                             _deduplicate_custom_callables_impl(unique, f);
@@ -508,7 +507,7 @@ private:
 
 public:
     static void deduplicate_custom_callables(const FunctionBuilder *const_builder) noexcept {
-        luisa::unordered_map<uint64_t, luisa::shared_ptr<const FunctionBuilder>> unique;
+        FuncBuilderMap unique;
         _deduplicate_custom_callables_impl(unique, const_builder);
     }
 

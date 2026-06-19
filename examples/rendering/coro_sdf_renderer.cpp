@@ -187,6 +187,11 @@ int main(int argc, char *argv[]) {
 
     LUISA_INFO("Coroutine compiled: {} subroutines, {} graph nodes",
                coro.subroutine_count(), coro.graph().node_count());
+    LUISA_INFO("Coroutine frame: {} fields, payload {} B, struct {} B",
+               coro.frame().frame_field_count(), coro.frame().total_size(),
+               coro.frame().frame_type()->size());
+    LUISA_INFO("Coroutine frame R/W by subroutine:");
+    luisa::example::dump_coro_frame_rw(coro);
 
     static constexpr uint width = 1280u;
     static constexpr uint height = 720u;

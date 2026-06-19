@@ -162,11 +162,10 @@ for (size_t i = 0; i < 8; ++i) {
 Use `LUISA_DUMP_SOURCE=1` when you suspect a code-generation bug (wrong instruction, missing binding, incorrect type).
 
 **Where to find the dumps:**
-- **DirectX / Vulkan (XIR→SPIR-V path):** per-shader files in the current working directory:
-  - `hlsl_output_<name>.hlsl`
-  - `spv_code_<name>.spvasm`
-  - `spv_code_hlsl_<name>.spvasm`
-- **Vulkan (LLVM path):** `spv_code_llvm_<name>.spvasm`.
+- **DirectX:** `hlsl_output_<name>.hlsl` in the current working directory.
+- **Vulkan user compute (XIR→SPIR-V path):** `spv_code_<name>.spvasm` in the current working directory.
+- **Vulkan user compute (LLVM→SPIR-V path):** `spv_code_llvm_<name>.spvasm`.
+- **Vulkan internal HLSL consumers:** backend builtins/raster may dump `hlsl_output_<name>.hlsl`; ordinary `Device::compile(Function)` compute shaders must not.
 - **CUDA:** `.cu` source in the runtime `.cache` directory; PTX/metadata in the runtime `.data` directory.
 - **Metal:** `.metal` source in the runtime `.cache` directory.
 - **Fallback/CPU:** CPU backend also respects `LUISA_DUMP_SOURCE` and may dump intermediate sources.

@@ -177,7 +177,8 @@ void reg_coro_frame_runtime(Device &device) {
             frame.target_token = 0u;
             $if (frame.is_terminated()) {
                 result_buf->write(0u, 1);
-            } $else {
+            }
+            $else {
                 result_buf->write(0u, 0);
             };
         };
@@ -201,7 +202,8 @@ void reg_coro_frame_runtime(Device &device) {
             frame.target_token = CoroFrame::TERMINAL_TOKEN;
             $if (frame.is_terminated()) {
                 result_buf->write(0u, 1);
-            } $else {
+            }
+            $else {
                 result_buf->write(0u, 0);
             };
         };
@@ -227,7 +229,8 @@ void reg_coro_frame_runtime(Device &device) {
             frame.target_token = 0u;
             $if (frame.is_terminated()) {
                 result_buf->write(0u, 1);
-            } $else {
+            }
+            $else {
                 result_buf->write(0u, 0);
             };
 
@@ -235,7 +238,8 @@ void reg_coro_frame_runtime(Device &device) {
             frame.target_token = CoroFrame::TERMINAL_TOKEN;
             $if (frame.is_terminated()) {
                 result_buf->write(1u, 1);
-            } $else {
+            }
+            $else {
                 result_buf->write(1u, 0);
             };
         };
@@ -333,8 +337,15 @@ void reg_coro_frame_runtime(Device &device) {
 
 void reg_coro_frame_type_checks() {
 
-    "coro_id_is_uint3_type"_test = [] {
-        expect(std::is_same_v<decltype(std::declval<CoroFrame>().coro_id), UInt3>);
+    "reserved_scalar_member_types"_test = [] {
+        expect(std::is_same_v<decltype(std::declval<CoroFrame>().coro_id_x), UInt>);
+        expect(std::is_same_v<decltype(std::declval<CoroFrame>().coro_id_y), UInt>);
+        expect(std::is_same_v<decltype(std::declval<CoroFrame>().coro_id_z), UInt>);
+        expect(std::is_same_v<decltype(std::declval<CoroFrame>().target_token), UInt>);
+    };
+
+    "coro_id_has_uint3_expression_type"_test = [] {
+        expect(std::is_same_v<expr_value_t<decltype(std::declval<CoroFrame>().coro_id)>, uint3>);
     };
 
     "target_token_is_uint_type"_test = [] {

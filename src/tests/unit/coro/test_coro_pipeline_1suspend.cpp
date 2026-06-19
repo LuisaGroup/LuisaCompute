@@ -143,6 +143,43 @@ void reg_coro_pipeline_1suspend(luisa::test::coro_test::Options options) {
             expect(coro.graph().node_count() >= 2u);
         });
     };
+
+    "1suspend_skip_path_preserves_frame"_test = [options] {
+        constexpr uint N = 64u;
+        for_each_scheduler([&](auto scheduler_kind) noexcept {
+            auto dc = luisa::test::coro_test::create_device(options);
+            auto &device = dc.device;
+            Stream stream = device.create_stream();
+            auto output = device.create_buffer<uint>(N);
+
+            auto coro = Coroutine<void(Buffer<uint>)>([](BufferUInt output) {
+                auto tid = dispatch_x();
+                auto value = tid + 100u;
+                $if ((tid & 1u) == 0u) {
+                    value += 7u;
+                    $suspend("even");
+                } $else {
+                    value += 13u;
+                };
+                output.write(tid, value);
+            });
+
+            dispatch_with_scheduler(device, coro, scheduler_kind, stream, N, output);
+            luisa::vector<uint> host(N);
+            stream << output.copy_to(luisa::span{host}) << synchronize();
+            auto ok = true;
+            for (auto i = 0u; i < N; i++) {
+                auto expected = i + 100u + ((i & 1u) == 0u ? 7u : 13u);
+                if (host[i] != expected) {
+                    LUISA_WARNING("1suspend_skip_path_preserves_frame {} mismatch at {}: got {}, expected {}",
+                                  scheduler_name(scheduler_kind), i, host[i], expected);
+                    ok = false;
+                    break;
+                }
+            }
+            expect(ok) << "skip path must preserve values across continuation fallback";
+        });
+    };
 }
 
 int main(int argc, char *argv[]) {
