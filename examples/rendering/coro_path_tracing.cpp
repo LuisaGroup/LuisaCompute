@@ -131,7 +131,7 @@ int main(int argc, char *argv[]) {
     BindlessArray heap = device.create_bindless_array();
     Stream stream = device.create_stream(offline ? StreamTag::COMPUTE : StreamTag::GRAPHICS);
     Buffer<float3> vertex_buffer = device.create_buffer<float3>(vertices.size());
-    stream << vertex_buffer.copy_from(vertices.data());
+    stream << vertex_buffer.copy_from(luisa::span{vertices});
     luisa::vector<Mesh> meshes;
     luisa::vector<Buffer<Triangle>> triangle_buffers;
     for (auto &&shape : obj_reader.GetShapes()) {
@@ -147,7 +147,7 @@ int main(int argc, char *argv[]) {
         auto &triangle_buffer = triangle_buffers.emplace_back(device.create_buffer<Triangle>(triangle_count));
         auto &mesh = meshes.emplace_back(device.create_mesh(vertex_buffer, triangle_buffer));
         heap.emplace_on_update(index, triangle_buffer);
-        stream << triangle_buffer.copy_from(indices.data())
+        stream << triangle_buffer.copy_from(luisa::span{indices})
                << mesh.build();
     }
 

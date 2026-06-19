@@ -163,7 +163,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         stream << shader(global_frames, output).dispatch(N);
 
         luisa::vector<uint> host(N * 6u);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -276,7 +276,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         auto test_case = [&](auto make_coro, luisa::string_view tag, uint expected_offset) {
             auto coro = make_coro();
             luisa::vector<uint> zero(N);
-            stream << output.copy_from(zero.data()) << synchronize();
+            stream << output.copy_from(luisa::span{zero}) << synchronize();
             PersistentThreadsCoroSchedulerConfig cfg{
                 .thread_count = 64u,
                 .block_size = 32u,
@@ -287,7 +287,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
             PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
             scheduler(output).dispatch(N)(stream);
             luisa::vector<uint> host(N);
-            stream << output.copy_to(host.data()) << synchronize();
+            stream << output.copy_to(luisa::span{host}) << synchronize();
             auto ok = true;
             for (auto i = 0u; i < N; i++) {
                 auto expected = i + expected_offset;
@@ -389,7 +389,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         });
 
         luisa::vector<uint> zero(N);
-        stream << output.copy_from(zero.data()) << synchronize();
+        stream << output.copy_from(luisa::span{zero}) << synchronize();
         PersistentThreadsCoroSchedulerConfig cfg{
             .thread_count = 64u,
             .block_size = 32u,
@@ -400,7 +400,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         PersistentThreadsCoroScheduler<Buffer<uint>> scheduler{device, coro, cfg};
         scheduler(output).dispatch(N)(stream);
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -439,7 +439,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         expect(coro.subroutine_count() >= 4u);
 
         luisa::vector<uint> zero(N);
-        stream << output.copy_from(zero.data()) << synchronize();
+        stream << output.copy_from(luisa::span{zero}) << synchronize();
 
         PersistentThreadsCoroSchedulerConfig cfg{
             .thread_count = thread_count,
@@ -452,7 +452,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(N)(stream);
 
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {
@@ -884,7 +884,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         });
 
         luisa::vector<uint> zero(N);
-        stream << output.copy_from(zero.data()) << synchronize();
+        stream << output.copy_from(luisa::span{zero}) << synchronize();
 
         PersistentThreadsCoroSchedulerConfig cfg{
             .thread_count = 70u,
@@ -898,7 +898,7 @@ void reg_coro_persistent_opt(luisa::test::coro_test::Options options) {
         scheduler(output).dispatch(N)(stream);
 
         luisa::vector<uint> host(N);
-        stream << output.copy_to(host.data()) << synchronize();
+        stream << output.copy_to(luisa::span{host}) << synchronize();
 
         auto ok = true;
         for (auto i = 0u; i < N; i++) {

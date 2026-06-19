@@ -54,13 +54,13 @@ int main(int argc, char *argv[]) {
     // ── Constants ─────────────────────────────────────────────────────────
     constexpr uint batch     = 16u;
     constexpr uint num_heads = 8u;
-    constexpr uint seq_len   = 8u;
-    constexpr uint head_dim  = 16u;
+    constexpr uint seq_len   = 256u;
+    constexpr uint head_dim  = 64u;
 
     // MLA-specific dimensions.
-    constexpr uint hidden_dim  = 64u;// input hidden size h_t
-    constexpr uint latent_dim  = 16u;// compressed KV dim d_c
-    constexpr uint rope_dim    = 8u; // decoupled RoPE dim d_h^R
+    constexpr uint hidden_dim  = 512u;// input hidden size h_t
+    constexpr uint latent_dim  = 64u;// compressed KV dim d_c
+    constexpr uint rope_dim    = 16u; // decoupled RoPE dim d_h^R
     constexpr uint content_dim = head_dim - rope_dim;
     constexpr float rope_theta = 10000.0f;
 
@@ -168,7 +168,7 @@ int main(int argc, char *argv[]) {
     // ── Reusable RoPE rotation helper (DSL) ───────────────────────────────
     // Precompute per-pair inverse frequencies (host-side constexpr) to avoid
     // pow() in every kernel call. For realistic seq_len >= 2048 this matters.
-    constexpr std::array<float, rope_dim / 2u> kInvFreqs = []() {
+    const std::array<float, rope_dim / 2u> kInvFreqs = []() {
         std::array<float, rope_dim / 2u> f{};
         for (uint p = 0u; p < rope_dim / 2u; ++p) {
             f[p] = 1.0f / std::pow(rope_theta,

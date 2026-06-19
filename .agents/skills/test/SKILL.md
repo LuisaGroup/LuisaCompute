@@ -510,6 +510,35 @@ Reference PNGs live under `docs/gallery/<test_name>.png` in the repo. Always pas
 
 **NEVER regenerate or overwrite reference images unless the user explicitly asks you to.** Reference images are ground truth — if a test fails against the reference, the code is wrong, not the reference. When regeneration IS requested, always use the `fallback` (CPU) backend for determinism across GPU vendors. Regenerating from a broken GPU backend will bake bugs into the reference. Examples support `--out_ref write <path>` for explicit regeneration; tests-side code should follow the same explicit opt-in model.
 
+## Common Build Breaks & Fixes
+
+### `Buffer::copy_from` / `copy_to` no longer accept raw pointers
+
+When the runtime `Buffer` API is tightened to take `luisa::span<U>` instead of a raw pointer, existing call sites that pass `.data()` will fail to compile:
+
+```
+error: no matching member function for call to 'copy_from'
+note: candidate template ignored: could not match 'luisa::span<U>' against 'pointer'
+```
+
+**Fix:** wrap the container (or pointer + size) in `luisa::span`:
+
+```cpp
+// Before — breaks after the API change
+stream << buf.copy_from(host.data()) << synchronize();
+stream << buf.copy_to(host.data()) << synchronize();
+
+// After
+stream << buf.copy_from(luisa::span{host}) << synchronize();
+stream << buf.copy_to(luisa::span{host}) << synchronize();
+
+// For C arrays or pre-sized pointers
+stream << buf.copy_from(luisa::span{arr, std::size(arr)}) << synchronize();
+stream << buf.copy_from(luisa::span{ptr, n}) << synchronize();
+```
+
+This affects both **tests** (e.g. `src/tests/unit/coro/test_coro_persistent_opt.cpp`) and **examples** (e.g. `examples/rendering/coro_path_tracing.cpp`). When patching, search the repo for existing `copy_from(luisa::span{...})` / `copy_to(luisa::span{...})` usage to match the local convention, then apply a bulk `replace_all` across the affected file(s).
+
 ## What Not to Do
 
 - Do not put new test sources directly under `src/tests/`. Pick the right subfolder.
